@@ -7,7 +7,7 @@ from modules.inventory.services import assign_slot
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -122,26 +122,37 @@ async def refresh_ams_rfid(
 
 
 class AMSSlotConfigRequest(PydanticBaseModel):
-    # Validate after authorization, returning the route's explicit 400 contract.
-    preset_id: object = None
-    material: object = None
-    color: object = None
-    nozzle_temp_min: object = None
-    nozzle_temp_max: object = None
+    preset_id: str = Field(strict=True)
+    material: str = Field(strict=True, min_length=1, max_length=64)
+    color: str = Field(strict=True)
+    nozzle_temp_min: int = Field(strict=True, ge=0, le=350)
+    nozzle_temp_max: int = Field(strict=True, ge=0, le=350)
     spool_id: Optional[int] = None
 
+    @field_validator("material", mode="before")
+    @classmethod
+    def trim_material(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
-def validate_tray_settings(body):
-    if body is None:
-        raise HTTPException(400, 'Explicit tray settings are required')
-    if (not isinstance(body.preset_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.preset_id)
-            or not isinstance(body.material, str) or not 1 <= len(body.material.strip()) <= 64
-            or not isinstance(body.color, str) or not re.fullmatch(r"#?[0-9A-Fa-f]{6}(?:[Ff]{2})?", body.color)
-            or type(body.nozzle_temp_min) is not int or type(body.nozzle_temp_max) is not int
-            or not 0 <= body.nozzle_temp_min <= body.nozzle_temp_max <= 350):
-        raise HTTPException(400, 'Supply a preset id, material, RGB colour and nozzle temperature range (0–350 C)')
-    body.material = body.material.strip()
-    return body
+    @field_validator("preset_id")
+    @classmethod
+    def valid_preset_id(cls, value):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+            raise ValueError("Supply a preset id (1–64 letters, digits, underscores or hyphens)")
+        return value
+
+    @field_validator("color")
+    @classmethod
+    def valid_rgb_color(cls, value):
+        if not re.fullmatch(r"#?[0-9A-Fa-f]{6}(?:[Ff]{2})?", value):
+            raise ValueError("Supply an RGB colour with optional opaque alpha")
+        return value
+
+    @model_validator(mode="after")
+    def ordered_temperatures(self):
+        if self.nozzle_temp_min > self.nozzle_temp_max:
+            raise ValueError("Minimum nozzle temperature must not exceed maximum")
+        return self
 
 
 @router.get("/printers/{printer_id}/ams/presets", tags=["AMS"])
@@ -155,9 +166,9 @@ def reported_tray_presets(printer_id: int, db: Session = Depends(get_db),
     for slot in db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all():
         try:
             report = json.loads(slot.tray_observation or '{}').get('reported_preset', {})
-            body = validate_tray_settings(AMSSlotConfigRequest(
+            body = AMSSlotConfigRequest(
                 preset_id=report.get('tray_info_idx'), material=report.get('tray_type'), color='FFFFFF',
-                nozzle_temp_min=coerce_int_or_raise(report['nozzle_temp_min']), nozzle_temp_max=coerce_int_or_raise(report['nozzle_temp_max'])))
+                nozzle_temp_min=coerce_int_or_raise(report['nozzle_temp_min']), nozzle_temp_max=coerce_int_or_raise(report['nozzle_temp_max']))
             item = body.model_dump(exclude={'color', 'spool_id'})
             found[tuple(item.values())] = item
         except (ValueError, TypeError, KeyError, AttributeError, HTTPException):
@@ -170,7 +181,7 @@ async def configure_ams_slot(
     printer_id: int,
     ams_id: int,
     slot_id: int,
-    body: Optional[AMSSlotConfigRequest] = None,
+    body: AMSSlotConfigRequest,
     current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
@@ -189,7 +200,6 @@ async def configure_ams_slot(
     if ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3:
         raise HTTPException(status_code=400, detail="ams_id and slot_id must be 0-3")
 
-    validate_tray_settings(body)
     material = body.material
     color = body.color
     spool_id = body.spool_id

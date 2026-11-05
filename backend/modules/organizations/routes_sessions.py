@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import inspect, select, text, update
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -24,6 +24,7 @@ from core.quota import _get_quota_usage
 from core.rate_limit import limiter
 from license_manager import require_feature
 
+from modules.organizations.erasure_audit import erase_password_login_history, erase_sso_login_history
 from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
 
 log = logging.getLogger("odin.api")
@@ -405,13 +406,18 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     u.pop("mfa_secret", None)
 
     jobs = [dict(r._mapping) for r in db.execute(text("SELECT * FROM jobs WHERE submitted_by = :uid"), {"uid": user_id}).fetchall()]
+    # Queue jobs created by operators need no approval and have no submitted_by.
+    # They still belong in the personal export through their charge attribution.
+    charged_jobs = [dict(r._mapping) for r in db.execute(
+        text("SELECT * FROM jobs WHERE charged_to_user_id = :uid"), {"uid": user_id}).fetchall()]
     audit = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM audit_logs WHERE entity_type = 'user' AND entity_id = :uid ORDER BY timestamp DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
     # Actions the user performed (any entity), not only entries about the account.
     actions = [dict(r._mapping) for r in db.execute(
         text("SELECT id, timestamp, action, entity_type, entity_id, details, ip_address FROM audit_logs "
-             "WHERE actor_user_id = :uid AND NOT (entity_type = 'user' AND entity_id = :uid) "
+             "WHERE actor_user_id = :uid AND (entity_type IS NULL OR entity_type != 'user' "
+             "OR entity_id IS NULL OR entity_id != :uid) "
              "ORDER BY timestamp DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
     if not _is_superadmin(current_user):
@@ -466,6 +472,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
         "jobs_submitted": jobs,
+        "jobs_charged": charged_jobs,
         "audit_log_entries": audit,
         "audit_actions_performed": actions,
         "alerts": alerts_data,
@@ -485,41 +492,6 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     log_audit(db, "gdpr_export", "user", user_id, f"Data exported for user {user.username}")
     db.commit()
     return export
-
-
-def _erase_password_login_history(db: Session, username: str):
-    """Match the complete sign-in identity, never a SQL pattern or substring."""
-    from core.models import AuditLog
-
-    # Password login queries users.username by equality; email is not an alias.
-    # Typed JSON reads/writes work on both SQLite JSON and PostgreSQL JSON.
-    # Keep this in the account erasure transaction so a failure rolls it back.
-    last_id = 0
-    while True:
-        rows = db.execute(select(AuditLog.id, AuditLog.action, AuditLog.details).where(
-            AuditLog.id > last_id, AuditLog.entity_type == 'user',
-            AuditLog.action.in_(('login_success', 'login_failed', 'auth.login_failed')),
-        ).order_by(AuditLog.id).limit(500)).all()
-        if not rows:
-            break
-        for row in rows:
-            details = row.details
-            if row.action == 'auth.login_failed':
-                if not isinstance(details, dict) or details.get('username') != username:
-                    continue
-                scrubbed = {**details, 'username': '[deleted]'}
-            else:
-                prefix = 'Login' if row.action == 'login_success' else 'Failed login'
-                if not isinstance(details, str):
-                    continue
-                identity, separator, _ = details.rpartition(' from ')
-                if not separator or identity != f'{prefix}: {username}':
-                    continue
-                scrubbed = f'{prefix}: [deleted]'
-            db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
-                details=scrubbed, ip_address=None))
-        last_id = rows[-1].id
-    db.execute(text('DELETE FROM login_attempts WHERE username = :username'), {'username': username})
 
 
 @router.delete("/users/{user_id}/erase", tags=["GDPR"], dependencies=[Depends(require_interactive_session())])
@@ -560,10 +532,7 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
 
     from core.audit_actor import erase_actor_history, actor_is_erased
     erase_actor_history(db, user_id)
-    # SSO sign-in rows name the user by entity, not actor, so erase_actor_history
-    # doesn't reach them. Their IP address is personal data: clear it too.
-    db.execute(text("UPDATE audit_logs SET ip_address=NULL WHERE action='auth.login' AND entity_type='user' "
-                    "AND entity_id=:uid AND actor_user_id IS NULL"), {"uid": user_id})
+    erase_sso_login_history(db, user_id)
 
     from core.privacy_replay import erase_identifying_replay
     try:
@@ -581,7 +550,7 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("DELETE FROM push_devices WHERE user_id = :uid"), {"uid": user_id})
     former_username = user_data.get("username")
     if isinstance(former_username, str) and former_username:
-        _erase_password_login_history(db, former_username)
+        erase_password_login_history(db, former_username)
 
     # Submission/resubmission alerts are delivered to reviewers, so deleting
     # only alerts owned by this user would leave their former username or
