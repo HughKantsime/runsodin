@@ -837,8 +837,16 @@ def test_a_path_that_would_run_a_different_node_is_not_used(job, tmp_path, shape
 
 def _node_in_a_cellar(job, tmp_path):
     """A real node, run from where Homebrew keeps it, so process.execPath really is the versioned path."""
-    found = shutil.which("node")
-    real = _homebrew(tmp_path / "brew", node_bytes=Path(found).resolve().read_bytes())
+    found = Path(shutil.which("node")).resolve()
+    real = _homebrew(tmp_path / "brew", node_bytes=found.read_bytes())
+    # Newer Homebrew node builds load @rpath/libnode.*.dylib from ../lib beside the binary.
+    libs = found.parent.parent / "lib"
+    if libs.is_dir():
+        target = Path(real).parent.parent / "lib"
+        target.mkdir(parents=True, exist_ok=True)
+        for lib in libs.glob("libnode*"):
+            if not (target / lib.name).exists():
+                (target / lib.name).symlink_to(lib)
     return real
 
 

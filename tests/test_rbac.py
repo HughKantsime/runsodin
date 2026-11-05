@@ -178,6 +178,7 @@ CREDENTIAL_OPERATIONS = {
     ("DELETE", "/api/backups/{backup_filename}"), ("POST", "/api/backups/restore"),    # stored credential
     ("GET", "/api/admin/logs"), ("GET", "/api/admin/logs/stream"),                     # install-wide logs and
     ("GET", "/api/admin/support-bundle"),                                              # the support bundle
+    ("POST", "/api/timelapses/recheck-facts"),                                         # interactive superadmin only
 }
 
 # License-gated rows: route -> license feature (license_manager.require_feature / feature_gate).
