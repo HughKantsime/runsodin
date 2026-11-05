@@ -2,6 +2,19 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Record background dispatch intent before staging and the requesting actor on accepted claims, with erasure checks at insertion.
+- Audit OIDC session issuance and callback/exchange failures, plus automatic user creation, without storing personal text in new event details.
+- Refuse designated downloads and CSV exports when their audit row cannot commit; record bulk job creation, global branding changes and MQTT republish field names atomically.
+- Report the audit CSV's 5,000-row truncation through response headers and an Audit Log page notice.
+
+### Documentation
+
+- Describe the covered audit events and identity limitations; draft the expanded Education/student activity privacy disclosure for approval before release.
+
 ## [2.0.41] - 2026-11-04
 
 <!-- summary: Community filament feed and accounting delegation, a nozzle size change that is no longer lost, and safer file deletion. -->

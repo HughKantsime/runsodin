@@ -736,10 +736,12 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 19. Audit & Compliance
 
 ### 19.1 Audit Log
-- Searchable history of audited administrative actions with timestamps, user, and IP address
-- Audit log viewer in Settings (admin-only)
-- CSV export with filters (v1.0.26; Enterprise license)
-- Full audit log system (v1.2.0)
+- Searchable `audit_logs` history of audited password and SSO sign-in outcomes, print-file uploads, model/mesh and backup/timelapse downloads, project/profile/training-data and CSV exports, print submission and dispatch, and administrative changes.
+- Request events record the user and peer IP when available. OIDC success identifies the user by entity ID; OIDC actor username/authentication columns remain empty. Failed sign-ins do not identify a verified user. Erased actors and older or unbound events can be unknown.
+- Playback/live camera streams and actions without an audit producer are not logged.
+- Audit log viewer (platform superadmin only)
+- CSV export with filters (v1.0.26; Enterprise license), capped at 5,000 entries with truncation headers and a notice to narrow dates.
+- Audit log introduced in v1.2.0
 
 ### 19.2 Bulk Operations (v1.3.0)
 - Jobs: multi-select checkboxes with bulk cancel, priority change, reschedule, delete
