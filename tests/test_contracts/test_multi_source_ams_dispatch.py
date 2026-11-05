@@ -375,7 +375,7 @@ def test_cross_nozzle_command_needs_a_filament_map_to_agree_with():
 def test_only_the_one_entry_default_nozzle_map_is_ignored(nozzle_map, plate_map):
     with pytest.raises(ValueError) as error:
         inspect_ams_sources(cross_nozzle_file(('2', '1'), nozzle_map=nozzle_map, plate_map=plate_map))
-    assert str(error.value) == ("the project's filament map disagrees with plate 1's" if plate_map else "the slicer's extruder maps disagree")
+    assert str(error.value) == ("the project's filament map disagrees with the plate's" if plate_map else "the slicer's extruder maps disagree")
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])

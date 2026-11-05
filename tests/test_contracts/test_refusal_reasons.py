@@ -27,7 +27,7 @@ def test_project_plate_conflict_names_plate_without_echoing_file():
     with pytest.raises(ValueError) as error:
         inspect_ams_sources(archive(xml=xml, code='; filament_type = PETG;PETG\nM620 S0A\nM621 S0A\n', settings=json.dumps({'filament_type': ['PETG', 'PETG'],
             'physical_extruder_map': [0, 1], 'filament_map': ['1', '1']})))
-    assert str(error.value) == "the project's filament map disagrees with plate 1's"
+    assert str(error.value) == "the project's filament map disagrees with the plate's"
 
 
 def test_untrusted_parser_exception_is_not_echoed(monkeypatch):

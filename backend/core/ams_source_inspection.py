@@ -150,7 +150,7 @@ def _source_extruder(settings, plate, index):
     if len(set(targets)) != 1:
         project_map = _map_values(settings.get('filament_map'))
         if declared and project_map and str(project_map[index]) != str(_map_values(declared[0])[index]):
-            raise _SourceRefusal("the project's filament map disagrees with plate 1's")
+            raise _SourceRefusal("the project's filament map disagrees with the plate's")
         raise _SourceRefusal("the slicer's extruder maps disagree")
     return targets[0]
 
