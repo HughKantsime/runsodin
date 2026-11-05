@@ -207,3 +207,32 @@ def test_fatal_serious_unknown_or_malformed_faults_block_token_resume(audited, r
     assert response.status_code == 409
     assert response.json()['error']['code'] == 'printer_fault_active'
     assert not calls
+
+
+def _parsed(level):
+    # The shape error_handling persists: parse_hms_errors output.
+    code = (level << 16) | 2
+    return {'code': f'05010400_{code:08X}', 'attr': 0x05010400, 'raw_code': code,
+            'severity': {1: 'critical', 2: 'error', 3: 'info', 4: 'info'}[level], 'message': 'm', 'wiki_url': 'u'}
+
+
+@pytest.mark.parametrize('levels,status', [((3,), 200), ((4,), 200), ((3, 4), 200), ((1,), 409), ((2,), 409), ((3, 2), 409)])
+def test_persisted_parsed_entries_use_their_level(audited, review_db, levels, status):
+    client, issue, calls = audited
+    seed(review_db, hms=json.dumps([_parsed(level) for level in levels]))
+    response = client.post(URL, headers=issue(['write:printers']))
+    assert response.status_code == status
+    assert (calls == [(299, 'resume_print', ())]) == (status == 200)
+
+
+@pytest.mark.parametrize('entry', [
+    {'attr': 0x05010400, 'code': '05010400_0003000'},      # short code string
+    {'attr': 0x05010400, 'code': '05010400_ZZZZZZZZ'},     # not hex
+    {'attr': 0x05010400, 'raw_code': -1},
+    {'attr': '05010400', 'code': 3 << 16},
+])
+def test_malformed_persisted_entries_block(audited, review_db, entry):
+    client, issue, calls = audited
+    seed(review_db, hms=json.dumps([entry]))
+    assert client.post(URL, headers=issue(['write:printers'])).status_code == 409
+    assert not calls

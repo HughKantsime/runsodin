@@ -11,12 +11,28 @@ from core.rbac import is_interactive_session
 NOTICE_LEVELS = frozenset((3, 4))
 
 
+def _code_value(item):
+    """Raw MQTT entries carry an int code; parsed entries a raw_code int and an
+    'AAAAAAAA_CCCCCCCC' code string. Anything else is unreadable (None)."""
+    raw = item.get('raw_code', item.get('code'))
+    if type(raw) is int:
+        return raw if 0 <= raw <= 0xFFFFFFFF else None
+    if isinstance(raw, str):
+        parts = raw.split('_')
+        if len(parts) == 2 and all(len(p) == 8 for p in parts):
+            try:
+                return int(parts[1], 16)
+            except ValueError:
+                return None
+    return None
+
+
 def _blocking_fault(item):
     """Fatal, serious, unknown-level or unreadable entries block; notices don't."""
     if not isinstance(item, dict):
         return True
-    attr, code = item.get('attr'), item.get('code')
-    if any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in (attr, code)):
+    attr, code = item.get('attr'), _code_value(item)
+    if type(attr) is not int or not 0 <= attr <= 0xFFFFFFFF or code is None:
         return True
     return (code >> 16) not in NOTICE_LEVELS
 
