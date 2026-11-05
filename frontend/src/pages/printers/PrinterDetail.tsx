@@ -2,6 +2,8 @@ import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import InstalledNozzles from '../../components/printers/InstalledNozzles'
 import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
+import TraySettings from '../../components/printers/TraySettings'
+import PauseCause from '../../components/printers/PauseCause'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
@@ -107,6 +109,8 @@ export default function PrinterDetail() {
         <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />
       </PageHeader>
 
+      <PauseCause printer={printer} />
+      {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatCard

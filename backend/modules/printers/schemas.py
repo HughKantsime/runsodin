@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Literal, Optional, List
-from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, field_serializer, model_validator
 
 from core.base import FilamentType
 
@@ -163,6 +163,11 @@ class PrinterMaintenance(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    @field_serializer('print_stage')
+    def _pause_stage_text(self, value):
+        from modules.printers.monitors.pause_cause import display_stage
+        return display_stage(value) if self.gcode_state == 'PAUSE' else value
+
     current_print_display_name: Optional[str] = None
     maintenance: PrinterMaintenance = Field(default_factory=PrinterMaintenance)
     model_config = ConfigDict(from_attributes=True)

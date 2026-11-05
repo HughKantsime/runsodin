@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Bambu tray settings require an explicit preset, material, colour and temperature range, send a local tray ID without changing K, and return the printer's bounded reply. Reported tray presets are retained for reuse; shared-printer refusal names its cause. Hardware acceptance is reported for P1S only; X1C and H2D/AMS HT require attended validation.
+- Operators with jobs edit permission can correct the latest linked print/job outcome between failed and cancelled from Jobs or Archives. Corrections are audited and leave filament, costs and alerts unchanged. Terminal Bambu packets are logged for up to 30 seconds or 20 packets without changing cancellation classification.
+- Paused Bambu cards and detail pages show current print-error text, then the most recently observed still-active HMS cause, instead of historical error text.
+
 ## [2.0.41] - 2026-11-04
 
 <!-- summary: Community filament feed and accounting delegation, a nozzle size change that is no longer lost, and safer file deletion. -->

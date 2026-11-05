@@ -13,6 +13,7 @@ import PrintProgress from './PrintProgress'
 import { printers, apiTokens } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
+import PauseCause from './PauseCause'
 import { displayName } from '../../utils/displayName'
 import { isOnline, isActivePrintState, filamentSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
@@ -238,6 +239,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       </div>
       {printer.plug_type && plugStates?.[printer.id] === undefined && <p className="px-3 text-xs text-[var(--brand-text-muted)]">State unknown</p>}
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
+      <PauseCause printer={printer} />
       <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
@@ -329,7 +331,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
           const nozTarget = printer.nozzle_target_temp != null ? Math.round(printer.nozzle_target_temp) : null
           const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
-          const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
+          const stage = printer.gcode_state !== 'PAUSE' && printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
           return (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">

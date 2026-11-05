@@ -1,5 +1,8 @@
 """Actual AMS HTTP/database isolation and command-boundary acceptance."""
+from types import SimpleNamespace
 import pytest
+
+VALID = dict(preset_id="GFG02", material="PETG", color="#FF5500", nozzle_temp_min=230, nozzle_temp_max=260)
 from sqlalchemy import text
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 
@@ -9,11 +12,14 @@ def ams_client(token_client, review_db, monkeypatch):
     client, issue = token_client
     client.app.include_router(routes_ams_env.router)
     calls = []
+    from modules.printers.telemetry.bambu import tray_setting, ams_configuration
+    monkeypatch.setattr(ams_configuration, 'load_ams_configuration', lambda *args: SimpleNamespace(transport=None))
+    monkeypatch.setattr(tray_setting, 'set_tray', lambda config, *args: (calls.append(('set_ams_filament', *args)) or {'result':'success', 'reason':None}))
     monkeypatch.setattr(route_utils, '_bambu_command_direct', lambda *args: (calls.append(args[1:]) or True))
     review_db.execute(text("CREATE TABLE IF NOT EXISTS ams_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,ams_unit INTEGER,humidity REAL,temperature REAL,recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP)"))
     review_db.execute(text("INSERT INTO printers(id,name,api_type,org_id,shared) VALUES(199,'Synthetic foreign AMS','bambu',2,0)"))
     review_db.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,temperature) VALUES(199,0,3,24)"))
-    review_db.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,filament_type,color) VALUES(199,199,0,'PLA','#000000')"))
+    review_db.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,filament_type,color) VALUES(199,199,1,'PLA','#000000')"))
     review_db.commit()
     return client, issue, calls
 
@@ -40,7 +46,7 @@ def test_foreign_ams_commands_do_not_reach_transport(ams_client, review_db, acti
     if action == 'refresh':
         result = client.post('/printers/199/ams/refresh', headers=headers)
     else:
-        result = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'material':'PLA','color':'#FFFFFF'})
+        result = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, 'material':'PLA','color':'#FFFFFF'})
     assert result.status_code == 404
     assert calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
@@ -58,7 +64,7 @@ def test_shared_foreign_ams_still_cannot_be_commanded(ams_client, review_db, act
     review_db.execute(text("UPDATE users SET role='operator' WHERE id=3"))
     review_db.execute(text('UPDATE printers SET shared=1 WHERE id=199')); review_db.commit()
     headers = issue(['write:printers'])
-    response = client.post('/printers/199/ams/refresh', headers=headers) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=headers, json={})
+    response = client.post('/printers/199/ams/refresh', headers=headers) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, })
     assert response.status_code == 404 and calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
@@ -78,7 +84,7 @@ def test_ams_command_role_and_scope_denial_preserves_slots(ams_client, review_db
     client, issue, calls = ams_client
     review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199'))
     review_db.execute(text('UPDATE users SET role=:role WHERE id=3'), {'role':role}); review_db.commit()
-    response = client.post('/printers/199/ams/refresh', headers=issue([scope])) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=issue([scope]), json={})
+    response = client.post('/printers/199/ams/refresh', headers=issue([scope])) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=issue([scope]), json={**VALID, })
     assert response.status_code == 403 and calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
@@ -97,8 +103,9 @@ def test_configure_ams_command_failure_is_not_success(ams_client, review_db, mon
     client, issue, _ = ams_client
     review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199'))
     review_db.execute(text("UPDATE users SET role='operator' WHERE id=3")); review_db.commit()
-    monkeypatch.setattr(route_utils, '_bambu_command_direct', lambda *args: False)
-    result = client.put('/printers/199/ams/0/slots/0', headers=issue(['write:printers']), json={})
+    from modules.printers.telemetry.bambu import tray_setting
+    monkeypatch.setattr(tray_setting, 'set_tray', lambda *args: {'result':None, 'reason':'reply_timeout'})
+    result = client.put('/printers/199/ams/0/slots/0', headers=issue(['write:printers']), json={**VALID, })
     assert result.status_code == 503
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
@@ -106,7 +113,7 @@ def test_missing_spool_rejected_before_ams_command(ams_client, review_db):
     client, issue, calls = ams_client
     review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199'))
     review_db.execute(text("UPDATE users SET role='operator' WHERE id=3")); review_db.commit()
-    result = client.put('/printers/199/ams/0/slots/0', headers=issue(['write:printers']), json={'spool_id':9191})
+    result = client.put('/printers/199/ams/0/slots/0', headers=issue(['write:printers']), json={**VALID, 'spool_id':9191})
     assert result.status_code == 404
     assert calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
@@ -123,29 +130,30 @@ def own_ams_operator(ams_client, review_db):
 
 def test_successful_ams_configuration_persists_only_after_command(own_ams_operator, review_db):
     client, headers, calls = own_ams_operator
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'material':'PETG','color':'#FF5500','k_factor':0.028,'spool_id':199})
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, 'material':'PETG','color':'#FF5500','spool_id':199})
     assert response.status_code == 200
-    assert calls == [('set_ams_filament',0,0,'PETG','#FF5500',0.028)]
+    assert calls == [('set_ams_filament',0,0,'GFG02','PETG','#FF5500',230,260)]
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PETG','#FF5500',199)
 
 @pytest.mark.parametrize('spool_org', [2])
 def test_inaccessible_spool_cannot_be_assigned(own_ams_operator, review_db, spool_org):
     client, headers, calls = own_ams_operator
     review_db.execute(text('UPDATE spools SET org_id=:org WHERE id=199'), {'org':spool_org}); review_db.commit()
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'spool_id':199})
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, 'spool_id':199})
     assert response.status_code == 404 and calls == []
     assert review_db.execute(text('SELECT assigned_spool_id FROM filament_slots WHERE id=199')).scalar_one() is None
 
 def test_missing_assignment_slot_is_rejected_before_command(own_ams_operator, review_db):
     client, headers, calls = own_ams_operator
-    response = client.put('/printers/199/ams/0/slots/1', headers=headers, json={'spool_id':199})
+    response = client.put('/printers/199/ams/0/slots/1', headers=headers, json={**VALID, 'spool_id':199})
     assert response.status_code == 404 and calls == []
 
 def test_failed_assignment_command_preserves_slot_and_spool(own_ams_operator, review_db, monkeypatch):
     from modules.printers import route_utils
     client, headers, _ = own_ams_operator
-    monkeypatch.setattr(route_utils, '_bambu_command_direct', lambda *args: False)
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'material':'PETG','color':'#FF5500','spool_id':199})
+    from modules.printers.telemetry.bambu import tray_setting
+    monkeypatch.setattr(tray_setting, 'set_tray', lambda *args: {'result':None, 'reason':'reply_timeout'})
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, 'material':'PETG','color':'#FF5500','spool_id':199})
     assert response.status_code == 503
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
     assert review_db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=199')).scalar_one() == 500
@@ -153,7 +161,7 @@ def test_failed_assignment_command_preserves_slot_and_spool(own_ams_operator, re
 def test_unscoped_spool_remains_assignable_under_existing_policy(own_ams_operator, review_db):
     client, headers, calls = own_ams_operator
     review_db.execute(text('UPDATE spools SET org_id=NULL WHERE id=199')); review_db.commit()
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'spool_id':199})
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, 'spool_id':199})
     assert response.status_code == 200 and len(calls) == 1
     assert review_db.execute(text('SELECT assigned_spool_id FROM filament_slots WHERE id=199')).scalar_one() == 199
 
@@ -185,8 +193,8 @@ def test_failed_rfid_refresh_is_service_unavailable(own_ams_operator, monkeypatc
 @pytest.mark.parametrize('ams_id,slot_id', [(-1,0),(4,0),(0,-1),(0,4)])
 def test_invalid_ams_indices_never_send_a_command(own_ams_operator, review_db, ams_id, slot_id):
     client, headers, calls = own_ams_operator
-    response = client.put(f'/printers/199/ams/{ams_id}/slots/{slot_id}', headers=headers, json={})
-    assert response.status_code == 422 and calls == []
+    response = client.put(f'/printers/199/ams/{ams_id}/slots/{slot_id}', headers=headers, json={**VALID, })
+    assert response.status_code == 400 and calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
 
@@ -194,43 +202,74 @@ def test_invalid_ams_indices_never_send_a_command(own_ams_operator, review_db, a
 def test_non_bambu_ams_commands_rejected_before_transport(own_ams_operator, review_db, action):
     client, headers, calls = own_ams_operator
     review_db.execute(text("UPDATE printers SET api_type='moonraker' WHERE id=199")); review_db.commit()
-    response = client.post('/printers/199/ams/refresh', headers=headers) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=headers, json={})
+    response = client.post('/printers/199/ams/refresh', headers=headers) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, })
     assert response.status_code == 400 and calls == []
 
 
 @pytest.mark.parametrize('invalid', [
     {'color':'not-a-color'}, {'color':'#12345'}, {'color':'#GG1122'},
-    {'k_factor':-0.01}, {'material':''}, {'material':'   '},
-    {'k_factor':True}, {'k_factor':'0.028'}, {'material':123}, {'material':'P' * 65},
-    {'color':'#123ABC\n'},
+    {'nozzle_temp_min':-1}, {'material':''}, {'material':'   '},
+    {'nozzle_temp_min':True}, {'nozzle_temp_max':351}, {'material':123}, {'material':'P' * 65},
+    {'color':'#123ABC\n'}, {'color':'123ABC80'}, {'preset_id':''}, {'preset_id':'bad preset'},
+    {'nozzle_temp_min':261}, {'nozzle_temp_min':230.5}, {'nozzle_temp_max':'260'},
 ])
 def test_malformed_ams_settings_rejected_before_command_or_slot_mutation(own_ams_operator, review_db, invalid):
     client, headers, calls = own_ams_operator
-    body = {'material':'PLA','color':'#123ABC','k_factor':0.028,'spool_id':199, **invalid}
+    body = {**VALID, 'material':'PLA','color':'#123ABC','spool_id':199, **invalid}
     response = client.put('/printers/199/ams/0/slots/0', headers=headers, json=body)
-    assert response.status_code == 422
+    assert response.status_code == 400
     assert calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
 
-@pytest.mark.parametrize('color', ['#12ab34','12ab34','12ab3480','#12ab3480'])
-def test_valid_ams_settings_preserve_color_and_zero_k_and_trim_material(own_ams_operator, color):
+@pytest.mark.parametrize('color', ['#12ab34','12ab34','12ab34FF','#12ab34FF'])
+def test_valid_ams_settings_preserve_color_and_trim_material(own_ams_operator, color):
     client, headers, calls = own_ams_operator
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'material':' PETG ','color':color,'k_factor':0})
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID, 'material':' PETG ','color':color})
     assert response.status_code == 200
-    assert calls == [('set_ams_filament',0,0,'PETG',color,0.0)]
+    assert calls == [('set_ams_filament',0,0,'GFG02','PETG',color,230,260)]
 
 
-def test_default_ams_settings_remain_valid(own_ams_operator):
+@pytest.mark.parametrize('missing', list(VALID))
+def test_missing_explicit_setting_is_rejected(own_ams_operator, missing):
     client, headers, calls = own_ams_operator
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={})
-    assert response.status_code == 200
-    assert calls == [('set_ams_filament',0,0,'PLA','#FFFFFF',0.0)]
+    body = {key:value for key,value in VALID.items() if key != missing}
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json=body)
+    assert response.status_code == 400 and calls == []
 
 
-@pytest.mark.parametrize('literal', ['1e999','-1e999','NaN','1' + '0' * 400])
-def test_nonfinite_ams_k_is_rejected_before_transport(own_ams_operator, review_db, literal):
+def test_empty_settings_are_rejected(own_ams_operator):
     client, headers, calls = own_ams_operator
-    response = client.put('/printers/199/ams/0/slots/0', headers={**headers,'Content-Type':'application/json'}, content='{"k_factor":' + literal + '}')
-    assert response.status_code == 422 and calls == []
-    assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
+    assert client.put('/printers/199/ams/0/slots/0', headers=headers, json={}).status_code == 400
+    assert calls == []
+
+
+def test_printer_rejection_is_returned_and_audited_without_assignment(own_ams_operator, review_db, monkeypatch):
+    from modules.printers.telemetry.bambu import tray_setting
+    client, headers, calls = own_ams_operator
+    monkeypatch.setattr(tray_setting, 'set_tray', lambda *args: {'result':'fail','reason':'busy'})
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={**VALID,'spool_id':199})
+    assert response.status_code == 409
+    assert response.json()['result'] == 'fail' and response.json()['reason'] == 'busy'
+    assert review_db.execute(text('SELECT assigned_spool_id FROM filament_slots WHERE id=199')).scalar_one() is None
+    assert review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='printer.tray_set_requested'")).scalar_one() == 1
+
+
+def test_reported_presets_require_real_reported_temperatures(own_ams_operator, review_db):
+    import json
+    client, headers, calls = own_ams_operator
+    report = {'reported_preset': {'tray_info_idx':'GFG02','tray_type':'PETG','nozzle_temp_min':'230','nozzle_temp_max':'260'}}
+    review_db.execute(text('UPDATE filament_slots SET tray_observation=:value WHERE id=199'), {'value':json.dumps(report)})
+    review_db.commit()
+    from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers
+    assert client.get('/printers/199/ams/presets', headers=interactive_headers()).json() == [{key:value for key,value in VALID.items() if key != 'color'}]
+    report['reported_preset'].pop('nozzle_temp_min')
+    review_db.execute(text('UPDATE filament_slots SET tray_observation=:value WHERE id=199'), {'value':json.dumps(report)})
+    review_db.commit()
+    assert client.get('/printers/199/ams/presets', headers=interactive_headers()).json() == []
+
+
+def test_absent_settings_body_is_rejected(own_ams_operator):
+    client, headers, calls = own_ams_operator
+    assert client.put('/printers/199/ams/0/slots/0', headers=headers).status_code == 400
+    assert calls == []

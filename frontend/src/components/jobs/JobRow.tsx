@@ -1,3 +1,4 @@
+import OutcomeCorrection from './OutcomeCorrection'
 import { displayName } from '../../utils/displayName'
 import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar, Pencil, GripVertical, ShoppingCart, MessageSquare, RefreshCw, Send, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
@@ -60,6 +61,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       </td>
       <td className="px-3 md:px-4 py-3">
         <StatusBadge status={job.status} />
+        <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{displayName(job)}</div>

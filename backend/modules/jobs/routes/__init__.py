@@ -21,3 +21,6 @@ router.include_router(presets_router)
 
 from .dispatch_status import router as dispatch_status_router
 router.include_router(dispatch_status_router)
+
+from modules.jobs.outcome_correction import router as outcome_correction_router
+router.include_router(outcome_correction_router)

@@ -2,13 +2,12 @@
 from core.base import FilamentType, slot_filament_value
 
 import logging
-import math
 import re
 from modules.inventory.services import assign_slot
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel as PydanticBaseModel, Field, field_validator
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -123,39 +122,47 @@ async def refresh_ams_rfid(
 
 
 class AMSSlotConfigRequest(PydanticBaseModel):
-    material: str = Field(default="PLA", min_length=1, max_length=64)
-    color: str = "#FFFFFF"
-    k_factor: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    # Validate after authorization, returning the route's explicit 400 contract.
+    preset_id: object = None
+    material: object = None
+    color: object = None
+    nozzle_temp_min: object = None
+    nozzle_temp_max: object = None
     spool_id: Optional[int] = None
 
-    @field_validator("material", mode="before")
-    @classmethod
-    def validate_material(cls, value):
-        if not isinstance(value, str):
-            raise ValueError("Material must be a nonempty string")
-        return value.strip()
 
-    @field_validator("color")
-    @classmethod
-    def validate_color(cls, value):
-        if not re.fullmatch(r"#?(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})", value):
-            raise ValueError("Color must contain six or eight hexadecimal digits with an optional #")
-        return value
+def validate_tray_settings(body):
+    if body is None:
+        raise HTTPException(400, 'Explicit tray settings are required')
+    if (not isinstance(body.preset_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.preset_id)
+            or not isinstance(body.material, str) or not 1 <= len(body.material.strip()) <= 64
+            or not isinstance(body.color, str) or not re.fullmatch(r"#?[0-9A-Fa-f]{6}(?:[Ff]{2})?", body.color)
+            or type(body.nozzle_temp_min) is not int or type(body.nozzle_temp_max) is not int
+            or not 0 <= body.nozzle_temp_min <= body.nozzle_temp_max <= 350):
+        raise HTTPException(400, 'Supply a preset id, material, RGB colour and nozzle temperature range (0–350 C)')
+    body.material = body.material.strip()
+    return body
 
-    @field_validator("k_factor", mode="before")
-    @classmethod
-    def validate_k_factor_type(cls, value):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError("K-factor must be a finite nonnegative number")
+
+@router.get("/printers/{printer_id}/ams/presets", tags=["AMS"])
+def reported_tray_presets(printer_id: int, db: Session = Depends(get_db),
+                         current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
+    """Only caller-visible reports with complete temperatures; no guessed profiles."""
+    import json
+    from modules.printers.telemetry.validators import coerce_int_or_raise
+    _ams_printer(printer_id, db, current_user)
+    found = {}
+    for slot in db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all():
         try:
-            finite = math.isfinite(value)
-        except OverflowError:
-            finite = False
-        if not finite:
-            # Default validation responses echo the input; JSON cannot encode
-            # nonfinite numbers. Return a constant safe error before that path.
-            raise HTTPException(status_code=422, detail="K-factor must be finite")
-        return value
+            report = json.loads(slot.tray_observation or '{}').get('reported_preset', {})
+            body = validate_tray_settings(AMSSlotConfigRequest(
+                preset_id=report.get('tray_info_idx'), material=report.get('tray_type'), color='FFFFFF',
+                nozzle_temp_min=coerce_int_or_raise(report['nozzle_temp_min']), nozzle_temp_max=coerce_int_or_raise(report['nozzle_temp_max'])))
+            item = body.model_dump(exclude={'color', 'spool_id'})
+            found[tuple(item.values())] = item
+        except (ValueError, TypeError, KeyError, AttributeError, HTTPException):
+            continue
+    return list(found.values())
 
 
 @router.put("/printers/{printer_id}/ams/{ams_id}/slots/{slot_id}", tags=["AMS"])
@@ -163,25 +170,28 @@ async def configure_ams_slot(
     printer_id: int,
     ams_id: int,
     slot_id: int,
-    body: AMSSlotConfigRequest,
+    body: Optional[AMSSlotConfigRequest] = None,
     current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Configure an AMS slot's filament settings (Bambu only).
 
-    Body: {"material": "PETG", "color": "#FF5500", "k_factor": 0.028, "spool_id": 12}
+    Requires explicit preset, material, colour and temperature limits.
     """
-    from modules.printers.route_utils import _bambu_command_direct
+    from core.dependencies import log_audit
+    from modules.printers.telemetry.bambu.ams_configuration import load_ams_configuration, AMSConfigurationUnavailable
+    from modules.printers.telemetry.bambu.tray_setting import set_tray
+    from starlette.concurrency import run_in_threadpool
     printer = _ams_printer(printer_id, db, current_user, write=True)
     ensure_local_filaments(printer_id)
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="AMS slot config is only supported on Bambu printers")
     if ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3:
-        raise HTTPException(status_code=422, detail="ams_id and slot_id must be 0-3")
+        raise HTTPException(status_code=400, detail="ams_id and slot_id must be 0-3")
 
+    validate_tray_settings(body)
     material = body.material
     color = body.color
-    k_factor = body.k_factor
     spool_id = body.spool_id
 
     slot = None
@@ -190,7 +200,7 @@ async def configure_ams_slot(
         spool = db.query(Spool).filter(Spool.id == spool_id).first()
         if not spool or not check_org_access(current_user, spool.org_id):
             raise HTTPException(status_code=404, detail="Spool not found")
-        slot_number = ams_id * 4 + slot_id
+        slot_number = ams_id * 4 + slot_id + 1
         slot = db.query(FilamentSlot).filter(
             FilamentSlot.printer_id == printer_id,
             FilamentSlot.slot_number == slot_number,
@@ -198,13 +208,25 @@ async def configure_ams_slot(
         if not slot:
             raise HTTPException(status_code=404, detail="Filament slot not found")
 
-    if not _bambu_command_direct(printer, "set_ams_filament", ams_id, slot_id, material, color, k_factor):
-        raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+    try:
+        config = load_ams_configuration(db, printer_id).transport
+    except AMSConfigurationUnavailable as exc:
+        raise HTTPException(409, str(exc)) from None
+    reply = await run_in_threadpool(set_tray, config, ams_id, slot_id, body.preset_id,
+                                   material, color, body.nozzle_temp_min, body.nozzle_temp_max)
+    accepted = str(reply.get('result')).lower() == 'success'
+    log_audit(db, 'printer.tray_set_requested', 'printer', printer_id,
+              {'printer_id': printer_id, 'ams_id': ams_id, 'slot_id': slot_id,
+               'preset_id': body.preset_id, 'outcome': reply})
+    if not accepted:
+        db.commit()
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503 if reply.get('result') is None else 409,
+                            content={'success': False, **reply, 'detail': {'message': 'Tray setting not confirmed', **reply}})
 
     if slot is not None:
         slot.filament_type = FilamentType(slot_filament_value(material))
         slot.color = body.color
         assign_slot(db, slot, spool_id, current_user)
-        db.commit()
-
-    return {"success": True, "message": f"AMS {ams_id} slot {slot_id} configured"}
+    db.commit()
+    return {"success": True, **reply}

@@ -2,6 +2,9 @@ import { render, screen, cleanup, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ArchivesPage from './Archives'
+import { fetchAPI } from '../../api/client'
+vi.mock('../../api/client', () => ({ fetchAPI: vi.fn() }))
+vi.mock('../../permissions', () => ({ canDo: () => true }))
 const state=vi.hoisted(()=>({data:undefined as any,loading:false,error:false,compare:undefined as any,refetch:vi.fn()}))
 vi.mock('@tanstack/react-query',()=>({
  useQuery:({queryKey}:any)=>queryKey[0]==='archives'?{data:state.data,isLoading:state.loading,isError:state.error,refetch:state.refetch}:queryKey[0]==='archive-compare'?{data:state.compare,isLoading:false}:queryKey[0]==='archive-ams-preview'?{data:undefined,isLoading:false}:{data:[]},
@@ -36,4 +39,12 @@ test('recorded zero filament stays visible in archive detail',()=>{
 })
 test('comparison distinguishes recorded zero filament and cost from unknown',()=>{
  const a={...archivedPrint(0),cost_estimate:0};const b={...archivedPrint(null),id:10,print_name:'Synthetic unknown',cost_estimate:null};state.data={items:[a,b],total:2};state.compare={a,b,diff:{filament_used_grams:true,cost_estimate:true}};mount();screen.getAllByRole('checkbox').forEach(box=>fireEvent.click(box));fireEvent.click(screen.getByRole('button',{name:'Compare'}));const dialog=within(screen.getByRole('dialog'));expect(dialog.getByText('0.0g')).toBeInTheDocument();expect(dialog.getByText('$0.00')).toBeInTheDocument()
+})
+
+test('archive detail corrects the exact linked print outcome',async()=>{
+ vi.mocked(fetchAPI).mockResolvedValue({status:'cancelled'})
+ state.data={items:[{...archivedPrint(50),status:'failed',job_id:901,print_job_id:902}],total:1}
+ mount();fireEvent.click(screen.getByText('Synthetic measurement'))
+ fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Correct outcome to cancelled'}))
+ expect(fetchAPI).toHaveBeenCalledWith('/jobs/901/outcome',{method:'POST',body:JSON.stringify({status:'cancelled',from_status:'failed',print_id:902})})
 })

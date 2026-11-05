@@ -6,6 +6,7 @@ import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
+import OutcomeCorrection from '../../components/jobs/OutcomeCorrection'
 import { canDo } from '../../permissions'
 const ModelViewer = lazy(() => import('../../components/models/ModelViewer'))
 import { Archive, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw, Box } from 'lucide-react'
@@ -231,6 +232,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
           </div>
         </div>
 
+        <OutcomeCorrection key={`${archive.id}:${archive.status}`} jobId={archive.job_id} printId={archive.print_job_id} status={archive.status} onCorrected={onClose} />
         {archive.accounting_state === 'unresolved' && <div className="mb-4 rounded-md border border-amber-500/40 p-3 text-sm" role="status">
           <p>Filament consumption is unattributed.</p>
           {archive.consumption?.map((item, index) => <p key={index}>

@@ -196,21 +196,21 @@ class TestByteEquivalence:
         }
 
     def test_set_ams_filament_6char_color(self, adapter):
-        adapter.set_ams_filament(0, 2, "PLA", "FF5500", k_factor=0.02)
+        adapter.set_ams_filament(0, 2, "GFA00", "PLA", "FF5500", 190, 220)
         d = _last_published_dict(adapter)["print"]
         assert d["command"] == "ams_filament_setting"
         assert d["ams_id"] == 0
         assert d["tray_id"] == 0 * 4 + 2  # == 2
-        assert d["tray_info_idx"] == "PLA"
+        assert d["tray_info_idx"] == "GFA00"
         assert d["tray_color"] == "FF5500FF"  # alpha pad
         assert d["tray_type"] == "PLA"
-        assert d["k"] == 0.02
+        assert "k" not in d
 
     def test_set_ams_filament_hash_stripped(self, adapter):
-        adapter.set_ams_filament(1, 0, "PETG", "#000000FF")
+        adapter.set_ams_filament(1, 0, "GFG02", "PETG", "#000000FF", 230, 260)
         d = _last_published_dict(adapter)["print"]
         assert d["tray_color"] == "000000FF"
-        assert d["tray_id"] == 1 * 4 + 0  # == 4
+        assert d["tray_id"] == 0
 
     def test_clear_print_errors(self, adapter):
         adapter.clear_print_errors()
