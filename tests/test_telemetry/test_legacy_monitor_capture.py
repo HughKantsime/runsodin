@@ -75,6 +75,21 @@ def test_ams_capture_five_minute_boundary_and_multiple_units(capture_store):
     assert len(rows(path,'ams_telemetry')) == 4
 
 
+def test_display_facts_cache_failure_keeps_status_and_telemetry(capture_store, monkeypatch):
+    from core import printer_display_facts
+    def fail(conn, monitor):
+        conn.execute("INSERT INTO system_config(key,value) VALUES('display-facts-probe','x')")
+        raise RuntimeError('synthetic cache failure')
+    monkeypatch.setattr(printer_display_facts, 'persist', fail)
+    path, clock, send = capture_store
+    send('RUNNING')
+    assert rows(path, 'printers')[0][7] == 'RUNNING'
+    assert len(rows(path, 'printer_telemetry')) == 1
+    assert len(rows(path, 'ams_telemetry')) == 2
+    with sqlite3.connect(path) as db:
+        assert db.execute('SELECT key FROM system_config').fetchall() == []
+
+
 def test_active_temperature_snapshots_sixty_second_boundary(capture_store):
     path, clock, send = capture_store
     send('RUNNING')

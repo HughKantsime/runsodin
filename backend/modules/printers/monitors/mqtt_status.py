@@ -299,8 +299,6 @@ def handle_status(self, status, generation, runtime):
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                          hms_j, noz_type, fan_speed_val, self.printer_id))
-                    from core.printer_display_facts import persist as persist_display_facts
-                    persist_display_facts(conn, self)
                     if noz_dia is not None:
                         observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
                     from modules.printers.monitors.light_state import persist_light_observation
@@ -315,6 +313,15 @@ def handle_status(self, status, generation, runtime):
                     self._pending_nozzle_diameter = None
                     self._pending_installed_nozzles = {}
                     self._pending_right_nozzle = {}
+                    # Foundry's display cache is optional: write it after the
+                    # status commit so a cache failure can't roll that back.
+                    try:
+                        from core.printer_display_facts import persist as persist_display_facts
+                        persist_display_facts(conn, self)
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        runtime.log.debug(f"[{self.name}] Display facts cache write failed: {e}")
 
                     # Auto-detect printer model from MQTT — write once, never overwrite a user-set value.
                     # print.printer_type when present, else the ota product_name
