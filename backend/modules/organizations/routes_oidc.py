@@ -87,9 +87,10 @@ def _delete_binding_cookies(response, request: Request) -> None:
 
 
 class OIDCIdentityError(RuntimeError):
-    def __init__(self, code: str):
+    def __init__(self, code: str, username=None):
         super().__init__(code)
         self.code = code
+        self.username = username
 
 
 def _provider_identity(config: dict, claims: dict, user_info: dict) -> tuple[str, bool]:
@@ -167,7 +168,7 @@ def _resolve_oidc_user(
     ).fetchone()
     if existing:
         if not bool(existing._mapping.get("is_active")):
-            raise OIDCIdentityError("user_inactive")
+            raise OIDCIdentityError("user_inactive", existing.username)
         db.execute(
             text("UPDATE users SET last_login=:now, email=:email WHERE id=:id"),
             {
@@ -192,7 +193,7 @@ def _resolve_oidc_user(
     if len(legacy) == 1:
         row = legacy[0]
         if not bool(row._mapping.get("is_active")):
-            raise OIDCIdentityError("user_inactive")
+            raise OIDCIdentityError("user_inactive", row.username)
         try:
             changed = db.execute(
                 text(
@@ -410,6 +411,7 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
             user_info,
             verified_email=verified_email,
         )
+        request.state.oidc_audit_username = resolved_user["username"]
         user_id = resolved_user["id"]
         if resolved_user.get("_created"):
             log_audit(db, "user.created", "user", user_id, {"role": "viewer"})
@@ -433,6 +435,7 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
         return RedirectResponse(url=f"/#oidc_code={oidc_code}", status_code=302)
 
     except OIDCIdentityError as e:
+        if e.username is not None: request.state.oidc_audit_username = e.username
         log.warning("OIDC identity resolution failed: %s", e.code)
         db.rollback()
         return RedirectResponse(url=f"/?error={quote(e.code)}", status_code=302)
@@ -502,6 +505,7 @@ async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depend
             raise ValueError("Invalid interactive identity")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid authentication session") from None
+    request.state.oidc_audit_username = username
     try:
         revoked = db.execute(
             text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
@@ -529,9 +533,9 @@ async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depend
     if _stage_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
 
-    from core.audit_actor import clear_actor
-    clear_actor(db)  # OIDC is deliberately not assigned a password/JWT auth kind.
-    log_audit(db, "auth.login", "user", user.id, {"method": "oidc"})
+    from modules.organizations.sso_audit import prepare_success
+    prepare_success(db, user.id)
+    log_audit(db, "auth.login", "user", user.id, {"method": "oidc", "username": username})
     db.commit()
 
     from fastapi.responses import JSONResponse
@@ -566,16 +570,7 @@ _EXCHANGE_FAILURE_CODES = {
 }
 
 
-def _audit_oidc_failure(db, reason):
-    from core.audit_actor import clear_actor
-    db.rollback()
-    clear_actor(db)
-    try:
-        log_audit(db, "auth.login_failed", "user", details={"method": "oidc", "reason": reason})
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise HTTPException(503, "Login audit unavailable. Try again later.") from None
+from modules.organizations.sso_audit import failure as _audit_oidc_failure
 
 
 @router.get("/auth/oidc/callback", tags=["Auth"])
@@ -584,11 +579,11 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
     try:
         response = await _oidc_callback(request, code, state, error, error_description, db)
     except Exception:
-        _audit_oidc_failure(db, "auth_failed")
+        _audit_oidc_failure(db, "auth_failed", request)
         raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
     reason = parse_qs(urlsplit(response.headers.get("location", "")).query).get("error", [None])[0]
     if reason is not None:
-        _audit_oidc_failure(db, reason if reason in _OIDC_FAILURE_CODES else "auth_failed")
+        _audit_oidc_failure(db, reason if reason in _OIDC_FAILURE_CODES else "auth_failed", request)
     return response
 
 
@@ -597,10 +592,10 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     try:
         return await _oidc_exchange_code(body, request, db)
     except HTTPException as exc:
-        _audit_oidc_failure(db, _EXCHANGE_FAILURE_CODES.get(str(exc.detail), "auth_failed"))
+        _audit_oidc_failure(db, _EXCHANGE_FAILURE_CODES.get(str(exc.detail), "auth_failed"), request)
         raise
     except Exception:
-        _audit_oidc_failure(db, "auth_failed")
+        _audit_oidc_failure(db, "auth_failed", request)
         raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
 
 

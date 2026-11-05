@@ -4,11 +4,18 @@ from sqlalchemy.orm import Session
 
 
 def erase_sso_login_history(db: Session, user_id: int):
-    """Clear IPs on user-linked SSO rows without actor attribution."""
-    # SSO sign-in rows name the user by entity, not actor, so erase_actor_history
-    # doesn't reach them. Their IP address is personal data: clear it too.
-    db.execute(text("UPDATE audit_logs SET ip_address=NULL WHERE action='auth.login' AND entity_type='user' "
-                    "AND entity_id=:uid AND actor_user_id IS NULL"), {"uid": user_id})
+    """Scrub SSO details and IP while retaining the historical user entity ID."""
+    from core.models import AuditLog
+    rows = db.execute(select(AuditLog.id, AuditLog.details).where(
+        AuditLog.action == 'auth.login', AuditLog.entity_type == 'user',
+        AuditLog.entity_id == user_id,
+    )).all()
+    for row in rows:
+        details = row.details
+        if isinstance(details, dict) and 'username' in details:
+            details = {**details, 'username': '[deleted]'}
+        db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
+            details=details, ip_address=None))
 
 
 def erase_password_login_history(db: Session, username: str):

@@ -153,6 +153,18 @@ def overlay_client(reprint_client, review_db, monkeypatch):
     app.include_router(camera_routes.router)
     app.include_router(routes_crud.router)
     app.dependency_overrides.update(client.app.dependency_overrides)
+    from fastapi import Request
+    from sqlalchemy.orm import Session
+    from core.db import get_db
+    from core.audit_actor import register_request_session, clear_session
+    from core.middleware.audit_actor import AuditActorMiddleware
+    app.add_middleware(AuditActorMiddleware)
+    def database(request: Request):
+        with Session(review_db.get_bind()) as db:
+            register_request_session(db, request)
+            try: yield db
+            finally: clear_session(db)
+    app.dependency_overrides[get_db] = database
     return TestClient(app, raise_server_exceptions=False), tokens, upstream
 
 
@@ -293,7 +305,10 @@ def _open_stream(review_db, token):
     so an endless MJPEG stream must be consumed directly)."""
     from sqlalchemy.orm import Session
     from modules.printers import camera_routes
-    return camera_routes.overlay_camera_stream(printer_id=9, token=token, db=Session(review_db.get_bind()))
+    from core.audit_actor import RequestAuditScope
+    db = Session(review_db.get_bind())
+    RequestAuditScope("198.51.100.7").register(db)
+    return camera_routes.overlay_camera_stream(printer_id=9, token=token, db=db)
 
 
 def _consume(review_db, token, after_frames, mutate, seconds=8):

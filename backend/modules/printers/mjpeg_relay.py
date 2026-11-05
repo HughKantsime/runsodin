@@ -46,7 +46,7 @@ def release_stream(entries, entry):
         entries.remove(entry)
 
 
-async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seconds=30):
+async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seconds=30, audit=None):
     """Authorize, admit, open upstream and relay without retaining a DB session."""
     viewer = await run_in_threadpool(check)
     entry = claim(viewer, printer_id)
@@ -87,6 +87,8 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
         content_type = upstream.headers.get("content-type", "")
         if upstream.status_code != 200 or content_type.split(";", 1)[0].lower() != "multipart/x-mixed-replace":
             raise HTTPException(status_code=502, detail="Camera stream unavailable")
+        if audit is not None:
+            await run_in_threadpool(audit)
     except BaseException:
         await close_once()
         raise
@@ -99,6 +101,7 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
         chunks = upstream.aiter_raw().__aiter__()
         evicted = asyncio.ensure_future(entry["evicted"].wait())
         pending = None
+        audit_retry = False
         try:
             while True:
                 if pending is None:
@@ -114,6 +117,15 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
                     except HTTPException:
                         log.info("Camera stream for printer %s ended: authorization withdrawn", printer_id)
                         return
+                    if audit is not None:
+                        try:
+                            await run_in_threadpool(audit)
+                            audit_retry = False
+                        except HTTPException:
+                            if audit_retry:
+                                log.info("Camera stream for printer %s ended: audit unavailable", printer_id)
+                                return
+                            audit_retry = True
                     # Rights on the printer can change: a demoted viewer becomes evictable.
                     entry["privileged"] = current["privileged"]
                     next_check = _time.monotonic() + revalidate_seconds

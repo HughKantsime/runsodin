@@ -20,6 +20,8 @@ for action, entity, entity_id, actor in [
     ('auth.login', 'user', uid, None),
     ('account.changed', 'user', uid, other),
     ('actor.only', 'printer', 99, uid),
+    ('camera.viewed', 'printer', 99, uid),
+    ('timelapse.viewed', 'timelapse', 99, uid),
     ('actor.null_entity', None, None, uid),
     ('actor.null_id', 'user', None, uid),
     ('both.links', 'user', uid, uid),
@@ -47,7 +49,7 @@ def test_export_preserves_user_entity_and_actor_links(exported):
     result = exported
     entities, actors = result['entities'], result['actors']
     assert {'auth.login', 'account.changed', 'both.links'} <= {r['action'] for r in entities}
-    assert {'job.created', 'actor.only', 'actor.null_entity', 'actor.null_id'} <= {r['action'] for r in actors}
+    assert {'job.created', 'camera.viewed', 'timelapse.viewed', 'actor.only', 'actor.null_entity', 'actor.null_id'} <= {r['action'] for r in actors}
     assert not {r['id'] for r in entities} & {r['id'] for r in actors}
     assert not {'unrelated', 'wrong.entity'} & {r['action'] for r in entities + actors}
     assert all(not {'actor_user_id', 'actor_username', 'actor_auth_kind'} & set(r) for r in entities + actors)

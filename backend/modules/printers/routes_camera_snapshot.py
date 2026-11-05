@@ -3,6 +3,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from core.db import get_db
+from core.audit_views import audit_view, view_recorder
+from fastapi.concurrency import run_in_threadpool
 from core.dependencies import oauth2_scheme
 from core.rbac import require_role
 from modules.printers.camera_routes import get_camera_stream
@@ -34,6 +36,7 @@ async def camera_snapshot(printer_id: int, db: Session = Depends(get_db),
                         raise HTTPException(502, "Camera snapshot too large")
         if not frame.startswith(b"\xff\xd8\xff"):
             raise HTTPException(502, "Camera snapshot unavailable")
+        await run_in_threadpool(audit_view, db, "camera.viewed", "printer", printer_id, "snapshot")
         return Response(bytes(frame), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     except httpx.HTTPError:
         raise HTTPException(502, "Camera snapshot unavailable") from None
@@ -77,6 +80,7 @@ async def camera_mjpeg(printer_id: int, request: Request, db: Session = Depends(
     """Same-origin live fallback with the snapshot route's camera fence."""
     from modules.printers import mjpeg_relay
     from modules.printers.routes import sync_go2rtc_config
+    record = view_recorder(db, "camera.viewed", "printer", printer_id, "mjpeg")
     bind = db.get_bind()
     db.close()  # dependency auth is complete; release its connection before streaming
     # Capture only the carrier that authenticated admission. Never fall back to
@@ -106,5 +110,5 @@ async def camera_mjpeg(printer_id: int, request: Request, db: Session = Depends(
         printer_id, check=lambda: _mjpeg_check(bind, auth_kind, credential, user_id, printer_id),
         sync=sync, claim=claim,
         release=lambda entry: mjpeg_relay.release_stream(mjpeg_relay.STREAMS, entry),
-        revalidate_seconds=MJPEG_REVALIDATE_SECONDS,
+        revalidate_seconds=MJPEG_REVALIDATE_SECONDS, audit=record,
     )

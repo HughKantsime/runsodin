@@ -67,8 +67,8 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 
 ### Audit Trail
 - `audit_logs` records audited password and SSO sign-in outcomes, print-file uploads, designated downloads and exports, print submission and dispatch, and audited administrative changes with timestamps. This is not a record of every request or every administrative action.
-- Request-bound events include user identity and peer IP when available; OIDC success uses the user entity ID and leaves actor columns empty. Failed sign-ins, erased actors, historical rows and unbound processes may lack user identity. Live camera and timelapse playback streams are excluded.
-- Audited downloads fail with 503 before sending payloads if their audit row cannot commit. Background dispatch records request intent before staging and acceptance in the accepted claim transaction; a recording failure after hardware acceptance requires reconciliation.
+- Request-bound events include user identity and peer IP when available; OIDC success uses the user entity ID and details username, also projected into CSV identity columns without a password/JWT auth kind. Failed sign-ins, erased actors, historical rows and unbound processes may lack user identity. Camera starts (including OBS), snapshot reads and timelapse playback use a database-serialized 15-minute window per user/resource/transport; MJPEG renews during streaming.
+- Media views fail with 503 if a due audit cannot commit; established MJPEG streams stop on renewal failure. Automatic dispatch records the scheduler trigger and submitting/approving user IDs when available. Audited downloads fail with 503 before sending payloads if their audit row cannot commit. Background dispatch records request intent before staging and acceptance in the accepted claim transaction; a recording failure after hardware acceptance requires reconciliation.
 - Searchable audit log viewer (platform superadmin only); Enterprise CSV export reports truncation at 5,000 rows.
 
 ## Security Audit History

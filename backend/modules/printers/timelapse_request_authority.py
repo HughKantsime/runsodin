@@ -24,4 +24,6 @@ def selected_evidence(request,db,principal,*,provider,purpose,query_allowed=Fals
             (scopes or kind=='user_api_token') and not token_scope_granted(scopes,'read:printers')
         ):
             raise HTTPException(403,'Insufficient timelapse read permission')
+    from core.audit_actor import bind_verified_actor
+    bind_verified_actor(db, principal)
     return provider.capture_action_credential(request,db,credential,kind=kind,carrier=carrier,purpose=purpose,selected=principal)

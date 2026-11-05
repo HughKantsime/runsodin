@@ -118,7 +118,7 @@ def test_download_audit_before_response(client, review_db, path, action, entity,
 
 
 @pytest.mark.parametrize('failure',[False,True])
-def test_timelapse_download_closes_on_audit_failure_and_playback_is_not_logged(client, review_db, monkeypatch, tmp_path, failure):
+def test_timelapse_download_closes_on_audit_failure_and_playback_is_logged(client, review_db, monkeypatch, tmp_path, failure):
     from modules.printers import camera_routes
     from core.timelapse_fd_response import AdmittedFDResponse
     path = tmp_path/'video.mp4'; path.write_bytes(b'owned video')
@@ -127,7 +127,9 @@ def test_timelapse_download_closes_on_audit_failure_and_playback_is_not_logged(c
         # Owned descriptor substitutes media admission, not audit or response delivery.
         response=AdmittedFDResponse(os.open(path,os.O_RDONLY),size=11)
         responses.append(response);return response
-    monkeypatch.setattr(camera_routes, '_read_lifetime', admitted)
+    provider = camera_routes.require_timelapse_media_provider()
+    monkeypatch.setattr(type(provider), 'admitted_response', admitted)
+    monkeypatch.setattr('modules.printers.timelapse_request_authority.selected_evidence', lambda *a, **k: None)
     listener=refuse_audit(review_db) if failure else None
     try: response=client.get('/timelapses/901/download')
     finally:
@@ -138,7 +140,8 @@ def test_timelapse_download_closes_on_audit_failure_and_playback_is_not_logged(c
     count=len(rows(review_db,'timelapse.downloaded'))
     assert client.get('/timelapses/901/stream').status_code==200
     assert client.get('/timelapses/901/video').status_code==200
-    assert len(rows(review_db,'timelapse.downloaded'))==count
+    assert len(rows(review_db,'timelapse.downloaded'))==count+1
+    assert len(rows(review_db,'timelapse.viewed'))==1
 
 
 @pytest.mark.parametrize('count',[5000,5001])

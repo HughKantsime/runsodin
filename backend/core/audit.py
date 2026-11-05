@@ -28,6 +28,9 @@ def log_audit(
         db.commit()
     """
     from core.log_redaction import redact_structure
+    if action in ('job.dispatched', 'job.dispatch_requested'):
+        from core.audit_dispatch import dispatch_details
+        details = dispatch_details(db, entity_id, details)
     entry = AuditLog(
         action=action,
         entity_type=entity_type,

@@ -33,8 +33,8 @@ def test_oidc_session_and_audit_commit_together(client,review_db,failure):
     if failure:
         assert 'access_token' not in response.json() and 'session' not in response.cookies
         assert not rows(review_db,'auth.login')
-        assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':'auth_failed'},actor=False)
-    else:assert_row(review_db,'auth.login','user',3,{'method':'oidc'},actor=False)
+        assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':'auth_failed','username':'admin'},actor=False)
+    else:assert_row(review_db,'auth.login','user',3,{'method':'oidc','username':'admin'},actor=False)
     assert review_db.execute(text('SELECT count(*) FROM active_sessions')).scalar_one()==(0 if failure else 1)
 
 
@@ -74,7 +74,7 @@ def test_each_exchange_failure_is_audited(client,review_db,monkeypatch,mode,reas
     response=client.post('/auth/oidc/exchange',json={'code':code})
     assert response.status_code==status,response.text
     assert 'access_token' not in response.json() and 'session' not in response.cookies
-    assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':reason},actor=False)
+    assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':reason,'username': ('admin' if mode in ('inactive','revoked','blacklist_db','user_db','session_db','mfa') else None)},actor=False)
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def test_callback_refusals_audited(client,review_db,callback,monkeypatch,mode,re
         monkeypatch.setattr(_CallbackHandler,'exchange_code',fail)
     response=client.get('/auth/oidc/callback',params=callback,follow_redirects=False)
     assert response.status_code==(503 if mode=='factory' else 302)
-    assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':reason},actor=False)
+    assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':reason,'username':None},actor=False)
 
 
 @pytest.mark.parametrize('reason',[
@@ -121,7 +121,7 @@ def test_callback_identity_errors_retain_only_code(client,review_db,callback,mon
     monkeypatch.setattr(routes_oidc,'_resolve_oidc_user',refuse)
     response=client.get('/auth/oidc/callback',params=callback,follow_redirects=False)
     assert response.status_code==302
-    assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':reason},actor=False)
+    assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':reason,'username':None},actor=False)
 
 
 @pytest.mark.parametrize('failure',[False,True])
@@ -136,7 +136,7 @@ def test_oidc_provisioning_audited_atomically(client,review_db,callback,failure)
     if failure:
         assert uid is None and 'oidc_code=' not in response.headers['location']
         assert not rows(review_db,'user.created')
-        assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':'auth_failed'},actor=False)
+        assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':'auth_failed','username':None},actor=False)
     else:
         assert uid is not None
         assert_row(review_db,'user.created','user',uid,{'role':'viewer'},actor=False)

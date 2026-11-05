@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Live camera viewing (WebRTC, MJPEG, snapshots and OBS) and timelapse playback record the viewer and peer IP, with one row per viewer/resource/transport every 15 minutes across workers. Reads are refused when a required audit record cannot be committed; established MJPEG streams stop if renewed auditing fails.
+- Automatic dispatch records its scheduler trigger and the submitting/approving user IDs when available.
+
+### Fixed
+
+- The timelapse video attachment path now audits downloads like the download endpoint.
+- SSO sign-in audit details include the username when known. Successful SSO sign-ins populate the CSV User ID/Username columns without a password/JWT authentication label; account erasure removes the username and IP.
+
 ## [2.0.43] - 2026-11-05
 
 <!-- summary: Foundry, a new look you can switch on; plates up to 256 MiB of G-code; plan a filament load for held jobs before loading it. -->

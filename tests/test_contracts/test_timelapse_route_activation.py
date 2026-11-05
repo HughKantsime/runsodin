@@ -1,12 +1,13 @@
 from core.interfaces.timelapse_media import require_timelapse_media_provider
 """Actual local HTTP authentication and owned publication route activation."""
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from core.db import get_db
-from core.audit_actor import RequestAuditScope
+from core.audit_actor import RequestAuditScope, register_request_session, clear_session
+from core.middleware.audit_actor import AuditActorMiddleware
 from core.auth import create_access_token
 from tests.test_contracts.test_timelapse_lifetime_membership import prepared_source,encoder,frame_writer,review_db,owned_runtime
 
@@ -19,14 +20,13 @@ def activated(prepared_source,monkeypatch):
  register_providers(registry)
  engine,root,tid,_,nonce=prepared_source
  monkeypatch.setattr(routes,'TIMELAPSE_ROOT',str(root))
- app=FastAPI();app.include_router(routes.router)
- def database():
-  with Session(engine) as db:yield db
+ app=FastAPI();app.add_middleware(AuditActorMiddleware);app.include_router(routes.router)
+ def database(request: Request):
+  with Session(engine) as db:
+   register_request_session(db, request)
+   try:yield db
+   finally:clear_session(db)
  app.dependency_overrides[get_db]=database
- @app.middleware('http')
- async def audit(request,call_next):
-  request.scope['odin.private.audit_actor_scope']=RequestAuditScope(None)
-  return await call_next(request)
  with Session(engine) as db:username=db.execute(text('SELECT username FROM users WHERE id=3')).scalar_one()
  token=create_access_token({'sub':username,'role':'admin'})
  with TestClient(app) as client:yield client,engine,root,tid,nonce,token
