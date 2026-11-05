@@ -102,7 +102,9 @@ def test_diagnostic_truth_and_cleanup_use_actual_paho_message_state(republisher,
             calls.append('connect')
             if outcome=='connect_failure':raise RuntimeError('Synthetic failure')
             return mqtt.MQTT_ERR_NO_CONN if outcome=='connect_rc' else 0
-        def loop_start(self):calls.append('start')
+        def loop_start(self):
+            calls.append('start')
+            self.on_connect(self,None,None,mqtt.ReasonCode(mqtt.PacketTypes.CONNACK,identifier=0))
         def publish(self,*a,**k):
             calls.append('publish')
             if outcome=='publish_failure':raise RuntimeError('Synthetic failure')
@@ -225,3 +227,61 @@ def test_disabled_republish_skips_alert_scope_and_job_lookups(republisher, monke
     republisher._on_alert_dispatched(SimpleNamespace(data={"alert_type": "job_submitted", "job_id": 1}))
     republisher._on_job_event(SimpleNamespace(event_type="job.completed", data={"printer_id": 9}))
     assert published == []
+
+
+def test_client_awaiting_connack_is_not_retired(configured, monkeypatch):
+    import time
+    calls = []
+    class Connecting:
+        def is_connected(self): return False
+        def loop_stop(self): calls.append('stop')
+        def disconnect(self): calls.append('disconnect')
+    client = Connecting()
+    monkeypatch.setattr(configured, '_client', client)
+    monkeypatch.setattr(configured, '_client_started', time.monotonic())
+    assert configured._get_client() is client and calls == []
+    monkeypatch.setattr(configured, '_client_started', time.monotonic() - configured._CONNECT_GRACE_SECONDS - 1)
+    import paho.mqtt.client as mqtt
+    from core import itar
+    monkeypatch.setattr(mqtt, 'Client', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('synthetic-noncredential')))
+    monkeypatch.setattr(itar, 'enforce_host_destination', lambda *a, **k: None)
+    assert configured._get_client() is None and calls == ['stop', 'disconnect']
+
+
+def test_connection_route_keeps_the_event_loop_free_while_it_waits(monkeypatch):
+    """The stub finishes only after the event loop has run other work, which a route calling
+    it directly on the loop can't allow: it would hold the loop until the stub gave up."""
+    import asyncio
+    import threading
+
+    import httpx
+    from fastapi import FastAPI
+
+    from core.dependencies import get_current_user
+    from modules.notifications import mqtt_republish
+    from modules.system import routes_config
+
+    entered, loop_ran = threading.Event(), threading.Event()
+
+    def connection_test(**_kwargs):
+        entered.set()
+        return {"success": loop_ran.wait(timeout=3), "message": "stub"}
+
+    monkeypatch.setattr(mqtt_republish, "test_connection", connection_test)
+    monkeypatch.setattr(routes_config, "mqtt_republish", mqtt_republish)
+    app = FastAPI()
+    app.include_router(routes_config.router)
+    app.dependency_overrides[get_current_user] = lambda: {"id": 1, "role": "admin", "group_id": None}
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://odin.test") as client:
+            request = asyncio.create_task(client.post("/config/mqtt-republish/test", json={"host": "broker.test"}))
+            while not entered.is_set() and not request.done():
+                await asyncio.sleep(0.01)
+            loop_ran.set()
+            return await request
+
+    response = asyncio.run(scenario())
+    assert response.status_code == 200, response.text
+    assert response.json() == {"success": True, "message": "stub"}

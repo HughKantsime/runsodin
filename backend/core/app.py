@@ -21,7 +21,7 @@ _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.0.36"
+    __version__ = "2.0.41"
 
 
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
@@ -399,6 +399,8 @@ def create_app() -> FastAPI:
     # Lifespan (DB init, event bus, background tasks)
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        from core.interfaces.filament_ownership import log_external_filament_accounting
+        log_external_filament_accounting(logging.getLogger("uvicorn.error"))
         from core.event_bus import get_event_bus
         from core.ws_hub import subscribe_to_bus as ws_subscribe
         from modules.printers import register_subscribers as printers_register

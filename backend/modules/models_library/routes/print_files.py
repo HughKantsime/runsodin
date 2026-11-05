@@ -18,6 +18,7 @@ from modules.models_library.schemas import FileScheduleOptions
 
 from core.quota import charge_job_quota
 from core.display_names import filename_stem, display_names
+from core.base import stored_filament_value
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
@@ -127,7 +128,7 @@ async def upload_3mf(
     """Upload and parse a print file (.3mf, .gcode, or .bgcode)."""
     from modules.models_library import print_file_meta as pfm
 
-    from core.print_file_binding import bind_file
+    from core.print_file_binding import bind_file, clear_binding
     if target_printer_id is not None:
         _get_accessible_printer(db, target_printer_id, current_user, allow_shared=True)
 
@@ -241,7 +242,7 @@ async def upload_3mf(
 
             fil_type = "PLA"
             if metadata.filaments:
-                fil_type = metadata.filaments[0].type or "PLA"
+                fil_type = stored_filament_value(metadata.filaments[0].type)
 
             if existing_model:
                 # Attach as variant to existing model
@@ -306,6 +307,8 @@ async def upload_3mf(
 
             if target_printer_id is not None:
                 _get_accessible_printer(db, target_printer_id, current_user, allow_shared=True)
+            # This file is new, so a binding here was left by a deleted one: a rebuilt database can reuse its id.
+            clear_binding(db, file_id)
             bind_file(db, file_id, target_printer_id)
             log_audit(db, "print_file_uploaded", "print_file", file_id, {"target_printer_id": target_printer_id})
             db.flush()
@@ -409,6 +412,8 @@ async def upload_3mf(
 
             if target_printer_id is not None:
                 _get_accessible_printer(db, target_printer_id, current_user, allow_shared=True)
+            # This file is new, so a binding here was left by a deleted one: a rebuilt database can reuse its id.
+            clear_binding(db, file_id)
             bind_file(db, file_id, target_printer_id)
             log_audit(db, "print_file_uploaded", "print_file", file_id, {"target_printer_id": target_printer_id})
             db.flush()

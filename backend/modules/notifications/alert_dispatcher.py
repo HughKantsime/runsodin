@@ -386,8 +386,16 @@ def stage_alert(
     spool_id: int = None,
     metadata: dict = None,
     target_user_ids: List[int] = None,
+    admin_database_alert: bool = False,
 ):
-    """Stage tenant-scoped in-app alerts and immutable delivery intent without committing."""
+    """Stage tenant-scoped in-app alerts and immutable delivery intent without committing.
+
+    admin_database_alert is for platform admins, about the database itself: damage, or no backups. It
+    can't wait for morning, so quiet hours don't hold it. It names no printer, job or spool and its
+    text is fixed, so it holds no student data and Education's phone boundary doesn't apply to it.
+    """
+    if admin_database_alert and not (printer_id is None and job_id is None and spool_id is None):
+        raise ValueError("An admin database alert names no printer, job or spool")
     # Monitor daemons import only what they use; Alert's relationships need every mapped class.
     from core.schema.bootstrap import import_all_models
     import_all_models()
@@ -407,7 +415,7 @@ def stage_alert(
     title, message, metadata = humanize(db, alert_type, title, message, printer_id, job_id, metadata)
 
     # Quiet hours: save alert to DB but suppress external notifications
-    _suppress_external = should_suppress_notification(org_id=_printer_org_id, db=db)
+    _suppress_external = not admin_database_alert and should_suppress_notification(org_id=_printer_org_id, db=db)
 
     db.flush()  # Pending alerts must participate even with SessionLocal(autoflush=False).
     from core.alert_preferences import seed_attention_preferences
@@ -471,7 +479,7 @@ def stage_alert(
     return StagedAlert(alerts_created, seeded_preferences or alerts_created > 0 or deferred_recorded > 0 or
                        (job_id is not None and alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START)), alert_type, severity, title, message,
                        printer_id, job_id, spool_id, _printer_org_id,
-                       _suppress_external or (bool(preferences) and deduplicated == len(preferences)), tuple(push_users), tuple(email_users), tuple(in_app_users))
+                       _suppress_external or (bool(preferences) and deduplicated == len(preferences)), tuple(push_users), tuple(email_users), tuple(in_app_users), admin_database_alert)
 
 
 @dataclass(frozen=True, repr=False)
@@ -490,6 +498,7 @@ class StagedAlert:
     push_users: tuple[int, ...]
     email_users: tuple[int, ...]
     in_app_users: tuple[int, ...]
+    admin_database_alert: bool = False
 
 
 def deliver_staged_alert(db: Session, plan: Optional[StagedAlert]):

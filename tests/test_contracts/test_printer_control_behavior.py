@@ -1,4 +1,6 @@
 """HTTP printer controls with real auth/database, command transport substituted."""
+import json
+
 import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_api_token_delegation_behavior import token_client,review_db
@@ -122,3 +124,59 @@ def test_resource_write_token_commands_once(control_client,endpoint,body,command
     client,issue,calls=control_client
     assert client.post(f'/printers/299/{endpoint}',headers=issue(['write:printers']),json=body).status_code==200
     assert calls==[(299,command,args)]
+
+
+def _resume_audit(review_db):
+    return review_db.execute(text("SELECT action,details FROM audit_logs WHERE entity_type='printer' AND entity_id=299 ORDER BY id")).fetchall()
+
+
+def _latest_token_id(review_db):
+    return review_db.execute(text("SELECT id FROM api_tokens ORDER BY id DESC LIMIT 1")).scalar()
+
+
+def _pause_printer(review_db):
+    review_db.execute(text("UPDATE printers SET gcode_state='PAUSE' WHERE id=299"))
+    review_db.commit()
+
+
+@pytest.mark.parametrize('scopes',[['write:printers'],['write'],['agent:write'],['admin']])
+def test_resume_reaches_transport_once_and_is_audited(control_client,review_db,scopes):
+    client,issue,calls=control_client
+    _pause_printer(review_db)
+    response=client.post('/printers/299/resume',headers=issue(scopes))
+    assert response.status_code==200
+    assert [call[:2] for call in calls]==[(299,'resume_print')]
+    rows=_resume_audit(review_db)
+    assert [row[0] for row in rows]==['printer.resume_requested']
+    assert json.loads(rows[0][1])=={'actor_token_id':_latest_token_id(review_db)}
+    assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=299")).scalar()=='RUNNING'
+
+
+@pytest.mark.parametrize('scopes',[['read:printers'],['read'],['write:jobs'],['write:models'],['agent:read']])
+def test_resume_refuses_other_scopes_with_no_command_or_audit(control_client,review_db,scopes):
+    client,issue,calls=control_client
+    _pause_printer(review_db)
+    assert client.post('/printers/299/resume',headers=issue(scopes)).status_code==403
+    assert calls==[]
+    assert _resume_audit(review_db)==[]
+    assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=299")).scalar()=='PAUSE'
+
+
+def test_failed_resume_send_leaves_a_trace_and_no_state_change(control_client,review_db,monkeypatch):
+    client,issue,calls=control_client
+    from modules.printers import routes_controls
+    _pause_printer(review_db)
+    monkeypatch.setattr(routes_controls,'_send_printer_command',lambda printer,command:(calls.append((printer.id,command)),False)[1])
+    assert client.post('/printers/299/resume',headers=issue(['write:printers'])).status_code==503
+    assert calls==[(299,'resume_print')]
+    rows=_resume_audit(review_db)
+    assert [row[0] for row in rows]==['printer.resume_failed']
+    assert json.loads(rows[0][1])=={'actor_token_id':_latest_token_id(review_db)}
+    assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=299")).scalar()=='PAUSE'
+
+
+@pytest.mark.parametrize('scopes',[['write:printers'],['write']])
+def test_write_printers_opens_resume_but_not_pause(control_client,scopes):
+    client,issue,calls=control_client
+    assert client.post('/printers/299/pause',headers=issue(scopes)).status_code==403
+    assert calls==[]

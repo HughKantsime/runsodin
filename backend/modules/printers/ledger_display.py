@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
+import stat
 import threading
 import time
+from contextlib import nullcontext
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -26,9 +30,13 @@ from core.webhook_utils import pinned_device_destination
 log = logging.getLogger("odin.filament_ledger_display")
 
 _CACHE_SECONDS = 15.0
-# One deadline for the whole refresh: DNS resolution, connect, headers and body.
+# Maximum refresh wait; late workers cannot publish, but may outlive it.
 _REQUEST_TIMEOUT = 2.0
 _MAX_RESPONSE_BYTES = 512 * 1024
+_MAX_TOOLS = 64
+_MAX_TOOL_INDEX = 255
+_MAX_LABEL_CHARS = 256
+_MAX_MATERIAL_CHARS = 1024
 _cache_lock = threading.Lock()
 _transport_lock = threading.Lock()
 _cached_url: str | None = None
@@ -68,6 +76,13 @@ def ensure_local_filaments(printer_id: int) -> None:
     ensure_local_filament_management(printer_id)
 
 
+def _valid_text(value: Any, limit: int) -> None:
+    """Reject unsafe or oversized feed text before response-model serialization."""
+    if not isinstance(value, str) or len(value) > limit:
+        raise ValueError("invalid display text")
+    value.encode("utf-8", errors="strict")
+
+
 def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("printers"), list):
         raise ValueError("invalid display payload")
@@ -76,22 +91,29 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
         if not isinstance(printer, dict) or not isinstance(printer.get("key"), str):
             raise ValueError("invalid display printer")
         tools = printer.get("tools")
-        if not isinstance(tools, list):
+        if not isinstance(tools, list) or len(tools) > _MAX_TOOLS:
             raise ValueError("invalid display tools")
         key = printer["key"]
+        _valid_text(key, _MAX_LABEL_CHARS)
         if key in result:
             raise ValueError("duplicate display printer key")
         normalized_tools = []
         seen_indexes = set()
         for tool in tools:
-            if not isinstance(tool, dict) or type(tool.get("tool_index")) is not int or tool["tool_index"] < 0:
+            if not isinstance(tool, dict) or type(tool.get("tool_index")) is not int or not 0 <= tool["tool_index"] <= _MAX_TOOL_INDEX:
                 raise ValueError("invalid display tool")
             if tool["tool_index"] in seen_indexes:
                 raise ValueError("duplicate display tool index")
             seen_indexes.add(tool["tool_index"])
+            if isinstance(tool.get("display_name"), str):
+                _valid_text(tool["display_name"], _MAX_LABEL_CHARS)
             status = tool.get("spool_status")
             spool_id = tool.get("spool_id")
             spool = tool.get("spool")
+            if type(spool_id) is int and not -(2**63) <= spool_id < 2**63:
+                raise ValueError("display spool identity out of range")
+            if isinstance(spool_id, str):
+                _valid_text(spool_id, _MAX_LABEL_CHARS)
             if status not in {"mapped", "unmapped", "unavailable"}:
                 raise ValueError("invalid spool mapping status")
             if status == "mapped":
@@ -102,8 +124,8 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
                 if spool.get("id") != spool_id:
                     raise ValueError("mapped spool identity mismatch")
                 for field in ("material", "name", "brand", "color_hex"):
-                    if spool.get(field) is not None and not isinstance(spool[field], str):
-                        raise ValueError("invalid mapped spool field")
+                    if spool.get(field) is not None:
+                        _valid_text(spool[field], _MAX_MATERIAL_CHARS if field == "material" else _MAX_LABEL_CHARS)
                 color = spool.get("color_hex")
                 if color is not None and not re.fullmatch(r"#?[0-9a-fA-F]{6}", color):
                     raise ValueError("invalid mapped spool color")
@@ -122,6 +144,29 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _display_target(url: str) -> tuple[str, str | None]:
+    """Return the fixed feed endpoint and a validated local socket, if any."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "unix":
+        return f"{url}/api/filament-display", None
+    # Use a literal path; never decode or normalize a socket target.
+    if (
+        not url.startswith("unix:///") or parsed.netloc
+        or "?" in url or "#" in url
+        or any(part in {"", ".", ".."} for part in parsed.path.split("/")[1:])
+        or any(ord(char) < 33 or ord(char) == 127 for char in url)
+        or "%" in parsed.path or "\\" in parsed.path
+    ):
+        raise ValueError("display socket must be an absolute local path")
+    target = os.stat(parsed.path, follow_symlinks=False)
+    if not stat.S_ISSOCK(target.st_mode):
+        raise ValueError("display target must be a socket")
+    directory = os.stat(os.path.dirname(parsed.path), follow_symlinks=False)
+    if not stat.S_ISDIR(directory.st_mode) or directory.st_mode & stat.S_IWOTH:
+        raise ValueError("display socket directory must not be writable by others")
+    return "http://localhost/api/filament-display", parsed.path
+
+
 def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str, Any]]]:
     """Fetch and validate one display payload before ``deadline``.
 
@@ -129,20 +174,27 @@ def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str,
     unavailable result without exposing response bodies, URLs or exception
     details to callers.
     """
-    endpoint = f"{url}/api/filament-display"
     try:
-        with pinned_device_destination(endpoint) as ips:
+        endpoint, socket_path = _display_target(url)
+        destination = nullcontext(None) if socket_path else pinned_device_destination(endpoint)
+        with destination as ips:
             # Validate the exact addresses the connection will use.
-            if not ips or not all(is_private_destination(ip) for ip in ips):
+            if socket_path is None and (not ips or not all(is_private_destination(ip) for ip in ips)):
                 raise ValueError("display destination must be private")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError
+            transport = {}
+            if socket_path is not None:
+                transport["transport"] = httpx.HTTPTransport(
+                    uds=socket_path, retries=0, trust_env=False,
+                )
             with httpx.Client(
                 timeout=httpx.Timeout(remaining),
                 follow_redirects=False,
                 trust_env=False,
                 headers={"Accept-Encoding": "identity"},
+                **transport,
             ) as client:
                 with client.stream("GET", endpoint) as response:
                     if response.status_code != 200:
@@ -231,7 +283,9 @@ def _fetch_printers() -> tuple[bool, dict[str, dict[str, Any]]]:
     provider.
     """
     global _refreshing_url
-    url = (getattr(settings, "filament_ledger_url", None) or "").strip().rstrip("/")
+    url = (getattr(settings, "filament_ledger_url", None) or "").strip()
+    if not url.lower().startswith("unix:"):
+        url = url.rstrip("/")
     if not url:
         return False, {}
 
@@ -299,7 +353,7 @@ def _slot_from_tool(tool: dict[str, Any]) -> dict[str, Any]:
         "material_type": raw_material,
         "display_name": display_name or None,
         "mapping_status": status,
-        "external_spool_id": spool.get("id") if spool else None,
+        "external_spool_id": tool["spool_id"] if spool else None,
     }
 
 

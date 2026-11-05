@@ -442,13 +442,13 @@ jobs:
             exit "$status"
           }
           trap record_failure ERR
-          manifest_json="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$TARGET_DIGEST" --format '{{json .Manifest}}')"
-          MANIFEST_JSON="$manifest_json" python3.11 -P <<'PY'
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P <<'PY'
           import json, os
-          payload=json.loads(os.environ["MANIFEST_JSON"])
-          rows={(item.get("platform",{}).get("os"),item.get("platform",{}).get("architecture")):item.get("digest") for item in payload.get("manifests",[])}
-          assert set(rows)=={("linux","amd64"),("linux","arm64")}
-          json.dump([{"os":os_,"architecture":arch,"digest":rows[(os_,arch)],"status":"passed"} for os_,arch in (("linux","amd64"),("linux","arm64"))],open(os.environ["MUTATION_ROOT"]+"/platforms.json","w"))
+          from ops.release_control.mutation_workflow import publication_platforms
+          rows = publication_platforms(os.environ["IMAGE_REPOSITORY"], os.environ["TARGET_DIGEST"])
+          expected = {("linux", "amd64"), ("linux", "arm64")}
+          assert {(row["os"], row["architecture"]) for row in rows} == expected
+          json.dump(rows, open(os.environ["MUTATION_ROOT"]+"/platforms.json", "w"))
           PY
           for arch in amd64 arm64; do
             name="odin-publication-${GITHUB_RUN_ID}-${arch}"
@@ -464,6 +464,16 @@ jobs:
             test "$healthy" = 1
             observed="$(docker exec "$name" python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8000/health"))["version"])')"
             test "$observed" = "$INPUT_VERSION"
+            # The library this architecture really loaded, and a database guardian that has finished
+            # a check: CV04 only boots one architecture, so an import crash on the other shows here.
+            docker exec "$name" python3 -I -S /usr/local/libexec/odin-sqlite-image-check.py
+            guardian=""
+            for _ in $(seq 1 300); do
+              guardian="$(docker exec "$name" python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8000/health"))["database_integrity"]["status"])')" || guardian=""
+              if [ "$guardian" = ok ] || [ "$guardian" = failed ]; then break; fi
+              sleep 2
+            done
+            test "$guardian" = ok
             docker rm -f "$name" >/dev/null
           done
           python3.11 -P <<'PY'

@@ -291,6 +291,146 @@ def test_change_template_exceptions_cannot_hide_other_sources_or_shapes(command)
         inspect_ams_sources(payload(code=code + command + '\n'))
 
 
+def cross_nozzle_file(filament_map, *commands, nozzle_map=('1',), plate_map=None):
+    """A two-colour H2D slice across both nozzles, shaped like the slicer CLI's output."""
+    project = {'filament_type': ['PLA', 'PLA'], 'filament_map': list(filament_map),
+               'filament_nozzle_map': list(nozzle_map), 'physical_extruder_map': ['1', '0'],
+               'nozzle_diameter': ['0.4', '0.4'], 'nozzle_volume_type': ['High Flow', 'High Flow']}
+    xml = ('<config><plate><metadata key="index" value="1"/>'
+           f'<metadata key="filament_maps" value="{plate_map or " ".join(filament_map)}"/>'
+           '<filament id="1" type="PLA" used_g="206.93" used_m="68.28" nozzle_diameter="0.40" volume_type="High Flow"/>'
+           '<filament id="2" type="PLA" used_g="8.28" used_m="2.73" nozzle_diameter="0.40" volume_type="High Flow"/></plate></config>')
+    code = ('; filament_type = PLA;PLA\nT1001\nM620 S0A H-1 ; switch material if AMS exist\nT0 H-1\nM621 S0A\n'
+            'M620.11 P0 I0 B-1 E0\nM620.11 K1 I0 B-1 R10 F997.797\nM620.11 S1 L0 I0 B-1 R10 D8 E-10 F997.797\n'
+            'M620 S1A H-1\nT1 H-1\nM621 S1A\n' + ''.join(command + '\n' for command in commands) + 'T65535\nT65279\n')
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, 'w') as package:
+        package.writestr('Metadata/slice_info.config', xml)
+        package.writestr('Metadata/project_settings.config', json.dumps(project))
+        package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': [0, 1]}))
+        package.writestr('Metadata/plate_1.gcode', code)
+    return raw.getvalue()
+
+
+@pytest.mark.parametrize('filament_map,commands,expected', [
+    # Real prints: the fireplace (filament_map 2 1) and the dual cap (filament_map 1 2).
+    (('2', '1'), ('M620.11 P0 I1 B0 E0', 'M620.11 K1 I1 B0 R10 F997.797', 'M620.11 S1 L0 I1 B0 R10 D8 E-10 F997.797',
+                  'M620.11 P0 I0 B1 E0', 'M620.11 K1 I0 B1 R10 F997.797'), {0: 0, 1: 1}),
+    (('1', '2'), ('M620.11 P0 I1 B1 E0', 'M620.11 K1 I1 B1 R10 F997.797', 'M620.11 S1 L0 I1 B1 R10 D8 E-10 F997.797'),
+     {0: 1, 1: 0}),
+    # One nozzle, B-1 only in this file: the second source's nozzle is now known.
+    (('1', '1'), (), {0: 1, 1: 1}),
+])
+def test_cli_slice_across_nozzles_is_verified_with_each_sources_nozzle(filament_map, commands, expected):
+    result = inspect_ams_sources(cross_nozzle_file(filament_map, *commands))
+    assert {source.source_index: source.extruder for source in result.sources} == expected
+
+
+@pytest.mark.parametrize('command', [
+    'M620.11 P0 I0 B0 E0',  # Source 1 is on hotend 1 in this file.
+    'M620.11 K1 I1 B1 R10 F997.797', 'M620.11 S1 L0 I1 B1 R10 D8 E-10 F997.797',
+    'M620.11 P0 I2 B0 E0',  # Not a source of this file.
+    'M620.11 P0 I1 B2 E0', 'M620.11 P2 I1 B0 E0', 'M620.11 K1 I1 B0', 'M620.11 S1 L2 I1 B0 E-10 F300',
+    'M620.11 P0 I1 B0 E0 S1',
+])
+def test_cross_nozzle_commands_must_agree_with_the_files_own_map(command):
+    assert inspect_ams_sources(cross_nozzle_file(('2', '1'), 'M620.11 P0 I1 B0 E0'))
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(cross_nozzle_file(('2', '1'), command))
+
+
+def test_cross_nozzle_command_must_name_a_source_of_this_file():
+    # filament_map has an entry for index 2, so only the source check can refuse it.
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(cross_nozzle_file(('2', '1', '1'), 'M620.11 P0 I2 B0 E0'))
+
+
+def test_cross_nozzle_commands_stay_refused_on_a_single_source_file():
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, 'w') as package:
+        package.writestr('Metadata/slice_info.config', '<config><plate><metadata key="index" value="1"/>'
+                         '<filament id="1" type="PLA" used_g="10"/></plate></config>')
+        package.writestr('Metadata/project_settings.config', json.dumps(
+            {'filament_type': ['PLA'], 'filament_map': ['1'], 'filament_nozzle_map': ['1'], 'physical_extruder_map': ['1', '0']}))
+        package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': [0]}))
+        package.writestr('Metadata/plate_1.gcode', '; filament_type = PLA\nM620 S0A\nT0\nM621 S0A\nM620.11 P0 I0 B0 E0\n')
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(raw.getvalue())
+
+
+def test_cross_nozzle_command_needs_a_filament_map_to_agree_with():
+    from core.ams_source_inspection import _cross_nozzle_agrees
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {}, {0, 1}) is False
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {'filament_map': ['2', '3']}, {0, 1}) is False
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B-1 E0', {'filament_map': ['2', '1']}, {0, 1}) is None
+
+
+@pytest.mark.parametrize('nozzle_map,plate_map', [
+    (('2', '2'), None),  # A full map still has to agree: source 1 would be on another nozzle.
+    (('1', '1'), None),
+    (('1',), '1 1'),  # The plate's own map still has to agree.
+])
+def test_only_the_one_entry_default_nozzle_map_is_ignored(nozzle_map, plate_map):
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(cross_nozzle_file(('2', '1'), nozzle_map=nozzle_map, plate_map=plate_map))
+
+
+@pytest.mark.parametrize('protocol', ['legacy', 'v2'])
+@pytest.mark.parametrize('filament_map,commands,accepted', [
+    (('2', '1'), ('M620.11 P0 I1 B0 E0', 'M620.11 P0 I0 B1 E0'), True),
+    # The same trays, but the file puts each source on the other nozzle.
+    (('1', '2'), ('M620.11 P0 I1 B1 E0',), False),
+])
+def test_h2d_cli_slice_across_nozzles_dispatches_only_on_the_right_trays(review_db, tmp_path, monkeypatch, protocol,
+                                                                         filament_map, commands, accepted):
+    from modules.printers import dispatch
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D', mapping=[1, 4], materials=('PLA', 'PLA'))
+    path.write_bytes(cross_nozzle_file(filament_map, *commands))
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'), {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    events = []
+    sent = transport(monkeypatch, path, protocol, events)
+    owned_read(monkeypatch, engine, report, events, slots=(2, 5))
+    result = dispatch.dispatch_job(59, 53)
+    assert result[0] is accepted, result
+    if accepted:
+        assert sent[0]['ams_mapping'] == [1, 4]
+    else:
+        assert not sent and 'ams_binding_mismatch' in result[1]
+
+
+@pytest.mark.parametrize('filament_map', [('2', '1'), ('1', '2'), ('1', '1')])
+def test_nozzle_gate_and_source_inspection_agree_on_a_cli_slice(tmp_path, filament_map):
+    from modules.printers.dispatch_capability_payload import inspect_payload
+    path = tmp_path / 'slice.3mf'
+    path.write_bytes(cross_nozzle_file(filament_map))
+    facts = inspect_payload(path, 1, 'H2D')
+    sources = inspect_ams_sources(path.read_bytes()).sources
+    assert not facts['incomplete']
+    assert {int(index): extruder for index, extruder in facts['filament_map'].items()} == {
+        source.source_index: source.extruder for source in sources}
+    assert {requirement['extruder'] for requirement in facts['requirements']} == {source.extruder for source in sources}
+
+
+@pytest.mark.parametrize('change,side', [
+    ({'id': 0, 'diameter': .6}, 'right'), ({'id': 1, 'diameter': .6}, 'left'),
+    ({'id': 0, 'type': 'HS01'}, 'right'), ({'id': 1, 'type': 'HS01'}, 'left'),
+])
+def test_cli_slice_compares_both_installed_nozzles(review_db, tmp_path, monkeypatch, change, side):
+    from modules.printers import dispatch
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D', mapping=[1, 4], materials=('PLA', 'PLA'))
+    path.write_bytes(cross_nozzle_file(('2', '1'), 'M620.11 P0 I1 B0 E0', 'M620.11 P0 I0 B1 E0'))
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'), {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    report['device']['nozzle']['info'][change['id']].update(change)
+    events = []
+    sent = transport(monkeypatch, path, 'legacy', events)
+    owned_read(monkeypatch, engine, report, events, slots=(2, 5))
+    result = dispatch.dispatch_job(59, 53)
+    assert not result[0] and not sent, result
+    assert 'nozzle_mismatch' in result[1] and side in result[1]
+
+
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 @pytest.mark.parametrize('change', ['mapping', 'hold', 'stale'])
 def test_final_command_gate_rechecks_original_all_tray_proof(review_db, tmp_path, monkeypatch, protocol, change):
@@ -367,3 +507,141 @@ def test_h2d_gcode_nozzle_source_declaration_must_agree(command, accepted):
     else:
         with pytest.raises(ValueError):
             inspect_ams_sources(payload(extruders=[0, 1], code=code))
+
+
+P2S_FIXTURE = Path(__file__).parents[1] / 'fixtures/telemetry/p2s-pla-source-sanitized.3mf'
+
+
+def p2s_change(old, new, *, long_retraction=False):
+    """What the stock P2S change template gave in a real 02.08.02.61 two-filament slice."""
+    leaving = f'M620.11 P1 L0 I{old} E-18 F523.843' if long_retraction else f'M620.11 P0 L0 I{old} E0'
+    return [f'M620 S{new}A', 'M620.10 A0 F523.843 L0 H0.4 T240 P220 S1', 'M620.10 A1 F523.843 L0 H0.4 T240 P220 S1',
+            'M620.15 C220', leaving, f'M620.11 K0 I{old} R0', f'T{new}', 'M620.10 R2', f'M621 S{new}A', f'M620.6 I{new} W1']
+
+
+def p2s_lines(first=0, second=1, *, long_retraction=False):
+    return ['M620 M', 'M620.10 A0 F523.843 H0.4 T240 P220 S1', 'M620.10 A1 F523.843 H0.4 T240 P220 S1',
+            f'M620.11 P0 L0 I{first} E0', f'M620.11 K0 I{first} R0', f'M620 S{first}A', f'T{first}', f'M621 S{first}A',
+            f'M620 S{first}A', f'T{first}', f'M621 S{first}A', f'M620.6 I{first} W1',
+            *p2s_change(first, second, long_retraction=long_retraction), *p2s_change(second, first, long_retraction=long_retraction),
+            '; MACHINE_END_GCODE_START', 'M620 S65535', 'T65535', 'M621 S65535']
+
+
+def p2s_file(lines=None, *, ids=(0, 1), model='Bambu Lab P2S'):
+    """G-code lines from the slicer; the CLI's own metadata drops the second filament, so this
+    follows the real single-source app file's metadata with both filaments listed."""
+    profiles = ['PLA'] * (max(ids) + 1)
+    project = {'filament_map': ['1'] * len(profiles), 'filament_nozzle_map': ['0', '0'], 'filament_type': profiles,
+               'nozzle_diameter': ['0.4'], 'nozzle_volume_type': ['Standard'], 'physical_extruder_map': ['0'],
+               'printer_model': model}
+    xml = ('<config><plate><metadata key="index" value="1"/>'
+           f'<metadata key="filament_maps" value="{" ".join(project["filament_map"])}"/>' + ''.join(
+               f'<filament id="{index + 1}" type="PLA" used_g="{10 + index}" nozzle_diameter="0.40" volume_type="Standard"/>'
+               for index in ids) + '</plate></config>')
+    code = [f'; filament_type = {";".join(profiles)}', f'; printer_model = {model}',
+            *(p2s_lines(*ids) if lines is None else lines)]
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, 'w') as package:
+        package.writestr('Metadata/slice_info.config', xml)
+        package.writestr('Metadata/project_settings.config', json.dumps(project))
+        package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': list(ids), 'bbox_all': [55.8, 97.3, 142.9, 152.3]}))
+        package.writestr('Metadata/plate_1.gcode', '\n'.join(code) + '\n')
+    return raw.getvalue()
+
+
+@pytest.mark.parametrize('ids', [(0, 1), (1, 3)])
+@pytest.mark.parametrize('long_retraction', [False, True])
+def test_p2s_two_source_template_is_verified(ids, long_retraction):
+    result = inspect_ams_sources(p2s_file(p2s_lines(*ids, long_retraction=long_retraction), ids=ids))
+    assert [(source.source_index, source.material, source.extruder) for source in result.sources] == [
+        (ids[0], 'PLA', None), (ids[1], 'PLA', None)]
+
+
+def p2s_replaced(index, line):
+    lines = p2s_lines()
+    lines[index] = line
+    return lines
+
+
+FIRST_CHANGE = 12  # M620 S1A, opening the change from source 0 to source 1.
+
+
+@pytest.mark.parametrize('lines', [
+    # The start template names the source it loads, not another of this file's.
+    p2s_replaced(3, 'M620.11 P0 L0 I1 E0'), p2s_replaced(4, 'M620.11 K0 I1 R0'), p2s_replaced(11, 'M620.6 I1 W1'),
+    # A change names the source it leaves, and M620.6 the one it loaded.
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P0 L0 I1 E0'), p2s_replaced(FIRST_CHANGE + 5, 'M620.11 K0 I1 R0'),
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L0 I1 E-18 F523.843'), p2s_replaced(FIRST_CHANGE + 9, 'M620.6 I0 W1'),
+    # A source the file doesn't declare.
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P0 L0 I2 E0'), p2s_replaced(FIRST_CHANGE + 9, 'M620.6 I2 W1'),
+    p2s_replaced(FIRST_CHANGE, 'M620 S2A'), p2s_replaced(FIRST_CHANGE + 6, 'T2'), p2s_replaced(FIRST_CHANGE + 8, 'M621 S2A'),
+    # Long retraction's other shapes.
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L0 I0 E18 F523.843'), p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L0 I0 E-18'),
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L1 I0 E-18 F523.843'), p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L0 I0 E--18 F523.843'),
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L0 I0 E-18 F-1'), p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P2 L0 I0 E-18 F523.843'),
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P1 L0 I00 E-18 F523.843'),
+    # Other models' change lines.
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P0 I0 B-1 E0'), p2s_replaced(FIRST_CHANGE + 4, 'M620.11 P0 I0 B0 E0'),
+    p2s_replaced(FIRST_CHANGE + 4, 'M620.11 S1 I0 E-10 F300'), p2s_replaced(FIRST_CHANGE + 9, 'M620.6 I1 H-1 W1'),
+    p2s_replaced(FIRST_CHANGE + 3, 'M620 Q3'), p2s_replaced(FIRST_CHANGE + 3, 'M620.1 X30 Y50 F21000 P0'),
+    # The pull back before the print is over, or a tool change after it.
+    p2s_lines()[:FIRST_CHANGE] + ['M620 S65535', 'T65535', 'M621 S65535'] + p2s_lines()[FIRST_CHANGE:-3],
+    p2s_lines() + p2s_change(0, 1),
+])
+def test_p2s_two_source_near_miss_lines_refuse(lines):
+    assert inspect_ams_sources(p2s_file())
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(p2s_file(lines))
+
+
+@pytest.mark.parametrize('model', ['Bambu Lab X1 Carbon', 'Bambu Lab P1S', 'Bambu Lab A1', 'Bambu Lab H2D', 'Bambu Lab X2D', 'Bambu Lab A2L'])
+def test_p2s_two_source_template_refuses_on_another_model(model):
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(p2s_file(model=model))
+
+
+def p2s_dispatch_setup(review_db, tmp_path, monkeypatch, archive, *, mapping, ids=(0, 1), printer='P2S'):
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model=printer, mapping=mapping,
+                                       ids=ids, materials=('PLA',) * len(ids))
+    path.write_bytes(archive)
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'), {'sha': hashlib.sha256(archive).hexdigest()})
+    # These files need a Standard nozzle; the shared report has High Flow.
+    report['device']['nozzle']['info'] = [{'id': 0, 'type': 'HS01', 'diameter': .4}]
+    return engine, path, report
+
+
+@pytest.mark.parametrize('protocol', ['legacy', 'v2'])
+@pytest.mark.parametrize('ids,mapping,slots', [((0,), [1], (2,)), ((0, 1), [1, 4], (2, 5))])
+def test_p2s_dispatches_through_the_real_path(review_db, tmp_path, monkeypatch, protocol, ids, mapping, slots):
+    from modules.printers import dispatch
+    archive = P2S_FIXTURE.read_bytes() if len(ids) == 1 else p2s_file()
+    engine, path, report = p2s_dispatch_setup(review_db, tmp_path, monkeypatch, archive, mapping=mapping, ids=ids)
+    events = []
+    sent = transport(monkeypatch, path, protocol, events)
+    owned_read(monkeypatch, engine, report, events, slots=slots)
+    result = dispatch.dispatch_job(59, 53)
+    assert result[0], result
+    assert events == ['upload', 'fresh_read', 'start']
+    assert sent[0]['ams_mapping'] == mapping
+
+
+def test_p2s_file_still_needs_the_right_material_in_the_tray(review_db, tmp_path, monkeypatch):
+    # Slot 3 reports PETG; the file's only source is PLA.
+    from modules.printers import dispatch
+    engine, path, report = p2s_dispatch_setup(review_db, tmp_path, monkeypatch, P2S_FIXTURE.read_bytes(), mapping=[2], ids=(0,))
+    events = []
+    sent = transport(monkeypatch, path, 'legacy', events)
+    owned_read(monkeypatch, engine, report, events, slots=(3,))
+    result = dispatch.dispatch_job(59, 53)
+    assert not result[0] and not sent
+    assert 'material does not match' in result[1] and 'AMS slot 3' in result[1]
+
+
+@pytest.mark.parametrize('printer', ['X1C', 'P1S', 'A1', 'H2D'])
+def test_p2s_file_is_refused_by_the_model_gate_on_another_printer(review_db, tmp_path, monkeypatch, printer):
+    from modules.printers import dispatch
+    engine, path, report = p2s_dispatch_setup(review_db, tmp_path, monkeypatch, P2S_FIXTURE.read_bytes(), mapping=[1], ids=(0,), printer=printer)
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', lambda *a, **kw: pytest.fail('transport reached'))
+    ok, reason = dispatch.dispatch_job(59, 53)
+    assert not ok and 'printer_model_mismatch' in reason

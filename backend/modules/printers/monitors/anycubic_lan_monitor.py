@@ -117,6 +117,8 @@ def main():
     from core.job_timeline import start
     start("anycubic_lan_monitor")
     logging.basicConfig(level=logging.INFO)
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
     bootstrap_monitor_authority()
     shutdown = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):

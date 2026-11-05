@@ -144,6 +144,9 @@ class PrusaLinkMonitorThread(threading.Thread):
         # ----------------------------------------------------------
         current_state = status.internal_state
         current_file = status.filename
+        # BUSY and UNKNOWN don't say whether it was printing, so the first look lasts until a state does.
+        first_look = not getattr(self, '_known_state_seen', False)
+        self._known_state_seen = not first_look or status.state not in (PrusaLinkState.UNKNOWN, PrusaLinkState.BUSY)
 
         # Map PrusaLink states to O.D.I.N. states
         if status.state == PrusaLinkState.PRINTING:
@@ -171,12 +174,16 @@ class PrusaLinkMonitorThread(threading.Thread):
                 for_printer(self.printer_id, 'resumed')
             elif odin_state == "RUNNING" and self._last_state != "PRINTING":
                 # Print started
+                from core.physical_print import continuing_print_limit
                 printer_events.on_print_start(
                     self.printer_id,
                     current_file or "Unknown",
                     0,  # total_layers — PrusaLink doesn't always provide
                     None,  # layer count
                     status.time_remaining // 60 if status.time_remaining else None,
+                    observed_elapsed=continuing_print_limit(status.time_printing, first_look=first_look),
+                    # /api/v1/status names no file, so the job id is what identifies this print.
+                    physical_job_id=f"prusalink_{status.job_id}" if status.job_id is not None else None,
                 )
             elif odin_state == "FINISH":
                 # Print completed
@@ -394,6 +401,8 @@ if __name__ == "__main__":
     import signal
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
 
     _running = True
 

@@ -499,7 +499,7 @@ def test_identified_hms_failure_delivers_only_once_through_outbox(private_attemp
 from tests.test_contracts.test_private_attempt_valuation_route import private_attempt, creators, review_db
 
 
-@pytest.mark.parametrize('state',['IDLE','',None,'FAILED','FINISH'])
+@pytest.mark.parametrize('state',['IDLE','FAILED','FINISH'])
 def test_bambu_orphan_recovery_keeps_main_generic_outcome(hms_boundary,monkeypatch,state):
     from modules.printers.monitors import mqtt_printer
     db,handler,registry,outgoing=hms_boundary
@@ -510,3 +510,17 @@ def test_bambu_orphan_recovery_keeps_main_generic_outcome(hms_boundary,monkeypat
     monitor._recover_orphaned_jobs()
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='completed'
+
+
+@pytest.mark.parametrize('state',['',None])
+def test_bambu_orphan_recovery_waits_for_a_reported_state(hms_boundary,monkeypatch,state):
+    from modules.printers.monitors import mqtt_printer
+    db,handler,registry,outgoing=hms_boundary
+    monkeypatch.setattr(mqtt_printer,'get_db',handler.get_db)
+    monitor=mqtt_printer.PrinterMonitor(9,'Recovery','192.0.2.1','synthetic','')
+    monitor._status_received.set()
+    monitor._state={'gcode_state':state}
+    monitor._recover_orphaned_jobs()
+    db.expire_all()
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
+    assert monitor._recovery_pending

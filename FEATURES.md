@@ -727,7 +727,9 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Create point-in-time database snapshots (admin-only)
 - Download backup files
 - Backup restore via UI (v1.3.0) — upload a SQLite .db backup through the restore panel; it is validated and staged with an automatic pre-restore safety backup, then applied offline on the next restart (PostgreSQL deployments use pg_dump .dump archives)
-- Uses SQLite `.backup` API (not file copy) during WAL mode
+- Uses SQLite `VACUUM INTO` (not file copy) during WAL mode, so a backup holds only live data
+- Automatic daily verified backups on SQLite, keeping 7 daily and 4 weekly; never made from a database that fails its integrity check
+- Scheduled read-only integrity checks on SQLite: a failure raises a critical alert and shows on `/health`, and ODIN never repairs the database itself
 
 ---
 
@@ -812,7 +814,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 22. Deployment
 
 ### 22.1 Docker
-- Single container with supervisord managing all 9 processes (backend, mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor, go2rtc, vision_monitor, timelapse_capture, report_runner)
+- Single container with supervisord managing all 11 processes (backend, mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor, anycubic_lan_monitor, go2rtc, vision_monitor, timelapse_capture, report_runner, db_guardian)
 - Container runs as non-root `odin` user (v1.3.59)
 - `docker compose up` deployment
 - Volume mount for persistent data (database, backups, uploads, logs, secrets, timelapses)

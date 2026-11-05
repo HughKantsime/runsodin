@@ -39,7 +39,8 @@ verifier reads. No real licence and no release-image change is involved.
 ## api_load limits for 2.0
 
 CV06's api_load runs the fixed EDU workload (1,000 operations per repetition, 25
-concurrent users, three repetitions) in process on the gate host, against SQLite.
+concurrent users, three repetitions) in process on the gate host, against SQLite,
+then again in a fresh subprocess to measure memory growth.
 For 2.0 three latency limits in `ops/edu_readiness/thresholds.json` were
 re-baselined (decision: Hugh, 2026-10-18). Each is the measured worst plus 10-15%
 headroom; the previous value and the evidence sit next to the number in
@@ -65,12 +66,42 @@ Why 2.0 costs more per request:
 
 What the measurements show:
 
-- **macOS SQLite locking tail.** The repetition-3 failures are bursts of 5-10
-  usage-report queries taking 1.5-2.8 s of wall time, against 15-20 ms normally,
-  while executing the same amount of query work. The extra time is spent
-  outside the query engine. It remains with the database on a RAM disk, and it
-  disappears on Linux, which fits macOS's file-locking path under concurrent
-  connections.
+- **Report tail: the tracer makes it far worse, and the rest of the cause is open.** The
+  repetition-3 failures on the Mac were bursts of 5-10 usage-report queries taking
+  1.5-2.8 s of wall time, against 15-20 ms normally, while executing the same amount of
+  query work, with the extra time outside the query engine. api_load kept `tracemalloc`
+  running through every timed repetition, and turning it off removes most of the tail.
+  With garbage collection off and the tracer on, the tail stays (usage-report maximum
+  5343 ms), so garbage collection doesn't explain it. Ranges over three repetitions per
+  run, with two runs per setup on the Mac, in milliseconds:
+
+  | Setup | Read p95 | Global p99 | Usage-report p99 |
+  |---|---|---|---|
+  | odin-ci, tracer on | 1042-2262 | 2058-3540 | 2858-4135 |
+  | odin-ci, tracer off | 439-442 | 561-597 | 503-645 |
+  | Mac, tracer on | 449-607 | 665-1971 | 654-2251 |
+  | Mac, tracer off | 232-255 | 315-349 | 256-322 |
+
+  A smaller tail remains without the tracer. What is known so far, all on `odin-ci`:
+
+  - **Size.** Untraced, 4 of 30 runs in review and 1 of 20 in measuring breached 815 ms
+    global p99, all in repetition 3. The worst in those runs was 1688 ms, with report p99
+    up to 1811 ms. The worst seen since is 2256 ms.
+  - **Not the GIL switch interval.** Setting it to 0.5 ms or 50 ms changed nothing.
+  - **Request order matters somewhat.** Repetition 3's fixed order has 24 windows of 25
+    operations with 6 or more reports, against 1 in repetition 1 and 12 in repetition 2.
+    Giving repetition 1 that order raised traced usage-report p99 from about 2700 ms to
+    about 3800 ms.
+  - **Order isn't the whole cause.** With reports evenly spaced, traced repetition 3 still
+    has usage-report p50 of about 2663-3261 ms, against about 670 ms in repetitions 1 and 2
+    of those runs, so some state that builds up by repetition 3 also contributes.
+
+  Timed repetitions now run with no tracer, and a tracer found running fails the gate.
+  Memory growth has its own pass: the same fixture, warmup, repetitions, baseline point
+  and limit, in a fresh subprocess with `tracemalloc` on. Its latencies and its FD growth
+  aren't judged; the timed pass judges FD growth. A pass that crashes, hangs, writes no
+  usable report or shows errors, 5xx responses or tenant leaks fails the gate. Each result
+  records `latency_traced`, `memory_delta_source` and `memory_pass` in its metrics.
 - **Linux, 2 vCPUs.** The same workload in the release-image container (Docker
   Desktop VM, 2 vCPUs, 4 GB, DB on the container filesystem) has no tail: report
   p95 stays at 487-627 ms in every repetition, and global p99 equals write p95.
@@ -82,6 +113,40 @@ What the measurements show:
 
 Performance work continues after 2.0: shortening write transactions further,
 the per-request cost of authentication and authorisation, and the report query.
+
+## api_load limits on odin-ci
+
+Trusted Validation moved from the M4 Mac to the `odin-ci` VM (i7-11700K, 8 vCPU) on
+2026-10-30. The same workload takes about twice as long there (26-29 s per repetition
+against 12-14 s), so the three latency limits moved with the host, by the same method:
+measured worst plus 10-15%. The evidence sits next to each number in
+`rebaseline_odin_ci`. Every other limit is unchanged. These remain a regression floor
+for this host, not a capacity statement.
+
+The latency limits are keyed by host class in `host_classes`, so the Mac keeps its own. The
+class comes from what the machine reports about itself: operating system, architecture and
+CPU model, plus the hostname for `odin-ci`. No setting, label or environment variable can
+choose it. A machine matching no class fails api_load before any load runs, because nothing
+measured there can judge it. Each api_load result records `host_class`, `latency_limits`
+and `host_identity` in its metrics.
+
+| Limit | Mac | odin-ci | Mac worst | odin-ci worst |
+|---|---|---|---|---|
+| read p95 | 385 ms | 750 ms | 336 ms | 652 ms |
+| write p95 | 525 ms | 755 ms | 457 ms | 658 ms |
+| global p99 | 525 ms | 2590 ms | 457 ms | 2256 ms |
+
+These were re-measured on 2026-10-31, once api_load stopped timing its own tracer, by the same
+method. Every earlier limit was measured with the tracer running, and the evidence is in
+`rebaseline_untraced`. `maximum_repetition_seconds` went from 45 to 17, from the slower host's
+worst of 14.8 s, so it sits further above the Mac's 9.2 s.
+
+The `odin-ci` limits are all set by the open report tail: read, write, p99 and duration all come
+from the same tail repetition. 3 of 35 idle runs went past 815 ms p99, and most sit near 560 ms.
+Without those 3 repetitions, the worst is 478 ms read p95, 629 ms write p95, 788 ms p99 and 13.3 s.
+So these limits catch less there than on the Mac until that tail is explained. The Mac's worst came from runs under normal sharing, and its limits rest on a smaller margin in
+milliseconds, so a stall on that shared machine can still fail a run. Most of these runs were
+api_load alone, so a first full CV06 on each host is their first test under gate conditions.
 
 ## Gaps
 

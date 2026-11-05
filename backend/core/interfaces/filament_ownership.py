@@ -5,6 +5,8 @@ a printer's filament slots are managed elsewhere. The printers module registers
 a provider at startup; callers use this boundary instead. When bindings exist
 but no provider is registered (partial startup), the boundary still refuses a
 local write from configuration rather than allowing one.
+Automatic accounting delegation is configured separately and does not depend on
+display bindings or provider registration.
 """
 
 from __future__ import annotations
@@ -62,3 +64,14 @@ def ensure_local_filament_management(printer_id: int) -> None:
         return
     if printer_id in configured_ledger_printers():
         raise HTTPException(status_code=409, detail=EXTERNALLY_MANAGED_DETAIL)
+
+
+def uses_external_filament_accounting(printer_id: int | None) -> bool:
+    """Current automatic accounting policy, independent of display and manual edits."""
+    return printer_id is not None and printer_id in settings.external_filament_accounting_printers
+
+
+def log_external_filament_accounting(logger) -> None:
+    """Call at process startup after logging is configured, including empty policy."""
+    logger.info("External filament accounting printer IDs: %s",
+                sorted(settings.external_filament_accounting_printers))

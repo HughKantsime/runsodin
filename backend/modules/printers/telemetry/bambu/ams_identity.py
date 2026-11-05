@@ -77,7 +77,8 @@ def inventory_report(units, bits=None, previous=()):
     """Keep a removal seen between heartbeat writes, including bit-only reports."""
     import copy
     result = copy.deepcopy(units)
-    prior = dict(ams_trays_by_slot(list(previous)))
+    # A malformed earlier report is no prior state, and must not refuse every later packet.
+    prior = dict(ams_trays_by_slot(list(previous) if isinstance(previous, (list, tuple)) else []))
     for number, tray in ams_trays_by_slot(result):
         exists = tray_exists(bits, number)
         old = prior.get(number, {})

@@ -184,6 +184,16 @@ echo "========================================="
 if [ "$#" -eq 0 ]; then
     set -- /usr/bin/supervisord -n -c /etc/supervisor/conf.d/odin.conf
 fi
+# The database guardian's first status, so one that dies before its first write still goes stale
+# on /health and gets reported, instead of looking "pending" forever. 300 is its check interval.
+case "${DATABASE_URL}:$*" in
+    sqlite:///*/etc/supervisor/conf.d/odin.conf*)
+        guardian_status="$(dirname "${DATABASE_PATH}")/run/db-guardian.json"
+        if [ ! -e "${guardian_status}" ]; then
+            /usr/sbin/runuser -u odin -- /bin/sh -c 'mkdir -p "$(dirname "$1")" && printf "{\"started_at\": \"%s\", \"interval_seconds\": 300}\n" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" > "$1" && chmod 600 "$1"' sh "${guardian_status}"
+        fi
+        ;;
+esac
 case "$*" in
     */etc/supervisor/conf.d/api.conf*|*/etc/supervisor/conf.d/odin.conf*)
         # The API owns the per-boot camera relay secret (it also derives go2rtc's RTSP

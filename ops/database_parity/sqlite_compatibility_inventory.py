@@ -252,6 +252,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Central policy translates named parameters for the shared DBAPI adapter and uses sqlite3 only to classify integrity exceptions",
     ),
+    "backend/core/db_integrity.py": (
+        "sqlite-provider-only",
+        "Read-only SQLite integrity check; the callers skip it on PostgreSQL",
+    ),
     "backend/modules/system/backup_service.py": (
         "sqlite-provider-only",
         "Dedicated SQLite backup, validation, and offline restore provider",

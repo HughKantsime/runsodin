@@ -51,7 +51,7 @@ def _category_enabled(prefs: Optional[dict], category: str) -> bool:
     return cats.get(category, True)
 
 
-def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
+def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict, *, ignore_quiet_hours: bool = False):
     """Fan out a notification to all eligible devices."""
     title = mapping["title"]
     category = mapping["category"]
@@ -66,7 +66,7 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
             except Exception:
                 pass
 
-        if _is_in_quiet_hours(prefs):
+        if not ignore_quiet_hours and _is_in_quiet_hours(prefs):
             log.info("Push skip reason=quiet_hours category=%s alert_type=%s device_ref=%s", category, data.get("alert_type"), token_fingerprint(device.token))
             continue
 
@@ -101,13 +101,16 @@ def deliver_alert(db, plan):
     if org_id != plan.org_id:
         log.info("Push skip reason=org_mismatch category=%s alert_type=%s", category, atype)
         return
-    try:
-        suppressed = education_scope(db, org_id=org_id, job_id=plan.job_id, printer_id=plan.printer_id)
-    except Exception:
-        suppressed = True
-    if suppressed:
-        log.info("Push skip reason=education_scope category=%s alert_type=%s", category, atype)
-        return
+    admin_database_alert = getattr(plan, "admin_database_alert", False)
+    # Not for these: they hold no student data, and the setting's own page may be the damage they report.
+    if not admin_database_alert:
+        try:
+            suppressed = education_scope(db, org_id=org_id, job_id=plan.job_id, printer_id=plan.printer_id)
+        except Exception:
+            suppressed = True
+        if suppressed:
+            log.info("Push skip reason=education_scope category=%s alert_type=%s", category, atype)
+            return
     # Use the in-app recipients selected by stage_alert, then recheck preferences.
     # Education is checked explicitly because operational alerts can have no job.
     users = {p.user_id for p in preferences_for(db, atype) if p.in_app}
@@ -124,7 +127,8 @@ def deliver_alert(db, plan):
                "body": safe_copy(getattr(plan, "message", "Open ODIN to view this alert"))[:180]}
     _deliver_to_devices(devices, mapping, {
         "alert_type": atype, "severity": plan.severity.value,
-        "job_id": plan.job_id, "printer_id": plan.printer_id, "spool_id": plan.spool_id})
+        "job_id": plan.job_id, "printer_id": plan.printer_id, "spool_id": plan.spool_id},
+        ignore_quiet_hours=admin_database_alert)
 
 
 def register_subscribers(drain):

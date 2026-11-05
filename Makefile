@@ -123,6 +123,7 @@ test-edu-hardware: ## Run passive hardware protocol/transport checks
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=backend:. $(HARDWARE_PYTHON) -m pytest tests/hardware/test_read_only_certification.py tests/hardware_certification -q --tb=short -o xfail_strict=true
 
 test-edu-load: ## Run isolated API/WebSocket load thresholds
+	PYTHONPATH=backend $(PYTHON) -m pytest tests/load -q --tb=short -o xfail_strict=true
 	$(PYTHON) ops/edu_readiness/api_load.py --run-id $(EDU_RUN_ID) --output $(EDU_RUN_DIR)/api_load.json
 
 test-edu-accessibility: ## Run compiled UI axe/keyboard/motion/target-size matrix
@@ -237,7 +238,7 @@ test-registry-contract: ## Exercise exact release CLI against a disposable local
 
 practical-evidence: ## Build sanitized evidence for one completed trusted-validation run
 	@test -n "$(SOURCE_RUN_DIR)" -a -n "$(EXPECTED_SHA)" || (echo "SOURCE_RUN_DIR and EXPECTED_SHA are required" && exit 1)
-	$(PYTHON) -m ops.release_control.practical_evidence build --source-run-dir "$(SOURCE_RUN_DIR)" --expected-sha "$(EXPECTED_SHA)"
+	$(PYTHON) -m ops.release_control.practical_evidence build --source-run-dir "$(SOURCE_RUN_DIR)" --expected-sha "$(EXPECTED_SHA)" $(if $(RECORD_API_LOAD_HOST),--record-api-load-host,)
 
 verify-practical-evidence: ## Verify evidence integrity or all promotion inputs together
 	@test -n "$(EVIDENCE_DIR)" || (echo "EVIDENCE_DIR is required" && exit 1)

@@ -8,12 +8,12 @@ from datetime import datetime
 from typing import List
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    ForeignKey, Enum as SQLEnum, Text, JSON
+    ForeignKey, Text, JSON
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from core.base import Base, FilamentType, _ENUM_VALUES
+from core.base import Base, FilamentType, FilamentTypeColumn, _ENUM_VALUES
 
 
 class Model(Base):
@@ -29,7 +29,7 @@ class Model(Base):
 
     # Print characteristics
     build_time_hours = Column(Float)  # Estimated print time
-    default_filament_type = Column(SQLEnum(FilamentType, values_callable=_ENUM_VALUES), default=FilamentType.PLA)
+    default_filament_type = Column(FilamentTypeColumn(FilamentType, values_callable=_ENUM_VALUES), default=FilamentType.PLA)
 
     # Filament usage per color slot (stored as JSON for flexibility)
     # Format: {"color1": {"color": "black", "grams": 17}, "color2": {...}}

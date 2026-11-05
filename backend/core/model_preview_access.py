@@ -1,6 +1,7 @@
 """Shared authorization boundary for original files and derived preview geometry."""
 from fastapi import HTTPException
 from sqlalchemy import text
+from core.print_file_binding import clear_binding
 from core.rbac import check_org_access
 from core.registry import registry
 
@@ -33,7 +34,10 @@ def delete_generic_file_if_unchanged(db, row, *, parent_org_id, require_unrefere
         "WHERE o.final_path=print_files.stored_path AND o.final_path IS NOT NULL)"
     ), {"id": row.id, "org": row.org_id, "model": row.model_id, "path": row.stored_path,
         "parent_org": parent_org_id, "protect": int(require_unreferenced)})
-    return result.rowcount == 1
+    if result.rowcount != 1:
+        return False
+    clear_binding(db, row.id)
+    return True
 
 
 def accessible_preview_file(db, file_id, principal):

@@ -2,6 +2,98 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.41] - 2026-11-04
+
+<!-- summary: Community filament feed and accounting delegation, a nozzle size change that is no longer lost, and safer file deletion. -->
+
+### Added
+
+- The external filament display feed can be read over a local Unix socket: set `FILAMENT_LEDGER_URL=unix:///absolute/path/feed.sock`. See `docs/filament-ledger-display.md`. Contributed by Roman Kamyk (#30).
+- `EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS`, a JSON list of printer IDs whose automatic filament accounting is left to an external system. Set it on both the `api` and `monitors` services. Unset, accounting is unchanged. Contributed by Roman Kamyk (#31).
+
+### Security
+
+- Text from the external filament feed, and the spool identities it names, are validated and bounded before ODIN shows them with a printer. Contributed by Roman Kamyk (#32).
+
+### Fixed
+
+- A Bambu printer's nozzle size could stay at its old value after a nozzle change. P1-series printers report the size only in a full status report, and ODIN dropped it when that report arrived within 10 seconds of the previous telemetry save. The size is now kept until the next save, which records the change in the audit log as before. Education dispatch and the recipe configuration record use this size; ordinary Bambu dispatch already checked a live report.
+- A single 3MF whose first material the slicer labelled `PLA-CF`, `PETG-CF` or similar made the Models list return 500 for everyone who could see that model on SQLite. Uploads now store the matching material type, and a label already stored reads as its closest type without changing the row.
+- Deleting a print file now removes its printer binding and its payload on disk. The payload stays if anything else still names it.
+- Deleting a model variant that a job still uses returns 409, as deleting a print file already did, and the file stays.
+- Database damage and backup alerts reach admins' phones with Education mode on, and when the Education setting itself can't be read. They hold no student data. Ordinary alerts don't change.
+- `ops/ci/README.md`: the steps for moving validation back to the Mac work from a clean clone.
+- The off-server backup job's schedule uses Homebrew's stable path to node, so a Homebrew upgrade doesn't stop it. Run its `install` again to pick this up.
+
+### Notes
+
+- Since 2.0.39, dispatch reports its locking as `unsupported` if the SQLite database is mounted as a single file, apart from its directory, because the lock no longer opens the database file. Mount the directory that holds the database instead.
+
+## [2.0.40] - 2026-11-02
+
+<!-- summary: Tokens with printer write access can resume a paused print, and the resume route is audited. -->
+
+### Fixed
+
+- A token with `write:printers` or `write` could stop a print but not resume one. `POST /printers/{id}/resume` now accepts those scopes. This applies to existing tokens on upgrade, so review any you've issued. Pause still needs `admin` or `agent:write`. The route doesn't check why a print paused, so an automated caller can resume after a fault.
+- A PostgreSQL restore could be refused intermittently with "target database session(s) are active" because of a session that was only briefly present. The check now waits up to 15 seconds for such a session to go, and still refuses one that stays. The restore's later session checks now see current sessions; before, they repeated the first check's reading.
+
+### Added
+
+- Each call to `POST /printers/{id}/resume` now leaves an audit entry naming the user and token: `printer.resume_requested` when the command is accepted, which doesn't prove the printer resumed, and `printer.resume_failed` when it isn't. Other ways of resuming, such as dismissing a Vigil detection, aren't covered yet.
+
+## [2.0.39] - 2026-11-01
+
+<!-- summary: Fixes a dispatch lock that could corrupt the database, and adds a newer SQLite, scheduled integrity checks and daily verified backups. -->
+
+### Fixed
+
+- Dispatching a print, or a dispatched print ending, could let ODIN's processes damage the SQLite database. The dispatch target lock opened the database file directly, and on Linux closing that file drops every SQLite lock the process holds. Another process could then remove the write-ahead log while it was still in use. The lock no longer opens the database file. This was reproduced with the real lock on a test database, and is the leading explanation for database damage seen in production, though not proven as its cause.
+- Docker images now bundle SQLite 3.51.3, which carries SQLite's own fix for a write-ahead log reset bug, instead of the distribution's 3.46.1. FTS5 is left out of the build because ODIN doesn't use it.
+- A database that fails its integrity check at startup now says so plainly and points to the runbook, instead of reporting "Media ownership database integrity differs". ODIN still refuses to start on it, and rolling back won't help.
+
+### Added
+
+- ODIN checks its SQLite database's integrity every 5 minutes on a read-only connection. Damage raises a critical alert at once, and `/health` shows the result as `database_integrity`. It never repairs anything by itself.
+- ODIN backs up its SQLite database daily, keeping 7 daily and 4 weekly copies. Every copy is verified and restore-tested on a throwaway copy before it's listed. A run needs free space for two copies plus 128 MiB. If there isn't room, it refuses and alerts, and it never removes good copies to make room. `/health` shows the state as `database_backup`.
+- Refused and missed backups and database damage alert admins, including on their phones, whatever the quiet hours.
+- An optional job in `ops/offsite_backup` pulls each backup to another machine and encrypts it as it arrives. It isn't installed by default; see `docs/BACKUP_RESTORE_RUNBOOK.md`.
+
+## [2.0.38] - 2026-10-31
+
+<!-- summary: Prints that end during a restart close with their real outcome, and stock P2S prints pass the AMS source check. -->
+
+### Fixed
+
+- A print that ended during an ODIN restart or a lost connection could stay marked as running. The printer then refused its next dispatch, and no API could clear it.
+  - Bambu and Moonraker prints that ended while ODIN wasn't watching now close through the same steps as a watched end, with their real outcome. A failed or cancelled Bambu print is no longer recorded as completed. If saving the end fails, ODIN retries.
+  - PrusaLink, Elegoo and Anycubic prints that continue through a restart keep their one row, instead of gaining a second while the first never closed. A later print of the same file starts its own row.
+  - A running print on a Bambu printer that's silent during recovery is no longer closed as completed, and a retained report from before the print isn't taken as its end.
+  - Reprinting an `odin-dispatch-*` file from the printer's own screen can no longer block dispatch to that printer for good.
+- ODIN refused every print from Bambu's stock P2S profile with "Unverifiable source mapping", so none of them could start through ODIN.
+  - ODIN now accepts that profile's template lines on a file that declares a P2S in both its project settings and its G-code header. The lines must match the template, and the source they name must be the one loaded. Files for other printers don't get this allowance.
+  - This is checked against a real single-filament P2S file and a simulated dispatch, not a physical print. Multi-filament is checked with real G-code and hand-built metadata. A multi-filament slice from the slicer CLI is still refused, because the CLI drops the second filament.
+- The MQTT connection test could report a refused connection when a broker was only silent, and could hold up other requests while it waited. It now waits for the broker's real answer without blocking anything else.
+- ARM64 images shipped an x86-64 go2rtc, so camera streaming couldn't run on them. They now ship the right build.
+
+### Changed
+
+- Release validation moves from the development Mac to a Linux VM with production's OS and architecture, starting with the next release. Publishing and production promotion stay on the Mac.
+- The API load test in release validation no longer times its own tracer, and its latency limits were re-measured for each host. Memory growth is checked in a separate pass. The VM's limits are set by a slow tail in report requests that isn't explained yet, so they catch less than the Mac's.
+
+## [2.0.37] - 2026-10-30
+
+<!-- summary: H2D prints sliced with the slicer CLI across both nozzles can be dispatched through ODIN. -->
+
+### Fixed
+
+- ODIN refused H2D multi-filament prints sliced with the slicer CLI across both nozzles, with "Unverifiable source mapping".
+  - A tool change can name the current hotend (`M620.11 ... B0` or `B1`), and ODIN only knew `B-1`. ODIN now accepts these when the hotend agrees with the file's `filament_map`.
+  - The slicer CLI leaves `filament_nozzle_map` at a one-entry default on a multi-filament file. ODIN counted that as evidence, so it conflicted with `filament_map` or left the second filament's nozzle unknown. ODIN now ignores only that default; a full map still has to agree.
+  - The nozzle and AMS checks before start apply to both nozzles: each nozzle must match what the file needs, and each filament's tray must feed the nozzle the file assigns it.
+  - Slices from the Bambu Studio app across both nozzles aren't proven yet and may still be refused.
+- Removed the frontend's ESLint development tooling. A new moderate advisory in its `minimatch` dependency (GHSA-g3hv-75wg-m249) has no fix for ESLint yet, and the release audit refuses it. ESLint wasn't part of validation and isn't in the image.
+
 ## [2.0.36] - 2026-10-30
 
 <!-- summary: Multi-filament prints dispatch to AMS printers again, jobs can be scheduled already held, and print starts pause during a deploy -->

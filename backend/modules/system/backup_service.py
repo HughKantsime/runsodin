@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.db_integrity import DAMAGED as INTEGRITY_DAMAGED, OK as INTEGRITY_OK, IntegrityReport, check_database
 from modules.system.backup_failure_alerts import report_backup_failure
 
 MAX_BACKUP_BYTES = 1024 * 1024 * 1024
@@ -73,6 +74,24 @@ REQUIRED_COLUMNS = {
 
 class BackupValidationError(ValueError):
     """Raised when a candidate is not a safe ODIN SQLite database."""
+
+
+class SourceDatabaseError(BackupValidationError):
+    """The live database failed its integrity check, or the check couldn't finish."""
+
+    def __init__(self, report: IntegrityReport):
+        super().__init__(
+            "Live database failed its integrity check" if report.state == INTEGRITY_DAMAGED
+            else "Live database could not be checked")
+        self.report = report
+
+
+class BackupMissedError(BackupValidationError):
+    """A backup that should exist by now doesn't. ``reason`` is missed or offsite_missed."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -444,7 +463,24 @@ def validate_database(path: Path) -> dict[str, object]:
 
 
 @report_backup_failure
-def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Path, dict[str, object]]:
+def require_healthy_source(database: Path) -> IntegrityReport:
+    """Refuse to back up a damaged database. VACUUM INTO's result can't be trusted to show it.
+
+    What survives the copy depends on the damage and the SQLite version: the same damage raised a
+    constraint error on 3.45 and failed validate_database on 3.51. A broken freelist vanishes on
+    both, so that copy validates. Only a check of the source says the same thing every time.
+    pre_restore_ backups skip this: a restore is how you leave the damage.
+    """
+    report = check_database(database)
+    if report.state != INTEGRITY_OK:
+        raise SourceDatabaseError(report)
+    return report
+
+
+@report_backup_failure
+def _create_online_backup_unlocked(paths: BackupPaths, prefix: str, *, working_copies: int = 1,
+                                   reserve: int = MIN_BACKUP_FREE_BYTES) -> tuple[Path, dict[str, object]]:
+    """``working_copies`` full copies must fit and still leave ``reserve`` for the live database."""
     if not paths.database.is_file():
         raise BackupValidationError("Live database does not exist")
     paths.backups.mkdir(parents=True, exist_ok=True)
@@ -462,8 +498,7 @@ def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Pat
         free_pages = source.execute("PRAGMA freelist_count").fetchone()[0]
         page_size = source.execute("PRAGMA page_size").fetchone()[0]
         estimate = max(0, pages - free_pages) * page_size
-        required_free = max(estimate + max(estimate // 4, MIN_BACKUP_FREE_BYTES),
-                            MIN_BACKUP_FREE_BYTES)
+        required_free = working_copies * estimate + max(estimate // 4, reserve)
         if shutil.disk_usage(paths.backups).free < required_free:
             raise BackupValidationError("Insufficient free disk space for a verified backup")
         # Reserve the filename with restrictive permissions before SQLite writes it.
@@ -489,6 +524,7 @@ def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Pat
 def create_online_backup(database_url: str, base_dir: Path | None = None) -> tuple[Path, dict[str, object]]:
     paths = paths_from_database_url(database_url, base_dir)
     with restore_lock(paths.lock):
+        require_healthy_source(paths.database)
         return _create_online_backup_unlocked(paths, "odin_backup_")
 
 

@@ -7,8 +7,12 @@ import asyncio
 import base64
 import json
 import os
+import platform
 import random
+import signal
+import socket
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -30,6 +34,58 @@ BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 THRESHOLDS_PATH = Path(__file__).with_name("thresholds.json")
+# A traced pass takes a few minutes at worst. Past this it has hung, and the gate fails.
+MEMORY_PASS_TIMEOUT_SECONDS = 900
+
+
+LATENCY_LIMITS = ("read_p95_ms", "write_p95_ms", "global_p99_ms")
+
+
+class UnknownHostClass(RuntimeError):
+    """Latency has not been measured on this machine, so no limit can judge it."""
+
+
+def _cpu_model() -> str:
+    if sys.platform == "darwin":
+        probe = subprocess.run(
+            ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        return probe.stdout.strip() if probe.returncode == 0 else ""
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition(":")
+            if key.strip() == "model name":
+                return value.strip()
+    except OSError:
+        pass
+    return ""
+
+
+def host_facts() -> dict[str, str]:
+    """What the machine reports about itself. Limits are never chosen by a setting, a label
+    or an environment variable, so no workflow edit or stray export can pick the looser class."""
+    return {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "hostname": socket.gethostname(),
+        "cpu": _cpu_model(),
+    }
+
+
+def host_limits(thresholds: dict[str, Any], facts: dict[str, str]) -> tuple[str, dict[str, Any], dict[str, str]]:
+    """The one host class these facts identify, with its limits and the facts that matched."""
+    matches = [
+        name for name, entry in thresholds["host_classes"].items()
+        if entry["identity"] and all(facts.get(key) == value for key, value in entry["identity"].items())
+    ]
+    if len(matches) != 1:
+        raise UnknownHostClass(
+            f"no measured latency limits for this host ({facts.get('system')}/{facts.get('machine')}, "
+            f"cpu {facts.get('cpu') or 'unknown'}); matched {len(matches)} host classes"
+        )
+    entry = thresholds["host_classes"][matches[0]]
+    return matches[0], {key: entry[key] for key in LATENCY_LIMITS}, dict(entry["identity"])
 
 
 @dataclass(frozen=True)
@@ -372,14 +428,82 @@ def _websocket_cycles(app, target_token: str, foreign_token: str, cycles: int) -
     }
 
 
-async def run(run_id: str, output: Path) -> int:
-    thresholds_bytes = THRESHOLDS_PATH.read_bytes()
-    thresholds = json.loads(thresholds_bytes)
-    started_at = utc_now()
-    started = time.perf_counter()
-    findings = []
-    all_metrics = []
-    tracemalloc.start()
+def _repetition_metric(
+    repetition: int, timings: dict[str, list[float]], errors: list[dict[str, Any]], leaks: int,
+    duration: float, ws_metrics: dict[str, Any], traced: bool,
+) -> dict[str, Any]:
+    ws_times = ws_metrics["timings"]
+    read_times = [value for key, values in timings.items() if key in {"auth", "printers", "jobs", "reports"} for value in values]
+    write_times = [value for key, values in timings.items() if key not in {"auth", "printers", "jobs", "reports"} for value in values]
+    global_times = read_times + write_times
+    return {
+        "repetition": repetition + 1,
+        "traced": traced,
+        "operations": len(global_times),
+        "reads": len(read_times),
+        "writes": len(write_times),
+        "duration_seconds": round(duration, 3),
+        "read_p95_ms": _percentile(read_times, 0.95),
+        "write_p95_ms": _percentile(write_times, 0.95),
+        "global_p99_ms": _percentile(global_times, 0.99),
+        "errors": len(errors),
+        "unexpected_5xx": sum(1 for error in errors if error["status"] >= 500),
+        "tenant_leaks": leaks,
+        "websocket_cycles": len(ws_times),
+        "websocket_failures": ws_metrics["failures"],
+        "websocket_p95_ms": _percentile(ws_times, 0.95),
+        "websocket_subscription_acks": ws_metrics["subscription_acks"],
+        "websocket_messages_exchanged": ws_metrics["messages_exchanged"],
+        "websocket_isolation_checks": ws_metrics["isolation_checks"],
+        "websocket_cross_user_events": ws_metrics["cross_user_events"],
+        "classes": {key: len(value) for key, value in timings.items()},
+        "class_latency_ms": {
+            key: {
+                "count": len(values),
+                "p50": _percentile(values, 0.50),
+                "p95": _percentile(values, 0.95),
+                "p99": _percentile(values, 0.99),
+                "maximum": round(max(values), 3) if values else 0.0,
+            }
+            for key, values in timings.items()
+        },
+    }
+
+
+def _repetition_checks(metric: dict[str, Any], thresholds: dict[str, Any]) -> dict[str, bool]:
+    """Everything about a repetition except how long it took. These hold in both passes."""
+    cycles = thresholds["websocket_cycles_per_repetition"]
+    return {
+        "operation count": metric["operations"] == thresholds["operations_per_repetition"],
+        "read minimum": metric["reads"] >= thresholds["minimum_reads"],
+        "write minimum": metric["writes"] >= thresholds["minimum_writes"],
+        "errors": metric["errors"] == thresholds["maximum_error_rate"],
+        "5xx": metric["unexpected_5xx"] == thresholds["maximum_5xx"],
+        "tenant leaks": metric["tenant_leaks"] == thresholds["maximum_tenant_leaks"],
+        "websocket count": metric["websocket_cycles"] == cycles,
+        "websocket failures": metric["websocket_failures"] == 0,
+        "websocket subscriptions": metric["websocket_subscription_acks"] == cycles * 2,
+        "websocket messages": metric["websocket_messages_exchanged"] >= cycles * 9,
+        "websocket isolation checks": metric["websocket_isolation_checks"] == cycles,
+        "websocket cross-user isolation": metric["websocket_cross_user_events"] == 0,
+        "class coverage": all(metric["classes"].get(name, 0) > 0 for name in ("auth", "printers", "jobs", "reports", "job_create", "job_approve", "session_churn")),
+    }
+
+
+def _timing_checks(metric: dict[str, Any], thresholds: dict[str, Any], limits: dict[str, Any]) -> dict[str, bool]:
+    """Only an untraced pass can be judged on these."""
+    return {
+        "duration": metric["duration_seconds"] <= thresholds["maximum_repetition_seconds"],
+        "read p95": metric["read_p95_ms"] <= limits["read_p95_ms"],
+        "write p95": metric["write_p95_ms"] <= limits["write_p95_ms"],
+        "global p99": metric["global_p99_ms"] <= limits["global_p99_ms"],
+        "websocket p95": metric["websocket_p95_ms"] <= thresholds["websocket_p95_ms"],
+    }
+
+
+async def _drive_workload(thresholds: dict[str, Any]) -> dict[str, Any]:
+    """One whole pass in this fresh process: fixture, warmup, the fixed repetitions and the closing
+    checks. It judges nothing. The two passes differ only in whether a tracer is running."""
     with tempfile.TemporaryDirectory(prefix="odin-edu-load-") as directory:
         database = Path(directory) / "odin.db"
         app, tokens = _prepare_database(database)
@@ -389,17 +513,15 @@ async def run(run_id: str, output: Path) -> int:
         _, warmup_errors, warmup_leaks, _ = await _execute_repetition(
             app, tokens, warmup, thresholds["concurrent_users"]
         )
-        if warmup_errors:
-            findings.append(f"warmup returned {len(warmup_errors)} unexpected responses")
-        if warmup_leaks:
-            findings.append(f"warmup exposed {warmup_leaks} cross-tenant records")
         memory_baseline = tracemalloc.get_traced_memory()[0]
         fd_baseline = _fd_count()
+        repetitions = []
         for repetition in range(thresholds["repetitions"]):
             ids = list(range(10000 + repetition * 75, 10000 + (repetition + 1) * 75))
             operations = workload(ids, repetition)
             repetition_tokens = dict(tokens)
             repetition_tokens["churn"] = tokens["churn"][repetition * 50:(repetition + 1) * 50]
+            traced = tracemalloc.is_tracing()
             timings, errors, leaks, duration = await _execute_repetition(
                 app, repetition_tokens, operations, thresholds["concurrent_users"]
             )
@@ -409,66 +531,8 @@ async def run(run_id: str, output: Path) -> int:
                 tokens["ws_foreign"][0],
                 thresholds["websocket_cycles_per_repetition"],
             )
-            ws_times = ws_metrics["timings"]
-            read_times = [value for key, values in timings.items() if key in {"auth", "printers", "jobs", "reports"} for value in values]
-            write_times = [value for key, values in timings.items() if key not in {"auth", "printers", "jobs", "reports"} for value in values]
-            global_times = read_times + write_times
-            metric = {
-                "repetition": repetition + 1,
-                "operations": len(global_times),
-                "reads": len(read_times),
-                "writes": len(write_times),
-                "duration_seconds": round(duration, 3),
-                "read_p95_ms": _percentile(read_times, 0.95),
-                "write_p95_ms": _percentile(write_times, 0.95),
-                "global_p99_ms": _percentile(global_times, 0.99),
-                "errors": len(errors),
-                "unexpected_5xx": sum(1 for error in errors if error["status"] >= 500),
-                "tenant_leaks": leaks,
-                "websocket_cycles": len(ws_times),
-                "websocket_failures": ws_metrics["failures"],
-                "websocket_p95_ms": _percentile(ws_times, 0.95),
-                "websocket_subscription_acks": ws_metrics["subscription_acks"],
-                "websocket_messages_exchanged": ws_metrics["messages_exchanged"],
-                "websocket_isolation_checks": ws_metrics["isolation_checks"],
-                "websocket_cross_user_events": ws_metrics["cross_user_events"],
-                "classes": {key: len(value) for key, value in timings.items()},
-                "class_latency_ms": {
-                    key: {
-                        "count": len(values),
-                        "p50": _percentile(values, 0.50),
-                        "p95": _percentile(values, 0.95),
-                        "p99": _percentile(values, 0.99),
-                        "maximum": round(max(values), 3) if values else 0.0,
-                    }
-                    for key, values in timings.items()
-                },
-            }
-            all_metrics.append(metric)
-            checks = {
-                "operation count": metric["operations"] == thresholds["operations_per_repetition"],
-                "read minimum": metric["reads"] >= thresholds["minimum_reads"],
-                "write minimum": metric["writes"] >= thresholds["minimum_writes"],
-                "duration": metric["duration_seconds"] <= thresholds["maximum_repetition_seconds"],
-                "read p95": metric["read_p95_ms"] <= thresholds["read_p95_ms"],
-                "write p95": metric["write_p95_ms"] <= thresholds["write_p95_ms"],
-                "global p99": metric["global_p99_ms"] <= thresholds["global_p99_ms"],
-                "errors": metric["errors"] == thresholds["maximum_error_rate"],
-                "5xx": metric["unexpected_5xx"] == thresholds["maximum_5xx"],
-                "tenant leaks": metric["tenant_leaks"] == thresholds["maximum_tenant_leaks"],
-                "websocket count": metric["websocket_cycles"] == thresholds["websocket_cycles_per_repetition"],
-                "websocket failures": metric["websocket_failures"] == 0,
-                "websocket p95": metric["websocket_p95_ms"] <= thresholds["websocket_p95_ms"],
-                "websocket subscriptions": metric["websocket_subscription_acks"] == thresholds["websocket_cycles_per_repetition"] * 2,
-                "websocket messages": metric["websocket_messages_exchanged"] >= thresholds["websocket_cycles_per_repetition"] * 9,
-                "websocket isolation checks": metric["websocket_isolation_checks"] == thresholds["websocket_cycles_per_repetition"],
-                "websocket cross-user isolation": metric["websocket_cross_user_events"] == 0,
-                "class coverage": all(metric["classes"].get(name, 0) > 0 for name in ("auth", "printers", "jobs", "reports", "job_create", "job_approve", "session_churn")),
-            }
-            findings.extend(
-                f"repetition {repetition + 1}: {name}"
-                for name, passed in checks.items() if not passed
-            )
+            traced = traced or tracemalloc.is_tracing()
+            repetitions.append(_repetition_metric(repetition, timings, errors, leaks, duration, ws_metrics, traced))
         connection = sqlite3.connect(database)
         try:
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
@@ -476,12 +540,186 @@ async def run(run_id: str, output: Path) -> int:
             connection.close()
         memory_delta = tracemalloc.get_traced_memory()[0] - memory_baseline
         fd_delta = _fd_count() - fd_baseline
-        if integrity != "ok":
-            findings.append("post-run SQLite integrity check failed")
-        if memory_delta > thresholds["maximum_memory_delta_mib"] * 1024 * 1024:
-            findings.append("tracked memory growth exceeded threshold")
-        if fd_delta > thresholds["maximum_fd_delta"]:
-            findings.append("file descriptor growth exceeded threshold")
+    return {
+        "warmup_errors": len(warmup_errors),
+        "warmup_tenant_leaks": warmup_leaks,
+        "repetitions": repetitions,
+        "integrity_check": integrity,
+        "memory_delta_bytes": memory_delta,
+        "fd_delta": fd_delta,
+    }
+
+
+async def memory_pass(report_path: Path) -> int:
+    """The traced pass. tracemalloc slows requests enough to swamp the latency being measured, so
+    this runs apart from the timed pass, and its latencies mean nothing. It only reports."""
+    thresholds = json.loads(THRESHOLDS_PATH.read_bytes())
+    tracemalloc.start()
+    report = await _drive_workload(thresholds)
+    report["tracing"] = tracemalloc.is_tracing()
+    temporary = report_path.with_name(report_path.name + ".partial")
+    temporary.write_text(json.dumps(report), encoding="utf-8")
+    os.replace(temporary, report_path)
+    return 0
+
+
+def _memory_pass_command(report_path: Path) -> list[str]:
+    return [sys.executable, str(Path(__file__).resolve()), "--memory-pass-output", str(report_path)]
+
+
+def _kill_memory_pass(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    process.wait()
+
+
+def _run_memory_pass(environment: dict[str, str]) -> dict[str, Any]:
+    """Run the traced pass in a fresh process, within its bound. Whatever goes wrong there comes
+    back as `failure`, so the gate fails with a finding rather than losing its result."""
+    started = time.perf_counter()
+    outcome: dict[str, Any] = {"exit_code": None, "report": None, "failure": None}
+    with tempfile.TemporaryDirectory(prefix="odin-edu-load-memory-") as directory:
+        report_path = Path(directory) / "memory-pass.json"
+        try:
+            process = subprocess.Popen(
+                _memory_pass_command(report_path), cwd=ROOT, env=environment,
+                stdin=subprocess.DEVNULL, start_new_session=True,
+            )
+        except OSError as exc:
+            outcome["failure"] = f"could not start: {exc.strerror}"
+        else:
+            try:
+                outcome["exit_code"] = process.wait(timeout=MEMORY_PASS_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                _kill_memory_pass(process)
+                outcome["failure"] = f"timed out after {MEMORY_PASS_TIMEOUT_SECONDS} s"
+            except BaseException:
+                _kill_memory_pass(process)
+                raise
+            if outcome["failure"] is None:
+                if outcome["exit_code"] != 0:
+                    outcome["failure"] = f"exited with {outcome['exit_code']}"
+                else:
+                    try:
+                        outcome["report"] = json.loads(report_path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        outcome["failure"] = "wrote no usable report"
+    outcome["duration_seconds"] = round(time.perf_counter() - started, 3)
+    return outcome
+
+
+def _judge_memory_pass(outcome: dict[str, Any], thresholds: dict[str, Any]) -> tuple[list[str], int | None]:
+    """The findings against the memory pass, and its memory figure if the figure can be trusted.
+    Its latencies and FD growth are not judged; the timed pass judges FD growth. The rest of what it
+    reports counts as it does in the timed pass."""
+    if outcome["failure"]:
+        return [f"memory pass: {outcome['failure']}"], None
+    report = outcome["report"]
+    try:
+        delta = report["memory_delta_bytes"]
+        if type(delta) is not int:
+            raise TypeError("memory_delta_bytes")
+        findings = []
+        if report["tracing"] is not True:
+            findings.append("memory pass: ran without its tracer")
+            delta = None
+        if report["warmup_errors"] != 0:
+            findings.append(f"memory pass: warmup returned {report['warmup_errors']} unexpected responses")
+        if report["warmup_tenant_leaks"] != 0:
+            findings.append(f"memory pass: warmup exposed {report['warmup_tenant_leaks']} cross-tenant records")
+        if report["integrity_check"] != "ok":
+            findings.append("memory pass: post-run SQLite integrity check failed")
+        repetitions = report["repetitions"]
+        if len(repetitions) != thresholds["repetitions"]:
+            findings.append(f"memory pass: ran {len(repetitions)} of {thresholds['repetitions']} repetitions")
+        for metric in repetitions:
+            if metric["traced"] is not True:
+                findings.append(f"memory pass repetition {metric['repetition']}: ran without its tracer")
+                delta = None
+            findings.extend(
+                f"memory pass repetition {metric['repetition']}: {name}"
+                for name, passed in _repetition_checks(metric, thresholds).items() if not passed
+            )
+    except (KeyError, TypeError, AttributeError):
+        return ["memory pass: its report is incomplete"], None
+    return findings, delta
+
+
+def _memory_pass_summary(outcome: dict[str, Any], findings: list[str]) -> dict[str, Any]:
+    report = outcome["report"] if isinstance(outcome["report"], dict) else {}
+    repetitions = report.get("repetitions")
+    keys = ("repetition", "operations", "errors", "unexpected_5xx", "tenant_leaks", "websocket_failures", "websocket_cross_user_events", "duration_seconds")
+    return {
+        "process": "fresh subprocess",
+        "traced": report.get("tracing") is True,
+        "latencies_judged": False,
+        "status": "fail" if findings else "pass",
+        "exit_code": outcome["exit_code"],
+        "duration_seconds": outcome["duration_seconds"],
+        "timeout_seconds": MEMORY_PASS_TIMEOUT_SECONDS,
+        "repetitions": [
+            {key: metric.get(key) for key in keys} for metric in repetitions if isinstance(metric, dict)
+        ] if isinstance(repetitions, list) else [],
+    }
+
+
+async def run(run_id: str, output: Path) -> int:
+    thresholds_bytes = THRESHOLDS_PATH.read_bytes()
+    thresholds = json.loads(thresholds_bytes)
+    started_at = utc_now()
+    started = time.perf_counter()
+    try:
+        host_class, limits, host_identity = host_limits(thresholds, host_facts())
+    except UnknownHostClass as exc:
+        write_result(output.parent, {
+            "schema_version": 1,
+            "run_id": run_id,
+            "gate_id": "api_load",
+            "mandatory": True,
+            "status": "fail",
+            "started_at": started_at,
+            "ended_at": utc_now(),
+            "duration_seconds": round(time.perf_counter() - started, 3),
+            "tool_versions": {"python": os.sys.version.split()[0], "httpx": httpx.__version__},
+            "executed_count": 0,
+            "skipped_count": 0,
+            "xfailed_count": 0,
+            "metrics": {"host_class": None, "latency_limits": None},
+            "findings": [str(exc)],
+            "artifacts": ["api_load.json"],
+        })
+        return 1
+    # Taken now: the fixture rewrites this process's database settings, and the memory pass needs its own.
+    environment = dict(os.environ)
+    timed = await _drive_workload(thresholds)
+    findings = []
+    all_metrics = timed["repetitions"]
+    integrity = timed["integrity_check"]
+    fd_delta = timed["fd_delta"]
+    if timed["warmup_errors"]:
+        findings.append(f"warmup returned {timed['warmup_errors']} unexpected responses")
+    if timed["warmup_tenant_leaks"]:
+        findings.append(f"warmup exposed {timed['warmup_tenant_leaks']} cross-tenant records")
+    latency_traced = any(metric["traced"] for metric in all_metrics)
+    if latency_traced:
+        findings.append("latency was measured under a tracer")
+    for metric in all_metrics:
+        checks = {**_repetition_checks(metric, thresholds), **_timing_checks(metric, thresholds, limits)}
+        findings.extend(
+            f"repetition {metric['repetition']}: {name}"
+            for name, passed in checks.items() if not passed
+        )
+    if integrity != "ok":
+        findings.append("post-run SQLite integrity check failed")
+    if fd_delta > thresholds["maximum_fd_delta"]:
+        findings.append("file descriptor growth exceeded threshold")
+    memory = _run_memory_pass(environment)
+    memory_findings, memory_delta = _judge_memory_pass(memory, thresholds)
+    if memory_delta is not None and memory_delta > thresholds["maximum_memory_delta_mib"] * 1024 * 1024:
+        memory_findings.append("tracked memory growth exceeded threshold")
+    findings.extend(memory_findings)
     if THRESHOLDS_PATH.read_bytes() != thresholds_bytes:
         findings.append("threshold file changed during run")
     result = {
@@ -497,7 +735,13 @@ async def run(run_id: str, output: Path) -> int:
         "executed_count": sum(metric["operations"] + metric["websocket_cycles"] for metric in all_metrics),
         "skipped_count": 0,
         "xfailed_count": 0,
-        "metrics": {"repetitions": all_metrics, "integrity_check": integrity, "memory_delta_bytes": memory_delta, "fd_delta": fd_delta},
+        "metrics": {
+            "host_class": host_class, "latency_limits": limits, "host_identity": host_identity,
+            "repetitions": all_metrics, "integrity_check": integrity, "memory_delta_bytes": memory_delta, "fd_delta": fd_delta,
+            "latency_traced": latency_traced,
+            "memory_delta_source": "memory_pass",
+            "memory_pass": _memory_pass_summary(memory, memory_findings),
+        },
         "findings": findings,
         "artifacts": ["api_load.json"],
     }
@@ -505,11 +749,16 @@ async def run(run_id: str, output: Path) -> int:
     return 0 if result["status"] == "pass" else 1
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--run-id")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--memory-pass-output", type=Path, help="Run only the traced memory pass and write its report here")
+    args = parser.parse_args(argv)
+    if args.memory_pass_output:
+        return asyncio.run(memory_pass(args.memory_pass_output))
+    if not args.run_id or not args.output:
+        parser.error("--run-id and --output are required")
     return asyncio.run(run(args.run_id, args.output))
 
 

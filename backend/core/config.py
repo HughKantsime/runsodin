@@ -33,6 +33,18 @@ class Settings(BaseSettings):
             value = json.loads(value) if value.strip() else {}
         return {} if value is None else value
 
+    # Automatic consumption ownership is independent of display bindings.
+    external_filament_accounting_printers: Annotated[List[int], NoDecode] = Field(default_factory=list)
+
+    @field_validator("external_filament_accounting_printers", mode="before")
+    @classmethod
+    def parse_external_filament_accounting_printers(cls, value):
+        if isinstance(value, str):
+            value = json.loads(value) if value.strip() else []
+        if not isinstance(value, list) or any(type(item) is not int or item <= 0 for item in value):
+            raise ValueError("External filament accounting printers must be a JSON list of positive integer IDs")
+        return value
+
     # Scheduler defaults
     blackout_start: str = "22:30"
     blackout_end: str = "05:30"

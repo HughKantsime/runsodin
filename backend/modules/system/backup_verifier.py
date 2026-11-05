@@ -17,6 +17,16 @@ from modules.system.postgres_backup_service import (
 )
 
 
+def verify_sqlite_file(backup: Path) -> dict[str, object]:
+    """Verify one SQLite file by path, for a backup that has no published name yet."""
+    return {
+        "status": "verified",
+        "filename": backup.name,
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        **validate_database(backup),
+    }
+
+
 def verify_backup(
     database_url: str,
     backup_name: str = "latest",
