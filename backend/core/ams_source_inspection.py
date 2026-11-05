@@ -52,7 +52,7 @@ _MULTI_SOURCE_AUXILIARY = (
 )
 
 # A tool change can name the current hotend (B0 or B1) rather than B-1, which comes
-# from the first change or a wipe tower change. B is the filament_map value minus one,
+# from the first change or a wipe tower change. B is the plate's filament_maps value minus one,
 # so it must agree with the file's own map: I names a verified source and B its hotend.
 _CROSS_NOZZLE = tuple(re.compile(pattern) for pattern in (
     rf'M620\.11\s+P[01]\s+I([0-9]+)\s+B([01])\s+E{_NUMBER}(?:\s+F{_NUMBER})?',
@@ -116,12 +116,21 @@ class VerifiedSources:
 def _map_values(value):
     if isinstance(value, list):
         return value
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(',')] if ',' in value else value.split()
+    return []
+
+
+def _rack_map_values(value):
+    # Preserve HEAD's rack-printer interpretation, outside the H2D proof.
+    if isinstance(value, list):
+        return value
     return value.replace(',', ' ').split() if isinstance(value, str) else []
 
 
-def _source_extruder(settings, plate, index):
-    physical = _map_values(settings.get('physical_extruder_map'))
-    maps = [_map_values(settings[key]) for key in ('filament_nozzle_map', 'filament_map') if key in settings]
+def _rack_source_extruder(settings, plate, index):
+    physical = _rack_map_values(settings.get('physical_extruder_map'))
+    maps = [_rack_map_values(settings[key]) for key in ('filament_nozzle_map', 'filament_map') if key in settings]
     # The slicer CLI leaves filament_nozzle_map at a one-entry default on a
     # multi-filament file: that is not a fact about this filament.
     filaments = settings.get('filament_type')
@@ -130,7 +139,7 @@ def _source_extruder(settings, plate, index):
     declared = [node.get('value') for node in plate.findall('metadata') if node.get('key') == 'filament_maps']
     if len(declared) > 1:
         raise ValueError('Ambiguous plate extruders')
-    maps.extend(_map_values(value) for value in declared)
+    maps.extend(_rack_map_values(value) for value in declared)
     if not physical or not maps:
         return None
     targets = []
@@ -148,22 +157,175 @@ def _source_extruder(settings, plate, index):
             return None
         targets.append(int(extruder))
     if len(set(targets)) != 1:
-        project_map = _map_values(settings.get('filament_map'))
-        if declared and project_map and str(project_map[index]) != str(_map_values(declared[0])[index]):
+        project_map = _rack_map_values(settings.get('filament_map'))
+        if declared and project_map and str(project_map[index]) != str(_rack_map_values(declared[0])[index]):
             raise _SourceRefusal("the project's filament map disagrees with the plate's")
         raise _SourceRefusal("the slicer's extruder maps disagree")
     return targets[0]
 
 
-def _cross_nozzle_agrees(command, settings, used):
-    """None when this isn't a cross-nozzle change; else whether it agrees with the file."""
+def _false_flag(value):
+    return value is False or type(value) is int and value == 0 or type(value) is str and value in ('0', 'false')
+
+
+def requires_extruder_proof(settings):
+    """Require fixed-extruder evidence, retaining HEAD's separate rack path."""
+    model = settings.get('printer_model', '')
+    if model in ('Bambu Lab H2C', 'H2C'):
+        return False
+    return (model in ('Bambu Lab H2D', 'Bambu Lab H2D Pro', 'Bambu Lab H2C', 'Bambu Lab H3C',
+                      'H2D', 'H2D Pro', 'H2C', 'H3C')
+            or len(_map_values(settings.get('nozzle_diameter'))) > 1
+            or len(_map_values(settings.get('physical_extruder_map'))) > 1
+            or any(str(v) != '1' for v in _map_values(settings.get('extruder_max_nozzle_count')))
+            or any(key in settings and not _false_flag(settings[key]) for key in
+                   ('handle_hotend_as_extruder', 'has_filament_switcher', 'enable_filament_dynamic_map')))
+
+
+class PlateExtruders:
+    """H2D static logical-to-physical proof; project filament maps are inputs only."""
+
+    def __init__(self, settings, plate, used):
+        def refuse(reason):
+            raise _SourceRefusal(reason)
+        if settings.get('printer_model') in ('Bambu Lab H2C', 'H2C', 'Bambu Lab H3C', 'H3C'):
+            refuse('unsupported_rack_printer')
+        if len(_map_values(settings.get('nozzle_diameter'))) != 2:
+            refuse('two_extruder_layout_unverified')
+        counts = _map_values(settings.get('extruder_max_nozzle_count'))
+        # Older sanitized H2D metadata omits this profile field. An explicit H2D
+        # model plus two diameters identifies its fixed one-nozzle-per-extruder layout.
+        known_h2d = settings.get('printer_model') in ('Bambu Lab H2D', 'Bambu Lab H2D Pro', 'H2D', 'H2D Pro')
+        if ((not counts and (not known_h2d or 'extruder_max_nozzle_count' in settings))
+                or counts and (len(counts) != 2 or any(type(v) not in (int, str) or str(v) != '1' for v in counts))):
+            refuse('one_nozzle_per_extruder_unverified')
+        # Studio 2.09 prefers installed per-slot data over the default nozzle list.
+        for key, expected in (('extruder_nozzle_count', ['1', '1']), ('extruder_nozzle_slot', ['0', '1'])):
+            if key in settings:
+                actual = _map_values(settings[key])
+                if (not actual or any(type(v) not in (int, str) for v in actual)
+                        or list(map(str, actual)) != expected):
+                    refuse('installed_nozzle_layout_unsupported')
+        for key, reason in (('handle_hotend_as_extruder', 'hotend_as_extruder_unsupported'),
+                            ('has_filament_switcher', 'filament_switcher_unsupported'),
+                            ('enable_filament_dynamic_map', 'dynamic_filament_map_unsupported')):
+            declarations = [m.get('value') for m in plate.findall('metadata') if m.get('key') == key]
+            if len(declarations) > 1 or any(not _false_flag(v) for v in declarations):
+                refuse(reason)
+            if key in settings and not _false_flag(settings[key]):
+                refuse(reason)
+        physical = _map_values(settings.get('physical_extruder_map'))
+        if (len(physical) != 2 or any(type(v) not in (int, str) or str(v) not in ('0', '1') for v in physical)
+                or set(map(str, physical)) != {'0', '1'}):
+            refuse('physical_extruder_map_invalid')
+        self.physical = list(map(int, physical))
+        if known_h2d and self.physical != [1, 0]:
+            refuse('h2d_physical_extruder_map_unsupported')
+        declared = [m.get('value') for m in plate.findall('metadata') if m.get('key') == 'filament_maps']
+        if not declared:
+            refuse('plate_filament_map_missing')
+        if len(declared) != 1:
+            refuse('plate_filament_map_duplicate')
+        mapping = _map_values(declared[0])
+        if not used or max(used) >= len(mapping):
+            refuse('plate_filament_map_incomplete')
+        if any(mapping[i] not in ('1', '2') for i in used):
+            refuse('plate_filament_map_out_of_range')
+        self.logical = {i: int(mapping[i]) - 1 for i in used}
+        self.extruders = {i: self.physical[logical] for i, logical in self.logical.items()}
+        if plate.findall('.//nozzle') != plate.findall('nozzle'):
+            refuse('slice_nozzle_structure_unsupported')
+        nozzles = {}
+        for nozzle in plate.findall('nozzle'):
+            identifier, extruder = nozzle.get('id'), nozzle.get('extruder_id')
+            if identifier not in ('0', '1') or extruder not in ('1', '2'):
+                refuse('slice_nozzle_layout_unverified')
+            if identifier in nozzles:
+                refuse('slice_nozzle_duplicate')
+            if int(identifier) != int(extruder) - 1:
+                refuse('slice_nozzle_extruder_disagrees')
+            nozzles[identifier] = int(extruder) - 1
+        self.group_sources = set()
+        for filament in plate.findall('filament'):
+            index = int(filament.get('id')) - 1
+            if index not in used:
+                continue
+            group = filament.get('group_id')
+            if group is None:
+                if nozzles:
+                    refuse('slice_filament_group_missing')
+                continue
+            if group not in ('0', '1'):
+                refuse('slice_filament_group_unsupported')
+            if nozzles and group not in nozzles:
+                refuse('slice_filament_nozzle_missing')
+            self.group_sources.add(index)
+            if int(group) != self.logical[index]:
+                refuse('slice_filament_group_disagrees')
+        self.headers = set()
+        self.in_settings = False
+
+    def finish(self):
+        if 'physical_extruder_map' not in self.headers:
+            raise _SourceRefusal('gcode_physical_extruder_map_missing')
+        if 'filament_map' not in self.headers and self.group_sources != set(self.logical):
+            raise _SourceRefusal('source_mapping_cross_check_missing')
+
+    def check_header(self, line, line_number=None):
+        location = f', line {line_number}' if line_number is not None else ''
+        if line.strip() == '; CONFIG_BLOCK_START':
+            self.in_settings = True
+            return
+        if line.strip() == '; CONFIG_BLOCK_END':
+            self.in_settings = False
+            return
+        if not self.in_settings:
+            return
+        match = re.fullmatch(r'\s*;\s*(filament_map|filament_nozzle_map|physical_extruder_map)\s*=\s*(.*?)\s*', line)
+        if not match:
+            if re.match(r'\s*;\s*(?:filament_map|filament_nozzle_map|physical_extruder_map)(?:\s|=|$)', line):
+                raise _SourceRefusal(f'gcode_filament_map_malformed{location}')
+            return
+        key, value = match.groups()
+        if key in self.headers:
+            raise _SourceRefusal(f'gcode_{key}_duplicate{location}')
+        self.headers.add(key)
+        mapping = _map_values(value)
+        if key == 'physical_extruder_map':
+            if mapping != list(map(str, self.physical)):
+                raise _SourceRefusal(f'gcode_physical_extruder_map_disagrees{location}')
+            return
+        offset = 1 if key == 'filament_map' else 0
+        if any(i >= len(mapping) or mapping[i] != str(logical + offset) for i, logical in self.logical.items()):
+            raise _SourceRefusal(f'gcode_{key}_disagrees{location}')
+
+    def check_command(self, command, line_number):
+        # H on M620.10 is a diameter, and on M620.11 it is a cutter mode.
+        if re.match(r'T[0-9]+|M620(?:\s|\.6\s)', command):
+            hotends = re.findall(r'(?:^|\s)H([^\s]+)', command)
+            if any(value != '-1' for value in hotends):
+                raise _SourceRefusal(f'dynamic_hotend_unsupported, line {line_number}')
+        if re.match(r'M620(?:\s|\.11(?:\s|$))', command):
+            bs = re.findall(r'(?:^|\s)B([^\s]+)', command)
+            if command.startswith('M620.11') and re.search(r'(?:^|\s)I', command) and not bs:
+                raise _SourceRefusal(f'an M620.11 tool change has no B (extruder) field, line {line_number}')
+            if bs:
+                source_letter = 'I' if command.startswith('M620.11') else 'S'
+                sources = re.findall(r'(?:^|\s)' + source_letter + r'([0-9]+)(?:A)?(?=\s|$)', command)
+                if len(sources) == 1 and int(sources[0]) not in self.logical:
+                    raise _SourceRefusal(f'gcode_source_not_on_plate, line {line_number}')
+                if (len(bs) != 1 or len(sources) != 1
+                        or bs[0] not in ('-1', str(self.logical[int(sources[0])]))):
+                    raise _SourceRefusal(f'gcode_B_disagrees, line {line_number}')
+
+
+def _cross_nozzle_agrees(command, logical, used):
+    """None for other shapes; B is a logical nozzle, never a physical extruder."""
     match = next(filter(None, (pattern.fullmatch(command) for pattern in _CROSS_NOZZLE)), None)
     if match is None:
         return None
     source, hotend = map(int, match.groups())
-    mapping = _map_values(settings.get('filament_map'))
-    return (source in used and source < len(mapping)
-            and str(mapping[source]) in ('1', '2') and int(mapping[source]) - 1 == hotend)
+    return source in used and logical.get(source) == hotend
 
 
 class _P2STemplate:
@@ -241,7 +403,10 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
     """Refuse ambiguous/unsupported sources; never infer metadata array order."""
     refusal = 'Unverifiable source mapping'
     try:
-        if type(payload) is not bytes or len(payload) > MAX_ARCHIVE_BYTES:
+        if type(payload) is bytes and len(payload) > MAX_ARCHIVE_BYTES:
+            raise _SourceRefusal(f'the file is too large to check ({len(payload) / (1024 * 1024):.1f} MiB; '
+                                 f'the limit is {MAX_ARCHIVE_BYTES // (1024 * 1024)} MiB)')
+        if type(payload) is not bytes:
             raise ValueError(refusal)
         if type(plate_index) is not int or plate_index != 0:
             raise ValueError(refusal)
@@ -251,12 +416,18 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
             entries = package.infolist()
             if len(entries) > 512 or len({e.filename for e in entries}) != len(entries):
                 raise ValueError(refusal)
+            if len({e.filename.lower() for e in entries}) != len(entries):
+                raise _SourceRefusal('archive_member_case_collision')
             plate_members = [e.filename for e in entries
                              if re.fullmatch(r'Metadata/plate_[0-9]+\.gcode', e.filename)]
             if plate_members != ['Metadata/plate_1.gcode']:
                 raise ValueError(refusal)
             def read(name, limit):
                 member = package.getinfo(name)
+                if not member.is_dir() and member.file_size > limit:
+                    raise _SourceRefusal(f"{name.rsplit('/', 1)[-1]} is too large to check "
+                                         f'({member.file_size / (1024 * 1024):.1f} MiB uncompressed; '
+                                         f'the limit is {limit // (1024 * 1024)} MiB)')
                 if member.is_dir() or not 0 < member.file_size <= limit or member.compress_size > limit:
                     raise ValueError(refusal)
                 with package.open(member) as stream:
@@ -268,6 +439,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
             plates = xml.findall('plate')
             if len(plates) != 1:
                 raise ValueError(refusal)
+            if xml.findall('.//plate') != plates:
+                raise _SourceRefusal('slice_plate_structure_unsupported')
             indexes = [m.get('value') for m in plates[0].findall('metadata') if m.get('key') == 'index']
             if indexes != ['1']:
                 raise ValueError(refusal)
@@ -297,6 +470,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
             materials = settings.get('filament_type') if isinstance(settings, dict) else None
             if not isinstance(materials, list) or not max(used) < len(materials) <= 16:
                 raise ValueError(refusal)
+            rack = settings.get('printer_model') in ('Bambu Lab H2C', 'H2C')
+            proof = PlateExtruders(settings, plates[0], used) if requires_extruder_proof(settings) else None
             sources = []
             for index, filament in sorted(by_source.items()):
                 material = canonical_reported_material(filament.get('type'))
@@ -308,7 +483,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     if not math.isfinite(grams) or grams < 0:
                         raise ValueError(refusal)
                 sources.append(VerifiedSource(index, material,
-                    None if single_source else _source_extruder(settings, plates[0], index), grams))
+                    proof.extruders[index] if proof else
+                    _rack_source_extruder(settings, plates[0], index) if rack and not single_source else None, grams))
             extruders = {source.source_index: source.extruder for source in sources}
             code = io.BytesIO(read('Metadata/plate_1.gcode', MAX_GCODE_BYTES))
             p2s = _P2STemplate(used) if settings.get('printer_model') == _P2S_MODEL else None
@@ -328,6 +504,9 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                         raise ValueError(refusal)
                     headers.append([canonical_reported_material(value.strip()) for value in header_materials])
                 command = line.split(';', 1)[0].strip()
+                if proof:
+                    proof.check_header(line, line_number)
+                    proof.check_command(command, line_number)
                 if p2s is not None and p2s.admits(line, command):
                     continue
                 if re.match(r'^T(?:[0-9]|\s|$)', command):
@@ -338,6 +517,9 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     # filament back to AMS, and T65279 in its end template.
                     # These are non-source sentinels, never numbered trays.
                     if not re.fullmatch(rf'T(?:{source_pattern}(?:\s+H-1)?|255|1000|1001|1100|65535|65279)', command):
+                        if proof:
+                            reason = 'unsupported_T1001_O0' if command == 'T1001 O0' else 'unsupported_T_command'
+                            raise _SourceRefusal(f'{reason}, line {line_number}')
                         raise ValueError(refusal)
                 if not re.match(r'^M62[01](?:\s|\.|$)', command):
                     continue
@@ -345,9 +527,11 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                 if re.fullmatch(r'M620\s+M|M620\.3\s+W[01]|M620\.1\s+E\s+F[0-9]+(?:\.[0-9]+)?\s+T[0-9]+(?:\.[0-9]+)?', command):
                     continue
                 nozzle = re.fullmatch(r'M620\.17\s+T([01])\s+S' + _NUMBER + r'\s+L([0-9]+)', command)
-                if nozzle and len(used) > 1 and all(value is not None for value in extruders.values()):
+                if nozzle and (proof or rack and len(used) > 1 and all(v is not None for v in extruders.values())):
                     target, source = map(int, nozzle.groups())
                     if extruders.get(source) != target and not (source == 0 and target not in extruders.values()):
+                        if proof:
+                            raise _SourceRefusal(f'gcode_M620.17_disagrees, line {line_number}')
                         raise ValueError(refusal)
                 if any(re.fullmatch(pattern.replace('{source}', source_pattern), command) for pattern in _H2D_NON_SOURCE):
                     continue
@@ -355,7 +539,11 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                                          for pattern in _MULTI_SOURCE_AUXILIARY):
                     continue
                 if len(used) > 1:
-                    crossing = _cross_nozzle_agrees(command, settings, used)
+                    logical = proof.logical if proof else {}
+                    if rack:
+                        logical = {i: int(v) - 1 for i, v in enumerate(_rack_map_values(settings.get('filament_map')))
+                                   if str(v) in ('1', '2')}
+                    crossing = _cross_nozzle_agrees(command, logical, used)
                     if crossing is False:
                         raise ValueError(refusal)
                     if crossing:
@@ -371,8 +559,12 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                 if match is None:
                     if re.match(r'M620\.11(?:\s|$)', command) and not re.search(r'(?:^|\s)B', command):
                         raise _SourceRefusal(f"an M620.11 tool change has no B (extruder) field, line {line_number}")
+                    if proof:
+                        raise _SourceRefusal(f'unsupported_M620_M621_command, line {line_number}')
                     raise ValueError(refusal)
                 switches[int(match.group(1))].add(int(match.group(2)))
+            if proof:
+                proof.finish()
             if p2s is not None:
                 p2s.finish()
             expected_materials = [canonical_reported_material(value) for value in materials]

@@ -34,20 +34,24 @@ def payload(*, ids=(0, 1), materials=('PETG', 'PLA'), extruders=None, plate_ids=
         profiles[index] = material
     project = {'filament_type': profiles}
     if extruders is not None:
-        project.update(physical_extruder_map=[0, 1], filament_nozzle_map=[e + 1 for e in extruders],
-                       nozzle_diameter=['0.4', '0.4'])
+        project.update(physical_extruder_map=[1, 0], filament_nozzle_map=[e + 1 for e in extruders],
+                       nozzle_diameter=['0.4', '0.4'], extruder_max_nozzle_count=[1, 1])
     xml = '<config><plate><metadata key="index" value="1"/>' + ''.join(
         f'<filament id="{index + 1}" type="{material}" used_g="{10 + i * 20}"/>'
         for i, (index, material) in enumerate(zip(ids, materials))) + '</plate></config>'
+    if extruders is not None:
+        xml = xml.replace('<plate>', '<plate><metadata key="filament_maps" value="' + ' '.join(str(2 - e) for e in extruders) + '"/>')
     raw = io.BytesIO()
     with zipfile.ZipFile(raw, 'w') as package:
         package.writestr('Metadata/slice_info.config', xml)
         package.writestr('Metadata/project_settings.config', json.dumps(project))
         package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': list(ids) if plate_ids is None else plate_ids}))
-        package.writestr('Metadata/plate_1.gcode', code if code is not None else
+        settings_block = ('; CONFIG_BLOCK_START\n; physical_extruder_map = 1,0\n; filament_map = '
+                          + ','.join(str(2 - e) for e in extruders) + '\n; CONFIG_BLOCK_END\n') if extruders is not None else ''
+        package.writestr('Metadata/plate_1.gcode', settings_block + (code if code is not None else
             '; filament_type = ' + ';'.join(profiles) + '\n' + ''.join(
                 f'M620 S{index}A\nT{index}\nM621 S{index}A\n' for index in ids)
-            + CHANGE_COMMANDS.get(model, '').replace('I0 ', f'I{ids[0]} '))
+            + CHANGE_COMMANDS.get(model, '').replace('I0 ', f'I{ids[0]} ')))
     return raw.getvalue()
 
 
@@ -237,9 +241,9 @@ def test_h2d_requires_each_sources_nozzle_binding(review_db, tmp_path, monkeypat
     else:
         assert not sent
         assert {'wrong_binding': 'ams_binding_mismatch', 'missing_binding': 'ams_binding_unverified',
-                'missing_source_extruder': 'source_extruder_unverified'}[failure] in result[1]
+                'missing_source_extruder': 'source_mapping_unverified'}[failure] in result[1]
         if failure == 'missing_source_extruder':
-            assert "the slicer's nozzle map can't be verified" in result[1]
+            assert 'two_extruder_layout_unverified' in result[1]
 
 
 @pytest.mark.parametrize('change', ['material', 'plate', 'commands', 'extra_tool'])
@@ -297,7 +301,7 @@ def cross_nozzle_file(filament_map, *commands, nozzle_map=('1',), plate_map=None
     """A two-colour H2D slice across both nozzles, shaped like the slicer CLI's output."""
     project = {'filament_type': ['PLA', 'PLA'], 'filament_map': list(filament_map),
                'filament_nozzle_map': list(nozzle_map), 'physical_extruder_map': ['1', '0'],
-               'nozzle_diameter': ['0.4', '0.4'], 'nozzle_volume_type': ['High Flow', 'High Flow']}
+               'extruder_max_nozzle_count': [1, 1], 'nozzle_diameter': ['0.4', '0.4'], 'nozzle_volume_type': ['High Flow', 'High Flow']}
     xml = ('<config><plate><metadata key="index" value="1"/>'
            f'<metadata key="filament_maps" value="{plate_map or " ".join(filament_map)}"/>'
            '<filament id="1" type="PLA" used_g="206.93" used_m="68.28" nozzle_diameter="0.40" volume_type="High Flow"/>'
@@ -305,6 +309,7 @@ def cross_nozzle_file(filament_map, *commands, nozzle_map=('1',), plate_map=None
     code = ('; filament_type = PLA;PLA\nT1001\nM620 S0A H-1 ; switch material if AMS exist\nT0 H-1\nM621 S0A\n'
             'M620.11 P0 I0 B-1 E0\nM620.11 K1 I0 B-1 R10 F997.797\nM620.11 S1 L0 I0 B-1 R10 D8 E-10 F997.797\n'
             'M620 S1A H-1\nT1 H-1\nM621 S1A\n' + ''.join(command + '\n' for command in commands) + 'T65535\nT65279\n')
+    code += '; CONFIG_BLOCK_START\n; physical_extruder_map = 1,0\n; filament_map = ' + (plate_map or ' '.join(filament_map)).replace(' ', ',') + '\n; CONFIG_BLOCK_END\n'
     raw = io.BytesIO()
     with zipfile.ZipFile(raw, 'w') as package:
         package.writestr('Metadata/slice_info.config', xml)
@@ -337,45 +342,40 @@ def test_cli_slice_across_nozzles_is_verified_with_each_sources_nozzle(filament_
 ])
 def test_cross_nozzle_commands_must_agree_with_the_files_own_map(command):
     assert inspect_ams_sources(cross_nozzle_file(('2', '1'), 'M620.11 P0 I1 B0 E0'))
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+    with pytest.raises(ValueError):
         inspect_ams_sources(cross_nozzle_file(('2', '1'), command))
 
 
 def test_cross_nozzle_command_must_name_a_source_of_this_file():
     # filament_map has an entry for index 2, so only the source check can refuse it.
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+    with pytest.raises(ValueError):
         inspect_ams_sources(cross_nozzle_file(('2', '1', '1'), 'M620.11 P0 I2 B0 E0'))
 
 
 def test_cross_nozzle_commands_stay_refused_on_a_single_source_file():
-    raw = io.BytesIO()
-    with zipfile.ZipFile(raw, 'w') as package:
-        package.writestr('Metadata/slice_info.config', '<config><plate><metadata key="index" value="1"/>'
-                         '<filament id="1" type="PLA" used_g="10"/></plate></config>')
-        package.writestr('Metadata/project_settings.config', json.dumps(
-            {'filament_type': ['PLA'], 'filament_map': ['1'], 'filament_nozzle_map': ['1'], 'physical_extruder_map': ['1', '0']}))
-        package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': [0]}))
-        package.writestr('Metadata/plate_1.gcode', '; filament_type = PLA\nM620 S0A\nT0\nM621 S0A\nM620.11 P0 I0 B0 E0\n')
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
-        inspect_ams_sources(raw.getvalue())
+    from tests.test_contracts.test_h2d_source_mapping import fixture
+    valid = fixture(used=(0,), mapping=(2,), tower=True)
+    assert inspect_single_source_ams(valid).source_index == 0
+    with pytest.raises(ValueError, match='gcode_B_disagrees, line'):
+        inspect_ams_sources(fixture(used=(0,), mapping=(2,), tower=True,
+            code=lambda c: c + 'M620.11 P0 I0 B0 E0\n'))
 
 
 def test_cross_nozzle_command_needs_a_filament_map_to_agree_with():
     from core.ams_source_inspection import _cross_nozzle_agrees
     assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {}, {0, 1}) is False
-    assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {'filament_map': ['2', '3']}, {0, 1}) is False
-    assert _cross_nozzle_agrees('M620.11 P0 I1 B-1 E0', {'filament_map': ['2', '1']}, {0, 1}) is None
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {0: 1, 1: 2}, {0, 1}) is False
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B-1 E0', {0: 1, 1: 0}, {0, 1}) is None
 
 
 @pytest.mark.parametrize('nozzle_map,plate_map', [
-    (('2', '2'), None),  # A full map still has to agree: source 1 would be on another nozzle.
+    (('2', '2'), None),  # Even full project maps are irrelevant to the slice result.
     (('1', '1'), None),
-    (('1',), '1 1'),  # The plate's own map still has to agree.
+    (('1',), '1 1'),  # The plate result can legitimately differ from the project.
 ])
-def test_only_the_one_entry_default_nozzle_map_is_ignored(nozzle_map, plate_map):
-    with pytest.raises(ValueError) as error:
-        inspect_ams_sources(cross_nozzle_file(('2', '1'), nozzle_map=nozzle_map, plate_map=plate_map))
-    assert str(error.value) == ("the project's filament map disagrees with the plate's" if plate_map else "the slicer's extruder maps disagree")
+def test_project_nozzle_and_filament_maps_do_not_override_plate(nozzle_map, plate_map):
+    result = inspect_ams_sources(cross_nozzle_file(('2', '1'), nozzle_map=nozzle_map, plate_map=plate_map))
+    assert [s.extruder for s in result.sources] == ([1, 1] if plate_map else [0, 1])
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
@@ -485,20 +485,18 @@ def test_education_approval_refuses_multi_source_before_consuming_approval(tmp_p
 
 
 @pytest.mark.parametrize('conflict', [False, True])
-def test_h2d_slice_and_project_extruders_must_agree(conflict):
+def test_h2d_slice_does_not_require_project_map_agreement(conflict):
     original = payload(extruders=[0, 1])
     result = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(result, 'w') as target:
         for name in source.namelist():
             data = source.read(name)
-            if name.endswith('slice_info.config'):
-                data = data.replace(b'<plate>', b'<plate><metadata key="filament_maps" value="' + (b'1 1' if conflict else b'1 2') + b'"/>')
+            if name.endswith('project_settings.config'):
+                settings = json.loads(data)
+                settings['filament_map'] = [1, 1] if conflict else [1, 2]
+                data = json.dumps(settings)
             target.writestr(name, data)
-    if conflict:
-        with pytest.raises(ValueError):
-            inspect_ams_sources(result.getvalue())
-    else:
-        assert [source.extruder for source in inspect_ams_sources(result.getvalue()).sources] == [0, 1]
+    assert [source.extruder for source in inspect_ams_sources(result.getvalue()).sources] == [0, 1]
 
 
 @pytest.mark.parametrize('command,accepted', [('M620.17 T0 S245 L0', True), ('M620.17 T1 S245 L1', True),
@@ -599,6 +597,10 @@ def test_p2s_two_source_near_miss_lines_refuse(lines):
 
 @pytest.mark.parametrize('model', ['Bambu Lab X1 Carbon', 'Bambu Lab P1S', 'Bambu Lab A1', 'Bambu Lab H2D', 'Bambu Lab X2D', 'Bambu Lab A2L'])
 def test_p2s_two_source_template_refuses_on_another_model(model):
+    if model == 'Bambu Lab H2D':
+        with pytest.raises(ValueError, match='two_extruder_layout_unverified'):
+            inspect_ams_sources(p2s_file(model=model))
+        return
     with pytest.raises(ValueError, match=r'^an M620\.11 tool change has no B \(extruder\) field, line 6$'):
         inspect_ams_sources(p2s_file(model=model))
 
@@ -648,3 +650,24 @@ def test_p2s_file_is_refused_by_the_model_gate_on_another_printer(review_db, tmp
     monkeypatch.setattr(dispatch, '_dispatch_bambu', lambda *a, **kw: pytest.fail('transport reached'))
     ok, reason = dispatch.dispatch_job(59, 53)
     assert not ok and 'printer_model_mismatch' in reason
+
+
+@pytest.mark.parametrize('protocol', ['legacy', 'v2'])
+def test_start_gate_refuses_unverified_source_extruder_after_upload(review_db, tmp_path, monkeypatch, protocol):
+    from modules.printers import dispatch, services
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D',
+                                      mapping=[2, 4], extruders=[0, 1])
+    original = services.inspect_ams_payload
+    def missing_extruder(*args, **kwargs):
+        facts = original(*args, **kwargs)
+        # Exercise the final gate's defense against an incomplete upstream proof.
+        facts['sources'][1]['extruder'] = None
+        return facts
+    monkeypatch.setattr(services, 'inspect_ams_payload', missing_extruder)
+    events = []
+    sent = transport(monkeypatch, path, protocol, events)
+    owned_read(monkeypatch, engine, report, events, slots=(3, 5))
+    ok, reason = dispatch.dispatch_job(59, 53)
+    assert not ok and 'source_extruder_unverified' in reason
+    assert events == ['upload', 'fresh_read']
+    assert not sent

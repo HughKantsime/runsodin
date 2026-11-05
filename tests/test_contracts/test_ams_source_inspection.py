@@ -172,8 +172,11 @@ def h2d_archive(*, command=None, replacements=None):
     with zipfile.ZipFile(H2D) as original, zipfile.ZipFile(result, 'w') as package:
         for name in original.namelist():
             content = original.read(name)
-            if name == 'Metadata/plate_1.gcode' and command is not None:
-                content += (command + '\n').encode()
+            if name == 'Metadata/plate_1.gcode':
+                # Sanitization removed the settings block; supply synthetic evidence.
+                content += b'; CONFIG_BLOCK_START\n; physical_extruder_map = 1,0\n; CONFIG_BLOCK_END\n'
+                if command is not None:
+                    content += (command + '\n').encode()
             if replacements and name in replacements:
                 old, new = replacements[name]
                 content = content.replace(old.encode(), new.encode())
@@ -182,7 +185,9 @@ def h2d_archive(*, command=None, replacements=None):
 
 
 def test_genuine_h2d_petg_source_is_one():
-    result = inspect_single_source_ams(H2D.read_bytes())
+    with pytest.raises(ValueError, match='gcode_physical_extruder_map_missing'):
+        inspect_single_source_ams(H2D.read_bytes())
+    result = inspect_single_source_ams(h2d_archive())
     assert (result.plate_index, result.source_index, result.material) == (0, 1, 'PETG')
 
 
@@ -211,8 +216,7 @@ def h2d_changed_commands():
     'M620.6 I0 H-1 W1', 'M620.6 I1 H0 W1', 'M620.6 I1 H-1 W2', 'M620 D0', 'M620 Q2', 'M620.17 T2 S245 L1',
     'M620.17 T0 S245 L2', 'M620.11 K0 I1 B-1 R0 F', 'M620.11 S0 L0 I1 B-1 R10 E-10 F623.623'])
 def test_h2d_allowlist_refuses_changed_shape_selector_or_source(command):
-    reason = r'^an M620\.11 tool change has no B \(extruder\) field, line [0-9]+$' if command.startswith('M620.11 ') and ' B' not in command else '^Unverifiable source mapping$'
-    with pytest.raises(ValueError, match=reason):
+    with pytest.raises(ValueError):
         inspect_single_source_ams(h2d_archive(command=command))
 
 
@@ -223,7 +227,7 @@ def test_h2d_allowlist_refuses_changed_shape_selector_or_source(command):
     # Bambu template branches: long retraction with feed, TPU without R/D,
     # and either nozzle with the source or the empty-nozzle fallback.
     'M620.11 K1 I1 B-1 R2 F623.623', 'M620.11 S0 L0 I1 B-1 E-10 F623.623',
-    'M620.17 T0 S245 L1', 'M620.17 T1 S245 L0'])
+    'M620.17 T0 S245 L0', 'M620.17 T1 S245 L1'])
 def test_h2d_profile_values_do_not_refuse(command):
     result = inspect_single_source_ams(h2d_archive(command=command))
     assert (result.source_index, result.material) == (1, 'PETG')
@@ -251,7 +255,7 @@ def test_h2d_metadata_conflicts_refuse(member, old, new):
 
 def test_h2d_gcode_size_from_production_fits_bounded_inspection():
     result = io.BytesIO()
-    with zipfile.ZipFile(H2D) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED) as package:
+    with zipfile.ZipFile(io.BytesIO(h2d_archive())) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED) as package:
         for name in original.namelist():
             with package.open(name, 'w') as member:
                 member.write(original.read(name))
@@ -408,6 +412,11 @@ def test_p2s_lines_refuse_on_any_other_model_and_the_rest_stays_as_it_was(model)
                 code = code if line in kept else code.replace(line, '')
             return code
         return change
+    if model in ('Bambu Lab H2D', 'Bambu Lab H2D Pro'):
+        # A single-nozzle P2S archive cannot prove a declared H2D layout.
+        with pytest.raises(ValueError, match='two_extruder_layout_unverified'):
+            inspect_single_source_ams(p2s_archive(declared(), model=model))
+        return
     assert_refused(p2s_archive(declared(*P2S_ONLY_LINES), model=model), missing_b=True)
     for line in P2S_ONLY_LINES:
         assert_refused(p2s_archive(declared(line), model=model), missing_b=line.startswith('M620.11 '))

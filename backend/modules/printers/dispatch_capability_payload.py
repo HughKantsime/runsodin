@@ -1,5 +1,8 @@
 """Bounded, selected-plate nozzle and geometry inspection for Bambu dispatch."""
+import io
 import json
+import zipfile
+from core.ams_source_inspection import PlateExtruders, MAX_GCODE_LINE_BYTES
 from defusedxml import ElementTree as ET
 from core.zip_bounds import open_bounded, check_expansion
 from modules.printers.nozzle_capability import number
@@ -38,8 +41,102 @@ def bounds(value):
     return None
 
 
+def _settings_lines(package, member):
+    """Inspect both 2 MiB end windows, with bounded halos for whole lines.
+
+    Use BytesIO.readline: ZipExtFile.readline(limit) can split at its internal
+    buffer edge or return more than limit. Never interpret a line fragment as
+    a settings delimiter. Diagnostics omit line numbers because the tail window
+    does not establish absolute file line numbers.
+    """
+    limit = 2 * 1024 * 1024
+    size = package.getinfo(member).file_size
+    active = seen = False
+    lines = []
+    inspected_end = 0
+    with package.open(member) as stream:
+        for offset in dict.fromkeys((0, max(0, size - limit))):
+            end = min(size, offset + limit)
+            if end <= inspected_end:
+                continue
+            start = max(offset, inspected_end)
+            read_start = max(0, start - MAX_GCODE_LINE_BYTES - 1)
+            stream.seek(read_start)
+            data = stream.read(min(size, end + MAX_GCODE_LINE_BYTES + 1) - read_start)
+            # Back up to the beginning of the first line intersecting the window.
+            relative = start - read_start
+            boundary = data.rfind(b'\n', 0, relative) + 1
+            if not boundary and read_start:
+                raise ValueError('gcode_line_too_long')
+            window = io.BytesIO(data)
+            window.seek(boundary)
+            while read_start + window.tell() < end:
+                raw = window.readline(MAX_GCODE_LINE_BYTES + 1)
+                if not raw:
+                    break
+                if len(raw) > MAX_GCODE_LINE_BYTES:
+                    raise ValueError('gcode_line_too_long')
+                inspected_end = read_start + window.tell()
+                try:
+                    line = raw.decode('utf-8').rstrip('\r\n')
+                except UnicodeDecodeError:
+                    raise ValueError('gcode_settings_encoding_invalid') from None
+                if line.strip() == '; CONFIG_BLOCK_START':
+                    if seen:
+                        raise ValueError('gcode_settings_block_duplicate')
+                    active = seen = True
+                if active:
+                    lines.append(line)
+                    if line.strip() == '; CONFIG_BLOCK_END':
+                        active = False
+            if active:
+                raise ValueError('gcode_settings_block_incomplete')
+    if not seen:
+        raise ValueError('gcode_settings_block_missing')
+    return lines
+
+
+def _verified_extruders(package, names, project, root, selected, plate_number, model):
+    if len(names) != len(package.namelist()):
+        raise ValueError('archive_member_case_collision')
+    if root is None or selected is None:
+        raise ValueError('slice_plate_missing')
+    if root.findall('.//plate') != root.findall('plate'):
+        raise ValueError('slice_plate_structure_unsupported')
+    matches = []
+    for candidate in root.findall('plate'):
+        indexes = [n.get('value') for n in candidate.findall('metadata') if n.get('key') == 'index']
+        if str(plate_number) in indexes or candidate.get('index') == str(plate_number):
+            if indexes != [str(plate_number)]:
+                raise ValueError('slice_plate_index_invalid')
+            matches.append(candidate)
+    if len(matches) != 1:
+        raise ValueError('slice_plate_duplicate')
+    filaments = selected.findall('filament')
+    ids = [f.get('id', '') for f in filaments]
+    if not ids or any(not i.isascii() or not i.isdecimal() or not 1 <= int(i) <= 16 for i in ids):
+        raise ValueError('slice_filament_id_invalid')
+    used = {int(i) - 1 for i in ids}
+    if len(used) != len(ids):
+        raise ValueError('slice_filament_duplicate')
+    # The target model also establishes the H2D physical-map invariant.
+    settings = dict(project)
+    proof = PlateExtruders(settings, selected, used)
+    if bambu_model_name(model) in ('H2D', 'H2D Pro') and proof.physical != [1, 0]:
+        raise ValueError('h2d_physical_extruder_map_unsupported')
+    member = names.get(f'metadata/plate_{plate_number}.gcode')
+    if member is None:
+        raise ValueError('gcode_settings_block_missing')
+    for line in _settings_lines(package, member):
+        proof.check_header(line)
+    proof.finish()
+    return proof.extruders
+
+
 def inspect_payload(path, plate_number, model):
-    """Read only metadata; no extraction, mesh parser, or unbounded G-code scan."""
+    """Selected-plate metadata proof; AMS command restrictions belong to its gate."""
+    if type(plate_number) is not int or plate_number < 1:
+        raise ValueError('plate_number_invalid')
     with open_bounded(path) as package:
         check_expansion(package)
         names = {name.lower(): name for name in package.namelist()}
@@ -55,7 +152,7 @@ def inspect_payload(path, plate_number, model):
         plate_raw = read(f'Metadata/plate_{plate_number}.json')
         plate = json.loads(plate_raw) if plate_raw else {}
         slice_raw = read('Metadata/slice_info.config')
-        selected = None
+        selected = root = None
         if slice_raw:
             root = ET.fromstring(slice_raw)
             for candidate in root.findall('.//plate'):
@@ -66,24 +163,46 @@ def inspect_payload(path, plate_number, model):
         dual = bambu_nozzle_count(model or project.get('printer_model')) == 2
         physical = values(project.get('physical_extruder_map'))
         dual = dual or len(physical) > 1
-        # The slicer CLI leaves filament_nozzle_map at a one-entry default on a
-        # multi-filament file, as ams_source_inspection._source_extruder also ignores.
+        # Preserve HEAD's capability interpretation for rack printers (including
+        # H2C). This change concerns only H2D's two fixed extruders.
+        models = {bambu_model_name(model), bambu_model_name(project.get('printer_model'))}
+        verify_mapping = dual and not models.intersection({'H2C', 'H3C'})
         nozzle_map = values(project.get('filament_nozzle_map'))
         if len(nozzle_map) == 1 < len(values(project.get('filament_type'))):
             nozzle_map = []
         mapping = nozzle_map or values(project.get('filament_map'))
+        verified = {}
+        mapping_refusal = None
+        if verify_mapping:
+            try:
+                verified = _verified_extruders(package, names, project, root, selected, plate_number, model)
+            except ValueError as error:
+                mapping_refusal = str(error)
+            except Exception:
+                # Any other read failure (bad CRC, damaged deflate, unsupported
+                # compression or encryption) refuses; it must never escape the gate.
+                mapping_refusal = 'gcode_unreadable'
+        def assignment(index):
+            if not dual:
+                return 0, 0
+            if not verify_mapping:
+                logical = int(at(mapping, index)) - 1
+                return logical, int(at(physical, logical))
+            if mapping_refusal or index not in verified:
+                raise ValueError('source_extruder_unverified')
+            extruder = verified[index]
+            return [int(value) for value in physical].index(extruder), extruder
         requirements = []
         incomplete = False
         filament_to_physical = {}
         filament_requirements = {}
         # Slice-info contains only filaments actually used on this plate.
         for filament in ([] if selected is None else selected.findall('filament')):
-            if all(number(filament.get(k)) == 0 for k in ('used_g', 'used_m')):
+            if not verify_mapping and all(number(filament.get(k)) == 0 for k in ('used_g', 'used_m')):
                 continue
             try:
                 index = int(filament.get('id')) - 1
-                logical = int(at(mapping, index)) - 1 if dual else 0
-                extruder = int(at(physical, logical)) if dual else 0
+                logical, extruder = assignment(index)
                 if index < 0 or logical < 0 or extruder not in (0, 1):
                     incomplete = True
                     continue
@@ -98,14 +217,13 @@ def inspect_payload(path, plate_number, model):
             filament_requirements[index] = requirements[-1]
         # plate_N.json filament_ids are zero-based; slice-info ids are one-based.
         plate_ids = plate.get('filament_ids')
-        if isinstance(plate_ids, list):
+        if not verify_mapping and isinstance(plate_ids, list):
             requirements = []
             for index in plate_ids:
                 try:
                     if type(index) is not int or index < 0:
                         raise ValueError()
-                    logical = int(at(mapping, index)) - 1 if dual else 0
-                    extruder = int(at(physical, logical)) if dual else 0
+                    logical, extruder = assignment(index)
                     if logical < 0 or extruder not in (0, 1):
                         raise ValueError()
                 except (ValueError, TypeError):
@@ -121,7 +239,7 @@ def inspect_payload(path, plate_number, model):
                 'diameter': number(at(project.get('nozzle_diameter'), 0), positive=True),
                 'flow': flow(at(project.get('nozzle_volume_type'), 0)),
                 'hrc': max([number(v) or 0 for v in values(project.get('required_nozzle_HRC'))] or [0])}]
-        return {'printer_model': project.get('printer_model'), 'notes': [], 'requirements': requirements, 'incomplete': incomplete, 'bbox': bounds(plate.get('bbox_all')),
+        return {'printer_model': project.get('printer_model'), 'notes': [], 'requirements': requirements, 'incomplete': incomplete, 'mapping_refusal': mapping_refusal, 'bbox': bounds(plate.get('bbox_all')),
                 'objects': plate.get('bbox_objects', []), 'filament_map': filament_to_physical}
 
 

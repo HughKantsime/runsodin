@@ -17,13 +17,17 @@ def payload(tmp_path, volume='Standard', physical=('1', '0'), box=(0, 0, 325, 32
     path = tmp_path / 'contract.3mf'
     settings = {'printer_model': 'Bambu Lab H2D', 'nozzle_diameter': ['0.4', '0.4'],
                 'nozzle_volume_type': [volume, volume], 'nozzle_type': ['hardened_steel'] * 2,
-                'physical_extruder_map': list(physical), 'filament_nozzle_map': ['1', '1'],
+                'physical_extruder_map': ['1', '0'], 'filament_nozzle_map': ['0', '0'],
+                'filament_type': ['PLA', 'PLA'], 'extruder_max_nozzle_count': [1, 1],
                 'extruder_nozzle_stats': ['Standard#1'] * 2}
+    logical = 1 if physical == ('1', '0') else 2
     with zipfile.ZipFile(path, 'w') as archive:
         archive.writestr('Metadata/project_settings.config', json.dumps(settings))
         archive.writestr('Metadata/plate_1.json', json.dumps({'bbox_all': box}))
+        archive.writestr('Metadata/plate_1.gcode', f'; CONFIG_BLOCK_START\n; physical_extruder_map = 1,0\n; filament_map = {logical},1\n; CONFIG_BLOCK_END\n; filament_type = PLA;PLA\nM620 S0A\nT0\nM621 S0A\n')
         archive.writestr('Metadata/slice_info.config', f'<config><plate><metadata key="index" value="1"/>'
-            f'<filament id="1" used_g="12" nozzle_diameter="0.40" volume_type="{volume}"/></plate></config>')
+            f'<metadata key="filament_maps" value="{logical} 1"/>'
+            f'<filament id="1" type="PLA" used_g="12" nozzle_diameter="0.40" volume_type="{volume}"/></plate></config>')
     return path
 
 

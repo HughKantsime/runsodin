@@ -250,7 +250,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 182,
+      "line": 284,
+      "path": "backend/core/ams_source_inspection.py",
+      "pattern": "qmark-parameter",
+      "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
+      "source": "match = re.fullmatch(r'\\s*;\\s*(filament_map|filament_nozzle_map|physical_extruder_map)\\s*=\\s*(.*?)\\s*', line)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 344,
       "path": "backend/core/ams_source_inspection.py",
       "pattern": "qmark-parameter",
       "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
@@ -258,7 +266,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 324,
+      "line": 500,
       "path": "backend/core/ams_source_inspection.py",
       "pattern": "qmark-parameter",
       "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",

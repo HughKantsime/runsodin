@@ -20,13 +20,17 @@ def evidence_payload(path, file=10, *, model='Bambu Lab H2D', plate=None):
     volume = 'Standard' if file == 10 else 'High Flow'
     settings = {'printer_model': model, 'nozzle_diameter': ['0.4', '0.4'],
         'nozzle_volume_type': [volume, volume], 'physical_extruder_map': ['1', '0'],
-        'filament_map': ['2', '1']}
+        'filament_map': ['2', '1'], 'filament_type': ['PLA', 'PLA'], 'extruder_max_nozzle_count': [1, 1]}
+    plate = plate or EVIDENCE[f'print_file_{file}']
+    ids = plate.get('filament_ids', [0, 1])
     with zipfile.ZipFile(path, 'w') as package:
         package.writestr('Metadata/project_settings.config', json.dumps(settings))
-        package.writestr('Metadata/plate_1.json', json.dumps(plate or EVIDENCE[f'print_file_{file}']))
-        package.writestr('Metadata/plate_1.gcode', 'G90\n')
+        package.writestr('Metadata/plate_1.json', json.dumps(plate))
+        package.writestr('Metadata/plate_1.gcode', '; CONFIG_BLOCK_START\n; physical_extruder_map = 1,0\n; filament_map = 2,1\n; CONFIG_BLOCK_END\n; filament_type = PLA;PLA\n' + ''.join(
+            f'M620 S{i}A\nT{i}\nM621 S{i}A\n' for i in ids))
         package.writestr('Metadata/slice_info.config', '<config><plate><metadata key="index" value="1"/>'
-            '<filament id="1" used_g="2"/><filament id="2" used_g="12"/></plate></config>')
+            '<metadata key="filament_maps" value="2 1"/>' + ''.join(
+                f'<filament id="{i + 1}" type="PLA" used_g="12"/>' for i in ids) + '</plate></config>')
 
 
 @pytest.mark.parametrize('file', [10, 11])
