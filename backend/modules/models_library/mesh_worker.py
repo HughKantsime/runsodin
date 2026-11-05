@@ -70,11 +70,11 @@ def _analysis(path: str, name: str, mode: str) -> dict:
     from modules.models_library.print_file_meta import extract_print_file_meta
     try:
         with open_bounded(path) as package:
-            check_expansion(package)
             entries = package.infolist()
             names = [entry.filename for entry in entries]
             if plate_json_too_large(package):  # every plate, not only plate_1
                 return {"status": "plate_json_too_large"}
+            check_expansion(package)
             if mode == "education":
                 printable = [entry for entry in entries if entry.filename == "Metadata/plate_1.gcode"]
                 if len(printable) != 1 or printable[0].is_dir() or printable[0].file_size <= 0:
@@ -85,6 +85,8 @@ def _analysis(path: str, name: str, mode: str) -> dict:
             plate_one = [entry for entry in entries if entry.filename == "Metadata/plate_1.gcode"]
             plate1_gcode = len(plate_one) == 1 and not plate_one[0].is_dir() and plate_one[0].file_size > 0
     except ArchiveRefused as refused:
+        if refused.reason == "compression_ratio":
+            return {"status": "bad_zip"}
         return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
     except zipfile.BadZipFile:
         return {"status": "bad_zip"}
@@ -104,11 +106,13 @@ def _plates(path: str) -> dict:
     from modules.models_library.threemf_parser import plate_json_too_large, plate_summaries
     try:
         with open_bounded(path) as package:
-            check_expansion(package)
             if plate_json_too_large(package):
                 return {"status": "plate_json_too_large"}
+            check_expansion(package)
             return {"status": "ok", "plates": plate_summaries(package)}
     except ArchiveRefused as refused:
+        if refused.reason == "compression_ratio":
+            return {"status": "bad_zip"}
         return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
     except zipfile.BadZipFile:
         return {"status": "bad_zip"}

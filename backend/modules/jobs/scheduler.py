@@ -350,7 +350,8 @@ class Scheduler(SchedulerPlanning):
                 extra_fields={"printer_id": None, "scheduled_start": None,
                               "scheduled_end": None, "match_score": None},
                 where="scheduled_start < :cutoff AND NOT EXISTS "
-                      "(SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)",
+                      "(SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id) "
+                      "AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.job_id=jobs.id)",
                 params={'cutoff': cutoff})
             db.expire(job)
             if changed:

@@ -2,12 +2,18 @@
 import json
 import hmac
 
+class ValidatedPrintOptions(dict):
+    """Transport options with private source evidence, never a wire option."""
+
+    source_facts = None
+
+
 def _validated_print_options(job,creds,stored_path,payload_sha256):
     printer_id=job['printer_id']
     if job.get("upload_target_printer_id") not in (None, printer_id):
         return None, "Print file is bound to another printer; no command was sent"
     api_type=creds['api_type']
-    print_options = {}
+    print_options = ValidatedPrintOptions()
     requires_mapping = _requires_ams_mapping(creds)
     archived = job.get("print_file_id") is not None
     if archived or requires_mapping:
@@ -36,6 +42,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 except ValueError:
                     return None, "Stored AMS mapping is invalid; no command was sent"
             derived = False
+            facts = None
             if mapping is None and job.get("ams_mapping") is None:
                 if requires_mapping:
                     from modules.printers.services import inspect_ams_payload
@@ -52,18 +59,29 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
             if mapping is None and requires_mapping:
                 return None, _missing_mapping(job)
             if mapping is not None:
-                error = _mapping_error(job, mapping, stored_path, payload_sha256, derived=derived)
+                error = _mapping_error(job, mapping)
                 if error:
                     return None, _missing_mapping(job) if derived else error
-                else:
-                    print_options["ams_mapping"] = mapping
+                # No transaction remains open during inspection. Derived mappings
+                # already inspected these exact bytes; validate their facts once.
+                from modules.printers.dispatch_ams_gate import preflight_ams_source
+                from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
+                try:
+                    print_options.source_facts = preflight_ams_source(job, mapping=mapping,
+                        staged_path=stored_path, payload_sha256=payload_sha256,
+                        derived=derived, inspected_facts=facts)
+                except (ValueError, OSError, PayloadUnavailable) as exc:
+                    detail = str(exc) if isinstance(exc, ValueError) else 'Payload inspection unavailable'
+                    error = f"Explicit AMS source or plate is unsupported: {detail}; no command was sent"
+                    return None, _missing_mapping(job) if derived else error
+                print_options["ams_mapping"] = mapping
         elif job.get("ams_mapping") is not None:
             return None, "AMS mapping requires a Bambu printer; no command was sent"
 
     return print_options,None
 
 
-def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
+def _mapping_error(job, mapping):
     from core.print_payload import MappingMaterialMismatch, validate_mapping
     from fastapi import HTTPException
     # Bambu tray index 0-15, with -1 for unused file sources. AMS HT (tray
@@ -87,16 +105,6 @@ def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
         if isinstance(exc, MappingMaterialMismatch):
             return f'{exc.detail} (AMS slot {exc.target_slot})'
         return str(exc.detail)
-    # Finish the slot transaction before bounded source inspection.
-    # Predictably unsupported source shapes must not commit admission.
-    from modules.printers.dispatch_ams_gate import preflight_ams_source
-    from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
-    try:
-        preflight_ams_source(job, mapping=mapping, staged_path=stored_path,
-                             payload_sha256=payload_sha256, derived=derived)
-    except (ValueError, OSError, PayloadUnavailable) as exc:
-        detail = str(exc) if isinstance(exc, ValueError) else 'Payload inspection unavailable'
-        return f"Explicit AMS source or plate is unsupported: {detail}; no command was sent"
     return None
 
 

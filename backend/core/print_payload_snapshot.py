@@ -9,7 +9,7 @@ import re
 import stat
 import tempfile
 
-MAX_PAYLOAD_BYTES=100*1024*1024
+MAX_PAYLOAD_BYTES=160*1024*1024
 log=logging.getLogger('odin.dispatch')
 
 
@@ -34,7 +34,7 @@ def _regular_source(path):
         descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
         info=os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or not 0<info.st_size<=MAX_PAYLOAD_BYTES:
-            raise PayloadUnavailable('Print payload must be a nonempty regular file within the 100 MiB upload limit')
+            raise PayloadUnavailable(f'Print payload must be a nonempty regular file ({info.st_size} bytes; limit {MAX_PAYLOAD_BYTES} bytes)')
         with os.fdopen(descriptor,'rb') as source:
             descriptor=None
             yield source,info
@@ -53,7 +53,7 @@ def _copy_hash(source,initial,destination=None):
         if not chunk:break
         size+=len(chunk)
         if size>MAX_PAYLOAD_BYTES:
-            raise PayloadUnavailable('Print payload exceeds the 100 MiB upload limit')
+            raise PayloadUnavailable(f'Print payload is too large ({size} bytes; limit {MAX_PAYLOAD_BYTES} bytes)')
         digest.update(chunk)
         if destination is not None:destination.write(chunk)
     if size!=initial.st_size or _signature(os.fstat(source.fileno()))!=_signature(initial):

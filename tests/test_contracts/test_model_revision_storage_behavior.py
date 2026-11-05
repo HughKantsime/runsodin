@@ -26,7 +26,7 @@ def test_missing_revision_file_does_not_create_false_revert(revision_storage,rev
 def test_oversize_revision_does_not_leave_empty_final_file(revision_storage,review_db):
  client,issue,storage=revision_storage
  before=review_db.execute(text('SELECT COUNT(*) FROM model_revisions')).scalar_one()
- response=client.post('/models/101/revisions',headers=issue(['write:models']),files={'file':('synthetic-large.3mf',b'x'*(100*1024*1024+1),'application/octet-stream')})
+ response=client.post('/models/101/revisions',headers=issue(['write:models']),files={'file':('synthetic-large.3mf',b'x'*(160*1024*1024+1),'application/octet-stream')})
  assert response.status_code==413,response.text
  assert review_db.execute(text('SELECT COUNT(*) FROM model_revisions')).scalar_one()==before
  assert not [path for path in storage.rglob('*') if path.is_file()]
@@ -197,3 +197,19 @@ def test_relative_revision_root_is_rejected_without_revision_or_payload(revision
  assert review_db.execute(text('SELECT COUNT(*) FROM model_revisions WHERE model_id=101')).scalar_one()==1
  assert not [p for p in storage.rglob('*') if p.is_file()]
  assert not Path('synthetic-relative-revision').exists()
+
+
+def test_revision_upload_never_reads_whole_file(revision_storage, monkeypatch):
+ from starlette.datastructures import UploadFile
+ from core.print_upload_limits import CHUNK_BYTES
+ client,issue,_=revision_storage
+ original=UploadFile.read
+ reads=[]
+ async def bounded(self,size=-1):
+  reads.append(size)
+  assert 0 < size <= CHUNK_BYTES
+  return await original(self,size)
+ monkeypatch.setattr(UploadFile,'read',bounded)
+ response=client.post('/models/101/revisions',headers=issue(['write:models']),files={'file':('synthetic.3mf',b'synthetic','application/octet-stream')})
+ assert response.status_code==200,response.text
+ assert reads

@@ -1,5 +1,5 @@
 """Bounded interpretation of Bambu plate sources with agreeing material facts.
-Caller owns safe file acquisition; this helper accepts already acquired bytes.
+Caller owns safe acquisition; accepts bytes or a seekable binary snapshot.
 """
 import io
 import json
@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from defusedxml import ElementTree
 from core.material_identity import canonical_reported_material
 
-MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 160 * 1024 * 1024
 MAX_XML_BYTES = 1024 * 1024
-MAX_GCODE_BYTES = 96 * 1024 * 1024  # H2D evidence has 75,041,281 uncompressed bytes.
+MAX_GCODE_BYTES = 256 * 1024 * 1024
 MAX_GCODE_LINE_BYTES = 128 * 1024
 
 # Nozzle/flush/cutter command shapes from the genuine H2D slice. Feeds,
@@ -343,6 +343,8 @@ class _P2STemplate:
         """True: this command is settled here. False: the shared checks decide it."""
         header = re.fullmatch(r'\s*;\s*printer_model\s*=\s*(.*?)\s*', line)
         if header:
+            if self.models:
+                raise ValueError("Duplicate printer model header")
             self.models.append(header.group(1))
         if line.strip() == _P2S_END_MARKER:
             self.in_end_template = True
@@ -403,16 +405,18 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
     """Refuse ambiguous/unsupported sources; never infer metadata array order."""
     refusal = 'Unverifiable source mapping'
     try:
-        if type(payload) is bytes and len(payload) > MAX_ARCHIVE_BYTES:
-            raise _SourceRefusal(f'the file is too large to check ({len(payload) / (1024 * 1024):.1f} MiB; '
+        source = io.BytesIO(payload) if type(payload) is bytes else payload
+        source.seek(0, io.SEEK_END)
+        size = source.tell()
+        source.seek(0)
+        if size > MAX_ARCHIVE_BYTES:
+            raise _SourceRefusal(f'the file is too large to check ({size / (1024 * 1024):.1f} MiB; '
                                  f'the limit is {MAX_ARCHIVE_BYTES // (1024 * 1024)} MiB)')
-        if type(payload) is not bytes:
-            raise ValueError(refusal)
         if type(plate_index) is not int or plate_index != 0:
             raise ValueError(refusal)
         # The member count is checked from the end record before the directory is listed.
         from core.zip_bounds import open_bounded
-        with open_bounded(io.BytesIO(payload), max_members=512) as package:
+        with open_bounded(source, max_members=512) as package:
             entries = package.infolist()
             if len(entries) > 512 or len({e.filename for e in entries}) != len(entries):
                 raise ValueError(refusal)
@@ -422,7 +426,7 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                              if re.fullmatch(r'Metadata/plate_[0-9]+\.gcode', e.filename)]
             if plate_members != ['Metadata/plate_1.gcode']:
                 raise ValueError(refusal)
-            def read(name, limit):
+            def member_info(name, limit):
                 member = package.getinfo(name)
                 if not member.is_dir() and member.file_size > limit:
                     raise _SourceRefusal(f"{name.rsplit('/', 1)[-1]} is too large to check "
@@ -430,11 +434,17 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                                          f'the limit is {limit // (1024 * 1024)} MiB)')
                 if member.is_dir() or not 0 < member.file_size <= limit or member.compress_size > limit:
                     raise ValueError(refusal)
-                with package.open(member) as stream:
+                return member
+
+            def read(name, limit):
+                with package.open(member_info(name, limit)) as stream:
                     result = stream.read(limit + 1)
                 if len(result) > limit:
                     raise ValueError(refusal)
                 return result
+            member_info('Metadata/plate_1.gcode', MAX_GCODE_BYTES)
+            from core.zip_bounds import check_expansion
+            check_expansion(package)
             xml = ElementTree.fromstring(read('Metadata/slice_info.config', MAX_XML_BYTES))
             plates = xml.findall('plate')
             if len(plates) != 1:
@@ -486,83 +496,93 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     proof.extruders[index] if proof else
                     _rack_source_extruder(settings, plates[0], index) if rack and not single_source else None, grams))
             extruders = {source.source_index: source.extruder for source in sources}
-            code = io.BytesIO(read('Metadata/plate_1.gcode', MAX_GCODE_BYTES))
             p2s = _P2STemplate(used) if settings.get('printer_model') == _P2S_MODEL else None
             headers = []
             switches = {620: set(), 621: set()}
-            for line_number, raw_line in enumerate(iter(lambda: code.readline(MAX_GCODE_LINE_BYTES + 1), b''), 1):
-                if len(raw_line) > MAX_GCODE_LINE_BYTES:
-                    raise ValueError(refusal)
-                line = raw_line.decode('utf-8')
-                line = line[:-2] if line.endswith('\r\n') else line.removesuffix('\n')
-                if any(separator in line for separator in ('\r', '\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')):
-                    raise ValueError(refusal)
-                header = re.fullmatch(r'\s*;\s*filament_type\s*=\s*(.*?)\s*', line)
-                if header:
-                    header_materials = header.group(1).split(';')
-                    if not 1 <= len(header_materials) <= 16:
+            total = 0
+            with package.open(member_info('Metadata/plate_1.gcode', MAX_GCODE_BYTES)) as member, \
+                    io.BufferedReader(member, buffer_size=64 * 1024) as code:
+                for line_number, raw_line in enumerate(iter(lambda: code.readline(MAX_GCODE_LINE_BYTES + 1), b''), 1):
+                    if len(raw_line) > MAX_GCODE_LINE_BYTES:
                         raise ValueError(refusal)
-                    headers.append([canonical_reported_material(value.strip()) for value in header_materials])
-                command = line.split(';', 1)[0].strip()
-                if proof:
-                    proof.check_header(line, line_number)
-                    proof.check_command(command, line_number)
-                if p2s is not None and p2s.admits(line, command):
-                    continue
-                if re.match(r'^T(?:[0-9]|\s|$)', command):
-                    # Stock X1 calibration uses T1100, then T1000 with the
-                    # comment "change to nozzle space": a template sentinel,
-                    # rather than evidence of a numbered AMS source.
-                    # H2D uses T1001 in its start template, T65535 to pull
-                    # filament back to AMS, and T65279 in its end template.
-                    # These are non-source sentinels, never numbered trays.
-                    if not re.fullmatch(rf'T(?:{source_pattern}(?:\s+H-1)?|255|1000|1001|1100|65535|65279)', command):
-                        if proof:
-                            reason = 'unsupported_T1001_O0' if command == 'T1001 O0' else 'unsupported_T_command'
-                            raise _SourceRefusal(f'{reason}, line {line_number}')
+                    total += len(raw_line)
+                    if total > MAX_GCODE_BYTES:
+                        raise _SourceRefusal(f'plate_1.gcode is too large to check ({total} bytes; '
+                                             f'the limit is {MAX_GCODE_BYTES} bytes)')
+                    line = raw_line.decode('utf-8')
+                    line = line[:-2] if line.endswith('\r\n') else line.removesuffix('\n')
+                    if any(separator in line for separator in ('\r', '\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')):
                         raise ValueError(refusal)
-                if not re.match(r'^M62[01](?:\s|\.|$)', command):
-                    continue
-                # Known non-source remap/tangle commands in this genuine slice.
-                if re.fullmatch(r'M620\s+M|M620\.3\s+W[01]|M620\.1\s+E\s+F[0-9]+(?:\.[0-9]+)?\s+T[0-9]+(?:\.[0-9]+)?', command):
-                    continue
-                nozzle = re.fullmatch(r'M620\.17\s+T([01])\s+S' + _NUMBER + r'\s+L([0-9]+)', command)
-                if nozzle and (proof or rack and len(used) > 1 and all(v is not None for v in extruders.values())):
-                    target, source = map(int, nozzle.groups())
-                    if extruders.get(source) != target and not (source == 0 and target not in extruders.values()):
-                        if proof:
-                            raise _SourceRefusal(f'gcode_M620.17_disagrees, line {line_number}')
-                        raise ValueError(refusal)
-                if any(re.fullmatch(pattern.replace('{source}', source_pattern), command) for pattern in _H2D_NON_SOURCE):
-                    continue
-                if len(used) > 1 and any(re.fullmatch(pattern.replace('{source}', source_pattern), command)
-                                         for pattern in _MULTI_SOURCE_AUXILIARY):
-                    continue
-                if len(used) > 1:
-                    logical = proof.logical if proof else {}
-                    if rack:
-                        logical = {i: int(v) - 1 for i, v in enumerate(_rack_map_values(settings.get('filament_map')))
-                                   if str(v) in ('1', '2')}
-                    crossing = _cross_nozzle_agrees(command, logical, used)
-                    if crossing is False:
-                        raise ValueError(refusal)
-                    if crossing:
-                        continue
-                if re.fullmatch(r'M62[01]\s+S255A?', command):
-                    continue
-                # H2D end-template sentinels pair with T65535/T65279 above.
-                if re.fullmatch(r'M62[01]\s+S(?:65535|65279)', command):
-                    continue
-                match = re.fullmatch(r'M(620|621)\s+S(0|[1-9][0-9]*)A', command)
-                if match is None:
-                    match = re.fullmatch(r'M(620)\s+S(0|[1-9][0-9]*)A\s+H-1', command)
-                if match is None:
-                    if re.match(r'M620\.11(?:\s|$)', command) and not re.search(r'(?:^|\s)B', command):
-                        raise _SourceRefusal(f"an M620.11 tool change has no B (extruder) field, line {line_number}")
+                    header = re.fullmatch(r'\s*;\s*filament_type\s*=\s*(.*?)\s*', line)
+                    if header:
+                        header_materials = header.group(1).split(';')
+                        if not 1 <= len(header_materials) <= 16:
+                            raise ValueError(refusal)
+                        if headers:
+                            raise ValueError(refusal)
+                        headers.append([canonical_reported_material(value.strip()) for value in header_materials])
+                    command = line.split(';', 1)[0].strip()
                     if proof:
-                        raise _SourceRefusal(f'unsupported_M620_M621_command, line {line_number}')
-                    raise ValueError(refusal)
-                switches[int(match.group(1))].add(int(match.group(2)))
+                        proof.check_header(line, line_number)
+                        proof.check_command(command, line_number)
+                    if p2s is not None and p2s.admits(line, command):
+                        continue
+                    if re.match(r'^T(?:[0-9]|\s|$)', command):
+                        # Stock X1 calibration uses T1100, then T1000 with the
+                        # comment "change to nozzle space": a template sentinel,
+                        # rather than evidence of a numbered AMS source.
+                        # H2D uses T1001 in its start template, T65535 to pull
+                        # filament back to AMS, and T65279 in its end template.
+                        # These are non-source sentinels, never numbered trays.
+                        if not re.fullmatch(rf'T(?:{source_pattern}(?:\s+H-1)?|255|1000|1001|1100|65535|65279)', command):
+                            if proof:
+                                reason = 'unsupported_T1001_O0' if command == 'T1001 O0' else 'unsupported_T_command'
+                                raise _SourceRefusal(f'{reason}, line {line_number}')
+                            raise ValueError(refusal)
+                    if not re.match(r'^M62[01](?:\s|\.|$)', command):
+                        continue
+                    # Known non-source remap/tangle commands in this genuine slice.
+                    if re.fullmatch(r'M620\s+M|M620\.3\s+W[01]|M620\.1\s+E\s+F[0-9]+(?:\.[0-9]+)?\s+T[0-9]+(?:\.[0-9]+)?', command):
+                        continue
+                    nozzle = re.fullmatch(r'M620\.17\s+T([01])\s+S' + _NUMBER + r'\s+L([0-9]+)', command)
+                    if nozzle and (proof or rack and len(used) > 1 and all(v is not None for v in extruders.values())):
+                        target, source = map(int, nozzle.groups())
+                        if extruders.get(source) != target and not (source == 0 and target not in extruders.values()):
+                            if proof:
+                                raise _SourceRefusal(f'gcode_M620.17_disagrees, line {line_number}')
+                            raise ValueError(refusal)
+                    if any(re.fullmatch(pattern.replace('{source}', source_pattern), command) for pattern in _H2D_NON_SOURCE):
+                        continue
+                    if len(used) > 1 and any(re.fullmatch(pattern.replace('{source}', source_pattern), command)
+                                             for pattern in _MULTI_SOURCE_AUXILIARY):
+                        continue
+                    if len(used) > 1:
+                        logical = proof.logical if proof else {}
+                        if rack:
+                            logical = {i: int(v) - 1 for i, v in enumerate(_rack_map_values(settings.get('filament_map')))
+                                       if str(v) in ('1', '2')}
+                        crossing = _cross_nozzle_agrees(command, logical, used)
+                        if crossing is False:
+                            raise ValueError(refusal)
+                        if crossing:
+                            continue
+                    if re.fullmatch(r'M62[01]\s+S255A?', command):
+                        continue
+                    # H2D end-template sentinels pair with T65535/T65279 above.
+                    if re.fullmatch(r'M62[01]\s+S(?:65535|65279)', command):
+                        continue
+                    match = re.fullmatch(r'M(620|621)\s+S(0|[1-9][0-9]*)A', command)
+                    if match is None:
+                        match = re.fullmatch(r'M(620)\s+S(0|[1-9][0-9]*)A\s+H-1', command)
+                    if match is None:
+                        if re.match(r'M620\.11(?:\s|$)', command) and not re.search(r'(?:^|\s)B', command):
+                            raise _SourceRefusal(f"an M620.11 tool change has no B (extruder) field, line {line_number}")
+                        if proof:
+                            raise _SourceRefusal(f'unsupported_M620_M621_command, line {line_number}')
+                        raise ValueError(refusal)
+                    if int(match.group(2)) not in used:
+                        raise ValueError(refusal)
+                    switches[int(match.group(1))].add(int(match.group(2)))
             if proof:
                 proof.finish()
             if p2s is not None:

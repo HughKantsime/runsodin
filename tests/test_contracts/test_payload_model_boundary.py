@@ -16,7 +16,7 @@ def test_public_payload_exports_are_same_objects():
     from modules.printers import dispatch_payload_snapshot as old
     for name in ('PayloadUnavailable','PayloadSnapshot','hash_regular_payload','stage_payload'):
         assert getattr(core,name) is getattr(old,name)
-    assert old.MAX_PAYLOAD_BYTES == core.MAX_PAYLOAD_BYTES == 100*1024*1024
+    assert old.MAX_PAYLOAD_BYTES == core.MAX_PAYLOAD_BYTES == 160*1024*1024
 
 
 def test_exact_policy_session_identifier_error_and_no_null_lookup(review_db,monkeypatch):

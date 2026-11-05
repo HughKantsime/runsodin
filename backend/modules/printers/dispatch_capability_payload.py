@@ -55,6 +55,9 @@ def _settings_lines(package, member):
     lines = []
     inspected_end = 0
     with package.open(member) as stream:
+        # ZipExtFile.seek otherwise inflates in 16 MiB chunks. Keep the tail
+        # window scan bounded too, including two simultaneous dispatches.
+        stream.MAX_SEEK_READ = 1024 * 1024
         for offset in dict.fromkeys((0, max(0, size - limit))):
             end = min(size, offset + limit)
             if end <= inspected_end:

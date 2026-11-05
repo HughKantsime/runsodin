@@ -11,6 +11,8 @@ limit already used by the AMS inspection path.
 """
 import zipfile
 
+MAX_COMPRESSION_RATIO = 200
+MIN_RATIO_MEMBER_BYTES = 1024 * 1024
 MAX_MEMBERS = 512
 MAX_CENTRAL_DIRECTORY_BYTES = 4 * 2**20
 MAX_MEMBER_BYTES = 400 * 2**20       # one decompressed member (sliced G-code is the largest)
@@ -58,11 +60,14 @@ def open_bounded(source, *, max_members: int = MAX_MEMBERS) -> zipfile.ZipFile:
 
 
 def check_expansion(package: zipfile.ZipFile) -> None:
-    """Per-member and total decompressed caps (declared sizes bind what zipfile will inflate)."""
+    """Per-member/total decompressed caps and a bounded compression ratio."""
     total = 0
     for member in package.infolist():
         if member.file_size > MAX_MEMBER_BYTES:
             raise ArchiveRefused("member_too_large")
+        if (member.file_size >= MIN_RATIO_MEMBER_BYTES
+                and member.file_size > max(1, member.compress_size) * MAX_COMPRESSION_RATIO):
+            raise ArchiveRefused("compression_ratio")
         total += member.file_size
     if total > MAX_TOTAL_BYTES:
         raise ArchiveRefused("too_large")

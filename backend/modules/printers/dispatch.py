@@ -344,8 +344,7 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     if api_type not in {"bambu", "moonraker", "prusalink"}:
         return False, f"Dispatch not supported for printer type '{api_type}'"
 
-    print_options,options_error=_validated_print_options(job,creds,stored_path,payload_sha256)
-    if options_error:return False,options_error
+    # Validate options once, against the owned staged snapshot in dispatch_prepared.
 
     # File format validation: non-Bambu printers need .gcode
     if api_type != "bambu" and stored_path.lower().endswith(".3mf"):

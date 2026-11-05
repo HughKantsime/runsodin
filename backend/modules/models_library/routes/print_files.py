@@ -139,23 +139,9 @@ async def upload_3mf(
     if ext not in ALLOWED_PRINT_FILE_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only .3mf, .gcode, and .bgcode files are supported")
 
-    # Enforce upload size limit (100 MB)
-    MAX_UPLOAD_BYTES = 100 * 1024 * 1024
-    content = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large. Maximum upload size is 100 MB.")
-
-    # Compute file hash for duplicate detection
-    import hashlib
-    file_hash = hashlib.sha256(content).hexdigest()
-
+    from modules.models_library.upload_stream import write_upload
+    tmp_path, file_hash = await write_upload(file, ext)
     duplicate_info = None
-
-    # Save to temp file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-
     stored_path = None
     file_id = None
     final_created = False
@@ -473,7 +459,6 @@ async def upload_3mf(
         log.warning("Print file upload failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=500, detail="Unable to save print file upload") from None
     finally:
-        # Clean up temp file
         os.unlink(tmp_path)
 
 

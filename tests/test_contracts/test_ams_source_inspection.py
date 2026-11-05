@@ -133,7 +133,7 @@ def test_compressed_many_short_lines_does_not_materialize_a_line_list():
     import tracemalloc
     source = archive(code='; filament_type = PETG\nM620 S0A\nM621 S0A\n' + ';\n' * 500000)
     result = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(source)) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED) as compressed:
+    with zipfile.ZipFile(io.BytesIO(source)) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=0) as compressed:
         for name in original.namelist():
             compressed.writestr(name, original.read(name))
     payload = result.getvalue()
@@ -255,7 +255,7 @@ def test_h2d_metadata_conflicts_refuse(member, old, new):
 
 def test_h2d_gcode_size_from_production_fits_bounded_inspection():
     result = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(h2d_archive())) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED) as package:
+    with zipfile.ZipFile(io.BytesIO(h2d_archive())) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=0) as package:
         for name in original.namelist():
             with package.open(name, 'w') as member:
                 member.write(original.read(name))

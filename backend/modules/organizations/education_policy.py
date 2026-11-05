@@ -497,7 +497,9 @@ def reset_stale_schedule(
             job_changed = transition_result(db, job_id, "pending", "education",
                 from_states=("scheduled",),
                 extra_fields={"scheduled_start": None, "scheduled_end": None, "match_score": None},
-                where="printer_id=:printer_id", params={"printer_id": printer_id})
+                where="printer_id=:printer_id AND NOT EXISTS "
+                      "(SELECT 1 FROM printer_dispatch_claims dc WHERE dc.job_id=jobs.id)",
+                params={"printer_id": printer_id})
             if job_changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
             context["job_id"] = job_id
@@ -553,7 +555,8 @@ def reconcile_schedule_denial(
                               "match_score": None,
                               "notes": Expr("CASE WHEN notes IS NULL OR notes='' THEN :reason "
                                             "ELSE notes || '\n' || :reason END",
-                                            reason=f"Education scheduler reset: {sanitized}")})
+                                            reason=f"Education scheduler reset: {sanitized}")},
+                where="NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.job_id=jobs.id)")
             if job_changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
             context["job_id"] = job_id

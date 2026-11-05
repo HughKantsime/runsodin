@@ -168,7 +168,7 @@ export default function SubmissionUploadModal({
               {file ? file.name : 'Choose a .3mf file'}
             </span>
             <span className="text-xs text-[var(--brand-text-muted)]">
-              {file ? `${(file.size / 1024 / 1024).toFixed(2)} MiB` : 'Maximum retained upload: 100 MiB'}
+              {file ? `${(file.size / 1024 / 1024).toFixed(2)} MiB` : 'Maximum retained upload: 160 MiB'}
             </span>
             <input
               id="education-file"

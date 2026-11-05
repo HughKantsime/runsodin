@@ -315,3 +315,21 @@ def test_missing_policy_provider_fails_closed_for_education_job(
             )
         ).one()
     ) == ("pending", 2, 9)
+
+
+@pytest.mark.parametrize('drift', [False, True])
+def test_stale_cleanup_retains_preparing_dispatch(scheduler_db, monkeypatch, drift):
+    from core import dispatch_claims
+    from modules.jobs.scheduler import Scheduler
+    _install_policy(monkeypatch)
+    scheduler_db.execute(text("UPDATE education_submissions SET status='scheduled',lifecycle_revision=3 WHERE id=14"))
+    scheduler_db.execute(text("UPDATE jobs SET status='scheduled',scheduled_start='2000-01-01' WHERE id=13"))
+    if drift:
+        scheduler_db.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=9"))
+    scheduler_db.commit()
+    claim = dispatch_claims.acquire(scheduler_db.get_bind(), 9, 13, 'a'*64, 'b'*64, 'c'*64, 1)
+    assert claim.status == 'acquired'
+    assert Scheduler()._cleanup_stale_schedules(scheduler_db) == 0
+    assert tuple(scheduler_db.execute(text('SELECT status,lifecycle_revision,approved_printer_id FROM education_submissions WHERE id=14')).one()) == ('scheduled', 3, 9)
+    assert tuple(scheduler_db.execute(text('SELECT status,printer_id FROM jobs WHERE id=13')).one()) == ('scheduled', 9)
+    assert scheduler_db.execute(text('SELECT state FROM printer_dispatch_claims WHERE job_id=13')).scalar_one() == 'preparing'
