@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { Navigate } from 'react-router-dom'
 import { canAccessPage } from '../../permissions'
 
@@ -12,10 +13,10 @@ export default function RoleGate({ page, children }: RoleGateProps) {
   if (!canAccessPage(page)) {
     if (page === 'dashboard') {
       return (
-        <div className="p-6" role="alert">
+        <PageState kind="error" className="p-6" role="alert">
           <h1 className="text-lg font-semibold">No dashboard access</h1>
           <p className="text-sm text-[var(--brand-text-secondary)]">Your role does not have access to the dashboard. Use the sidebar to open a page you can access.</p>
-        </div>
+        </PageState>
       )
     }
     return <Navigate to="/" replace />

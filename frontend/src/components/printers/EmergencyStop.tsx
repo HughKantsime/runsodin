@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -86,7 +87,7 @@ export default function EmergencyStop() {
 
   return (
     <>
-      {listError && <div role="alert">Printer status unavailable. Controls are disabled until status refreshes.</div>}
+      {listError && <PageState kind="error" role="alert">Printer status unavailable. Controls are disabled until status refreshes.</PageState>}
       {outcome && <div role="status">{outcome}</div>}
       {/* Floating Button */}
       <button

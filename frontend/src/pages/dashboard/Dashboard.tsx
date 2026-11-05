@@ -1,3 +1,4 @@
+import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import Floor from '../../components/foundry/Floor'
 import StatusBadge, { printerBadgeStatus } from '../../components/ui/StatusBadge'
@@ -135,14 +136,14 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
         </div>
         <div className="printer-number flex items-center gap-3 text-[var(--brand-text-secondary)]">
           {nozTemp != null && (
-            <span className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
+            <PrinterNumber as="span" className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
               Nozzle {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
-            </span>
+            </PrinterNumber>
           )}
           {bedTemp != null && (
-            <span className={bedTarget > 0 ? "text-orange-400" : ""} title={bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}>
+            <PrinterNumber as="span" className={bedTarget > 0 ? "text-orange-400" : ""} title={bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}>
               Bed {bedTemp}°{bedTarget > 0 ? `/${bedTarget}°` : ''}
-            </span>
+            </PrinterNumber>
           )}
           {stage && (
             <span className="text-[var(--brand-primary)]">{stage}</span>
@@ -237,7 +238,7 @@ function PrintHistoryItem({ job }) {
         </div>
         <div className="text-right shrink-0">
           <div className="font-medium text-[var(--brand-primary)]">{formatDuration(job.duration_minutes)}</div>
-          {job.total_layers && <p className="text-xs text-[var(--brand-text-muted)]">{job.total_layers} layers</p>}
+          {job.total_layers && <PrinterNumber as="p" className="text-xs text-[var(--brand-text-muted)]">{job.total_layers} layers</PrinterNumber>}
         </div>
       </div>
     </div>

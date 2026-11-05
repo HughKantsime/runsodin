@@ -1,3 +1,4 @@
+import PrinterNumber from '../ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import StatusBadge, { printerBadgeStatus } from '../ui/StatusBadge'
@@ -363,19 +364,19 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               </div>
               <div className="printer-number flex flex-wrap min-w-0 items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
                 {nozTemp != null && !isDualNozzle(printer.machine_type) && (
-                  <span
+                  <PrinterNumber as="span"
                     data-testid="printer-nozzle-temp"
                     className={isHeating ? "text-orange-400" : ""}
                     title={nozTarget && nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}
                   >
                     Nozzle {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
-                  </span>
+                  </PrinterNumber>
                 )}
                 {isDualNozzle(printer.machine_type) && nozTemp != null && (
                   <>
-                    <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
+                    <PrinterNumber as="span" className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
                       L {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
-                    </span>
+                    </PrinterNumber>
                     {(() => {
                       const n1 = printer.h2d_nozzles?.nozzle_1
                       const n1t = n1?.temp != null ? Math.round(n1.temp) : null
@@ -389,13 +390,13 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   </>
                 )}
                 {bedTemp != null && (
-                  <span
+                  <PrinterNumber as="span"
                     data-testid="printer-bed-temp"
                     className={bedTarget && bedTarget > 0 ? "text-orange-400" : ""}
                     title={bedTarget && bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}
                   >
                     Bed {bedTemp}°{bedTarget && bedTarget > 0 ? `/${bedTarget}°` : ''}
-                  </span>
+                  </PrinterNumber>
                 )}
                 {stage && (
                   <span className="text-[var(--brand-primary)]">{stage}</span>

@@ -4,6 +4,7 @@
 @import './design-tokens.css';
 @import './foundry-tokens.css';
 @import './foundry.css';
+@import './foundry-pages.css';
 @config '../tailwind.config.js';
 @source '../index.html';
 @source './';

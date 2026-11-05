@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
 import DensityToggle, { useDensity } from '../../components/foundry/DensityToggle'
 import { ManagedPrinter, ManagedRows } from '../../components/foundry/PrinterSurfaces'
@@ -328,12 +329,12 @@ export default function Printers() {
       )}
 
       {isError ? (
-        <div role="alert" className="text-center py-12">
+        <PageState kind="error" role="alert" className="text-center py-12">
           <p>Failed to load printers: {error?.message || 'Unknown error'}</p>
           <Button onClick={() => refetch()}>Retry</Button>
-        </div>
+        </PageState>
       ) : isLoading ? (
-        <div className="text-center py-12 text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading printers...</div>
+        <PageState kind="loading" className="text-center py-12 text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading printers...</PageState>
       ) : printersData?.length === 0 ? (
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
           <EmptyState icon={PrinterIcon} title="No printers configured yet." description="Add your first printer to get started.">

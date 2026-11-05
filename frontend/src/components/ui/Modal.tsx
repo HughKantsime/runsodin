@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { useEffect, useRef, useId, type ReactNode } from 'react'
 import { useDialogFocus } from './useDialogFocus'
 import { X } from 'lucide-react'
@@ -32,6 +33,7 @@ export default function Modal({
   className = '',
   alert = false,
 }: ModalProps) {
+  const foundry = useFoundry()
   const modalRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const onCloseRef = useRef(onClose)
@@ -73,6 +75,7 @@ export default function Modal({
       onClick={onClose}
     >
       <div
+        data-foundry-ui={foundry ? 'modal' : undefined}
         ref={modalRef}
         tabIndex={-1}
         className={`bg-[var(--brand-card-bg)] w-full ${SIZE_CLASSES[size] || SIZE_CLASSES.lg} max-h-[90vh] overflow-y-auto ${roundingClasses} ${className}`}

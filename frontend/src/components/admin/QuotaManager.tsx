@@ -1,3 +1,4 @@
+import Table from '../ui/Table'
 import { useState, useEffect } from 'react'
 import { Gauge, Save, Loader2, AlertTriangle } from 'lucide-react'
 import { quotas } from '../../api'
@@ -69,7 +70,7 @@ export default function QuotaManager() {
       )}
 
       <div className="overflow-x-auto" tabIndex={0} aria-label="User quota table">
-        <table className="w-full text-sm">
+        <Table className="w-full text-sm">
           <thead>
             <tr className="text-[var(--brand-text-secondary)] text-left border-b border-[var(--brand-card-border)]">
               <th className="py-2 pr-3">User</th>
@@ -129,7 +130,7 @@ export default function QuotaManager() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   )

@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useRef, type ChangeEvent } from 'react'
 import { Upload, AlertTriangle, CheckCircle } from 'lucide-react'
 
@@ -118,10 +119,10 @@ export default function BackupRestore({ onRestored }: BackupRestoreProps) {
       )}
 
       {error && (
-        <div role="alert" className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-center gap-2">
+        <PageState kind="error" role="alert" className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-center gap-2">
           <AlertTriangle size={16} className="text-red-400 shrink-0" />
           <span className="text-red-200 text-sm">{error}</span>
-        </div>
+        </PageState>
       )}
     </div>
   )

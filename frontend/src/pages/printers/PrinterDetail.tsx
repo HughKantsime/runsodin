@@ -1,3 +1,4 @@
+import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import { state } from '../../components/foundry/data'
 import { PrinterDetailOverview } from '../../components/foundry/PrinterSurfaces'
@@ -162,9 +163,9 @@ export default function PrinterDetail() {
             </div>
             <ProgressBar value={progress} color={progress >= 100 ? 'green' : 'print'} size="md" label={`${currentJobName} progress`} />
             {etaMinutes > 0 && (
-              <p className="text-xs mt-2" style={{ color: 'var(--brand-text-muted)' }}>
+              <PrinterNumber as="p" className="text-xs mt-2" style={{ color: 'var(--brand-text-muted)' }}>
                 {formatEta(etaMinutes)}
-              </p>
+              </PrinterNumber>
             )}
           </div>
         ) : (
@@ -201,13 +202,13 @@ export default function PrinterDetail() {
                 {point.fan_speed != null && (
                   <div className="flex justify-between">
                     <span style={{ color: 'var(--brand-text-muted)' }}>Fan</span>
-                    <span style={{ color: 'var(--brand-text-primary)' }}>{point.fan_speed}%</span>
+                    <PrinterNumber as="span" style={{ color: 'var(--brand-text-primary)' }}>{point.fan_speed}%</PrinterNumber>
                   </div>
                 )}
                 {point.speed != null && (
                   <div className="flex justify-between">
                     <span style={{ color: 'var(--brand-text-muted)' }}>Speed</span>
-                    <span style={{ color: 'var(--brand-text-primary)' }}>{point.speed}%</span>
+                    <PrinterNumber as="span" style={{ color: 'var(--brand-text-primary)' }}>{point.speed}%</PrinterNumber>
                   </div>
                 )}
               </div>

@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { ReactNode } from 'react'
@@ -97,10 +99,10 @@ function CompareModal({ a, b, onClose }) {
   return (
     <Modal isOpen={true} onClose={onClose} title="Compare Archives" size="xl" mobileSheet={false}>
       {isLoading ? (
-        <div className="text-center py-8 text-[var(--brand-text-muted)]">Loading...</div>
+        <PageState kind="loading" className="text-center py-8 text-[var(--brand-text-muted)]">Loading...</PageState>
       ) : data ? (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <Table className="w-full text-sm">
             <thead>
               <tr className="text-[var(--brand-text-muted)] text-xs border-b border-[var(--brand-card-border)]">
                 <th className="py-2 px-3 text-left">Field</th>
@@ -120,7 +122,7 @@ function CompareModal({ a, b, onClose }) {
                 )
               })}
             </tbody>
-          </table>
+          </Table>
         </div>
       ) : null}
     </Modal>
@@ -353,7 +355,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
 
       {/* 3D Model Viewer overlay */}
       {show3DViewer && archive.print_file_id && (
-        <Suspense fallback={<div className="flex items-center justify-center p-8 text-[var(--brand-text-muted)]">Loading 3D viewer...</div>}>
+        <Suspense fallback={<PageState kind="loading" className="flex items-center justify-center p-8 text-[var(--brand-text-muted)]">Loading 3D viewer...</PageState>}>
           <ModelViewer
             fileId={archive.print_file_id}
             modelName={displayName(archive)}
@@ -521,12 +523,12 @@ export default function ArchivesPage() {
 
       {/* Table */}
       {isLoading ? (
-        <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</div>
+        <PageState kind="loading" className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</PageState>
       ) : isError ? (
-        <div role="alert" className="py-8 text-center">
+        <PageState kind="error" role="alert" className="py-8 text-center">
           <p>Archive history unavailable</p>
           <Button onClick={() => refetch()} className="mt-3">Retry</Button>
-        </div>
+        </PageState>
       ) : items.length === 0 ? (
         <EmptyState
           icon={Archive}
@@ -536,7 +538,7 @@ export default function ArchivesPage() {
       ) : (
         <>
           <div className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
-            <table className="w-full text-sm">
+            <Table className="w-full text-sm">
               <thead>
                 <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] text-xs">
                   <th className="py-2 px-2 w-8">
@@ -596,7 +598,7 @@ export default function ArchivesPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </div>
 
           {/* Pagination */}

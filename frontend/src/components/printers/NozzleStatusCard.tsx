@@ -1,3 +1,5 @@
+import PrinterNumber from '../ui/PrinterNumber'
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { X } from 'lucide-react'
 import { canDo } from '../../permissions'
@@ -128,7 +130,7 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
 
       {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
       {loading ? (
-        <div className="text-center py-4 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+        <PageState kind="loading" className="text-center py-4 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
       ) : loadFailed ? (
         <button onClick={loadNozzle}>Retry</button>
       ) : current ? (
@@ -224,12 +226,12 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {history.map(n => (
               <div key={n.id} className="flex justify-between text-xs py-1 border-b border-[var(--brand-card-border)]">
-                <span style={{ color: 'var(--brand-text-primary)' }}>
+                <PrinterNumber as="span" style={{ color: 'var(--brand-text-primary)' }}>
                   {n.nozzle_type || '?'} {n.nozzle_diameter}mm
-                </span>
-                <span className="text-[var(--brand-text-muted)]">
+                </PrinterNumber>
+                <PrinterNumber as="span" className="text-[var(--brand-text-muted)]">
                   {n.print_hours_accumulated == null ? 'Unknown hours' : `${n.print_hours_accumulated.toFixed(1)}h`} / {n.print_count == null ? 'Unknown print count' : `${n.print_count} prints`}
-                </span>
+                </PrinterNumber>
                 <span className="text-[var(--brand-text-muted)]">
                   {formatDate(n.installed_at)} to {n.removed_at ? formatDate(n.removed_at) : 'active'}
                 </span>

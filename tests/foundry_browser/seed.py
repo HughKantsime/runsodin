@@ -82,7 +82,50 @@ def seed(connection, password_hash, now=None):
             {'key': cache_key(pid), 'value': json.dumps({'printer_created_at': str(created), 'facts': monitor._display_facts})})
     connection.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,kind,detail,occurred_at) VALUES('foundry-clear',203,103,'bed_clear_confirmed',:detail,:at)"),
         {'detail': json.dumps({'attestation': 'owner_in_app'}), 'at': stamp(-9)})
+    page_records = seed_pages(connection, stamp)
     # The seed explicitly records its unsupported surfaces for screenshot reviewers.
-    return {'printers': len(states), 'supported_slot_states': ['loaded', 'feeding', 'empty', 'changed', 'support'],
+    return {'page_records': page_records, 'printers': len(states), 'supported_slot_states': ['loaded', 'feeding', 'empty', 'changed', 'support'],
             'unsupported_slot_states': ['blocked'], 'camera_transport': 'unavailable',
             'now': now.isoformat()}
+
+
+def seed_pages(connection, stamp):
+    """Persisted review records for Part B. No media files or printable payloads
+    are fabricated: failed historical recordings and archives have no media path.
+    Empty upload/submission states remain honest until a real file is supplied.
+    """
+    statements = [
+        ("models", """INSERT INTO models (id,name,build_time_hours,default_filament_type,color_requirements,category,notes,units_per_bed,quantity_per_bed,is_favorite,created_at)
+           VALUES (501,'Review enclosure',1.5,'PLA','{}','Review parts','Synthetic screenshot fixture',1,1,0,:at)"""),
+        ("products", """INSERT INTO products(id,name,sku,price,description,created_at)
+           VALUES (601,'Review enclosure kit','REVIEW-601',18,'Synthetic screenshot fixture',:at)"""),
+        ("product_components", """INSERT INTO product_components(product_id,model_id,quantity_needed) VALUES (601,501,2)"""),
+        ("orders", """INSERT INTO orders(id,order_number,platform,customer_name,status,revenue,platform_fees,payment_fees,shipping_charged,shipping_cost,labor_minutes,order_date,created_at)
+           VALUES (701,'REVIEW-701','direct','Review customer','pending',36,0,0,0,0,0,:at,:at)"""),
+        ("order_items", """INSERT INTO order_items(order_id,product_id,quantity,unit_price,fulfilled_quantity) VALUES (701,601,2,18,0)"""),
+        ("consumables", """INSERT INTO consumables(id,name,sku,unit,cost_per_unit,current_stock,min_stock,status,created_at)
+           VALUES (801,'Review M3 fasteners','REVIEW-801','piece',0.08,24,30,'active',:at)"""),
+        ("projects", """INSERT INTO projects(id,created_by,name,description,color,status,expected_parts,created_at,updated_at)
+           VALUES (901,1,'Review workshop fixtures','Synthetic screenshot fixture','#508BCA','active',4,:at,:at)"""),
+        ("print_jobs", """INSERT INTO print_jobs(id,printer_id,job_name,status,started_at,ended_at,progress_percent,current_layer,total_layers)
+           VALUES (1001,101,'Review completed bracket.3mf','completed',:start,:at,100,200,200)"""),
+        ("print_archives", """INSERT INTO print_archives(id,print_job_id,printer_id,user_id,print_name,status,started_at,completed_at,actual_duration_seconds,filament_used_grams,cost_estimate,notes,created_at,project_id,tags)
+           VALUES (1101,1001,101,1,'Review completed bracket','completed',:start,:at,5400,32,1.2,'No archived file in this fixture',:at,901,'review')"""),
+        ("timelapses", """INSERT INTO timelapses(id,printer_id,print_job_id,filename,frame_count,status,created_at)
+           VALUES (1201,101,1001,'review-unavailable.mp4',0,'failed',:at)"""),
+        ("printer_profiles", """INSERT INTO printer_profiles(id,created_by,printer_id,name,description,slicer,category,raw_content,is_shared,is_default,created_at,updated_at)
+           VALUES (1301,1,101,'Review PLA process','Synthetic screenshot fixture','orca','process','{"layer_height": "0.2"}',1,0,:at,:at)"""),
+        ("vision_detections", """INSERT INTO vision_detections(id,printer_id,print_job_id,detection_type,confidence,status,created_at)
+           VALUES (1401,101,1001,'spaghetti',0.87,'pending',:at)"""),
+        ("maintenance_tasks", """INSERT INTO maintenance_tasks(id,name,description,interval_days,estimated_cost,estimated_downtime_min,is_active,created_at)
+           VALUES (1501,'Review belt inspection','Synthetic screenshot fixture',30,0,15,1,:at)"""),
+        ("maintenance_logs", """INSERT INTO maintenance_logs(printer_id,task_id,task_name,performed_at,performed_by,notes,cost,downtime_minutes,print_hours_at_service)
+           VALUES (101,1501,'Review belt inspection',:at,'reviewer','Synthetic screenshot fixture',0,15,10)"""),
+        ("groups", """INSERT INTO groups(id,name,description,owner_id,is_org,settings_json,created_at,updated_at)
+           VALUES (1601,'Review education workshop','Synthetic screenshot fixture',1,1,'{}',:at,:at)"""),
+        ("education_cost_centers", """INSERT INTO education_cost_centers(id,org_id,name_key,code_key,display_name,code,description,created_by,created_at,updated_at)
+           VALUES (1701,1601,'review workshop','review','Review workshop','REVIEW','No submissions or fabricated files',1,:at,:at)"""),
+    ]
+    for table, statement in statements:
+        connection.execute(text(statement), {'at': stamp(-120), 'start': stamp(-210)})
+    return [table for table, _ in statements]

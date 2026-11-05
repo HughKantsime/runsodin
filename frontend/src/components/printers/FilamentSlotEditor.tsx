@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import { useEffect, useState } from 'react'
@@ -238,7 +239,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 </>
               )}
               {filteredFilaments.length === 0 && (
-                <div className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</div>
+                <PageState kind="empty" className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</PageState>
               )}
             </div>
             <div className="flex gap-2 mt-4 shrink-0">

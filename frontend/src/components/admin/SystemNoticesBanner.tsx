@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -46,7 +47,7 @@ export default function SystemNoticesBanner() {
         const warning = notice.severity === 'warning'
         const Icon = warning ? Clock : AlertTriangle
         return (
-          <div
+          <PageState kind="error"
             key={`${notice.kind}:${notice.archive || ''}`}
             role="alert"
             className={`flex items-start gap-3 p-3 rounded-md border ${warning ? 'bg-amber-500/10 border-amber-500/30' : 'bg-red-500/10 border-red-500/30'}`}
@@ -76,7 +77,7 @@ export default function SystemNoticesBanner() {
                 </button>
               )}
             </div>
-          </div>
+          </PageState>
         )
       })}
     </div>

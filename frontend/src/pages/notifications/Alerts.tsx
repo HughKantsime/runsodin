@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import CompletionSummary from '../../components/jobs/CompletionSummary'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -295,7 +296,7 @@ export default function Alerts() {
 
       <div className="space-y-3">
         {loading && alerts.length === 0 ? (
-          <div className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</div>
+          <PageState kind="loading" className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</PageState>
         ) : alerts.length === 0 ? (
           <EmptyState
             icon={Bell}

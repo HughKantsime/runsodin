@@ -1,0 +1,232 @@
+/* Part B. Every selector is below the effective Foundry root, including portals.
+ * Inline surfaces keep their existing markup, handlers and Classic utility classes.
+ */
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
+  [data-foundry-page] { display: contents; }
+  [data-foundry-page] > :where(div, section) { min-width: 0; }
+  [data-foundry-page] :where(h1, h2, h3, p, dd, td) { overflow-wrap: anywhere; }
+  [data-foundry-page] > :is(.p-4, .p-6, .p-8) { padding: 24px; }
+  [data-foundry-page] :is(.flex, .grid) > :where(div, section, article) { min-width: 0; }
+
+  /* Shared primitives. Optional attributes are absent from Classic renders. */
+  [data-foundry-ui="button"] {
+    min-height: 44px; padding: 8px 20px; gap: 8px; border: 1px solid transparent;
+    border-radius: 8px; font-size: 15px; line-height: 1.5; box-shadow: none;
+  }
+  [data-foundry-ui="button"][data-foundry-variant="primary"] {
+    background: var(--foundry-action-primary); color: var(--foundry-surface-ground); font-weight: 600;
+  }
+  [data-foundry-ui="button"][data-foundry-variant="secondary"] {
+    background: transparent; border-color: #5a564c; color: var(--foundry-text-primary);
+  }
+  [data-foundry-ui="button"][data-foundry-variant="danger"] {
+    background: transparent; border-color: var(--foundry-status-needs-you-text); color: var(--foundry-status-needs-you-foreground);
+  }
+  [data-foundry-ui="button"][data-foundry-variant="ghost"] {
+    background: transparent; border-color: transparent; color: var(--foundry-action-primary); padding-inline: 16px;
+  }
+  [data-foundry-ui="button"]:disabled, button:disabled { cursor: not-allowed; opacity: .55; }
+  [data-foundry-ui="button"]:not(:disabled):hover { filter: brightness(1.12); }
+  [data-foundry-ui="button"].min-w-\[32px\] { padding: 8px; width: 44px; }
+  :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--foundry-action-primary) !important; outline-offset: 3px;
+  }
+  :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]) {
+    background-color: var(--foundry-surface-raised); color: var(--foundry-text-primary); border: 1px solid #817b70;
+    border-radius: 8px; font-size: 15px; line-height: 1.5; padding-block: 8px;
+    max-width: 100%;
+  }
+  input::placeholder, textarea::placeholder { color: var(--foundry-text-muted); opacity: 1; }
+  input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--foundry-action-primary); }
+  [aria-invalid="true"] { border-color: var(--foundry-status-needs-you-text) !important; }
+  [data-foundry-ui="search"] input { padding-right: 48px; }
+  [data-foundry-ui="search"] button { right: 0; }
+  [data-foundry-ui="card"] {
+    border: 1px solid var(--foundry-surface-border); border-radius: 12px; padding: 20px;
+    background: var(--foundry-surface-panel); box-shadow: none !important;
+  }
+  /* Existing page-local cards, drawers and dialogs use the same surfaces. */
+  :is(div, section, article, form)[class~="bg-[var(--brand-card-bg)]"][class*="rounded"],
+  :is(div, section, article)[class~="border-[var(--brand-card-border)]"][class*="rounded"] {
+    border-radius: 12px; border-color: var(--foundry-surface-border);
+  }
+  :is(div, section, article)[class~="bg-[var(--brand-card-bg)]"]:is(.p-3, .p-4, .p-5, .p-6) { padding: 20px; }
+  [data-foundry-ui="modal"] {
+    background: var(--foundry-surface-panel); color: var(--foundry-text-primary); border: 1px solid var(--foundry-surface-border);
+    border-radius: 12px; box-shadow: 0 24px 64px #0008 !important;
+    max-height: 90dvh; overflow-y: auto;
+  }
+  [data-foundry-ui="tabs"] {
+    gap: 4px; padding: 4px; border: 1px solid var(--foundry-surface-border); border-radius: 8px;
+    background: var(--foundry-surface-panel); overflow-x: auto; max-width: 100%;
+  }
+  [data-foundry-ui="tabs"] button {
+    flex-shrink: 0; padding: 8px 16px; margin: 0; border: 1px solid transparent;
+    background: transparent; color: var(--foundry-text-secondary); font-size: 15px; gap: 8px;
+  }
+  [data-foundry-ui="tabs"] [data-foundry-active="true"] {
+    background: var(--foundry-status-waiting-on-you-background); border-color: var(--foundry-action-primary); color: var(--foundry-status-waiting-on-you-foreground);
+  }
+  [data-foundry-ui="tabs"] span { border-radius: 6px; padding: 4px 8px; }
+  [data-foundry-ui="table"] {
+    width: 100%; border-collapse: collapse; background: var(--foundry-surface-panel); color: var(--foundry-text-primary);
+    font-size: 15px; text-align: left;
+  }
+  [data-foundry-ui="table"] :is(th, td) { padding: 12px 16px; border-bottom: 1px solid var(--foundry-surface-border); }
+  [data-foundry-ui="table"] th { color: var(--foundry-text-secondary); font-weight: 500; font-size: 13px; letter-spacing: 0; }
+  [data-foundry-ui="table"] thead { background: var(--foundry-surface-raised); }
+  [data-foundry-ui="table"] tbody tr:nth-child(even) { background: var(--foundry-surface-panel); }
+  [data-foundry-ui="table"] tbody tr:hover { background: var(--foundry-surface-raised); }
+  :is([data-foundry-ui="empty"], [data-foundry-ui="loading"], [data-foundry-ui="error"]) {
+    padding: 32px 20px; margin-block: 16px; border: 1px solid var(--foundry-surface-border);
+    border-radius: 12px; background: var(--foundry-surface-panel); color: var(--foundry-text-secondary); font-size: 15px;
+    text-align: center; font-family: 'IBM Plex Sans', sans-serif !important;
+  }
+  [data-foundry-ui="error"] { border-color: var(--foundry-status-needs-you-text); color: var(--foundry-status-needs-you-foreground); background: var(--foundry-status-needs-you-background); }
+  [data-foundry-ui="loading"] { border-style: dashed; }
+  [data-foundry-ui="empty"] p { margin: 8px auto 0; }
+  .f-toast {
+    border-radius: 12px !important; padding: 12px 16px !important;
+    font: 15px/1.5 'IBM Plex Sans', sans-serif !important;
+    max-width: min(420px, calc(100vw - 32px)) !important;
+  }
+
+  /* Page-local actions (including auth and Settings subpanels). Leave swatches,
+   * switches, camera transports and schedule fills with their domain semantics. */
+  :is(button, a)[class~="bg-[var(--brand-primary)]"],
+  :is(button, a)[style*="background-color: var(--brand-primary)"],
+  button[class~="bg-amber-500"], button[class~="bg-green-600"], button[class~="bg-blue-600"], button[class~="bg-emerald-600"] {
+    background: var(--foundry-action-primary); color: var(--foundry-surface-ground) !important; border: 1px solid var(--foundry-action-primary);
+    font-weight: 600; padding: 8px 20px; border-radius: 8px;
+  }
+  button[class*="text-red-"], button[class*="hover:text-red-"], button[class~="bg-red-600"] {
+    background: transparent; color: var(--foundry-status-needs-you-foreground); border: 1px solid var(--foundry-status-needs-you-text); padding: 8px 12px;
+  }
+  button[class~="border-[var(--brand-card-border)]"], button[class~="bg-[var(--brand-input-bg)]"] {
+    border: 1px solid #5a564c; background: transparent; color: var(--foundry-text-primary);
+  }
+  :is(button, a)[class~="text-[var(--brand-primary)]"] { color: var(--foundry-action-primary); }
+  :is(span, small)[class*="rounded"]:not(.f-swatch) { border-radius: 6px; }
+
+  /* Plain native actions (recordings, retry/pagination, Education). */
+  button:not([class]):not([style]) {
+    padding: 8px 16px; border: 1px solid #5a564c; background: transparent;
+    color: var(--foundry-text-primary); font-size: 15px;
+  }
+  [data-foundry-page="/timelapses"] article { background: var(--foundry-surface-panel); border: 1px solid var(--foundry-surface-border); border-radius: 12px; padding: 20px; }
+  [data-foundry-page="/timelapses"] article button { margin: 4px; }
+  [data-foundry-page="/timelapses"] > div > .flex { flex-wrap: wrap; align-items: center; }
+  [data-foundry-page="/timelapses"] video { width: 100%; }
+  [data-foundry-page="/education"] article, [data-foundry-page="/education"] section[class*="rounded"] { border-radius: 12px; }
+  [data-foundry-page] [role="alert"] { color: var(--foundry-status-needs-you-foreground); }
+  [data-foundry-page] :is(.tabular-nums, time) { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  /* Legacy utility text and chart labels also obey the minimum and palette. */
+  .text-xs, [class*="text-[8px]"], [class*="text-[9px]"], [class*="text-[10px]"],
+  [class*="text-[11px]"], [class*="text-[12px]"],
+  [style*="font-size: 10px"], [style*="font-size: 11px"], [style*="font-size: 12px"],
+  [style*="font-size: 0.75rem"], [style*="font-size: 0.7rem"] { font-size: 13px !important; }
+  .recharts-text { font-size: 13px; fill: var(--foundry-text-secondary); font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  .recharts-default-legend, .recharts-legend-item-text { font-size: 13px !important; color: var(--foundry-text-secondary) !important; }
+  .recharts-default-tooltip { background: var(--foundry-surface-raised) !important; color: var(--foundry-text-primary); border-color: var(--foundry-surface-border) !important; border-radius: 8px; }
+  [data-foundry-ui="table"] td.text-right,
+  .font-mono, .f-mono, code, pre, input[type="number"], [data-foundry-number] {
+    font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+  }
+  [class~="text-red-400"], [class~="text-red-500"] { color: var(--foundry-status-needs-you-foreground); }
+  [class~="text-green-400"], [class~="text-emerald-400"] { color: var(--foundry-status-ready-foreground); }
+
+  /* Auth pages have no main shell. Preserve their real forms and setup steps. */
+  [data-foundry-page="/setup"] .setup-wizard :is([class*="text-white/"], [class~="text-gray-400"]),
+  [data-foundry-page="/login"] [class*="text-white/"],
+  [data-foundry-page="/reset-password"] [class*="text-white/"] { color: var(--foundry-text-secondary); }
+  [data-foundry-page="/setup"] [class~="bg-white/5"] { background: var(--foundry-surface-raised); }
+  [data-foundry-page="/setup"] [class~="border-white/10"] { border-color: var(--foundry-surface-border); }
+  [data-foundry-page="/setup"] .setup-wizard > div > [class*="rounded"],
+  [data-foundry-page="/login"] [class~="shadow-2xl"] { border: 1px solid var(--foundry-surface-border); border-radius: 12px; }
+
+  /* OBS remains a transparent page; only its actual panels are recoloured. */
+  [data-foundry-page="/overlay/:printerId"] :is([class~="bg-gray-900/80"], [class~="bg-gray-100"]) { background: #1b1a18e6; color: var(--foundry-text-primary); }
+  [data-foundry-page="/overlay/:printerId"] :is([class~="bg-gray-800"], [class~="bg-white"]) { background: var(--foundry-surface-raised); }
+  [data-foundry-page="/overlay/:printerId"] [class*="text-gray-"] { color: var(--foundry-text-secondary); }
+
+  /* Numeric telemetry in the existing detail/history and TV surfaces. */
+  [data-foundry-page="/printers/:id"] dd,
+  [data-foundry-page="/printers/:id"] .grid .flex.justify-between > span:last-child,
+  [data-foundry-page="/tv"] [class*="font-mono"],
+  [data-foundry-page="/overlay/:printerId"] [class*="font-mono"] {
+    font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+  }
+  [data-foundry-page="/settings"] [data-foundry-ui="tabs"] { width: max-content; }
+  [data-foundry-page="/education"] [role="tablist"] { flex-wrap: wrap; gap: 8px; }
+  [data-foundry-page="/printers/:id"] .f-detail-stack { grid-template-columns: minmax(0, 1fr); }
+
+  @media (max-width: 768px), (pointer: coarse) {
+    .sidebar nav a, .sidebar button, .sidebar select,
+    :is(button, select, input:not([type="hidden"]), [role="button"], summary, a[href]) {
+      min-height: 44px; min-width: 44px;
+    }
+    a[href]:not(.sr-only) { display: inline-flex; align-items: center; }
+    input[type="checkbox"], input[type="radio"] { width: 44px; height: 44px; flex-shrink: 0; }
+    [data-foundry-ui="table"] { min-width: 640px; }
+    :is(div, section):has(> [data-foundry-ui="table"]) { overflow-x: auto; max-width: 100%; }
+    [data-foundry-ui="tabs"] { width: 100%; }
+  }
+  @media (max-width: 600px) {
+    [data-foundry-page] > :is(.p-4, .p-6, .p-8) { padding: 16px; }
+    [data-foundry-page] > div > .flex.items-center.justify-between { flex-wrap: wrap; gap: 12px; }
+    [data-foundry-ui="card"] { padding: 20px; }
+    [data-foundry-page="/printers/:id"] .f-detail-stack { gap: 16px; }
+    [data-foundry-page="/printers/:id"] .f-detail-stack .f-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    :is(div, section, article)[class~="bg-[var(--brand-card-bg)]"]:is(.p-3, .p-4, .p-5, .p-6) { padding: 20px; }
+  [data-foundry-ui="modal"] { max-width: 100%; }
+    [data-foundry-page="/tv"] .grid { grid-template-columns: minmax(0, 1fr); }
+    [data-foundry-page="/login"] .p-8, [data-foundry-page="/setup"] .p-8,
+    [data-foundry-page="/reset-password"] .p-8 { padding: 20px; }
+    [data-foundry-page="/reset-password"] > div { padding: 16px; }
+  }
+}
+
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
+  /* Snap existing fractional control spacing to the board’s 4 px grid. */
+  [class~="p-0.5"] { padding: 4px; }
+  [class~="p-1.5"] { padding: 8px; }
+  [class~="p-2.5"] { padding: 12px; }
+  [class~="p-3.5"] { padding: 16px; }
+  [class~="px-0.5"] { padding-inline: 4px; }
+  [class~="px-1.5"] { padding-inline: 8px; }
+  [class~="px-2.5"] { padding-inline: 12px; }
+  [class~="px-3.5"] { padding-inline: 16px; }
+  [class~="py-0.5"] { padding-block: 4px; }
+  [class~="py-1.5"] { padding-block: 8px; }
+  [class~="py-2.5"] { padding-block: 12px; }
+  [class~="py-3.5"] { padding-block: 16px; }
+  [class~="pt-0.5"] { padding-top: 4px; }
+  [class~="pt-1.5"] { padding-top: 8px; }
+  [class~="pt-2.5"] { padding-top: 12px; }
+  [class~="pt-3.5"] { padding-top: 16px; }
+  [class~="pb-0.5"] { padding-bottom: 4px; }
+  [class~="pb-1.5"] { padding-bottom: 8px; }
+  [class~="pb-2.5"] { padding-bottom: 12px; }
+  [class~="pb-3.5"] { padding-bottom: 16px; }
+  [class~="pl-0.5"] { padding-left: 4px; }
+  [class~="pl-1.5"] { padding-left: 8px; }
+  [class~="pl-2.5"] { padding-left: 12px; }
+  [class~="pl-3.5"] { padding-left: 16px; }
+  [class~="pr-0.5"] { padding-right: 4px; }
+  [class~="pr-1.5"] { padding-right: 8px; }
+  [class~="pr-2.5"] { padding-right: 12px; }
+  [class~="pr-3.5"] { padding-right: 16px; }
+  [class~="gap-0.5"] { gap: 4px; }
+  [class~="gap-1.5"] { gap: 8px; }
+  [class~="gap-2.5"] { gap: 12px; }
+  [class~="gap-3.5"] { gap: 16px; }
+  [class~="gap-x-0.5"] { column-gap: 4px; }
+  [class~="gap-x-1.5"] { column-gap: 8px; }
+  [class~="gap-x-2.5"] { column-gap: 12px; }
+  [class~="gap-x-3.5"] { column-gap: 16px; }
+  [class~="gap-y-0.5"] { row-gap: 4px; }
+  [class~="gap-y-1.5"] { row-gap: 8px; }
+  [class~="gap-y-2.5"] { row-gap: 12px; }
+  [class~="gap-y-3.5"] { row-gap: 16px; }
+}

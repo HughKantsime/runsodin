@@ -1,3 +1,4 @@
+import PrinterNumber from '../ui/PrinterNumber'
 import { displayName } from '../../utils/displayName'
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -191,7 +192,7 @@ function MqttJobDetail({ block }) {
             style={{ width: `${Math.min(Number(progress), 100)}%` }}
           />
         </div>
-        <span className="text-[var(--brand-text-secondary)] text-sm">{Math.round(Number(progress))}%</span>
+        <PrinterNumber as="span" className="text-[var(--brand-text-secondary)] text-sm">{Math.round(Number(progress))}%</PrinterNumber>
       </div>
 
       {/* Details */}

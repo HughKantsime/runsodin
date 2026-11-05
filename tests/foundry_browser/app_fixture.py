@@ -75,9 +75,23 @@ def main():
         client = TestClient(app, base_url=f'http://127.0.0.1:{port}')
         login = client.post('/api/auth/login', data={'username': 'reviewer', 'password': os.environ['ODIN_FOUNDRY_TEST_PASSWORD']})
         assert login.status_code == 200, f'Login: {login.status_code}'
-        for route in ['/api/printers', '/api/print-jobs?status=running', '/api/jobs', '/api/alerts', '/api/timeline', '/api/cameras', '/api/printers/103/nozzle-status']:
+        routes = ['/api/printers', '/api/print-jobs?status=running', '/api/jobs', '/api/alerts', '/api/timeline', '/api/cameras', '/api/printers/103/nozzle-status',
+                  '/api/models', '/api/products', '/api/orders', '/api/consumables', '/api/projects', '/api/projects/901',
+                  '/api/archives', '/api/archives/log', '/api/timelapses', '/api/profiles', '/api/vision/detections',
+                  '/api/education/capabilities', '/api/education/cost-centers?org_id=1601', '/api/overlay/101']
+        visible_records = {
+            '/api/models': 'Review enclosure', '/api/products': 'Review enclosure kit',
+            '/api/orders': 'REVIEW-701', '/api/consumables': 'Review M3 fasteners',
+            '/api/projects': 'Review workshop fixtures', '/api/projects/901': 'Review workshop fixtures',
+            '/api/archives': 'Review completed bracket', '/api/archives/log': 'Review completed bracket',
+            '/api/timelapses': 'review-unavailable.mp4', '/api/profiles': 'Review PLA process',
+            '/api/vision/detections': 'spaghetti', '/api/education/cost-centers?org_id=1601': 'Review workshop',
+        }
+        for route in routes:
             response = client.get(route)
             assert response.status_code == 200, f'{route}: {response.status_code} {response.text[:200]}'
+            if route in visible_records:
+                assert visible_records[route] in response.text, f'{route}: seeded record was not visible'
         printers = client.get('/api/printers').json()
         x1 = next(p for p in printers if p['id'] == 101)
         h2d = next(p for p in printers if p['id'] == 103)
@@ -85,7 +99,7 @@ def main():
         assert h2d['chamber_temp'] == 30 and h2d['plate_clear_confirmed_at']
         jobs = client.get('/api/jobs').json()
         assert next(j for j in jobs if j['id'] == 203)['ams_slot_nozzles'][0]['nozzle'] == 'right'
-        print('Fixture check: auth, 7 read routes and all 4 board facts passed')
+        print(f'Fixture check: auth, {len(routes)} read routes, {len(manifest["page_records"])} Part B record types and all 4 board facts passed')
         engine.dispose()
         return
     import uvicorn

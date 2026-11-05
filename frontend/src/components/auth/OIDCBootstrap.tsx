@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import LoginContinuation, { readLoginAuthority, verifyLoginSession, type LoginAuthority } from './LoginContinuation'
 import { Loader2 } from 'lucide-react'
@@ -58,11 +59,11 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
       <div className="text-center max-w-md">
         <h1 className="mb-4" style={{ color: 'var(--brand-accent)' }}>O.D.I.N.</h1>
         {authority ? <LoginContinuation authority={authority}
-          onComplete={() => oidcNavigation.finish()} onRestart={() => window.location.replace('/login')} /> : failed ? <div role="alert">
+          onComplete={() => oidcNavigation.finish()} onRestart={() => window.location.replace('/login')} /> : failed ? <PageState kind="error" role="alert">
           <p>SSO sign-in could not be completed. Please try again or contact your administrator.</p>
           <a href="/login" className="inline-block mt-4 underline"
             style={{ color: 'var(--brand-accent)' }}>Return to sign in</a>
-        </div> : <div role="status">
+        </PageState> : <div role="status">
           <Loader2 aria-hidden="true" size={32} className="animate-spin mx-auto mb-4"
             style={{ color: 'var(--brand-accent)' }} />
           <p>Completing sign-in...</p>

@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { brandingContrastWarnings } from "../../utils/contrast"
 import { DEFAULT_SURFACE_COLORS } from "../../utils/brandingPalette"
 import { useState, useEffect, useRef } from "react"
@@ -234,10 +235,10 @@ export default function Branding() {
   if (!draft) {
     return (
       <div className="p-6 md:p-8">
-        {error ? <div role="alert">
+        {error ? <PageState kind="error" role="alert">
           <p>{error}</p>
           <Button onClick={loadBranding}>Retry</Button>
-        </div> : <div className="text-[var(--brand-text-secondary)]">Loading branding configuration...</div>}
+        </PageState> : <PageState kind="loading" className="text-[var(--brand-text-secondary)]">Loading branding configuration...</PageState>}
       </div>
     )
   }

@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import { useState, useCallback, useEffect } from 'react'
@@ -364,7 +366,7 @@ export default function Jobs() {
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
         <div className="overflow-x-auto" tabIndex={0} aria-label="Jobs table">
-          <table className="w-full min-w-[600px]">
+          <Table className="w-full min-w-[600px]">
             <JobTableHeader
               sortField={sortField}
               sortDirection={sortDirection}
@@ -374,7 +376,7 @@ export default function Jobs() {
             />
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><PageState kind="loading" className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</PageState></td></tr>
               ) : filteredJobs.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm">
                   {jobTypeFilter === 'order' ? 'No order jobs found' :
@@ -395,7 +397,7 @@ export default function Jobs() {
                 ))
               )}
             </tbody>
-          </table>
+          </Table>
         </div>
       </div>
 

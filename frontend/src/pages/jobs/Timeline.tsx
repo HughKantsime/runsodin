@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
 import { FoundryTimeline } from '../../components/foundry/ScheduleLane'
 import { displayName } from '../../utils/displayName'
@@ -474,7 +475,7 @@ function ClassicTimeline() {
       {/* Mobile chronological list (<md) */}
       <div className="flex-1 overflow-auto md:hidden">
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+          <PageState kind="loading" className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
         ) : (
           <MobileTimelineList
             slots={timelineData?.slots}
@@ -487,7 +488,7 @@ function ClassicTimeline() {
       {/* Desktop Gantt chart (md+) */}
       <div className="hidden md:flex flex-1 overflow-auto relative" ref={scrollAreaRef}>
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm w-full">Loading...</div>
+          <PageState kind="loading" className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm w-full">Loading...</PageState>
         ) : (!timelineData?.slots?.length && !printersData?.length) ? (
           <div className="flex flex-col items-center justify-center h-64 text-[var(--brand-text-muted)] gap-3 w-full">
             <CalendarX2 size={32} className="text-[var(--brand-text-muted)]" />

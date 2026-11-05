@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { forwardRef, type ReactNode, type ButtonHTMLAttributes } from 'react'
 import { Loader2, type LucideIcon } from 'lucide-react'
 import clsx from 'clsx'
@@ -69,6 +70,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   },
   ref
 ) {
+  const foundry = useFoundry()
   const resolvedVariant = variantMap[variant] || 'primary'
   const isDisabled = disabled || loading
   const isIconOnly = size === 'icon'
@@ -87,6 +89,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 
   return (
     <button
+      data-foundry-ui={foundry ? 'button' : undefined}
+      data-foundry-variant={foundry ? resolvedVariant : undefined}
       ref={ref}
       disabled={isDisabled}
       className={clsx(

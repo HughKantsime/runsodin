@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useSearchParams } from 'react-router-dom'
 import OperationsWorkbench from '../../components/orders/OperationsWorkbench'
 import Finishing from '../../components/orders/Finishing'
@@ -207,7 +209,7 @@ export default function Products() {
     }
   }
 
-  if (loading) return <div className="p-6 text-[var(--brand-text-secondary)]">Loading...</div>
+  if (loading) return <PageState kind="loading" className="p-6 text-[var(--brand-text-secondary)]">Loading...</PageState>
 
   return (
     <div className="p-4 md:p-6">
@@ -347,7 +349,7 @@ export default function Products() {
           </div>
 
           {/* Desktop table view */}
-          <table className="w-full hidden md:table">
+          <Table className="w-full hidden md:table">
             <thead className="bg-[var(--brand-content-bg)]">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">Name</th>
@@ -454,7 +456,7 @@ export default function Products() {
                 </Fragment>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
 

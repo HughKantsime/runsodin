@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
@@ -141,7 +142,7 @@ export default function AlertBell() {
 
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
-              <div className="p-4 text-center text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading...</div>
+              <PageState kind="loading" className="p-4 text-center text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading...</PageState>
             ) : recentAlerts.length === 0 ? (
               <div className="p-4 text-center text-sm" style={{ color: 'var(--brand-text-muted)' }}>No notifications</div>
             ) : (

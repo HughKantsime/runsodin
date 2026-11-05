@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useCallback, useEffect, useState } from 'react'
 import { ExternalLink, Eye, EyeOff, Save, ShieldCheck } from 'lucide-react'
 import { oidc, orgs, type OIDCConfig, type OIDCProviderType } from '../../api'
@@ -115,10 +116,10 @@ export default function OIDCSettings() {
 
   if (loading) return <p className="text-sm text-[var(--brand-text-secondary)]">Loading single sign-on settings…</p>
   if (configLoadError) return (
-    <div className="space-y-3">
+    <PageState kind="error" className="space-y-3">
       <p role="alert" className="text-sm text-[var(--status-failed)]">Unable to load SSO configuration: {configLoadError}</p>
       <Button onClick={() => void loadConfig()}>Retry loading configuration</Button>
-    </div>
+    </PageState>
   )
 
   const provider = PROVIDERS[config.provider_type]

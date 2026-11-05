@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileText, Shield, Wifi, Save, Smartphone } from 'lucide-react'
@@ -422,13 +423,13 @@ export default function SystemTab() {
         )}
 
         {backupsLoading && (
-          <div className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading backups...</div>
+          <PageState kind="loading" className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading backups...</PageState>
         )}
 
         {!backupsLoading && (!backups || backups.length === 0) && (
-          <div className="text-center text-[var(--brand-text-muted)] py-6 text-sm">
+          <PageState kind="empty" className="text-center text-[var(--brand-text-muted)] py-6 text-sm">
             No backups yet. Create your first backup to protect your data.
-          </div>
+          </PageState>
         )}
 
         {!backupsLoading && backups && backups.length > 0 && (
@@ -444,9 +445,9 @@ export default function SystemTab() {
                     {formatSize(backup.size_bytes)} · {formatDate(backup.created_at)}
                   </div>
                   {backup.quarantined && (
-                    <div role="alert" className="mt-1 text-xs text-amber-300">
+                    <PageState kind="error" role="alert" className="mt-1 text-xs text-amber-300">
                       <span className="font-medium">Restore not applied (database unchanged).</span> {backup.reason} {backup.action}
-                    </div>
+                    </PageState>
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

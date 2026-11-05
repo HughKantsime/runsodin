@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucide-react'
@@ -102,7 +104,7 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }: { title:
     <div>
       <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] uppercase tracking-wider mb-3">{title}</h3>
       <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[400px]">
+        <Table className="w-full text-sm min-w-[400px]">
           <thead>
             <tr className="bg-[var(--brand-card-bg)]">
               <th className="text-left px-4 py-3 text-[var(--brand-text-secondary)] text-xs uppercase w-48">
@@ -165,7 +167,7 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }: { title:
               ]
             })}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   )
@@ -248,7 +250,7 @@ export default function Permissions() {
   }
 
   if (isLoading || !localPageAccess) {
-    return <div className="text-[var(--brand-text-muted)] text-center py-12">Loading permissions...</div>
+    return <PageState kind="loading" className="text-[var(--brand-text-muted)] text-center py-12">Loading permissions...</PageState>
   }
 
   const saving = saveMutation.isPending || resetMutation.isPending

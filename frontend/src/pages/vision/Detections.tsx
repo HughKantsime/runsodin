@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -341,7 +342,7 @@ export default function Detections() {
 
       {/* Detection grid */}
       {isLoading && (
-        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading detections...</div>
+        <PageState kind="loading" className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading detections...</PageState>
       )}
 
       {!isLoading && items.length === 0 && (

@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect } from 'react'
 import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle, Wrench, FileText, XOctagon, Thermometer, ListPlus, SkipForward } from 'lucide-react'
 import usePushNotifications from '../../hooks/usePushNotifications'
@@ -260,7 +261,7 @@ export default function NotificationsTab() {
         </p>
 
         {alertPrefsLoading ? (
-          <div className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading preferences...</div>
+          <PageState kind="loading" className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading preferences...</PageState>
         ) : (
           <>
             {/* Header row */}
@@ -395,7 +396,7 @@ export default function NotificationsTab() {
         </div>
 
         {smtpLoading ? (
-          <div className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading...</div>
+          <PageState kind="loading" className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading...</PageState>
         ) : (
           <>
             <p className="text-sm text-[var(--brand-text-secondary)] mb-4">

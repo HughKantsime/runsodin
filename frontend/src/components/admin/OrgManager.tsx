@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Users, UserPlus, Printer, Building2, X, Settings, Save } from 'lucide-react'
@@ -113,7 +114,7 @@ export default function OrgManager() {
         </div>
       )}
 
-      {isLoading && <div className="text-sm text-[var(--brand-text-muted)] py-4">Loading...</div>}
+      {isLoading && <PageState kind="loading" className="text-sm text-[var(--brand-text-muted)] py-4">Loading...</PageState>}
 
       {!isLoading && (!orgList || orgList.length === 0) && (
         <p className="text-sm text-[var(--brand-text-muted)] py-4">No organizations yet. Create one to group users and assign resources.</p>

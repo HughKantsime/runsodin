@@ -1,3 +1,6 @@
+import PrinterNumber from '../../components/ui/PrinterNumber'
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -225,20 +228,20 @@ function PrinterCard({ printer, onLogMaintenance }) {
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 ml-4">
                   {task.interval_print_hours != null && (
-                    <span className="text-xs text-[var(--brand-text-muted)]">
+                    <PrinterNumber as="span" className="text-xs text-[var(--brand-text-muted)]">
                       <Clock size={10} className="inline mr-1" />{task.hours_since_service}h / {task.interval_print_hours}h
-                    </span>
+                    </PrinterNumber>
                   )}
                   {task.interval_days != null && (
                     <span className="text-xs text-[var(--brand-text-muted)]">{task.days_since_service}d / {task.interval_days}d</span>
                   )}
                   {(task.next_due_print_hours != null || task.next_due_date) && (
-                    <span className="text-xs text-[var(--brand-text-muted)]" title="Next due point from the last service">
+                    <PrinterNumber as="span" className="text-xs text-[var(--brand-text-muted)]" title="Next due point from the last service">
                       Next due: {[
                         task.next_due_print_hours != null ? `${task.next_due_print_hours}h` : null,
                         task.next_due_date ? new Date(task.next_due_date).toLocaleDateString() : null,
                       ].filter(Boolean).join(' or ')}
-                    </span>
+                    </PrinterNumber>
                   )}
                   {task.last_serviced ? (
                     <span className="text-xs text-[var(--brand-text-muted)]">
@@ -400,7 +403,7 @@ export default function Maintenance() {
       {/* ==================== Fleet Status Tab ==================== */}
       {activeTab === 'status' && (
         <div className="space-y-3">
-          {statusLoading && <div className="text-[var(--brand-text-muted)] text-center py-8">Loading fleet status...</div>}
+          {statusLoading && <PageState kind="loading" className="text-[var(--brand-text-muted)] text-center py-8">Loading fleet status...</PageState>}
 
           {!statusLoading && statusData.length === 0 && (
             <EmptyState
@@ -461,7 +464,7 @@ export default function Maintenance() {
           )}
 
           <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
-            <table className="w-full text-sm min-w-[500px]">
+            <Table className="w-full text-sm min-w-[500px]">
               <thead>
                 <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] text-xs uppercase">
                   <th className="text-left px-4 py-3">Task</th>
@@ -505,7 +508,7 @@ export default function Maintenance() {
                   )
                 ))}
               </tbody>
-            </table>
+            </Table>
             {tasks.length === 0 && (
               <div className="p-4">
                 <EmptyState
@@ -542,7 +545,7 @@ export default function Maintenance() {
           </div>
 
           <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
-            <table className="w-full text-sm min-w-[500px]">
+            <Table className="w-full text-sm min-w-[500px]">
               <thead>
                 <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] text-xs uppercase">
                   <th className="text-left px-4 py-3">Date</th>
@@ -578,7 +581,7 @@ export default function Maintenance() {
                   )
                 })}
               </tbody>
-            </table>
+            </Table>
             {logs.length === 0 && (
               <div className="p-4">
                 <EmptyState

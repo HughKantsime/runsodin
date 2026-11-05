@@ -15,9 +15,9 @@ const require = createRequire(path.join(root, 'frontend/package.json'))
 const { chromium } = require('@playwright/test')
 const AxeBuilder = require('@axe-core/playwright').default
 const python = process.env.ODIN_FOUNDRY_PYTHON || 'python3'
-const output = path.resolve(process.argv.find(a => a.startsWith('--output='))?.slice(9) || path.join(root, 'artifacts/foundry-part-a'))
+const output = path.resolve(process.argv.find(a => a.startsWith('--output='))?.slice(9) || path.join(root, 'artifacts/foundry-part-b'))
 const baseline = process.argv.find(a => a.startsWith('--baseline='))?.slice(11)
-const report = { fixture: 'Disposable ODIN; synthetic DB seed; hardware transports unavailable', screenshots: [], axe: [], failures: [], classicComparison: baseline ? 'pending' : 'not run: pass --baseline with a 2.0.42 capture' }
+const report = { fixture: 'Disposable ODIN; synthetic DB seed; hardware transports unavailable', screenshots: [], axe: [], layout: [], failures: [], classicComparison: baseline ? 'pending' : 'not run: pass --baseline with a 2.0.42 capture' }
 const children = []
 const directory = await mkdtemp(path.join(tmpdir(), 'odin-foundry-review-'))
 await mkdir(output, { recursive: true })
@@ -44,10 +44,15 @@ async function start(setup = false) {
   }
   throw new Error('Disposable app did not become healthy')
 }
-// Explicit route inventory. Redirects retain their own screenshot names. Part B pages
-// are captured for review, not claimed as restyled by Part A.
-const routes = ['/', '/printers', '/printers/101', '/cameras', '/cameras/102', '/timeline', '/jobs', '/upload', '/models', '/profiles', '/spools', '/consumables', '/orders', '/products', '/calculator', '/analytics', '/utilization', '/print-log', '/alerts', '/detections', '/education', '/education-reports', '/timelapses', '/archives', '/projects', '/settings', '/admin', '/permissions', '/branding', '/maintenance', '/audit', '/tv', '/overlay/101', '/missing-page', '/login', '/reset-password', '/setup']
-const main = new Set(['/', '/printers', '/printers/101', '/cameras', '/cameras/102', '/timeline'])
+// Fail if a router entry is missing from the review inventory (including early returns).
+const inventory = JSON.parse(await readFile(path.join(root, 'tests/foundry_browser/routes.json'), 'utf8'))
+const routes = inventory.map(entry => entry.url)
+const appSource = await readFile(path.join(root, 'frontend/src/App.tsx'), 'utf8')
+const routerPaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map(match => match[1])
+const standalone = [...appSource.matchAll(/location.pathname === '([^']+)'/g)].map(match => match[1])
+const declared = [...new Set([...routerPaths, ...standalone])].sort()
+if (JSON.stringify(declared) !== JSON.stringify(inventory.map(entry => entry.route).sort())) throw new Error('Router and screenshot inventory differ')
+report.routes = inventory
 let browser
 try {
   await readFile(path.join(root, 'frontend/dist/index.html'))
@@ -57,7 +62,7 @@ try {
   report.seed = seed
   // Freeze only Date. Timers keep running so camera failure paths and queries settle.
   browser = await chromium.launch({ headless: true })
-  for (const theme of ['classic', 'foundry']) for (const width of [1440, 768, 390]) {
+  for (const theme of (process.argv.includes('--classic-only') ? ['classic'] : ['classic', 'foundry'])) for (const width of [1440, 768, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US', timezoneId: 'America/New_York', reducedMotion: 'reduce', serviceWorkers: 'block' })
     await context.route('**/*', route => {
       const u = new URL(route.request().url())
@@ -77,14 +82,38 @@ try {
       try {
         await page.goto((route === '/setup' ? setup.url : app.url) + route, { waitUntil: 'networkidle' })
         await page.evaluate(() => document.fonts.ready)
+        const expected = inventory.find(entry => entry.url === route).finalPath
+        if (new URL(page.url()).pathname !== expected) throw new Error(`Expected ${expected}; landed on ${new URL(page.url()).pathname}`)
+        if (theme === 'foundry' && await page.locator('[data-foundry-page]').count() !== 1) throw new Error('Missing Foundry page boundary')
         if (route === '/' || route.startsWith('/cameras')) await page.waitForTimeout(18000)
         const filename = `${name}.png`
         await page.screenshot({ path: path.join(output, filename), fullPage: true, animations: 'disabled' })
         report.screenshots.push({ route, theme, width, filename, finalURL: new URL(page.url()).pathname })
-        if (theme === 'foundry' && main.has(route)) {
+        if (theme === 'foundry') {
+          const layout = await page.evaluate(() => {
+            const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0
+            const describe = el => `${el.tagName.toLowerCase()} ${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 80)}`
+            const smallText = [...document.querySelectorAll('[data-foundry-page] *')].filter(el => visible(el) && [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 13).map(describe)
+            const smallTargets = innerWidth <= 768 ? [...document.querySelectorAll('button, a[href], input:not([type="hidden"]), select, summary, [role="button"]')].filter(el => visible(el) && !el.classList.contains('sr-only') && (el.getBoundingClientRect().width < 44 || el.getBoundingClientRect().height < 44)).map(describe) : []
+            const overflow = document.documentElement.scrollWidth > innerWidth
+            return { smallText, smallTargets, overflow }
+          })
+          report.layout.push({ route, width, ...layout })
+          if (layout.smallText.length || layout.smallTargets.length || layout.overflow) report.failures.push(`${name}: Foundry type, target or viewport overflow check failed`)
           const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
           report.axe.push({ route, width, violations: result.violations })
           if (result.violations.length) report.failures.push(`${name}: ${result.violations.length} axe violations`)
+        }
+        const scroller = page.locator('#main-content')
+        if (await scroller.count()) {
+          const dimensions = await scroller.evaluate(el => ({ height: el.clientHeight, total: el.scrollHeight }))
+          for (let y = dimensions.height, part = 1; y < dimensions.total; y += dimensions.height, part++) {
+            await scroller.evaluate((el, top) => { el.scrollTop = top }, y)
+            const scrollFile = `${name}-scroll-${part}.png`
+            await page.screenshot({ path: path.join(output, scrollFile), animations: 'disabled' })
+            report.screenshots.push({ route, theme, width, filename: scrollFile, finalURL: new URL(page.url()).pathname, scrollPart: part })
+          }
+          await scroller.evaluate(el => { el.scrollTop = 0 })
         }
         if (theme === 'foundry' && route === '/') {
           await page.locator('.f-floor-lower').scrollIntoViewIfNeeded()
@@ -97,6 +126,47 @@ try {
           await page.getByRole('button', { name: 'Comfortable', exact: true }).click()
         }
       } catch (error) { report.failures.push(`${name}: ${error.message}`) }
+    }
+    for (const tab of ['notifications', 'access', 'integrations', 'vision', 'branding', 'license', 'system', 'logs']) {
+      try {
+        await page.goto(app.url + '/settings?tab=' + tab, { waitUntil: 'networkidle' })
+        await page.evaluate(() => document.fonts.ready)
+        const filename = `${theme}-${width}-settings-${tab}.png`
+        await page.screenshot({ path: path.join(output, filename), fullPage: true, animations: 'disabled' })
+        report.screenshots.push({ route: '/settings?tab=' + tab, theme, width, filename, finalURL: new URL(page.url()).pathname })
+      } catch (error) { report.failures.push(`${theme}-${width}-settings-${tab}: ${error.message}`) }
+    }
+    // Display only: this token is deliberately invalid; no reset is submitted.
+    await page.goto(app.url + '/reset-password?token=invalid-review-token', { waitUntil: 'networkidle' })
+    const resetFile = `${theme}-${width}-reset-form.png`
+    await page.screenshot({ path: path.join(output, resetFile), fullPage: true, animations: 'disabled' })
+    report.screenshots.push({ route: '/reset-password?token=invalid-review-token', theme, width, filename: resetFile, finalURL: new URL(page.url()).pathname })
+    for (const [route, opener, title] of [
+      ['/projects', 'New Project', 'New Project'],
+    ]) {
+      try {
+        await page.goto(app.url + route, { waitUntil: 'networkidle' })
+        await page.getByRole('button', { name: opener, exact: true }).click()
+        await page.getByRole('dialog', { name: title, exact: true }).waitFor()
+        const dialogFile = `${theme}-${width}-project-dialog.png`
+        await page.screenshot({ path: path.join(output, dialogFile), fullPage: true, animations: 'disabled' })
+        report.screenshots.push({ route: '/projects#new-project', theme, width, filename: dialogFile, finalURL: new URL(page.url()).pathname })
+        if (theme === 'foundry') {
+          const layout = await page.evaluate(() => {
+            const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0
+            const describe = el => `${el.tagName.toLowerCase()} ${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 80)}`
+            const smallText = [...document.querySelectorAll('[data-foundry-page] *')].filter(el => visible(el) && [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 13).map(describe)
+            const smallTargets = innerWidth <= 768 ? [...document.querySelectorAll('button, a[href], input:not([type="hidden"]), select, summary, [role="button"]')].filter(el => visible(el) && !el.classList.contains('sr-only') && (el.getBoundingClientRect().width < 44 || el.getBoundingClientRect().height < 44)).map(describe) : []
+            const overflow = document.documentElement.scrollWidth > innerWidth
+            return { smallText, smallTargets, overflow }
+          })
+          report.layout.push({ route, width, ...layout })
+          if (layout.smallText.length || layout.smallTargets.length || layout.overflow) report.failures.push(`${name}: Foundry type, target or viewport overflow check failed`)
+          const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
+          report.axe.push({ route: route + '#new-project', width, violations: result.violations })
+          if (result.violations.length) report.failures.push(`${theme}-${width}-project-dialog: ${result.violations.length} axe violations`)
+        }
+      } catch (error) { report.failures.push(`${theme}-${width}-project-dialog: ${error.message}`) }
     }
     await context.close()
   }

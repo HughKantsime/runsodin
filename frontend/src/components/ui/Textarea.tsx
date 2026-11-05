@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { forwardRef, useId, type TextareaHTMLAttributes } from 'react'
 import clsx from 'clsx'
 
@@ -17,6 +18,7 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textare
   { label, error, size = 'md', rows = 3, className, wrapperClassName, id, 'aria-describedby': ariaDescribedBy, ...rest },
   ref
 ) {
+  const foundry = useFoundry()
   const generatedId = useId()
   const controlId = id || generatedId
   const errorId = `${controlId}-error`
@@ -26,6 +28,7 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textare
         <label htmlFor={controlId} className="block text-xs font-medium text-[var(--brand-text-secondary)] mb-1">{label}</label>
       )}
       <textarea
+        data-foundry-ui={foundry ? 'control' : undefined}
         ref={ref}
         id={controlId}
         aria-invalid={error ? true : undefined}

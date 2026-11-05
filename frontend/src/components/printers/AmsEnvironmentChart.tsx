@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { X } from 'lucide-react'
@@ -91,11 +92,11 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
         </label>
       )}
       {loading ? (
-        <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+        <PageState kind="loading" className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
       ) : error ? (
         <div><p role="alert">{error}</p><button onClick={loadData}>Retry</button></div>
       ) : data.length === 0 ? (
-        <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">No AMS environment data available</div>
+        <PageState kind="empty" className="text-center py-8 text-[var(--brand-text-muted)] text-sm">No AMS environment data available</PageState>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={data}>

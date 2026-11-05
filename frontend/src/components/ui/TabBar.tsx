@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { type LucideIcon } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -19,6 +20,7 @@ interface TabBarProps {
 }
 
 export default function TabBar({ tabs, activeTab, active, onTabChange, onChange, variant = 'default' }: TabBarProps) {
+  const foundry = useFoundry()
   // Backward compatibility: support old prop names
   const currentTab = activeTab ?? active
   const handleChange = onTabChange || onChange
@@ -26,7 +28,7 @@ export default function TabBar({ tabs, activeTab, active, onTabChange, onChange,
   const resolvedVariant = variant === 'segment' ? 'default' : variant === 'pill' ? 'default' : variant
 
   return (
-    <div className={clsx(
+    <div data-foundry-ui={foundry ? 'tabs' : undefined} className={clsx(
       'flex gap-1',
       resolvedVariant === 'inline' ? 'border-b border-[var(--brand-card-border)]' : 'bg-[var(--brand-card-bg)] rounded-md p-1'
     )}>
@@ -39,6 +41,8 @@ export default function TabBar({ tabs, activeTab, active, onTabChange, onChange,
 
         return (
           <button
+            data-foundry-active={foundry ? isActive : undefined}
+            aria-pressed={foundry ? isActive : undefined}
             key={key}
             onClick={() => handleChange?.(key)}
             className={clsx(

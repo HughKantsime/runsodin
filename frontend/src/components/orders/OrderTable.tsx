@@ -1,3 +1,4 @@
+import Table from '../ui/Table'
 import { Eye, Pencil, Trash2, Play, Truck, Ban } from 'lucide-react'
 import { canDo } from '../../permissions'
 import { Button, StatusBadge } from '../ui'
@@ -48,7 +49,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
       </div>
 
       {/* Desktop table view */}
-      <table className="w-full hidden md:table">
+      <Table className="w-full hidden md:table">
         <thead className="bg-[var(--brand-content-bg)]">
           <tr>
             <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">Order #</th>
@@ -100,7 +101,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   )
 }

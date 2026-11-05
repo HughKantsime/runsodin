@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useState, useEffect, useId, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -278,7 +279,7 @@ export default function CalculatorPage() {
   if (configLoading) {
     return (
       <div className="p-4 md:p-6 flex items-center justify-center min-h-[400px]">
-        <div className="text-[var(--brand-muted)]">Loading pricing configuration...</div>
+        <PageState kind="loading" className="text-[var(--brand-muted)]">Loading pricing configuration...</PageState>
       </div>
     )
   }

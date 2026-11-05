@@ -1,3 +1,5 @@
+import PrinterNumber from '../../components/ui/PrinterNumber'
+import PageState from '../../components/ui/PageState'
 import { displayName } from '../../utils/displayName'
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
@@ -75,9 +77,9 @@ export default function Overlay() {
 
   if (!data) {
     return (
-      <div className={`h-screen flex items-center justify-center ${bg}`}>
+      <PageState kind="loading" className={`h-screen flex items-center justify-center ${bg}`}>
         <p className={mutedText}>Loading...</p>
-      </div>
+      </PageState>
     )
   }
 
@@ -144,9 +146,9 @@ export default function Overlay() {
 
             {/* Layer info */}
             {data.total_layers != null && data.total_layers > 0 && (
-              <p className={`text-xs mt-2 ${mutedText}`}>
+              <PrinterNumber as="p" className={`text-xs mt-2 ${mutedText}`}>
                 Layer {data.current_layer ?? 0} / {data.total_layers}
-              </p>
+              </PrinterNumber>
             )}
           </div>
         )}

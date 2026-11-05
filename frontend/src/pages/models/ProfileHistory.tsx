@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { profilesApi } from '../../api'
@@ -40,9 +41,9 @@ export default function ProfileHistory({profile,canEdit,onClose}:Props) {
   return <>
     <Modal isOpen onClose={()=>{if(!busy)onClose()}} title={`History: ${profile.name}`} size="xl" mobileSheet={false}>
       <p className="text-sm text-[var(--brand-muted)] mb-4">Saved content versions. Restoring creates a new revision and does not send printer commands.</p>
-      {current.isPending||history.isPending ? <p role="status">Loading profile history...</p> : current.isError||history.isError ? <div role="alert">
+      {current.isPending||history.isPending ? <p role="status">Loading profile history...</p> : current.isError||history.isError ? <PageState kind="error" role="alert">
         <p>Unable to load profile history</p><button className={button} onClick={()=>{current.refetch();history.refetch()}}>Retry history</button>
-      </div> : <>
+      </PageState> : <>
         <label className="block text-sm mb-2" htmlFor="profile-history-content">Current profile content</label>
         <textarea id="profile-history-content" value={draft??''} readOnly={!canEdit} disabled={busy} onChange={event=>{setDraft(event.target.value);setMessage('')}} rows={8} className="w-full min-w-0 rounded-md bg-[var(--brand-input-bg)] p-3 text-sm font-mono border border-[var(--brand-card-border)]" />
         {canEdit&&<div className="mt-3">
@@ -65,7 +66,7 @@ export default function ProfileHistory({profile,canEdit,onClose}:Props) {
         </ol>}
         {compare!==null&&<section className="mt-4" aria-label="Revision comparison">
           <h3 className="font-medium">Revision {compare} compared with {latest}</h3>
-          {diff.isPending?<p role="status">Loading comparison...</p>:diff.isError?<div role="alert"><p>Unable to compare revisions</p><button className={button} onClick={()=>diff.refetch()}>Retry comparison</button></div>:<pre className="max-h-64 overflow-auto rounded-md bg-[var(--brand-input-bg)] p-3 text-xs">{diff.data?.diff||'No content differences'}</pre>}
+          {diff.isPending?<p role="status">Loading comparison...</p>:diff.isError?<PageState kind="error" role="alert"><p>Unable to compare revisions</p><button className={button} onClick={()=>diff.refetch()}>Retry comparison</button></PageState>:<pre className="max-h-64 overflow-auto rounded-md bg-[var(--brand-input-bg)] p-3 text-xs">{diff.data?.diff||'No content differences'}</pre>}
         </section>}
       </>}
     </Modal>

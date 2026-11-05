@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { useRef, type HTMLAttributes } from 'react'
 import { useDialogFocus } from './useDialogFocus'
 
@@ -11,7 +12,8 @@ interface DialogSurfaceProps extends HTMLAttributes<HTMLDivElement> {
  * mount, is trapped while mounted, and returns to the opener on unmount.
  */
 export default function DialogSurface({ onEscape, children, ...rest }: DialogSurfaceProps) {
+  const foundry = useFoundry()
   const ref = useRef<HTMLDivElement>(null)
   useDialogFocus(ref, true, onEscape)
-  return <div ref={ref} {...rest}>{children}</div>
+  return <div data-foundry-ui={foundry ? 'modal' : undefined} ref={ref} {...rest}>{children}</div>
 }
