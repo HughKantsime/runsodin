@@ -5,6 +5,7 @@ and then a binding left behind fails the next targeted upload and silently steer
 """
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -63,7 +64,71 @@ def test_deleting_a_variant_removes_its_binding_and_payload(uploaded, review_db)
     client.app.include_router(models_crud.router)
     response = TestClient(client.app, raise_server_exceptions=False).delete(f'/models/{model_id}/variants/{file_id}', headers=headers)
     assert response.status_code == 200, response.text
+    assert response.json() == {'message': 'Variant deleted', 'remaining': 0}
     assert _key(review_db, file_id) is None and not stored.exists()
+    assert review_db.execute(text('SELECT 1 FROM print_files WHERE id=:id'), {'id': file_id}).first() is None
+
+
+def _reference_variant(db, file_id, reference):
+    job_id = db.execute(text("INSERT INTO jobs(item_name,status,print_file_id,quantity,priority) "
+                             "VALUES('Held variant','pending',:file,1,1) RETURNING id"),
+                        {'file': file_id if reference == 'jobs.print_file_id' else None}).scalar_one()
+    if reference == 'print_files.job_id':
+        db.execute(text('UPDATE print_files SET job_id=:job WHERE id=:file'), {'job': job_id, 'file': file_id})
+    db.commit()
+    return job_id
+
+
+@pytest.mark.parametrize('reference', ['jobs.print_file_id', 'print_files.job_id'])
+@pytest.mark.parametrize('at_delete', [False, True], ids=['existing', 'racing'])
+def test_referenced_variant_delete_preserves_everything(uploaded, review_db, monkeypatch, reference, at_delete):
+    from modules.models_library import file_management
+    from modules.models_library.routes import models_crud
+    client, headers, _, file_id, stored, model_id = uploaded
+    client.app.include_router(models_crud.router)
+    payload = stored.read_bytes()
+    snapshots = {}
+
+    def reference_and_capture(db):
+        job_id = _reference_variant(db, file_id, reference)
+        snapshots['job'] = dict(db.execute(text('SELECT * FROM jobs WHERE id=:id'), {'id': job_id}).one()._mapping)
+        snapshots['file'] = dict(db.execute(text('SELECT * FROM print_files WHERE id=:id'), {'id': file_id}).one()._mapping)
+
+    if at_delete:
+        execute = Session.execute
+
+        def reference_before_delete(db, statement, *args, **kwargs):
+            if str(statement).startswith('DELETE FROM print_files') and not snapshots:
+                # Commit the competing reference after the pre-check, before the real guarded SQL.
+                reference_and_capture(db)
+            return execute(db, statement, *args, **kwargs)
+
+        monkeypatch.setattr(Session, 'execute', reference_before_delete)
+    else:
+        reference_and_capture(review_db)
+        review_db.commit()
+
+    discard = Mock(wraps=file_management.discard_deleted_payload)
+    monkeypatch.setattr(file_management, 'discard_deleted_payload', discard)
+    rollback = Session.rollback
+    rolled_back = []
+
+    def record_rollback(db):
+        rolled_back.append(db)
+        return rollback(db)
+
+    monkeypatch.setattr(Session, 'rollback', record_rollback)
+    response = client.delete(f'/models/{model_id}/variants/{file_id}', headers=headers)
+    assert response.status_code == 409, response.text
+    expected = ('Print file changed or is referenced; refresh before deleting' if at_delete
+                else 'Print file is referenced by a job')
+    assert response.json() == {'detail': expected}
+    assert rolled_back, 'a refused variant delete must roll back'
+    discard.assert_not_called()
+    assert stored.read_bytes() == payload
+    assert _key(review_db, file_id) is not None
+    assert dict(review_db.execute(text('SELECT * FROM print_files WHERE id=:id'), {'id': file_id}).one()._mapping) == snapshots['file']
+    assert dict(review_db.execute(text('SELECT * FROM jobs WHERE id=:id'), {'id': snapshots['job']['id']}).one()._mapping) == snapshots['job']
 
 
 def test_a_refused_delete_keeps_everything(uploaded, review_db):

@@ -568,8 +568,15 @@ def delete_model_variant(model_id: int, variant_id: int, current_user: dict = De
     if is_education_owned_file(db, variant_id, v.stored_path):
         raise HTTPException(status_code=404, detail="Variant not found")
 
-    if not delete_generic_file_if_unchanged(db, v, parent_org_id=model.org_id):
+    from modules.models_library.file_management import file_has_job_references
+    if file_has_job_references(db, variant_id):
         db.rollback()
+        raise HTTPException(409, 'Print file is referenced by a job')
+    if not delete_generic_file_if_unchanged(db, v, parent_org_id=model.org_id, require_unreferenced=True):
+        referenced = file_has_job_references(db, variant_id)
+        db.rollback()
+        if referenced:
+            raise HTTPException(409, 'Print file changed or is referenced; refresh before deleting')
         raise HTTPException(status_code=404, detail="Variant not found")
     db.commit()
     from modules.models_library.file_management import discard_deleted_payload

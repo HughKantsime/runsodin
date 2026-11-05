@@ -144,12 +144,19 @@ def discard_deleted_payload(db, file_id, stored_path):
         log.warning('Payload of deleted print file %s was left on disk (%s)', file_id, type(exc).__name__)
 
 
+def file_has_job_references(db, file_id):
+    return bool(db.execute(text(
+        'SELECT 1 FROM print_files WHERE id=:id AND '
+        '(job_id IS NOT NULL OR EXISTS (SELECT 1 FROM jobs WHERE print_file_id=:id))'
+    ), {'id': file_id}).first())
+
+
 def delete_generic_file(db, file_id, actor):
     try:
         row = accessible_preview_file(db, file_id, actor)
         _assert_generic_payload(db, row)
         parent = _generic_parent(db, row, actor)
-        if row.job_id is not None or db.execute(text('SELECT 1 FROM jobs WHERE print_file_id=:id LIMIT 1'), {'id': file_id}).first():
+        if file_has_job_references(db, file_id):
             raise HTTPException(409, 'Print file is referenced by a job')
         if not delete_generic_file_if_unchanged(db, row, parent_org_id=parent.org_id if parent else None, require_unreferenced=True):
             _rollback_file_transaction(db, file_id)
