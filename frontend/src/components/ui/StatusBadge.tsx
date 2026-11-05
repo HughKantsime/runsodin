@@ -1,4 +1,6 @@
 import clsx from 'clsx'
+import type { ReactNode } from 'react'
+import { useFoundry } from '../../hooks/themePreferences'
 
 interface StatusStyle {
   dot: string
@@ -8,6 +10,9 @@ interface StatusStyle {
 
 interface StatusBadgeProps {
   status: string
+  /** Preserve the exact pre-Foundry printer presentation in Classic. */
+  classic?: ReactNode
+  testId?: string
   size?: 'sm' | 'md'
   variant?: 'inline' | 'badge'
 }
@@ -34,7 +39,36 @@ function normalizeStatus(status: string): string {
   return (status || 'pending').toLowerCase().replace(/[-_\s]/g, '')
 }
 
-export default function StatusBadge({ status, size = 'sm', variant = 'inline' }: StatusBadgeProps) {
+const foundryStates: Record<string, [string, string]> = {
+  printing: ['printing', 'Printing'], running: ['printing', 'Printing'], preparing: ['printing', 'Printing'],
+  ready: ['ready', 'Ready'], idle: ['ready', 'Ready'], online: ['ready', 'Ready'],
+  completed: ['ready', 'Ready'], complete: ['ready', 'Ready'], finish: ['ready', 'Ready'], done: ['ready', 'Ready'], approved: ['ready', 'Ready'],
+  needsyou: ['needsYou', 'Needs you'], paused: ['needsYou', 'Needs you'], pause: ['needsYou', 'Needs you'],
+  failed: ['needsYou', 'Needs you'], failedprint: ['needsYou', 'Needs you'], error: ['needsYou', 'Needs you'], rejected: ['needsYou', 'Needs you'],
+  attention: ['needsYou', 'Needs you'],
+  offline: ['neutral', 'Offline'], unknown: ['neutral', 'Unknown'],
+  cancelled: ['neutral', 'Cancelled'], canceled: ['neutral', 'Cancelled'],
+  queued: ['queued', 'Queued'], scheduled: ['queued', 'Queued'], pending: ['queued', 'Queued'],
+  waitingonyou: ['waitingOnYou', 'Waiting on you'], waiting: ['waitingOnYou', 'Waiting on you'],
+  awaitingapproval: ['waitingOnYou', 'Waiting on you'], awaitingclearance: ['waitingOnYou', 'Waiting on you'],
+}
+
+/** Connectivity is authoritative; never show an offline printer as ready/printing. */
+export function printerBadgeStatus(printer: { gcode_state?: string | null; hms_errors?: unknown[] }, online: boolean) {
+  if (!online) return 'offline'
+  if (printer.hms_errors?.length) return 'error'
+  return printer.gcode_state || 'unknown'
+}
+
+export default function StatusBadge({ status, size = 'sm', variant = 'inline', classic, testId }: StatusBadgeProps) {
+  const foundry = useFoundry()
+  if (foundry) {
+    const key = normalizeStatus(status || 'unknown')
+    const [category, label] = foundryStates[key] || ['neutral', status.trim() || 'Unknown']
+    return <span className="foundry-status" data-status={category} data-testid={testId}>{label}</span>
+  }
+  if (classic !== undefined) return <>{classic}</>
+
   const key = normalizeStatus(status)
   const style = statusStyles[key] || defaultStyle
   const label = (status || 'pending').replace(/[-_]/g, ' ')

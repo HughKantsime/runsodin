@@ -1,3 +1,4 @@
+import { readPreference, MODE_KEY } from './themePreferences'
 import { fetchAPI } from '../api/client'
 
 /**
@@ -43,6 +44,8 @@ export function applyUserAccent(theme: ServerTheme | null) {
 
 function applyMode(mode: unknown) {
   if (mode !== 'light' && mode !== 'dark') return
+  // High-contrast is local-only in phase 1; a delayed account response must not erase it.
+  if (readPreference(MODE_KEY) === 'high-contrast') return
   try { localStorage.setItem(STORAGE_KEY, mode) } catch { /* storage unavailable */ }
   window.dispatchEvent(new CustomEvent<ThemeMode>(THEME_EVENT, { detail: mode }))
 }

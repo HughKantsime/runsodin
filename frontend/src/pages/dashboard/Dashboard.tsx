@@ -1,3 +1,4 @@
+import StatusBadge, { printerBadgeStatus } from '../../components/ui/StatusBadge'
 import { displayName } from '../../utils/displayName'
 import { useTranslation } from '../../contexts/I18nContext'
 import useCameraList from '../../hooks/useCameraList'
@@ -54,17 +55,19 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
 
   return (
     <div
-      className={clsx("bg-[var(--brand-card-bg)] rounded-md border overflow-hidden h-fit cursor-pointer hover:border-[var(--brand-card-border)] transition-colors", hasLowSpool ? "border-amber-600/50" : "border-[var(--brand-card-border)]")}
+      className={clsx("dashboard-printer-card bg-[var(--brand-card-bg)] rounded-md border overflow-hidden h-fit cursor-pointer hover:border-[var(--brand-card-border)] transition-colors", hasLowSpool ? "border-amber-600/50" : "border-[var(--brand-card-border)]")}
       onClick={onClick}
     >
       <div className="p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="flex items-center gap-1.5 text-[10px] md:text-xs font-medium">
+            <StatusBadge status={printerBadgeStatus(printer, online)} classic={
+              <span className="flex items-center gap-1.5 text-[10px] md:text-xs font-medium">
               <span className={clsx('w-1.5 h-1.5 rounded-full', statusColor)} />
               <span className={hasError ? 'text-[var(--status-failed)]' : isPrinting ? 'text-[var(--status-completed)]' : online ? 'text-yellow-400' : 'text-[var(--brand-text-muted)]'}>{statusLabel}</span>
             </span>
+            } />
             {hasCamera && (
               <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors" aria-label="View camera">
                 <Video size={14} className="text-[var(--brand-text-secondary)]" />
@@ -81,7 +84,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
               </div>
             </div>
             <PrintProgress percent={activeJob.progress_percent} remainingMinutes={activeJob.remaining_minutes} />
-            <div className="flex justify-between text-xs text-[var(--brand-text-muted)]">
+            <div className="printer-number flex justify-between text-xs text-[var(--brand-text-muted)]">
               <span>
                 {activeJob.current_layer && activeJob.total_layers 
                   ? `Layer ${activeJob.current_layer}/${activeJob.total_layers}`
@@ -113,10 +116,6 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-content-bg)] border-t border-[var(--brand-card-border)]">
         <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`}></div>
-            <span className={online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}>{statusLabel}</span>
-          </div>
           {printer.lights_on != null && (
             <button
               onClick={(e) => {
@@ -132,7 +131,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
             </button>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[var(--brand-text-secondary)]">
+        <div className="printer-number flex items-center gap-3 text-[var(--brand-text-secondary)]">
           {nozTemp != null && (
             <span className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
               Nozzle {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}

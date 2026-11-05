@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PrinterCard } from './Dashboard'
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); vi.useRealTimers() })
 const printer = { id: 199, name: 'Synthetic dashboard printer', last_seen: '2026-10-11T11:59:59Z', gcode_state: 'RUNNING', filament_slots: [] }
 const props = { hasCamera: false, onCameraClick: vi.fn(), onClick: vi.fn() }
 it('labels unknown active-job progress instead of inventing measured zero', () => {
@@ -25,4 +25,18 @@ it('shows the human print name instead of the stored transport filename', () => 
  render(<PrinterCard printer={printer} activeJob={{ display_name: 'Squirtle', job_name: 'odin-dispatch-deadbeef', progress_percent: 10, remaining_minutes: 5 }} {...props} />)
  expect(screen.getByText('Squirtle')).toBeInTheDocument()
  expect(screen.queryByText(/odin-dispatch/)).not.toBeInTheDocument()
+})
+
+it.each([['RUNNING', 'Printing'], ['PAUSE', 'Needs you'], ['IDLE', 'Ready'], ['OFFLINE', 'Offline']])('uses the shared Foundry badge for %s once on the dashboard card', (state, label) => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ render(<PrinterCard printer={{ ...printer, gcode_state: state }} {...props} />)
+ expect(screen.getAllByText(label)).toHaveLength(1)
+ for (const badge of screen.getAllByText(label)) expect(badge).toHaveClass('foundry-status')
+})
+
+it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('shows Classic status %s only once while preserving its styling', (state, label) => {
+ render(<PrinterCard printer={{ ...printer, gcode_state: state }} {...props} />)
+ expect(screen.getAllByText(label)).toHaveLength(1)
+ expect(screen.getByText(label).parentElement).toHaveClass('font-medium')
+ expect(document.querySelector('.foundry-status')).toBeNull()
 })

@@ -1,0 +1,51 @@
+/* Foundry-only token application. Classic rules and branding remain untouched. */
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
+  color-scheme: dark;
+
+  body { font-size: var(--foundry-typography-body); color: var(--brand-text-primary); }
+  h1 { font-size: var(--foundry-typography-display) !important; font-weight: var(--foundry-typography-heading-weight); }
+  h2, h3 { font-size: var(--foundry-typography-title) !important; font-weight: var(--foundry-typography-heading-weight); }
+  .font-mono, .mono, code, pre, .printer-number {
+    font-family: var(--brand-font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .text-xs, .text-sm, [class~="text-[9px]"], [class~="text-[10px]"], [class~="text-[11px]"], [class~="text-[12px]"] {
+    font-size: var(--foundry-typography-minimum);
+  }
+  .text-base { font-size: var(--foundry-typography-body); }
+  .printer-number { font-size: var(--foundry-typography-number); }
+  header h1 { font-size: var(--foundry-typography-title) !important; }
+  .rounded-md, .rounded-lg { border-radius: var(--foundry-radius-control); }
+  .rounded-xl, .rounded-2xl, [data-testid="printer-card"], .dashboard-printer-card { border-radius: var(--foundry-radius-card); }
+  button, input, select, textarea { border-radius: var(--foundry-radius-control) !important; }
+  button, select, input:not([type="checkbox"]):not([type="radio"]), [role="button"], nav a {
+    min-height: var(--foundry-spacing-touch-target);
+    min-width: var(--foundry-spacing-touch-target);
+  }
+  /* Compact sidebar; retain touch targets on narrow/coarse-pointer devices. */
+  .sidebar h1 { font-size: var(--foundry-typography-title) !important; }
+  @media (min-width: 768px) and (pointer: fine) {
+    .sidebar button, .sidebar select, .sidebar nav a {
+      min-height: var(--foundry-spacing-pointer-target);
+      min-width: var(--foundry-spacing-pointer-target);
+    }
+    .sidebar > div:first-child { padding: var(--foundry-spacing-compact); }
+    .sidebar > div:has(> select) { padding-block: var(--foundry-spacing-grid); }
+    .sidebar-nav { padding: var(--foundry-spacing-grid) var(--foundry-spacing-compact); }
+    .sidebar-nav > * { margin-block: 0; }
+    .sidebar-nav-group { padding-block: 0; }
+    .sidebar-nav-group button { margin-top: 0; }
+  }
+  [data-testid="printer-card"] > .p-3, .dashboard-printer-card > .p-3 { padding: var(--foundry-spacing-comfortable); }
+  [data-testid="printer-card"] > .p-3:first-child { flex-wrap: wrap; }
+  [data-testid="printer-card"] > .p-3:first-child > .shrink-0 { flex-wrap: wrap; }
+  .dashboard-printer-card > div:last-child > div { flex-wrap: wrap; gap: var(--foundry-spacing-grid); }
+  .table-industrial td { padding-block: var(--foundry-spacing-compact); }
+  .foundry-status {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--foundry-spacing-grid) calc(var(--foundry-spacing-grid) * 2);
+    border-radius: var(--foundry-radius-chip);
+    font: 500 var(--foundry-typography-minimum)/1.5 var(--brand-font-body);
+  }
+}
