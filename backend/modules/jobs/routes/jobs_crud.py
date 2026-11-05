@@ -41,7 +41,6 @@ logger = log
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
-
 from modules.jobs.queue_creation import _stage_prospective_queue_job, _stage_prospective_queue_values, _stage_queue_entries, _deliver_queue_entries, JobBatchRequest, JobReorderRequest
 
 from modules.jobs.pinning import _pin_checked_changes, _target_columns, _target_printer_id  # noqa: E402,F401  (validated pin helpers)

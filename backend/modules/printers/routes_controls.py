@@ -21,6 +21,7 @@ from core.responses import build_next_actions, next_action
 import core.crypto as crypto
 from modules.printers.models import Printer
 from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
+from modules.printers.resume_guard import may_suggest_pause, resume_refusal
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -162,7 +163,8 @@ async def resume_printer(
     Agent-surface (v1.9.0 Phase 2):
       - Accepts JWT operator role OR an `agent:write` or `write:printers` scoped token.
       - Honors `X-Dry-Run: true` — returns preview without MQTT or DB write.
-      - Emits `next_actions` on success (get_printer, pause_printer).
+      - Requires human review for non-interactive resumes over faults/detections.
+      - Emits `next_actions` on success (pause only when its scope permits).
     """
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not check_org_access(current_user, printer.org_id):
@@ -170,6 +172,19 @@ async def resume_printer(
             ErrorCode.printer_not_found,
             f"Printer {printer_id} not found",
             status=404,
+        )
+
+    from core.audit import log_audit
+    refusal = resume_refusal(db, printer, current_user)
+    if refusal:
+        if not is_dry_run(request):
+            log_audit(db, "printer.resume_refused", "printer", printer_id,
+                      {"actor_token_id": current_user.get("_token_id"), "reason": refusal.value})
+            db.commit()
+        raise OdinError(
+            refusal,
+            "A person must review the printer and resume it from the ODIN web app.",
+            status=409,
         )
 
     if is_dry_run(request):
@@ -181,7 +196,7 @@ async def resume_printer(
                 "current_gcode_state": printer.gcode_state,
                 "target_gcode_state": "RUNNING",
             },
-            next_actions=[
+            next_actions=build_next_actions(
                 next_action(
                     "get_printer",
                     {"printer_id": printer_id},
@@ -191,12 +206,11 @@ async def resume_printer(
                     "pause_printer",
                     {"printer_id": printer_id},
                     "if mid-print intervention needed",
-                ),
-            ],
+                ) if may_suggest_pause(current_user) else None,
+            ),
             notes="Would send MQTT resume_print command; no DB or printer side effects.",
         )
 
-    from core.audit import log_audit
     # The audit row's actor columns name the user; only the token id is extra.
     audit_details = {"actor_token_id": current_user.get("_token_id")}
     if not _send_printer_command(printer, "resume_print"):
@@ -231,7 +245,7 @@ async def resume_printer(
                 "pause_printer",
                 {"printer_id": printer_id},
                 "if intervention needed",
-            ),
+            ) if may_suggest_pause(current_user) else None,
         ),
     }
 

@@ -2,9 +2,13 @@
 
 Updated - see CHANGELOG for current version.
 
-## Prepared: Bambu official code bundles
+## In 2.0.44: Bambu official code bundles
 
-- Offline per-model decoding, maintenance notice severity, current/history display and state-driven job outcomes. Real list fetch and Claude review are required before release.
+- Offline per-model decoding from Bambu's bundled lists, maintenance notice severity, current faults kept apart from history, and state-driven job outcomes.
+
+## In 2.0.44: Resume fault guard
+
+- Non-interactive resumes over current fatal or serious HMS faults or open Vigil auto-pauses are refused and audited. Interactive controls remain available.
 
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
