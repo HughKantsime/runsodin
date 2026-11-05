@@ -48,7 +48,7 @@ def test_normalized_models_have_auto_camera(model):
 @pytest.mark.parametrize("changes", [
     {"api_key": None}, {"api_key": "SYNTHETIC|"}, {"api_key": "|test-code"},
     {"api_key": "bad"}, {"api_key": "SYNTHETIC|" + "x" * 33}, {"api_host": None},
-    {"model": "P2S"}, {"model": "H2S"}, {"model": "unknown"}, {"api_type": "moonraker"},
+    {"model": "H2C"}, {"model": "H2S"}, {"model": "unknown"}, {"api_type": "moonraker"},
 ])
 def test_missing_credentials_and_unlisted_models_are_not_auto(changes):
     from modules.vision.camera_source import camera_source
@@ -120,7 +120,7 @@ def test_camera_list_and_relay_recheck_current_configuration(camera_db, monkeypa
     assert 9 in camera_ids()
     assert camera_relay._stored_chamber_camera(9) == chamber.ChamberSource("192.0.2.7", "test-code")
     for field, value in (("camera_enabled", 0), ("is_active", 0), ("api_key", None),
-                         ("model", "P2S"), ("camera_url", "rtsps://192.0.2.8:7441/unifi-camera")):
+                         ("model", "H2S"), ("camera_url", "rtsps://192.0.2.8:7441/unifi-camera")):
         previous = camera_db.execute(text(f"SELECT {field} FROM printers WHERE id=9")).scalar_one()
         camera_db.execute(text(f"UPDATE printers SET {field}=:value WHERE id=9"), {"value": value})
         camera_db.commit()

@@ -6,6 +6,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- P2S cameras receive the automatic RTSPS URL verified on hardware; H2S, H2C and H2D Pro remain excluded.
+
 - Native MJPEG cameras use the existing MJPEG viewer immediately, without H.264 conversion or WebRTC retries. RTSP cameras retain WebRTC and its fallback.
 
 ## [2.0.41] - 2026-11-04

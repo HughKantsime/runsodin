@@ -65,9 +65,9 @@ def _validate_camera_url(url: str) -> str:
 
 # Bambu models with an RTSPS camera stream at :322/streaming/live/1 (auto
 # camera URL). Bambu Studio's machine profiles carry no camera data, so a model
-# is listed only with another real source; P2S, H2S, H2C and H2D Pro are NOT
-# listed until verified on hardware (fixes.json records the claim text).
-BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'})
+# is listed only with another real source. P2S was verified on hardware on
+# 2026-11-02; H2S, H2C and H2D Pro remain unverified and are not listed.
+BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D', 'P2S'})
 
 
 # ====================================================================
