@@ -142,7 +142,10 @@ checker and capacity helper closure, versioned receipt schema/validator, instanc
 helper, tests and documentation must land together. Workflows fetch helpers from
 `github.workflow_sha` on main, so the release which merges this change still uses
 the old flow. Use v4 for the **following** release. The updated external
-`tools/github-release.sh` reads both old and new receipts. v4 checks that main's
+`tools/github-release.sh` reads both old and new receipts. Schema 1 still requires
+live production health at the release version; schema 2 requires anonymous public
+`latest` to match the receipt digest. These guards run before tagging and again
+immediately before publishing the GitHub Release. v4 checks that main's
 promotion workflow uses the checker before proceeding.
 
 **First v4 release only:** pass the explicit flag:
@@ -154,22 +157,26 @@ promotion workflow uses the checker before proceeding.
 After immutable publication, before customer eligibility/promotion, this flag
 waits for a safe fleet window and opens the existing owned freeze. It writes
 `/opt/odin/runsodin/docker-compose.override.yml` as a JSON-compatible YAML
-Compose override containing only `services.odin.labels` with
+Compose override containing `services.odin.image` pinned to the current image's
+RepoDigest and `services.odin.labels` with
 `com.centurylinklabs.watchtower.enable: "false"`. An existing unknown override
 fails closed and requires operator reconciliation; it is never overwritten.
 The override is automatically used by ordinary `docker compose` in this directory.
-The chain recreates **the currently running local image ID**, with `--pull never`
+The chain recreates **the currently running image by its RepoDigest**, with `--pull never`
 and `--no-deps`, verifies that image ID and the effective/running label, waits for
 its original version and readiness, then closes the window. It does not change
 Watchtower or other services. Later v4 runs omit the flag and check the effective
 Compose and running label before moving `latest`. Thus first-use migration can
-wait on the fleet; subsequent customer releases do not. Host reachability for
-the Watchtower safety check is still required before promotion.
+wait on the fleet; subsequent customer releases do not. An unreachable host
+produces a warning before promotion; a reachable host with Watchtower enabled
+blocks it. Complete the one-time migration before using this flow.
 
 The checker runs on `[self-hosted, mac-mini-runner, m4]`, using Colima and isolated
 registry credentials. It uses `--pull=always` with the exact published index,
 explicit `--platform linux/amd64` (Rosetta) followed by `--platform linux/arm64`,
-and verifies OS/architecture from each running container's immutable image ID.
+and verifies architecture with `uname -m` inside each running container
+(`x86_64` / `aarch64`). On the containerd store, container `Image` must equal
+the published index digest; image inspect alone cannot identify the running variant.
 Each gets its own container and fresh `/data` volume, named
 `${CHECKER_NAME}-linux-amd64[-data]` or `${CHECKER_NAME}-linux-arm64[-data]`,
 no seeded administrator/printers, and a Docker-assigned
@@ -178,26 +185,35 @@ loopback port. `/health` must report `status=ok` and the requested version;
 for the checker. Smoke checks `/api/version`, the `/login` and `/setup` SPA shells,
 and `/api/setup/status` requiring setup, no users, and incomplete setup. These are
 HTTP smoke checks, not a browser sign-in journey or hardware certification.
+After the first successful smoke, it waits 45 seconds, requires a running container,
+zero restarts, healthy Docker health if defined, and all `supervisorctl status`
+processes RUNNING, then repeats the smoke.
 Python cleanup, a shell EXIT trap and an `always()` workflow step remove the
-containers/volumes; each platform is cleaned before the next starts, and cleanup
+containers/volumes and the exact pulled `IMAGE@DIGEST` reference; each platform is
+cleaned before the next starts, and cleanup
 failure prevents `latest` from moving. Schema 2 receipts require both platform
 results under `checker_health.platforms`. A runner power
 loss may leave run-named resources for operator cleanup. Capacity retains the
 existing pinned probe; never run `docker image prune -a`.
 
 After the customer release, v4 reuses `idle_fleet`, including ending-print,
-dispatch, telemetry-progress and Vigil checks. It opens the marker and owned
-freeze, runs `docker compose ... pull odin` with a temporary exact-digest override,
+dispatch, telemetry-progress and Vigil checks. It first runs
+`docker compose ... pull odin` with a temporary exact-digest override, then waits
+up to 24 hours for a safe fleet window. On expiry it reports `INSTANCE_UPDATE=deferred`,
+releases its lock, and prints the `--update-instance-only` retry command.
+It opens the marker and owned freeze,
 then rechecks the freeze/grace/fleet before `docker compose ... up -d --no-deps
 --pull never odin`. It verifies the container image ID/reference against the
-pulled digest and polls both health endpoints inside the container over SSH.
+pulled digest, atomically pins the v4-owned Compose override to that reference,
+and polls both health endpoints inside the container over SSH.
 This avoids public perimeter exceptions and requires strict readiness. Pull
 failure leaves the running container unchanged. Restart or health failure prints
-a retained `.odin-rollback-<token>.json` command for the prior local image ID;
+a retained `.odin-rollback-<token>.json` command for the prior image RepoDigest;
 execute it only in a safe window. Database rollback/restore compatibility must be
 assessed separately. Customer tags and GitHub Releases are never undone because
 this instance phase failed. Unresolved SSH mutations retain protection for
-manual reconciliation; ordinary completed failures close the window (a freeze
+manual reconciliation. Restart or post-apply health failures also retain the marker
+and lock and print the rollback command (a freeze
 that cannot be removed expires under the existing 30-minute cap).
 
 Retry just Shane's update, or apply a known restored digest after registry rollback:

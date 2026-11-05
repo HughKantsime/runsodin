@@ -243,6 +243,7 @@ jobs:
               docker rm -f "${CHECKER_NAME}-${platform}" >/dev/null 2>&1 || true
               docker volume rm "${CHECKER_NAME}-${platform}-data" >/dev/null 2>&1 || true
             done
+            docker image rm "$IMAGE_REPOSITORY@$INPUT_IMAGE_DIGEST" >/dev/null 2>&1 || true
           }
           trap cleanup_checker EXIT
           cd "$MUTATION_ROOT"
@@ -259,6 +260,9 @@ jobs:
             docker rm -f "${CHECKER_NAME}-${platform}" >/dev/null 2>&1 || true
             docker volume rm "${CHECKER_NAME}-${platform}-data" >/dev/null 2>&1 || true
           done
+          if docker image inspect "$IMAGE_REPOSITORY@$INPUT_IMAGE_DIGEST" >/dev/null 2>&1; then
+            docker image rm "$IMAGE_REPOSITORY@$INPUT_IMAGE_DIGEST" >/dev/null
+          fi
           for platform in linux-amd64 linux-arm64; do
             test -z "$(docker container ls -a --filter "name=^/${CHECKER_NAME}-${platform}$" --format '{{.Names}}')"
             test -z "$(docker volume ls --filter "name=^${CHECKER_NAME}-${platform}-data$" --format '{{.Name}}')"
@@ -270,6 +274,12 @@ jobs:
           set -euo pipefail
           cd "$MUTATION_ROOT"
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.promotion_eligibility --evidence-dir "$EVIDENCE_DIR" --promotion-request "$PROMOTION_DIR/request.json" --validation-run-observation "$PROMOTION_DIR/validation-observation.json" --promotion-context "$PROMOTION_DIR/promotion-context.json" >/dev/null
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P <<'PY'
+          import json, os
+          from ops.release_control.checker import validate_evidence
+          validate_evidence(json.load(open(os.environ["MUTATION_ROOT"] + "/checker.json")),
+                            os.environ["INPUT_IMAGE_DIGEST"], os.environ["INPUT_VERSION"])
+          PY
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; export started_at
           python3.11 -P <<'PY'
           import json, os, platform, subprocess

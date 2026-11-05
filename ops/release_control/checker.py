@@ -110,7 +110,7 @@ def check_platform(digest, version, name, platform, *, call, get, clock, sleep, 
         call("run", "--detach", "--pull=always", "--platform", platform, "--name", name,
              "--publish", "127.0.0.1::8000", "--mount", f"type=volume,source={volume},target=/data", reference)
         info = json.loads(call("inspect", name))[0]
-        if info["Config"]["Image"] != reference or not re.fullmatch(r"sha256:[0-9a-f]{64}", info["Image"]):
+        if info["Config"]["Image"] != reference or info["Image"] != digest:
             raise CheckerError("booted image mismatch")
         if info.get("State", {}).get("Running") is not True:
             raise CheckerError("checker container is not running")
@@ -132,15 +132,43 @@ def check_platform(digest, version, name, platform, *, call, get, clock, sleep, 
                 if clock() >= deadline:
                     raise CheckerError("checker health/readiness/smoke timed out") from None
                 sleep(5)
-        evidence.update({"digest": digest, "image_id": info["Image"]})
+        # Startup success alone can hide a supervisor crash/restart loop.
+        sleep(45)
+        stable = json.loads(call("inspect", name))[0]
+        state = stable.get("State", {})
+        if (stable.get("Image") != digest or stable.get("Config", {}).get("Image") != reference
+                or state.get("Running") is not True or stable.get("RestartCount") != 0
+                or ("Health" in state and state["Health"].get("Status") != "healthy")):
+            raise CheckerError("checker failed stability observation")
+        processes = call("exec", name, "supervisorctl", "status").splitlines()
+        if not processes or any(len(row.split()) < 2 or row.split()[1] != "RUNNING" for row in processes):
+            raise CheckerError("checker supervisor processes are not all RUNNING")
+        evidence = smoke(base, version, get=get)
+        evidence.update({"digest": digest, "image_id": stable["Image"]})
     finally:
         # Also backed by the workflow's EXIT trap and always() cleanup on cancellation.
         # Cleanup failure must prevent promotion, not silently leak a fresh instance.
         try:
             call("rm", "--force", name)
         finally:
-            call("volume", "rm", volume)
+            try:
+                call("volume", "rm", volume)
+            finally:
+                call("image", "rm", reference)
     return evidence
+
+
+def validate_evidence(evidence, digest, version):
+    def valid(result):
+        return (isinstance(result, dict) and result.get("digest") == digest
+                and result.get("image_id") == digest and result.get("version") == version
+                and result.get("status") == "ok" and result.get("ready") is True
+                and result.get("smoke") == {"login": True, "api_version": True, "fresh_setup": True})
+    platforms = evidence.get("platforms", {})
+    if (not valid(evidence) or not isinstance(evidence.get("runner"), str)
+            or not evidence["runner"].strip() or set(platforms) != set(PLATFORMS)
+            or not all(valid(result) for result in platforms.values())):
+        raise CheckerError("invalid checker evidence for requested digest/version/platforms")
 
 
 def main():

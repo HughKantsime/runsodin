@@ -56,11 +56,13 @@ class Docker:
             self.platform = args[args.index('--platform') + 1]
         if args[0] == 'inspect':
             return json.dumps([{'Config': {'Image': checker.IMAGE + '@' + DIGEST},
-                                'Image': IMAGE_IDS[self.platform], 'State': {'Running': True},
+                                'Image': IMAGE_IDS[self.platform], 'RestartCount': 0, 'State': {'Running': True, 'Health': {'Status': 'healthy'}},
                                 'NetworkSettings': {'Ports': {'8000/tcp': [{'HostIp': '127.0.0.1', 'HostPort': '43210'}]}}}])
         if args[0] == 'exec':
             # The running container is the only reliable witness of the variant:
             # with the containerd store, .Image is the index for every platform.
+            if args[2:] == ('supervisorctl', 'status'):
+                return 'api RUNNING pid 10, uptime 0:01:00\nmonitor RUNNING pid 11, uptime 0:01:00'
             assert args[2:] == ('uname', '-m')
             return self.machine or checker.MACHINE[self.platform]
         return ''
@@ -69,7 +71,7 @@ class Docker:
 def run(docker, **kwargs):
     return checker.run_checker(DIGEST, VERSION, NAME, 'mac-mini', call=docker,
                                get=kwargs.pop('get', response), check_capacity=lambda: None,
-                               timeout=0, **kwargs)
+                               timeout=kwargs.pop('timeout', 0), sleep=kwargs.pop('sleep', lambda _: None), **kwargs)
 
 
 def test_checker_exact_digest_fresh_volume_loopback_and_cleanup():
@@ -98,7 +100,7 @@ def test_checker_exact_digest_fresh_volume_loopback_and_cleanup():
             'image_id': IMAGE_IDS[platform],
             'smoke': {'login': True, 'api_version': True, 'fresh_setup': True}}
     assert docker.commands.index(('volume', 'rm', PLATFORM_NAMES[0] + '-data')) < docker.commands.index(('volume', 'create', PLATFORM_NAMES[1] + '-data'))
-    assert requests == [(platform, path) for platform in PLATFORMS for path in
+    assert requests == [(platform, path) for platform in PLATFORMS for _ in range(2) for path in
                         ('/health', '/health/ready', '/api/version', '/api/setup/status', '/login', '/setup')]
     assert evidence['digest'] == DIGEST and evidence['runner'] == 'mac-mini'
     assert evidence['ready'] is True
@@ -111,7 +113,7 @@ def test_checker_cleans_on_docker_failure_and_refuses_cleanup_failure(failure):
     docker = Docker(failure)
     with pytest.raises(checker.CheckerError):
         run(docker)
-    assert docker.commands[-1] == ('volume', 'rm', PLATFORM_NAMES[0] + '-data')
+    assert docker.commands[-2:] == [('volume', 'rm', PLATFORM_NAMES[0] + '-data'), ('image', 'rm', checker.IMAGE + '@' + DIGEST)]
 
 
 @pytest.mark.parametrize('platform', PLATFORMS)
@@ -132,7 +134,7 @@ def test_checker_verifies_actual_running_image_platform(platform, wrong):
     with pytest.raises(checker.CheckerError, match='platform mismatch|not running'):
         run(call)
     name = NAME + '-' + platform.replace('/', '-')
-    assert docker.commands[-2:] == [('rm', '--force', name), ('volume', 'rm', name + '-data')]
+    assert docker.commands[-3:] == [('rm', '--force', name), ('volume', 'rm', name + '-data'), ('image', 'rm', checker.IMAGE + '@' + DIGEST)]
 
 
 @pytest.mark.parametrize('platform', PLATFORMS)
@@ -169,7 +171,7 @@ def test_checker_platform_failures_block_success_and_attempt_cleanup(platform, f
         return response(url)
     with pytest.raises(checker.CheckerError):
         run(call, get=get)
-    assert docker.commands[-2:] == [('rm', '--force', name), ('volume', 'rm', name + '-data')]
+    assert docker.commands[-3:] == [('rm', '--force', name), ('volume', 'rm', name + '-data'), ('image', 'rm', checker.IMAGE + '@' + DIGEST)]
     if platform == PLATFORMS[0]:
         assert ('volume', 'create', PLATFORM_NAMES[1] + '-data') not in docker.commands
 
@@ -191,7 +193,7 @@ def test_checker_rejects_wrong_health_api_setup_and_pages(path, body):
     docker = Docker()
     with pytest.raises(checker.CheckerError, match='timed out'):
         run(docker, get=get)
-    assert docker.commands[-1] == ('volume', 'rm', PLATFORM_NAMES[0] + '-data')
+    assert docker.commands[-2:] == [('volume', 'rm', PLATFORM_NAMES[0] + '-data'), ('image', 'rm', checker.IMAGE + '@' + DIGEST)]
 
 
 def test_checker_does_not_accept_perimeter_or_capacity_failure():
@@ -305,7 +307,7 @@ def test_github_release_receipt_reader_offline(schema, invalid, tmp_path):
     digest = tmp_path / 'receipt.sha256'; digest.write_text(hashlib.sha256(raw).hexdigest())
     result = subprocess.run([sys.executable, '-', str(path), str(digest), '400'], input=code, text=True, capture_output=True)
     assert (result.returncode != 0) == invalid, result.stderr
-    assert 'live_version' not in source and 'https://odin.subsystem.app/health' not in source
+    assert 'live_version' in source and 'https://odin.subsystem.app/health' in source
 
 
 def test_workflow_closure_includes_checker_and_capacity_probe_and_orders_mutation():
@@ -320,7 +322,7 @@ def test_workflow_closure_includes_checker_and_capacity_probe_and_orders_mutatio
 
 
 @pytest.mark.parametrize('step_name', ['Check exact published digest on disposable instance', 'Remove disposable checker'])
-@pytest.mark.parametrize('leftover', ['', 'linux-amd64', 'linux-arm64'])
+@pytest.mark.parametrize('leftover', ['', 'linux-amd64', 'linux-arm64', 'image'])
 def test_workflow_cleanup_removes_both_platform_resources(step_name, leftover, tmp_path):
     steps = yaml.safe_load((ROOT / '.github/workflows/promote-production.yml').read_text())['jobs']['promote']['steps']
     step = next(step for step in steps if step['name'] == step_name)
@@ -328,6 +330,7 @@ def test_workflow_cleanup_removes_both_platform_resources(step_name, leftover, t
     harness = r'''
 docker() {
   printf '%s\n' "$*" >> "$DOCKER_LOG"
+  if [[ "$1 $2" == 'image rm' && "$LEFTOVER" == image ]]; then return 19; fi
   if [[ "$1 $2" == 'container ls' && -n "$LEFTOVER" && "$*" == *"$LEFTOVER"* ]]; then
     echo leftover
   fi
@@ -337,9 +340,11 @@ python3.11() { return 19; }
     result = subprocess.run(['/bin/bash', '-c', harness + step['run']], text=True, capture_output=True,
                             env={**os.environ, 'CHECKER_NAME': NAME, 'MUTATION_ROOT': str(tmp_path),
                                  'HELPER_ROOT': str(tmp_path), 'INPUT_IMAGE_DIGEST': DIGEST,
-                                 'INPUT_VERSION': VERSION, 'RUNNER_NAME': 'mac-mini',
+                                 'INPUT_VERSION': VERSION, 'RUNNER_NAME': 'mac-mini', 'IMAGE_REPOSITORY': checker.IMAGE,
                                  'DOCKER_LOG': str(log), 'LEFTOVER': leftover})
     commands = log.read_text().splitlines()
+    assert 'image rm ' + checker.IMAGE + '@' + DIGEST in commands
+    assert not any('prune' in command for command in commands)
     for name in PLATFORM_NAMES:
         assert 'rm -f ' + name in commands
         assert 'volume rm ' + name + '-data' in commands
@@ -364,7 +369,7 @@ git(){ case "$*" in *rev-parse*) printf '%040d\n' 1;; esac; }
 python3.11(){ :; }; ci_disk(){ :; }; wait_validation(){ :; }; waitok(){ PP_COMPLETE=1; PP_CONCLUSION=success; }
 download_run(){ echo '{}' > "$2/manifest.json"; echo '{}' > "$2/receipt.json"; }
 publication_digest(){ echo sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc; }
-instance_remote(){ echo "HOST $1"; [ "$1" = check ]; }
+instance_remote(){ echo "HOST $1"; [ "$1" = watchtower ]; }
 run_production_eligibility(){ PE=200; echo ELIGIBILITY; }
 dispatch_production(){ PP=400; echo PROMOTE; }
 approve(){ echo APPROVE; }; move_main(){ MAIN_MOVED=1; }
@@ -385,7 +390,7 @@ def test_chain_host_update_rechecks_freeze_and_keeps_customer_success(failure, t
     harness = r'''
 source "$1"
 V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
-instance_window(){ echo WINDOW; }
+instance_window(){ echo WINDOW; promotion_ready; }
 instance_remote(){ echo "$1"; [ "$1" != "$FAILURE" ]; }
 promotion_ready(){ echo RECHECK_FREEZE_AND_IDLE; }
 wait_for_instance(){ echo HEALTH; [ "$FAILURE" != health ]; }
@@ -404,26 +409,43 @@ echo "OUTCOME=$CUSTOMER_RELEASE/$INSTANCE_UPDATE"
 
 
 @pytest.mark.parametrize('action', ['migrate', 'pull', 'apply'])
-def test_host_helper_changes_only_odin_and_pins_image(action, tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize('pinned', [False, True])
+def test_host_helper_changes_only_odin_and_pins_image(action, pinned, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(instance_update, 'DIRECTORY', tmp_path)
-    state = {'Config': {'Image': instance_update.IMAGE + ':latest', 'Labels': {instance_update.LABEL: 'false'}}, 'Image': OLD}
+    old_reference = instance_update.IMAGE + '@' + OLD
+    old_image_id = 'sha256:' + 'e' * 64
+    base = {'image': instance_update.IMAGE + ':latest', 'labels': {instance_update.LABEL: 'true'}}
+    running_image = old_reference if pinned else base['image']
+    state = {'Config': {'Image': running_image, 'Labels': {instance_update.LABEL: 'true' if action == 'migrate' else 'false'}}, 'Image': old_image_id}
     commands = []
+    def effective(args):
+        service = copy.deepcopy(base)
+        for i, arg in enumerate(args):
+            if arg == '-f' and args[i + 1] != 'docker-compose.yml':
+                overlay = json.loads(Path(args[i + 1]).read_text())['services']['odin']
+                service.update(overlay)
+        return service
     def command(*args):
         commands.append(args)
         if args[:2] == ('docker', 'inspect'):
             return json.dumps([state])
         if args[:3] == ('docker', 'image', 'inspect'):
-            return json.dumps([{'Id': DIGEST, 'RepoDigests': [instance_update.IMAGE + '@' + DIGEST]}])
+            image_id = old_image_id if args[-1] == old_image_id else DIGEST
+            reference = old_reference if image_id == old_image_id else instance_update.IMAGE + '@' + DIGEST
+            return json.dumps([{'Id': image_id, 'RepoDigests': [reference]}])
         if 'config' in args:
-            return json.dumps({'services': {'odin': {'labels': {instance_update.LABEL: 'false'}}}})
-        if 'up' in args and action == 'apply':
-            state['Image'] = DIGEST
-            state['Config']['Image'] = instance_update.IMAGE + '@' + DIGEST
+            return json.dumps({'services': {'odin': effective(args)}})
+        if 'up' in args:
+            service = effective(args)
+            state['Image'] = old_image_id if action == 'migrate' else DIGEST
+            state['Config'] = {'Image': service['image'], 'Labels': service['labels']}
         return ''
     monkeypatch.setattr(instance_update, 'command', command)
-    if action != 'migrate':
-        (tmp_path / 'docker-compose.override.yml').write_text(json.dumps(instance_update.OVERRIDE))
+    if action != 'migrate' or pinned:
+        overlay = copy.deepcopy(instance_update.OVERRIDE)
+        if pinned: overlay['services']['odin']['image'] = old_reference
+        (tmp_path / 'docker-compose.override.yml').write_text(json.dumps(overlay))
     instance_update.perform(action, DIGEST, 'a' * 32)
     mutations = [cmd for cmd in commands if 'up' in cmd or 'pull' in cmd]
     assert len(mutations) == 1 and mutations[0][-1] == 'odin'
@@ -434,12 +456,14 @@ def test_host_helper_changes_only_odin_and_pins_image(action, tmp_path, monkeypa
         assert '--no-deps' in mutations[0] and '--pull' in mutations[0] and 'never' in mutations[0]
         rollback = list(tmp_path.glob('.odin-rollback-*'))
         assert len(rollback) == 1
-        assert json.loads(rollback[0].read_text())['services']['odin']['image'] == OLD
+        assert json.loads(rollback[0].read_text())['services']['odin']['image'] == old_reference
         assert 'Rollback (inside a safe deploy window)' in capsys.readouterr().out
+        expected = old_reference if action == 'migrate' else instance_update.IMAGE + '@' + DIGEST
+        assert json.loads((tmp_path / 'docker-compose.override.yml').read_text())['services']['odin']['image'] == expected
+        instance_update.check()  # ordinary Compose now describes the running image
     assert not list(tmp_path.glob('.odin-release-*'))
     if action == 'migrate':
-        assert state['Image'] == OLD
-        assert json.loads((tmp_path / 'docker-compose.override.yml').read_text()) == instance_update.OVERRIDE
+        assert state['Image'] == old_image_id
 
 
 def test_host_migration_refuses_unknown_override(tmp_path, monkeypatch):
@@ -512,7 +536,7 @@ def test_checker_rejects_wrong_image_or_exposed_port(wrong):
             return json.dumps(info)
         return result
     with pytest.raises(checker.CheckerError): run(call)
-    assert docker.commands[-1] == ('volume', 'rm', PLATFORM_NAMES[0] + '-data')
+    assert docker.commands[-2:] == [('volume', 'rm', PLATFORM_NAMES[0] + '-data'), ('image', 'rm', checker.IMAGE + '@' + DIGEST)]
 
 
 def test_checker_refuses_a_container_running_the_wrong_variant():
@@ -521,3 +545,340 @@ def test_checker_refuses_a_container_running_the_wrong_variant():
     with pytest.raises(checker.CheckerError, match='platform mismatch'):
         run(docker)
     assert any(cmd[:2] == ('rm', '--force') for cmd in docker.commands)
+
+
+@pytest.mark.parametrize('failure_at', [0, 1, 2, 3])
+@pytest.mark.parametrize('schema', [1, 2])
+@pytest.mark.parametrize('failure_mode', ['network', 'mismatch'])
+def test_github_release_live_guards_before_each_write(schema, failure_at, failure_mode, tmp_path):
+    """Execute the whole helper; gh/curl are shell fakes, never real services."""
+    state = receipt(schema)
+    raw = json.dumps(state).encode()
+    (tmp_path / 'receipt.json').write_bytes(raw)
+    (tmp_path / 'receipt.sha256').write_text(hashlib.sha256(raw).hexdigest())
+    source = external('tools/github-release.sh').read_text().replace(
+        'LOCK="$HOME/.odin-github-release.lock"', 'LOCK="$FIXTURE/lock"')
+    script = tmp_path / 'github-release.sh'; script.write_text(source)
+    harness = r'''
+gh() {
+  case "$1 $2" in
+    'run list') echo 400;;
+    'run download')
+      local prev='' arg dir=''
+      for arg in "$@"; do [ "$prev" != -D ] || dir=$arg; prev=$arg; done
+      cp "$FIXTURE/receipt.json" "$FIXTURE/receipt.sha256" "$dir/";;
+    'api -H') case "$*" in *VERSION*) echo 1.9.13;; *CHANGELOG*) printf '## [1.9.13]\nFixes\n';; *) return 99;; esac;;
+    'api -X') echo TAG >> "$FIXTURE/writes"; touch "$FIXTURE/tag";;
+    'release create') echo RELEASE >> "$FIXTURE/writes"; touch "$FIXTURE/released"
+      local prev='' arg
+      for arg in "$@"; do [ "$prev" != --notes-file ] || cp "$arg" "$FIXTURE/notes"; prev=$arg; done;;
+    'release view')
+      if [ ! -e "$FIXTURE/released" ]; then echo 'release not found' >&2; return 1; fi
+      case "$*" in *isDraft*) echo 'false false';; *body*) cat "$FIXTURE/notes";; *tagName*) echo v1.9.13;; *) return 99;; esac;;
+    api*)
+      case "$*" in *git/ref/tags*)
+        if [ -e "$FIXTURE/tag" ]; then echo "commit $SHA_EXPECTED"; else echo 'HTTP 404' >&2; return 1; fi;;
+        *) return 99;; esac;;
+    *) return 99;;
+  esac
+}
+curl() {
+  case "$*" in
+    *ghcr.io/token*) echo '{"token":"anonymous-test"}';;
+    *manifests/v1.9.13*) echo "Docker-Content-Digest: $EXPECTED_DIGEST";;
+    *odin.subsystem.app/health*|*manifests/latest*)
+      if [ "$SCHEMA_TEST" = 1 ]; then [[ "$*" == *odin.subsystem.app/health* ]] || return 99
+      else [[ "$*" == *manifests/latest* ]] || return 99; fi
+      local count=0
+      [ ! -f "$FIXTURE/count" ] || count=$(cat "$FIXTURE/count")
+      count=$((count + 1)); echo "$count" > "$FIXTURE/count"
+      if [ "$count" = "$FAILURE_AT" ]; then
+        if [ "$FAILURE_MODE" = network ]; then return 22; fi
+        if [ "$SCHEMA_TEST" = 1 ]; then echo '{"status":"ok","version":"0.0.1"}'
+        else echo "Docker-Content-Digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"; fi
+        return 0
+      fi
+      if [ "$SCHEMA_TEST" = 1 ]; then echo '{"status":"ok","version":"1.9.13"}'
+      else echo "Docker-Content-Digest: $EXPECTED_DIGEST"; fi;;
+    *) return 99;;
+  esac
+}
+source "$1" 1.9.13
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(script)], text=True,
+                            capture_output=True, timeout=10, env={**os.environ,
+                            'FIXTURE': str(tmp_path), 'EXPECTED_DIGEST': DIGEST,
+                            'SHA_EXPECTED': state['candidate_sha'], 'SCHEMA_TEST': str(schema),
+                            'FAILURE_AT': str(failure_at), 'FAILURE_MODE': failure_mode})
+    assert (result.returncode == 0) == (failure_at == 0), result.stdout + result.stderr
+    writes = (tmp_path / 'writes').read_text().splitlines() if (tmp_path / 'writes').exists() else []
+    assert writes == ({0: ['TAG', 'RELEASE'], 1: [], 2: [], 3: ['TAG']}[failure_at])
+    assert int((tmp_path / 'count').read_text()) == (failure_at or 3)
+
+
+@pytest.mark.parametrize('mode', ['missing', 'bad-status', 'bad-image-id', 'wrong-version', 'wrong-digest', 'unready', 'bad-smoke', 'summary-mismatch'])
+def test_release_helper_rejects_bad_platform_evidence(mode, tmp_path):
+    source = external('tools/github-release.sh').read_text()
+    code = source.split("<<'EOF'\n", 1)[1].split('\nEOF', 1)[0]
+    state = receipt()
+    health = state['checker_health']
+    if mode == 'missing': del health['platforms']['linux/arm64']
+    elif mode == 'summary-mismatch': health['image_id'] = OLD
+    else:
+        field, value = {'bad-status': ('status', 'failed'), 'bad-image-id': ('image_id', 'bad'),
+                        'wrong-version': ('version', '0.0.1'), 'wrong-digest': ('digest', OLD),
+                        'unready': ('ready', False), 'bad-smoke': ('smoke', {})}[mode]
+        health['platforms']['linux/arm64'][field] = value
+    raw = json.dumps(state).encode()
+    path = tmp_path / 'receipt.json'; path.write_bytes(raw)
+    hash_path = tmp_path / 'receipt.sha256'; hash_path.write_text(hashlib.sha256(raw).hexdigest())
+    result = subprocess.run([sys.executable, '-', str(path), str(hash_path), '400'], input=code, text=True, capture_output=True)
+    assert result.returncode != 0 and 'health evidence' in result.stderr
+
+
+@pytest.mark.parametrize('recovers', [False, True])
+def test_checker_retry_with_nonzero_timeout_and_fake_clock(recovers):
+    now = [0]
+    sleeps = []
+    attempts = []
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+    def get(url):
+        if url.endswith('/health'):
+            attempts.append(now[0])
+            if not recovers or now[0] < 10: raise OSError('starting')
+        return response(url)
+    docker = Docker()
+    if recovers:
+        evidence = run(docker, get=get, timeout=12, clock=lambda: now[0], sleep=sleep)
+        assert evidence['ready'] is True
+        assert sleeps == [5, 5, 45, 45]
+        assert attempts[:3] == [0, 5, 10]
+    else:
+        with pytest.raises(checker.CheckerError, match='timed out'):
+            run(docker, get=get, timeout=12, clock=lambda: now[0], sleep=sleep)
+        assert attempts == [0, 5, 10, 15]
+        assert docker.commands[-1] == ('image', 'rm', checker.IMAGE + '@' + DIGEST)
+
+
+@pytest.mark.parametrize('failure', ['index', 'stopped', 'restart', 'unhealthy', 'supervisor', 'no-processes', 'second-smoke', 'image-cleanup'])
+def test_checker_stability_and_exact_cleanup_fail_closed(failure):
+    docker = Docker()
+    inspections = [0]
+    def call(*args):
+        value = docker(*args)
+        if args[0] == 'inspect':
+            inspections[0] += 1
+            info = json.loads(value)
+            if failure == 'index': info[0]['Image'] = OLD
+            if inspections[0] == 2:
+                if failure == 'stopped': info[0]['State']['Running'] = False
+                if failure == 'restart': info[0]['RestartCount'] = 1
+                if failure == 'unhealthy': info[0]['State']['Health']['Status'] = 'unhealthy'
+            value = json.dumps(info)
+        if args[0] == 'exec' and args[2:] == ('supervisorctl', 'status'):
+            if failure == 'supervisor': return 'api RUNNING\nmonitor BACKOFF'
+            if failure == 'no-processes': return ''
+        if args[:2] == ('image', 'rm') and failure == 'image-cleanup':
+            raise checker.CheckerError('image cleanup failed')
+        return value
+    def get(url):
+        if failure == 'second-smoke' and inspections[0] >= 2: raise checker.CheckerError('second smoke failed')
+        return response(url)
+    with pytest.raises(checker.CheckerError): run(call, get=get)
+    assert docker.commands[-1] == ('image', 'rm', checker.IMAGE + '@' + DIGEST)
+    assert not any('prune' in cmd for cmd in docker.commands)
+
+
+@pytest.mark.parametrize('action', ['migrate', 'pull', 'apply'])
+def test_instance_helper_timeout_exits_124_without_command_output(action, tmp_path):
+    # Run the actual CLI entry point in a subprocess, replacing only its operation.
+    code = '''import runpy, subprocess, sys
+namespace = runpy.run_module('ops.release_control.instance_update', run_name='timeout_test')
+def timeout(*args):
+    raise subprocess.TimeoutExpired('sensitive-command', 30, output='secret-output')
+namespace['main'].__globals__['perform'] = timeout
+sys.exit(namespace['main']())
+'''
+    result = subprocess.run([sys.executable, '-c', code, action, '--token', 'a' * 32], capture_output=True, text=True)
+    assert result.returncode == 124
+    assert 'secret' not in result.stderr and 'sensitive' not in result.stderr
+    assert 'retain deploy protection' in result.stderr
+
+
+def test_instance_check_rejects_compose_image_drift(monkeypatch):
+    monkeypatch.setattr(instance_update, 'compose', lambda *args: json.dumps({'services': {'odin': {
+        'image': instance_update.IMAGE + ':latest', 'labels': {instance_update.LABEL: 'false'}}}}))
+    monkeypatch.setattr(instance_update, 'inspect', lambda: {'Config': {
+        'Image': instance_update.IMAGE + '@' + DIGEST, 'Labels': {instance_update.LABEL: 'false'}}})
+    with pytest.raises(RuntimeError, match='Compose image differs'): instance_update.check()
+
+
+@pytest.mark.parametrize('code', [0, 3, 124, 255])
+def test_chain_pre_release_host_check_only_blocks_enabled_watchtower(code):
+    harness = r'''
+source "$1"
+instance_remote(){ [ "$1" = watchtower ] || return 99; return "$CODE"; }
+pre_release_host_check
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
+                            text=True, capture_output=True, env={**os.environ, 'CODE': str(code)})
+    assert (result.returncode != 0) == (code == 3)
+    if code in (124, 255): assert 'WARNING' in result.stdout
+
+
+@pytest.mark.parametrize('which', ['compose', 'runtime', 'neither'])
+def test_watchtower_probe_reads_both_labels(which, tmp_path, monkeypatch):
+    monkeypatch.setattr(instance_update, 'DIRECTORY', tmp_path)
+    monkeypatch.setattr(instance_update, 'compose', lambda *args: json.dumps({'services': {'odin': {
+        'labels': {instance_update.LABEL: str(which == 'compose').lower()}}}}))
+    monkeypatch.setattr(instance_update, 'inspect', lambda: {'Config': {
+        'Labels': {instance_update.LABEL: str(which == 'runtime').lower()}}})
+    monkeypatch.chdir(tmp_path)
+    assert instance_update.perform('watchtower', '', 'a' * 32) == (0 if which == 'neither' else 3)
+
+
+@pytest.mark.parametrize('workflow', ['legacy', 'decoupled'])
+def test_chain_refuses_old_workflow_on_main(workflow):
+    harness = r'''
+source "$1"
+gh_call(){
+  [[ "$*" == *'?ref=main'* ]] || return 99
+  if [ "$WORKFLOW" = legacy ]; then echo PUBLIC_HEALTH_URL
+  else printf 'ops.release_control.checker\nchecker_health\n'; fi
+}
+verify_decoupled_main
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
+                            text=True, capture_output=True, env={**os.environ, 'WORKFLOW': workflow})
+    assert (result.returncode == 0) == (workflow == 'decoupled')
+
+
+def test_chain_update_instance_only_never_enters_release_path(tmp_path):
+    helper = tmp_path / 'ops/release_control'; helper.mkdir(parents=True)
+    (helper / 'instance_update.py').write_text('')
+    log = tmp_path / 'chain.log'
+    harness = r'''
+source "$1"
+CHAIN_LOG="$3"
+lock_acquire(){ echo LOCK; }; cleanup(){ :; }
+verify_decoupled_main(){ echo FORBIDDEN; return 99; }
+gh_call(){ echo FORBIDDEN; return 99; }; git(){ echo FORBIDDEN; return 99; }
+instance_remote(){ echo "HOST $1"; }
+update_instance(){ echo "UPDATE $DG CUSTOMER=$CUSTOMER_RELEASE"; }
+main "$2" 1.9.13 authorized --update-instance-only "$4"
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh')), str(tmp_path), str(log), DIGEST], text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    output = log.read_text()
+    assert 'HOST check' in output and f'UPDATE {DIGEST} CUSTOMER=unchanged' in output
+    assert 'FORBIDDEN' not in output
+
+
+def test_chain_bounded_wait_defers_and_releases_lock(tmp_path):
+    harness = r'''
+source "$1"
+WT=/checkout; V=1.9.13; AUTH=authorized; DG=digest; CUSTOMER_RELEASE=success
+NOW=0
+date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
+pause_for(){ NOW=$((NOW + $1)); }
+freeze_check(){ :; }; idle_fleet(){ echo busy; }
+instance_remote(){ echo "HOST $1"; }
+open_window(){ echo FORBIDDEN_WINDOW; return 99; }
+window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; trim_colima(){ :; }
+update_instance
+printf 'RESULT=%s ELAPSED=%s\n' "$INSTANCE_UPDATE" "$NOW"
+cleanup 0
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert 'RESULT=deferred ELAPSED=86400' in result.stdout
+    assert '--update-instance-only' in result.stdout and 'UNLOCK' in result.stdout
+    assert 'FORBIDDEN_WINDOW' not in result.stdout and 'HOST apply' not in result.stdout
+
+
+def test_chain_health_failure_keeps_marker_and_prints_rollback():
+    harness = r'''
+source "$1"
+V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; TOKEN=abc
+instance_remote(){ echo "$1"; }; instance_window(){ echo WINDOW; }; promotion_ready(){ :; }
+wait_for_instance(){ return 1; }
+window_close(){ echo FORBIDDEN_CLOSE; }; lock_release(){ echo FORBIDDEN_UNLOCK; }
+report_exit(){ :; }
+update_instance || :
+echo "HOLD=$HOLD"
+cleanup 1
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True)
+    assert result.returncode == 1
+    assert result.stdout.index('pull') < result.stdout.index('WINDOW') < result.stdout.index('apply')
+    assert 'HOLD=1' in result.stdout and '.odin-rollback-abc.json' in result.stdout
+    assert 'FORBIDDEN' not in result.stdout
+
+
+@pytest.mark.parametrize('invalid', ['digest', 'version', 'platforms', 'image_id', 'ready', 'valid'])
+def test_checker_evidence_validated_before_mutation(invalid, tmp_path):
+    steps = yaml.safe_load((ROOT / '.github/workflows/promote-production.yml').read_text())['jobs']['promote']['steps']
+    source = next(step['run'] for step in steps if step['name'] == 'Create durable rollback tag')
+    validation = source.split("<<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    assert source.index('validate_evidence') < source.index('MUTATION_STARTED=1') < source.index('attach-tag')
+    evidence = run(Docker())
+    if invalid == 'digest': evidence['digest'] = OLD
+    elif invalid == 'version': evidence['version'] = '0.0.1'
+    elif invalid == 'platforms': del evidence['platforms']['linux/arm64']
+    elif invalid == 'image_id': evidence['platforms']['linux/arm64']['image_id'] = OLD
+    elif invalid == 'ready': evidence['platforms']['linux/amd64']['ready'] = False
+    (tmp_path / 'checker.json').write_text(json.dumps(evidence))
+    result = subprocess.run([sys.executable, '-c', validation], text=True, capture_output=True,
+                            env={**os.environ, 'MUTATION_ROOT': str(tmp_path), 'INPUT_IMAGE_DIGEST': DIGEST, 'INPUT_VERSION': VERSION})
+    assert (result.returncode == 0) == (invalid == 'valid'), result.stderr
+
+
+@pytest.mark.parametrize('replace_fails', [False, True])
+def test_instance_pin_is_atomic_and_retains_owned_content_on_failure(replace_fails, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / 'docker-compose.override.yml'
+    original = json.dumps(instance_update.OVERRIDE)
+    path.write_text(original)
+    real_replace = os.replace
+    replacements = []
+    def replace(source, destination):
+        replacements.append((source, destination))
+        assert path.read_text() == original
+        assert Path(source).stat().st_mode & 0o777 == 0o600
+        if replace_fails: raise OSError('injected atomic replacement failure')
+        real_replace(source, destination)
+    monkeypatch.setattr(instance_update.os, 'replace', replace)
+    if replace_fails:
+        with pytest.raises(OSError): instance_update.pin_override(instance_update.IMAGE + '@' + DIGEST)
+        assert path.read_text() == original
+    else:
+        instance_update.pin_override(instance_update.IMAGE + '@' + DIGEST)
+        assert json.loads(path.read_text())['services']['odin']['image'] == instance_update.IMAGE + '@' + DIGEST
+    assert len(replacements) == 1
+    assert not list(tmp_path.glob('.odin-release-*'))
+
+
+def test_chain_fleet_recheck_inside_window_shares_24_hour_deadline():
+    harness = r'''
+source "$1"
+WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; NOW=0
+date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
+freeze_check(){ :; }; idle_fleet(){ echo idle; }
+instance_remote(){ echo "HOST $1"; }
+open_window(){ echo WINDOW; }
+promotion_ready(){
+  [ "$INSTANCE_DEADLINE" = 86400 ] || return 99
+  NOW=86400
+  time_left
+}
+window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; trim_colima(){ :; }
+update_instance
+echo "RESULT=$INSTANCE_UPDATE"
+cleanup 0
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert 'RESULT=deferred' in result.stdout and 'UNLOCK' in result.stdout and 'CLOSE' in result.stdout
+    assert 'HOST apply' not in result.stdout

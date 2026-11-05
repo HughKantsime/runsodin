@@ -1,4 +1,4 @@
-"""Run via v4's SSH stdin, only inside its owned deploy window for mutations.
+"""Run via v4's SSH stdin, inside its owned deploy window for restarts; pulls precede the window.
 
 No daemon restart, builds, registry writes, or changes to other services. The
 standard Compose override disables Watchtower for odin; unknown overrides fail
@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 DIRECTORY = Path('/opt/odin/runsodin')
@@ -44,8 +45,48 @@ def check():
     config = json.loads(compose('config', '--format', 'json'))
     if str(config['services']['odin'].get('labels', {}).get(LABEL)).lower() != 'false':
         raise RuntimeError('Compose must disable Watchtower for odin; use --migrate-watchtower')
-    if inspect()['Config'].get('Labels', {}).get(LABEL) != 'false':
+    running = inspect()
+    if running['Config'].get('Labels', {}).get(LABEL) != 'false':
         raise RuntimeError('running odin still follows Watchtower; use --migrate-watchtower')
+    if config['services']['odin']['image'] != running['Config']['Image']:
+        raise RuntimeError('Compose image differs from running Config.Image')
+
+
+def owned_override():
+    path = Path('docker-compose.override.yml')
+    if path.exists():
+        value = json.loads(path.read_text())
+        service = value.get('services', {}).get('odin', {})
+        image = service.get('image')
+        expected = {'services': {'odin': {'labels': {LABEL: 'false'}, 'image': image}}}
+        if value != OVERRIDE and not (value == expected and isinstance(image, str)
+                and re.fullmatch(re.escape(IMAGE) + r'@sha256:[0-9a-f]{64}', image)):
+            raise RuntimeError('existing Compose override requires operator reconciliation')
+    elif any(Path(name).exists() for name in
+             ('compose.override.yaml', 'compose.override.yml', 'docker-compose.override.yaml')):
+        raise RuntimeError('existing Compose override requires operator reconciliation')
+    return path
+
+
+def pin_override(reference):
+    path = owned_override()
+    temporary = override_file(reference)
+    try:
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def repo_reference(image_id):
+    image = json.loads(command('docker', 'image', 'inspect', image_id))[0]
+    if image['Id'] != image_id:
+        raise RuntimeError('old image identity mismatch')
+    references = [ref for ref in image.get('RepoDigests', [])
+                  if re.fullmatch(re.escape(IMAGE) + r'@sha256:[0-9a-f]{64}', ref)]
+    if not references:
+        raise RuntimeError('old image has no ODIN RepoDigest for rollback')
+    return references[0]
 
 
 def override_file(image):
@@ -55,11 +96,11 @@ def override_file(image):
     return name
 
 
-def rollback_file(old_id, token):
+def rollback_file(old_reference, token):
     # Retained after an unsuccessful update so the printed command remains usable.
     name = f'.odin-rollback-{token}.json'
     with open(name, 'x') as stream:
-        json.dump({'services': {'odin': {'image': old_id, 'labels': {LABEL: 'false'}}}}, stream)
+        json.dump({'services': {'odin': {'image': old_reference, 'labels': {LABEL: 'false'}}}}, stream)
     os.chmod(name, 0o600)
     override = ' -f docker-compose.override.yml' if Path('docker-compose.override.yml').exists() else ''
     print(f'Rollback (inside a safe deploy window): cd {DIRECTORY} && docker compose -f docker-compose.yml{override} -f {name} up -d --no-deps --pull never odin', flush=True)
@@ -69,32 +110,30 @@ def perform(action, digest, token):
     if not re.fullmatch(r'[0-9a-f]{32}', token):
         raise ValueError('invalid operation token')
     os.chdir(DIRECTORY)
+    if action == 'watchtower':
+        config = json.loads(compose('config', '--format', 'json'))
+        if str(config['services']['odin'].get('labels', {}).get(LABEL)).lower() == 'true':
+            return 3
+        running = inspect()
+        return 3 if str(running['Config'].get('Labels', {}).get(LABEL)).lower() == 'true' else 0
     if action == 'check':
         check()
         return
     if action == 'migrate':
-        # Never overwrite an operator's override; the exact v4-owned content is idempotent.
-        path = Path('docker-compose.override.yml')
-        if path.exists():
-            if json.loads(path.read_text()) != OVERRIDE:
-                raise RuntimeError('existing Compose override requires operator reconciliation')
-        else:
-            # Other conventional override files could change what plain compose loads.
-            if Path('compose.override.yaml').exists() or Path('compose.override.yml').exists() or Path('docker-compose.override.yaml').exists():
-                raise RuntimeError('existing Compose override requires operator reconciliation')
-            with path.open('x') as stream:
-                json.dump(OVERRIDE, stream)
-            path.chmod(0o600)
+        owned_override()
         old_id = inspect()['Image']
         if not re.fullmatch(r'sha256:[0-9a-f]{64}', old_id):
             raise RuntimeError('invalid running image ID')
-        rollback_file(old_id, token)
-        temporary = override_file(old_id)
+        reference = repo_reference(old_id)
+        rollback_file(reference, token)
+        temporary = override_file(reference)
         try:
             # Recreate the SAME local image; migration must not pull a newer latest.
             compose('up', '-d', '--no-deps', '--pull', 'never', 'odin', override=temporary)
-            if inspect()['Image'] != old_id:
+            running = inspect()
+            if running['Image'] != old_id or running['Config']['Image'] != reference:
                 raise RuntimeError('migration changed the running image')
+            pin_override(reference)
             check()
         finally:
             os.unlink(temporary)
@@ -102,6 +141,7 @@ def perform(action, digest, token):
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
         raise ValueError('invalid target digest')
     check()
+    owned_override()
     reference = f'{IMAGE}@{digest}'
     temporary = override_file(reference)
     try:
@@ -109,7 +149,7 @@ def perform(action, digest, token):
             compose('pull', 'odin', override=temporary)
         elif action == 'apply':
             old_id = inspect()['Image']
-            rollback_file(old_id, token)
+            rollback_file(repo_reference(old_id), token)
             desired = json.loads(command('docker', 'image', 'inspect', reference))[0]
             if reference not in desired.get('RepoDigests', []):
                 raise RuntimeError('pulled image digest mismatch')
@@ -117,6 +157,9 @@ def perform(action, digest, token):
             running = inspect()
             if running['Image'] != desired['Id'] or running['Config']['Image'] != reference:
                 raise RuntimeError('running image does not match released digest')
+            if running['Config'].get('Labels', {}).get(LABEL) != 'false':
+                raise RuntimeError('running odin still follows Watchtower')
+            pin_override(reference)
             check()
         else:
             raise ValueError('unknown action')
@@ -124,10 +167,18 @@ def perform(action, digest, token):
         os.unlink(temporary)
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('check', 'migrate', 'pull', 'apply'))
+    parser.add_argument('action', choices=('check', 'watchtower', 'migrate', 'pull', 'apply'))
     parser.add_argument('--digest', default='')
     parser.add_argument('--token', required=True)
     args = parser.parse_args()
-    perform(args.action, args.digest, args.token)
+    try:
+        return perform(args.action, args.digest, args.token) or 0
+    except subprocess.TimeoutExpired:
+        print('instance-update: command timed out; retain deploy protection', file=sys.stderr)
+        return 124
+
+
+if __name__ == '__main__':
+    sys.exit(main())
