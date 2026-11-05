@@ -310,6 +310,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     **{(m, p): _SUPERADMIN for m, p in [
         ("PUT", "/api/admin/oidc"), ("POST", "/api/admin/retention/cleanup"),
         ("POST", "/api/archives/reconcile-ownership"),
+        ("POST", "/api/timelapses/recheck-facts"),  # re-admit timelapses after a restart, by content digest
         ("POST", "/api/backups"), ("POST", "/api/backups/restore"), ("DELETE", "/api/backups/{filename}"),
         ("POST", "/api/backups/{filename}/stage"),
         ("PUT", "/api/branding"), ("POST", "/api/branding/favicon"), ("DELETE", "/api/branding/favicon"),
