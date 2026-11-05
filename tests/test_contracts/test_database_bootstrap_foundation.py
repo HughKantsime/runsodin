@@ -277,6 +277,8 @@ def test_postgres_offline_restore_drill_uses_the_odin_data_volume() -> None:
     assert "--user odin" in offline
     assert 'type=volume,src=${application_volume},dst=/data' in offline
     assert "${data_volume}" not in offline
+    # on_error prints this file last, so a failure's traceback survives the runner's tail.
+    assert 'tee "${runtime_diagnostic_file}"' in offline
 
 
 def test_enterprise_postgres_uses_separate_least_privilege_identities() -> None:

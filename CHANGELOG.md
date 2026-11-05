@@ -16,6 +16,19 @@ All notable changes to O.D.I.N. are documented here.
 
 - Since 2.0.39, dispatch reports its locking as `unsupported` if the SQLite database is mounted as a single file, apart from its directory, because the lock no longer opens the database file. Mount the directory that holds the database instead.
 
+## [2.0.40] - 2026-11-02
+
+<!-- summary: Tokens with printer write access can resume a paused print, and the resume route is audited. -->
+
+### Fixed
+
+- A token with `write:printers` or `write` could stop a print but not resume one. `POST /printers/{id}/resume` now accepts those scopes. This applies to existing tokens on upgrade, so review any you've issued. Pause still needs `admin` or `agent:write`. The route doesn't check why a print paused, so an automated caller can resume after a fault.
+- A PostgreSQL restore could be refused intermittently with "target database session(s) are active" because of a session that was only briefly present. The check now waits up to 15 seconds for such a session to go, and still refuses one that stays. The restore's later session checks now see current sessions; before, they repeated the first check's reading.
+
+### Added
+
+- Each call to `POST /printers/{id}/resume` now leaves an audit entry naming the user and token: `printer.resume_requested` when the command is accepted, which doesn't prove the printer resumed, and `printer.resume_failed` when it isn't. Other ways of resuming, such as dismissing a Vigil detection, aren't covered yet.
+
 ## [2.0.39] - 2026-11-01
 
 <!-- summary: Fixes a dispatch lock that could corrupt the database, and adds a newer SQLite, scheduled integrity checks and daily verified backups. -->
