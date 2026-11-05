@@ -2,13 +2,25 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [Unreleased]
+## [2.0.41] - 2026-11-04
+
+<!-- summary: Community filament feed and accounting delegation, a nozzle size change that is no longer lost, and safer file deletion. -->
+
+### Added
+
+- The external filament display feed can be read over a local Unix socket: set `FILAMENT_LEDGER_URL=unix:///absolute/path/feed.sock`. See `docs/filament-ledger-display.md`. Contributed by Roman Kamyk (#30).
+- `EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS`, a JSON list of printer IDs whose automatic filament accounting is left to an external system. Set it on both the `api` and `monitors` services. Unset, accounting is unchanged. Contributed by Roman Kamyk (#31).
+
+### Security
+
+- Text from the external filament feed, and the spool identities it names, are validated and bounded before ODIN shows them with a printer. Contributed by Roman Kamyk (#32).
 
 ### Fixed
 
 - A Bambu printer's nozzle size could stay at its old value after a nozzle change. P1-series printers report the size only in a full status report, and ODIN dropped it when that report arrived within 10 seconds of the previous telemetry save. The size is now kept until the next save, which records the change in the audit log as before. Education dispatch and the recipe configuration record use this size; ordinary Bambu dispatch already checked a live report.
 - A single 3MF whose first material the slicer labelled `PLA-CF`, `PETG-CF` or similar made the Models list return 500 for everyone who could see that model on SQLite. Uploads now store the matching material type, and a label already stored reads as its closest type without changing the row.
 - Deleting a print file now removes its printer binding and its payload on disk. The payload stays if anything else still names it.
+- Deleting a model variant that a job still uses returns 409, as deleting a print file already did, and the file stays.
 - Database damage and backup alerts reach admins' phones with Education mode on, and when the Education setting itself can't be read. They hold no student data. Ordinary alerts don't change.
 - `ops/ci/README.md`: the steps for moving validation back to the Mac work from a clean clone.
 - The off-server backup job's schedule uses Homebrew's stable path to node, so a Homebrew upgrade doesn't stop it. Run its `install` again to pick this up.
