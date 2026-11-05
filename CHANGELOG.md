@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- A Bambu printer's nozzle size could stay at its old value after a nozzle change. P1-series printers report the size only in a full status report, and ODIN dropped it when that report arrived within 10 seconds of the previous telemetry save. The size is now kept until the next save, which records the change in the audit log as before. Education dispatch and the recipe configuration record use this size; ordinary Bambu dispatch already checked a live report.
 - A single 3MF whose first material the slicer labelled `PLA-CF`, `PETG-CF` or similar made the Models list return 500 for everyone who could see that model on SQLite. Uploads now store the matching material type, and a label already stored reads as its closest type without changing the row.
 - Deleting a print file now removes its printer binding and its payload on disk. The payload stays if anything else still names it.
 - Database damage and backup alerts reach admins' phones with Education mode on, and when the Education setting itself can't be read. They hold no student data. Ordinary alerts don't change.
