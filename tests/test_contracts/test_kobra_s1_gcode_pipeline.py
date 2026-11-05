@@ -394,6 +394,66 @@ def test_other_moonraker_printers_keep_their_located_spool_deduction(s1, monkeyp
     assert outcome is not None and _weights(s1) == [75, 100, 100] and _audits(s1) == []
 
 
+@pytest.mark.parametrize('mapping', [None, [{'source_slot': 1, 'target_slot': 2}]])
+def test_external_s1_monitor_skips_local_attribution(s1, monkeypatch, mapping, caplog):
+    from core.config import settings
+    job_id = _job_from_upload(s1, ONE_COLOUR, mapping)
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [59])
+    with caplog.at_level('INFO'):
+        assert _monitor_deduct(s1, monkeypatch, job_id, 25.0) is None
+    assert 'external_accounting' in caplog.text
+    assert _weights(s1) == [100, 100, 100] and _audits(s1) == []
+    with s1.engine.connect() as c:
+        assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 0
+        assert c.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE '%filament:%'")).scalar_one() == 0
+        assert c.execute(text('SELECT COUNT(*) FROM filament_delivery_outbox')).scalar_one() == 0
+
+
+@pytest.mark.parametrize('already_accounted', [False, True])
+def test_external_s1_archive_preserves_delegation_and_prior_deduction(s1, monkeypatch, already_accounted):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    from modules.archives.attempt_accounting import account_archive, capture_attempt_spools
+    job_id = _job_from_upload(s1, TWO_COLOUR, [{'source_slot': 1, 'target_slot': 2}, {'source_slot': 2, 'target_slot': 3}])
+    with s1.engine.begin() as c:
+        print_job = c.execute(text("INSERT INTO print_jobs(printer_id,job_name,filename,status,started_at,scheduled_job_id) "
+                                   "VALUES(59,'x','x.gcode','running','2026-10-30T00:00:00',:job) RETURNING id"), {'job': job_id}).scalar_one()
+        assert capture_attempt_spools(c, print_job, 59, source='s1-contract')
+        snapshot = c.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'), {'id': print_job}).scalar_one()
+        if already_accounted:
+            assert record_job_filament(sqlalchemy_runner(c), job_id, source='moonraker',
+                                       print_job_id=print_job, grams_by_spool={902: 2.94, 903: 2.16}).deducted
+        monkeypatch.setattr(settings, 'external_filament_accounting_printers', [59])
+        # A measured total differs from the two sliced quantities: delegation/prior
+        # accounting must win before the S1 distribution fallback is considered.
+        args = dict(archive_id=0, print_job_id=print_job, printer_id=59, snapshot_json=snapshot,
+                    scheduled_job_id=job_id, measured_grams=25.0, success=True)
+        expected = ('accounted', 'attempt_already_accounted', []) if already_accounted else ('externally_managed', 'external_accounting', [])
+        assert account_archive(c, **args) == expected
+        assert account_archive(c, **dict(args, snapshot_json=None, success=False, measured_grams=None)) == expected
+        assert account_archive(c, **dict(args, printer_id=999)) == ('unresolved', 'foreign_job_printer', [])
+        assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == (2 if already_accounted else 0)
+        assert c.execute(text('SELECT COUNT(*) FROM filament_delivery_outbox')).scalar_one() == 0
+    assert _weights(s1) == pytest.approx([100, 97.06, 97.84] if already_accounted else [100, 100, 100])
+
+
+@pytest.mark.parametrize('known_grams', [False, True])
+def test_external_s1_operator_completion_does_not_report_unattributed_material(s1, monkeypatch, known_grams):
+    from core.config import settings
+    raw = ONE_COLOUR if known_grams else ONE_COLOUR.replace(b'; total filament weight [g] : 11.49\n', b'')
+    job_id = _job_from_upload(s1, raw, [{'source_slot': 1, 'target_slot': 2}])
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [59])
+    response = s1.client.post(f'/api/jobs/{job_id}/complete', headers=s1.auth())
+    assert response.status_code == 200, response.text
+    assert _weights(s1) == [100, 100, 100] and _audits(s1) == []
+    with s1.engine.connect() as c:
+        details = c.execute(text("SELECT details FROM audit_logs WHERE action='job.completed' AND entity_id=:id"), {'id': job_id}).scalar_one()
+        assert json.loads(details)['accounting_skip'] == 'external_accounting'
+        assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 0
+        assert c.execute(text('SELECT COUNT(*) FROM filament_delivery_outbox')).scalar_one() == 0
+
+
 def test_archive_plan_never_guesses_slot_1_for_an_unmapped_s1(s1):
     """A one-slot printer's only spool is unambiguous; an S1 with a stale slot count isn't that."""
     from modules.archives.attempt_accounting import capture_attempt_spools

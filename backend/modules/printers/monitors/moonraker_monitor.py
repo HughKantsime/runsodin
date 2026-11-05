@@ -1057,6 +1057,11 @@ class MoonrakerMonitor:
         never guess which spool supplied a multi-material print.
         """
         import math
+        from core.interfaces.filament_ownership import uses_external_filament_accounting
+        if uses_external_filament_accounting(self.printer_id):
+            log.info("Printer %s job %s automatic filament deduction skipped: external_accounting",
+                     self.printer_id, scheduled_job_id)
+            return
         from modules.printers.dispatch_support import is_kobra_s1
         printer = conn.execute(text('SELECT api_type,model,machine_type FROM printers WHERE id=:id'),
                                {'id': self.printer_id}).mappings().first()
@@ -1067,11 +1072,6 @@ class MoonrakerMonitor:
             FROM jobs j LEFT JOIN print_files pf ON j.print_file_id=pf.id WHERE j.id=:id
         """), {'id':scheduled_job_id}).first()
         if not job or job[0] != self.printer_id:
-            return
-        from core.interfaces.filament_ownership import uses_external_filament_accounting
-        if uses_external_filament_accounting(self.printer_id):
-            log.info("Printer %s job %s automatic filament deduction skipped: external_accounting",
-                     self.printer_id, scheduled_job_id)
             return
         if job[3]:
             import json

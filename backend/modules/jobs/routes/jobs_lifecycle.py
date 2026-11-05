@@ -217,7 +217,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
                 "job_id": job.id,
             })
 
-    elif job.printer_id:
+    elif job.printer_id and not accounting_skip:
         from modules.printers.services import is_kobra_s1
         if is_kobra_s1(db.get(Printer, job.printer_id)):
             log_audit(db, 'filament.unattributed', 'job', job.id, {'consumption': [dict(reason='unknown_material_quantity')]})
