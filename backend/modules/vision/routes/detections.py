@@ -227,10 +227,18 @@ def dismiss_and_resume(
         outcome = 'not_needed'
         if state in ('PAUSE', 'PAUSED'):
             from modules.printers.services import request_observed_task_resume
+            from core.audit import log_audit
+            audit_details = {"via": "vision_dismissal", "detection_id": detection_id}
+            resume_printer_id = printer.id
             outcome = request_observed_task_resume(printer, det.print_job_id)
             if outcome != 'accepted':
+                # Keep the detection unchanged, but retain the failed transport trace.
+                db.rollback()
+                log_audit(db, "printer.resume_failed", "printer", resume_printer_id, audit_details)
+                db.commit()
                 raise HTTPException(503 if outcome != 'refused' else 409,
                                     detail={'outcome': outcome, 'message': 'Resume unconfirmed; refresh before further action'})
+            log_audit(db, "printer.resume_requested", "printer", resume_printer_id, audit_details)
         db.commit()
         return {'id': detection_id, 'detection_id': detection_id, 'status': 'dismissed', 'outcome': outcome,
                 'actions': ['printer:resume_requested' if outcome == 'accepted' else 'printer:already_running'],

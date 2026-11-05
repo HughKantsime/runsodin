@@ -211,7 +211,8 @@ def h2d_changed_commands():
     'M620.6 I0 H-1 W1', 'M620.6 I1 H0 W1', 'M620.6 I1 H-1 W2', 'M620 D0', 'M620 Q2', 'M620.17 T2 S245 L1',
     'M620.17 T0 S245 L2', 'M620.11 K0 I1 B-1 R0 F', 'M620.11 S0 L0 I1 B-1 R10 E-10 F623.623'])
 def test_h2d_allowlist_refuses_changed_shape_selector_or_source(command):
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+    reason = r'^an M620\.11 tool change has no B \(extruder\) field, line [0-9]+$' if command.startswith('M620.11 ') and ' B' not in command else '^Unverifiable source mapping$'
+    with pytest.raises(ValueError, match=reason):
         inspect_single_source_ams(h2d_archive(command=command))
 
 
@@ -290,8 +291,9 @@ def p2s_before_end(*commands):
     return lambda code: code.replace(P2S_END, ''.join(command + '\n' for command in commands) + P2S_END)
 
 
-def assert_refused(archive):
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+def assert_refused(archive, missing_b=False):
+    reason = r'^an M620\.11 tool change has no B \(extruder\) field, line [0-9]+$' if missing_b else '^Unverifiable source mapping$'
+    with pytest.raises(ValueError, match=reason):
         inspect_single_source_ams(archive)
 
 
@@ -406,9 +408,9 @@ def test_p2s_lines_refuse_on_any_other_model_and_the_rest_stays_as_it_was(model)
                 code = code if line in kept else code.replace(line, '')
             return code
         return change
-    assert_refused(p2s_archive(declared(*P2S_ONLY_LINES), model=model))
+    assert_refused(p2s_archive(declared(*P2S_ONLY_LINES), model=model), missing_b=True)
     for line in P2S_ONLY_LINES:
-        assert_refused(p2s_archive(declared(line), model=model))
+        assert_refused(p2s_archive(declared(line), model=model), missing_b=line.startswith('M620.11 '))
     assert inspect_single_source_ams(p2s_archive(declared(), model=model)).source_index == 0
     # The shared allowances stay as they were: no position, and the other sentinels.
     early = lambda code: 'T65535\nM620 S65535\nT1000\nT255\n' + declared()(code).replace(P2S_END + P2S_PULL_BACK, 'M621 S65535\nG1 E1\n')

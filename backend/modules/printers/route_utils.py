@@ -116,10 +116,10 @@ def go2rtc_stream_source(url, printer_id=None):
       never resolves a name itself (no rebinding). Userinfo, port, path and
       query are kept. go2rtc does not verify RTSPS certificates (Bambu printers
       and most cameras are self-signed), so no hostname is needed for TLS.
-    - HTTP(S) (MJPEG/snapshot): go2rtc hands these to ffmpeg, which resolves
-      and follows redirects itself. The source is therefore ffmpeg reading
-      ODIN's loopback relay (modules.printers.camera_relay), which fetches the
-      camera pinned, without redirects or proxies. Needs printer_id.
+    - HTTP(S) (MJPEG/snapshot): native JPEG bytes through ODIN's loopback
+      relay (modules.printers.camera_relay), without an H.264 transcode.
+      The relay fetches the camera pinned, without redirects or proxies,
+      and rechecks its source per request. Needs printer_id.
     - Chamber marker: the same relay, with policy checked on every upstream connection.
     - UniFi Protect rtsps :7441 becomes rtspx without enableSrtp, as before.
     """
@@ -131,7 +131,7 @@ def go2rtc_stream_source(url, printer_id=None):
         if printer_id is None:
             return None
         from modules.printers.camera_relay import relay_url
-        return f"ffmpeg:{relay_url(printer_id)}#video=h264"
+        return relay_url(printer_id)
     prefix, userinfo, rest = split_url_userinfo(url.strip())
     if prefix is not None and prefix[:-3].lower() in ("http", "https"):
         if printer_id is None:
@@ -143,7 +143,7 @@ def go2rtc_stream_source(url, printer_id=None):
             log.warning("Camera source host blocked by device policy; stream omitted")
             return None
         from modules.printers.camera_relay import relay_url
-        return f"ffmpeg:{relay_url(printer_id)}#video=h264"
+        return relay_url(printer_id)
     if prefix is None or prefix[:-3].lower() not in GO2RTC_RTSP_SCHEMES:
         return None
     scheme = prefix[:-3].lower()
@@ -206,7 +206,7 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
         if not source:
             continue
         streams[f"printer_{p.id}"] = source
-        if source.startswith("ffmpeg:"):
+        if source.startswith(("http://", "https://")):
             from modules.printers.camera_relay import relay_url
             streams[mjpeg_stream_name(p.id)] = relay_url(p.id)
         else:

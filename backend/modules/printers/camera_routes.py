@@ -32,6 +32,7 @@ from modules.printers.models import Printer
 from modules.archives.models import Timelapse
 from core.timelapse_access import assert_timelapse_access,timelapse_visibility,visible_printer_name,inherit_timelapse_owner
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
+from modules.printers.bambu_chamber_camera import SOURCE as CHAMBER_CAMERA_SOURCE
 from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
 
 log = logging.getLogger("odin.api")
@@ -354,6 +355,7 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
         "printer_name": printer.name,
         "stream_name": stream_name,
         "webrtc_url": f"/api/cameras/{printer_id}/webrtc",
+        "transport": "mjpeg" if camera_url == CHAMBER_CAMERA_SOURCE or camera_url.lower().startswith(("http://", "https://")) else "webrtc",
     }
 
 

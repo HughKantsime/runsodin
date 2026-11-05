@@ -54,7 +54,7 @@ def test_adapter_transport_through_monitor_persists_encrypted_source(discovery_s
     assert crypto.decrypt(stored) == expected
     # HTTP cameras stream through ODIN's pinned loopback relay, never directly.
     from modules.printers.camera_relay import relay_url
-    assert configs[-1]['streams']['printer_199'] == 'ffmpeg:' + relay_url(199) + '#video=h264'
+    assert configs[-1]['streams']['printer_199'] == relay_url(199)
 
 
 @pytest.mark.parametrize('source', [

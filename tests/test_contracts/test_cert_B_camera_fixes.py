@@ -208,10 +208,10 @@ def test_go2rtc_config_has_on_demand_mjpeg_variant_per_camera(printers_client, r
     # RTSPS X1C: transcode on demand from go2rtc's authenticated loopback RTSP server.
     assert streams["printer_21_mjpeg"] == f"ffmpeg:{go2rtc_rtsp_url('printer_21')}#video=mjpeg"
     # HTTP cameras reach go2rtc only through cert-fix-A's pinned loopback relay, never directly.
-    assert streams["printer_23"] == f"ffmpeg:{relay_url(23)}#video=h264"
+    assert streams["printer_23"] == relay_url(23)
     assert streams["printer_23_mjpeg"] == relay_url(23)  # MJPEG webcam passed through the relay as is
     assert "192.0.2.24" not in str(streams)
-    assert streams["printer_22"] == f"ffmpeg:{relay_url(22)}#video=h264"
+    assert streams["printer_22"] == relay_url(22)
     assert streams["printer_22_mjpeg"] == relay_url(22)
 
 

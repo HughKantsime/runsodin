@@ -84,6 +84,10 @@ _P2S_PULL_BACK = ('M620 S65535', 'T65535', 'M621 S65535')
 _TOOL_COMMAND = re.compile(r'T(?:[0-9]|\s|$)|M62[01](?:\s|\.|$)')
 
 
+class _SourceRefusal(ValueError):
+    """Only bounded, code-authored diagnostics may escape the parser."""
+
+
 class MultipleAMSSources(ValueError):
     pass
 
@@ -144,7 +148,10 @@ def _source_extruder(settings, plate, index):
             return None
         targets.append(int(extruder))
     if len(set(targets)) != 1:
-        raise ValueError('Conflicting source extruders')
+        project_map = _map_values(settings.get('filament_map'))
+        if declared and project_map and str(project_map[index]) != str(_map_values(declared[0])[index]):
+            raise _SourceRefusal("the project's filament map disagrees with the plate's")
+        raise _SourceRefusal("the slicer's extruder maps disagree")
     return targets[0]
 
 
@@ -307,7 +314,7 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
             p2s = _P2STemplate(used) if settings.get('printer_model') == _P2S_MODEL else None
             headers = []
             switches = {620: set(), 621: set()}
-            for raw_line in iter(lambda: code.readline(MAX_GCODE_LINE_BYTES + 1), b''):
+            for line_number, raw_line in enumerate(iter(lambda: code.readline(MAX_GCODE_LINE_BYTES + 1), b''), 1):
                 if len(raw_line) > MAX_GCODE_LINE_BYTES:
                     raise ValueError(refusal)
                 line = raw_line.decode('utf-8')
@@ -362,6 +369,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                 if match is None:
                     match = re.fullmatch(r'M(620)\s+S(0|[1-9][0-9]*)A\s+H-1', command)
                 if match is None:
+                    if re.match(r'M620\.11(?:\s|$)', command) and not re.search(r'(?:^|\s)B', command):
+                        raise _SourceRefusal(f"an M620.11 tool change has no B (extruder) field, line {line_number}")
                     raise ValueError(refusal)
                 switches[int(match.group(1))].add(int(match.group(2)))
             if p2s is not None:
@@ -371,7 +380,7 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     or switches != {620: used, 621: used}):
                 raise ValueError(refusal)
         return VerifiedSources(0, tuple(sources))
-    except MultipleAMSSources:
+    except (MultipleAMSSources, _SourceRefusal):
         raise
     except Exception:
         raise ValueError(refusal) from None

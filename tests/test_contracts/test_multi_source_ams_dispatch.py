@@ -238,6 +238,8 @@ def test_h2d_requires_each_sources_nozzle_binding(review_db, tmp_path, monkeypat
         assert not sent
         assert {'wrong_binding': 'ams_binding_mismatch', 'missing_binding': 'ams_binding_unverified',
                 'missing_source_extruder': 'source_extruder_unverified'}[failure] in result[1]
+        if failure == 'missing_source_extruder':
+            assert "the slicer's nozzle map can't be verified" in result[1]
 
 
 @pytest.mark.parametrize('change', ['material', 'plate', 'commands', 'extra_tool'])
@@ -371,8 +373,9 @@ def test_cross_nozzle_command_needs_a_filament_map_to_agree_with():
     (('1',), '1 1'),  # The plate's own map still has to agree.
 ])
 def test_only_the_one_entry_default_nozzle_map_is_ignored(nozzle_map, plate_map):
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+    with pytest.raises(ValueError) as error:
         inspect_ams_sources(cross_nozzle_file(('2', '1'), nozzle_map=nozzle_map, plate_map=plate_map))
+    assert str(error.value) == ("the project's filament map disagrees with the plate's" if plate_map else "the slicer's extruder maps disagree")
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
@@ -596,7 +599,7 @@ def test_p2s_two_source_near_miss_lines_refuse(lines):
 
 @pytest.mark.parametrize('model', ['Bambu Lab X1 Carbon', 'Bambu Lab P1S', 'Bambu Lab A1', 'Bambu Lab H2D', 'Bambu Lab X2D', 'Bambu Lab A2L'])
 def test_p2s_two_source_template_refuses_on_another_model(model):
-    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+    with pytest.raises(ValueError, match=r'^an M620\.11 tool change has no B \(extruder\) field, line 6$'):
         inspect_ams_sources(p2s_file(model=model))
 
 

@@ -100,10 +100,10 @@ def test_claim_nonbambu_discovery_reaches_current_go2rtc_stream(offline_store,ca
     monitor._discover_and_save_camera()
     # HTTP cameras stream through ODIN's pinned loopback relay, never directly.
     from modules.printers.camera_relay import relay_url
-    assert captured_config[-1]['streams'].get('printer_199')=='ffmpeg:'+relay_url(199)+'#video=h264'
+    assert captured_config[-1]['streams'].get('printer_199')==relay_url(199)
 
 
-def test_explicit_mjpeg_registration_uses_h264_prefix(offline_store,captured_config):
+def test_explicit_mjpeg_registration_uses_native_relay(offline_store,captured_config):
     from core import crypto
     from modules.printers.route_utils import sync_go2rtc_config_raw
     url='http://192.168.50.22:8080/?action=stream'  # LAN camera: loopback hosts are blocked
@@ -111,4 +111,4 @@ def test_explicit_mjpeg_registration_uses_h264_prefix(offline_store,captured_con
         conn.execute(text('UPDATE printers SET api_type=\'elegoo\',camera_enabled=TRUE,camera_url=:url WHERE id=199'),{'url':crypto.encrypt(url)})
     sync_go2rtc_config_raw()
     from modules.printers.camera_relay import relay_url
-    assert captured_config[-1]['streams']['printer_199']=='ffmpeg:'+relay_url(199)+'#video=h264'
+    assert captured_config[-1]['streams']['printer_199']==relay_url(199)

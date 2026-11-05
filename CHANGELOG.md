@@ -10,6 +10,10 @@ All notable changes to O.D.I.N. are documented here.
 - Audit OIDC session issuance and callback/exchange failures, plus automatic user creation, without storing personal text in new event details.
 - Refuse designated downloads and CSV exports when their audit row cannot commit; record bulk job creation, global branding changes and MQTT republish field names atomically.
 - Report the audit CSV's 5,000-row truncation through response headers and an Audit Log page notice.
+- Pause, stop and Vigil dismissal resume requests record audit rows with the bound actor; failed sends retain a trace.
+- AMS refusals explain conflicting slicer maps and missing extruder fields without exposing file contents. Final dispatch refusals name changed configuration, capability and ownership fields without values.
+- P2S cameras receive the automatic RTSPS URL verified on hardware; H2S, H2C and H2D Pro remain excluded.
+- Native MJPEG cameras use the existing MJPEG viewer immediately, without H.264 conversion or WebRTC retries. RTSP cameras retain WebRTC and its fallback.
 
 ### Documentation
 

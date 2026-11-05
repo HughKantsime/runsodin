@@ -54,8 +54,8 @@ def test_http_source_is_the_internal_relay_never_the_camera(dns):
     from modules.printers.route_utils import go2rtc_stream_source
     dns["mjpeg-camera.test"] = "192.168.60.8"
     source = go2rtc_stream_source("http://user:pw@MJPEG-Camera.test:8080/?action=stream", 301)
-    assert source == f"ffmpeg:{relay_url(301)}#video=h264"
-    assert "mjpeg-camera" not in source and "pw" not in source and source.startswith("ffmpeg:http://127.0.0.1:")
+    assert source == relay_url(301)
+    assert "mjpeg-camera" not in source and "pw" not in source and source.startswith("http://127.0.0.1:")
     assert relay_url(301) != relay_url(302)  # per-printer token
 
 
