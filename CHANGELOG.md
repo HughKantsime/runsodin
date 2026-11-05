@@ -2,11 +2,29 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [Unreleased]
+## [2.0.43] - 2026-11-05
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Foundry, a new look you can switch on; plates up to 256 MiB of G-code; plan a filament load for held jobs before loading it. -->
+
+### Added
+
+- Foundry, a new look for the web app, built from the design board. Classic stays the default and looks exactly as before; choose Foundry from the theme button in the header. Foundry brings:
+  - the Floor page: printer cards with compact slot tiles, a banner for printers that need you, live cameras with a printer switcher, and a "Next 12 hours" schedule lane;
+  - Comfortable and Compact views on the Floor and Printers pages;
+  - every other page restyled, with layouts that work on phones and tablets.
+- Held jobs can carry a planned tray mapping for filament that isn't loaded yet, so you can queue several jobs for one filament load. Releasing the hold checks the trays. If they don't match, the job stays held and says what to load, for example "load PETG in AMS 1 slot 2". Dispatch still checks the live trays as before.
+- Repeating a job whose tray plan no longer matches the loaded trays creates the repeat held, with what to load, instead of queueing it unchecked.
 
 ### Changed
 
-- Large sliced plates: inspect up to 256 MiB of plate G-code with bounded streaming buffers; accept print-file and Education uploads up to 160 MiB. Uploads stream to temporary storage, and source inspection completes before the dispatch readiness window. ZIP expansion and member bounds remain enforced, with a 200:1 compression-ratio bound.
+- Large multicolour plates: up to 256 MiB of plate G-code (was 96 MiB), and print-file and Education uploads up to 160 MiB (was 100 MB). Files are read as a stream, so memory doesn't grow with the plate. A 256 MiB plate takes about 20 to 30 seconds to check on two cores, and the check finishes before the printer is contacted. Zip size, member and expansion limits still apply, plus a compression-ratio limit for large members.
+- Each dispatch checks a file's filament sources once instead of twice.
+
+### Fixed
+
+- A scheduled job more than 2 hours late could be moved back to pending while its dispatch was still being prepared. The stale-schedule cleanup now leaves jobs with a dispatch in progress alone.
+- Selection checkboxes, label links, scrollable tables and colour swatches have accessible names.
 
 ## [2.0.42] - 2026-11-05
 
