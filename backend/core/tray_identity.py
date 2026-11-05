@@ -49,6 +49,11 @@ def advance(previous, tray, bound_tag=None, bound_uuid=None):
         state['confirmation_id'] = previous['confirmation_id']
     remain = tray.get('remain')
     state['remaining'] = remain if new_identity and not pending and type(remain) in (int, float) and 0 <= remain <= 100 and observed['exists'] is not False else None
+    # Preserve reported preset temperatures without changing spool identity.
+    prior_preset = previous.get('reported_preset', {})
+    same_preset = all(tray.get(key) == prior_preset.get(key) for key in ('tray_info_idx', 'tray_type'))
+    state['reported_preset'] = {key: tray.get(key, prior_preset.get(key) if same_preset else None) for key in
+        ('tray_info_idx', 'tray_type', 'nozzle_temp_min', 'nozzle_temp_max')}
     return state, strong
 
 

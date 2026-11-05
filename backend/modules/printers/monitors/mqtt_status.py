@@ -36,6 +36,10 @@ def handle_status(self, status, generation, runtime):
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
         raw = status.raw_data.get('print', {})
+        from modules.printers.monitors.terminal_evidence import capture
+        from modules.printers.monitors.pause_cause import observe as observe_pause, stage as pause_stage
+        capture(self, raw, runtime.log)
+        observe_pause(self, raw)
         if getattr(status, 'mqtt_retained', None) is True:
             log_retained_report(self, raw, runtime)
         from modules.printers.monitors.nozzle_observations import observe
@@ -258,7 +262,7 @@ def handle_status(self, status, generation, runtime):
                     noz_tt = self._state.get('nozzle_target_temper')
                     gstate = self._state.get('gcode_state')
                     stg_cur = self._state.get('stg_cur', -1)
-                    stage = runtime.resolve_stage_label(stg_cur, gstate)
+                    stage = pause_stage(self, runtime.resolve_stage_label(stg_cur, gstate))
                     import json as _json
                     hms_raw = self._state.get('hms', [])
                     hms_j = _json.dumps(hms_raw) if hms_raw else None

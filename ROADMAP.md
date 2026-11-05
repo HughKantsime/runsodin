@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Bambu tray, terminal evidence and pause visibility
+
+- Explicit tray preset settings with bounded printer replies, audited failed/cancelled correction and current pause causes. Claude review and an attended idle-printer tray test remain required; X1C and H2D/AMS HT payloads are not hardware-qualified. Cancellation classification is unchanged.
+
 ## Prepared: Anycubic LAN monitoring
 
 - Stock Kobra family LAN telemetry and ACE Pro / ACE 2 filament slots with existing spool assignment. Fixture-tested; owner live S1 acceptance and Claude review remain pending. Upload, controls, dispatch and Education support are outside this phase.

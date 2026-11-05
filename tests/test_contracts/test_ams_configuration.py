@@ -41,7 +41,7 @@ def test_invalid_current_facts_refuse_without_leaking_values(configured,column,v
     db, _ = configured
     assert column in {'api_key','api_type','api_host','is_active','shared','org_id'}
     db.execute(text('UPDATE printers SET '+column+'=:value'), {'value':value})
-    with pytest.raises(AMSConfigurationUnavailable, match='^Fresh printer configuration unavailable$'):
+    with pytest.raises(AMSConfigurationUnavailable, match='^Shared printers cannot be configured this way$' if column == 'shared' and value == 1 else '^Fresh printer configuration unavailable$'):
         load_ams_configuration(db,1)
 
 

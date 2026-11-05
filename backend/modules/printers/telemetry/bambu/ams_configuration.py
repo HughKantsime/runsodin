@@ -67,7 +67,9 @@ def load_ams_configuration(db, printer_id):
         owner = row['org_id']
         if owner is not None and (type(owner) is not int or owner <= 0):
             raise ValueError()
-        if not _flag(row['is_active']) or _flag(row['shared']):
+        if _flag(row['shared']):
+            raise AMSConfigurationUnavailable('Shared printers cannot be configured this way')
+        if not _flag(row['is_active']):
             raise ValueError()
         host = _host(row['api_host'])
         ciphertext = row['api_key']
@@ -91,5 +93,7 @@ def load_ams_configuration(db, printer_id):
                           hashlib.sha256).hexdigest()
         return BoundAMSConfiguration(printer_id, owner, digest,
             BambuAdapterConfig(str(printer_id), serial, host, access_code))
+    except AMSConfigurationUnavailable:
+        raise
     except Exception:
         raise AMSConfigurationUnavailable('Fresh printer configuration unavailable') from None

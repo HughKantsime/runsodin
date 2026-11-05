@@ -1,8 +1,8 @@
 """Bambu command-plane adapter — publishes to `device/<serial>/request`.
 
-Byte-equivalent to legacy `adapters/bambu.py` command methods. Every
-method here builds the exact same payload dict legacy builds, publishes
-it to the same topic, and returns the same success signal.
+Commands publish to the same topic and return broker acceptance. Tray
+settings use explicit preset/temperature fields and local tray IDs; callers
+that need printer acceptance use the bounded tray_setting reply session.
 
 This adapter is **separate** from the telemetry adapter:
 - Telemetry (read) → subscribe to `device/<serial>/report`, parse, emit events.
@@ -212,28 +212,27 @@ class BambuCommandAdapter:
         self,
         ams_id: int,
         slot_id: int,
+        preset_id: str,
         material: str,
         color: str,
-        k_factor: float = 0.0,
+        nozzle_temp_min: int,
+        nozzle_temp_max: int,
     ) -> bool:
-        """Configure an AMS slot. `color` is RRGGBB or RRGGBBAA (# optional)."""
-        color = color.lstrip("#")
-        if len(color) == 6:
-            color = color + "FF"
-        tray_id = ams_id * 4 + slot_id
+        """Configure an AMS slot using the reported preset and opaque RGB colour."""
+        color = color.lstrip("#")[:6] + "FF"
+        tray_id = slot_id
         return self._publish({
             "print": {
                 "sequence_id": "0",
                 "command": "ams_filament_setting",
                 "ams_id": ams_id,
                 "tray_id": tray_id,
-                "tray_info_idx": material,
+                "tray_info_idx": preset_id,
                 "tray_color": color.upper(),
-                "nozzle_temp_min": 190,
-                "nozzle_temp_max": 240,
+                "nozzle_temp_min": nozzle_temp_min,
+                "nozzle_temp_max": nozzle_temp_max,
                 "tray_type": material,
                 "setting_id": "",
-                "k": k_factor,
             }
         })
 

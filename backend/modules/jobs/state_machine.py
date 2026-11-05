@@ -48,6 +48,10 @@ TRANSITIONS: dict[str, dict[str, frozenset[str]]] = {
         PENDING: frozenset({COMPLETED, FAILED, CANCELLED}),
         SCHEDULED: frozenset({PENDING, SCHEDULED}),
     },
+    "outcome_correction": {
+        FAILED: frozenset({CANCELLED}),
+        CANCELLED: frozenset({FAILED}),
+    },
     "outside_binding": {
         PENDING: frozenset({COMPLETED}),
         SCHEDULED: frozenset({COMPLETED}),

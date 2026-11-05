@@ -61,9 +61,10 @@ def test_move_on_each_assignment_writer(graph, monkeypatch, writer):
     else:
         import asyncio
         from modules.printers.routes_ams_env import configure_ams_slot, AMSSlotConfigRequest
-        from modules.printers import route_utils
-        monkeypatch.setattr(route_utils, '_bambu_command_direct', lambda *args: True)
-        asyncio.run(configure_ams_slot(10, 0, 1, AMSSlotConfigRequest(material='PLA', color='#123ABC', spool_id=199), USER, db))
+        from modules.printers.telemetry.bambu import ams_configuration, tray_setting
+        monkeypatch.setattr(ams_configuration, 'load_ams_configuration', lambda *args: SimpleNamespace(transport=None))
+        monkeypatch.setattr(tray_setting, 'set_tray', lambda *args: {'result': 'success', 'reason': None})
+        asyncio.run(configure_ams_slot(10, 0, 0, AMSSlotConfigRequest(preset_id='GFA00', material='PLA', color='#123ABC', nozzle_temp_min=190, nozzle_temp_max=240, spool_id=199), USER, db))
     assert_moved(db)
 
 

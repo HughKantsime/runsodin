@@ -14,6 +14,9 @@ All notable changes to O.D.I.N. are documented here.
 - AMS refusals explain conflicting slicer maps and missing extruder fields without exposing file contents. Final dispatch refusals name changed configuration, capability and ownership fields without values.
 - P2S cameras receive the automatic RTSPS URL verified on hardware; H2S, H2C and H2D Pro remain excluded.
 - Native MJPEG cameras use the existing MJPEG viewer immediately, without H.264 conversion or WebRTC retries. RTSP cameras retain WebRTC and its fallback.
+- Bambu tray settings require an explicit preset, material, colour and temperature range, send a local tray ID without changing K, and return the printer's bounded reply. Reported tray presets are retained for reuse; shared-printer refusal names its cause. Hardware acceptance is reported for P1S only; X1C and H2D/AMS HT require attended validation.
+- Operators with jobs edit permission can correct the latest linked print/job outcome between failed and cancelled from Jobs or Archives. Corrections are audited and leave filament, costs and alerts unchanged. Terminal Bambu packets are logged for up to 30 seconds or 20 packets without changing cancellation classification.
+- Paused Bambu cards and detail pages show current print-error text, then the most recently observed still-active HMS cause, instead of historical error text.
 
 ### Documentation
 
