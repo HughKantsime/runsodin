@@ -30,7 +30,7 @@
     "name": "P1S-09",
     "success_rate": 70.0,
     "total_hours": 7.0,
-    "utilization_pct": 1.0
+    "utilization_pct": 0.8
    },
    {
     "avg_job_hours": 0,
@@ -144,10 +144,10 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-10-29T15:52:47"
+  "updated_at": "2026-11-05T23:55:15"
  },
  "fail_printing_response": {
-  "actual_end": "2026-10-29T15:52:47.377269Z",
+  "actual_end": "2026-11-05T23:55:15.255085Z",
   "actual_start": "2026-10-12T06:00:00",
   "ams_mapping": [
    0
@@ -658,7 +658,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-10-29T15:52:47"
+   "updated_at": "2026-11-05T23:55:15"
   },
   {
    "actual_end": null,
@@ -3514,7 +3514,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-10-29T15:52:47",
+  "created_at": "2026-11-05T23:55:15",
   "display_name": "CertC pinned blocked",
   "due_date": null,
   "duration_hours": 1.0,
@@ -3550,7 +3550,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-10-29T15:52:47"
+  "updated_at": "2026-11-05T23:55:15"
  },
  "printers": [
   {
@@ -3565,7 +3565,7 @@
    "camera_source": "auto",
    "camera_url": "bambu-chamber://auto",
    "chamber_temp": null,
-   "created_at": "2026-10-29T15:52:47",
+   "created_at": "2026-11-05T23:55:14",
    "current_print_display_name": null,
    "fan_speed": null,
    "feeding_slot": null,
@@ -3579,7 +3579,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-10-29T15:52:47",
+     "loaded_at": "2026-11-05T23:55:14",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3597,7 +3597,7 @@
    "filament_source_status": null,
    "gcode_state": null,
    "has_api_key": true,
-   "hms_errors": null,
+   "hms_errors": "[]",
    "hours_since_maintenance": null,
    "id": 9,
    "installed_nozzles": null,
@@ -3633,7 +3633,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-29T15:52:47"
+   "updated_at": "2026-11-05T23:55:14"
   },
   {
    "api_host": null,
@@ -3647,7 +3647,7 @@
    "camera_source": null,
    "camera_url": null,
    "chamber_temp": null,
-   "created_at": "2026-10-29T15:52:47",
+   "created_at": "2026-11-05T23:55:14",
    "current_print_display_name": null,
    "fan_speed": null,
    "feeding_slot": null,
@@ -3661,7 +3661,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-10-29T15:52:47",
+     "loaded_at": "2026-11-05T23:55:14",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3679,7 +3679,7 @@
    "filament_source_status": null,
    "gcode_state": null,
    "has_api_key": false,
-   "hms_errors": null,
+   "hms_errors": "[]",
    "hours_since_maintenance": null,
    "id": 10,
    "installed_nozzles": null,
@@ -3715,7 +3715,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-29T15:52:47"
+   "updated_at": "2026-11-05T23:55:14"
   }
  ],
  "recent_terminal": [

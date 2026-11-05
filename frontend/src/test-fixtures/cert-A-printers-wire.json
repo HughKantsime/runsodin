@@ -16,7 +16,7 @@
       "nozzle_target_temp": 220.0,
       "gcode_state": "RUNNING",
       "print_stage": "Idle",
-      "hms_errors": "[{\"attr\": 83952640, \"code\": 196612}, {\"attr\": 83887616, \"code\": 131232}, {\"attr\": 83952640, \"code\": 196610}, {\"attr\": 83886592, \"code\": 196618}, {\"attr\": 201326848, \"code\": 131095}]",
+      "hms_errors": "[{\"code\": \"05010400_00030004\", \"attr\": 83952640, \"raw_code\": 196612, \"severity\": \"info\", \"message\": \"Printer code 0501-0400-0003-0004\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0004\"}, {\"code\": \"05000600_000200A0\", \"attr\": 83887616, \"raw_code\": 131232, \"severity\": \"error\", \"message\": \"Printer code 0500-0600-0002-00A0\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0500_0600_0002_00A0\"}, {\"code\": \"05010400_00030002\", \"attr\": 83952640, \"raw_code\": 196610, \"severity\": \"info\", \"message\": \"Printer code 0501-0400-0003-0002\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0002\"}, {\"code\": \"05000200_0003000A\", \"attr\": 83886592, \"raw_code\": 196618, \"severity\": \"info\", \"message\": \"Printer code 0500-0200-0003-000A\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0500_0200_0003_000A\"}, {\"code\": \"0C000100_00020017\", \"attr\": 201326848, \"raw_code\": 131095, \"severity\": \"error\", \"message\": \"Printer code 0C00-0100-0002-0017\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0C00_0100_0002_0017\"}]",
       "lights_on": false,
       "installed_nozzles": [
         {
@@ -38,8 +38,8 @@
       "total_print_count": null,
       "hours_since_maintenance": null,
       "prints_since_maintenance": null,
-      "last_error_code": "05010400_00030004",
-      "last_error_message": "AMS1: Filament load/unload failure on slot 4. Check PTFE path and filament tip.",
+      "last_error_code": "0C000100_00020017",
+      "last_error_message": "Printer code 0C00-0100-0002-0017",
       "last_error_at": "2026-10-14T10:21:00",
       "camera_discovered": null,
       "tags": [
@@ -636,8 +636,8 @@
         "id": 1,
         "printer_id": 301,
         "code": "05010400_00030004",
-        "message": "AMS1: Filament load/unload failure on slot 4. Check PTFE path and filament tip.",
-        "severity": "warning",
+        "message": "Printer code 0501-0400-0003-0004",
+        "severity": "info",
         "source": "bambu_hms",
         "occurred_at": "2026-10-14T11:03:00"
       },
@@ -645,8 +645,8 @@
         "id": 2,
         "printer_id": 301,
         "code": "05000600_000200A0",
-        "message": "AMS Hub: filament mapping error.",
-        "severity": "warning",
+        "message": "Printer code 0500-0600-0002-00A0",
+        "severity": "error",
         "source": "bambu_hms",
         "occurred_at": "2026-10-14T11:04:00"
       },
@@ -654,8 +654,8 @@
         "id": 3,
         "printer_id": 301,
         "code": "05010400_00030002",
-        "message": "AMS1: Filament load/unload failure on slot 2.",
-        "severity": "warning",
+        "message": "Printer code 0501-0400-0003-0002",
+        "severity": "info",
         "source": "bambu_hms",
         "occurred_at": "2026-10-14T11:05:00"
       },
@@ -663,8 +663,8 @@
         "id": 4,
         "printer_id": 301,
         "code": "05000200_0003000A",
-        "message": "AMS Hub: cutter failure.",
-        "severity": "warning",
+        "message": "Printer code 0500-0200-0003-000A",
+        "severity": "info",
         "source": "bambu_hms",
         "occurred_at": "2026-10-14T11:06:00"
       },
@@ -672,8 +672,8 @@
         "id": 5,
         "printer_id": 301,
         "code": "0C000100_00020017",
-        "message": "Extruder: temperature abnormal.",
-        "severity": "warning",
+        "message": "Printer code 0C00-0100-0002-0017",
+        "severity": "error",
         "source": "bambu_hms",
         "occurred_at": "2026-10-14T11:07:00"
       }
