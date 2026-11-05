@@ -118,7 +118,8 @@ def head_block_reason(db, row, org):
         return '; '.join(reason['detail'] for reason in compatibility['reasons'])
     if row['gcode_state'] not in ('IDLE', 'FINISH', 'idle', 'ready'):
         return 'Waiting for an idle printer and fresh readiness confirmation'
-    if row.get('hms_errors') and row['hms_errors'] != '[]':
+    from modules.printers.hms_state import has_display_entries
+    if has_display_entries(row.get('hms_errors')):
         return 'Printer has recorded HMS diagnostics; inspect and reconcile before printing'
     return 'Live readiness, AMS, bed clearance and sender checks run before print start'
 

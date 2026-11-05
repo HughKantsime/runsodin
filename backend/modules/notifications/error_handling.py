@@ -23,6 +23,7 @@ log = logging.getLogger("printer_events")
 
 from modules.printers.hms_codes import parse_hms_errors
 from modules.printers.hms_codes import credential_prefix
+from modules.printers.hms_state import display_entries, safety_entries
 
 
 def record_error(
@@ -281,17 +282,23 @@ def process_hms_errors(
         with get_db() as conn:
             row = conn.execute('SELECT api_key,hms_errors FROM printers WHERE id=?', (printer_id,)).fetchone()
         prefix = credential_prefix(row[0]) if row else ''
-        previous = json.loads(row[1] or '[]') if row else []
+        previous = display_entries(json.loads(row[1] or '[]') or []) if row else []
         # Old releases persisted raw packets. Compare identities, not old meanings.
-        prior_codes = {e['code'] for e in parse_hms_errors(previous, prefix)} if previous and isinstance(previous[0].get('code'), int) else {e.get('code') for e in previous}
+        prior_codes = {e['code'] for e in parse_hms_errors(previous, prefix)}
+        prior_codes.update(e['code'] for e in previous if isinstance(e, dict) and isinstance(e.get('code'), str))
     except Exception:
         log.error('Failed to read HMS state for printer %s; retry required', printer_id)
         return {'retryable': True}
     errors = parse_hms_errors(hms_data, prefix)
+    active = errors + safety_entries(hms_data, errors)
+    # Persist safety before classification/alert effects can fail or return early.
+    # Keep previous display identities until success so retries still alert once.
+    # An empty report replaces both sets atomically with [].
+    with get_db() as conn:
+        pending = previous + safety_entries(hms_data) if errors else active
+        conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(pending), printer_id))
+        conn.commit()
     if not errors:
-        with get_db() as conn:
-            conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', ('[]', printer_id))
-            conn.commit()
         return {'errors': []}
 
     from core.job_timeline import for_printer
@@ -352,7 +359,7 @@ def process_hms_errors(
                      severity=error['severity'],
                      create_alert=not education_suppressed and error['severity'] in ('critical', 'error'))
     with get_db() as conn:
-        conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(errors), printer_id))
+        conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(active), printer_id))
         conn.commit()
 
     # Display/history remain available during replay; only fresh, explicitly

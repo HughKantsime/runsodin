@@ -25,6 +25,12 @@ def _code_value(item):
 
 def _blocking_fault(item):
     """Fatal, serious, unknown-level or unreadable entries block; notices don't."""
+    if isinstance(item, dict) and item.get('display') is False:
+        item = item.get('hms_safety')
+        # These are raw MQTT entries, not the parsed/string-code legacy shape.
+        if not isinstance(item, dict) or type(item.get('code')) is not int:
+            return True
+        item = {'attr': item.get('attr'), 'code': item['code']}
     if not isinstance(item, dict):
         return True
     attr, code = item.get('attr'), _code_value(item)

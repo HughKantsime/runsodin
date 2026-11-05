@@ -241,10 +241,9 @@ def test_malformed_persisted_entries_block(audited, review_db, entry):
     assert not calls
 
 
-def test_empty_bundle_description_keeps_the_fault():
+def test_empty_bundle_description_stays_hidden():
     from modules.printers import hms_codes
     from unittest import mock
     with mock.patch.object(hms_codes, 'load_bundle', return_value={'device_hms': {'0500030000020018': ''}}):
         errors = hms_codes.parse_hms_errors([{'attr': 0x05000300, 'code': 0x00020018}], '00M')
-    assert [e['code'] for e in errors] == ['05000300_00020018']
-    assert errors[0]['severity'] == 'error' and errors[0]['message']
+    assert errors == []

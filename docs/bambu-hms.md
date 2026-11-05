@@ -18,7 +18,10 @@ last-seen codes are labelled as history. An explicit empty HMS array clears the
 active set; omitted/null arrays do not. Persistent active code identities prevent
 reconnects/restarts from generating the same alert, even after six hours or
 reading/dismissing the prior alert. A clear followed by recurrence is new.
-Job failure follows `gcode_state`, never a guessed HMS code list.
+A fatal/serious HMS fault can fail a matching active print only with fresh,
+non-retained `FAILED`, `PAUSE` or `IDLE` corroboration from the same or a following
+report. Retained HMS is display-only for job outcomes; common/info notices never
+fail a job. There is no hand-maintained stopping-code list.
 
 ## Release refresh
 
