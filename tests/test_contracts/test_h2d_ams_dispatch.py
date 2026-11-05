@@ -11,13 +11,13 @@ from tests.test_contracts.test_education_review_workflow import review_db as rev
 from tests.test_contracts.dispatch_test_support import configure_dispatch
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
 from tests.test_contracts.test_dispatch_capability import REPORT
-from tests.test_contracts.test_ams_source_inspection import H2D, h2d_archive
+from tests.test_contracts.test_ams_source_inspection import h2d_archive
 
 
 def setup_h2d(review_db, tmp_path, monkeypatch, *, mapping=None):
     from modules.printers import dispatch_acquisition
     engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu', slot_count=4)
-    path.write_bytes(H2D.read_bytes())
+    path.write_bytes(h2d_archive())
     with engine.begin() as conn:
         conn.execute(text("UPDATE printers SET machine_type='O1D',model='H2D',bed_x_mm=350,bed_y_mm=320 WHERE id=59"))
         conn.execute(text('UPDATE jobs SET payload_sha256=:hash,ams_mapping=:mapping WHERE id=53'),
@@ -58,7 +58,7 @@ def test_h2d_dispatch_uploads_then_checks_exact_mapping(review_db, tmp_path, mon
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)
     def uploaded(staged, remote):
         events.append('upload')
-        assert Path(staged).read_bytes() == H2D.read_bytes()
+        assert Path(staged).read_bytes() == path.read_bytes()
         if change == 'ams_configuration':
             with engine.begin() as conn:
                 conn.execute(text('UPDATE printers SET slot_count=1 WHERE id=59'))
@@ -161,8 +161,9 @@ def test_all_bambu_models_derive_verified_source(review_db, tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize('mapping', [[1], [-1, 0], [-1, 1, -1]])
-def test_derived_preflight_cannot_select_another_tray_or_vector(mapping):
+def test_derived_preflight_cannot_select_another_tray_or_vector(tmp_path, mapping):
     from modules.printers.dispatch_ams_gate import preflight_ams_source
+    path = tmp_path / 'synthetic.3mf'; path.write_bytes(h2d_archive())
     with pytest.raises(ValueError):
         preflight_ams_source({'ams_mapping': None, 'plate_index': 0}, mapping=mapping,
-            staged_path=H2D, payload_sha256=hashlib.sha256(H2D.read_bytes()).hexdigest(), derived=True)
+            staged_path=path, payload_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), derived=True)

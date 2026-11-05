@@ -21,11 +21,19 @@ from tests.test_contracts.test_education_review_workflow import review_db as rev
 
 def setup_bambu(review_db, tmp_path, monkeypatch, *, source=0, verified=True, model='X1C', slots=4):
     engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu', slot_count=slots)
+    settings = {'filament_type': ['PETG'] * (source + 1)}
+    plate_map = ''
+    if model == 'H2D':
+        settings.update(printer_model='Bambu Lab H2D', nozzle_diameter=['0.4', '0.4'],
+                        nozzle_volume_type=['High Flow', 'High Flow'], physical_extruder_map=[1, 0],
+                        extruder_max_nozzle_count=[1, 1])
+        plate_map = '<metadata key="filament_maps" value="' + ' '.join(['1'] * (source + 1)) + '"/>'
     payload = archive(
-        xml=f'<config><plate><metadata key="index" value="1"/><filament id="{source + 1}" type="PETG"/></plate></config>',
-        settings=json.dumps({'filament_type': ['PETG'] * (source + 1)}),
+        xml=f'<config><plate><metadata key="index" value="1"/>{plate_map}<filament id="{source + 1}" type="PETG"/></plate></config>',
+        settings=json.dumps(settings),
         code=f'; filament_type = {";".join(["PETG"] * (source + 1))}\nM620 S{source}A\nM621 S{source}A\n'
-        + ('T9\n' if not verified else ''))
+        + ('T9\n' if not verified else '')
+        + (('; CONFIG_BLOCK_START\n; physical_extruder_map = 1,0\n; filament_map = ' + ','.join(['1'] * (source + 1)) + '\n; CONFIG_BLOCK_END\n') if model == 'H2D' else ''))
     path.write_bytes(payload)
     with engine.begin() as conn:
         conn.execute(text('UPDATE printers SET machine_type=:model,model=:model,slot_count=:slots WHERE id=59'),

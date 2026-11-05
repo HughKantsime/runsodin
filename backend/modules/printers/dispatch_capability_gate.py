@@ -41,6 +41,8 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
             actual = bambu_model_name(creds.get('machine_type') or creds.get('model'))
             if required and actual and required != actual:
                 return refuse('printer_model_mismatch', f'File requires {required}; printer is {actual}')
+            if facts.get('mapping_refusal'):
+                return refuse('source_mapping_unverified', facts['mapping_refusal'])
             detail = geometry_refusal(facts, creds)
             if detail:
                 return refuse('bed_geometry_mismatch', detail)
@@ -111,5 +113,7 @@ def static_refusal(path, plate_number, creds):
     actual = bambu_model_name(creds.get('machine_type') or creds.get('model'))
     if required and actual and required != actual:
         return GateRefusal('printer_model_mismatch', f'File requires {required}; printer is {actual}')
+    if facts.get('mapping_refusal'):
+        return GateRefusal('source_mapping_unverified', facts['mapping_refusal'])
     detail = geometry_refusal(facts, creds)
     return GateRefusal('bed_geometry_mismatch', detail) if detail else None
