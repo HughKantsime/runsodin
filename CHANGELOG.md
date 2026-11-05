@@ -4,7 +4,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.43] - 2026-11-05
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: Foundry, a new look you can switch on; plates up to 256 MiB of G-code; plan a filament load for held jobs before loading it. -->
 
 ### Added
