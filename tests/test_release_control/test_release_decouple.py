@@ -27,6 +27,11 @@ PLATFORM_NAMES = [NAME + '-' + platform.replace('/', '-') for platform in PLATFO
 IMAGE_IDS = {platform: DIGEST for platform in PLATFORMS}
 
 
+@pytest.fixture(autouse=True)
+def isolated_release_state(tmp_path, monkeypatch):
+    monkeypatch.setenv('RELEASE_CONTROL_STATE_DIR', str(tmp_path / 'release-state'))
+
+
 def response(url):
     path = url.split(':43210')[-1]
     bodies = {
@@ -369,7 +374,7 @@ git(){ case "$*" in *rev-parse*) printf '%040d\n' 1;; esac; }
 python3.11(){ :; }; ci_disk(){ :; }; wait_validation(){ :; }; waitok(){ PP_COMPLETE=1; PP_CONCLUSION=success; }
 download_run(){ echo '{}' > "$2/manifest.json"; echo '{}' > "$2/receipt.json"; }
 publication_digest(){ echo sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc; }
-instance_remote(){ echo "HOST $1"; [ "$1" = watchtower ]; }
+instance_remote(){ echo "HOST $1"; [ "$1" = watchtower ] || [ "$1" = check ]; }
 run_production_eligibility(){ PE=200; echo ELIGIBILITY; }
 dispatch_production(){ PP=400; echo PROMOTE; }
 approve(){ echo APPROVE; }; move_main(){ MAIN_MOVED=1; }
@@ -389,7 +394,7 @@ def test_chain_host_update_rechecks_freeze_and_keeps_customer_success(failure, t
     script = external('release-chain-v4.sh')
     harness = r'''
 source "$1"
-V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
+WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
 instance_window(){ echo WINDOW; promotion_ready; }
 instance_remote(){ echo "$1"; [ "$1" != "$FAILURE" ]; }
 promotion_ready(){ echo RECHECK_FREEZE_AND_IDLE; }
@@ -457,7 +462,7 @@ def test_host_helper_changes_only_odin_and_pins_image(action, pinned, tmp_path, 
         rollback = list(tmp_path.glob('.odin-rollback-*'))
         assert len(rollback) == 1
         assert json.loads(rollback[0].read_text())['services']['odin']['image'] == old_reference
-        assert 'Rollback (inside a safe deploy window)' in capsys.readouterr().out
+        assert 'use instance_update.py rollback --token' in capsys.readouterr().out
         expected = old_reference if action == 'migrate' else instance_update.IMAGE + '@' + DIGEST
         assert json.loads((tmp_path / 'docker-compose.override.yml').read_text())['services']['odin']['image'] == expected
         instance_update.check()  # ordinary Compose now describes the running image
@@ -506,7 +511,7 @@ def test_interrupted_host_restart_retains_protection(code):
     script = external('release-chain-v4.sh')
     harness = r'''
 source "$1"
-V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
+WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
 instance_window(){ :; }; promotion_ready(){ :; }
 instance_remote(){ if [ "$1" = apply ]; then return "$CODE"; fi; }
 update_instance || :
@@ -614,6 +619,9 @@ source "$1" 1.9.13
     writes = (tmp_path / 'writes').read_text().splitlines() if (tmp_path / 'writes').exists() else []
     assert writes == ({0: ['TAG', 'RELEASE'], 1: [], 2: [], 3: ['TAG']}[failure_at])
     assert int((tmp_path / 'count').read_text()) == (failure_at or 3)
+    assert 'Traceback' not in result.stderr
+    if schema == 1 and failure_at:
+        assert 'production /health does not report healthy version 1.9.13' in result.stderr
 
 
 @pytest.mark.parametrize('mode', ['missing', 'bad-status', 'bad-image-id', 'wrong-version', 'wrong-digest', 'unready', 'bad-smoke', 'summary-mismatch'])
@@ -715,17 +723,26 @@ def test_instance_check_rejects_compose_image_drift(monkeypatch):
     with pytest.raises(RuntimeError, match='Compose image differs'): instance_update.check()
 
 
-@pytest.mark.parametrize('code', [0, 3, 124, 255])
-def test_chain_pre_release_host_check_only_blocks_enabled_watchtower(code):
+@pytest.mark.parametrize('code', [0, 1, 3, 124, 127, 255])
+@pytest.mark.parametrize('marker', [False, True])
+@pytest.mark.parametrize('probe', ['watchtower', 'check'])
+def test_chain_pre_release_host_check_requires_prior_isolation(code, marker, probe, tmp_path):
+    state = tmp_path / 'release-state'
+    state.mkdir()
+    if marker: (state / 'watchtower-isolated').write_text('root@192.168.71.211\n')
     harness = r'''
 source "$1"
-instance_remote(){ [ "$1" = watchtower ] || return 99; return "$CODE"; }
+instance_remote(){ if [ "$1" = "$PROBE" ]; then return "$CODE"; fi; }
 pre_release_host_check
 '''
     result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True, env={**os.environ, 'CODE': str(code)})
-    assert (result.returncode != 0) == (code == 3)
-    if code in (124, 255): assert 'WARNING' in result.stdout
+                            text=True, capture_output=True,
+                            env={**os.environ, 'CODE': str(code), 'PROBE': probe})
+    allowed = code == 0 or (code in (124, 255) and marker)
+    assert (result.returncode == 0) == allowed, result.stdout + result.stderr
+    if code in (124, 255) and marker: assert 'WARNING' in result.stdout
+    if code == 0: assert (state / 'watchtower-isolated').read_text().strip() == 'root@192.168.71.211'
+    elif not marker: assert not (state / 'watchtower-isolated').exists()
 
 
 @pytest.mark.parametrize('which', ['compose', 'runtime', 'neither'])
@@ -787,13 +804,14 @@ freeze_check(){ :; }; idle_fleet(){ echo busy; }
 instance_remote(){ echo "HOST $1"; }
 open_window(){ echo FORBIDDEN_WINDOW; return 99; }
 window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; trim_colima(){ :; }
-update_instance
-printf 'RESULT=%s ELAPSED=%s\n' "$INSTANCE_UPDATE" "$NOW"
-cleanup 0
+rc=0; update_instance || rc=$?
+printf 'RESULT=%s ELAPSED=%s RC=%s\n' "$INSTANCE_UPDATE" "$NOW" "$rc"
+cleanup "$rc"
 '''
     result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True, timeout=10)
-    assert result.returncode == 0, result.stderr
-    assert 'RESULT=deferred ELAPSED=86400' in result.stdout
+    assert result.returncode == 3, result.stderr
+    assert 'RESULT=deferred ELAPSED=86400 RC=3' in result.stdout
+    assert 'OUTCOME customer_release=success instance_update=deferred' in result.stdout
     assert '--update-instance-only' in result.stdout and 'UNLOCK' in result.stdout
     assert 'FORBIDDEN_WINDOW' not in result.stdout and 'HOST apply' not in result.stdout
 
@@ -801,7 +819,7 @@ cleanup 0
 def test_chain_health_failure_keeps_marker_and_prints_rollback():
     harness = r'''
 source "$1"
-V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; TOKEN=abc
+WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; TOKEN=abc
 instance_remote(){ echo "$1"; }; instance_window(){ echo WINDOW; }; promotion_ready(){ :; }
 wait_for_instance(){ return 1; }
 window_close(){ echo FORBIDDEN_CLOSE; }; lock_release(){ echo FORBIDDEN_UNLOCK; }
@@ -813,7 +831,8 @@ cleanup 1
     result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True)
     assert result.returncode == 1
     assert result.stdout.index('pull') < result.stdout.index('WINDOW') < result.stdout.index('apply')
-    assert 'HOLD=1' in result.stdout and '.odin-rollback-abc.json' in result.stdout
+    assert 'HOLD=1' in result.stdout and "rollback --token 'abc'" in result.stdout
+    assert '/checkout/ops/release_control/instance_update.py' in result.stdout
     assert 'FORBIDDEN' not in result.stdout
 
 
@@ -874,11 +893,225 @@ promotion_ready(){
   time_left
 }
 window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; trim_colima(){ :; }
-update_instance
+rc=0; update_instance || rc=$?
 echo "RESULT=$INSTANCE_UPDATE"
-cleanup 0
+cleanup "$rc"
 '''
     result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True, timeout=10)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 3, result.stderr
     assert 'RESULT=deferred' in result.stdout and 'UNLOCK' in result.stdout and 'CLOSE' in result.stdout
     assert 'HOST apply' not in result.stdout
+
+
+@pytest.fixture
+def host_docker(tmp_path, monkeypatch):
+    """Resolve the actual Compose file list and maintain a fake container/image store."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(instance_update, 'DIRECTORY', tmp_path)
+    old_reference = instance_update.IMAGE + '@' + OLD
+    new_reference = instance_update.IMAGE + '@' + DIGEST
+    image_ids = {old_reference: 'sha256:' + 'e' * 64, new_reference: 'sha256:' + 'f' * 64}
+    base = {'image': instance_update.IMAGE + ':latest', 'labels': {instance_update.LABEL: 'true'}}
+    instance_update.pin_override(old_reference)
+    state = {'Config': {'Image': old_reference, 'Labels': {instance_update.LABEL: 'false'}},
+             'Image': image_ids[old_reference], 'State': {'Health': {'Status': 'healthy'}}}
+    commands = []
+    faults = {}
+
+    def effective(args):
+        service = copy.deepcopy(base)
+        for i, arg in enumerate(args):
+            if arg == '-f' and args[i + 1] != 'docker-compose.yml':
+                service.update(json.loads(Path(args[i + 1]).read_text())['services']['odin'])
+        return service
+
+    def command(*args):
+        commands.append(args)
+        if faults.get('command') in args:
+            raise faults.get('error', RuntimeError('injected failure'))
+        if args[:2] == ('docker', 'inspect'):
+            return json.dumps([state])
+        if args[:3] == ('docker', 'image', 'inspect'):
+            reference = args[-1]
+            if reference not in image_ids:
+                reference = next(ref for ref, identity in image_ids.items() if identity == reference)
+            return json.dumps([{'Id': image_ids[reference], 'RepoDigests': [reference]}])
+        if 'config' in args:
+            return json.dumps({'services': {'odin': effective(args)}})
+        if 'up' in args:
+            service = effective(args)
+            state['Image'] = image_ids[service['image']]
+            state['Config'] = {'Image': service['image'], 'Labels': service['labels']}
+            state['State']['Health']['Status'] = 'healthy'
+            if faults.get('wrong_running_image'): state['Image'] = 'sha256:' + '0' * 64
+        return ''
+
+    monkeypatch.setattr(instance_update, 'command', command)
+    return state, commands, faults
+
+
+@pytest.mark.parametrize('wrong_running_image', [False, True])
+def test_apply_failed_health_then_rollback_restores_persistent_pin(host_docker, wrong_running_image):
+    state, commands, faults = host_docker
+    token = 'a' * 32
+    instance_update.perform('apply', DIGEST, token)
+    state['State']['Health']['Status'] = 'unhealthy'  # v4's health gate fails after apply
+    pinned = Path('docker-compose.override.yml')
+    assert json.loads(pinned.read_text())['services']['odin']['image'] == instance_update.IMAGE + '@' + DIGEST
+    faults['wrong_running_image'] = wrong_running_image
+    if wrong_running_image:
+        with pytest.raises(RuntimeError, match='running image does not match'):
+            instance_update.perform('rollback', '', token)
+        assert json.loads(pinned.read_text())['services']['odin']['image'] == instance_update.IMAGE + '@' + DIGEST
+    else:
+        instance_update.perform('rollback', '', token)
+        instance_update.check()
+        config = json.loads(instance_update.compose('config', '--format', 'json'))
+        assert config['services']['odin']['image'] == state['Config']['Image'] == instance_update.IMAGE + '@' + OLD
+        assert state['Image'] == 'sha256:' + 'e' * 64
+        # An ordinary compose up now stays on the old image, without a rollback -f.
+        instance_update.compose('up', '-d', '--no-deps', '--pull', 'never', 'odin')
+        assert '.odin-rollback-' not in ' '.join(commands[-1])
+        assert state['Config']['Image'] == instance_update.IMAGE + '@' + OLD
+    assert Path(f'.odin-rollback-{token}.json').exists()
+    assert not list(Path('.').glob('.odin-release-*'))
+    rollback_up = next(cmd for cmd in commands if 'up' in cmd and f'.odin-rollback-{token}.json' in cmd)
+    assert '--no-deps' in rollback_up
+    assert rollback_up[-1] == 'odin' and rollback_up[rollback_up.index('--pull') + 1] == 'never'
+
+
+@pytest.mark.parametrize('invalid', ['missing', 'extra-service', 'floating-image'])
+def test_rollback_refuses_invalid_saved_override_before_restart(host_docker, invalid):
+    _, commands, _ = host_docker
+    token = 'b' * 32
+    saved = {'services': {'odin': {'image': instance_update.IMAGE + '@' + OLD,
+                                  'labels': {instance_update.LABEL: 'false'}}}}
+    if invalid == 'extra-service': saved['services']['other'] = {'image': 'other'}
+    if invalid == 'floating-image': saved['services']['odin']['image'] = instance_update.IMAGE + ':latest'
+    if invalid != 'missing': Path(f'.odin-rollback-{token}.json').write_text(json.dumps(saved))
+    with pytest.raises((FileNotFoundError, RuntimeError)):
+        instance_update.perform('rollback', '', token)
+    assert not any('up' in cmd for cmd in commands)
+
+
+@pytest.mark.parametrize('failure', ['check', 'image', 'override', 'rollback-file', 'digest', 'token'])
+@pytest.mark.parametrize('timeout', [False, True])
+def test_apply_refusal_exit_is_distinct_and_never_restarts(host_docker, failure, timeout, monkeypatch, capsys):
+    _, commands, faults = host_docker
+    error = subprocess.TimeoutExpired('secret-command', 30) if timeout else RuntimeError('secret-error')
+    if failure == 'check': faults.update(command='config', error=error)
+    elif failure == 'image': faults.update(command='image', error=error)
+    elif failure == 'override': Path('docker-compose.override.yml').write_text('{"services":{"other":{}}}')
+    elif failure == 'rollback-file': Path('.odin-rollback-' + 'a' * 32 + '.json').write_text('already exists')
+    monkeypatch.setattr(sys, 'argv', ['instance_update.py', 'apply', '--digest', 'bad' if failure == 'digest' else DIGEST,
+                                    '--token', 'bad' if failure == 'token' else 'a' * 32])
+    assert instance_update.main() == instance_update.APPLY_REFUSED == 4
+    output = capsys.readouterr()
+    assert 'apply refused before restart' in output.err
+    assert 'secret' not in output.err and 'Traceback' not in output.err
+    assert 'Rollback' not in output.out
+    assert not any('up' in cmd for cmd in commands)
+    assert not list(Path('.').glob('.odin-release-*'))
+
+
+def test_apply_timeout_after_restart_attempt_still_exits_124(host_docker, monkeypatch, capsys):
+    _, commands, faults = host_docker
+    faults.update(command='up', error=subprocess.TimeoutExpired('sensitive-command', 300))
+    monkeypatch.setattr(sys, 'argv', ['instance_update.py', 'apply', '--digest', DIGEST, '--token', 'a' * 32])
+    assert instance_update.main() == 124
+    assert any('up' in cmd for cmd in commands)
+    assert 'retain deploy protection' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('action,code', [('apply', 4), ('pull', 124)])
+def test_chain_pre_restart_failures_release_protection_without_rollback(action, code):
+    harness = r'''
+source "$1"
+WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
+instance_remote(){ echo "HOST $1"; if [ "$1" = "$ACTION" ]; then return "$CODE"; fi; }
+instance_window(){ echo WINDOW; WINDOW_OPEN=1; }
+wait_for_instance(){ echo FORBIDDEN_HEALTH; return 99; }
+window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; report_exit(){ :; }
+rc=0; update_instance || rc=$?
+echo "HOLD=$HOLD PENDING=$HOST_MUTATION_PENDING RC=$rc"
+cleanup "$rc"
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
+                            text=True, capture_output=True, env={**os.environ, 'ACTION': action, 'CODE': str(code)})
+    assert result.returncode == 1
+    assert 'HOLD=0 PENDING=0 RC=1' in result.stdout
+    assert 'CLOSE' in result.stdout and 'UNLOCK' in result.stdout
+    assert 'Rollback' not in result.stdout and 'FORBIDDEN' not in result.stdout
+    if action == 'pull': assert 'WINDOW' not in result.stdout and 'HOST apply' not in result.stdout
+    else: assert 'instance_update=apply_refused' in result.stdout
+
+
+@pytest.mark.parametrize('remaining', [89, 270, 389, 390, 391])
+def test_instance_window_requires_full_grace_sample_and_margin(remaining, tmp_path):
+    harness = r'''
+source "$1"
+WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; NOW=0; MARK="$2/marker"
+date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
+freeze_check(){ NOW=$((86400 - REMAINING)); }
+idle_fleet(){ echo idle; }
+promotion_ready(){ echo READY; }
+rc=0; instance_window || rc=$?
+echo "RC=$rc WINDOW=$WINDOW_OPEN RESULT=$INSTANCE_UPDATE"
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh')), str(tmp_path)],
+                            text=True, capture_output=True, env={**os.environ, 'REMAINING': str(remaining)})
+    assert result.returncode == 0, result.stderr
+    allowed = remaining > 390
+    assert (tmp_path / 'marker').exists() == allowed
+    assert ('READY' in result.stdout) == allowed
+    assert ('RC=0 WINDOW=1' if allowed else 'RC=75 WINDOW=0 RESULT=deferred') in result.stdout
+
+
+@pytest.mark.parametrize('remaining', [89, 90, 91])
+def test_grace_is_never_shortened_by_pause_for(remaining):
+    harness = r'''
+source "$1"
+NOW=100; INSTANCE_DEADLINE=$((NOW + REMAINING)); NEED_IDLE=1
+ date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
+sleep(){ echo "SLEEP=$1"; NOW=$((NOW + $1)); }
+freeze_renew(){ :; }; idle_fleet(){ echo idle; }
+rc=0; enforce_idle || rc=$?
+echo "RC=$rc NEED_IDLE=$NEED_IDLE"
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
+                            text=True, capture_output=True, env={**os.environ, 'REMAINING': str(remaining)})
+    assert result.returncode == 0, result.stderr
+    if remaining < 90:
+        assert 'SLEEP=' not in result.stdout and 'RC=75 NEED_IDLE=1' in result.stdout
+    else:
+        assert 'SLEEP=90' in result.stdout and 'RC=0 NEED_IDLE=0' in result.stdout
+
+
+def test_migration_records_host_isolation(tmp_path):
+    (tmp_path / 'lock').mkdir()
+    harness = r'''
+source "$1"
+WT=/checkout; V=1.9.13; TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; LOCK="$2/lock"
+instance_window(){ :; }; ssh_call(){ cat >/dev/null; echo 1.9.12; }
+instance_remote(){ :; }; wait_for_instance(){ :; }; window_close(){ :; }
+migrate_watchtower
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh')), str(tmp_path)],
+                            text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / 'release-state/watchtower-isolated').read_text() == 'root@192.168.71.211\n'
+
+
+@pytest.mark.parametrize('body', ['', 'not-json', '[]', 'null', '{"status":"ok"}'])
+def test_live_version_invalid_health_is_quiet_and_clear(body):
+    source = external('tools/github-release.sh').read_text()
+    functions = source[source.index('live_version() {'):source.index('\nlive_guard\n')]
+    harness = '''set -euo pipefail
+V=1.9.13; SCHEMA=1
+curl(){ printf '%s' "$BODY"; }
+fail(){ echo "github-release: $*" >&2; exit 1; }
+''' + functions + '\nlive_guard\n'
+    result = subprocess.run(['/bin/bash', '-c', harness], text=True, capture_output=True,
+                            env={**os.environ, 'BODY': body})
+    assert result.returncode == 1
+    assert result.stderr.strip() == 'github-release: production /health does not report healthy version 1.9.13'

@@ -19,6 +19,11 @@ DIRECTORY = Path('/opt/odin/runsodin')
 LABEL = 'com.centurylinklabs.watchtower.enable'
 OVERRIDE = {'services': {'odin': {'labels': {LABEL: 'false'}}}}
 IMAGE = 'ghcr.io/hughkantsime/odin'
+APPLY_REFUSED = 4  # No compose up was attempted; safe to release deploy protection.
+
+
+class ApplyRefused(RuntimeError):
+    pass
 
 
 def command(*args):
@@ -102,14 +107,77 @@ def rollback_file(old_reference, token):
     with open(name, 'x') as stream:
         json.dump({'services': {'odin': {'image': old_reference, 'labels': {LABEL: 'false'}}}}, stream)
     os.chmod(name, 0o600)
-    override = ' -f docker-compose.override.yml' if Path('docker-compose.override.yml').exists() else ''
-    print(f'Rollback (inside a safe deploy window): cd {DIRECTORY} && docker compose -f docker-compose.yml{override} -f {name} up -d --no-deps --pull never odin', flush=True)
+    print(f'Rollback file retained: {name}; use instance_update.py rollback --token {token} inside a safe deploy window', flush=True)
 
 
-def perform(action, digest, token):
+def validate_operation(token):
     if not re.fullmatch(r'[0-9a-f]{32}', token):
         raise ValueError('invalid operation token')
     os.chdir(DIRECTORY)
+
+
+def local_image(reference):
+    desired = json.loads(command('docker', 'image', 'inspect', reference))[0]
+    if reference not in desired.get('RepoDigests', []):
+        raise RuntimeError('local image digest mismatch')
+    return desired
+
+
+def verify_and_pin(desired, reference):
+    running = inspect()
+    if running['Image'] != desired['Id'] or running['Config']['Image'] != reference:
+        raise RuntimeError('running image does not match requested digest')
+    if running['Config'].get('Labels', {}).get(LABEL) != 'false':
+        raise RuntimeError('running odin still follows Watchtower')
+    pin_override(reference)
+    check()
+
+
+def apply_instance(digest, token):
+    temporary = None
+    try:
+        validate_operation(token)
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+            raise ValueError('invalid target digest')
+        check()
+        owned_override()
+        reference = f'{IMAGE}@{digest}'
+        desired = local_image(reference)
+        old_reference = repo_reference(inspect()['Image'])
+        temporary = override_file(reference)
+        rollback_file(old_reference, token)
+    except Exception as error:
+        if temporary is not None:
+            os.unlink(temporary)
+        # No restart has been attempted, even if a preflight read timed out.
+        raise ApplyRefused('apply refused before restart (details withheld)') from error
+    try:
+        compose('up', '-d', '--no-deps', '--pull', 'never', 'odin', override=temporary)
+        verify_and_pin(desired, reference)
+    finally:
+        os.unlink(temporary)
+
+
+def rollback(token):
+    owned_override()
+    name = f'.odin-rollback-{token}.json'
+    saved = json.loads(Path(name).read_text())
+    reference = saved['services']['odin']['image']
+    if (not isinstance(reference, str)
+            or not re.fullmatch(re.escape(IMAGE) + r'@sha256:[0-9a-f]{64}', reference)
+            or saved != {'services': {'odin': {'image': reference, 'labels': {LABEL: 'false'}}}}):
+        raise RuntimeError('invalid rollback override')
+    desired = local_image(reference)
+    compose('up', '-d', '--no-deps', '--pull', 'never', 'odin', override=name)
+    verify_and_pin(desired, reference)
+
+
+def perform(action, digest, token):
+    if action == 'apply':
+        return apply_instance(digest, token)
+    validate_operation(token)
+    if action == 'rollback':
+        return rollback(token)
     if action == 'watchtower':
         config = json.loads(compose('config', '--format', 'json'))
         if str(config['services']['odin'].get('labels', {}).get(LABEL)).lower() == 'true':
@@ -147,20 +215,6 @@ def perform(action, digest, token):
     try:
         if action == 'pull':
             compose('pull', 'odin', override=temporary)
-        elif action == 'apply':
-            old_id = inspect()['Image']
-            rollback_file(repo_reference(old_id), token)
-            desired = json.loads(command('docker', 'image', 'inspect', reference))[0]
-            if reference not in desired.get('RepoDigests', []):
-                raise RuntimeError('pulled image digest mismatch')
-            compose('up', '-d', '--no-deps', '--pull', 'never', 'odin', override=temporary)
-            running = inspect()
-            if running['Image'] != desired['Id'] or running['Config']['Image'] != reference:
-                raise RuntimeError('running image does not match released digest')
-            if running['Config'].get('Labels', {}).get(LABEL) != 'false':
-                raise RuntimeError('running odin still follows Watchtower')
-            pin_override(reference)
-            check()
         else:
             raise ValueError('unknown action')
     finally:
@@ -169,12 +223,15 @@ def perform(action, digest, token):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('check', 'watchtower', 'migrate', 'pull', 'apply'))
+    parser.add_argument('action', choices=('check', 'watchtower', 'migrate', 'pull', 'apply', 'rollback'))
     parser.add_argument('--digest', default='')
     parser.add_argument('--token', required=True)
     args = parser.parse_args()
     try:
         return perform(args.action, args.digest, args.token) or 0
+    except ApplyRefused:
+        print('instance-update: apply refused before restart; running instance unchanged', file=sys.stderr)
+        return APPLY_REFUSED
     except subprocess.TimeoutExpired:
         print('instance-update: command timed out; retain deploy protection', file=sys.stderr)
         return 124
