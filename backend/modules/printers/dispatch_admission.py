@@ -65,6 +65,29 @@ def recheck_admitted(engine, **inputs):
     return _check_attempt(engine, already_admitted=True, **inputs)
 
 
+def _printer_change_reason(previous, current):
+    """Names from a fixed allowlist only: never credentials or arbitrary keys/values."""
+    parts = []
+    for category, fields in (
+        ('configuration', ('api_type', 'ip', 'port', 'scheme', 'serial', 'access_code',
+                           'api_key', 'username', 'password', 'is_active')),
+        ('capability', ('model', 'machine_type', 'bed_x_mm', 'bed_y_mm', 'nozzle_diameter',
+                        'active_materials', 'filament_slots', 'slot_count')),
+        ('ownership', ('org_id', 'shared')),
+    ):
+        changed = [name for name in fields if previous.get(name) != current.get(name)]
+        if category == 'configuration':
+            old_plug, new_plug = previous.get('plug_configuration') or {}, current.get('plug_configuration') or {}
+            if isinstance(old_plug, dict) and isinstance(new_plug, dict):
+                changed.extend(name for name in ('plug_type', 'plug_host', 'plug_entity_id', 'plug_auth_token', 'plug_auto_on')
+                               if old_plug.get(name) != new_plug.get(name))
+            elif old_plug != new_plug:
+                changed.append('plug_configuration')
+        if changed:
+            parts.append(category + ' changed (' + ', '.join(changed) + ')')
+    return 'Printer ' + ('; '.join(parts) if parts else 'configuration could not be verified')
+
+
 def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filename,power_accepted,broker_connection=None,education_provider=None,education_reservation=None,already_admitted):
     """Revalidate captured facts and persist adapter entry on the same connection.
 
@@ -120,7 +143,7 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             current_identity=build_identity(current_creds,key)
             if (current_identity is None or current_identity!=identity or current_creds.get('is_active') is not True
                     or current_creds.get('slot_count') != creds.get('slot_count')):
-                raise _Refused('Printer configuration, capability or ownership changed')
+                raise _Refused(_printer_change_reason(creds, current_creds))
             ownership_error=ownership_refusal(current_job,current_creds)
             if ownership_error:
                 raise _Refused(ownership_error)

@@ -191,7 +191,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             if check_bindings:
                 extruder = source.get('extruder')
                 if type(extruder) is not int or extruder not in (0, 1):
-                    return refuse("source_extruder_unverified", f"File source {source['source_index'] + 1}: H2D extruder evidence is missing")
+                    return refuse("source_extruder_unverified", f"File source {source['source_index'] + 1}: the slicer's nozzle map can't be verified")
                 if type(tray.extruder) is not int or tray.extruder not in (0, 1):
                     return refuse("ams_binding_unverified", f"AMS slot {tray.slot_number}: H2D nozzle binding is missing or unsupported")
                 if tray.extruder != extruder:
