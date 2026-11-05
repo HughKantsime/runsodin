@@ -1,6 +1,7 @@
 """Synthetic multicolour H2D plates, no customer data or hardware access.
 
-Run the opt-in contract with ODIN_LARGE_PLATE_BENCHMARK=154 (or 256).
+Run: python ops/large_plate_benchmark.py --gcode-mib 256
+Uses the existing backend/test environment; no network or printer I/O.
 """
 import random
 import zipfile
@@ -34,3 +35,47 @@ def make_plate(path, mib):
                 remaining -= len(lines)
             if remaining:
                 code.write(b'\n' if remaining == 1 else b';' + b'x' * (remaining - 2) + b'\n')
+
+
+def peak_rss_bytes():
+    """ru_maxrss is bytes on macOS and KiB on Linux."""
+    import resource
+    import sys
+    value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(value if sys.platform == 'darwin' else value * 1024)
+
+
+def main(argv=None):
+    """Run the actual dispatch benchmark fixture, emitting only its JSON to stdout."""
+    import argparse
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--gcode-mib', type=int, default=256, help='uncompressed G-code size in binary MiB (1..256)')
+    args = parser.parse_args(argv)
+    if not 1 <= args.gcode_mib <= 256:
+        parser.error('--gcode-mib must be between 1 and 256')
+    root = Path(__file__).resolve().parents[1]
+    command = [sys.executable, '-m', 'pytest',
+        'tests/test_contracts/test_large_plate_dispatch.py::test_two_concurrent_large_dispatches',
+        '-q', '-s', '--color=no']
+    result = subprocess.run(command, cwd=root,
+        env={**os.environ, 'ODIN_LARGE_PLATE_BENCHMARK': str(args.gcode_mib)},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if result.returncode:
+        print(result.stdout, file=sys.stderr)
+        return result.returncode
+    for line in result.stdout.splitlines():
+        if line.startswith('LARGE_PLATE_BENCHMARK='):
+            measurement = json.loads(line.split('=', 1)[1])
+            print(json.dumps(measurement, indent=2))
+            return 0
+    print('Benchmark produced no measurement: ' + result.stdout, file=sys.stderr)
+    return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

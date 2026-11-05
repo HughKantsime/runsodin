@@ -29,7 +29,7 @@ def record_refusal(gate, code, detail):
     return False
 
 
-def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False):
+def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False, inspected_facts=None):
     """Read-only source check. No admission, database transaction or device I/O."""
     from modules.printers.services import inspect_ams_payload
     from modules.printers.dispatch_options import _ams_plate_index
@@ -47,7 +47,8 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     elif (type(stored_mapping) is not list or stored_mapping != mapping
             or any(type(slot) is not int for slot in stored_mapping)):
         raise ValueError('AMS selection differs from the admitted job')
-    facts = inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
+    # Only options validation supplies facts, inspected from this same staged path/hash.
+    facts = inspected_facts if inspected_facts is not None else inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
                                expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index,
                                **({} if derived or job.get('education_submission_id') is not None else {'multi_source': True}))
     sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))

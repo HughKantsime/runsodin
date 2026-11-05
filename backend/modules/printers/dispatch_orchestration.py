@@ -2,6 +2,7 @@
 import hmac
 import os
 import time
+import zipfile
 from core import deploy_freeze, dispatch_claims
 from core.dispatch_identity import build_identity,ownership_refusal
 from core.dispatch_target_lock import acquire_target_lock
@@ -102,7 +103,13 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
         return False,'Dispatch configuration identity could not be verified; no command was sent'
     if creds['api_type'] == 'bambu':
         from modules.printers.dispatch_capability_gate import static_refusal
-        refusal = static_refusal(source_path, (job.get('plate_index') or 0) + 1, creds)
+        try:
+            refusal = static_refusal(source_path, (job.get('plate_index') or 0) + 1, creds)
+        except (ValueError, OSError, zipfile.BadZipFile) as exc:
+            from modules.printers.dispatch_options import _requires_ams_mapping, _missing_mapping
+            if _requires_ams_mapping(creds) and job.get('ams_mapping') is None:
+                return False, _missing_mapping(job)
+            return False, f'Payload capability inspection failed: {exc}; no command was sent'
         if refusal:
             dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=refusal)
             return False, f'{refusal.code}: {refusal.detail}'
@@ -132,11 +139,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                     if error:result=(False,error)
                     else:provider,reservation=reserved
                 if not error:
-                    source_facts = None
-                    if options.get('ams_mapping') is not None:
-                        from modules.printers.dispatch_ams_gate import preflight_ams_source
-                        source_facts = preflight_ams_source(job, mapping=options['ams_mapping'],
-                            staged_path=staged.path, payload_sha256=staged.sha256, derived=derived)
+                    # Options validation inspected this exact staged snapshot once.
+                    source_facts = options.source_facts
                     deadline=time.monotonic()+ADMISSION_SECONDS
                     _require_target(target_handle)
                     power=smart_plug.prepare_bounded_dispatch_power(job['printer_id'],deadline)

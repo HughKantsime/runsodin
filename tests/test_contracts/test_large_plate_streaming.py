@@ -57,7 +57,7 @@ def test_archive_exact_cap_and_plus_one(monkeypatch):
 def test_ratio_and_member_count_still_refuse():
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, 'w', compression=zipfile.ZIP_DEFLATED) as package:
-        package.writestr('bomb', b'0' * 1000000)
+        package.writestr('bomb', b'0' * (1024 * 1024))
     with open_bounded(payload) as package, pytest.raises(ArchiveRefused, match='compression_ratio'):
         check_expansion(package)
     payload = io.BytesIO()
@@ -176,7 +176,7 @@ def test_worker_ratio_refusal_is_not_reported_as_member_count(tmp_path):
     from modules.models_library.mesh_worker import _analysis, _plates
     path = tmp_path / 'synthetic-ratio.3mf'
     with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as package:
-        package.writestr('Metadata/plate_1.gcode', b'G1 X1\n' * 100000)
+        package.writestr('Metadata/plate_1.gcode', b'G1 X1\n' * 200000)
     assert _analysis(str(path), 'synthetic', 'upload')['status'] == 'bad_zip'
     assert _plates(str(path))['status'] == 'bad_zip'
 
@@ -195,9 +195,24 @@ def test_ams_checks_expansion_of_unused_members(monkeypatch, bound):
     from core import zip_bounds
     payload = io.BytesIO(archive())
     with zipfile.ZipFile(payload, 'a', compression=zipfile.ZIP_DEFLATED) as package:
-        package.writestr('unused-padding', b'x' * 100000)
+        package.writestr('unused-padding', b'x' * (1024 * 1024))
     if bound != 'ratio':
         monkeypatch.setattr(zip_bounds, 'MAX_COMPRESSION_RATIO', 1000000)
         monkeypatch.setattr(zip_bounds, 'MAX_MEMBER_BYTES' if bound == 'member' else 'MAX_TOTAL_BYTES', 99999)
     with pytest.raises(ValueError):
         ams.inspect_ams_sources(payload.getvalue())
+
+
+@pytest.mark.parametrize('size,refused', [(1024 * 1024 - 1, False), (1024 * 1024, True), (1024 * 1024 + 1, True)])
+def test_ratio_floor_boundary(size, refused):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, 'w', compression=zipfile.ZIP_DEFLATED) as package:
+        package.writestr('repetitive', b'x' * size)
+    with open_bounded(payload) as package:
+        member = package.infolist()[0]
+        assert member.file_size > member.compress_size * 200
+        if refused:
+            with pytest.raises(ArchiveRefused, match='compression_ratio'):
+                check_expansion(package)
+        else:
+            check_expansion(package)

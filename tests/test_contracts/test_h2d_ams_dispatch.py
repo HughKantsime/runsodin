@@ -114,14 +114,13 @@ def test_unverifiable_ams_default_refuses_before_transport(review_db, tmp_path, 
     if failure in ('inspection_unavailable', 'preflight_unavailable'):
         from modules.printers import services
         from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
-        original = services.inspect_ams_payload
-        reads = []
         def unavailable(*args, **kwargs):
-            reads.append(True)
-            if failure == 'preflight_unavailable' and len(reads) % 2 == 1:
-                return original(*args, **kwargs)
             raise PayloadUnavailable('Inspection snapshot unavailable')
-        monkeypatch.setattr(services, 'inspect_ams_payload', unavailable)
+        if failure == 'preflight_unavailable':
+            from modules.printers import dispatch_ams_gate
+            monkeypatch.setattr(dispatch_ams_gate, 'preflight_ams_source', unavailable)
+        else:
+            monkeypatch.setattr(services, 'inspect_ams_payload', unavailable)
     if failure == 'source':
         path.write_bytes(h2d_archive(command='T0 H-1'))
     with engine.begin() as conn:

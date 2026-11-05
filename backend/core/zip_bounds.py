@@ -12,6 +12,7 @@ limit already used by the AMS inspection path.
 import zipfile
 
 MAX_COMPRESSION_RATIO = 200
+MIN_RATIO_MEMBER_BYTES = 1024 * 1024
 MAX_MEMBERS = 512
 MAX_CENTRAL_DIRECTORY_BYTES = 4 * 2**20
 MAX_MEMBER_BYTES = 400 * 2**20       # one decompressed member (sliced G-code is the largest)
@@ -64,7 +65,8 @@ def check_expansion(package: zipfile.ZipFile) -> None:
     for member in package.infolist():
         if member.file_size > MAX_MEMBER_BYTES:
             raise ArchiveRefused("member_too_large")
-        if member.file_size > max(1, member.compress_size) * MAX_COMPRESSION_RATIO:
+        if (member.file_size >= MIN_RATIO_MEMBER_BYTES
+                and member.file_size > max(1, member.compress_size) * MAX_COMPRESSION_RATIO):
             raise ArchiveRefused("compression_ratio")
         total += member.file_size
     if total > MAX_TOTAL_BYTES:
