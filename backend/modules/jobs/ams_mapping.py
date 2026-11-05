@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from core.ams_mapping import validate_for_printer, preview
 from core.ams_mapping import mapping_audit_details
+from core.print_payload import MappingMaterialMismatch
 from core.rbac import check_org_access
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.pinning import job_pin, pin_columns, pinned_printer_id
@@ -111,6 +112,25 @@ def assert_release_ready(db, actor, job):
     mapping = [{'source_slot': i + 1, 'target_slot': slot + 1}
                for i, slot in enumerate(job.ams_mapping) if slot >= 0]
     validate_for_printer(db, mapping, file.filaments_json, job_pin(job) or job.printer_id, actor)
+
+
+def checked_repeat_mapping(db, actor, original):
+    """Return a validated mapping and whether the repeat needs a planned hold."""
+    if original.ams_mapping is None:
+        return None, False
+    file = source_file(db, original, actor)
+    mapping = [{'source_slot': i + 1, 'target_slot': slot + 1}
+               for i, slot in enumerate(original.ams_mapping) if slot >= 0]
+    args = (db, mapping, file.filaments_json, job_pin(original) or original.printer_id, actor)
+    # Check every slot first: an early material mismatch must not hide a later structural error.
+    validated = validate_for_printer(*args, check_material=False)
+    if original.hold:
+        return validated, True
+    try:
+        validate_for_printer(*args)
+    except MappingMaterialMismatch:
+        return validated, True
+    return validated, False
 
 
 def planned_loads(job, facts):

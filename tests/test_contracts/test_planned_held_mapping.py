@@ -116,3 +116,82 @@ def test_held_schedule_still_checks_printer_ownership(mapping_client, review_db)
                            json={'hold': True, 'ams_mapping': MAPPING})
     assert response.status_code == 404
     assert review_db.execute(text('SELECT count(*) FROM jobs WHERE print_file_id=501')).scalar() == 0
+
+
+@pytest.mark.parametrize('held', [True, False])
+@pytest.mark.parametrize('material', ['PETG', 'PLA', None, 'empty'])
+def test_repeat_mapping_checks_live_trays_or_stays_held(mapping_client, review_db, held, material):
+    client, auth = mapping_client
+    original = schedule(client, auth, hold=held).json()['job_id']
+    if not held:
+        review_db.execute(text("UPDATE jobs SET status='completed' WHERE id=:id"), {'id': original})
+        review_db.commit()
+    load(review_db, material)
+    response = client.post(f'/api/jobs/{original}/repeat', headers=auth())
+    assert response.status_code == 200, response.text
+    planned = held or material != 'PETG'
+    assert response.json()['held_for_planned_load'] is planned
+    repeated = response.json()['new_job_id']
+    detail = client.get(f'/api/jobs/{repeated}', headers=auth()).json()
+    assert detail['hold'] is planned
+    assert detail['status'] == 'pending' and detail['ams_mapping'] == [3]
+    assert detail['ams_preview'].get('planned_loads', []) == (
+        ['load PETG in AMS 1 slot 4'] if material != 'PETG' else [])
+    fields = 'model_id,print_file_id,payload_sha256,plate_index,printer_id,target_type,target_filter'
+    assert review_db.execute(text(f'SELECT {fields} FROM jobs WHERE id=:id'), {'id': repeated}).one() == \
+        review_db.execute(text(f'SELECT {fields} FROM jobs WHERE id=:id'), {'id': original}).one()
+    events = client.get(f'/api/jobs/{repeated}/timeline', headers=auth()).json()['events']
+    mappings = [event for event in events if event['kind'] == 'ams_mapping_changed']
+    expected = {'ams_mapping': [3], 'previous_ams_mapping': None}
+    if planned:
+        expected['message'] = 'mapping planned, not checked against the loaded trays'
+    assert [event['detail'] for event in mappings] == [expected]
+    if planned and material != 'PETG':
+        refused = client.patch(f'/api/jobs/{repeated}', headers=auth(), json={'hold': False})
+        assert refused.status_code == 400, refused.text
+        assert review_db.execute(text('SELECT hold FROM jobs WHERE id=:id'), {'id': repeated}).scalar()
+        load(review_db, 'PETG')
+        assert client.patch(f'/api/jobs/{repeated}', headers=auth(), json={'hold': False}).status_code == 200
+
+
+def repeat_state(db):
+    """A refused repeat must not charge quota, create a job, or stage side effects."""
+    return {table: db.execute(text(f'SELECT * FROM {table} ORDER BY 1')).all()
+            for table in ('jobs', 'quota_usage', 'audit_logs', 'alerts', 'cost_source_lifetimes')}
+
+
+@pytest.mark.parametrize('held', [True, False])
+@pytest.mark.parametrize('change', ['missing-tray', 'source', 'protocol', 'later-invalid-tray'])
+def test_repeat_mapping_still_validates_structure(mapping_client, review_db, held, change):
+    client, auth = mapping_client
+    original = schedule(client, auth, hold=held).json()['job_id']
+    statements = {
+        'missing-tray': 'DELETE FROM filament_slots WHERE printer_id=9 AND slot_number=4',
+        'source': "UPDATE print_files SET filaments_json='[]' WHERE id=501",
+        'protocol': "UPDATE printers SET api_type='moonraker' WHERE id=9",
+        'later-invalid-tray': "UPDATE jobs SET ams_mapping='[3,16]' WHERE id=:id",
+    }
+    review_db.execute(text(statements[change]), {'id': original})
+    if change == 'later-invalid-tray':
+        review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=501'),
+                          {'f': json.dumps([{'slot': 1, 'type': 'PETG'}, {'slot': 2, 'type': 'PLA'}])})
+        load(review_db, 'PLA')
+    review_db.commit()
+    before = repeat_state(review_db)
+    response = client.post(f'/api/jobs/{original}/repeat', headers=auth())
+    assert response.status_code == 400, response.text
+    assert repeat_state(review_db) == before
+
+
+@pytest.mark.parametrize('held', [True, False])
+def test_repeat_without_mapping_keeps_existing_unheld_behavior(mapping_client, review_db, held):
+    client, auth = mapping_client
+    original = schedule(client, auth, hold=held, mapping=None).json()['job_id']
+    response = client.post(f'/api/jobs/{original}/repeat', headers=auth())
+    assert response.status_code == 200, response.text
+    assert response.json()['held_for_planned_load'] is False
+    repeated = response.json()['new_job_id']
+    detail = client.get(f'/api/jobs/{repeated}', headers=auth()).json()
+    assert detail['hold'] is False and detail['ams_mapping'] is None
+    events = client.get(f'/api/jobs/{repeated}/timeline', headers=auth()).json()['events']
+    assert not any(event['kind'] == 'ams_mapping_changed' for event in events)
