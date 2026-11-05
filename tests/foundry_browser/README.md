@@ -23,8 +23,10 @@ Camera screenshots therefore show unavailable transport, not a pretend LIVE stre
 
 The separate `seed.py` includes running, paused, ready, error, offline and unknown
 printers; AMS, HT and ACE slots; loaded/empty/changed/support slots; tracked spools;
-real alert rows; a scheduled queue and an undated held job. Feeding and blocked slot
-states are tested in Vitest only because the public API does not expose them.
+real alert rows; a scheduled queue and an undated held job. The follow-up seed also
+includes observed feeding, chamber temperature, H2D next-nozzle bindings and a
+plate-clear timeline confirmation. Its display-cache clock is frozen for reproducible
+screenshots. Blocked slots remain Vitest-only because ODIN has no reported flag.
 
 All 37 route entries are captured in both themes at 1440×900, 768×900 and 390×900.
 Desktop/tablet Floor and Printers also get Compact captures. Foundry's six main

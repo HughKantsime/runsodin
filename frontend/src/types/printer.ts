@@ -64,6 +64,9 @@ export interface FilamentSlotUpdate {
 // ---- Printer ----
 
 export interface Printer {
+  feeding_slot?: number | null;
+  chamber_temp?: number | null;
+  plate_clear_confirmed_at?: string | null;
   current_print_display_name?: string | null;
   maintenance?: import('../api/printerMaintenance').MaintenanceState;
   id: number;

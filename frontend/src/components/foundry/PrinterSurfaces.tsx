@@ -33,6 +33,6 @@ export function PrinterDetailOverview({ printer }: { printer: Printer }) {
   const available = !cameras.isError && (cameras.data || []).filter(c => c.id === printer.id)
   return <div className="f-detail-stack">
     {canAccessPage('cameras') && available && available.length > 0 && <CameraView cameras={available} printers={[printer]} prints={prints} />}
-    <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} />
+    <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} slotVariant="full" />
   </div>
 }

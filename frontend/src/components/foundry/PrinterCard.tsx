@@ -27,6 +27,7 @@ export function Temperatures({ printer }: { printer: Printer }) {
   return <div className="f-temps f-mono">
     {dual ? <>{number(data?.nozzle_1?.temp) && <span>L nozzle {Math.round(data.nozzle_1.temp)}°</span>}{number(data?.nozzle_0?.temp) && <span>R nozzle {Math.round(data.nozzle_0.temp)}°</span>}</>
       : number(printer.nozzle_temp) && <span>Nozzle {Math.round(printer.nozzle_temp)}°</span>}
+    {number(printer.chamber_temp) && <span>Chamber {Math.round(printer.chamber_temp)}°</span>}
     {number(printer.bed_temp) && <span>Bed {Math.round(printer.bed_temp)}°</span>}
   </div>
 }
@@ -38,7 +39,7 @@ function feed(printer: Printer) {
   }
   return printer.api_type === 'anycubic_lan' && slots.length ? 'ACE' : ''
 }
-export default function PrinterCard({ printer, job, next, now, children, slots }: { printer: Printer; job?: PrintJob; next?: Job; now?: number; children?: ReactNode; slots?: ReactNode }) {
+export default function PrinterCard({ printer, job, next, now, children, slots, slotVariant = 'compact' }: { printer: Printer; job?: PrintJob; next?: Job; now?: number; children?: ReactNode; slots?: ReactNode; slotVariant?: 'full' | 'compact' }) {
   return <article className="f-card" aria-label={printer.nickname || printer.name}>
     <div className="f-row"><div><h2><Link to={`/printers/${printer.id}`}>{printer.nickname || printer.name}</Link></h2><p className="f-secondary">{[printer.model, feed(printer)].filter(Boolean).join(' · ')}</p></div><StatusBadge status={state(printer)} /></div>
     {job && <p className="f-job">{displayName(job)}</p>}
@@ -46,9 +47,11 @@ export default function PrinterCard({ printer, job, next, now, children, slots }
     {next && <div className="f-next"><p>Next: {displayName(next)}</p>
       {next.hold && <p>Waiting on you · job held</p>}
       {Number.isFinite(utc(next.scheduled_start)) && <p className="f-mono">Scheduled {new Date(utc(next.scheduled_start)).toLocaleString()}</p>}
-      {next.ams_mapping?.length > 0 && <p className="f-mono">{next.ams_mapping.filter(n => Number.isInteger(n) && n >= 0 && n < 16).map(n => slotLabel('bambu', n + 1)).join(' · ')}</p>}
+      {!!next.ams_slot_nozzles?.length && <p className="f-mono">{next.ams_slot_nozzles.map(({ source_index, slot_number, nozzle }) => <span key={source_index}>{nozzle ? `${nozzle === 'right' ? 'Right' : 'Left'} nozzle · ` : ''}{slotLabel(printer.api_type, slot_number)}{source_index < next.ams_slot_nozzles!.length - 1 ? ' · ' : ''}</span>)}</p>}
+      {!next.ams_slot_nozzles?.length && next.ams_mapping?.length > 0 && <p className="f-mono">{next.ams_mapping.filter(n => Number.isInteger(n) && n >= 0 && n < 16).map(n => slotLabel('bambu', n + 1)).join(' · ')}</p>}
     </div>}
-    {(slots || printer.filament_slots?.length > 0) && <div className="f-slots">{slots || printer.filament_slots.map(slot => <SlotTile key={slot.slot_number} apiType={printer.api_type} slot={slot} />)}</div>}
+    {Number.isFinite(utc(printer.plate_clear_confirmed_at)) && <p className="f-mono">Plate clear confirmed <time dateTime={printer.plate_clear_confirmed_at!} title={new Date(utc(printer.plate_clear_confirmed_at)).toLocaleString()}>{new Date(utc(printer.plate_clear_confirmed_at)).toLocaleString()}</time></p>}
+    {(slots || printer.filament_slots?.length > 0) && <div className={slotVariant === 'compact' ? 'f-slots f-slots-compact' : 'f-slots'}>{slots || printer.filament_slots.map(slot => <SlotTile key={slot.slot_number} apiType={printer.api_type} slot={slot} variant={slotVariant} state={printer.feeding_slot === slot.slot_number ? 'feeding' : undefined} />)}</div>}
     <Temperatures printer={printer} />
     {children}
   </article>

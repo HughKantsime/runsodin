@@ -1,7 +1,7 @@
 """Synthetic review data, confined to a disposable database. No board sample values.
 
-Feeding and do-not-feed are NOT seeded: neither state exists in the HTTP slot
-schema. Their presentation is covered by the six-state component test. Camera
+Feeding, chamber, next-nozzle binding and plate confirmation are seeded through
+the real display cache/timeline. Do-not-feed remains component-test-only. Camera
 availability is seeded; the fixture deliberately has no physical camera transport.
 """
 import json
@@ -67,7 +67,22 @@ def seed(connection, password_hash, now=None):
           VALUES (1,:kind,'warning',:title,:message,0,0,:pid,:created,:metadata)"""),
           dict(kind=kind, pid=pid, title=f'Review printer {pid} needs you', message=reason,
                created=stamp(-7), metadata=json.dumps({'pause_reason': reason})))
+    # Synthetic monitor observations use the same parser/cache shape as production.
+    from types import SimpleNamespace
+    from core.printer_display_facts import observe, cache_key
+    for pid, packet in [(101, {'ams': {'tray_now': '0'}, 'chamber_temper': 36}),
+                        (103, {'device': {'ctc': {'info': {'temp': 30}}}, 'ams': {'ams': [
+                            {'id': '0', 'info': '000', 'tray': [{'id': '0', 'tray_type': 'PLA'}]}]}})]:
+        monitor = SimpleNamespace()
+        observe(monitor, packet)
+        for fact in monitor._display_facts.values():
+            fact['at'] = now.timestamp()
+        created = connection.execute(text('SELECT created_at FROM printers WHERE id=:id'), {'id': pid}).scalar_one()
+        connection.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'),
+            {'key': cache_key(pid), 'value': json.dumps({'printer_created_at': str(created), 'facts': monitor._display_facts})})
+    connection.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,kind,detail,occurred_at) VALUES('foundry-clear',203,103,'bed_clear_confirmed',:detail,:at)"),
+        {'detail': json.dumps({'attestation': 'owner_in_app'}), 'at': stamp(-9)})
     # The seed explicitly records its unsupported surfaces for screenshot reviewers.
-    return {'printers': len(states), 'supported_slot_states': ['loaded', 'empty', 'changed', 'support'],
-            'unsupported_slot_states': ['feeding', 'blocked'], 'camera_transport': 'unavailable',
+    return {'printers': len(states), 'supported_slot_states': ['loaded', 'feeding', 'empty', 'changed', 'support'],
+            'unsupported_slot_states': ['blocked'], 'camera_transport': 'unavailable',
             'now': now.isoformat()}

@@ -15,6 +15,7 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/printer_display_facts.py": ("dialect-neutral", "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters."),
     "backend/modules/inventory/rfid_identity.py": (
         "dialect-neutral", "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries."),
     "backend/modules/printers/monitors/nozzle_observations.py": ("dialect-neutral", "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage."),

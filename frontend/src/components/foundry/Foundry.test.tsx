@@ -189,3 +189,37 @@ it('density remains usable when browser storage is unavailable', () => {
     expect(screen.getByRole('button', { name: 'Compact' })).toHaveAttribute('aria-pressed', 'true')
   } finally { storage.mockRestore() }
 })
+
+ it('uses compact card slots with accessible feeding state and keeps full detail tiles', () => {
+  const props = { printer: printer({ feeding_slot: 1, filament_slots: [{ id: 1, slot_number: 1, filament_type: 'PLA', preset: 'Generic PLA', remaining: 50 }] }) }
+  const card = mount(<PrinterCard {...props} />)
+  expect(card.container.querySelector('[data-variant="compact"][data-slot-state="feeding"]')).toBeInTheDocument()
+  expect(screen.getByText('Feeding now')).toHaveClass('sr-only')
+  expect(screen.queryByText(/Remaining|Preset:/)).toBeNull()
+  card.unmount()
+  mount(<PrinterCard {...props} slotVariant="full" />)
+  expect(screen.getByText('Remaining 50%')).toBeInTheDocument()
+  expect(screen.getByText('Preset: Generic PLA')).toBeInTheDocument()
+})
+it.each([null, 'UNKNOWN', 'unknown'])('unknown printer state %s has its own neutral badge', gcode_state => {
+  mount(<PrinterCard printer={printer({ gcode_state, last_seen: null })} />)
+  expect(screen.getByText('Unknown')).toHaveAttribute('data-status', 'neutral')
+  expect(screen.queryByText('Offline')).toBeNull()
+})
+it('explicit offline is still offline', () => {
+  mount(<PrinterCard printer={printer({ gcode_state: 'OFFLINE' })} />)
+  expect(screen.getByText('Offline')).toBeInTheDocument()
+})
+it('shows reported chamber, next nozzle and plate confirmation time', () => {
+  mount(<PrinterCard printer={printer({ chamber_temp: 38, plate_clear_confirmed_at: '2026-11-04T18:31:00Z' })}
+    next={{ display_name: 'Fixture plate', ams_slot_nozzles: [{ source_index: 0, slot_number: 5, nozzle: 'right' }] } as Job} />)
+  expect(screen.getByText('Chamber 38°')).toBeInTheDocument()
+  expect(screen.getByText('Right nozzle · AMS 2 · 1')).toBeInTheDocument()
+  expect(screen.getByText(/Plate clear confirmed/).querySelector('time')).toHaveAttribute('dateTime', '2026-11-04T18:31:00Z')
+})
+it('does not invent nozzle, chamber or confirmation when missing', () => {
+  mount(<PrinterCard printer={printer({ nozzle_temp: null })}
+    next={{ display_name: 'Fixture plate', ams_slot_nozzles: [{ source_index: 0, slot_number: 5, nozzle: null }] } as Job} />)
+  expect(screen.getByText('AMS 2 · 1')).toBeInTheDocument()
+  expect(screen.queryByText(/nozzle|Chamber|Plate clear/)).toBeNull()
+})

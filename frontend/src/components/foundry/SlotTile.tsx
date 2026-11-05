@@ -16,20 +16,20 @@ export function slotState(slot: SlotData): SlotState {
   if (['SUPPORT', 'PLA_SUPPORT', 'PVA', 'HIPS'].includes(slot.filament_type || '')) return 'support'
   return 'loaded'
 }
-/** Feeding/blocked are explicit states only: current HTTP slot data exposes neither flag. */
-export default function SlotTile({ slot, apiType, state: explicitState, label, showState = true }: { slot: SlotData; apiType?: string | null; state?: SlotState; label?: string; showState?: boolean }) {
+/** Feeding/blocked are explicit observations, never inferred from material. */
+export default function SlotTile({ slot, apiType, state: explicitState, label, showState = true, variant = 'full' }: { slot: SlotData; apiType?: string | null; state?: SlotState; label?: string; showState?: boolean; variant?: 'full' | 'compact' }) {
   const state = explicitState || slotState(slot)
   const unavailable = slot.mapping_status && slot.mapping_status !== 'mapped'
   const named = slot.color && !/^preset:|^#?[a-f0-9]{6}$/i.test(slot.color) ? slot.color : null
-  const material = unavailable ? (slot.mapping_status === 'unavailable' ? 'Spool unavailable' : 'Unmapped') : state === 'empty' ? 'Empty' : named || slot.material_type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Material unknown'
+  const material = unavailable ? (slot.mapping_status === 'unavailable' ? 'Spool unavailable' : 'Unmapped') : state === 'empty' ? 'Empty' : (variant === 'compact' ? slot.material_type || (slot.filament_type !== 'empty' && slot.filament_type) : named) || slot.material_type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Material unknown'
   const color = slot.color_hex?.replace(/^#/, '')
   const remaining = !unavailable && number(slot.remaining_weight) && slot.remaining_weight >= 0 ? `${Math.round(slot.remaining_weight)} g` : !unavailable && number(slot.remaining) && slot.remaining >= 0 && slot.remaining <= 100 ? `${Math.round(slot.remaining)}%` : 'unknown'
-  return <span className="f-slot" data-slot-state={state}>
+  return <span className="f-slot" data-slot-state={state} data-variant={variant} title={variant === 'compact' ? `${label || slotLabel(apiType, slot.slot_number)} · ${labels[state]}` : undefined}>
     <span className="f-swatch" aria-hidden="true" style={{ backgroundColor: !unavailable && state !== 'empty' && color && /^[a-f0-9]{6,8}$/i.test(color) ? `#${color}` : undefined }} />
     <span className="f-slot-label" title={material}>{material}</span>
-    {slot.preset && !unavailable && <span className="f-slot-preset" title={slot.preset}>Preset: {slot.preset.replace(/^preset:\s*/i, '')}</span>}
-    <span className="f-mono">{label || slot.display_name || slotLabel(apiType, slot.slot_number)}</span>
-    {!unavailable && showState && <span className="f-slot-state">{explicitState || slot.filament_type || slot.material_type ? labels[state] : 'State unknown'}</span>}
-    <span className="f-mono">Remaining {remaining}</span>
+    {variant === 'full' && slot.preset && !unavailable && <span className="f-slot-preset" title={slot.preset}>Preset: {slot.preset.replace(/^preset:\s*/i, '')}</span>}
+    <span className="f-mono">{label || (variant === 'compact' ? (apiType === 'bambu' && slot.slot_number >= 17 ? slotLabel(apiType, slot.slot_number) : slot.slot_number) : slot.display_name || slotLabel(apiType, slot.slot_number))}</span>
+    {!unavailable && showState && <span className={variant === 'compact' ? 'sr-only' : 'f-slot-state'}>{explicitState || slot.filament_type || slot.material_type ? labels[state] : 'State unknown'}</span>}
+    {variant === 'full' && <span className="f-mono">Remaining {remaining}</span>}
   </span>
 }

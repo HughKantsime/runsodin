@@ -118,7 +118,14 @@ class _PinView:
         return getattr(self._job, name)
 
 
+class AMSSlotNozzle(BaseModel):
+    source_index: int
+    slot_number: int
+    nozzle: Optional[str] = None
+
+
 class JobResponse(JobBase):
+    ams_slot_nozzles: List[AMSSlotNozzle] = Field(default_factory=list)
     display_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 

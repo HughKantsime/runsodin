@@ -19,6 +19,7 @@ export interface ModelSummary {
 }
 
 export interface Job {
+  ams_slot_nozzles?: { source_index: number; slot_number: number; nozzle: 'left' | 'right' | null }[];
   display_name?: string | null;
   ams_mapping?: number[] | null;
   ams_preview?: import("./archive").ArchiveAmsPreview | null;

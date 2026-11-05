@@ -237,7 +237,10 @@ const WIRE: any = {
         "set_by_name": null,
         "set_at": null
       },
-      "current_print_display_name": null
+      "current_print_display_name": null,
+      "feeding_slot": null,
+      "chamber_temp": null,
+      "plate_clear_confirmed_at": null
     },
     {
       "name": "Shared floor printer",
@@ -350,7 +353,10 @@ const WIRE: any = {
         "set_by_name": null,
         "set_at": null
       },
-      "current_print_display_name": null
+      "current_print_display_name": null,
+      "feeding_slot": null,
+      "chamber_temp": null,
+      "plate_clear_confirmed_at": null
     }
   ],
   "groups_list_with_orgs": [

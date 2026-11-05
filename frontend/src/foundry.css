@@ -89,6 +89,9 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   .f-slot[data-slot-state="blocked"] .f-slot-state { color: #f8b3aa; }
   .f-slot[data-slot-state="changed"] .f-slot-state, .f-slot[data-slot-state="feeding"] .f-slot-state { color: #f0c07c; }
   .f-slot[data-slot-state="support"] .f-swatch { border-radius: 6px; }
+  .f-slots.f-slots-compact { grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); }
+  .f-slot[data-variant="compact"] { padding: 10px 6px; gap: 5px; border: 0; }
+  .f-slot[data-variant="compact"] .f-swatch { width: 24px; height: 24px; }
   .f-slot-button, .f-page .f-slot-button { padding: 0; width: 100%; min-width: 0; text-align: inherit; }
   .f-slot-button[aria-pressed="true"] .f-slot { outline: 2px solid #dc9a3e; }
   .f-slot-button:disabled { cursor: default; }
@@ -128,9 +131,9 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   .f-lane-name { overflow-wrap: anywhere; padding-right: 8px; font-size: 13px; }
   .f-lane-track { position: relative; background: #24231f; border-radius: 6px; }
   .f-lane .f-lane-block { position: absolute; min-width: 0; min-height: 44px; height: 44px; padding: 4px 8px; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; text-align: left; opacity: 1; }
-  [data-kind="printing"] { background: #1f2d40; color: #a9cbfa; border: 1px solid #7db2f7; }
-  [data-kind="queued"] { background: #2a2640; color: #c9c1f7; border: 1px dashed #ab9ff2; }
-  [data-kind="waiting"] { background: #3a2a14; color: #f0c07c; border: 1px dashed #dc9a3e; }
+  .f-lane [data-kind="printing"] { background: #1f2d40; color: #a9cbfa; border: 1px solid #7db2f7; }
+  .f-lane [data-kind="queued"] { background: #2a2640; color: #c9c1f7; border: 1px dashed #ab9ff2; }
+  .f-lane [data-kind="waiting"] { background: #3a2a14; color: #f0c07c; border: 1px dashed #dc9a3e; }
   .f-undated { padding: 8px; margin-top: 8px; border-radius: 6px; font-size: 13px; }
   .f-legend { font-size: 13px; color: #bfbaae; }
   .f-fleet-summary { margin-right: auto; display: flex; flex-wrap: wrap; gap: 12px; }

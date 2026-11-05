@@ -24,6 +24,7 @@ export function needsYou(printer: Printer) {
     || (Array.isArray(errors) && errors.length > 0)
 }
 export function state(printer: Printer) {
+  if (!printer.gcode_state || printer.gcode_state.trim().toUpperCase() === 'UNKNOWN') return 'unknown'
   if (!isOnline(printer)) return 'offline'
   if (needsYou(printer)) return 'needs you'
   if (isPrintingState(printer.gcode_state)) return 'printing'

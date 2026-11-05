@@ -40,6 +40,8 @@ def handle_status(self, status, generation, runtime):
             log_retained_report(self, raw, runtime)
         from modules.printers.monitors.nozzle_observations import observe
         observe(self, raw)
+        from core.printer_display_facts import observe as observe_display_facts
+        observe_display_facts(self, raw, retained=getattr(status, 'mqtt_retained', None) is True)
         noz_dia = raw.get('nozzle_diameter')
         if isinstance(noz_dia, bool) or not isinstance(noz_dia, (int, float, str)):
             noz_dia = None
@@ -293,6 +295,8 @@ def handle_status(self, status, generation, runtime):
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                          hms_j, noz_type, fan_speed_val, self.printer_id))
+                    from core.printer_display_facts import persist as persist_display_facts
+                    persist_display_facts(conn, self)
                     if noz_dia is not None:
                         observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
                     from modules.printers.monitors.light_state import persist_light_observation

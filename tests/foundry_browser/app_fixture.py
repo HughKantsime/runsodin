@@ -36,6 +36,14 @@ def main():
         with engine.begin() as connection:
             manifest = seed(connection, hash_password(os.environ['ODIN_FOUNDRY_TEST_PASSWORD']), datetime.fromisoformat(os.environ['ODIN_FOUNDRY_REVIEW_TIME']) if os.environ.get('ODIN_FOUNDRY_REVIEW_TIME') else None)
         (directory / 'seed.json').write_text(json.dumps(manifest, indent=2))
+        # Freeze only the display-cache clock to the seeded review clock, so
+        # expiring observations remain reproducible throughout a screenshot run.
+        from core import printer_display_facts
+        class ReviewClock:
+            @staticmethod
+            def now(tz=None):
+                return datetime.fromisoformat(manifest['now'])
+        printer_display_facts.datetime = ReviewClock
     # Local ephemeral test issuer, same pattern as education_browser/app_fixture.py.
     import base64
     import license_manager
@@ -70,7 +78,14 @@ def main():
         for route in ['/api/printers', '/api/print-jobs?status=running', '/api/jobs', '/api/alerts', '/api/timeline', '/api/cameras', '/api/printers/103/nozzle-status']:
             response = client.get(route)
             assert response.status_code == 200, f'{route}: {response.status_code} {response.text[:200]}'
-        print('Fixture check: auth and 7 read routes passed')
+        printers = client.get('/api/printers').json()
+        x1 = next(p for p in printers if p['id'] == 101)
+        h2d = next(p for p in printers if p['id'] == 103)
+        assert x1['feeding_slot'] == 1 and x1['chamber_temp'] == 36
+        assert h2d['chamber_temp'] == 30 and h2d['plate_clear_confirmed_at']
+        jobs = client.get('/api/jobs').json()
+        assert next(j for j in jobs if j['id'] == 203)['ams_slot_nozzles'][0]['nozzle'] == 'right'
+        print('Fixture check: auth, 7 read routes and all 4 board facts passed')
         engine.dispose()
         return
     import uvicorn
