@@ -416,7 +416,7 @@ def test_daemon_is_supervised_in_the_single_container_only():
 
 def test_entrypoint_makes_the_status_directory_the_app_user_owns():
     entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
-    assert "/data/run" in entrypoint and "chown -R odin:odin /data" in entrypoint
+    assert "/data/run" in entrypoint and "-exec chown odin:odin {} +" in entrypoint
 
 
 def test_entrypoint_writes_a_first_status_so_a_guardian_that_never_starts_goes_stale(tmp_path):

@@ -27,6 +27,7 @@ def test_same_exception_objects_and_exact_original_definitions():
  ('sealed_lifetime_receipt','timelapse_lifetime_action',2,{'operation_id':'nonce','original_id':7}),
  ('prepare_request_lifetime_retirement','timelapse_lifetime_prepare',4,{'expected_nonce':'nonce','budget':object()}),
  ('retire_sealed_lifetime','timelapse_lifetime_action',4,{'expected_nonce':'nonce','budget':object()}),
+ ('recheck_facts','timelapse_facts_recheck',3,{'timelapse_ids':[7],'after_id':0}),
  ('execute_edit','timelapse_edit',5,{'nonce':'nonce','recipe':object(),'lookup':False}),
 ])
 def test_exact_delegate_identity_and_exception(name,module,args,kwargs,monkeypatch):

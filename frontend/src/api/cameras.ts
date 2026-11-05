@@ -7,9 +7,18 @@ export type TimelapseEditReceipt = {
   frame_count: number; duration_seconds: number; file_size_mb: number; completed_at: string;
   playback_available: boolean; playback_unavailable_reason: string | null;
 }
+export type TimelapseRecheckPage = {
+  results: ({ timelapse_id: number; status: 're-admitted'; changed: boolean } | { timelapse_id: number; status: 'refused'; reason: string })[];
+  next_after_id: number | null;
+}
 function mediaVersion(path: string, etag?: string) { return path + (etag ? `?version=${encodeURIComponent(etag)}` : '') }
 // ============== Timelapses ==============
 export const timelapses = {
+  recheckFacts: async (selection: { all_ready: true } | { timelapse_ids: number[] }, afterId = 0, signal?: AbortSignal): Promise<TimelapseRecheckPage> => {
+    const response = await fetch(`/api/timelapses/recheck-facts?after_id=${afterId}`, { method: 'POST', credentials: 'include', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection) })
+    if (!response.ok) throw await timelapseError(response)
+    return response.json()
+  },
   list: (params: TimelapseListParams = {}): Promise<TimelapseList> => {
     const query = new URLSearchParams()
     if (params.printer_id) query.set('printer_id', String(params.printer_id))

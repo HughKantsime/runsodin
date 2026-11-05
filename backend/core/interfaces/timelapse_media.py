@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from core.registry import registry
 
 MEDIA_METHODS=('capture_action_credential','admitted_response','sealed_lifetime_receipt',
-               'authorize_retirement','prepare_request_lifetime_retirement','retire_sealed_lifetime','execute_edit')
+               'authorize_retirement','prepare_request_lifetime_retirement','retire_sealed_lifetime','execute_edit','recheck_facts')
 
 @runtime_checkable
 class TimelapseMediaProvider(Protocol):
@@ -14,6 +14,7 @@ class TimelapseMediaProvider(Protocol):
     def authorize_retirement(self,admission_session:Any,evidence:Any,tid:int,nonce:str)->None: ...
     def prepare_request_lifetime_retirement(self,engine:Any,root:Any,tid:int,evidence:Any,*,expected_nonce:str,budget:Any)->Any: ...
     def retire_sealed_lifetime(self,engine:Any,root:Any,tid:int,evidence:Any,*,expected_nonce:str,budget:Any)->Any: ...
+    def recheck_facts(self,engine:Any,root:Any,evidence:Any,*,timelapse_ids=None,after_id=0)->Any: ...
     def execute_edit(self,engine:Any,root:Any,tid:int,evidence:Any,identifier:str,*,nonce=None,recipe=None,lookup=False)->Any: ...
 
 

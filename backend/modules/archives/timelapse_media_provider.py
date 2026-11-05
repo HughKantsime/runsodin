@@ -35,3 +35,7 @@ class TimelapseMediaService:
     def execute_edit(self,engine,root,tid,evidence,identifier,*,nonce=None,recipe=None,lookup=False):
         from modules.archives.timelapse_edit import execute_edit
         return execute_edit(engine,root,tid,evidence,identifier,nonce=nonce,recipe=recipe,lookup=lookup)
+
+    def recheck_facts(self,engine,root,evidence,*,timelapse_ids=None,after_id=0):
+        from modules.archives.timelapse_facts_recheck import recheck_facts
+        return recheck_facts(engine,root,evidence,timelapse_ids=timelapse_ids,after_id=after_id)

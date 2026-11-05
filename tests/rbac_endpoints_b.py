@@ -320,6 +320,9 @@ ENDPOINTS = [
     # =========================================================================
     # 61. Timelapses
     # =========================================================================
+    # Empty selection probes auth without repairing any media in live RBAC runs.
+    ("POST",   "/api/timelapses/recheck-facts", {**_admin_only(), "admin": 422},
+     {}, "Restart video re-check (interactive platform superadmin, selection required)"),
     ("GET",    "/api/timelapses",                        _api_read(),   None, "List timelapses"),
     ("GET",    "/api/timelapses/{timelapse_id}",        _api_read(),   None, "Get timelapse"),
     ("GET",    "/api/timelapses/{timelapse_id}/video",  _api_read(),   None, "Download timelapse video"),
