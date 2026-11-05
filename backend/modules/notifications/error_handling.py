@@ -325,7 +325,8 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
 def process_hms_errors(
     printer_id: int, hms_data: list, observed_filename: str | None = None,
     expected_print_job_id: int | None = None,
-    *, tray_evidence_incomplete: bool = False,
+    *, tray_evidence_incomplete: bool = False, mqtt_retained: bool = False,
+    report_age_seconds: float | None = None, live_state: str | None = None,
 ):
     """
     Process HMS errors from Bambu printer.
@@ -409,6 +410,12 @@ def process_hms_errors(
         severity=worst["severity"],
         create_alert=not education_suppressed
     )
+
+    # Display/history remain available during replay; only fresh, explicitly
+    # corroborated stopped state grants terminal authority (never cached state).
+    from core.monitor_observations import fresh_report
+    if not fresh_report(mqtt_retained, report_age_seconds) or live_state not in ('FAILED', 'PAUSE', 'IDLE'):
+        return {'education_suppressed': education_suppressed, 'errors': errors}
 
     # Check if any HMS code should fail the active print job
     for err in errors:

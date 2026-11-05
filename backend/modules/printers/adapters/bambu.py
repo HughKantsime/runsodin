@@ -132,7 +132,8 @@ class BambuPrinter:
         serial: str,
         access_code: str,
         on_status_update: Optional[Callable[[PrinterStatus], None]] = None,
-        client_id: Optional[str] = None
+        client_id: Optional[str] = None,
+        on_connection_change: Optional[Callable[[], None]] = None,
     ):
         """
         Initialize Bambu printer connection.
@@ -142,6 +143,8 @@ class BambuPrinter:
             serial: Printer serial number (e.g., "00M00A000000000")
             access_code: Access code from printer screen (e.g., "12345678")
             on_status_update: Optional callback for real-time status updates
+            on_connection_change: Invalidate monitor evidence on connect/disconnect,
+                       including automatic Paho reconnects of this adapter.
             client_id: MQTT client ID (default: printfarm_{serial}). Use a
                        unique value for command connections to avoid colliding
                        with the monitor daemon's persistent connection.
@@ -150,6 +153,7 @@ class BambuPrinter:
         self.serial = serial
         self.access_code = access_code
         self.on_status_update = on_status_update
+        self.on_connection_change = on_connection_change
         self._client_id = client_id or f"printfarm_{serial}"
         
         self._client: Optional[mqtt.Client] = None
@@ -486,6 +490,8 @@ class BambuPrinter:
         """MQTT connect callback."""
         if rc == 0:
             self._connected = True
+            if self.on_connection_change:
+                self.on_connection_change()
             # Subscribe to printer reports
             client.subscribe(self._topic_report)
             # Request initial status
@@ -499,6 +505,8 @@ class BambuPrinter:
         self._connected = False
         with self._lock:
             self._status.state = PrinterState.OFFLINE
+        if self.on_connection_change:
+            self.on_connection_change()
     
     def _on_message(self, client, userdata, msg):
         """MQTT message callback - parse printer status updates."""

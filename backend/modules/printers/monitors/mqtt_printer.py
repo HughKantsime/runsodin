@@ -99,6 +99,8 @@ class PrinterMonitor:
         self._pending_running_state = None
         self._pending_hms_terminal = None
         self._connection_generation = 0
+        self._live_mqtt_generation = 0
+        self._live_mqtt_state = None
         self._connection_retired = False
         self._transport_offline = False
 
@@ -122,6 +124,7 @@ class PrinterMonitor:
                 serial=self.serial,
                 access_code=self.access_code,
                 on_status_update=lambda status: self._on_status(status, generation),
+                on_connection_change=lambda: self._reset_live_connection(generation),
                 client_id=f"odin_{self.printer_id}_{int(time.time())}"
             )
             if self._bambu.connect():
@@ -170,13 +173,19 @@ class PrinterMonitor:
                         if generation == self._connection_generation:
                             self._reported_model = product
             elif isinstance(item, ConnectionEvent) and item.kind == "connected":
+                if not self._reset_live_connection(generation):
+                    return
                 adapter = getattr(self, '_v2_adapter', None)
+                if adapter is not None and hasattr(adapter, 'request_full_status'):
+                    adapter.request_full_status()
                 if adapter is not None and hasattr(adapter, 'request_version'):
                     adapter.request_version()
             elif isinstance(item, ConnectionEvent) and item.kind in ("disconnected", "error"):
                 with self._lock:
                     if generation != self._connection_generation or self._connection_retired:
                         return
+                    from modules.printers.monitors.live_state import reset_mqtt
+                    reset_mqtt(self, sys.modules[__name__])
                     self._transport_offline = True
                     try:
                         with get_db() as conn:
@@ -448,10 +457,21 @@ class PrinterMonitor:
         with self._lock:
             self._connection_generation += 1
             self._connection_retired = False
+            from modules.printers.monitors.live_state import reset_mqtt
+            reset_mqtt(self, sys.modules[__name__])
             # A held AMS list belongs to the previous connection; the printer
             # re-reports it after pushall.
             self._reset_pending_ams()
             return self._connection_generation
+
+    def _reset_live_connection(self, generation):
+        """Paho can reconnect the same adapter without replacing its generation."""
+        with self._lock:
+            if generation != self._connection_generation or self._connection_retired:
+                return False
+            from modules.printers.monitors.live_state import reset_mqtt
+            reset_mqtt(self, sys.modules[__name__])
+            return True
 
     def _ams_sync_warning_due(self, reason, now):
         # Preserve per-reason throttles across reports/reconnects. Expire old
@@ -497,6 +517,8 @@ class PrinterMonitor:
         with self._lock:
             self._connection_retired = True
             self._connection_generation += 1
+            from modules.printers.monitors.live_state import reset_mqtt
+            reset_mqtt(self, sys.modules[__name__])
         if self._bambu:
             self._bambu.disconnect()
             self._bambu = None

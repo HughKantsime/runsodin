@@ -41,6 +41,9 @@ TRAINING_SAMPLE = 'training_sample'
 TRAINING_STATUS = 'training'
 DEFAULT_CAPTURE_INTERVAL = 10
 MAX_CAPTURE_INTERVAL = 86400  # same bound as PATCH /api/printers/{id}/vision
+PROCESS_STARTED_AT = time.time()
+AUTO_PAUSE_GRACE_SECONDS = 60
+AUTO_PAUSE_MIN_FRAMES = 3
 
 
 DEFAULT_MAX_VISION_THREADS = 16
@@ -95,6 +98,8 @@ class PrinterVisionThread(threading.Thread):
         }
         # Alert cooldown tracking: detection_type -> last alert timestamp
         self._last_alert: Dict[str, float] = {}
+        self._analyzed_frames = 0
+        self._first_analysis_at = None
 
     def stop(self):
         self._running = False
@@ -108,6 +113,12 @@ class PrinterVisionThread(threading.Thread):
             self._wake.set()
 
     def update_layer(self, layer: Optional[int], job_id: Optional[int], gcode_state: Optional[str] = None):
+        if job_id != self.print_job_id:
+            self._analyzed_frames = 0
+            self._first_analysis_at = None
+            self._last_alert.clear()
+            for history in self._history.values():
+                history.clear()
         self.current_layer = layer
         self.print_job_id = job_id
         if gcode_state != self.gcode_state:
@@ -146,7 +157,9 @@ class PrinterVisionThread(threading.Thread):
         if frame is None:
             return
 
-        layer = self.current_layer or 0
+        layer = self.current_layer
+        analyzed_job = self.print_job_id
+        counted_frame = False
         collect = self.settings.get('collect_training_data', 0)
 
         # Save training data if enabled (every frame, not just detections)
@@ -168,10 +181,10 @@ class PrinterVisionThread(threading.Thread):
         if is_printing_state(self.gcode_state) and self.settings.get('spaghetti_enabled', 1) and self.engine.has_model('spaghetti'):
             checks.append(('spaghetti', self.settings.get('spaghetti_threshold', 0.65)))
 
-        if is_printing_state(self.gcode_state) and self.settings.get('first_layer_enabled', 1) and layer <= 3 and self.engine.has_model('first_layer'):
+        if is_printing_state(self.gcode_state) and self.settings.get('first_layer_enabled', 1) and layer is not None and 0 <= layer <= 3 and self.engine.has_model('first_layer'):
             checks.append(('first_layer', self.settings.get('first_layer_threshold', 0.60)))
 
-        if is_printing_state(self.gcode_state) and self.settings.get('detachment_enabled', 1) and layer > 5 and self.engine.has_model('detachment'):
+        if is_printing_state(self.gcode_state) and self.settings.get('detachment_enabled', 1) and layer is not None and layer > 5 and self.engine.has_model('detachment'):
             checks.append(('detachment', self.settings.get('detachment_threshold', 0.70)))
 
         for detection_type, threshold in checks:
@@ -188,6 +201,13 @@ class PrinterVisionThread(threading.Thread):
                 if not admitted:
                     self._history[detection_type].clear()
                     continue
+                if self.print_job_id != analyzed_job:
+                    break
+                if not counted_frame:
+                    if self._first_analysis_at is None:
+                        self._first_analysis_at = time.monotonic()
+                    self._analyzed_frames += 1
+                    counted_frame = True
                 if self._history_generations.get(detection_type) != observation.generation:
                     self._history[detection_type].clear()
                 self._history_generations[detection_type] = observation.generation
@@ -421,7 +441,12 @@ class PrinterVisionThread(threading.Thread):
 
     def _auto_pause(self):
         """Pause only with positive running telemetry, using the appropriate adapter."""
-        if not is_printing_state(self.gcode_state):
+        minimum = self.settings.get('auto_pause_min_frames', AUTO_PAUSE_MIN_FRAMES)
+        if type(minimum) is not int or minimum < AUTO_PAUSE_MIN_FRAMES:
+            minimum = AUTO_PAUSE_MIN_FRAMES
+        if (not is_printing_state(self.gcode_state) or self.print_job_id is None
+                or self._analyzed_frames < minimum or self._first_analysis_at is None
+                or time.monotonic() - self._first_analysis_at < AUTO_PAUSE_GRACE_SECONDS):
             return
         try:
             with engine.connect() as conn:
@@ -429,7 +454,7 @@ class PrinterVisionThread(threading.Thread):
                     text("SELECT api_type, api_host, api_key FROM printers WHERE id = :pid"),
                     {"pid": self.printer_id}
                 ).mappings().fetchone()
-            if not row:
+            if not row or not self._live_printing():
                 return
 
             api_type = row['api_type']
@@ -440,7 +465,8 @@ class PrinterVisionThread(threading.Thread):
             if api_type == 'moonraker':
                 from modules.printers.adapters.moonraker import MoonrakerPrinter
                 adapter = MoonrakerPrinter(api_host)
-                success = adapter.pause_print()
+                if self._live_printing():
+                    success = adapter.pause_print()
 
             elif api_type == 'bambu':
                 from core.crypto import decrypt
@@ -462,13 +488,17 @@ class PrinterVisionThread(threading.Thread):
                         use_tls=endpoint.use_tls,
                         access_code=access_code,
                     )
-                    success = run_command(config, "pause_print")
+                    if self._live_printing():
+                        success = run_command(config, "pause_print")
                 else:
                     from modules.printers.adapters.bambu import BambuPrinter
                     adapter = BambuPrinter(api_host, serial, access_code)
                     if adapter.connect():
-                        success = adapter.pause_print()
-                        adapter.disconnect()
+                        try:
+                            if self._live_printing():
+                                success = adapter.pause_print()
+                        finally:
+                            adapter.disconnect()
 
             elif api_type == 'prusalink':
                 from modules.printers.adapters.prusalink import PrusaLinkPrinter
@@ -480,13 +510,14 @@ class PrinterVisionThread(threading.Thread):
                         "ORDER BY id DESC LIMIT 1"),
                         {"pid": self.printer_id}
                     ).fetchone()
-                if jrow and jrow[0]:
+                if jrow and jrow[0] and self._live_printing():
                     success = adapter.pause_print(int(jrow[0]))
 
             elif api_type == 'elegoo':
                 from modules.printers.adapters.elegoo import ElegooPrinter
                 adapter = ElegooPrinter(api_host)
-                success = adapter.pause_print()
+                if self._live_printing():
+                    success = adapter.pause_print()
 
             if success:
                 self.update_layer(self.current_layer, self.print_job_id, 'PAUSED')
@@ -510,3 +541,15 @@ class PrinterVisionThread(threading.Thread):
 
         except Exception as e:
             log.error(f"[{self.printer_name}] Auto-pause error: {e}")
+
+    def _live_printing(self):
+        from core.monitor_observations import live_state
+        with engine.connect() as conn:
+            state = live_state(conn, self.printer_id, PROCESS_STARTED_AT)
+            row = conn.execute(text(
+                "SELECT p.gcode_state, pj.id FROM printers p JOIN print_jobs pj "
+                "ON pj.printer_id=p.id AND pj.status='running' "
+                "WHERE p.id=:pid ORDER BY pj.id DESC LIMIT 1"),
+                {'pid': self.printer_id}).first()
+        return bool(row and row[1] == self.print_job_id
+                    and is_printing_state(row[0]) and is_printing_state(state))

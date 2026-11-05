@@ -127,7 +127,10 @@ def test_adapter_pause_updates_only_on_success(vision, review_db, monkeypatch, s
             calls.append("pause")
             return succeeds
     monkeypatch.setattr(moonraker, "MoonrakerPrinter", Adapter)
-    thread.print_job_id = None
+    # The restart gate has separate coverage; this test isolates adapter outcomes.
+    thread._analyzed_frames = 3
+    thread._first_analysis_at = module.time.monotonic() - 60
+    monkeypatch.setattr(thread, '_live_printing', lambda: True)
     thread._auto_pause()
     assert calls == ["pause"]
     review_db.expire_all()

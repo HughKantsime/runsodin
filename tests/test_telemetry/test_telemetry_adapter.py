@@ -88,6 +88,17 @@ def adapter(config, captured_events, monkeypatch):
 
 
 class TestLifecycle:
+    def test_full_status_request_queues_pushall_without_waiting(self, adapter, config):
+        adapter._client = adapter._fake
+        adapter._connected = True
+        result = MagicMock(rc=0)
+        adapter._fake.publish = MagicMock(return_value=result)
+        assert adapter.request_full_status() is True
+        topic, payload = adapter._fake.publish.call_args.args
+        assert topic == config.topic_request
+        assert json.loads(payload) == {'pushing': {'sequence_id': '0', 'command': 'pushall'}}
+        result.wait_for_publish.assert_not_called()
+
     def test_start_subscribes(self, adapter, config):
         adapter.start()
         adapter._fake.fire_connect(reason_code=0)

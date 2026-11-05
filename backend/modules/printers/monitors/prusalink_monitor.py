@@ -137,6 +137,8 @@ class PrusaLinkMonitorThread(threading.Thread):
 
     def _process_status_locked(self, status):
         """Process polled status — update DB, detect transitions, push events."""
+        from modules.printers.monitors.live_state import observe_status
+        observe_status(engine, self.printer_id, status, 'prusalink', owner=self)
         import modules.notifications.event_dispatcher as printer_events
 
         # ----------------------------------------------------------

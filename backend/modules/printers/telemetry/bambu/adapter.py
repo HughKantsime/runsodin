@@ -183,19 +183,26 @@ class BambuTelemetryAdapter:
         Real printers report their model only in the reply's
         info.module[name=ota].product_name, never in `print` reports.
         """
+        return self._request('info', 'get_version')
+
+    def request_full_status(self) -> bool:
+        """Seed live state on each monitor connection, including Paho reconnects."""
+        return self._request('pushing', 'pushall')
+
+    def _request(self, section, command) -> bool:
         client = self._client
         if client is None or not self._connected:
             return False
-        payload = json.dumps({"info": {"sequence_id": "0", "command": "get_version"}})
+        payload = json.dumps({section: {"sequence_id": "0", "command": command}})
         # Never waits for the broker: called from paho callbacks (on_connect).
         try:
             result = client.publish(self._config.topic_request, payload, qos=0)
         except Exception:
-            logger.warning("bambu get_version request failed: printer=%s", self._config.printer_id, exc_info=True)
+            logger.warning("bambu %s request failed: printer=%s", command, self._config.printer_id, exc_info=True)
             return False
         if getattr(result, "rc", 0) != 0:
-            logger.warning("bambu get_version request not queued: printer=%s rc=%s",
-                           self._config.printer_id, getattr(result, "rc", None))
+            logger.warning("bambu %s request not queued: printer=%s rc=%s",
+                           command, self._config.printer_id, getattr(result, "rc", None))
             return False
         return True
 
