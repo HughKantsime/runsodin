@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Zap, Pencil } from 'lucide-react'
@@ -116,10 +117,10 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
         </div>
       </div>
 
-      {error && <div role="alert" className="mb-3 text-sm text-red-400">
+      {error && <PageState kind="error" role="alert" className="mb-3 text-sm text-red-400">
         {error}
         {rate === null && <button disabled={loading} onClick={loadRate} className="ml-2 underline">Retry</button>}
-      </div>}
+      </PageState>}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-center">
           <div className="text-2xl font-bold text-yellow-400">{totalKwh.toFixed(1)}</div>
@@ -149,9 +150,9 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="text-center py-6 text-[var(--brand-text-muted)] text-sm">
+        <PageState kind="empty" className="text-center py-6 text-[var(--brand-text-muted)] text-sm">
           No energy data yet. Connect a smart plug to track per-job power usage.
-        </div>
+        </PageState>
       )}
     </div>
   )

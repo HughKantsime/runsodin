@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import jsQR from 'jsqr';
 import { useState, useEffect, useRef } from 'react';
 import { QrCode, Camera, X, Check, Package, Printer } from 'lucide-react';
@@ -24,6 +26,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
 
+  const foundry = useFoundry()
   const [scanning, setScanning] = useState(false);
   const [scannedCode, setScannedCode] = useState(null);
   const [spoolData, setSpoolData] = useState(null);
@@ -315,7 +318,9 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
               <div>
                 <label className="block text-sm text-[var(--brand-text-muted)] mb-2">Select slot:</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {Array.from({ length: selectedPrinterData.slot_count || 4 }, (_, i) => (
+                  {foundry ? (selectedPrinterData.filament_slots || []).map(slot => <button type="button" key={slot.slot_number} className="f-slot-button" aria-pressed={selectedSlot === slot.slot_number} onClick={() => setSelectedSlot(slot.slot_number)}>
+                    <SlotTile slot={slot} apiType={selectedPrinterData.api_type} />
+                  </button>) : (Array.from({ length: selectedPrinterData.slot_count || 4 }, (_, i) => (
                     <button
                       key={i}
                       onClick={() => setSelectedSlot(i + 1)}
@@ -327,7 +332,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
                     >
                       {i + 1}
                     </button>
-                  ))}
+                  )))}
                 </div>
               </div>
             )}

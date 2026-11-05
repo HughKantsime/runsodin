@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect } from 'react';
 import { Webhook, Plus, Trash2, TestTube, Check, X, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -125,7 +126,7 @@ export default function WebhookSettings() {
     }));
   };
 
-  if (loading) return <div className="text-[var(--brand-text-secondary)]">Loading...</div>;
+  if (loading) return <PageState kind="loading" className="text-[var(--brand-text-secondary)]">Loading...</PageState>;
 
   return (
     <div className="space-y-6">

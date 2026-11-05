@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { spools as spoolsApi } from '../../api'
@@ -146,6 +148,7 @@ function CreateSpoolForm({ filaments, onClose, onCreate, pending = false, owner 
 }
 
 export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: any; printers: any[]; onClose: () => void; onLoad: (data: any) => void }) {
+  const foundry = useFoundry()
   const [form, setForm] = useState({
     printer_id: '',
     slot_number: ''
@@ -195,7 +198,12 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
         {selectedPrinter && (
           <div>
             <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Slot</label>
-            <select
+            {foundry ? <div className="f-slots" role="group" aria-label="Slot">
+              {(selectedPrinter.filament_slots || []).map(slot => <label key={slot.slot_number} className="f-slot-choice">
+                <input type="radio" name="foundry-slot" required value={slot.slot_number} checked={form.slot_number === String(slot.slot_number)} onChange={e => setForm({ ...form, slot_number: e.target.value })} />
+                <SlotTile slot={slot} apiType={selectedPrinter.api_type} />
+              </label>)}
+            </div> : (            <select
               value={form.slot_number}
               onChange={(e) => setForm({ ...form, slot_number: e.target.value })}
               required
@@ -210,7 +218,7 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
                   </option>
                 )
               })}
-            </select>
+            </select>)}
           </div>
         )}
 

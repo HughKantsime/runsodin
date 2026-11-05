@@ -1,3 +1,4 @@
+import Table from '../ui/Table'
 import BulkReceive from './BulkReceive'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -34,7 +35,7 @@ export default function StockReliability({ orgId }: { orgId?: number | null }) {
     {rollup.isPending && <p>Loading reorder stock…</p>}
     {rollup.isError && <p role="alert">Could not load reorder stock. <button onClick={() => rollup.refetch()}>Retry</button></p>}
     {rollup.data?.length === 0 && <p>No active stock or configured thresholds.</p>}
-    {rollup.data && <div className="overflow-x-auto"><table className="w-full text-sm text-left">
+    {rollup.data && <div tabIndex={0} role="region" aria-label="Reorder stock" className="overflow-x-auto"><Table className="w-full text-sm text-left">
       <thead><tr>{['Material', 'Color', 'Sealed', 'Open', 'Total', 'Threshold', 'Reorder'].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead>
       <tbody>{rollup.data.map(row => <tr key={`${row.material}:${row.color}`}>
         <td className="p-2">{row.material}</td><td className="p-2">{row.color_name || row.color}</td>
@@ -42,7 +43,7 @@ export default function StockReliability({ orgId }: { orgId?: number | null }) {
         <td className="p-2">{editable ? <button className="underline" aria-label={`Set threshold for ${row.material} ${row.color}`} onClick={() => { policy.reset(); setEditing(row); setThreshold(String(row.threshold_g)) }}>{row.threshold_g} g</button> : `${row.threshold_g} g`}</td>
         <td className="p-2">{row.reorder ? `Order ${row.shortfall_g.toFixed(0)} g` : 'Stock sufficient'}</td>
       </tr>)}</tbody>
-    </table></div>}
+    </Table></div>}
     {editing && <Modal isOpen title="Reorder threshold" onClose={() => setEditing(null)}><form className="space-y-3" onSubmit={event => { event.preventDefault(); policy.mutate({ material: editing.material, color: editing.color, threshold_g: Number(threshold) }) }}>
       <label>Threshold (g)<input aria-label="Threshold (g)" type="number" min="0" max="10000000" step="1" required value={threshold} onChange={e => setThreshold(e.target.value)} /></label>
       {policy.isError && <p role="alert">{policy.error.message}</p>}<Button type="submit" disabled={policy.isPending}>Save threshold</Button>

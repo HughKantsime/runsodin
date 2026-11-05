@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { type ReactNode } from 'react'
 import { type LucideIcon } from 'lucide-react'
 import clsx from 'clsx'
@@ -24,8 +25,9 @@ const accentColors: Record<string, string> = {
 }
 
 export default function StatCard({ icon: Icon, label, value, subtitle, color = 'default', onClick, className }: StatCardProps) {
+  const foundry = useFoundry()
   return (
-    <div
+    <div data-foundry-ui={foundry ? 'card' : undefined}
       className={clsx(
         'bg-[var(--brand-card-bg)] rounded-md p-4 border-l-2 transition-colors',
         accentColors[color] || accentColors.default,

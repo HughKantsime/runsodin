@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart3, Printer, Clock, CheckCircle, XCircle, TrendingUp, Download } from 'lucide-react'
@@ -90,7 +92,7 @@ export default function Utilization() {
     a.click(); URL.revokeObjectURL(url)
   }
 
-  if (isLoading) return <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading utilization data...</div>
+  if (isLoading) return <PageState kind="loading" className="text-center py-12 text-[var(--brand-text-muted)]">Loading utilization data...</PageState>
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -167,7 +169,7 @@ export default function Utilization() {
                 <Bar dataKey="utilization" fill="#60a5fa" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="text-[var(--brand-text-muted)] text-sm text-center py-12">No printer data available</div>}
+          ) : <PageState kind="empty" className="text-[var(--brand-text-muted)] text-sm text-center py-12">No printer data available</PageState>}
         </div>
 
         {/* Jobs per Day */}
@@ -184,7 +186,7 @@ export default function Utilization() {
                 <Bar dataKey="jobs" fill="#34d399" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="text-[var(--brand-text-muted)] text-sm text-center py-12">No dated print data available</div>}
+          ) : <PageState kind="empty" className="text-[var(--brand-text-muted)] text-sm text-center py-12">No dated print data available</PageState>}
         </div>
       </div>
 
@@ -206,9 +208,9 @@ export default function Utilization() {
         </div>
 
         {/* Per-Printer Table */}
-        <div className="lg:col-span-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
+        <div tabIndex={0} role="region" aria-label="Printer utilization details" className="lg:col-span-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
           <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Per-Printer Breakdown</h3>
-          <table className="w-full text-sm">
+          <Table className="w-full text-sm">
             <thead>
               <tr className="text-[var(--brand-text-muted)] text-xs uppercase tracking-wide border-b border-[var(--brand-card-border)]">
                 <th className="text-left py-2 px-2">Printer</th>
@@ -242,7 +244,7 @@ export default function Utilization() {
                 <tr><td colSpan={6} className="text-center py-8 text-[var(--brand-text-muted)]">No printer utilization data yet</td></tr>
               )}
             </tbody>
-          </table>
+          </Table>
         </div>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import PageState from '../../components/ui/PageState'
 import CompletionSummary from '../../components/jobs/CompletionSummary'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -76,6 +78,7 @@ const TABS = [
 ]
 
 export default function Alerts() {
+  const foundry = useFoundry()
   const [searchParams, setSearchParams] = useSearchParams()
   const [alerts, setAlerts] = useState([])
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
@@ -284,7 +287,7 @@ export default function Alerts() {
             onClick={() => handleTabChange(tab.key)}
             className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
             style={activeTab === tab.key
-              ? { backgroundColor: 'var(--brand-accent)', color: 'white' }
+              ? { backgroundColor: 'var(--brand-accent)', color: foundry ? 'var(--brand-on-primary)' : 'white' }
               : { color: 'var(--brand-text-muted)' }
             }
           >
@@ -295,7 +298,7 @@ export default function Alerts() {
 
       <div className="space-y-3">
         {loading && alerts.length === 0 ? (
-          <div className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</div>
+          <PageState kind="loading" className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</PageState>
         ) : alerts.length === 0 ? (
           <EmptyState
             icon={Bell}

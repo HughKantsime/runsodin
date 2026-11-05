@@ -163,6 +163,9 @@ class PrinterMaintenance(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    feeding_slot: Optional[int] = None
+    chamber_temp: Optional[float] = None
+    plate_clear_confirmed_at: Optional[datetime] = None
     @field_serializer('print_stage')
     def _pause_stage_text(self, value):
         from modules.printers.monitors.pause_cause import display_stage

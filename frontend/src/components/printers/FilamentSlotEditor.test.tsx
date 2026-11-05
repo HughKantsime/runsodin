@@ -60,3 +60,15 @@ it('clamps material to two lines and truncates the preset to one with full title
  expect(screen.getByTitle(material)).not.toContainElement(screen.getByTitle(`preset: ${preset}`))
  expect(screen.getByTestId('filament-slot')).toHaveClass('min-w-0', 'overflow-hidden')
 })
+
+it('Foundry edits through the existing picker and keeps spool candidates out of Loaded state', async () => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ try {
+  render(<FilamentSlotEditor slot={slot} apiType="bambu" allFilaments={[]} spools={[{ id: 7, filament_brand: 'Review', filament_name: 'PLA', filament_color_hex: '123456', filament_material: 'PLA', remaining_weight_g: 0, initial_weight_g: 1000 }]} printerId={1} onSave={vi.fn()} />)
+  fireEvent.click(screen.getByTestId('filament-slot'))
+  expect(screen.getByText('AMS 1 · 1')).toBeInTheDocument()
+  expect(screen.getByText('Spool 7')).toBeInTheDocument()
+  expect(screen.getByText('Remaining 0 g')).toBeInTheDocument()
+  expect(screen.getAllByText('Loaded')).toHaveLength(1)
+ } finally { cleanup(); document.documentElement.dataset.themeFamily = 'classic' }
+})

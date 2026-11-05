@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -103,7 +104,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
       </div>
 
       {loading ? (
-        <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+        <PageState kind="loading" className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
       ) : error ? (
         <div><p role="alert">{error}</p><button onClick={loadData}>Retry</button></div>
       ) : data.total === 0 ? (

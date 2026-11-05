@@ -1,3 +1,7 @@
+import PrinterNumber from '../ui/PrinterNumber'
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
+import StatusBadge, { printerBadgeStatus } from '../ui/StatusBadge'
 import SlotLabel from './SlotLabel'
 import MaintenanceBanner from './MaintenanceBanner'
 import { useState, useEffect, useRef, type DragEvent } from 'react'
@@ -71,6 +75,8 @@ interface PrinterCardProps {
 }
 
 function LedgerFilamentSlot({ slot }: { slot: any }) {
+  const foundry = useFoundry()
+  if (foundry) return <SlotTile slot={slot} />
   const label = slot.display_name || `Slot ${slot.slot_number}`
   const mapped = slot.mapping_status === 'mapped'
   const available = slot.mapping_status !== 'unavailable'
@@ -85,7 +91,7 @@ function LedgerFilamentSlot({ slot }: { slot: any }) {
         {slot.color && <SlotLabel text={slot.color} />}
         {slot.preset && <SlotLabel text={`preset: ${slot.preset.replace(/^preset:\s*/i, '')}`} singleLine />}
         <SlotLabel text={`Mapped spool${slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}`} />
-        <SlotLabel text={remaining !== null ? `${Math.round(remaining)}% remaining` : 'Remaining amount unknown'} />
+        <SlotLabel numeric text={remaining !== null ? `${Math.round(remaining)}% remaining` : 'Remaining amount unknown'} />
       </> : <SlotLabel text={available ? 'Unmapped' : 'Spool information unavailable'} />}
     </div>
   )
@@ -278,6 +284,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 const el = externallyManagedFilament ? <LedgerFilamentSlot key={slot.slot_number} slot={slot} /> : (
                   <FilamentSlotEditor
                     printerId={printer.id}
+                    apiType={printer.api_type}
                     spools={spools}
                     key={slot.id}
                     slot={slot}
@@ -310,7 +317,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                         <SpoolRing color={ext.color || '#666'} level={ext.remain_percent != null ? ext.remain_percent : 100} size={16} />
                         {ext.material && <SlotLabel text={ext.material} />}
                         {ext.remain_percent != null && (
-                          <span className="text-[10px] text-[var(--brand-text-muted)] ml-auto">{ext.remain_percent}%</span>
+                          <span className="printer-number text-[10px] text-[var(--brand-text-muted)] ml-auto">{ext.remain_percent}%</span>
                         )}
                       </>
                     ) : (
@@ -335,7 +342,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           return (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5">
+                <StatusBadge status={printerBadgeStatus(printer, online)} testId="printer-status" classic={
+                  <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
                   <span
                     data-testid="printer-status"
@@ -344,6 +352,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                     {online ? "Online" : "Offline"}
                   </span>
                 </div>
+                } />
                 {printer.lights_on != null && mayControl(printer) && (
                   <button
                     onClick={(e) => { e.stopPropagation(); void sendCardCommand('lights') }}
@@ -355,21 +364,21 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   </button>
                 )}
               </div>
-              <div className="flex flex-wrap min-w-0 items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
+              <div className="printer-number flex flex-wrap min-w-0 items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
                 {nozTemp != null && !isDualNozzle(printer.machine_type) && (
-                  <span
+                  <PrinterNumber as="span"
                     data-testid="printer-nozzle-temp"
                     className={isHeating ? "text-orange-400" : ""}
                     title={nozTarget && nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}
                   >
                     Nozzle {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
-                  </span>
+                  </PrinterNumber>
                 )}
                 {isDualNozzle(printer.machine_type) && nozTemp != null && (
                   <>
-                    <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
+                    <PrinterNumber as="span" className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
                       L {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
-                    </span>
+                    </PrinterNumber>
                     {(() => {
                       const n1 = printer.h2d_nozzles?.nozzle_1
                       const n1t = n1?.temp != null ? Math.round(n1.temp) : null
@@ -383,13 +392,13 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   </>
                 )}
                 {bedTemp != null && (
-                  <span
+                  <PrinterNumber as="span"
                     data-testid="printer-bed-temp"
                     className={bedTarget && bedTarget > 0 ? "text-orange-400" : ""}
                     title={bedTarget && bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}
                   >
                     Bed {bedTemp}°{bedTarget && bedTarget > 0 ? `/${bedTarget}°` : ''}
-                  </span>
+                  </PrinterNumber>
                 )}
                 {stage && (
                   <span className="text-[var(--brand-primary)]">{stage}</span>
@@ -408,7 +417,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {/* Bambu speed control — active prints only */}
       {printer.api_type === 'bambu' && isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
-          <p className="text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">
+          <p className="printer-number text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">
             {reportedPercent == null ? 'Reported speed unknown' : `Last reported speed: ${reportedPercent}%`}
           </p>
           <p className="text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">

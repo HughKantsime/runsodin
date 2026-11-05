@@ -1,3 +1,4 @@
+import { FleetSummary } from './components/foundry/Floor'
 // Self-hosted fonts (GDPR — no Google Fonts CDN)
 // Default theme fonts — always loaded
 import '@fontsource/ibm-plex-mono/400.css'
@@ -15,7 +16,8 @@ import '@fontsource/ibm-plex-sans/700.css'
 
 import { useState, useEffect } from "react"
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Toaster } from 'react-hot-toast'
+import Toast from './components/ui/Toast'
+import FoundryPage from './components/foundry/Page'
 import ProGate from './components/shared/ProGate'
 import OnboardingTour from './components/shared/OnboardingTour'
 import AlertBell from './components/notifications/AlertBell'
@@ -101,27 +103,27 @@ export default function App() {
 
   // Show setup wizard without sidebar
   if (location.pathname === '/setup') {
-    return <Setup />
+    return <FoundryPage name="/setup"><Setup /></FoundryPage>
   }
 
   // Show login page without sidebar
   if (location.pathname === '/login') {
-    return <Login />
+    return <FoundryPage name="/login"><Login /></FoundryPage>
   }
 
   // Password reset — no auth, no sidebar
   if (location.pathname === '/reset-password') {
-    return <ResetPassword />
+    return <FoundryPage name="/reset-password"><ResetPassword /></FoundryPage>
   }
 
   // OBS streaming overlay — no auth, no sidebar
   if (location.pathname.startsWith('/overlay/')) {
-    return <Routes><Route path="/overlay/:printerId" element={<Overlay />} /></Routes>
+    return <Routes><Route path="/overlay/:printerId" element={<FoundryPage name="/overlay/:printerId"><Overlay /></FoundryPage>} /></Routes>
   }
 
   // TV dashboard mode — full viewport, no sidebar
   if (location.pathname === '/tv') {
-    return <ProtectedRoute><TVDashboard /></ProtectedRoute>
+    return <FoundryPage name="/tv"><ProtectedRoute><TVDashboard /></ProtectedRoute></FoundryPage>
   }
 
   return (
@@ -146,6 +148,7 @@ export default function App() {
         <div className="flex-1 flex flex-col overflow-hidden mb-[calc(3.5rem+env(safe-area-inset-bottom))] md:mb-0">
           {/* Desktop search header */}
           <div className="hidden md:flex items-center justify-end gap-3 px-4 py-2 border-b border-[var(--brand-card-border)]" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+            <FleetSummary />
             <GlobalSearch />
             <ThemeToggle />
             <AlertBell />
@@ -156,41 +159,41 @@ export default function App() {
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" id="sr-status" />
           <ErrorBoundary>
           <Routes>
-            <Route path="/" element={<RoleGate page="dashboard"><Dashboard /></RoleGate>} />
-            <Route path="/timeline" element={<RoleGate page="timeline"><Timeline /></RoleGate>} />
-            <Route path="/jobs" element={<RoleGate page="jobs"><Jobs /></RoleGate>} />
-            <Route path="/printers" element={<RoleGate page="printers"><Printers /></RoleGate>} />
-            <Route path="/printers/:id" element={<RoleGate page="printers"><PrinterDetail /></RoleGate>} />
-            <Route path="/models" element={<RoleGate page="models"><Models /></RoleGate>} />
-            <Route path="/profiles" element={<Profiles />} />
-            <Route path="/calculator" element={<RoleGate page="calculator"><CalculatorPage /></RoleGate>} />
-            <Route path="/analytics" element={<RoleGate page="analytics"><ProGate feature="analytics"><Analytics /></ProGate></RoleGate>} />
-            <Route path="/utilization" element={<RoleGate page="analytics"><ProGate feature="analytics"><Utilization /></ProGate></RoleGate>} />
-            <Route path="/upload" element={<RoleGate page="upload"><Upload /></RoleGate>} />
-            <Route path="/spools" element={<RoleGate page="spools"><Spools /></RoleGate>} />
-            <Route path="/consumables" element={<RoleGate page="products"><ProGate feature="products"><Consumables /></ProGate></RoleGate>} />
-            <Route path="/settings" element={<RoleGate page="settings"><SettingsPage /></RoleGate>} />
-            <Route path="/admin" element={<RoleGate page="admin"><Navigate to="/settings" replace /></RoleGate>} />
-            <Route path="/permissions" element={<RoleGate page="admin"><ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate></RoleGate>} />
-            <Route path="/maintenance" element={<RoleGate page="maintenance"><ProGate feature="maintenance"><Maintenance /></ProGate></RoleGate>} />
-            <Route path="/cameras" element={<RoleGate page="cameras"><Cameras /></RoleGate>} />
-            <Route path="/cameras/:id" element={<RoleGate page="cameras"><CameraDetail /></RoleGate>} />
-            <Route path="/branding" element={<RoleGate page="branding"><ProGate feature="branding"><Navigate to="/settings" replace /></ProGate></RoleGate>} />
-            <Route path="/products" element={<RoleGate page="products"><ProGate feature="products"><Products /></ProGate></RoleGate>} />
-            <Route path="/orders" element={<RoleGate page="orders"><ProGate feature="orders"><Orders /></ProGate></RoleGate>} />
-            <Route path="/alerts" element={<RoleGate page="alerts"><Alerts /></RoleGate>} />
-            <Route path="/detections" element={<Detections />} />
-            <Route path="/education-reports" element={<RoleGate page="education_reports"><ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate></RoleGate>} />
-            <Route path="/education" element={<RoleGate page="education"><ProGate feature="education_workflows" tier="Education"><EducationWorkbench /></ProGate></RoleGate>} />
-            <Route path="/timelapses" element={<Timelapses />} />
-            <Route path="/archives" element={<ArchivesPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/print-log" element={<PrintLog />} />
-            <Route path="/audit" element={<RoleGate page="audit"><AuditLogs /></RoleGate>} />
-            <Route path="*" element={<NotFound />} />
+            <Route path="/" element={<FoundryPage name="/"><RoleGate page="dashboard"><Dashboard /></RoleGate></FoundryPage>} />
+            <Route path="/timeline" element={<FoundryPage name="/timeline"><RoleGate page="timeline"><Timeline /></RoleGate></FoundryPage>} />
+            <Route path="/jobs" element={<FoundryPage name="/jobs"><RoleGate page="jobs"><Jobs /></RoleGate></FoundryPage>} />
+            <Route path="/printers" element={<FoundryPage name="/printers"><RoleGate page="printers"><Printers /></RoleGate></FoundryPage>} />
+            <Route path="/printers/:id" element={<FoundryPage name="/printers/:id"><RoleGate page="printers"><PrinterDetail /></RoleGate></FoundryPage>} />
+            <Route path="/models" element={<FoundryPage name="/models"><RoleGate page="models"><Models /></RoleGate></FoundryPage>} />
+            <Route path="/profiles" element={<FoundryPage name="/profiles"><Profiles /></FoundryPage>} />
+            <Route path="/calculator" element={<FoundryPage name="/calculator"><RoleGate page="calculator"><CalculatorPage /></RoleGate></FoundryPage>} />
+            <Route path="/analytics" element={<FoundryPage name="/analytics"><RoleGate page="analytics"><ProGate feature="analytics"><Analytics /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/utilization" element={<FoundryPage name="/utilization"><RoleGate page="analytics"><ProGate feature="analytics"><Utilization /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/upload" element={<FoundryPage name="/upload"><RoleGate page="upload"><Upload /></RoleGate></FoundryPage>} />
+            <Route path="/spools" element={<FoundryPage name="/spools"><RoleGate page="spools"><Spools /></RoleGate></FoundryPage>} />
+            <Route path="/consumables" element={<FoundryPage name="/consumables"><RoleGate page="products"><ProGate feature="products"><Consumables /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/settings" element={<FoundryPage name="/settings"><RoleGate page="settings"><SettingsPage /></RoleGate></FoundryPage>} />
+            <Route path="/admin" element={<FoundryPage name="/admin"><RoleGate page="admin"><Navigate to="/settings" replace /></RoleGate></FoundryPage>} />
+            <Route path="/permissions" element={<FoundryPage name="/permissions"><RoleGate page="admin"><ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/maintenance" element={<FoundryPage name="/maintenance"><RoleGate page="maintenance"><ProGate feature="maintenance"><Maintenance /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/cameras" element={<FoundryPage name="/cameras"><RoleGate page="cameras"><Cameras /></RoleGate></FoundryPage>} />
+            <Route path="/cameras/:id" element={<FoundryPage name="/cameras/:id"><RoleGate page="cameras"><CameraDetail /></RoleGate></FoundryPage>} />
+            <Route path="/branding" element={<FoundryPage name="/branding"><RoleGate page="branding"><ProGate feature="branding"><Navigate to="/settings" replace /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/products" element={<FoundryPage name="/products"><RoleGate page="products"><ProGate feature="products"><Products /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/orders" element={<FoundryPage name="/orders"><RoleGate page="orders"><ProGate feature="orders"><Orders /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/alerts" element={<FoundryPage name="/alerts"><RoleGate page="alerts"><Alerts /></RoleGate></FoundryPage>} />
+            <Route path="/detections" element={<FoundryPage name="/detections"><Detections /></FoundryPage>} />
+            <Route path="/education-reports" element={<FoundryPage name="/education-reports"><RoleGate page="education_reports"><ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/education" element={<FoundryPage name="/education"><RoleGate page="education"><ProGate feature="education_workflows" tier="Education"><EducationWorkbench /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/timelapses" element={<FoundryPage name="/timelapses"><Timelapses /></FoundryPage>} />
+            <Route path="/archives" element={<FoundryPage name="/archives"><ArchivesPage /></FoundryPage>} />
+            <Route path="/projects" element={<FoundryPage name="/projects"><ProjectsPage /></FoundryPage>} />
+            <Route path="/print-log" element={<FoundryPage name="/print-log"><PrintLog /></FoundryPage>} />
+            <Route path="/audit" element={<FoundryPage name="/audit"><RoleGate page="audit"><AuditLogs /></RoleGate></FoundryPage>} />
+            <Route path="*" element={<FoundryPage name="*"><NotFound /></FoundryPage>} />
           </Routes>
           </ErrorBoundary>
-          <Toaster position="top-right" toastOptions={{ style: { background: 'var(--brand-card-bg)', color: 'var(--brand-text-primary)', border: '1px solid var(--brand-card-border)' } }} />
+          <Toast />
           <OnboardingTour />
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />

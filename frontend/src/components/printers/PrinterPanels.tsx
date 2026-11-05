@@ -1,3 +1,6 @@
+import PrinterNumber from '../ui/PrinterNumber'
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import { displayName } from '../../utils/displayName'
 import { Thermometer, Wind, Activity } from 'lucide-react'
 import { getShortName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
@@ -54,23 +57,23 @@ export function PrinterInfoPanel({ printer }: { printer: PrinterLike }) {
         {nozTemp != null && (
           <div className="flex items-center justify-between">
             <span className="text-sm text-[var(--brand-text-secondary)] flex items-center gap-1.5"><Thermometer size={13} /> Nozzle</span>
-            <span className={`text-sm ${nozTarget && nozTarget > 0 ? 'text-orange-400' : 'text-[var(--brand-text-secondary)]'}`}>
+            <PrinterNumber as="span" className={`text-sm ${nozTarget && nozTarget > 0 ? 'text-orange-400' : 'text-[var(--brand-text-secondary)]'}`}>
               {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°C` : 'C'}
-            </span>
+            </PrinterNumber>
           </div>
         )}
         {bedTemp != null && (
           <div className="flex items-center justify-between">
             <span className="text-sm text-[var(--brand-text-secondary)] flex items-center gap-1.5"><Thermometer size={13} /> Bed</span>
-            <span className={`text-sm ${bedTarget && bedTarget > 0 ? 'text-orange-400' : 'text-[var(--brand-text-secondary)]'}`}>
+            <PrinterNumber as="span" className={`text-sm ${bedTarget && bedTarget > 0 ? 'text-orange-400' : 'text-[var(--brand-text-secondary)]'}`}>
               {bedTemp}°{bedTarget && bedTarget > 0 ? `/${bedTarget}°C` : 'C'}
-            </span>
+            </PrinterNumber>
           </div>
         )}
         {fan != null && (
           <div className="flex items-center justify-between">
             <span className="text-sm text-[var(--brand-text-secondary)] flex items-center gap-1.5"><Wind size={13} /> Fan</span>
-            <span className="text-sm text-[var(--brand-text-secondary)]">{fan.text}</span>
+            <PrinterNumber as="span" className="text-sm text-[var(--brand-text-secondary)]">{fan.text}</PrinterNumber>
           </div>
         )}
       </div>
@@ -79,8 +82,10 @@ export function PrinterInfoPanel({ printer }: { printer: PrinterLike }) {
 }
 
 export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
+  const foundry = useFoundry()
   const slots = printer.filament_slots || []
   if (!slots.length) return null
+  if (foundry) return <section aria-label="Filament" className="f-slots">{slots.map(slot => <SlotTile key={slot.slot_number} slot={slot} apiType={printer.api_type} />)}</section>
 
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -93,9 +98,9 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
             {slot.remaining == null && <span className="text-xs text-[var(--brand-text-muted)]">Remaining unknown</span>}
             {slot.spool_change_pending && <a href="/printers" className="text-xs text-amber-400">Spool may have changed? Confirm on Printers</a>}
             {slot.remaining_weight != null && (
-              <span className={`text-xs ${slot.remaining_weight < 100 ? 'text-amber-400' : 'text-[var(--brand-text-muted)]'}`}>
+              <PrinterNumber as="span" className={`text-xs ${slot.remaining_weight < 100 ? 'text-amber-400' : 'text-[var(--brand-text-muted)]'}`}>
                 {Math.round(slot.remaining_weight)}g
-              </span>
+              </PrinterNumber>
             )}
           </div>
         ))}

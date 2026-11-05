@@ -15,7 +15,7 @@ beforeEach(() => {
   resetServerThemeForTests()
   localStorage.clear()
   const root = document.documentElement
-  root.classList.remove('light'); root.style.removeProperty('--brand-accent'); delete root.dataset.userAccent
+  root.classList.remove('light', 'high-contrast'); delete root.dataset.themeFamily; root.style.removeProperty('--brand-accent'); delete root.dataset.userAccent
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   transport = vi.fn(async (url: string, init?: RequestInit) => {
     if (url !== '/api/auth/me/theme') return json({ detail: 'unexpected' }, 500)
@@ -24,14 +24,15 @@ beforeEach(() => {
   })
   vi.stubGlobal('fetch', transport)
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); document.documentElement.classList.remove('high-contrast'); vi.unstubAllGlobals() })
 
 const accent = () => document.documentElement.style.getPropertyValue('--brand-accent')
 
 it('applies the account theme saved on another device (mode and accent)', async () => {
   serverTheme = { accent_color: '#ff0000', sidebar_style: 'light', background: 'default', mode: 'light' }
   render(<ThemeToggle />)
-  await screen.findByRole('button', { name: 'Switch to dark mode' })
+  fireEvent.click(screen.getByRole('button', { name: 'Theme settings' }))
+  await waitFor(() => expect(screen.getByLabelText('Appearance')).toHaveValue('light'))
   expect(document.documentElement.classList.contains('light')).toBe(true)
   expect(localStorage.getItem('odin-theme')).toBe('light')
   expect(accent()).toBe('#ff0000')
@@ -42,7 +43,8 @@ it('the server default accent is not a personal override; invalid accents are ne
   serverTheme = { accent_color: '#6366f1', sidebar_style: 'dark', background: 'default' }
   render(<ThemeToggle />)
   await waitFor(() => expect(transport).toHaveBeenCalled())
-  await screen.findByRole('button', { name: 'Switch to light mode' })
+  fireEvent.click(screen.getByRole('button', { name: 'Theme settings' }))
+  expect(screen.getByLabelText('Appearance')).toHaveValue('dark')
   expect(accent()).toBe('')
   cleanup(); resetServerThemeForTests()
   serverTheme = { accent_color: 'red;background:url(x)' }
@@ -51,11 +53,12 @@ it('the server default accent is not a personal override; invalid accents are ne
   expect(accent()).toBe('')
 })
 
-it('a toggle is saved to the account, keeping the other stored preferences', async () => {
+it('an appearance choice is saved to the account, keeping the other stored preferences', async () => {
   serverTheme = { accent_color: '#0ea5e9', sidebar_style: 'light', background: 'default' }
   render(<ThemeToggle />)
   await waitFor(() => expect(transport).toHaveBeenCalledTimes(1))
-  fireEvent.click(screen.getByRole('button', { name: 'Switch to light mode' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Theme settings' }))
+  fireEvent.change(screen.getByLabelText('Appearance'), { target: { value: 'light' } })
   await waitFor(() => expect(transport).toHaveBeenCalledTimes(2))
   const [url, init] = transport.mock.calls[1]
   expect(url).toBe('/api/auth/me/theme')
@@ -64,7 +67,7 @@ it('a toggle is saved to the account, keeping the other stored preferences', asy
   expect(document.documentElement.classList.contains('light')).toBe(true)
 })
 
-it('a toggle made while the account theme is still loading is not overridden by it', async () => {
+it('an appearance choice made while the account theme is still loading is not overridden by it', async () => {
   serverTheme = { accent_color: '#6366f1', sidebar_style: 'dark', background: 'default', mode: 'dark' }
   let release: () => void = () => {}
   const gate = new Promise<void>(r => { release = r })
@@ -74,11 +77,24 @@ it('a toggle made while the account theme is still loading is not overridden by 
     return inner(url, init)
   })
   render(<ThemeToggle />)
-  fireEvent.click(screen.getByRole('button', { name: 'Switch to light mode' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Theme settings' }))
+  fireEvent.change(screen.getByLabelText('Appearance'), { target: { value: 'light' } })
   expect(document.documentElement.classList.contains('light')).toBe(true)
   release()
   await waitFor(() => expect(transport.mock.calls.some(([, i]) => i?.method === 'PUT')).toBe(true))
   await new Promise(r => setTimeout(r, 20))
   expect(document.documentElement.classList.contains('light')).toBe(true)
   expect(localStorage.getItem('odin-theme')).toBe('light')
+})
+
+it('keeps local high contrast when a delayed account dark-mode response arrives', async () => {
+ serverTheme = { mode: 'dark' }
+ render(<ThemeToggle />)
+ fireEvent.click(screen.getByRole('button', { name: 'Theme settings' }))
+ fireEvent.change(screen.getByLabelText('Theme family'), { target: { value: 'foundry' } })
+ fireEvent.change(screen.getByLabelText('Appearance'), { target: { value: 'high-contrast' } })
+ await waitFor(() => expect(transport).toHaveBeenCalledTimes(1))
+ expect(localStorage.getItem('odin-theme')).toBe('high-contrast')
+ expect(document.documentElement).toHaveClass('high-contrast')
+ expect(document.documentElement.dataset.themeFamily).toBe('classic')
 })

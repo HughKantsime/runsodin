@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useQuery } from '@tanstack/react-query'
 import type { AnalyticsSummary } from '../../api/reporting'
 import { analytics, printJobs } from '../../api'
@@ -25,7 +27,7 @@ function JobsOverTimeChart({ data, days = 30 }: { data: Record<string, { created
     return (
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Job Activity</h3>
-        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">No job data yet</div>
+        <PageState kind="empty" className="text-center py-12 text-[var(--brand-text-muted)] text-sm">No job data yet</PageState>
       </div>
     )
   }
@@ -99,7 +101,7 @@ function PrinterUtilization({ data }) {
           )
         })}
         {data.length === 0 && (
-          <div className="text-center text-[var(--brand-text-muted)] py-8 text-sm">No printer data yet</div>
+          <PageState kind="empty" className="text-center text-[var(--brand-text-muted)] py-8 text-sm">No printer data yet</PageState>
         )}
       </div>
     </div>
@@ -151,7 +153,7 @@ function ModelRankings({ topData, worstData, jobCountData = [] }) {
         </div>
         <div>
           {topData.map((item, i) => <RankRow key={item.id} item={item} index={i} />)}
-          {topData.length === 0 && <div className="text-center text-[var(--brand-text-muted)] py-6 text-sm">No data yet</div>}
+          {topData.length === 0 && <PageState kind="empty" className="text-center text-[var(--brand-text-muted)] py-6 text-sm">No data yet</PageState>}
         </div>
       </div>
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -162,7 +164,7 @@ function ModelRankings({ topData, worstData, jobCountData = [] }) {
         </div>
         <div>
           {worstData.map((item, i) => <RankRow key={item.id} item={item} index={i} isWorst />)}
-          {worstData.length === 0 && <div className="text-center text-[var(--brand-text-muted)] py-6 text-sm">No data yet</div>}
+          {worstData.length === 0 && <PageState kind="empty" className="text-center text-[var(--brand-text-muted)] py-6 text-sm">No data yet</PageState>}
         </div>
       </div>
     </div>
@@ -311,7 +313,7 @@ function FailureBreakdownTable({ title, rows, label }) {
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">{title}</h3>
-      <table className="w-full text-sm">
+      <Table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-[var(--brand-text-muted)] text-left">
             <th scope="col" className="pb-2 font-medium">{label}</th>
@@ -334,7 +336,7 @@ function FailureBreakdownTable({ title, rows, label }) {
             )
           })}
         </tbody>
-      </table>
+      </Table>
     </div>
   )
 }
@@ -345,7 +347,7 @@ function PrinterReliability({ data }) {
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Printers by Failures</h3>
-      <table className="w-full text-sm">
+      <Table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-[var(--brand-text-muted)] text-left">
             <th scope="col" className="pb-2 font-medium">Printer</th>
@@ -364,7 +366,7 @@ function PrinterReliability({ data }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   )
 }

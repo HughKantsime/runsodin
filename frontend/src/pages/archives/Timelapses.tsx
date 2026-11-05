@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import PageState from '../../components/ui/PageState'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -20,6 +22,7 @@ function durationLabel(seconds: number | null | undefined) {
 const provenance = 'Historical recordings without verified lifetime provenance cannot be played or deleted. Editing supports verified CFR30 recordings; originals are retained.'
 type Selection = { row: Timelapse; etag: string; owner: string; epoch: number }
 export default function Timelapses() {
+  const foundry = useFoundry()
   const client = useQueryClient()
   const { data: user } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
   const owner = audience(user), current = () => audience(client.getQueryData<User | null>(['auth', 'me'])) === owner && !!owner
@@ -83,9 +86,9 @@ export default function Timelapses() {
     {user?.role === 'admin' && user.group_id == null && <TimelapseFactsRecheck key={owner} current={current} onComplete={() => { client.invalidateQueries({ queryKey: ['timelapses', owner] }) }} />}
     <div className="flex gap-3"><select aria-label="Printer filter" value={printer} onChange={e => { retire(); setPrinter(e.target.value); setOffset(0) }}><option value="">All printers</option>{(printerRows.data || []).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
       <select aria-label="Status filter" value={status} onChange={e => { retire(); setStatus(e.target.value); setOffset(0) }}><option value="">All statuses</option>{['ready', 'capturing', 'encoding', 'failed', 'deleting'].map(value => <option key={value}>{value}</option>)}</select></div>
-    {rows.isLoading && <p>Loading timelapses...</p>}{rows.isError && <div role="alert">Unable to load recordings. <button onClick={() => rows.refetch()}>Retry list</button></div>}
-    {printerRows.isError && <div role="alert">Unable to load printer filters. <button onClick={() => printerRows.refetch()}>Retry filters</button></div>}
-    {error && <div role="alert">{error}</div>}
+    {rows.isLoading && <p>Loading timelapses...</p>}{rows.isError && <PageState kind="error" role="alert">Unable to load recordings. <button onClick={() => rows.refetch()}>Retry list</button></PageState>}
+    {printerRows.isError && <PageState kind="error" role="alert">Unable to load printer filters. <button onClick={() => printerRows.refetch()}>Retry filters</button></PageState>}
+    {error && <PageState kind="error" role="alert">{error}</PageState>}
     {!rows.isLoading && !rows.isError && !items.length && <p>No recordings match these filters.</p>}
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{items.map(row => <article key={row.id} className="border rounded-lg p-4 space-y-2"><h2>{row.printer_name || `Printer ${row.printer_id}`}</h2><p>Recording {row.id}: {row.status}, {row.frame_count} frames</p>
       {row.created_at && <p>{new Date(row.created_at).toLocaleString()}</p>}
@@ -93,12 +96,12 @@ export default function Timelapses() {
       {Number.isInteger(row.print_job_id) && (row.print_job_id ?? 0) > 0 && <p>Job #{row.print_job_id}</p>}
       {row.status === 'ready' && <><button onClick={() => { retire(); setError(''); setPlaying({ row, owner, epoch: generation.current }) }}>Play recording {row.id}</button><button disabled={pending} onClick={() => download(row)}>Download recording {row.id}</button></>}
       {canEdit && row.status === 'ready' && <button disabled={pending} onClick={() => { if (current()) { retire(); setEditing({ row, owner }) } }}>Edit recording {row.id}</button>}
-      {canDelete && ['ready', 'failed', 'deleting'].includes(row.status) && <button disabled={pending} onClick={() => prepare(row)}>Delete recording {row.id}</button>}
+      {canDelete && ['ready', 'failed', 'deleting'].includes(row.status) && <button data-foundry-ui={foundry ? 'button' : undefined} data-foundry-variant={foundry ? 'danger' : undefined} disabled={pending} onClick={() => prepare(row)}>Delete recording {row.id}</button>}
     </article>)}</div>
     <div className="flex gap-4"><button disabled={!offset} onClick={() => { retire(); setOffset(Math.max(0, offset - limit)) }}>Previous</button><span>Page {Math.floor(offset / limit) + 1} of {Math.max(1, Math.ceil(total / limit))}</span><button disabled={offset + limit >= total} onClick={() => { retire(); setOffset(offset + limit) }}>Next</button></div>
     {playing?.owner === owner && playing.epoch === generation.current && <section aria-label="Recording player"><button onClick={retire}>Close player</button><video key={`${owner}:${playing.row.id}:${playing.epoch}`} controls autoPlay src={timelapses.streamUrl(playing.row.id)} onError={() => { if (current() && playing.epoch === generation.current) setError('Playback unavailable. Check access and verified lifetime provenance, then retry playback.') }} /><button onClick={() => { if (current()) { const row = playing.row; retire(); setPlaying({ row, owner, epoch: generation.current }); setError('') } }}>Retry playback</button></section>}
     <TimelapseEditor row={editing?.owner === owner ? editing.row : null} onClose={() => setEditing(null)} onComplete={() => { if (current()) client.invalidateQueries({ queryKey: ['timelapses', owner] }) }} />
     <ConfirmModal open={confirm && !!active} pending={pending} title="Delete recording" message="Retire this verified recording and its captured files? This cannot be undone." confirmText="Confirm deletion" onConfirm={remove} onCancel={retire} />
-    {active && !pending && error && <button onClick={remove}>Retry deletion</button>}
+    {active && !pending && error && <button data-foundry-ui={foundry ? 'button' : undefined} data-foundry-variant={foundry ? 'danger' : undefined} onClick={remove}>Retry deletion</button>}
   </div>
 }

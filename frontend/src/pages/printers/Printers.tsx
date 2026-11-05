@@ -1,3 +1,8 @@
+import CheckTarget from '../../components/ui/CheckTarget'
+import PageState from '../../components/ui/PageState'
+import { useFoundry } from '../../hooks/themePreferences'
+import DensityToggle, { useDensity } from '../../components/foundry/DensityToggle'
+import { ManagedPrinter, ManagedRows } from '../../components/foundry/PrinterSurfaces'
 import useCameraList from '../../hooks/useCameraList'
 import QRScannerModal from '../../components/inventory/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
@@ -20,6 +25,8 @@ import { isOnline, isActivePrintState } from '../../utils/shared'
 import { PageHeader, Button, SearchInput, EmptyState } from '../../components/ui'
 
 export default function Printers() {
+  const foundry = useFoundry()
+  const [density] = useDensity()
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const [cameraTarget, setCameraTarget] = useState(null)
   const { data: activeCameras } = useCameraList()
@@ -256,6 +263,7 @@ export default function Printers() {
   return (
     <div className="p-4 md:p-6">
       <PageHeader icon={PrinterIcon} title="Printers" subtitle="Manage your print farm">
+        {foundry && <DensityToggle />}
         {canDo('printers.add') && (atLimit
           ? <Button variant="secondary" icon={Plus} onClick={() => setShowUpgradeModal(true)} title={`Printer limit reached (${lic.max_printers ?? 5}). Upgrade to Pro for unlimited.`}>
               Add Printer (limit: {lic.max_printers ?? 5})
@@ -307,7 +315,7 @@ export default function Printers() {
               Showing {filteredPrinters.length} of {orderedPrinters.length} printers
             </span>
           )}
-          <div className="flex items-center gap-0.5 ml-auto border border-[var(--brand-card-border)] rounded-md overflow-hidden">
+          {!foundry && <div className="flex items-center gap-0.5 ml-auto border border-[var(--brand-card-border)] rounded-md overflow-hidden">
             {['S', 'M', 'L', 'XL'].map(size => (
               <button
                 key={size}
@@ -317,17 +325,17 @@ export default function Printers() {
                 {size}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       )}
 
       {isError ? (
-        <div role="alert" className="text-center py-12">
+        <PageState kind="error" role="alert" className="text-center py-12">
           <p>Failed to load printers: {error?.message || 'Unknown error'}</p>
           <Button onClick={() => refetch()}>Retry</Button>
-        </div>
+        </PageState>
       ) : isLoading ? (
-        <div className="text-center py-12 text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading printers...</div>
+        <PageState kind="loading" className="text-center py-12 text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading printers...</PageState>
       ) : printersData?.length === 0 ? (
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
           <EmptyState icon={PrinterIcon} title="No printers configured yet." description="Add your first printer to get started.">
@@ -356,7 +364,9 @@ export default function Printers() {
             </label>
           </div>
         )}
-        <div className={clsx('grid gap-4 md:gap-6 items-start', {
+        {foundry && <div className="f-fleet" data-density={density}><div className="f-compact"><ManagedRows printers={filteredPrinters} /></div></div>}
+        <DensityCards foundry={foundry} density={density}>
+        <div className={foundry ? 'f-card-grid' : clsx('grid gap-4 md:gap-6 items-start', {
           'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4': cardSize === 'S',
           'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3': cardSize === 'M',
           'grid-cols-1 lg:grid-cols-2': cardSize === 'L',
@@ -364,15 +374,14 @@ export default function Printers() {
         })}>
           {filteredPrinters.map((printer) => (
             <div key={printer.id} className="relative">
-              {canDo('printers.edit') && (
-                <input aria-label={`Select ${printer.nickname || printer.name}`}
+              <PrinterPresentation foundry={foundry} printer={printer} selection={canDo('printers.edit') && (
+                <CheckTarget><input aria-label={`Select ${printer.nickname || printer.name}`}
                   type="checkbox"
                   checked={selectedPrinters.has(printer.id)}
                   onChange={() => togglePrinterSelect(printer.id)}
-                  className="absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]"
-                />
-              )}
-              <PrinterCard
+                  className={foundry ? "rounded border-[var(--brand-card-border)]" : "absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]"}
+                /></CheckTarget>
+              )}><PrinterCard
                 printer={printer}
                 allFilaments={filamentsData}
                 spools={spoolsData}
@@ -392,7 +401,7 @@ export default function Printers() {
                 plugStates={Object.fromEntries(Object.entries(plugStates).filter(([, entry]) => entry.context === plugContext).map(([id, entry]) => [id, entry.value]))}
                 plugPending={plugPending[printer.id] === plugContext}
                 plugOutcome={plugOutcomes[printer.id]?.context === plugContext ? plugOutcomes[printer.id].text : ''}
-              />
+              /></PrinterPresentation>
             </div>
           ))}
           {filteredPrinters.length === 0 && orderedPrinters.length > 0 && (
@@ -401,6 +410,7 @@ export default function Printers() {
             </div>
           )}
         </div>
+        </DensityCards>
         </>
       )}
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
@@ -428,4 +438,11 @@ export default function Printers() {
       />
     </div>
   )
+}
+
+function PrinterPresentation({ foundry, printer, children, selection }) {
+  return foundry ? <ManagedPrinter printer={printer} selection={selection}>{children}</ManagedPrinter> : <>{selection}{children}</>
+}
+function DensityCards({ foundry, density, children }) {
+  return foundry ? <div className="f-fleet" data-density={density}><div className="f-comfortable">{children}</div></div> : <>{children}</>
 }

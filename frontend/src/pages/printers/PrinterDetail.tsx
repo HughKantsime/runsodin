@@ -1,3 +1,7 @@
+import PrinterNumber from '../../components/ui/PrinterNumber'
+import { useFoundry } from '../../hooks/themePreferences'
+import { state } from '../../components/foundry/data'
+import { PrinterDetailOverview } from '../../components/foundry/PrinterSurfaces'
 import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import InstalledNozzles from '../../components/printers/InstalledNozzles'
@@ -30,6 +34,7 @@ function formatEta(minutes) {
 
 
 export default function PrinterDetail() {
+  const foundry = useFoundry()
   const { id } = useParams()
   const navigate = useNavigate()
 
@@ -106,11 +111,14 @@ export default function PrinterDetail() {
 
       {/* Header */}
       <PageHeader icon={Printer} title={printer.name} subtitle={`${printer.type || 'Printer'} ${printer.ip ? '@ ' + printer.ip : ''}`}>
-        <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />
+        {foundry ? <StatusBadge status={state(printer)} /> : <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />}
       </PageHeader>
 
       <PauseCause printer={printer} />
       {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
+      {foundry && <PrinterDetailOverview printer={printer} />}
+
+      <DetailPresentation foundry={foundry}>
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatCard
@@ -159,9 +167,9 @@ export default function PrinterDetail() {
             </div>
             <ProgressBar value={progress} color={progress >= 100 ? 'green' : 'print'} size="md" label={`${currentJobName} progress`} />
             {etaMinutes > 0 && (
-              <p className="text-xs mt-2" style={{ color: 'var(--brand-text-muted)' }}>
+              <PrinterNumber as="p" className="text-xs mt-2" style={{ color: 'var(--brand-text-muted)' }}>
                 {formatEta(etaMinutes)}
-              </p>
+              </PrinterNumber>
             )}
           </div>
         ) : (
@@ -171,6 +179,7 @@ export default function PrinterDetail() {
         )}
       </Card>
 
+      </DetailPresentation>
       <InstalledNozzles nozzles={printer.installed_nozzles} />
 
       {/* Telemetry */}
@@ -197,13 +206,13 @@ export default function PrinterDetail() {
                 {point.fan_speed != null && (
                   <div className="flex justify-between">
                     <span style={{ color: 'var(--brand-text-muted)' }}>Fan</span>
-                    <span style={{ color: 'var(--brand-text-primary)' }}>{point.fan_speed}%</span>
+                    <PrinterNumber as="span" style={{ color: 'var(--brand-text-primary)' }}>{point.fan_speed}%</PrinterNumber>
                   </div>
                 )}
                 {point.speed != null && (
                   <div className="flex justify-between">
                     <span style={{ color: 'var(--brand-text-muted)' }}>Speed</span>
-                    <span style={{ color: 'var(--brand-text-primary)' }}>{point.speed}%</span>
+                    <PrinterNumber as="span" style={{ color: 'var(--brand-text-primary)' }}>{point.speed}%</PrinterNumber>
                   </div>
                 )}
               </div>
@@ -293,4 +302,8 @@ export default function PrinterDetail() {
       </Card>
     </div>
   )
+}
+
+function DetailPresentation({ foundry, children }) {
+  return foundry ? <details className="f-management"><summary>Printer status and recovery</summary>{children}</details> : <>{children}</>
 }

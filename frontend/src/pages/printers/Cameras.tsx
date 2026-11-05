@@ -1,3 +1,6 @@
+import PageState from '../../components/ui/PageState'
+import { useFoundry } from '../../hooks/themePreferences'
+import { FoundryCameras } from '../../components/foundry/CameraView'
 import CameraFallback from '../../components/printers/CameraFallback'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -94,6 +97,10 @@ function CameraCard({ camera, onExpand, onPip }) {
 }
 
 export default function Cameras() {
+  return useFoundry() ? <FoundryCameraPresentation /> : <ClassicCameras />
+}
+
+function ClassicCameras() {
   const queryClient = useQueryClient()
   const [expandedCamera, setExpandedCamera] = useState(null)
   const [columns, setColumns] = useState(2)
@@ -282,10 +289,10 @@ export default function Cameras() {
         </Card>
       )}
 
-      {!ready && <div role="alert">Camera access is not ready. Refresh your session.</div>}
-      {ready && isError && <div role="alert">Unable to load cameras. <button onClick={() => refetch()}>Retry cameras</button></div>}
+      {!ready && <PageState kind="error" role="alert">Camera access is not ready. Refresh your session.</PageState>}
+      {ready && isError && <PageState kind="error" role="alert">Unable to load cameras. <button onClick={() => refetch()}>Retry cameras</button></PageState>}
       {isLoading && (
-        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading cameras...</div>
+        <PageState kind="loading" className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading cameras...</PageState>
       )}
 
       {filteredCameras.length === 0 && !isLoading && !isError && ready && (
@@ -394,4 +401,9 @@ function ControlRoomCamera({ camera, delay = 0 }) {
       )}
     </>
   )
+}
+
+function FoundryCameraPresentation() {
+  const [tools, setTools] = useState(false)
+  return <><FoundryCameras /><div className="f-planning"><button type="button" className="f-button" aria-expanded={tools} onClick={() => setTools(!tools)}>Camera settings and controls</button>{tools && <ClassicCameras />}</div></>
 }

@@ -4,6 +4,7 @@ import { Printer as PrinterIcon, Package, QrCode, Scale, Archive, Pencil, Drople
 import { canDo } from '../../permissions'
 import { ProgressBar, Button, SpoolRing } from '../ui'
 import type { Spool, Printer } from '../../types'
+import { useFoundry } from '../../hooks/themePreferences'
 
 const HYGROSCOPIC_TYPES = new Set([
   'PA', 'NYLON_CF', 'NYLON_GF', 'PPS', 'PPS_CF',
@@ -21,6 +22,7 @@ interface SpoolCardProps {
   printers?: Printer[]
 }
 export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, printers }: SpoolCardProps) {
+  const foundry = useFoundry()
   const percentRemaining = spool.percent_remaining || 0
   const isLow = spool.is_low_stock === true || percentRemaining < 20
   const isEmpty = spool.status === 'empty'
@@ -35,21 +37,26 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
       style={{ background: 'var(--brand-card-bg)', boxShadow: 'var(--brand-card-shadow)' }}
     >
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+        <div className={foundry ? 'f-spool-identity' : 'flex items-center gap-2 md:gap-3 min-w-0'}>
           <SpoolRing
             color={spool.filament_color_hex ? `#${spool.filament_color_hex}` : '#888'}
-            material={spool.filament_material}
+            material={foundry ? undefined : spool.filament_material}
+            className={foundry ? 'f-spool-ring' : undefined}
             level={percentRemaining}
             empty={isEmpty}
             size={32}
           />
-          <div className="min-w-0">
+          {foundry ? <div className="f-spool-copy">
+            <h3 className="font-medium truncate" title={`${spool.filament_brand || ''} ${spool.filament_name || ''}`.trim()}>{spool.filament_brand} {spool.filament_name}</h3>
+            <p className="text-sm">{spool.color_name || 'Unknown color'}</p>
+            <p className="text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
+          </div> : <div className="min-w-0">
             <h3 className="font-medium text-[var(--brand-text-primary)] text-sm md:text-base truncate">
               {spool.filament_brand} {spool.filament_name}
               <span className="block text-sm">{spool.color_name || "Unknown color"}</span>
             </h3>
             <p className="text-xs md:text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
-          </div>
+          </div>}
         </div>
         <span className={clsx(
           "px-2 py-1 rounded-md text-xs font-medium shrink-0 ml-2",
@@ -125,6 +132,7 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
         ) : null}
         <a
           href={`/api/spools/${spool.id}/label`}
+          aria-label={`Print label for ${spool.filament_name || spool.qr_code || `spool ${spool.id}`}`}
           target="_blank"
           rel="noopener noreferrer"
           className="px-2 md:px-3 py-1 text-xs rounded-md gap-1.5 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] inline-flex items-center justify-center font-medium transition-colors"

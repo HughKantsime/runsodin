@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchAPI } from '../../api/client'
@@ -10,6 +12,7 @@ type Report = {
 }
 
 export default function InventoryConflicts({ audience }: { audience: string }) {
+  const foundry = useFoundry()
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['inventory-conflicts', audience], queryFn: () => fetchAPI<Report>('/inventory/conflicts') })
   const [choices, setChoices] = useState<Record<number, string>>({})
@@ -22,10 +25,15 @@ export default function InventoryConflicts({ audience }: { audience: string }) {
     {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
     {query.isLoading ? <p>Loading conflicts…</p> : !ids.length && !query.error ? <p>No inventory conflicts.</p> : ids.map(id => <div key={id} className="my-3 flex flex-wrap gap-2 items-center">
       <span>Spool {id}: {query.data?.duplicates.some(r => r.spool_id === id) ? 'multiple slot links' : 'contradictory location'}</span>
-      <select aria-label={`True slot for spool ${id}`} value={choices[id] ?? ''} onChange={e => setChoices({ ...choices, [id]: e.target.value })}>
+      {foundry ? <div className="f-slots" role="group" aria-label={`True slot for spool ${id}`}>
+        <button type="button" aria-pressed={choices[id] === 'clear'} onClick={() => setChoices({ ...choices, [id]: 'clear' })}>Clear location and all links</button>
+        {query.data?.slots.map(slot => <button type="button" className="f-slot-button" key={slot.id} aria-pressed={choices[id] === String(slot.id)} onClick={() => setChoices({ ...choices, [id]: String(slot.id) })}>
+          <SlotTile slot={slot} label={`Printer ${slot.printer_id} · Slot ${slot.slot_number}`} />
+        </button>)}
+      </div> : (      <select aria-label={`True slot for spool ${id}`} value={choices[id] ?? ''} onChange={e => setChoices({ ...choices, [id]: e.target.value })}>
         <option value="">Choose a resolution</option><option value="clear">Clear location and all links</option>
         {query.data?.slots.map(s => <option key={s.id} value={s.id}>Printer {s.printer_id}, slot {s.slot_number} (ID {s.id})</option>)}
-      </select>
+      </select>)}
       <Button disabled={!choices[id] || busy} onClick={async () => {
         setBusy(true)
         try {

@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -205,20 +206,20 @@ export default function Profiles({ filterPrinterId, filterSlicer }: { filterPrin
 
       {/* Profile list */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-[var(--brand-muted)]">
+        <PageState kind="loading" className="flex items-center justify-center py-20 text-[var(--brand-muted)]">
           <Loader2 className="animate-spin mr-2" size={20} /> Loading...
-        </div>
+        </PageState>
       ) : isError ? (
-        <div role="alert" className="text-center py-20 text-[var(--brand-muted)]">
+        <PageState kind="error" role="alert" className="text-center py-20 text-[var(--brand-muted)]">
           <p>Unable to load profiles</p>
           <button onClick={() => refetch()} className="mt-3 px-4 py-2 rounded-md bg-[var(--brand-input-bg)]">Retry</button>
-        </div>
+        </PageState>
       ) : items.length === 0 ? (
-        <div className="text-center py-20 text-[var(--brand-muted)]">
+        <PageState kind="empty" className="text-center py-20 text-[var(--brand-muted)]">
           <SlidersHorizontal size={48} className="mx-auto mb-4 opacity-50" />
           <p className="text-lg">No profiles yet</p>
           <p className="text-sm mt-1">Import a .json, .ini, .cfg, or .3mf file to get started</p>
-        </div>
+        </PageState>
       ) : (
         <div className="space-y-2">
           {items.map(p => (

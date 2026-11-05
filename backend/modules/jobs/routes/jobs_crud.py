@@ -333,7 +333,8 @@ def list_jobs(
         Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
     ).offset(offset).limit(limit).all()
     from core.display_names import name_jobs
-    return name_jobs(db, rows, current_user)
+    from modules.jobs.display_facts import enrich_job_facts
+    return enrich_job_facts(db, name_jobs(db, rows, current_user), current_user)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["Jobs"])

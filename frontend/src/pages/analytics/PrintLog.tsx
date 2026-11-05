@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import { useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -158,12 +160,12 @@ export default function PrintLog() {
 
       {/* Table */}
       {isLoading ? (
-        <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</div>
+        <PageState kind="loading" className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</PageState>
       ) : isError ? (
-        <div role="alert" className="py-8 text-center">
+        <PageState kind="error" role="alert" className="py-8 text-center">
           <p>Print log unavailable</p>
           <button onClick={() => refetch()} className="mt-3 px-3 py-2 rounded bg-[var(--brand-input-bg)]">Retry</button>
-        </div>
+        </PageState>
       ) : items.length === 0 ? (
         <div className="text-center py-12 text-[var(--brand-text-muted)]">
           <ClipboardList size={40} className="mx-auto mb-3 opacity-30" />
@@ -171,8 +173,8 @@ export default function PrintLog() {
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
-            <table className="w-full text-sm">
+          <div tabIndex={0} role="region" aria-label="Print log" className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
+            <Table className="w-full text-sm">
               <thead>
                 <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] text-xs">
                   <th className="py-2 px-3 text-left">Date</th>
@@ -205,7 +207,7 @@ export default function PrintLog() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </div>
 
           {/* Pagination */}

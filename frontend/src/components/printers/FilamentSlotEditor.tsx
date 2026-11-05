@@ -1,3 +1,6 @@
+import PageState from '../ui/PageState'
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Search } from 'lucide-react'
@@ -56,10 +59,12 @@ interface FilamentSlotEditorProps {
   allFilaments: FilamentOption[] | null
   spools: SpoolOption[] | null
   printerId: number
+  apiType?: string | null
   onSave: (data: SlotUpdateData) => void
 }
 
-export default function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }: FilamentSlotEditorProps) {
+export default function FilamentSlotEditor({ slot, allFilaments, spools, printerId, apiType, onSave }: FilamentSlotEditorProps) {
+  const foundry = useFoundry()
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
   useEffect(() => {
@@ -123,7 +128,12 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
 
   return (
     <>
-      <div
+      {foundry ? <button type="button" className="f-slot-button" data-testid="filament-slot"
+        disabled={slot.spool_change_pending || !canDo('printers.slots')}
+        onPointerDown={event => event.stopPropagation()}
+        onClick={event => { event.stopPropagation(); setIsEditing(true) }}>
+        <SlotTile slot={slot} apiType={apiType} />
+      </button> : (      <div
         data-testid="filament-slot"
         className="bg-[var(--brand-input-bg)] rounded-md p-2 overflow-hidden cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
         onPointerDown={event => event.stopPropagation()}
@@ -141,6 +151,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         {preset && <SlotLabel text={preset} singleLine />}
         {slot.remaining == null && <SlotLabel text="Remaining unknown" />}
       </div>
+)}
       {slot.spool_change_pending && slot.observed_state && <TrayIdentityConfirm
         printerId={printerId} slot={slot.slot_number} observedState={slot.observed_state}
         boundSpool={slot.assigned_spool_id} spools={spools || []} filaments={allFilaments || []}
@@ -174,13 +185,14 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       onClick={() => handleSelectSpool(s)}
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      <SpoolRing
+                      {foundry ? <SlotTile showState={false} label={`Spool ${s.id}`} slot={{ slot_number: slot.slot_number, color: `${s.filament_brand || ''} ${s.filament_name || ''}`, material_type: s.filament_material, color_hex: s.filament_color_hex, remaining_weight: s.remaining_weight_g }} /> : <>                      <SpoolRing
                         color={s.filament_color_hex ? `#${s.filament_color_hex}` : '#666'}
                         level={s.remaining_weight_g != null ? Math.min(100, Math.round((s.remaining_weight_g / (s.initial_weight_g || 1000)) * 100)) : 100}
                         size={20}
                       />
                       <span className="truncate flex-1">{s.filament_brand} {s.filament_name}</span>
                       <span className="text-xs text-[var(--brand-text-secondary)]">{Math.round(s.remaining_weight_g)}g</span>
+</>}
                     </button>
                   ))}
                 </>
@@ -194,7 +206,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       onClick={() => handleSelect(f)}
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      <SpoolRing
+                      {foundry ? <SlotTile showState={false} label={f.brand || 'Filament'} slot={{ slot_number: slot.slot_number, color: f.display_name || f.name, material_type: f.material, color_hex: f.color_hex, remaining_weight: f.remaining_weight }} /> : <>                      <SpoolRing
                         color={f.color_hex ? `#${f.color_hex}` : '#666'}
                         size={20}
                       />
@@ -202,6 +214,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       {f.remaining_weight && (
                         <span className="text-xs text-[var(--brand-text-secondary)]">{Math.round(f.remaining_weight)}g</span>
                       )}
+</>}
                     </button>
                   ))}
                 </>
@@ -215,17 +228,18 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       onClick={() => handleSelect(f)}
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      <SpoolRing
+                      {foundry ? <SlotTile showState={false} label={f.brand || 'Filament'} slot={{ slot_number: slot.slot_number, color: f.display_name || f.name, material_type: f.material, color_hex: f.color_hex, remaining_weight: f.remaining_weight }} /> : <>                      <SpoolRing
                         color={f.color_hex ? `#${f.color_hex}` : '#666'}
                         size={20}
                       />
                       <span className="truncate">{f.display_name}</span>
+</>}
                     </button>
                   ))}
                 </>
               )}
               {filteredFilaments.length === 0 && (
-                <div className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</div>
+                <PageState kind="empty" className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</PageState>
               )}
             </div>
             <div className="flex gap-2 mt-4 shrink-0">

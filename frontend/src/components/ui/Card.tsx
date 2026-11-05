@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { type ReactNode, type HTMLAttributes } from 'react'
 import clsx from 'clsx'
 
@@ -14,8 +15,9 @@ export default function Card({ children, className, padding = 'md', selected, on
     lg: 'p-5',
   }
 
+  const foundry = useFoundry()
   return (
-    <div
+    <div data-foundry-ui={foundry ? 'card' : undefined}
       className={clsx(
         'rounded-md transition-colors',
         'bg-[var(--brand-card-bg)]',

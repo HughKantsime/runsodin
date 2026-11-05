@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import { useState } from 'react'
 import type { ArchiveAmsPreview, AmsMapping } from '../../types/archive'
 
@@ -26,6 +28,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
   mapping: AmsMapping; enabled: boolean; valid: boolean;
   onChange: (value: AmsMapping) => void; onEnabledChange: (value: boolean) => void;
 }) {
+  const foundry = useFoundry()
   return <section aria-label="AMS filament mapping" className="space-y-2 my-3">
     <h3 className="text-sm font-medium">AMS filament mapping</h3>
     {loading ? <p role="status">Loading filament mapping...</p>
@@ -38,7 +41,13 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
             <span className="inline-block w-3 h-3 rounded-full border border-[var(--brand-card-border)]" style={{ background: req.color || 'transparent' }} />
             <label htmlFor={`ams-source-${req.slot}`}>Filament {req.slot}: {req.material || 'Unknown'} {req.color}</label>
             <span aria-hidden="true">→</span>
-            <select id={`ams-source-${req.slot}`} aria-label={`Filament ${req.slot} AMS slot`}
+            {foundry ? <div className="f-slots" role="group" aria-label={`Filament ${req.slot} AMS slot`}>
+              <button type="button" aria-pressed={!match} onClick={() => onChange(mapping.filter(m => m.source_slot !== req.slot))}>No matching slot</button>
+              {preview.available.map(slot => <button type="button" className="f-slot-button" key={slot.slot} aria-pressed={match?.target_slot === slot.slot}
+                onClick={() => onChange([...mapping.filter(m => m.source_slot !== req.slot), { source_slot: req.slot, target_slot: slot.slot }].sort((a, b) => a.source_slot - b.source_slot))}>
+                <SlotTile apiType="bambu" slot={{ slot_number: slot.slot, material_type: slot.material, color: slot.color, color_hex: slot.color_hex }} />
+              </button>)}
+            </div> : (            <select id={`ams-source-${req.slot}`} aria-label={`Filament ${req.slot} AMS slot`}
               className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded p-1"
               value={match?.target_slot ?? ''} onChange={e => onChange([
                 ...mapping.filter(m => m.source_slot !== req.slot),
@@ -46,7 +55,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
               ].sort((a, b) => a.source_slot - b.source_slot))}>
               <option value="">No matching slot</option>
               {preview.available.map(slot => <option key={slot.slot} value={slot.slot}>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')})</option>)}
-            </select>
+            </select>)}
           </li>
         })}</ul>
         <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={enabled} onChange={e => onEnabledChange(e.target.checked)} />Use this mapping</label>

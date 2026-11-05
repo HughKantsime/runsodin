@@ -1,3 +1,5 @@
+import CheckTarget from '../../components/ui/CheckTarget'
+import PageState from '../../components/ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -341,7 +343,7 @@ export default function Detections() {
 
       {/* Detection grid */}
       {isLoading && (
-        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading detections...</div>
+        <PageState kind="loading" className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading detections...</PageState>
       )}
 
       {!isLoading && items.length === 0 && (
@@ -404,13 +406,14 @@ export default function Detections() {
                   {/* Checkbox for bulk select */}
                   {canDo('printers.edit') && (
                     <div className="absolute top-2 left-2">
-                      <input
+                      <CheckTarget><input
                         type="checkbox"
+                        aria-label={`Select ${det.detection_type} detection ${det.id}`}
                         checked={selectedIds.has(det.id)}
                         onChange={(e) => toggleSelect(det.id, e)}
                         onClick={(e) => e.stopPropagation()}
                         className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
-                      />
+                      /></CheckTarget>
                     </div>
                   )}
                 </div>

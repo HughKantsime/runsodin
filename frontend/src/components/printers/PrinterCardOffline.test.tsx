@@ -5,7 +5,7 @@ import PrinterCard from './PrinterCard'
 import { ActiveJobPanel } from './PrinterPanels'
 vi.mock('../../permissions', () => ({ canDo: () => false, getCurrentUser: () => null }))
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); vi.useRealTimers() })
 const printer = {
  id: 199, name: 'Synthetic offline printer', nickname: null, model: null,
  is_active: true, api_type: null, api_host: null, has_api_key: false,
@@ -85,3 +85,10 @@ function render(ui: Parameters<typeof rtlRender>[0]) {
  return rtlRender(ui, {wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>})
 }
 vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))
+
+it.each([['RUNNING', 'Printing'], ['PAUSED', 'Needs you'], ['IDLE', 'Ready'], ['OFFLINE', 'Offline']])('uses the shared Foundry badge for %s on the printers page card', (state, label) => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ render(<PrinterCard printer={{ ...printer, gcode_state: state }} {...props} />)
+ expect(screen.getByTestId('printer-status')).toHaveTextContent(label)
+ expect(screen.getByTestId('printer-status')).toHaveClass('foundry-status')
+})

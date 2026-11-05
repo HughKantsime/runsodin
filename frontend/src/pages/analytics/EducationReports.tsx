@@ -1,3 +1,6 @@
+import PrinterNumber from '../../components/ui/PrinterNumber'
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { educationReports } from '../../api'
@@ -104,9 +107,9 @@ export default function EducationReports() {
     URL.revokeObjectURL(url)
   }
 
-  if (isError) return <div role="alert" className="p-6">Usage report could not be loaded. Try a shorter time window.<button onClick={() => refetch()} className="ml-3 underline">Retry</button></div>
+  if (isError) return <PageState kind="error" role="alert" className="p-6">Usage report could not be loaded. Try a shorter time window.<button onClick={() => refetch()} className="ml-3 underline">Retry</button></PageState>
 
-  if (isLoading) return <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading usage report...</div>
+  if (isLoading) return <PageState kind="loading" className="text-center py-12 text-[var(--brand-text-muted)]">Loading usage report...</PageState>
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -180,7 +183,7 @@ export default function EducationReports() {
                 <Bar dataKey="jobs" fill="#60a5fa" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="text-[var(--brand-text-muted)] text-sm text-center py-12">No user data available</div>}
+          ) : <PageState kind="empty" className="text-[var(--brand-text-muted)] text-sm text-center py-12">No user data available</PageState>}
         </div>
 
         {/* Approval vs Rejection Pie */}
@@ -219,18 +222,18 @@ export default function EducationReports() {
       {(['printer', 'model'] as const).map(kind => (
         <div key={kind} role="region" aria-label={`Usage by ${kind} table`} tabIndex={0} className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
           <h3 className="text-sm font-semibold mb-3">Usage by {kind === 'printer' ? 'Printer' : 'Model'}</h3>
-          <table className="w-full text-sm"><thead><tr><th className="text-left">{kind === 'printer' ? 'Printer' : 'Model'}</th><th>Jobs</th><th>Actual Hours</th><th>Time Accuracy</th><th>Cost</th></tr></thead>
+          <Table className="w-full text-sm"><thead><tr><th className="text-left">{kind === 'printer' ? 'Printer' : 'Model'}</th><th>Jobs</th><th>Actual Hours</th><th>Time Accuracy</th><th>Cost</th></tr></thead>
             <tbody>{(data?.[`by_${kind}`] || []).map((group, index) => <tr key={group.id ?? `unavailable-${index}`}>
               <td>{group.available && group.name ? group.name : 'Unavailable resource'}</td><td className="text-center">{group.total_jobs_submitted}</td>
-              <td className="text-center">{knownMetric(group.total_print_hours, group.unknown_actual_hours_jobs, 'h')}</td><td className="text-center">{metric(group.accuracy, '%')}</td>
+              <PrinterNumber as="td" className="text-center">{knownMetric(group.total_print_hours, group.unknown_actual_hours_jobs, 'h')}</PrinterNumber><td className="text-center">{metric(group.accuracy, '%')}</td>
               <td className="text-center">{estimatedCost(group)}</td>
-            </tr>)}</tbody></table>
+            </tr>)}</tbody></Table>
         </div>
       ))}
       {/* User Table */}
       <div role="region" aria-label="Usage by user table" tabIndex={0} className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Usage by User</h3>
-        <table className="w-full text-sm">
+        <Table className="w-full text-sm">
           <thead>
             <tr className="text-[var(--brand-text-muted)] text-xs uppercase tracking-wide border-b border-[var(--brand-card-border)]">
               <th className="text-left py-2 px-2" aria-sort={sortField === 'username' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('username')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">User <SortIcon field="username" /></button></th>
@@ -258,7 +261,7 @@ export default function EducationReports() {
                 <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-primary)] hidden md:table-cell">{u.total_jobs_approved}</td>
                 <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-primary)] hidden md:table-cell">{u.total_jobs_rejected}</td>
                 <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)]">{u.total_jobs_completed}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden md:table-cell">{knownMetric(u.total_print_hours, u.unknown_actual_hours_jobs, 'h')}</td>
+                <PrinterNumber as="td" className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden md:table-cell">{knownMetric(u.total_print_hours, u.unknown_actual_hours_jobs, 'h')}</PrinterNumber>
                 <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden lg:table-cell">{knownMetric(u.estimated_filament_grams, u.unknown_filament_estimate_jobs, 'g')}</td>
                 <td className="py-2 px-2 text-right tabular-nums">
                   <span className={clsx('font-medium', u.approval_rate >= 80 ? 'text-[var(--brand-text-primary)]' : u.approval_rate >= 50 ? 'text-[var(--brand-text-primary)]' : 'text-[var(--brand-text-primary)]')}>
@@ -281,7 +284,7 @@ export default function EducationReports() {
               <tr><td colSpan={12} className="text-center py-8 text-[var(--brand-text-muted)]">No user activity in the last {days} days</td></tr>
             )}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   )

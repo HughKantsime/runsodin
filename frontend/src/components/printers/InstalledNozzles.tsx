@@ -1,3 +1,4 @@
+import PrinterNumber from '../ui/PrinterNumber'
 import type { InstalledNozzle } from '../../types/printer'
 
 export default function InstalledNozzles({ nozzles }: { nozzles?: InstalledNozzle[] | null }) {
@@ -6,8 +7,8 @@ export default function InstalledNozzles({ nozzles }: { nozzles?: InstalledNozzl
     {!nozzles?.length ? <p>No nozzle report received. Nozzle compatibility has not been verified.</p> :
       <ul className="mt-2 space-y-3">{nozzles.map(nozzle => <li key={nozzle.extruder}>
         <p className="capitalize">{nozzle.side} nozzle{nozzle.present === false ? ' · absent' : ''}</p>
-        <p>{nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`} · {nozzle.flow || 'Flow unknown'} · {nozzle.material || 'Material unknown'}</p>
-        <p>Wear: {nozzle.wear == null ? 'Unknown' : nozzle.wear}</p>
+        <PrinterNumber as="p">{nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`} · {nozzle.flow || 'Flow unknown'} · {nozzle.material || 'Material unknown'}</PrinterNumber>
+        <PrinterNumber as="p">Wear: {nozzle.wear == null ? 'Unknown' : nozzle.wear}</PrinterNumber>
         <p className="text-xs">Last reported: <time dateTime={nozzle.observed_at}>{new Date(nozzle.observed_at).toLocaleString()}</time></p>
       </li>)}</ul>}
     <p className="mt-2 text-xs">Last reported values; dispatch checks a fresh printer report.</p>

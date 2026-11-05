@@ -1,3 +1,5 @@
+import PageState from '../ui/PageState'
+import Table from '../ui/Table'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DollarSign } from 'lucide-react'
@@ -44,10 +46,10 @@ export default function ChargebackReport() {
       {isLoading && <p className="text-sm text-[var(--brand-text-muted)] py-4">Loading...</p>}
 
       {isError && (
-        <div role="alert" className="py-3 text-[var(--brand-text-primary)]">
+        <PageState kind="error" role="alert" className="py-3 text-[var(--brand-text-primary)]">
           <p>Unable to load chargeback data.</p>
           <button type="button" onClick={() => void refetch()} className="mt-2 rounded-md border px-3 py-2">Retry</button>
-        </div>
+        </PageState>
       )}
 
       {!isError && data && data.length === 0 && (
@@ -56,7 +58,7 @@ export default function ChargebackReport() {
 
       {!isError && data && data.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <Table className="w-full text-sm">
             <thead className="border-b border-[var(--brand-card-border)]">
               <tr>
                 <th scope="col" className="text-left py-2 px-3 text-xs font-medium text-[var(--brand-text-secondary)]">User</th>
@@ -77,7 +79,7 @@ export default function ChargebackReport() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { displayName } from '../../utils/displayName'
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -75,6 +76,8 @@ function CreateProjectModal({ onClose, onCreate }) {
                 <button
                   key={c}
                   type="button"
+                  aria-label={`Colour: ${c}`}
+                  aria-pressed={color === c}
                   onClick={() => setColor(c)}
                   className={`w-7 h-7 rounded-full border-2 transition-all ${color === c ? 'border-white scale-110' : 'border-transparent'}`}
                   style={{ backgroundColor: c }}
@@ -136,7 +139,7 @@ function ProjectDetail({ project, onClose, onDelete }) {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-8 text-[var(--brand-muted)]">Loading...</div>
+          <PageState kind="loading" className="text-center py-8 text-[var(--brand-muted)]">Loading...</PageState>
         ) : detail ? (
           <>
             {/* Info grid */}
@@ -328,13 +331,13 @@ export default function ProjectsPage() {
 
       {/* Content */}
       {isLoading ? (
-        <div className="text-center py-12 text-[var(--brand-muted)]">Loading...</div>
+        <PageState kind="loading" className="text-center py-12 text-[var(--brand-muted)]">Loading...</PageState>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-[var(--brand-muted)]">
+        <PageState kind="empty" className="text-center py-12 text-[var(--brand-muted)]">
           <FolderKanban size={40} className="mx-auto mb-3 opacity-30" />
           <p>No projects yet</p>
           <p className="text-xs mt-1">Create a project to group related print archives</p>
-        </div>
+        </PageState>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.map(project => (

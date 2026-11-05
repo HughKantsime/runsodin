@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import { spools as spoolsApi } from '../../api'
@@ -8,7 +9,7 @@ export default function SpoolmanLinkConflicts() {
   const { data } = useQuery({ queryKey: ['spools', 'spoolman-link-conflicts'], queryFn: () => spoolsApi.linkConflicts(), retry: false })
   if (!Array.isArray(data) || data.length === 0) return null
   return (
-    <div role="alert" className="mb-4 md:mb-6 p-3 md:p-4 bg-red-500/10 border border-red-500/30 rounded-md flex gap-3">
+    <PageState kind="error" role="alert" className="mb-4 md:mb-6 p-3 md:p-4 bg-red-500/10 border border-red-500/30 rounded-md flex gap-3">
       <AlertTriangle className="text-red-400 shrink-0" size={20} aria-hidden="true" />
       <div className="text-sm text-red-200">
         <p className="font-medium">Spoolman spools linked to more than one ODIN spool — usage would be pushed twice. Unlink all but one:</p>
@@ -20,6 +21,6 @@ export default function SpoolmanLinkConflicts() {
           ))}
         </ul>
       </div>
-    </div>
+    </PageState>
   )
 }

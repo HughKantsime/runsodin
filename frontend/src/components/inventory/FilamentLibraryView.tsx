@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, Palette } from 'lucide-react'
@@ -92,12 +93,12 @@ export default function FilamentLibraryView() {
         </div>
       </div>
 
-      {isLoading && <div className="text-center text-[var(--brand-text-muted)] py-12">Loading filaments...</div>}
+      {isLoading && <PageState kind="loading" className="text-center text-[var(--brand-text-muted)] py-12">Loading filaments...</PageState>}
 
       {!isLoading && filtered.length === 0 && (
-        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">
+        <PageState kind="empty" className="text-center text-[var(--brand-text-muted)] py-12 text-sm">
           No filaments found. Add filament types to build your library.
-        </div>
+        </PageState>
       )}
 
       {/* Filament table grouped by brand */}

@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { X } from 'lucide-react'
@@ -69,7 +70,7 @@ export default function PrinterTelemetryChart({ printerId, apiType, onClose }: P
       </div>
 
       {loading ? (
-        <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+        <PageState kind="loading" className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
       ) : data.length === 0 ? (
         <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">No telemetry data — data is recorded during prints</div>
       ) : (

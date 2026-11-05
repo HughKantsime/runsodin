@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -121,7 +122,7 @@ export default function EducationWorkbench() {
   if (!audience) return <div className="p-4 md:p-6">Sign in to view Education.</div>
 
   if (capabilitiesQuery.isLoading || modeQuery.isLoading || license.loading) {
-    return <div className="p-4 md:p-6 text-sm text-[var(--brand-text-secondary)]">Loading Education workspace…</div>
+    return <PageState kind="loading" className="p-4 md:p-6 text-sm text-[var(--brand-text-secondary)]">Loading Education workspace…</PageState>
   }
 
   if (capabilitiesQuery.isError || modeQuery.isError || license.loadError) {

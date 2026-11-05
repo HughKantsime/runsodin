@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { useSearchParams } from 'react-router-dom'
@@ -334,7 +335,7 @@ export default function Spools() {
             </div>
           )}
 
-          {isLoading && <div className="text-center text-[var(--brand-text-muted)] py-12">Loading spools...</div>}
+          {isLoading && <PageState kind="loading" className="text-center text-[var(--brand-text-muted)] py-12">Loading spools...</PageState>}
           {!isLoading && spools?.length === 0 && (
             <EmptyState
               icon={Package}

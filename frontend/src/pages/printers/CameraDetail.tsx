@@ -1,3 +1,6 @@
+import PageState from '../../components/ui/PageState'
+import { useFoundry } from '../../hooks/themePreferences'
+import { FoundryCameras } from '../../components/foundry/CameraView'
 import CameraFallback from '../../components/printers/CameraFallback'
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
@@ -91,6 +94,10 @@ function WebRTCPlayer({ cameraId, className }) {
 }
 
 export default function CameraDetail() {
+  return useFoundry() ? <FoundryCameraPresentation /> : <ClassicCameraDetail />
+}
+
+function ClassicCameraDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const containerRef = useRef(null)
@@ -126,18 +133,18 @@ export default function CameraDetail() {
   }, [])
 
   if (isError) {
-    return <div role="alert" className="p-4 md:p-6 space-y-3">
+    return <PageState kind="error" role="alert" className="p-4 md:p-6 space-y-3">
       <p>Printer data unavailable</p>
       <button onClick={() => refetch()} className="underline">Retry printer data</button>
       <Link to="/cameras" className="block underline">Back to Cameras</Link>
-    </div>
+    </PageState>
   }
 
   if (isLoading) {
     return (
-      <div role="status" className="flex items-center justify-center py-12 text-[var(--brand-text-muted)] gap-2">
+      <PageState kind="loading" role="status" className="flex items-center justify-center py-12 text-[var(--brand-text-muted)] gap-2">
         <RefreshCw size={16} className="animate-spin" />Loading...
-      </div>
+      </PageState>
     )
   }
 
@@ -200,4 +207,9 @@ export default function CameraDetail() {
       </div>
     </div>
   )
+}
+
+function FoundryCameraPresentation() {
+  const [tools, setTools] = useState(false)
+  return <><FoundryCameras /><div className="f-planning"><button type="button" className="f-button" aria-expanded={tools} onClick={() => setTools(!tools)}>Camera tools and details</button>{tools && <ClassicCameraDetail />}</div></>
 }

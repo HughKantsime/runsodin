@@ -2,6 +2,9 @@
 /* Design tokens generated from design/tokens.json — run 'make tokens' to regenerate */
 @import 'tailwindcss' source(none);
 @import './design-tokens.css';
+@import './foundry-tokens.css';
+@import './foundry.css';
+@import './foundry-pages.css';
 @config '../tailwind.config.js';
 @source '../index.html';
 @source './';
@@ -527,3 +530,12 @@ html.light .setup-wizard textarea {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* Let mobile search yield space to the theme, alerts and menu controls. */
+.mobile-header-actions > :first-child { min-width: 0; flex: 0 1 11rem; }
+.mobile-header-actions > :not(:first-child) { flex-shrink: 0; }
+.mobile-header-actions [role="combobox"] { width: 100%; min-width: 0; }
+/* Anchor the popover to the header, so its left edge also fits at 360px. */
+.mobile-header { position: relative; }
+.mobile-header .theme-settings { position: static; }
+.mobile-header .theme-settings-panel { right: 1rem; }

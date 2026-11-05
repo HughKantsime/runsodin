@@ -858,6 +858,22 @@
     },
     {
       "classification": "dialect-neutral",
+      "line": 64,
+      "path": "backend/core/printer_display_facts.py",
+      "pattern": "qmark-parameter",
+      "reason": "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters.",
+      "source": "row = conn.execute('SELECT created_at FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 67,
+      "path": "backend/core/printer_display_facts.py",
+      "pattern": "qmark-parameter",
+      "reason": "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters.",
+      "source": "conn.execute('INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',"
+    },
+    {
+      "classification": "dialect-neutral",
       "line": 7,
       "path": "backend/core/private_routes.py",
       "pattern": "PRAGMA",
@@ -2458,7 +2474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 271,
+      "line": 273,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2466,7 +2482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 294,
+      "line": 296,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2474,7 +2490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 306,
+      "line": 310,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2482,7 +2498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 362,
+      "line": 366,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2490,7 +2506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 379,
+      "line": 383,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2498,7 +2514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 436,
+      "line": 440,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2506,7 +2522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 477,
+      "line": 481,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",

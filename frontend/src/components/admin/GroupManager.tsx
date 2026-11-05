@@ -1,3 +1,5 @@
+import PageState from '../ui/PageState'
+import Table from '../ui/Table'
 import { useId, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -127,7 +129,7 @@ export default function GroupManager() {
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
         <div className="overflow-x-auto" tabIndex={0} aria-label="Groups table">
-          <table className="w-full min-w-[500px]">
+          <Table className="w-full min-w-[500px]">
             <thead className="bg-[var(--brand-input-bg)]">
               <tr>
                 <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm">Group</th>
@@ -138,7 +140,7 @@ export default function GroupManager() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={4} className="py-8 text-center text-[var(--brand-text-muted)] text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
+                <tr><td colSpan={4} className="py-8 text-center text-[var(--brand-text-muted)] text-sm"><PageState kind="loading" className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</PageState></td></tr>
               ) : !groupsList?.length ? (
                 <tr><td colSpan={4} className="py-8 text-center text-[var(--brand-text-muted)] text-sm">No groups yet</td></tr>
               ) : (
@@ -166,7 +168,7 @@ export default function GroupManager() {
                 ))
               )}
             </tbody>
-          </table>
+          </Table>
         </div>
       </div>
 

@@ -1,0 +1,187 @@
+[
+  {
+    "route": "/",
+    "url": "/",
+    "finalPath": "/"
+  },
+  {
+    "route": "/printers",
+    "url": "/printers",
+    "finalPath": "/printers"
+  },
+  {
+    "route": "/printers/:id",
+    "url": "/printers/101",
+    "finalPath": "/printers/101"
+  },
+  {
+    "route": "/cameras",
+    "url": "/cameras",
+    "finalPath": "/cameras"
+  },
+  {
+    "route": "/cameras/:id",
+    "url": "/cameras/102",
+    "finalPath": "/cameras/102"
+  },
+  {
+    "route": "/timeline",
+    "url": "/timeline",
+    "finalPath": "/timeline"
+  },
+  {
+    "route": "/jobs",
+    "url": "/jobs",
+    "finalPath": "/jobs"
+  },
+  {
+    "route": "/upload",
+    "url": "/upload",
+    "finalPath": "/upload"
+  },
+  {
+    "route": "/models",
+    "url": "/models",
+    "finalPath": "/models"
+  },
+  {
+    "route": "/profiles",
+    "url": "/profiles",
+    "finalPath": "/profiles"
+  },
+  {
+    "route": "/spools",
+    "url": "/spools",
+    "finalPath": "/spools"
+  },
+  {
+    "route": "/consumables",
+    "url": "/consumables",
+    "finalPath": "/consumables"
+  },
+  {
+    "route": "/orders",
+    "url": "/orders",
+    "finalPath": "/orders"
+  },
+  {
+    "route": "/products",
+    "url": "/products",
+    "finalPath": "/products"
+  },
+  {
+    "route": "/calculator",
+    "url": "/calculator",
+    "finalPath": "/calculator"
+  },
+  {
+    "route": "/analytics",
+    "url": "/analytics",
+    "finalPath": "/analytics"
+  },
+  {
+    "route": "/utilization",
+    "url": "/utilization",
+    "finalPath": "/utilization"
+  },
+  {
+    "route": "/print-log",
+    "url": "/print-log",
+    "finalPath": "/print-log"
+  },
+  {
+    "route": "/alerts",
+    "url": "/alerts",
+    "finalPath": "/alerts"
+  },
+  {
+    "route": "/detections",
+    "url": "/detections",
+    "finalPath": "/detections"
+  },
+  {
+    "route": "/education",
+    "url": "/education",
+    "finalPath": "/education"
+  },
+  {
+    "route": "/education-reports",
+    "url": "/education-reports",
+    "finalPath": "/education-reports"
+  },
+  {
+    "route": "/timelapses",
+    "url": "/timelapses",
+    "finalPath": "/timelapses"
+  },
+  {
+    "route": "/archives",
+    "url": "/archives",
+    "finalPath": "/archives"
+  },
+  {
+    "route": "/projects",
+    "url": "/projects",
+    "finalPath": "/projects"
+  },
+  {
+    "route": "/settings",
+    "url": "/settings",
+    "finalPath": "/settings"
+  },
+  {
+    "route": "/admin",
+    "url": "/admin",
+    "finalPath": "/settings"
+  },
+  {
+    "route": "/permissions",
+    "url": "/permissions",
+    "finalPath": "/settings"
+  },
+  {
+    "route": "/branding",
+    "url": "/branding",
+    "finalPath": "/settings"
+  },
+  {
+    "route": "/maintenance",
+    "url": "/maintenance",
+    "finalPath": "/maintenance"
+  },
+  {
+    "route": "/audit",
+    "url": "/audit",
+    "finalPath": "/audit"
+  },
+  {
+    "route": "/tv",
+    "url": "/tv",
+    "finalPath": "/tv"
+  },
+  {
+    "route": "/overlay/:printerId",
+    "url": "/overlay/101",
+    "finalPath": "/overlay/101"
+  },
+  {
+    "route": "*",
+    "url": "/missing-page",
+    "finalPath": "/missing-page"
+  },
+  {
+    "route": "/login",
+    "url": "/login",
+    "finalPath": "/login"
+  },
+  {
+    "route": "/reset-password",
+    "url": "/reset-password",
+    "finalPath": "/reset-password"
+  },
+  {
+    "route": "/setup",
+    "url": "/setup",
+    "finalPath": "/setup"
+  }
+]

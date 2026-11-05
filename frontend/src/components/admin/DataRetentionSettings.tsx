@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { Clock, Save, Loader2, Trash2, AlertTriangle } from 'lucide-react'
 import { retention } from '../../api'
@@ -118,9 +119,9 @@ export default function DataRetentionSettings() {
       <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Configure how long data is kept. Nothing is removed on a schedule: data older than the policy is deleted only when an administrator runs cleanup. Set to 0 to keep forever.</p>
 
       {error && (
-        <div role="alert" className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
+        <PageState kind="error" role="alert" className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
-        </div>
+        </PageState>
       )}
       {success && (
         <div role="status" className="mb-3 p-3 bg-green-900/30 border border-green-700 rounded-md text-sm text-green-400">{success}</div>

@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../../LicenseContext'
@@ -203,7 +205,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
           <div className="mb-4">
             <p className="text-sm text-[var(--brand-text-secondary)] mb-2">{preview.rows.length} user{preview.rows.length !== 1 ? 's' : ''} found:</p>
             <div className="max-h-48 overflow-y-auto border border-[var(--brand-card-border)] rounded-md">
-              <table className="w-full text-xs">
+              <Table className="w-full text-xs">
                 <thead className="bg-[var(--brand-input-bg)] sticky top-0">
                   <tr>
                     <th className="py-1.5 px-2 text-left text-[var(--brand-text-secondary)]">Username</th>
@@ -220,7 +222,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </Table>
             </div>
           </div>
         )}
@@ -425,7 +427,7 @@ export default function Admin() {
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
         <div className="overflow-x-auto" tabIndex={0} aria-label="Users table">
-          <table className="w-full min-w-[550px]">
+          <Table className="w-full min-w-[550px]">
             <thead className="bg-[var(--brand-input-bg)]">
               <tr>
                 <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm">User</th>
@@ -438,7 +440,7 @@ export default function Admin() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-[var(--brand-text-muted)] text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-[var(--brand-text-muted)] text-sm"><PageState kind="loading" className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</PageState></td></tr>
               ) : filteredUsers.length === 0 ? (
                 <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-[var(--brand-text-muted)] text-sm">{(searchQuery || roleFilter) ? 'No users match your filters' : 'No users found'}</td></tr>
               ) : (
@@ -489,7 +491,7 @@ export default function Admin() {
                 })
               )}
             </tbody>
-          </table>
+          </Table>
         </div>
       </div>
 

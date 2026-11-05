@@ -1,3 +1,4 @@
+import PrinterNumber from '../ui/PrinterNumber'
 import { displayName } from '../../utils/displayName'
 import CameraFallback from './CameraFallback'
 import { useState, useEffect } from 'react'
@@ -160,19 +161,19 @@ export default function CameraModal({ printer, onClose }: CameraModalProps) {
       {size === 'large' && isPrinting && (
         <div className="flex items-center gap-4 px-3 py-2 border-t border-[var(--brand-card-border)] text-xs text-[var(--brand-text-secondary)] overflow-x-auto">
           <span className="text-[var(--brand-text-secondary)] font-medium truncate max-w-[200px]">{displayName({ display_name: p.current_print_display_name, filename: p.gcode_file })}</span>
-          <span className="text-[var(--status-completed)] font-bold">{p.mc_percent || 0}%</span>
+          <PrinterNumber as="span" className="text-[var(--status-completed)] font-bold">{p.mc_percent || 0}%</PrinterNumber>
           {nozTemp != null && (
-            <span className="flex items-center gap-1 whitespace-nowrap">
+            <PrinterNumber as="span" className="flex items-center gap-1 whitespace-nowrap">
               <Thermometer size={11} /> {nozTemp}°C
-            </span>
+            </PrinterNumber>
           )}
           {bedTemp != null && (
-            <span className="flex items-center gap-1 whitespace-nowrap">
+            <PrinterNumber as="span" className="flex items-center gap-1 whitespace-nowrap">
               Bed {bedTemp}°C
-            </span>
+            </PrinterNumber>
           )}
           {p.layer_num && p.total_layer_num && (
-            <span className="whitespace-nowrap">L{p.layer_num}/{p.total_layer_num}</span>
+            <PrinterNumber as="span" className="whitespace-nowrap">L{p.layer_num}/{p.total_layer_num}</PrinterNumber>
           )}
         </div>
       )}

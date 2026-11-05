@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { type ChangeEvent, type InputHTMLAttributes } from 'react'
 import { Search, X } from 'lucide-react'
 import clsx from 'clsx'
@@ -16,8 +17,9 @@ export default function SearchInput({
   className,
   ...rest
 }: SearchInputProps) {
+  const foundry = useFoundry()
   return (
-    <div className={clsx('relative', className)}>
+    <div data-foundry-ui={foundry ? 'search' : undefined} className={clsx('relative', className)}>
       <Search
         size={16}
         className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]"

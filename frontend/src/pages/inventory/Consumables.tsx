@@ -1,3 +1,5 @@
+import PageState from '../../components/ui/PageState'
+import Table from '../../components/ui/Table'
 import MaterialPurchases from '../../components/orders/MaterialPurchases'
 import { useState, useRef } from 'react'
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
@@ -184,7 +186,7 @@ export default function Consumables() {
 
       {/* Table */}
       {isLoading ? (
-        <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</div>
+        <PageState kind="loading" className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</PageState>
       ) : filtered.length === 0 ? (
         <div className="rounded-md border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-card-bg)' }}>
           <EmptyState
@@ -194,8 +196,8 @@ export default function Consumables() {
           />
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
-          <table className="w-full text-sm">
+        <div tabIndex={0} role="region" aria-label="Consumables" className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
+          <Table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--brand-card-bg)' }}>
                 <th className="text-left p-3 text-[var(--brand-text-muted)] font-medium">Name</th>
@@ -251,7 +253,7 @@ export default function Consumables() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
 

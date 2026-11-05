@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import { displayName } from '../../utils/displayName'
 import CameraFallback from '../../components/printers/CameraFallback'
 import React, { useState, useEffect, useRef } from 'react'
@@ -208,15 +209,15 @@ export default function TVDashboard() {
       {/* Printer grid */}
       <div className="flex-1 overflow-hidden p-4">
         {printersError ? (
-          <div role="alert" className="flex flex-col items-center justify-center gap-3 h-full">
+          <PageState kind="error" role="alert" className="flex flex-col items-center justify-center gap-3 h-full">
             <p>Printer data unavailable</p>
             <button onClick={() => retryPrinters()} className="underline">Retry printer data</button>
-          </div>
+          </PageState>
         ) : printersLoading ? (
-          <div role="status" className="flex items-center justify-center gap-2 h-full">
+          <PageState kind="loading" role="status" className="flex items-center justify-center gap-2 h-full">
             <span>Loading printers</span>
             <Loader2 size={32} className="animate-spin text-[var(--brand-text-muted)]" />
-          </div>
+          </PageState>
         ) : (
           <div className="grid gap-3 h-full" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
             {visiblePrinters.map(printer => (

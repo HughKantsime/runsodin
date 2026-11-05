@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { forwardRef, useId, type InputHTMLAttributes } from 'react'
 import { type LucideIcon } from 'lucide-react'
 import clsx from 'clsx'
@@ -19,6 +20,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { label, error, icon: Icon, size = 'md', className, wrapperClassName, id, 'aria-describedby': ariaDescribedBy, ...rest },
   ref
 ) {
+  const foundry = useFoundry()
   const generatedId = useId()
   const controlId = id || generatedId
   const errorId = `${controlId}-error`
@@ -35,6 +37,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           />
         )}
         <input
+        data-foundry-ui={foundry ? 'control' : undefined}
           ref={ref}
           id={controlId}
           aria-invalid={error ? true : undefined}

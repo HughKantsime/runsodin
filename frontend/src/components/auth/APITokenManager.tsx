@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { useState, useEffect } from 'react'
 import { Key, Plus, Trash2, Copy, CheckCircle, AlertTriangle, Clock, Loader2 } from 'lucide-react'
 import { apiTokens } from '../../api'
@@ -110,9 +111,9 @@ export default function APITokenManager() {
       </p>
 
       {error && (
-        <div role="alert" className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
+        <PageState kind="error" role="alert" className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
-        </div>
+        </PageState>
       )}
 
       {/* New token reveal */}

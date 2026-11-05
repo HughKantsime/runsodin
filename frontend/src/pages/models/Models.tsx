@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { Model } from '../../api/models'
 import { ModelCard, ColorSlotInput } from '../../components/models/ModelLibraryFields'
@@ -566,7 +567,7 @@ export default function Models() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-[var(--brand-muted)] text-sm">Loading models...</div>
+        <PageState kind="loading" className="text-center py-12 text-[var(--brand-muted)] text-sm">Loading models...</PageState>
       ) : modelsData?.length === 0 ? (
         <EmptyState
           icon={Upload}
@@ -597,7 +598,7 @@ export default function Models() {
       />
 
       {viewerModelId && (
-        <Suspense fallback={<div className="flex items-center justify-center p-8 text-[var(--brand-muted)]">Loading 3D viewer...</div>}>
+        <Suspense fallback={<PageState kind="loading" className="flex items-center justify-center p-8 text-[var(--brand-muted)]">Loading 3D viewer...</PageState>}>
           <ModelViewer
             modelId={viewerModelId}
             modelName={viewerModelName}

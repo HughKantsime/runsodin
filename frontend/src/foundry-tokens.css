@@ -1,0 +1,120 @@
+/* Generated from design/themes/foundry/tokens.json. Run node design/generate.mjs. */
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
+  --foundry-surface-ground: #121110 !important;
+  --foundry-surface-panel: #1b1a18 !important;
+  --foundry-surface-raised: #24231f !important;
+  --foundry-surface-border: #36332e !important;
+  --foundry-text-primary: #f0ece4 !important;
+  --foundry-text-secondary: #bfbaae !important;
+  --foundry-text-muted: #a09b8f !important;
+  --foundry-action-primary: #dc9a3e !important;
+  --foundry-action-on-primary: #121110 !important;
+  --foundry-status-neutral-text: #a09b8f !important;
+  --foundry-status-neutral-background: #24231f !important;
+  --foundry-status-neutral-foreground: #a09b8f !important;
+  --foundry-status-printing-text: #7db2f7 !important;
+  --foundry-status-printing-background: #1f2d40 !important;
+  --foundry-status-printing-foreground: #a9cbfa !important;
+  --foundry-status-ready-text: #66c98e !important;
+  --foundry-status-ready-background: #1d3326 !important;
+  --foundry-status-ready-foreground: #96dcb0 !important;
+  --foundry-status-needs-you-text: #f28c80 !important;
+  --foundry-status-needs-you-background: #3d2320 !important;
+  --foundry-status-needs-you-foreground: #f8b3aa !important;
+  --foundry-status-queued-text: #ab9ff2 !important;
+  --foundry-status-queued-background: #2a2640 !important;
+  --foundry-status-queued-foreground: #c9c1f7 !important;
+  --foundry-status-waiting-on-you-text: #dc9a3e !important;
+  --foundry-status-waiting-on-you-background: #3a2a14 !important;
+  --foundry-status-waiting-on-you-foreground: #f0c07c !important;
+  --foundry-radius-card: 12px !important;
+  --foundry-radius-control: 8px !important;
+  --foundry-radius-chip: 6px !important;
+  --foundry-spacing-grid: 4px !important;
+  --foundry-spacing-comfortable: 20px !important;
+  --foundry-spacing-compact: 12px !important;
+  --foundry-spacing-touch-target: 44px !important;
+  --foundry-spacing-pointer-target: 36px !important;
+  --foundry-typography-sans: 'IBM Plex Sans', system-ui, sans-serif !important;
+  --foundry-typography-mono: 'IBM Plex Mono', ui-monospace, monospace !important;
+  --foundry-typography-display: 32px !important;
+  --foundry-typography-title: 20px !important;
+  --foundry-typography-body: 15px !important;
+  --foundry-typography-number: 15px !important;
+  --foundry-typography-minimum: 13px !important;
+  --foundry-typography-heading-weight: 600 !important;
+  --brand-primary: #dc9a3e !important;
+  --brand-accent: #dc9a3e !important;
+  --brand-on-primary: #121110 !important;
+  --brand-focus-ring: #dc9a3e !important;
+  --brand-selection-bg: #dc9a3e !important;
+  --brand-selection-text: #121110 !important;
+  --brand-content-bg: #121110 !important;
+  --brand-card-bg: #1b1a18 !important;
+  --brand-surface: #24231f !important;
+  --brand-card-border: #36332e !important;
+  --brand-border: #36332e !important;
+  --brand-input-bg: #24231f !important;
+  --brand-input-border: #36332e !important;
+  --brand-input-text: #f0ece4 !important;
+  --brand-text-primary: #f0ece4 !important;
+  --brand-text-secondary: #bfbaae !important;
+  --brand-text-muted: #a09b8f !important;
+  --brand-sidebar-bg: #121110 !important;
+  --brand-sidebar-border: #36332e !important;
+  --brand-sidebar-text: #bfbaae !important;
+  --brand-sidebar-active-bg: #24231f !important;
+  --brand-sidebar-active-text: #dc9a3e !important;
+  --brand-font-display: 'IBM Plex Sans', system-ui, sans-serif !important;
+  --brand-font-body: 'IBM Plex Sans', system-ui, sans-serif !important;
+  --brand-font-mono: 'IBM Plex Mono', ui-monospace, monospace !important;
+  --brand-card-shadow: none !important;
+  --brand-job-card-hover-shadow: none !important;
+  --chart-card-bg: #1b1a18 !important;
+  --chart-grid: #36332e !important;
+  --chart-axis: #a09b8f !important;
+  --chart-axis-line: #36332e !important;
+  --chart-tooltip-bg: #24231f !important;
+  --chart-tooltip-border: #36332e !important;
+  --status-printing: #7db2f7 !important;
+  --status-completed: #66c98e !important;
+  --status-failed: #f28c80 !important;
+  --status-warning: #dc9a3e !important;
+  --status-pending: #ab9ff2 !important;
+  --status-scheduled: #ab9ff2 !important;
+  --farm-50: 240 236 228 !important;
+  --farm-100: 240 236 228 !important;
+  --farm-200: 240 236 228 !important;
+  --farm-300: 191 186 174 !important;
+  --farm-400: 160 155 143 !important;
+  --farm-500: 160 155 143 !important;
+  --farm-600: 54 51 46 !important;
+  --farm-700: 54 51 46 !important;
+  --farm-800: 36 35 31 !important;
+  --farm-900: 27 26 24 !important;
+  --farm-950: 18 17 16 !important;
+}
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) .foundry-status[data-status="neutral"] {
+  color: var(--foundry-status-neutral-foreground);
+  background: var(--foundry-status-neutral-background);
+}
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) .foundry-status[data-status="printing"] {
+  color: var(--foundry-status-printing-foreground);
+  background: var(--foundry-status-printing-background);
+}
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) .foundry-status[data-status="ready"] {
+  color: var(--foundry-status-ready-foreground);
+  background: var(--foundry-status-ready-background);
+}
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) .foundry-status[data-status="needsYou"] {
+  color: var(--foundry-status-needs-you-foreground);
+  background: var(--foundry-status-needs-you-background);
+}
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) .foundry-status[data-status="queued"] {
+  color: var(--foundry-status-queued-foreground);
+  background: var(--foundry-status-queued-background);
+}
+html[data-theme-family="foundry"]:not(.light):not(.high-contrast) .foundry-status[data-status="waitingOnYou"] {
+  color: var(--foundry-status-waiting-on-you-foreground);
+  background: var(--foundry-status-waiting-on-you-background);
+}

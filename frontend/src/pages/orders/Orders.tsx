@@ -1,3 +1,4 @@
+import PageState from '../../components/ui/PageState'
 import ShowCommitments from '../../components/orders/ShowCommitments'
 import {getCurrentUser} from '../../permissions'
 import { useState, useEffect, useRef } from 'react'
@@ -288,7 +289,7 @@ export default function Orders() {
       })
     : orderList
 
-  if (loading) return <div className="flex items-center justify-center py-12 text-[var(--brand-muted)] gap-2"><RefreshCw size={16} className="animate-spin" />Loading...</div>
+  if (loading) return <PageState kind="loading" className="flex items-center justify-center py-12 text-[var(--brand-muted)] gap-2"><RefreshCw size={16} className="animate-spin" />Loading...</PageState>
 
   return (
     <div className="p-4 md:p-6">

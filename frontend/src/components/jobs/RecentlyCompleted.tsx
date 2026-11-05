@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { displayName } from '../../utils/displayName'
 import { useEffect, useState } from 'react'
 import { CheckCircle, XCircle, History, AlertTriangle, ImageOff } from 'lucide-react'
@@ -24,7 +25,7 @@ export default function RecentlyCompleted({ jobs = [], loading = false, error = 
   return <section className="mt-6" aria-label="Recent completed and failed jobs">
     <h3 className="text-sm font-display font-semibold text-[var(--brand-text-secondary)] mb-3 flex items-center gap-2"><History size={14} />Recently Completed</h3>
     {loading ? <p role="status" className="text-sm text-[var(--brand-text-muted)]">Loading recent jobs…</p>
-      : error ? <div role="alert" className="text-sm text-red-400">Recent jobs unavailable. {onRetry && <button type="button" onClick={() => onRetry()} className="underline">Retry</button>}</div>
+      : error ? <PageState kind="error" role="alert" className="text-sm text-red-400">Recent jobs unavailable. {onRetry && <button type="button" onClick={() => onRetry()} className="underline">Retry</button>}</PageState>
       : jobs.length === 0 ? <p className="text-sm text-[var(--brand-text-muted)]">No completed or failed jobs.</p>
       : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">{jobs.map(job => <article key={job.id} className={`bg-[var(--brand-card-bg)] rounded-md border p-3 flex gap-3 ${job.status === 'failed' ? 'border-red-900/50' : 'border-[var(--brand-card-border)]'}`}>
         <Thumbnail job={job} />

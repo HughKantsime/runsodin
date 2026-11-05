@@ -1,3 +1,6 @@
+import PageState from '../../components/ui/PageState'
+import { useFoundry } from '../../hooks/themePreferences'
+import { FoundryTimeline } from '../../components/foundry/ScheduleLane'
 import { displayName } from '../../utils/displayName'
 import BlockDetail from '../../components/jobs/TimelineJobDetail'
 import { useState, useRef, useEffect, useCallback } from 'react'
@@ -226,6 +229,10 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
 }
 
 export default function Timeline() {
+  return useFoundry() ? <><FoundryTimeline /><details className="f-planning"><summary>Plan ahead and move jobs</summary><ClassicTimeline /></details></> : <ClassicTimeline />
+}
+
+function ClassicTimeline() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const containerRef = useRef(null)
@@ -468,7 +475,7 @@ export default function Timeline() {
       {/* Mobile chronological list (<md) */}
       <div className="flex-1 overflow-auto md:hidden">
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+          <PageState kind="loading" className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
         ) : (
           <MobileTimelineList
             slots={timelineData?.slots}
@@ -481,7 +488,7 @@ export default function Timeline() {
       {/* Desktop Gantt chart (md+) */}
       <div className="hidden md:flex flex-1 overflow-auto relative" ref={scrollAreaRef}>
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm w-full">Loading...</div>
+          <PageState kind="loading" className="flex items-center justify-center h-64 text-[var(--brand-text-muted)] text-sm w-full">Loading...</PageState>
         ) : (!timelineData?.slots?.length && !printersData?.length) ? (
           <div className="flex flex-col items-center justify-center h-64 text-[var(--brand-text-muted)] gap-3 w-full">
             <CalendarX2 size={32} className="text-[var(--brand-text-muted)]" />

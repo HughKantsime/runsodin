@@ -1,3 +1,4 @@
+import PageState from '../ui/PageState'
 import { Component, type ReactNode, type ErrorInfo } from 'react'
 import { diagnostics } from '../../api'
 
@@ -43,7 +44,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       const { error, showStack, downloading, downloadError } = this.state
 
       return (
-        <div style={{
+        <PageState kind="error" style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -171,7 +172,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
               {downloadError}
             </p>
           )}
-        </div>
+        </PageState>
       )
     }
 

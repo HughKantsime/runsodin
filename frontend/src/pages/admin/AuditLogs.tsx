@@ -1,3 +1,4 @@
+import Table from '../../components/ui/Table'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, Download, ChevronLeft, ChevronRight, Lock } from 'lucide-react'
@@ -160,8 +161,8 @@ export default function AuditLogs() {
       {exportTruncated && <p role="status" className="mb-3 text-sm">This export was truncated at 5,000 entries. Narrow the dates to get the rest.</p>}
 
       {/* Table */}
-      <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[700px]">
+      <div tabIndex={0} role="region" aria-label="Audit logs" className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
+        <Table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="border-b border-[var(--brand-card-border)] text-[var(--brand-text-muted)] text-xs uppercase">
               <th className="text-left px-4 py-3 font-medium">Timestamp</th>
@@ -216,7 +217,7 @@ export default function AuditLogs() {
               )
             })}
           </tbody>
-        </table>
+        </Table>
       </div>
 
       {/* Pagination */}

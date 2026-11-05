@@ -1,4 +1,5 @@
 import OutcomeCorrection from './OutcomeCorrection'
+import CheckTarget from '../ui/CheckTarget'
 import { displayName } from '../../utils/displayName'
 import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar, Pencil, GripVertical, ShoppingCart, MessageSquare, RefreshCw, Send, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
@@ -53,7 +54,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           {dragProps && (
             <GripVertical size={14} className="text-[var(--brand-text-muted)] shrink-0 cursor-grab" title="Drag to reorder" />
           )}
-          <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} />
+          <CheckTarget><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
           {job.queue_position != null && ['pending', 'scheduled'].includes(job.status) && (
             <span className="text-xs font-mono text-[var(--brand-text-muted)]" title="Queue position">#{job.queue_position + 1}</span>
           )}
