@@ -27,6 +27,7 @@ from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
@@ -470,6 +471,7 @@ def export_profile(
     ext = "." + row.file_format if row.file_format in {"ini", "cfg"} else ".json"
     safe_name = re.sub(r'[^\w\-]', '_', row.name)[:80] + ext
     media = "text/plain" if row.file_format in {"ini", "cfg"} else "application/json"
+    audit_download(db, "profile.exported", "profile", profile_id)
     return Response(
         content=row.raw_content,
         media_type=media,

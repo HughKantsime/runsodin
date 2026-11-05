@@ -23,6 +23,7 @@ from sqlalchemy import text, bindparam
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
+from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user
@@ -326,6 +327,7 @@ def export_project(
     except ProjectZipExportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
+    audit_download(db, "project.exported", "project", project_id)
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in project["name"])[:50]
     return StreamingResponse(
         io.BytesIO(payload),

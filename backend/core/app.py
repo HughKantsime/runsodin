@@ -74,6 +74,8 @@ def _setup_middleware(app: FastAPI) -> None:
             # Let JS read the replay indicator so SDKs can surface
             # "this was replayed" to their caller.
             "X-Idempotent-Replay",
+            "X-ODIN-Export-Truncated",
+            "X-ODIN-Export-Row-Limit",
         ],
     )
 

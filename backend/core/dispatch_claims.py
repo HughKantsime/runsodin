@@ -71,10 +71,36 @@ def release_unstarted(engine, token):
     return _change(engine, token, delete(TABLE).where(TABLE.c.state == 'adapter_entered'))
 
 
-def record_outcome(engine,token,status):
+def record_outcome(engine,token,status, *, audit_actor=None):
     if status not in ('accepted','uncertain'):
         return False
-    return _change(engine,token,update(TABLE).where(TABLE.c.state=='adapter_entered').values(state=status,updated_at=func.now()))
+    if status != 'accepted' or audit_actor is None:
+        return _change(engine,token,update(TABLE).where(TABLE.c.state=='adapter_entered').values(state=status,updated_at=func.now()))
+    from sqlalchemy.orm import Session
+    from core.audit import log_audit
+    try:
+        with Session(engine) as db:
+            with audit_actor(db):
+                claim = db.execute(update(TABLE).where(TABLE.c.token==token, TABLE.c.state=='adapter_entered')
+                    .values(state=status,updated_at=func.now()).returning(TABLE.c.job_id,TABLE.c.printer_id)).one_or_none()
+                if claim is None:
+                    return False
+                log_audit(db, 'job.dispatched', 'job', claim.job_id, {'printer_id': claim.printer_id})
+                db.commit()
+        return True
+    except Exception:
+        # The printer has already accepted the start, so the claim state must
+        # still be recorded. Losing the audit row is the lesser failure: say so.
+        import logging
+        logging.getLogger('odin.dispatch').error('Accepted dispatch audit row could not be recorded; recording the claim state without it')
+        if _change(engine,token,update(TABLE).where(TABLE.c.state=='adapter_entered').values(state=status,updated_at=func.now())):
+            return True
+        # The combined write may have committed before the failure surfaced.
+        try:
+            with engine.connect() as conn:
+                return conn.execute(select(TABLE.c.state).where(TABLE.c.token==token)).scalar_one_or_none()=='accepted'
+        except Exception:
+            return False
 
 
 # Closed set of (table, no-op lock column) pairs retire_terminal_locked locks.

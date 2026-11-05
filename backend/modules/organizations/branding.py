@@ -77,13 +77,16 @@ class Branding(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-def get_or_create_branding(db: Session) -> "Branding":
+def get_or_create_branding(db: Session, *, commit=True) -> "Branding":
     """Get the singleton branding record, creating defaults if needed."""
     branding = db.query(Branding).filter(Branding.id == 1).first()
     if not branding:
         branding = Branding(id=1)
         db.add(branding)
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         db.refresh(branding)
     return branding
 

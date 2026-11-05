@@ -210,5 +210,5 @@ function auditQuery(params: AuditLogParams, paging = true): string {
 
 export const auditLogs = {
   list: (params: AuditLogParams = {}): Promise<AuditLogPage> => fetchAPI(`/audit-logs${auditQuery(params)}`),
-  exportCsv: (params: AuditLogParams = {}): Promise<string> => fetchAPI(`/export/audit-logs${auditQuery(params, false)}`, {}, 'csv'),
+  exportCsv: (params: AuditLogParams = {}, onResponse?: (response: Response) => void): Promise<string> => fetchAPI(`/export/audit-logs${auditQuery(params, false)}`, { onResponse }, 'csv'),
 }

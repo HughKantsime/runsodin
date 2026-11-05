@@ -74,7 +74,17 @@ def start(db, printer, user, data, *, background=False):
     record = {'actor': principal(user), 'printer_id': printer_id, 'job_id': data.suggested_job_id,
               'fingerprint': data.suggestion_fingerprint, 'attestation': data.attestation or 'owner_in_app',
               'result': {'success': False, 'state': 'preparing', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id)}}
+    from core.audit_actor_handoff import capture_request_actor
+    actor = capture_request_actor(db) if background else None
     facts = admission_facts(db, data.suggested_job_id, printer_id)
+    if background:
+        from core.audit import log_audit
+        try:
+            log_audit(db, 'job.dispatch_requested', 'job', data.suggested_job_id, {'printer_id': printer_id})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise HTTPException(503, 'Dispatch audit unavailable; no attempt was staged') from None
     # End the read transaction before taking a write lock. This is an ordinary
     # admission intent, never a shared dispatch transaction.
     db.rollback()
@@ -124,7 +134,7 @@ def start(db, printer, user, data, *, background=False):
                 current['result'] = {**current['result'], **handle}
                 save(conn, key, current)
         try:
-            handle = stage(printer_id, data.suggested_job_id, operation=operation, on_staged=on_staged)
+            handle = stage(printer_id, data.suggested_job_id, operation=operation, on_staged=on_staged, audit_actor=actor)
         except HTTPException as exc:
             if exc.status_code == 503:
                 _record_result(db, printer_id, data, key, guard, {
@@ -182,7 +192,8 @@ def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=F
                         restore_db.flush()
                         reconcile_job_write(restore_db, parents)
             conn.execute(text('DELETE FROM system_config WHERE key=:key'), {'key':guard})
-        if success:
+        from modules.printers.dispatch_background import audit_actor
+        if success and audit_actor() is None:
             from core.audit import log_audit
             log_audit(db, 'job.dispatched', 'job', data.suggested_job_id, {'printer_id':printer_id})
         db.commit()

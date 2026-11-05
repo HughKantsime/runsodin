@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
@@ -274,8 +275,9 @@ def _safe_backup_path(filename: str) -> Path:
 
 
 @router.get("/backups/{filename}", tags=["System"], dependencies=[Depends(require_interactive_session())])
-def download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin"))):
+def download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     path = _safe_backup_path(filename)
+    audit_download(db, "backup.downloaded", "system", details={"filename": path.name})
     return FileResponse(path=path, filename=path.name, media_type="application/octet-stream")
 
 

@@ -31,8 +31,8 @@ function apiError(err: { detail?: unknown; message?: unknown }, fallback: string
   return error
 }
 
-export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit & { quiet?: boolean } = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
-  const { quiet = false, ...requestOptions } = options
+export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit & { quiet?: boolean; onResponse?: (response: Response) => void } = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
+  const { quiet = false, onResponse, ...requestOptions } = options
   const headers = new Headers(options.headers)
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -74,7 +74,9 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   if (responseFormat === 'csv') {
     const mediaType = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
     if (mediaType !== 'text/csv') throw new Error('Unexpected export response')
-    return await response.text() as T
+    const csv = await response.text()
+    onResponse?.(response)
+    return csv as T
   }
   return response.json()
 }

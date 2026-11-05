@@ -43,3 +43,22 @@ def log_audit(
 # No database work at import; the supplied flush Connection owns the stamp.
 if not event.contains(AuditLog, "after_insert", stamp_actor):
     event.listen(AuditLog, "after_insert", stamp_actor)
+
+
+def audit_download(db, action, entity_type=None, entity_id=None, details=None):
+    """Commit an authorized download event before any response bytes are sent."""
+    from fastapi import HTTPException
+    try:
+        log_audit(db, action, entity_type, entity_id, details)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(503, "Download audit unavailable; try again later") from None
+
+
+def export_filters(**filters):
+    """Keep IDs/dates; free-text filters record presence, never their contents."""
+    from datetime import date
+    return {key: (value.isoformat() if isinstance(value, date) else value
+                  if type(value) in (int, bool) else True)
+            for key, value in filters.items() if value is not None and value != ""}

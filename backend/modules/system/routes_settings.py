@@ -126,11 +126,12 @@ class BrandingUpdateRequest(PydanticBaseModel):
 @router.put("/branding", tags=["Branding"], dependencies=[Depends(feature_gate("branding"))])
 async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
-    branding = get_or_create_branding(db)
+    branding = get_or_create_branding(db, commit=False)
     for key, value in data.model_dump(exclude_unset=True).items():
         if key in UPDATABLE_FIELDS:
             setattr(branding, key, value)
     branding.updated_at = datetime.now(timezone.utc)
+    log_audit(db, "branding.updated", "settings", details={"fields": sorted(data.model_dump(exclude_unset=True))})
     db.commit()
     db.refresh(branding)
     return branding_to_dict(branding)
@@ -148,11 +149,13 @@ async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 5 MB.")
     ext = _IMAGE_TYPE_EXT[detected_type]
     from .branding_assets import store_asset
+    branding = get_or_create_branding(db, commit=False)
+    log_audit(db, "branding.logo_uploaded", "settings", details=None)
+    db.flush()  # Refuse an audit insertion failure before publishing artwork.
     try:
         filename = store_asset(_branding_directory(), "logo", ext, content)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid branding storage path")
-    branding = get_or_create_branding(db)
     branding.logo_url = f"/static/branding/{filename}"
     db.commit()
     return {"logo_url": branding.logo_url}

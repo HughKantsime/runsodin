@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.base import FilamentType
+from core.audit import audit_download
 from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import require_role, check_org_access, get_org_scope, should_filter_org, require_action
@@ -64,6 +65,7 @@ def export_spools_csv(
             s.notes or "",
             s.pa_profile or "",
         ])
+    audit_download(db, "export.downloaded", details={"export": "spools", "filters": {}})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),

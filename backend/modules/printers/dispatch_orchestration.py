@@ -203,8 +203,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
                             clean_refusal = (not accepted and getattr(before_start, 'clean_no_start', False)
                                 and gate_code != 'printer_maintenance_hold')
+                            from modules.printers.dispatch_background import audit_actor
+                            actor = audit_actor()
                             recorded = (dispatch_claims.release_unstarted(engine, claim.token) if clean_refusal else
-                                dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain'))
+                                dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain',
+                                    **({'audit_actor': actor} if actor is not None else {})))
                             if recorded and clean_refusal:
                                 from modules.printers.start_next import confirm_no_start
                                 confirm_no_start()

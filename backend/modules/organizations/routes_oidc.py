@@ -5,7 +5,7 @@ import hmac
 import logging
 import os
 import secrets
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -320,6 +320,7 @@ def _resolve_oidc_user(
     except IntegrityError as exc:
         raise OIDCIdentityError("oidc_identity_ambiguous") from exc
     return {
+        "_created": True,
         "id": user_id,
         "username": username,
         "email": email,
@@ -332,7 +333,7 @@ def _resolve_oidc_user(
     }
 
 
-from core.session_tracking import record_session as _record_session
+from core.session_tracking import stage_session as _stage_session
 
 
 # ============== OIDC public config ==============
@@ -370,15 +371,14 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
 
 # ============== OIDC callback ==============
 
-@router.get("/auth/oidc/callback", tags=["Auth"])
-async def oidc_callback(request: Request, code: str = None, state: str = None,
+async def _oidc_callback(request: Request, code: str = None, state: str = None,
                         error: str = None, error_description: str = None, db: Session = Depends(get_db)):
     """Handle OIDC callback from identity provider."""
     from modules.organizations.oidc_handler import create_handler_from_config
     from fastapi.responses import RedirectResponse
 
     if error:
-        log.error(f"OIDC error: {error} - {error_description}")
+        log.warning("OIDC provider refused sign-in")
         return RedirectResponse(url=f"/?error={quote(str(error))}", status_code=302)
     if not code or not state:
         return RedirectResponse(url="/?error=missing_params", status_code=302)
@@ -411,6 +411,8 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
             verified_email=verified_email,
         )
         user_id = resolved_user["id"]
+        if resolved_user.get("_created"):
+            log_audit(db, "user.created", "user", user_id, {"role": "viewer"})
         user_role = resolved_user["role"]
         username = resolved_user["username"]
 
@@ -435,15 +437,14 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
         db.rollback()
         return RedirectResponse(url=f"/?error={quote(e.code)}", status_code=302)
     except Exception as e:
-        log.error(f"OIDC callback error: {e}", exc_info=True)
+        log.error("OIDC callback failed")
         db.rollback()
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
 
 
 # ============== OIDC code exchange ==============
 
-@router.post("/auth/oidc/exchange", tags=["Auth"])
-async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db)):
+async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db)):
     """Exchange a one-time OIDC auth code for a JWT access token."""
     code = body.get("code", "")
     if not code or not isinstance(code, str):
@@ -525,8 +526,13 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
         _delete_binding_cookies(pending, request)
         return pending
     client_ip = request.client.host if request.client else "unknown"
-    if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
+    if _stage_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
+
+    from core.audit_actor import clear_actor
+    clear_actor(db)  # OIDC is deliberately not assigned a password/JWT auth kind.
+    log_audit(db, "auth.login", "user", user.id, {"method": "oidc"})
+    db.commit()
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
@@ -535,6 +541,67 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
                     secure=session_cookie_secure(request, _settings), samesite=_settings.cookie_samesite,
                     path="/", max_age=86400)
     return resp
+
+
+
+# The provider's error parameter is untrusted free text. Retain only recognized
+# protocol/internal codes; descriptions and arbitrary values never reach details.
+_OIDC_FAILURE_CODES = frozenset({
+    'access_denied', 'account_selection_required', 'auth_failed', 'consent_required',
+    'google_email_domain_invalid', 'google_email_unverified', 'google_hosted_domain_invalid',
+    'google_issuer_invalid', 'interaction_required', 'invalid_request', 'invalid_scope',
+    'invalid_state', 'license_user_limit_reached', 'login_required', 'missing_email',
+    'missing_issuer', 'missing_params', 'missing_subject', 'oidc_default_tenant_required',
+    'oidc_email_ambiguous', 'oidc_email_conflict', 'oidc_identity_ambiguous',
+    'oidc_not_configured', 'oidc_role_configuration_invalid', 'server_error',
+    'temporarily_unavailable', 'unauthorized_client', 'unsupported_response_type', 'user_inactive',
+    'user_not_found', 'userinfo_subject_mismatch',
+})
+_EXCHANGE_FAILURE_CODES = {
+    "code is required": "missing_params",
+    "Invalid or expired code": "invalid_code",
+    "Code expired": "code_expired",
+    "Invalid authentication session": "invalid_session",
+    "Login temporarily unavailable. Try again later.": "auth_unavailable",
+}
+
+
+def _audit_oidc_failure(db, reason):
+    from core.audit_actor import clear_actor
+    db.rollback()
+    clear_actor(db)
+    try:
+        log_audit(db, "auth.login_failed", "user", details={"method": "oidc", "reason": reason})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(503, "Login audit unavailable. Try again later.") from None
+
+
+@router.get("/auth/oidc/callback", tags=["Auth"])
+async def oidc_callback(request: Request, code: str = None, state: str = None,
+                        error: str = None, error_description: str = None, db: Session = Depends(get_db)):
+    try:
+        response = await _oidc_callback(request, code, state, error, error_description, db)
+    except Exception:
+        _audit_oidc_failure(db, "auth_failed")
+        raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
+    reason = parse_qs(urlsplit(response.headers.get("location", "")).query).get("error", [None])[0]
+    if reason is not None:
+        _audit_oidc_failure(db, reason if reason in _OIDC_FAILURE_CODES else "auth_failed")
+    return response
+
+
+@router.post("/auth/oidc/exchange", tags=["Auth"])
+async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db)):
+    try:
+        return await _oidc_exchange_code(body, request, db)
+    except HTTPException as exc:
+        _audit_oidc_failure(db, _EXCHANGE_FAILURE_CODES.get(str(exc.detail), "auth_failed"))
+        raise
+    except Exception:
+        _audit_oidc_failure(db, "auth_failed")
+        raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
 
 
 # ============== Admin OIDC config ==============

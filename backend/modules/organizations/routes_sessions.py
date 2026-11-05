@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text, update
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -487,6 +487,41 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     return export
 
 
+def _erase_password_login_history(db: Session, username: str):
+    """Match the complete sign-in identity, never a SQL pattern or substring."""
+    from core.models import AuditLog
+
+    # Password login queries users.username by equality; email is not an alias.
+    # Typed JSON reads/writes work on both SQLite JSON and PostgreSQL JSON.
+    # Keep this in the account erasure transaction so a failure rolls it back.
+    last_id = 0
+    while True:
+        rows = db.execute(select(AuditLog.id, AuditLog.action, AuditLog.details).where(
+            AuditLog.id > last_id, AuditLog.entity_type == 'user',
+            AuditLog.action.in_(('login_success', 'login_failed', 'auth.login_failed')),
+        ).order_by(AuditLog.id).limit(500)).all()
+        if not rows:
+            break
+        for row in rows:
+            details = row.details
+            if row.action == 'auth.login_failed':
+                if not isinstance(details, dict) or details.get('username') != username:
+                    continue
+                scrubbed = {**details, 'username': '[deleted]'}
+            else:
+                prefix = 'Login' if row.action == 'login_success' else 'Failed login'
+                if not isinstance(details, str):
+                    continue
+                identity, separator, _ = details.rpartition(' from ')
+                if not separator or identity != f'{prefix}: {username}':
+                    continue
+                scrubbed = f'{prefix}: [deleted]'
+            db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
+                details=scrubbed, ip_address=None))
+        last_id = rows[-1].id
+    db.execute(text('DELETE FROM login_attempts WHERE username = :username'), {'username': username})
+
+
 @router.delete("/users/{user_id}/erase", tags=["GDPR"], dependencies=[Depends(require_interactive_session())])
 async def erase_user_data(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Anonymize user data (GDPR Article 17). Admin only. Preserves job records for analytics."""
@@ -525,6 +560,10 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
 
     from core.audit_actor import erase_actor_history, actor_is_erased
     erase_actor_history(db, user_id)
+    # SSO sign-in rows name the user by entity, not actor, so erase_actor_history
+    # doesn't reach them. Their IP address is personal data: clear it too.
+    db.execute(text("UPDATE audit_logs SET ip_address=NULL WHERE action='auth.login' AND entity_type='user' "
+                    "AND entity_id=:uid AND actor_user_id IS NULL"), {"uid": user_id})
 
     from core.privacy_replay import erase_identifying_replay
     try:
@@ -540,11 +579,9 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_devices WHERE user_id = :uid"), {"uid": user_id})
-    # Login history keeps its rate-limit value but no longer names the user.
     former_username = user_data.get("username")
     if isinstance(former_username, str) and former_username:
-        db.execute(text("UPDATE login_attempts SET username = :anon WHERE LOWER(username) = LOWER(:old)"),
-                   {"anon": f"[deleted-{user_id}]", "old": former_username})
+        _erase_password_login_history(db, former_username)
 
     # Submission/resubmission alerts are delivered to reviewers, so deleting
     # only alerts owned by this user would leave their former username or
@@ -653,7 +690,11 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     audit_ids = _candidate_ids("audit_logs", "CAST(details AS TEXT)")
     for start in range(0, len(audit_ids), CHUNK):
         for audit_id in audit_ids[start:start + CHUNK]:
-            raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id"), {"id": audit_id}).scalar()
+            # Password history was handled by exact identity above. A broad
+            # free-text scrub could otherwise change a different login name.
+            raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id "
+                                  "AND NOT (COALESCE(entity_type,'')='user' AND action IN "
+                                  "('login_success','login_failed','auth.login_failed'))"), {"id": audit_id}).scalar()
             scrubbed = scrub_json_text(raw, identifiers)
             if scrubbed is not None:
                 db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
