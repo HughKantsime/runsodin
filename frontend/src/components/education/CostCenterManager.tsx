@@ -165,7 +165,8 @@ export default function CostCenterManager({
         command_id: crypto.randomUUID(),
       })
     },
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
+      saved.training_warnings?.forEach(warning => toast(warning, { duration: 10000 }))
       toast.success('Authorized printers updated')
       await refreshCenter()
     },

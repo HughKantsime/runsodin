@@ -115,7 +115,7 @@ RAW_REQUIRED_TABLES = frozenset(
 # a newer migration helper before selecting its closed source contract.
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
-RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations'})
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations', 'education_trainings', 'education_training_records'})
 
 RAW_REQUIRED_COLUMNS = {
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
@@ -227,6 +227,8 @@ for _source_table in ('spools', 'print_jobs'):
 RAW_REQUIRED_COLUMNS['dispatch_recovery_history'] = frozenset('id created_at audit_id actor_id actor_identity owner_org_id charged_org_id printer_id job_id attempt_handle snapshot_handle decision reason_category facts'.split())
 RAW_REQUIRED_COLUMNS['terminal_filament_measurements'] = frozenset('observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams reported_value reconciliation_reason snapshot_json created_at'.split())
 RAW_REQUIRED_COLUMNS['filament_cost_events'] = frozenset('event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at'.split())
+RAW_REQUIRED_COLUMNS['education_trainings'] = frozenset('id org_id cost_center_id school_wide name description scope_kind scope_value quiz_json pass_mark instructor_required expiry_days active revision edit_version created_by created_at'.split())
+RAW_REQUIRED_COLUMNS['education_training_records'] = frozenset('training_id org_id user_id training_revision quiz_attempts failed_attempts cooldown_until quiz_score quiz_passed_at instructor_id instructor_at completed_at expires_at revoked_at'.split())
 RAW_REQUIRED_COLUMNS['tray_confirmations'] = frozenset('state_id slot_id decision spool_id previous_spool_id'.split())
 RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
@@ -327,6 +329,7 @@ POST027_MIGRATIONS = (
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
+    ("python:047-training-signoff", "core.schema.migrations.047_training_signoff"),
 )
 
 
@@ -589,7 +592,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:047-training-signoff"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -607,6 +610,9 @@ def _bootstrap_database_contract(
         # any table while such a trigger exists.
         if contract is None and apply_python_migration(connection, "core.schema.migrations.039_measured_filament"):
             applied.append("python:039-measured-filament")
+        # Training foreign keys require the retained memberships installed by 037.
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.047_training_signoff"):
+            applied.append("python:047-training-signoff")
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:

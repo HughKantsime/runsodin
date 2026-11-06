@@ -76,6 +76,8 @@ def _setup_middleware(app: FastAPI) -> None:
             "X-Idempotent-Replay",
             "X-ODIN-Export-Truncated",
             "X-ODIN-Export-Row-Limit",
+            # Printer DELETE stays 204; training scope warnings ride here.
+            "X-ODIN-Training-Warnings",
         ],
     )
 

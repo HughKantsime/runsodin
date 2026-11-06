@@ -1,3 +1,4 @@
+import TrainingPanel from '../../components/education/TrainingPanel'
 import PageState from '../../components/ui/PageState'
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -24,7 +25,7 @@ import SubmissionUploadModal, { educationAudience } from '../../components/educa
 import ReadinessPanel from '../../components/education/ReadinessPanel'
 import { Button, Card, EmptyState, PageHeader, StatCard, TabBar, Select } from '../../components/ui'
 
-type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom'
+type WorkbenchTab = 'training' | 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom'
 
 export default function EducationWorkbench() {
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
@@ -100,10 +101,11 @@ export default function EducationWorkbench() {
       items.push({ key: 'jobs', label: 'Job Queue', icon: Printer })
       items.push({ key: 'archive', label: 'Archive', icon: BookOpenCheck })
     }
+    if (license.hasFeature('training_signoff')) items.push({ key: 'training', label: 'Training', icon: GraduationCap })
     if (capabilities?.tenant_admin) items.push({ key: 'centers', label: 'Classes & clubs', icon: Building2 })
     if (capabilities?.tenant_admin) items.push({ key: 'classroom', label: 'Google Classroom', icon: BookOpen })
     return items
-  }, [capabilities])
+  }, [capabilities, license])
 
   useEffect(() => {
     if (capabilitiesQuery.isLoading || platformAdmin) return
@@ -226,6 +228,8 @@ export default function EducationWorkbench() {
           onManage={() => changeTab('centers')}
         />
       )}
+
+      {activeTab === 'training' && license.hasFeature('training_signoff') && <TrainingPanel key={audience} audience={audience} centers={visibleCenters} />}
 
       {activeTab === 'submissions' && (
         <SubmissionQueue key={`submissions-${audience}`} centers={studentCenters} reviewable={false} mineOnly onRevise={(submission) => {

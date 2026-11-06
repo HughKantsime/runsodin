@@ -163,6 +163,7 @@ class PrinterMaintenance(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    training_warnings: list[str] = Field(default_factory=list)
     hms_model_prefix: str = Field(default='', exclude=True)
 
     @field_serializer('hms_errors')

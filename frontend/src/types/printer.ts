@@ -64,6 +64,7 @@ export interface FilamentSlotUpdate {
 // ---- Printer ----
 
 export interface Printer {
+  training_warnings?: string[];
   feeding_slot?: number | null;
   chamber_temp?: number | null;
   plate_clear_confirmed_at?: string | null;

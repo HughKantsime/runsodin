@@ -33,6 +33,7 @@
       "push_notifications",
       "rbac",
       "sso",
+      "training_signoff",
       "usage_reports",
       "user_groups",
       "webhooks",

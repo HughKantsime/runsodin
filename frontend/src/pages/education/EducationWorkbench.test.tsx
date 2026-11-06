@@ -85,3 +85,12 @@ it('preserves Classroom callback behavior alongside tab links', () => {
   expect(new URLSearchParams(window.location.search).get('keep')).toBe('1')
   window.history.replaceState({}, '', '/')
 })
+
+it('exposes licensed training and opens its workspace', () => {
+  state.capabilities.student = true
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Training' }))
+  expect(screen.getByText('No classes are available for training.')).toBeInTheDocument()
+  expect(new URLSearchParams(window.location.search).get('tab')).toBe('training')
+  window.history.replaceState({}, '', '/')
+})

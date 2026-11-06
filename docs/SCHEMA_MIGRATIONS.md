@@ -154,3 +154,16 @@ sources use the release branch's single `preserved040` bundle. The 2.0.24 ledger
 adds 041 inventory-color, 042 dispatch-capability and 043 recipe-configuration,
 in that order. Migration042 audits each H2D bed correction in its transaction,
 so a corrected printer cannot backfill a receipt from before that correction.
+
+## Training sign-off (047)
+
+047 runs after the dedicated 037 membership step (alongside 039), so PostgreSQL
+upgrades from pre-037 schemas have the referenced membership table. It includes
+school-wide scope and durable quiz attempt/cooldown evidence. A separate `edit_version`
+advances for every definition save; requirement `revision` changes only when completion
+requirements change. Stale edit versions are refused without invalidating completion.
+047 creates tenant-bound training definitions and completion evidence, registered in the
+post027 ledger and canonical table inventory. No PostgreSQL functions/triggers are added.
+The new preserved046 overlay pins the released 046 schema and routes its backups through
+the existing isolated restore protocol before applying 047. Published ledger entries are
+unchanged; register the next release's prefix only when assigning that release version.

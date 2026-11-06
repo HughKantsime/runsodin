@@ -218,6 +218,11 @@ def test_central_policy_authorizes_current_pin_and_atomically_reconciles():
             "INSERT INTO education_cost_center_printers VALUES (2, 7, 9, 'active')",
             "INSERT INTO jobs VALUES (72, 2, 'scheduled', 9, NULL)",
             "INSERT INTO education_submissions VALUES (4, 2, 7, 72, 'scheduled', 3, 9, 5, 'old-engine', NULL)",
+            "ALTER TABLE education_submissions ADD COLUMN submitted_by INTEGER DEFAULT 1",
+            "ALTER TABLE printers ADD COLUMN machine_type TEXT",
+            "ALTER TABLE printers ADD COLUMN model TEXT",
+            "CREATE TABLE users(id INTEGER PRIMARY KEY,role TEXT,group_id INTEGER,is_active BOOLEAN)",
+            "CREATE TABLE education_trainings(id TEXT,org_id INTEGER,cost_center_id INTEGER,school_wide BOOLEAN DEFAULT FALSE,active BOOLEAN)",
         ):
             connection.execute(text(statement))
 

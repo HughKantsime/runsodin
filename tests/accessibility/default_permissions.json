@@ -200,6 +200,21 @@
     "models.plates": [
       "admin",
       "operator"
+    ],
+    "education.training_read": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education.training_take": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education.training_manage": [
+      "admin",
+      "operator",
+      "viewer"
     ]
   },
   "page_access": {

@@ -44,6 +44,14 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry('organizations.routes_education_training', 'router:/education/trainings', 'training/student/audit', "read/mutate", 'licensed Education credentials plus explicit matrix and tenant authority', (), 'test_education_training_http.py', "guarded"),
+    _entry('organizations.education_training_service', 'save_training/assess/roster', 'training/student/audit', "read/mutate", 'live center manager or tenant admin; school-wide definitions require tenant admin; quiz self only', (), 'test_education_training.py', "guarded"),
+    _entry('organizations.education_training_policy', 'require_submission_training/require_printer_training/job_training_allowed', 'training/student/printer', "read/mutate", 'live scoped student training; teachers/admins bypass own requirements', (), 'test_education_training.py', "guarded"),
+    _entry('organizations.education_upload_storage', 'reserve/abort/reconcile upload', 'upload operation/storage', "read/mutate", 'admitted student upload operation', (), 'test_education_submission_upload.py', "guarded"),
+    _entry('organizations.education_submission_graph', '_commit_submission_graph', 'job/file/model/submission', "read/mutate", 'live student grant with training checked under center lock', (), 'test_education_submission_upload.py', "guarded"),
+    _entry('organizations.education_recovery_policy', 'recover/resolve observation', 'job/printer/submission', "read/mutate", 'trusted recovery worker; scoped principal', (), 'test_dispatch_recovery_education_terminal.py', "guarded"),
+    _entry('organizations.education_observation_policy', 'claim/classify/terminal observation', 'job/printer/submission', "read/mutate", 'trusted monitor with opaque claim authority', (), 'test_education_monitor_policy.py', "guarded"),
+    _entry('organizations.education_dispatch_policy', 'reserve/lock/cancel/confirm dispatch', 'job/printer/submission', "read/mutate", 'trusted dispatch worker', (), 'test_education_dispatch_policy.py', "guarded"),
     _entry("printers.routes_camera_snapshot", "camera_snapshot/camera_mjpeg/_mjpeg_check", "printer/camera", "read", "viewer with read:printers; active enabled camera and organization/shared fence; MJPEG rechecks active user, role and camera every 30 seconds", ("camera fallback",), "test_camera_mjpeg.py", "guarded"),
     _entry("printers.mjpeg_relay", "open_mjpeg/claim_stream", "printer/camera", "relay", "internal transport; caller supplies admission and periodic authority checks", ("camera fallback", "OBS overlay"), "test_camera_mjpeg.py", "excluded_internal"),
     _entry("inventory.routes.rfid_onboarding", "rfid_onboarding/merge_rfid_roll/reference_reason", "spool/printer/slot/usage/alert/print snapshot", "read checklist/merge unused RFID roll", "scoped viewer reads; operator with spools.edit and write:spools merges same-org stock under assignment locks; any usage, alert or print reference vetoes merge", ("RFID onboarding checklist", "spool assignments"), "test_spool_rfid_identity.py", "guarded"),
@@ -81,6 +89,7 @@ POLICY_INVENTORY = (
     _entry("organizations.education_policy", "authorize_dispatch/reconcile_dispatch_denial/recovery_authority/recovery_terminal_resolved/recovery_visibility", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printers.dispatch",), "test_education_dispatch_policy.py", "guarded"),
     _entry("organizations.routes_users", "update/delete user and group", "user/group", "lifecycle", "tenant admin/superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("organizations.routes", "delete_org", "organization", "lifecycle", "superadmin", (), "test_education_policy_inventory.py", "guarded"),
+    _entry("printers.printer_deletion", "delete_printer", "printer/job/pin/training", "lifecycle", "authorized tenant caller plus Education history guard", ("notifications.alert_dispatcher",), "test_education_training_round2.py", "guarded"),
     _entry("printers.routes_crud", "update/delete printer", "printer", "lifecycle", "tenant admin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("core.app.websocket", "websocket_endpoint", "event", "notify", "explicit live user", ("browser websocket",), "test_education_policy_inventory.py", "guarded"),
     _entry("printers.dispatch_admission", "admit", "job/printer/submission/retained claim", "dispatch-admission", "trusted dispatch worker; current scoped resources and exact committed claim", ("adapter-entry receipt",), "test_dispatch_receipt_admission_behavior.py", "guarded"),
@@ -98,7 +107,7 @@ POLICY_INVENTORY = (
     _entry("jobs.scheduler_planning", "SchedulerPlanning.run", "submission/job/printer", "schedule", "trusted scheduler; maintenance and Education policy checks", ("organizations.education_policy", "printers.services"), "test_education_scheduler_policy.py", "guarded"),
     _entry("notifications.job_events", "job.* topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("jobs.state_machine", "transition_job (the only jobs.status writer)", "job", "transition", "callers' own Education guards (generic routes, Education policy predicates)", ("jobs.*", "organizations.education_policy", "printers.monitors", "notifications.job_events"), "test_cert_D_job_state_machine.py", "guarded"),
-    _entry("jobs.pinning", "explicit printer pin parse/issue/delete-marking", "job/printer", "read/mark", "trusted callers (job routes, scheduler, printer delete)", ("jobs.scheduler", "printers.routes_crud"), "test_cert_D_jobsB_scheduler.py", "guarded"),
+    _entry("jobs.pinning", "explicit printer pin parse/issue/delete-marking", "job/printer", "read/mark", "trusted callers (job routes, scheduler, printer delete)", ("jobs.scheduler", "printers.printer_deletion"), "test_cert_D_jobsB_scheduler.py", "guarded"),
     _entry("notifications.error_handling", "printer/job error topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("notifications.alert_dispatch", "dispatch_alert", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.alert_dispatcher", "alert dispatcher worker", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
@@ -182,6 +191,15 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "modules/organizations/education_submission_service.py",
+    'modules/organizations/routes_education_training.py',
+    'modules/organizations/education_training_service.py',
+    'modules/organizations/education_training_policy.py',
+    'modules/organizations/education_upload_storage.py',
+    'modules/organizations/education_submission_graph.py',
+    'modules/organizations/education_recovery_policy.py',
+    'modules/organizations/education_observation_policy.py',
+    'modules/organizations/education_dispatch_policy.py',
     "modules/printers/routes_camera_snapshot.py",
     "modules/printers/mjpeg_relay.py",
     "core/app.py",
