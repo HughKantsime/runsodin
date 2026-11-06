@@ -1,25 +1,27 @@
 {
   "backup": {
     "create": {
-      "created_at": "2026-10-16T04:11:19.971307+00:00",
-      "filename": "odin_backup_20261016_041119_960068.db",
-      "size_bytes": 1425408,
-      "size_mb": 1.36
+      "audit_keys": false,
+      "created_at": "2026-11-06T16:20:37.637562+00:00",
+      "filename": "odin_backup_20261106_162037_582773.db",
+      "size_bytes": 1904640,
+      "size_mb": 1.82
     },
     "download_prefix_hex": "53514c69746520666f726d6174203300",
     "list": [
       {
-        "created_at": "2026-10-16T04:11:19.961805+00:00",
-        "filename": "odin_backup_20261016_041119_960068.db",
-        "size_bytes": 1425408,
-        "size_mb": 1.36
+        "audit_keys": false,
+        "created_at": "2026-11-06T16:20:37.595261+00:00",
+        "filename": "odin_backup_20261106_162037_582773.db",
+        "size_bytes": 1904640,
+        "size_mb": 1.82
       }
     ],
     "scope": "certDops owned HTTP producer: real POST/GET /backups on canonical SQLite schema"
   },
   "restore": {
     "message": "Restore validated and staged. Restart ODIN to apply it offline.",
-    "pre_restore_backup": "pre_restore_20261016_041122_081258.db",
+    "pre_restore_backup": "pre_restore_20261106_162040_896504.db",
     "restart_required": true,
     "status": "staged"
   }

@@ -32,7 +32,10 @@ with engine.connect() as c:
     from core.schema import bootstrap_database
     engine = create_engine('sqlite:///' + str(tmp_path/'frozen.db'))
     try:
-        assert bootstrap_database(engine)['applied'] == ['python:045-pause-cancel-alerts', 'python:046-tray-identity', 'python:047-audit-integrity', 'python:048-training-signoff', 'python:049-education-classes', 'python:050-education-program-reports', 'python:051-roster-sync', 'python:052-traceability']
+        from core.schema.bootstrap import POST027_MIGRATIONS
+        expected = [migration_id for migration_id, _ in POST027_MIGRATIONS
+                    if migration_id not in preserved044.ledger_ids()]
+        assert bootstrap_database(engine)['applied'] == expected
         assert bootstrap_database(engine)['applied'] == []
     finally:
         engine.dispose()

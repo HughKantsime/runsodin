@@ -131,8 +131,12 @@ def test_drop_database_still_terminates_the_maintenance_role_s_own_sessions(main
 def test_every_restore_drop_goes_through_the_helper():
     from pathlib import Path
     backend = Path(__file__).resolve().parents[2] / "backend" / "modules" / "system"
-    for path in ("postgres_backup_service.py", "pre026_restore_stage.py"):
+    for path in ("postgres_restore_validation.py", "pre026_restore_stage.py"):
         source = (backend / path).read_text()
         assert "WITH (FORCE)" not in source and "drop_database(" in source, path
+    # The facade/apply split delegates validation; neither may bypass the helper.
+    for path in ("postgres_backup_service.py", "postgres_restore_apply.py"):
+        source = (backend / path).read_text()
+        assert "DROP DATABASE" not in source and "WITH (FORCE)" not in source, path
     helper = (backend / "restore_artifacts.py").read_text()
     assert helper.count('" WITH (FORCE)"') == 1 and helper.count("exec_driver_sql(") == 1

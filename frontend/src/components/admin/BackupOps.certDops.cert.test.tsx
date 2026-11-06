@@ -50,7 +50,7 @@ describe('F18 Settings System tab backups', () => {
     system()
     expect(await screen.findByText('No backups yet. Create your first backup to protect your data.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create Backup' }))
-    expect(await screen.findByText(`Backup created: ${wire.backup.create.filename} (1.4 MB)`)).toBeInTheDocument()
+    expect(await screen.findByText(`Backup created: ${wire.backup.create.filename} (${(wire.backup.create.size_bytes / (1024 * 1024)).toFixed(1)} MB)`)).toBeInTheDocument()
     expect(transport.mock.calls.some(([url, init]) => url === '/api/backups' && init?.method === 'POST')).toBe(true)
     const names = await screen.findAllByText(wire.backup.create.filename)
     expect(names.length).toBeGreaterThanOrEqual(1)

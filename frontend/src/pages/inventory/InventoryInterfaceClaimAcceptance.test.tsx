@@ -45,7 +45,7 @@ it('F06-6.1-02 CLAIM GAP: total spool stat includes archived inventory when view
   await inventory(); fireEvent.click(screen.getByRole('button', { name: 'All', exact: true })); await screen.findByText('SPL-ARCHIVED'); expect(card('Total Spools')).toHaveTextContent('3')
 })
 it('F06-6.2-02 renders individual spool label endpoint link', async () => {
-  await inventory(); const links = screen.getAllByRole('link', { name: 'Label' }); expect(links.map(a => a.getAttribute('href'))).toEqual(expect.arrayContaining(['/api/spools/1/label','/api/spools/2/label']))
+  await inventory(); const links = [screen.getByRole('link', { name: 'Print label for Low spool' }), screen.getByRole('link', { name: 'Print label for Loaded spool' })]; expect(links.map(a => a.getAttribute('href'))).toEqual(expect.arrayContaining(['/api/spools/1/label','/api/spools/2/label']))
   expect(links[0]).toHaveAttribute('target', '_blank'); expect(links[0]).toHaveAttribute('rel', 'noopener noreferrer')
 })
 it('F06-6.2-02 CLAIM GAP: selected spools provide a batch label print action', async () => {

@@ -179,7 +179,9 @@ def test_real_boot_passes_a_healthy_database_and_a_missing_one(booted_database, 
 def test_real_boot_refuses_damage_plainly_before_changing_anything(booted_database, tmp_path):
     damaged = tmp_path / "odin.db"
     damaged.write_bytes(booted_database.read_bytes())
+    from core.audit_integrity import install_sqlite
     connection = sqlite3.connect(damaged)
+    install_sqlite(connection)
     connection.execute("INSERT INTO groups(id, name, is_org) VALUES(1, 'org', 1)")
     connection.execute("INSERT INTO printers(id, name, org_id) VALUES(1, 'one', 1)")
     connection.executemany("INSERT INTO audit_logs(action, entity_type) VALUES(?, 'x')", [(f"a{n}",) for n in range(3000)])

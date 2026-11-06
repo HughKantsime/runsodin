@@ -15,6 +15,7 @@ import sqlite3
 import string
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -331,7 +332,12 @@ def main():
     print("O.D.I.N. Demo Seed — Full Wipe & Replace")
     print("=" * 60)
 
+    # Support the documented container copy at /seed_demo_full.py and repo use.
+    backend = Path(__file__).resolve().parent.parent / "backend"
+    sys.path.insert(0, str(backend if backend.is_dir() else Path("/app/backend")))
+    from core.audit_integrity import install_sqlite
     conn = sqlite3.connect(DB_PATH)
+    install_sqlite(conn)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=OFF")
 

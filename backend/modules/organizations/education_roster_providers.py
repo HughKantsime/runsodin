@@ -59,7 +59,9 @@ async def request_json(method, url, *, data=None, headers=None):
         if not isinstance(result, dict):
             refuse('roster_response_invalid', 502)
         return result, response.links.get('next', {}).get('url')
-    except OutboundResponseTooLarge:
+    except OutboundResponseTooLarge as error:
+        if error.status_code is not None and not 200 <= error.status_code < 300:
+            refuse('roster_provider_refused', 502)
         refuse('roster_response_too_large', 502)
     except (httpx.HTTPError, ValueError, WebhookSSRFError, ItarOutboundBlocked):
         refuse('roster_provider_unavailable', 502)

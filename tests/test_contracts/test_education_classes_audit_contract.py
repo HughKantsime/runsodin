@@ -24,7 +24,7 @@ def test_classes_audit_transaction_contract(mutation):
     assert classes_audit_is_atomic(sources) is (mutation is None)
 
 
-@pytest.mark.parametrize('mutation', [None, 'jobs_table', 'status_column'])
+@pytest.mark.parametrize('mutation', [None, 'jobs_table', 'status_column', 'static_update_target'])
 def test_privacy_census_allowance_has_a_closed_table_and_field_inventory(mutation):
     from tests.test_contracts.education_classes_privacy_contract import privacy_writes_exclude_jobs
     source = (ROOT / 'education_classes_privacy.py').read_text()
@@ -32,4 +32,6 @@ def test_privacy_census_allowance_has_a_closed_table_and_field_inventory(mutatio
         source = source.replace("'education_classes'", "'jobs'")
     elif mutation == 'status_column':
         source = source.replace("('title', 'term')", "('status', 'term')")
+    elif mutation == 'static_update_target':
+        source = source.replace('UPDATE education_classes SET', 'UPDATE jobs SET')
     assert privacy_writes_exclude_jobs(source) is (mutation is None)

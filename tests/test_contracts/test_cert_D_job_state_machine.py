@@ -77,16 +77,7 @@ def _enum_repair_is_status_only(sites):
 
 # Each allowed (file, function, kind) pins its exact number of call sites, and
 # its check runs on those sites (the SQL text the node builds, or the call it makes).
-def _classes_privacy_tables(sites):
-    from tests.test_contracts.education_classes_privacy_contract import privacy_writes_exclude_jobs
-    return privacy_writes_exclude_jobs((BACKEND / 'modules/organizations/education_classes_privacy.py').read_text())
-
-
 ALLOWED_WRITES = {
-    ('backend/modules/organizations/education_classes_privacy.py', '_scrub_rows', 'sql update (dynamic table)'):
-        (1, 'scrubs only the closed class/assignment/assessment text inventory', _classes_privacy_tables),
-    ('backend/modules/organizations/education_classes_privacy.py', '_erase_classes', 'sql update (dynamic table)'):
-        (1, 'clears only assessment text and reviewer identities', _classes_privacy_tables),
     ('backend/modules/jobs/routes/jobs_crud.py', 'update_job', 'setattr'):
         (1, 'PATCH copies JobUpdate fields only after refusing a sent status (422)',
          lambda sites: [s.detail for s in sites] == ['setattr(job, field, value)']

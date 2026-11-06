@@ -2,7 +2,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from types import SimpleNamespace
-import sqlite3
 
 import pytest
 from sqlalchemy import text
@@ -126,16 +125,15 @@ def test_concurrent_same_spool_assignments_have_one_owner(graph):
     assert_moved(graph, rows[0].printer_id)
 
 
-def test_daemon_sync_accepts_repaired_graph(graph):
+def test_daemon_sync_accepts_repaired_graph(graph, monkeypatch):
     from modules.printers.monitors.ams_inventory import sync_ams_inventory
     db = graph
     assign_slot(db, db.query(FilamentSlot).filter_by(printer_id=10).one(), 199, USER);db.commit()
-    conn = sqlite3.connect(db.get_bind().url.database)
-    try:
+    from core import db_utils
+    monkeypatch.setattr(db_utils, "engine", db.get_bind())
+    with db_utils.get_db() as conn:
         assert sync_ams_inventory(conn, 10, [{'id':'0','tray':[{'id':'0','tray_type':'PLA','tag_uid':'move-rfid','remain':50}]}]) == 1
         conn.commit()
-    finally:
-        conn.close()
     assert_moved(db)
 
 

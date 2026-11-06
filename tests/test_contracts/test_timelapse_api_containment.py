@@ -112,6 +112,8 @@ def test_manual_cleanup_refuses_timelapses_and_preserves_owned_media(allowlist_a
     media=tmp_path/'original.mp4';media.write_bytes(b'ORIGINAL_MP4');original=(media.stat().st_ino,media.read_bytes())
     review_db.execute(text("INSERT INTO timelapses(id,printer_id,filename,status,created_at) VALUES(999,9,:path,'ready','2000-01-01')"),{'path':str(media)})
     review_db.execute(text("INSERT INTO alerts(id,user_id,alert_type,severity,title,created_at) VALUES(999,3,'print_complete','info','owned','2000-01-01')"));review_db.commit()
+    review_db.execute(text("INSERT INTO audit_logs(id,action,timestamp) VALUES(999,'owned.expired','2000-01-01 00:00:00')"))
+    review_db.commit()
     writes=[]
     def observe(c,cur,statement,params,ctx,many):
         if 'DELETE FROM timelapses' in statement:writes.append(statement)
@@ -123,10 +125,15 @@ def test_manual_cleanup_refuses_timelapses_and_preserves_owned_media(allowlist_a
     finally:event.remove(engine,'before_cursor_execute',observe)
     assert response.status_code==200
     result=response.json();assert result['status']=='partial'
-    assert result['refused']=={'timelapses':{'status':'refused','reason':'lifetime_retirement_pending'}, 'audit_logs':{'status':'refused','reason':'audit_integrity_retained'}}
+    assert result['refused']=={'timelapses':{'status':'refused','reason':'lifetime_retirement_pending'}}
     assert 'timelapses' not in result['deleted'] and result['deleted']['alerts']>=1
+    assert result['deleted']['audit_logs'] >= 1
     assert writes==[]
     with Session(engine) as db:
         assert db.execute(text('SELECT COUNT(*) FROM timelapses WHERE id=999')).scalar_one()==1
         assert db.execute(text('SELECT COUNT(*) FROM alerts WHERE id=999')).scalar_one()==0
+        assert db.execute(text('SELECT COUNT(*) FROM audit_logs WHERE id=999')).scalar_one()==0
+        assert db.execute(text('SELECT COUNT(*) FROM audit_retention_checkpoints')).scalar_one()>=1
+        from core.audit_integrity import verify
+        assert verify(db.connection())['ok']
     assert (media.stat().st_ino,media.read_bytes())==original

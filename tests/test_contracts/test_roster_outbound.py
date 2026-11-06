@@ -14,10 +14,13 @@ from modules.organizations import education_roster_providers as providers
 @pytest.mark.parametrize('status,body,reason', [
     (302, b'{}', 'roster_provider_refused'),
     (503, b'{}', 'roster_provider_refused'),
+    (302, b'x' * (2 * 1024 * 1024 + 1), 'roster_provider_refused'),
+    (503, b'x' * (2 * 1024 * 1024 + 1), 'roster_provider_refused'),
     (200, b'[]', 'roster_response_invalid'),
     (200, b'not json', 'roster_provider_unavailable'),
     (200, b'x' * (2 * 1024 * 1024 + 1), 'roster_response_too_large'),
-])
+], ids=['redirect', 'upstream-error', 'oversized-redirect', 'oversized-upstream-error',
+        'non-object-json', 'malformed-json', 'oversized-success'])
 def test_shared_stream_preserves_roster_refusal_reasons(monkeypatch, status, body, reason):
     _transport(monkeypatch, lambda request: httpx.Response(status, content=body))
     with pytest.raises(OdinError) as error:

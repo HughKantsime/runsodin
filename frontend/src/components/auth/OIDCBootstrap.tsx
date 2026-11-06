@@ -24,10 +24,13 @@ function readCallback() {
 async function establishSession(code: string, endpoint: string) {
   if (!code) throw new Error('Invalid callback')
   const options = { credentials: 'include', cache: 'no-store', redirect: 'error' } as const
-  const exchange = await fetch(endpoint, {
+  const request = {
     ...options, method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
-  })
+  }
+  const exchange = endpoint === '/api/auth/oidc/exchange'
+    ? await fetch('/api/auth/oidc/exchange', request)
+    : await fetch(endpoint, request)
   if (!exchange.ok || exchange.redirected) throw new Error('Exchange failed')
   const data = await exchange.json()
   const authority = readLoginAuthority(data)

@@ -27,7 +27,14 @@ def export_classes(db, user_id):
     }
 
 
-def _scrub_rows(db, table, key, fields, identifiers, *, revision=False):
+_SCRUB_UPDATES = {
+    'education_classes': 'UPDATE education_classes SET title=:title,term=:term,revision=revision+1 WHERE id=:key',
+    'education_assignments': 'UPDATE education_assignments SET title=:title,brief=:brief,revision=revision+1 WHERE id=:key',
+    'education_assignment_submissions': 'UPDATE education_assignment_submissions SET feedback=:feedback,grade=:grade,revision=revision+1 WHERE submission_id=:key',
+    'education_assessment_revisions': 'UPDATE education_assessment_revisions SET old_feedback=:old_feedback,new_feedback=:new_feedback,old_grade=:old_grade,new_grade=:new_grade WHERE id=:key',
+}
+
+def _scrub_rows(db, table, key, fields, identifiers):
     """Bound both result buffering and Python work; LIKE is only a broad prefilter.
 
     Exact identifier boundaries are enforced by scrub_text. Escaped LIKE values
@@ -50,8 +57,7 @@ def _scrub_rows(db, table, key, fields, identifiers, *, revision=False):
             for row in rows:
                 values = {f: scrub_text(row[f], identifiers) for f in fields}
                 if any(values[f] != row[f] for f in fields):
-                    db.execute(text('UPDATE ' + table + ' SET ' + ','.join(f + '=:' + f for f in fields) +
-                        (',revision=revision+1' if revision else '') + ' WHERE ' + key + '=:key'),
+                    db.execute(text(_SCRUB_UPDATES[table]),
                         {**values, 'key': row[key]})
             after = rows[-1][key]
 
@@ -114,15 +120,10 @@ def erase_classes(db, user_id, identifiers):
 def _erase_classes(db, user_id, identifiers):
     # A student's own marks are cleared; removing a teacher preserves the school
     # assessment and only removes reviewer identity and mentions in retained text.
-    for table, fields in (
-        ('education_assignment_submissions', ('feedback', 'grade')),
-        ('education_assessment_revisions', ('old_feedback', 'new_feedback', 'old_grade', 'new_grade')),
-    ):
-        bump = ',revision=revision+1,updated_at=CURRENT_TIMESTAMP' if table == 'education_assignment_submissions' else ''
-        db.execute(text('UPDATE ' + table + ' SET ' + ','.join(f + "=''" for f in fields) +
-            ',reviewed_by=NULL' + bump + ' WHERE submission_id IN '
-            '(SELECT id FROM education_submissions WHERE submitted_by=:u)'), {'u': user_id})
-        db.execute(text('UPDATE ' + table + ' SET reviewed_by=NULL' + bump + ' WHERE reviewed_by=:u'), {'u': user_id})
+    db.execute(text("UPDATE education_assignment_submissions SET feedback='',grade='',reviewed_by=NULL,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE submission_id IN (SELECT id FROM education_submissions WHERE submitted_by=:u)"), {'u': user_id})
+    db.execute(text('UPDATE education_assignment_submissions SET reviewed_by=NULL,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE reviewed_by=:u'), {'u': user_id})
+    db.execute(text("UPDATE education_assessment_revisions SET old_feedback='',new_feedback='',old_grade='',new_grade='',reviewed_by=NULL WHERE submission_id IN (SELECT id FROM education_submissions WHERE submitted_by=:u)"), {'u': user_id})
+    db.execute(text('UPDATE education_assessment_revisions SET reviewed_by=NULL WHERE reviewed_by=:u'), {'u': user_id})
     db.execute(text("UPDATE education_assignments SET auto_printer_ids='[]',auto_print_seconds=NULL,"
         'auto_material_grams=NULL,revision=revision+1 WHERE authorized_by=:u'), {'u': user_id})
     # Operational school text may mention this person even when authored by someone else.
@@ -132,4 +133,4 @@ def _erase_classes(db, user_id, identifiers):
         ('education_assignment_submissions', 'submission_id', ('feedback', 'grade')),
         ('education_assessment_revisions', 'id', ('old_feedback', 'new_feedback', 'old_grade', 'new_grade')),
     ):
-        _scrub_rows(db, table, key, fields, identifiers, revision=table != 'education_assessment_revisions')
+        _scrub_rows(db, table, key, fields, identifiers)

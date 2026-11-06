@@ -19,7 +19,11 @@ _DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
 class OutboundResponseTooLarge(httpx.HTTPError):
-    """The decoded outbound response exceeded the caller's body size limit."""
+    """The decoded response exceeded the limit; retain status without its body."""
+
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _get_slots():
@@ -95,7 +99,8 @@ async def pinned_async_request(
                     for chunk in response.iter_bytes():
                         remaining()
                         if len(body) + len(chunk) > max_response_bytes:
-                            raise OutboundResponseTooLarge("Outbound response body exceeds size limit")
+                            raise OutboundResponseTooLarge("Outbound response body exceeds size limit",
+                                                           status_code=response.status_code)
                         body.extend(chunk)
                     remaining()
                     # Match Response.read(): preserve request, headers, encoding,

@@ -80,7 +80,7 @@ test('CertERep F10-10.9-04 schedule management lives in Settings -> System: list
   expect(screen.getByText('job summary · weekly · ops@example.test')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'New Schedule' }))
   const types = Array.from((screen.getByLabelText('Report Type') as HTMLSelectElement).options).map(o => o.value)
-  expect(types).toEqual(['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary'])
+  expect(types).toEqual(['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary', 'program_report'])
   const freqs = Array.from((screen.getByLabelText('Frequency') as HTMLSelectElement).options).map(o => o.value)
   expect(freqs).toEqual(['daily', 'weekly', 'monthly'])
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Cert weekly' } })

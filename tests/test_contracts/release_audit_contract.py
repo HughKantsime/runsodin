@@ -3,12 +3,17 @@ import ast
 
 ORG = 'modules/organizations/'
 PROTOCOLS = {
+    (ORG + 'education_term_retention.py', 'audit'): {
+        ORG + 'education_term_retention.py': ('audit', {'create_policy', 'delete_policy'}),
+        ORG + 'education_term_cleanup.py': ('audit', {'record_blocked', 'finish_media', 'purge'}),
+        ORG + 'education_term_privacy.py': ('audit', {'erase_student', 'resume_erasure', 'anonymize'}),
+    },
     ('core/traceability_delivery.py', 'deliver_order'): {
         'modules/orders/routes/orders_crud.py': ('deliver_order', {'update_order', 'ship_order'}),
         'modules/orders/show_fulfillment.py': ('deliver_order', {'dispatch'}),
     },
     ('core/traceability_privacy.py', 'erase_personal'): {
-        ORG + 'routes_sessions.py': ('erase_personal', {'erase_user_data'}),
+        ORG + 'gdpr_erasure.py': ('erase_personal', {'erase_user_data_sync'}),
         ORG + 'routes_users.py': ('erase_personal', {'delete_user'}),
     },
     (ORG + 'education_program_audit.py', 'audit'): {

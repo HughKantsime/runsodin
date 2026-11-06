@@ -50,7 +50,8 @@ policy also applies. Requests use the shared worker pool with resolution and
 pinning in the same thread as the synchronous httpx client. Regression tests exercise
 real httpx socket resolution with connect intercepted; no real Google/Canvas requests
 are made by the tests. All provider calls use `core.outbound_http.pinned_async_request` with its bounded
-worker pool, total deadline and `max_response_bytes=2 * 1024 * 1024`. The
+worker pool, a single 15-second total deadline (including slot wait, DNS, connection
+and response streaming), and `max_response_bytes=2 * 1024 * 1024`. The
 `public_only` guard retains the roster public-address and no-proxy policy.
 
 ## Import workflow and history

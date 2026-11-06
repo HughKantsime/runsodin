@@ -184,9 +184,13 @@ def apply(db, principal, connection_id, token, confirmations=()):
                 {'name': 'classroom-' + uuid.uuid4().hex, 'email': member['email'], 'o': org})
             resolution['user_id'] = uid
         retain_membership(db, uid, org)
-        table = 'education_roster_identities' if resolution['mode'] == 'identity' else 'education_roster_grant_links'
-        db.execute(text('INSERT INTO ' + table + '(connection_id,org_id,subject,user_id) '
-            'VALUES(:c,:o,:s,:u) ON CONFLICT(connection_id,subject) DO NOTHING'),
+        statement = (
+            'INSERT INTO education_roster_identities(connection_id,org_id,subject,user_id) '
+            'VALUES(:c,:o,:s,:u) ON CONFLICT(connection_id,subject) DO NOTHING'
+            if resolution['mode'] == 'identity' else
+            'INSERT INTO education_roster_grant_links(connection_id,org_id,subject,user_id) '
+            'VALUES(:c,:o,:s,:u) ON CONFLICT(connection_id,subject) DO NOTHING')
+        db.execute(text(statement),
             {'c': connection_id, 'o': org, 's': subject, 'u': uid})
         db.execute(text('INSERT INTO education_cost_center_grants(org_id,cost_center_id,user_id,role,state,granted_by) '
             "VALUES(:o,:c,:u,:r,'active',:a) ON CONFLICT(cost_center_id,user_id,role) DO UPDATE SET "

@@ -11,14 +11,15 @@ def test_previous_head_upgrades_without_touching_rows(tmp_path, monkeypatch):
     from core.schema import bootstrap as boot
     original = boot.POST027_MIGRATIONS
     engine = create_engine('sqlite:///' + str(tmp_path / 'old.db'))
-    monkeypatch.setattr(boot, 'POST027_MIGRATIONS', original[:-1])
-    # Only suppress current new-table validation while constructing the old shape.
-    monkeypatch.setattr(boot, 'RAW_REQUIRED_TABLES', boot.RAW_REQUIRED_TABLES - set(M.COLUMNS))
-    monkeypatch.setattr(boot, 'RAW_REQUIRED_COLUMNS', {k:v for k,v in boot.RAW_REQUIRED_COLUMNS.items() if k not in M.COLUMNS})
-    bootstrap_database(engine)
-    with engine.begin() as c:
-        c.execute(text("INSERT INTO groups(id,name) VALUES(91,'kept')"))
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as bootstrap_patch:
+        bootstrap_patch.setattr(boot, 'POST027_MIGRATIONS', tuple(
+            (migration_id, name) for migration_id, name in original if migration_id != M.MIGRATION_ID))
+        # Only suppress new-table validation while constructing the old shape.
+        bootstrap_patch.setattr(boot, 'RAW_REQUIRED_TABLES', boot.RAW_REQUIRED_TABLES - set(M.COLUMNS))
+        bootstrap_patch.setattr(boot, 'RAW_REQUIRED_COLUMNS', {k:v for k,v in boot.RAW_REQUIRED_COLUMNS.items() if k not in M.COLUMNS})
+        bootstrap_database(engine)
+        with engine.begin() as c:
+            c.execute(text("INSERT INTO groups(id,name) VALUES(91,'kept')"))
     assert bootstrap_database(engine)['applied'] == [M.MIGRATION_ID]
     assert bootstrap_database(engine)['applied'] == []
     with engine.connect() as c:

@@ -29,10 +29,8 @@ FOREIGN = {
 }
 
 
-def apply(connection):
-    if connection.dialect.name not in ('sqlite', 'postgresql'):
-        raise MigrationError('Unsupported term retention dialect')
-    connection.exec_driver_sql('''CREATE TABLE IF NOT EXISTS education_term_policies (
+DDL = {
+    'education_term_policies': '''(
         id VARCHAR(36) NOT NULL PRIMARY KEY,
         org_id INTEGER NOT NULL,
         cost_center_id INTEGER NOT NULL,
@@ -43,17 +41,25 @@ def apply(connection):
         created_at VARCHAR(32) NOT NULL,
         FOREIGN KEY(org_id) REFERENCES groups(id) ON DELETE RESTRICT,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL,
-        FOREIGN KEY(cost_center_id,org_id) REFERENCES education_cost_centers(id,org_id) ON DELETE RESTRICT)''')
-    connection.exec_driver_sql('''CREATE TABLE IF NOT EXISTS education_term_cleanup (
+        FOREIGN KEY(cost_center_id,org_id) REFERENCES education_cost_centers(id,org_id) ON DELETE RESTRICT)''',
+    'education_term_cleanup': '''(
         term_id VARCHAR(36) NOT NULL,
         submission_id INTEGER NOT NULL,
         kind VARCHAR(16) NOT NULL, state VARCHAR(16) NOT NULL, updated_at VARCHAR(32) NOT NULL,
         PRIMARY KEY(term_id,submission_id,kind),
         FOREIGN KEY(term_id) REFERENCES education_term_policies(id) ON DELETE RESTRICT,
-        FOREIGN KEY(submission_id) REFERENCES education_submissions(id) ON DELETE RESTRICT)''')
-    connection.exec_driver_sql('''CREATE TABLE IF NOT EXISTS education_erasure_pending (
+        FOREIGN KEY(submission_id) REFERENCES education_submissions(id) ON DELETE RESTRICT)''',
+    'education_erasure_pending': '''(
         user_id INTEGER NOT NULL PRIMARY KEY, identifiers_json TEXT NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT)''')
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT)''',
+}
+
+
+def apply(connection):
+    if connection.dialect.name not in ('sqlite', 'postgresql'):
+        raise MigrationError('Unsupported term retention dialect')
+    for table, definition in DDL.items():
+        connection.exec_driver_sql('CREATE TABLE IF NOT EXISTS '+table+' '+definition)
     validate(connection)
 
 

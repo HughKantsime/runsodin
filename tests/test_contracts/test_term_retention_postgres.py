@@ -15,11 +15,12 @@ M = importlib.import_module('core.schema.migrations.053_term_retention')
 def test_053_upgrade_and_runtime_on_postgres(pg_engine, tmp_path, monkeypatch):
     from core.schema import bootstrap as boot
     original = boot.POST027_MIGRATIONS
-    monkeypatch.setattr(boot, 'POST027_MIGRATIONS', original[:-1])
-    monkeypatch.setattr(boot, 'RAW_REQUIRED_TABLES', boot.RAW_REQUIRED_TABLES - set(M.COLUMNS))
-    monkeypatch.setattr(boot, 'RAW_REQUIRED_COLUMNS', {k:v for k,v in boot.RAW_REQUIRED_COLUMNS.items() if k not in M.COLUMNS})
-    bootstrap_database(pg_engine)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as bootstrap_patch:
+        bootstrap_patch.setattr(boot, 'POST027_MIGRATIONS', tuple(
+            (migration_id, name) for migration_id, name in original if migration_id != M.MIGRATION_ID))
+        bootstrap_patch.setattr(boot, 'RAW_REQUIRED_TABLES', boot.RAW_REQUIRED_TABLES - set(M.COLUMNS))
+        bootstrap_patch.setattr(boot, 'RAW_REQUIRED_COLUMNS', {k:v for k,v in boot.RAW_REQUIRED_COLUMNS.items() if k not in M.COLUMNS})
+        bootstrap_database(pg_engine)
     assert bootstrap_database(pg_engine)['applied'] == [M.MIGRATION_ID]
     assert bootstrap_database(pg_engine)['applied'] == []
     root = tmp_path / 'uploads'
