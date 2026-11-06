@@ -24,8 +24,8 @@ Paths are the /api paths; the /api/v1 aliases share the same route handlers.
 """
 
 ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
-    "education.classes_read": [('GET', '/api/education/classes'), ('GET', '/api/education/classes/portfolio'), ('GET', '/api/education/classes/portfolio/{submission_id}/thumbnail'), ('GET', '/api/education/classes/{class_id}/roster'), ('GET', '/api/education/classes/{class_id}/assignments'), ('GET', '/api/education/classes/assignments/{assignment_id}/submissions')],
-    "education.classes_manage": [('POST', '/api/education/classes'), ('PUT', '/api/education/classes/{class_id}'), ('POST', '/api/education/classes/{class_id}/assignments'), ('PUT', '/api/education/classes/{class_id}/assignments/{assignment_id}')],
+    "education.classes_read": [('GET', '/api/education/program-reports/options'), ('GET', '/api/education/program-reports'), ('GET', '/api/education/classes'), ('GET', '/api/education/classes/portfolio'), ('GET', '/api/education/classes/portfolio/{submission_id}/thumbnail'), ('GET', '/api/education/classes/{class_id}/roster'), ('GET', '/api/education/classes/{class_id}/assignments'), ('GET', '/api/education/classes/assignments/{assignment_id}/submissions')],
+    "education.classes_manage": [('GET', '/api/education/program-reports/classes/{class_id}'), ('PUT', '/api/education/program-reports/classes/{class_id}/marks/{user_id}'), ('PUT', '/api/education/program-reports/classes/{class_id}/instructor-hours'), ('POST', '/api/education/classes'), ('PUT', '/api/education/classes/{class_id}'), ('POST', '/api/education/classes/{class_id}/assignments'), ('PUT', '/api/education/classes/{class_id}/assignments/{assignment_id}')],
     "education.classes_submit": [('POST', '/api/education/classes/assignments/{assignment_id}/submissions')],
     "education.classes_assess": [('PUT', '/api/education/classes/assignments/{assignment_id}/submissions/{submission_id}')],
 

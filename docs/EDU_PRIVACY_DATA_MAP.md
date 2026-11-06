@@ -22,3 +22,27 @@ All API and OpenAPI responses carry `Cache-Control: no-store` and `Pragma: no-ca
 Integrations and subprocessors are deployment-specific. At minimum, inventory SMTP, OIDC identity provider, browser push service, printer/vendor cloud connections, object/backup storage, hosting, monitoring, and support systems before contracting with a school.
 
 Product controls do not replace school obligations. The institution and vendor must settle FERPA school-official terms where applicable, COPPA authority for under-13 use, California student-data contract clauses, breach notification, record review/correction, retention, contract-end deletion certification, accessibility procurement, and incident contacts.
+
+
+## D3 funding and program reporting
+
+`education_program_marks` retains class/student IDs, participant/concentrator flags,
+reviewer ID and revisions. `education_instructor_hours` retains instructor/class IDs,
+activity date, admin-approved effort, approver ID and revisions. These are school
+records, kept under the existing anonymized user placeholder after erasure; reviewer
+and approver IDs are cleared. No free-text student notes are added. Personal export
+includes one's own records; author/approver exports exclude other people's values.
+
+Generic and draft Perkins outputs contain class/program/term names and aggregate
+counts only. They are not cached or stored as snapshots. Existing erasure scrubs
+class/term names. Reports already emailed/downloaded and backups are not recalled.
+Program email schedules whose original owner or latest editor is erased are
+deactivated; their recipient address is removed from other program schedules, and
+empty schedules are disabled. Recipients must remain active school admins/managers.
+CSV/PDF/email suppress nonzero cells below 5 and metrics for cohorts of 1–4 students.
+Unassigned work has an explicit row. Complementary suppression protects hidden
+values and hidden sums covering fewer than five distinct students across class,
+program and summary totals; zero counts alone do not blank normal-sized classes. General audit
+rows exclude classification values; these remain in school audit only. JSON views
+write no audit rows.
+See [definitions and limits](EDUCATION_PROGRAM_REPORTS.md).

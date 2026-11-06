@@ -9,7 +9,7 @@ from tests.test_contracts.test_education_classes import setup, client
 from tests.test_contracts.test_education_review_workflow import review_db, _principal
 
 ROUTES = [(key, method, path) for key, routes in ACTION_ROUTES.items()
-          if key.startswith('education.classes_') for method, path in routes]
+          if key.startswith('education.classes_') for method, path in routes if path.startswith('/api/education/classes')]
 
 
 def body_for(method, path):

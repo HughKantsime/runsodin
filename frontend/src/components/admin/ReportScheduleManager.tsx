@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Calendar, X, Pause, Play, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { reportSchedules } from '../../api'
+import { reportSchedules, orgs } from '../../api'
 import { useLicense } from '../../LicenseContext'
 import RequiresLicense from '../shared/RequiresLicense'
 
-const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary']
+const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary', 'program_report']
 // Analytics-derived report types need the Pro "analytics" entitlement (backend: 403 below Pro).
 export const ANALYTICS_REPORT_TYPES = ['fleet_utilization', 'failure_analysis', 'chargeback_summary']
 const FREQUENCIES = ['daily', 'weekly', 'monthly']
@@ -18,10 +18,11 @@ export default function ReportScheduleManager() {
   // Creating and running schedules are Pro "email_notifications" (backend 403 below Pro);
   // existing schedules stay listed and can be paused or deleted.
   const emailLicensed = license.hasFeature('email_notifications')
-  const availableTypes = REPORT_TYPES.filter(t => analyticsLicensed || !ANALYTICS_REPORT_TYPES.includes(t))
-  const emptyForm = { name: '', report_type: availableTypes[0], frequency: 'weekly', recipients: '' }
+  const availableTypes = REPORT_TYPES.filter(t => (t !== 'program_report' || license.hasFeature('program_reports')) && (analyticsLicensed || !ANALYTICS_REPORT_TYPES.includes(t)))
+  const emptyForm = { name: '', report_type: availableTypes[0], frequency: 'weekly', recipients: '', org_id: '', days: '30', term: '', class_id: '', cost_center_id: '', template: 'generic' }
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState(emptyForm)
+  const school = useQuery({ queryKey: ['org-settings', Number(form.org_id)], queryFn: () => orgs.getSettings(Number(form.org_id)), enabled: form.report_type === 'program_report' && Number(form.org_id) > 0 })
 
   const { data: schedules, isLoading } = useQuery({
     queryKey: ['report-schedules'],
@@ -54,7 +55,9 @@ export default function ReportScheduleManager() {
 
   const handleCreate = () => {
     const recipients = form.recipients.split(',').map(r => r.trim()).filter(Boolean)
-    createSchedule.mutate({ ...form, recipients })
+    const { org_id, days, term, class_id, cost_center_id, template, ...fields } = form
+    const filters = form.report_type === 'program_report' ? { org_id: Number(org_id), days: Number(days), template: school.data?.program_reports_perkins_enabled === true ? template : 'generic', ...(term ? { term } : {}), ...(class_id ? { class_id } : {}), ...(cost_center_id ? { cost_center_id: Number(cost_center_id) } : {}) } : {}
+    createSchedule.mutate({ ...fields, recipients, ...(form.report_type === 'program_report' ? { filters } : {}) })
   }
 
   return (
@@ -109,7 +112,13 @@ export default function ReportScheduleManager() {
                 placeholder="admin@example.com" className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
             </div>
           </div>
-          <button onClick={handleCreate} disabled={!form.name.trim() || createSchedule.isPending}
+          {form.report_type === 'program_report' && <fieldset className="grid gap-3 sm:grid-cols-2">
+            <legend>School program report</legend>
+            <p>Completed school days ({String(school.data?.timezone || 'UTC')}). Recipients must be active school admins or managers of the selected program or class. Manager recipients require a program or class selection. Small cells and related counts, rates and totals are suppressed.</p>
+            {([['org_id', 'School organization ID (required)'], ['days', 'Previous days (1–367)'], ['cost_center_id', 'Program cost center ID (optional)'], ['class_id', 'Class ID (optional)'], ['term', 'Term (optional)']] as const).map(([key, label]) => <label key={key}>{label}<input aria-label={label} className="w-full bg-[var(--brand-card-bg)]" value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} /></label>)}
+            <label>Worksheet<select aria-label="Worksheet" value={form.template} onChange={e => setForm(f => ({ ...f, template: e.target.value }))}><option value="generic">Generic funding report</option>{school.data?.program_reports_perkins_enabled === true && <option value="perkins">Perkins V draft (field definitions not yet confirmed)</option>}</select></label>
+          </fieldset>}
+          <button onClick={handleCreate} disabled={!form.name.trim() || createSchedule.isPending || (form.report_type === 'program_report' && form.template === 'perkins' && !form.term.trim() && !form.class_id.trim())}
             aria-busy={createSchedule.isPending}
             className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] disabled:opacity-50 rounded-md text-sm">
             {createSchedule.isPending ? 'Creating...' : 'Create Schedule'}
@@ -135,7 +144,7 @@ export default function ReportScheduleManager() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => runNow.mutate(s.id)}
-              disabled={runNow.isPending || !emailLicensed || (!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type))}
+              disabled={runNow.isPending || !emailLicensed || (s.report_type === 'program_report' && !license.hasFeature('program_reports')) || (!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type))}
               aria-busy={runNow.isPending}
               aria-label={`Run "${s.name}" now`}
               className="p-1.5 text-[var(--brand-text-muted)] hover:text-[var(--brand-primary)] rounded-md disabled:opacity-50"

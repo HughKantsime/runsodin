@@ -31,6 +31,8 @@ router = APIRouter()
 
 # Org-level settings defaults and allowed keys
 DEFAULT_ORG_SETTINGS = {
+    "program_reports_perkins_enabled": False,
+    "timezone": "UTC",
     "default_filament_type": None,
     "default_filament_color": None,
     "quiet_hours_enabled": False,
@@ -293,6 +295,9 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
 
     if any(body.get(key) not in (None, "") for key in BRANDING_SETTINGS_KEYS if key in body):
         require_feature("branding")
+
+    from modules.organizations.education_program_policy import validate_settings
+    validate_settings(body)
 
     # SSRF validation and encryption for webhook URL before persisting
     if "webhook_url" in body and body["webhook_url"]:

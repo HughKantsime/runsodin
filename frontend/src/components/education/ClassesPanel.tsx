@@ -6,8 +6,12 @@ import { canDo } from '../../permissions'
 import { Button, Card, Input, Select } from '../ui'
 import AssignmentForm from './AssignmentForm'
 import StudentPortfolio from './StudentPortfolio'
+import ProgramReporting from './ProgramReporting'
+import ProgramReportForm from './ProgramReportForm'
+import { useLicense } from '../../LicenseContext'
 
 export default function ClassesPanel({ audience, managedCenters }: { audience: string; managedCenters: EducationCostCenter[] }) {
+  const license = useLicense()
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
@@ -38,6 +42,7 @@ export default function ClassesPanel({ audience, managedCenters }: { audience: s
     <Select label="Select class" value={selected} onChange={e => setSelected(e.target.value)}><option value="">Choose a class</option>
       {items.map(c => <option value={c.id} key={c.id}>{c.title} · {c.term}{c.state === 'archived' ? ' (archived)' : ''}</option>)}</Select>
     {query.hasNextPage && <Button onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>More classes</Button>}
+    {!cls && managedCenters.length > 0 && canDo('education.classes_read') && license.hasFeature('program_reports') && <ProgramReportForm centers={managedCenters} />}
     {cls && <ClassDetail key={cls.id} cls={cls} audience={audience} />}
   </section>
 }
@@ -47,6 +52,7 @@ function ClassDetail({ cls, audience }: { cls: ClassRow; audience: string }) {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const client = useQueryClient()
+  const license = useLicense()
   const manageable = cls.can_manage && canDo('education.classes_manage')
   const roster = useQuery({ queryKey: ['class-roster', audience, cls.id], queryFn: () => educationClasses.roster(cls.id) })
   const assignments = useInfiniteQuery({ queryKey: ['class-assignments', audience, cls.id], initialPageParam: 0,
@@ -55,6 +61,7 @@ function ClassDetail({ cls, audience }: { cls: ClassRow; audience: string }) {
   const assignment = rows.find(a => a.id === chosen)
   return <div className="space-y-4">
     <h2 className="text-lg font-semibold">{cls.title} · {cls.term}</h2>
+    {manageable && license.hasFeature('program_reports') && <ProgramReporting cls={cls} audience={audience} />}
     <details><summary>Class roster</summary>
       {roster.isLoading && <p>Loading roster…</p>}{roster.isError && <p role="alert">Unable to load roster.</p>}
       <ul>{roster.data?.items.map(r => <li key={`${r.user_id}:${r.role}`}>{r.username} · {r.role === 'manager' ? 'Instructor' : 'Student'}</li>)}</ul>

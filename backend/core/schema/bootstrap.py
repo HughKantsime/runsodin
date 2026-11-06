@@ -232,6 +232,9 @@ RAW_REQUIRED_COLUMNS['education_classes'] = frozenset('id org_id cost_center_id 
 RAW_REQUIRED_COLUMNS['education_assignments'] = frozenset('id org_id class_id title brief due_at max_print_seconds max_material_grams allowed_materials submission_quota auto_print_seconds auto_material_grams auto_printer_ids authorized_by state revision created_at'.split())
 RAW_REQUIRED_COLUMNS['education_assignment_submissions'] = frozenset('submission_id org_id assignment_id feedback grade learning_status reviewed_by revision first_approved_at attached_at updated_at'.split())
 RAW_REQUIRED_COLUMNS['education_assessment_revisions'] = frozenset('id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at'.split())
+RAW_REQUIRED_COLUMNS['education_program_marks'] = frozenset('class_id org_id user_id participant concentrator marked_by revision updated_at'.split())
+RAW_REQUIRED_COLUMNS['education_instructor_hours'] = frozenset('id class_id org_id instructor_id activity_date hours approved_by revision updated_at'.split())
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset(('education_program_marks', 'education_instructor_hours'))
 RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset(('education_classes', 'education_assignments', 'education_assignment_submissions', 'education_assessment_revisions'))
 RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
@@ -333,6 +336,7 @@ POST027_MIGRATIONS = (
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
     ("python:048-education-classes", "core.schema.migrations.048_education_classes"),
+    ("python:049-education-program-reports", "core.schema.migrations.049_education_program_reports"),
 )
 
 
@@ -595,7 +599,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-education-classes"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-education-classes", "python:049-education-program-reports"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -616,6 +620,9 @@ def _bootstrap_database_contract(
         # Classes reference the retained memberships installed by dedicated037.
         if contract is None and apply_python_migration(connection, "core.schema.migrations.048_education_classes"):
             applied.append("python:048-education-classes")
+        # D3 references D2 classes and retained037 memberships (including on PG).
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.049_education_program_reports"):
+            applied.append("python:049-education-program-reports")
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:

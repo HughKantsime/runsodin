@@ -44,6 +44,13 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("organizations.routes_education_program_reports", "router:/education/program-reports", "class/report", "read/mutate/export", "licensed Education token, matrix and live D2 manager/admin", ("CSV", "PDF"), "test_education_program_reports.py", "guarded"),
+    _entry("organizations.education_program_policy", "options/template_allowed/validate_recipients/deactivate_schedules", "school/report/recipient", "read/deliver", "school setting; active school admins or managers of the selected program/class; live platform owner and editor", ("email",), "test_education_program_schedules.py", "guarded"),
+    _entry("organizations.education_program_records", "records/mark/approve_hours/export/erase", "class/participant/instructor", "read/mutate", "live D2 manager/admin; GDPR user-scoped", (), "test_education_program_reports.py", "guarded"),
+    _entry("organizations.education_program_schedules", "validate_filters/generate_email", "class/program/report", "external-sink", "licensed live platform admin and explicit school scope", ("email",), "test_education_program_schedules.py", "guarded"),
+    _entry("organizations.education_program_reports", "build_report", "class/submission/job/archive", "aggregate", "live class manager or tenant admin; explicit school for scheduled system admin", ("CSV", "PDF", "email"), "test_education_program_reports.py", "guarded"),
+    _entry("reporting.report_generators", "generic report rendering", "job/report", "read", "existing system report policy", ("email",), "test_report_generator_behavior.py", "batch2_required"),
+    _entry("reporting.report_digest", "quiet hours digest", "job/alert/report", "external-sink", "existing recipient and Education suppression policy", ("email", "webhook"), "test_gdpr_erase_deferred_deliveries.py", "guarded"),
     _entry("organizations.routes_education_classes", "D2 routes", "classes/assignments/portfolio", "read/mutate", "classes entitlement, Education token scope and permission matrix plus service roster checks", (), "test_education_classes.py", "guarded"),
     _entry("organizations.education_classes_service", "class_access/assignment_access/save_assignment", "class/assignment/roster", "read/mutate", "live active tenant identity and existing center grants; serialized policy writes", (), "test_education_classes.py", "guarded"),
     _entry("organizations.education_assignment_submissions", "link_submission/validate_assigned_approval/assess", "submission/job/file/assessment", "link/approve/assess", "own pending submission plus live student grant; instructor authority for assessment and existing review service for approval", (), "test_education_classes_edges.py", "guarded"),
@@ -188,6 +195,11 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "modules/reporting/report_digest.py",
+    "modules/organizations/routes_education_program_reports.py",
+    "modules/organizations/education_program_policy.py",
+    "modules/organizations/education_program_records.py",
+    "modules/organizations/education_program_schedules.py",
     "modules/printers/routes_camera_snapshot.py",
     "modules/printers/mjpeg_relay.py",
     "core/app.py",

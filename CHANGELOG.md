@@ -6,6 +6,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Education and Enterprise: funding reports by program (cost center), D2 class and term, with distinct students served, proved print totals, recorded material, estimated cost, success rate and instructor-entered teaching hours plus approval-evidence print hours. CSV/PDF downloads and existing-runner scheduled email share the same metrics. Explicit class participant/concentrator marks support a draft Perkins V worksheet disabled by default (field definitions unconfirmed). School-timezone windows, attempt-based duration, small-cell suppression and active-school-recipient checks protect exports and email. New `program_reports` gate, RBAC, audit and GDPR coverage; additive migration 049 runs after 037 and D2 048. See [program reporting definitions](docs/EDUCATION_PROGRAM_REPORTS.md).
+
 - Education and Enterprise: term-labelled classes using existing school rosters, assignments with due dates, per-print time/material limits and per-student submission quotas, explicit pending-print linking, optional instructor-authorized auto-approval through the existing compatibility checks, revision-safe feedback and grades, and private portfolios with thumbnails and timelapses. The `classes` entitlement, permission matrix, school audit and GDPR workflows cover the feature; unassigned submissions retain their existing behavior.
 - Additive migration 048 for classes, assignments and assessments; preserve the released 046 schema for PostgreSQL archive upgrades.
 

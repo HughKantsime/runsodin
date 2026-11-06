@@ -292,6 +292,9 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         updates['id'] = user_id
         db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.flush()
+    if any(k in updates for k in ('role', 'group_id', 'is_active')):
+        from modules.organizations.education_program_policy import deactivate_schedules
+        deactivate_schedules(db)
     if role_changed:
         log_audit(db, "user.role_changed", "user", user_id,
                   {"new_role": updates.get("role"), "actor_user_id": current_user["id"]})

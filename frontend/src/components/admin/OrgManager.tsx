@@ -240,6 +240,12 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
 
       {expanded && (
         <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)] space-y-4">
+          <fieldset>
+            <legend>School reporting</legend>
+            <label>School timezone<input aria-label="School timezone" className={inputCls} value={activeDraft.timezone || 'UTC'} onChange={e => set('timezone', e.target.value)} /></label>
+            <label><input type="checkbox" checked={activeDraft.program_reports_perkins_enabled === true} onChange={e => set('program_reports_perkins_enabled', e.target.checked)} /> Enable draft Perkins worksheet</label>
+            <p className={labelCls}>Field definitions not yet confirmed. Disabled by default.</p>
+          </fieldset>
           {/* Default Filament */}
           <fieldset>
             <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Default Filament</legend>

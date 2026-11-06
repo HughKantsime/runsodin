@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Education funding and program reports
+
+- D3 class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks. PostgreSQL verification and Claude review are pending; Shane must confirm CTEC Perkins fields. Generic reporting is independent of that approval.
+
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
 - Explicit tray preset settings with bounded printer replies, audited failed/cancelled correction and current pause causes. Claude review and an attended idle-printer tray test remain required; X1C and H2D/AMS HT payloads are not hardware-qualified. Cancellation classification is unchanged.
