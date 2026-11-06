@@ -12,15 +12,19 @@ function readCallback() {
   const params = new URLSearchParams(search)
   const fragment = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : '')
   if (!['/', '/login'].includes(pathname) ||
-      (!fragment.has('oidc_code') && !params.has('error'))) return null
-  const codes = fragment.getAll('oidc_code')
-  return { code: !params.has('error') && codes.length === 1 ? codes[0].trim() : '' }
+      (!fragment.has('oidc_code') && !fragment.has('roster_code') && !params.has('error'))) return null
+  const roster = fragment.has('roster_code')
+  const connection = fragment.get('roster_connection') || ''
+  const endpoint = roster && /^[0-9a-f-]{36}$/.test(connection) ? `/api/auth/classroom/${connection}/exchange` : '/api/auth/oidc/exchange'
+  const codes = fragment.getAll(roster ? 'roster_code' : 'oidc_code')
+  return { pendingRoster: params.get('error') === 'roster_import_required', endpoint, code: !params.has('error') && codes.length === 1 &&
+    (!roster || (/^[0-9a-f-]{36}$/.test(connection) && fragment.getAll('roster_connection').length === 1 && !fragment.has('oidc_code'))) ? codes[0].trim() : '' }
 }
 
-async function establishSession(code: string) {
+async function establishSession(code: string, endpoint: string) {
   if (!code) throw new Error('Invalid callback')
   const options = { credentials: 'include', cache: 'no-store', redirect: 'error' } as const
-  const exchange = await fetch('/api/auth/oidc/exchange', {
+  const exchange = await fetch(endpoint, {
     ...options, method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
   })
@@ -45,7 +49,7 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
     let active = true
     window.history.replaceState(null, '', '/login')
     // StrictMode replays effects; keep the entire one-time exchange operation.
-    operation.current ??= establishSession(callback.code)
+    operation.current ??= establishSession(callback.code, callback.endpoint)
     operation.current.then(result => {
       if (active) { if (result) setAuthority(result); else oidcNavigation.finish() }
     }).catch(() => { if (active) setFailed(true) })
@@ -60,7 +64,7 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
         <h1 className="mb-4" style={{ color: 'var(--brand-accent)' }}>O.D.I.N.</h1>
         {authority ? <LoginContinuation authority={authority}
           onComplete={() => oidcNavigation.finish()} onRestart={() => window.location.replace('/login')} /> : failed ? <PageState kind="error" role="alert">
-          <p>SSO sign-in could not be completed. Please try again or contact your administrator.</p>
+          <p>{callback.pendingRoster ? 'Your class roster has not been imported. Ask your school administrator to import it, then launch again.' : 'SSO sign-in could not be completed. Please try again or contact your administrator.'}</p>
           <a href="/login" className="inline-block mt-4 underline"
             style={{ color: 'var(--brand-accent)' }}>Return to sign in</a>
         </PageState> : <div role="status">

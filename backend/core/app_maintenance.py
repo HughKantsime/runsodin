@@ -143,6 +143,11 @@ async def _periodic_cleanup():
                     db.rollback()
                 db.commit()
 
+                # Roster previews contain personal data; purge even on idle installs.
+                from modules.organizations.education_roster_store import purge_expired
+                purge_expired(db)
+                db.commit()
+
                 # v1.8.9: prune expired idempotency-cache rows. 24h TTL
                 # is enforced at read time too, but the hourly prune
                 # keeps the table from growing unbounded. Wrapped in its

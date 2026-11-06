@@ -44,6 +44,12 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("organizations.routes_education_roster", "D4 roster", "class/identity/roster", "read/mutate", "interactive tenant admin, roster_sync/classes gates, matrix and receipt-bound imports", (), "test_roster_auth.py", "guarded"),
+    _entry("organizations.routes_roster_auth", "D4 roster", "class/identity/roster", "read/mutate", "browser-bound OAuth/LTI signatures and imported active tenant identities; existing MFA exchange", (), "test_roster_auth.py", "guarded"),
+    _entry("organizations.education_roster_resolution", "D4 identity preview", "class/identity/roster", "read", "explicit account confirmation, grant-only bindings and erasure tombstones", (), "test_roster_review.py", "guarded"),
+    _entry("organizations.education_roster_sync", "D4 roster", "class/identity/roster", "read/mutate", "approved preview, dedicated D2 centers, retained membership and transactional school audit", (), "test_roster_sync.py", "guarded"),
+    _entry("organizations.education_roster_store", "D4 roster", "class/identity/roster", "read/mutate", "encrypted tenant settings and expiring single-use receipts", (), "test_roster_sync.py", "guarded"),
+    _entry("organizations.education_roster_privacy", "D4 roster", "class/identity/roster", "read/mutate", "existing GDPR authority, no license required; scrub cached rosters and tombstone erased subjects", (), "test_roster_sync.py", "guarded"),
     _entry("organizations.routes_education_classes", "D2 routes", "classes/assignments/portfolio", "read/mutate", "classes entitlement, Education token scope and permission matrix plus service roster checks", (), "test_education_classes.py", "guarded"),
     _entry("organizations.education_classes_service", "class_access/assignment_access/save_assignment", "class/assignment/roster", "read/mutate", "live active tenant identity and existing center grants; serialized policy writes", (), "test_education_classes.py", "guarded"),
     _entry("organizations.education_assignment_submissions", "link_submission/validate_assigned_approval/assess", "submission/job/file/assessment", "link/approve/assess", "own pending submission plus live student grant; instructor authority for assessment and existing review service for approval", (), "test_education_classes_edges.py", "guarded"),
@@ -194,6 +200,12 @@ _EXPLICIT_SURFACE_PATHS = (
     "core/recipient_policy.py",
     "modules/organizations/routes_education.py",
     "modules/organizations/routes_education_classes.py",
+    "modules/organizations/routes_education_roster.py",
+    "modules/organizations/routes_roster_auth.py",
+    "modules/organizations/education_roster_sync.py",
+    "modules/organizations/education_roster_resolution.py",
+    "modules/organizations/education_roster_store.py",
+    "modules/organizations/education_roster_privacy.py",
     "modules/organizations/education_classes_service.py",
     "modules/organizations/education_assessments.py",
     "modules/organizations/education_classes_privacy.py",

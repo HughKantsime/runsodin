@@ -7,6 +7,7 @@ import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
 import OIDCSettings from '../../components/admin/OIDCSettings'
+import RosterSettings from '../../components/admin/RosterSettings'
 import WebhookSettings from '../../components/admin/WebhookSettings'
 import GroupManager from '../../components/admin/GroupManager'
 import MFASetup from '../../components/auth/MFASetup'
@@ -142,6 +143,7 @@ export default function Settings() {
       {/* ==================== INTEGRATIONS TAB (Webhooks) ==================== */}
       {shownTab === 'integrations' && <div className="max-w-4xl">
         <WebhookSettings />
+        {lic.hasFeature('roster_sync') && getCurrentUser()?.role === 'admin' && getCurrentUser()?.group_id != null && <RosterSettings />}
       </div>}
 
       {/* ==================== VISION AI TAB ==================== */}

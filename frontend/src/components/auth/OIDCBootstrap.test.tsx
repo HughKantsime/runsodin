@@ -102,3 +102,23 @@ it('ignores a code in the query string; only the fragment carries it', () => {
   expect(screen.getByText('Application')).toBeInTheDocument()
   expect(request).not.toHaveBeenCalled()
 })
+
+it('exchanges a classroom receipt on its connection endpoint and verifies the session', async () => {
+  request.mockResolvedValue(response())
+  start('/#roster_code=one-time&roster_connection=12345678-1234-1234-1234-123456789abc')
+  await waitFor(() => expect(oidcNavigation.finish).toHaveBeenCalledTimes(1))
+  expect(request).toHaveBeenNthCalledWith(1, '/api/auth/classroom/12345678-1234-1234-1234-123456789abc/exchange',
+    expect.objectContaining({ body: JSON.stringify({ code: 'one-time' }), credentials: 'include' }))
+  expect(request).toHaveBeenNthCalledWith(2, '/api/auth/me', expect.anything())
+})
+it.each(['/#roster_code=x', '/#roster_code=x&roster_connection=../../admin',
+  '/#roster_code=x&roster_connection=12345678-1234-1234-1234-123456789abc&oidc_code=ambiguous'])('refuses malformed classroom callback %s', async path => {
+  start(path)
+  expect(await screen.findByRole('alert')).toBeInTheDocument()
+  expect(request).not.toHaveBeenCalled()
+})
+it('explains a Canvas launch awaiting its first reviewed roster import', async () => {
+  start('/?error=roster_import_required')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Ask your school administrator to import it')
+  expect(request).not.toHaveBeenCalled()
+})

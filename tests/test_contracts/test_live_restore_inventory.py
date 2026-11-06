@@ -45,6 +45,14 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:049-roster-sync": {
+        "education_roster_connections": frozenset("id org_id provider enabled revision config_encrypted tokens_encrypted created_by connected_by".split()),
+        "education_roster_courses": frozenset("connection_id org_id course_id class_id".split()),
+        "education_roster_identities": frozenset("connection_id org_id subject user_id".split()),
+        "education_roster_grant_links": frozenset("connection_id org_id subject user_id".split()),
+        "education_roster_tombstones": frozenset("connection_id subject_hash".split()),
+        "education_roster_receipts": frozenset("id connection_id actor_id kind payload_encrypted expires_at".split()),
+    },
     "python:048-education-classes": {
         "education_assessment_revisions": frozenset("id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at".split()),
         "education_classes": frozenset("id org_id cost_center_id title term state revision created_by created_at".split()),

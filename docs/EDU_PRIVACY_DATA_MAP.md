@@ -22,3 +22,38 @@ All API and OpenAPI responses carry `Cache-Control: no-store` and `Pragma: no-ca
 Integrations and subprocessors are deployment-specific. At minimum, inventory SMTP, OIDC identity provider, browser push service, printer/vendor cloud connections, object/backup storage, hosting, monitoring, and support systems before contracting with a school.
 
 Product controls do not replace school obligations. The institution and vendor must settle FERPA school-official terms where applicable, COPPA authority for under-13 use, California student-data contract clauses, breach notification, record review/correction, retention, contract-end deletion certification, accessibility procurement, and incident contacts.
+
+## D4 roster sync and classroom sign-in
+
+The opt-in `roster_sync` feature stores an external provider subject bound to an ODIN
+user and school, a provider course bound to a D2 class, and encrypted institutional
+configuration. OAuth refresh tokens, Canvas launch contexts and preview rosters are
+encrypted with the installation encryption key. API responses never include secrets.
+Preview rosters include subjects, emails and roles and expire after ten minutes;
+auth continuations expire after ten minutes and exchange codes after two. Expired
+receipts are unusable immediately and removed on receipt creation and by the hourly
+maintenance task, including when no further roster requests arrive.
+
+GDPR export includes only the person's identity and grant-only bindings, connection-administrator
+metadata and pending action metadata, never another student's roster or credentials.
+Erasure deletes identity and grant-only bindings and the school's cached previews/auth
+receipts. It retains a minimal (connection, HMAC-SHA-256 provider-subject digest) suppression
+tombstone keyed by the installation encryption secret, with no email or user ID, so subsequent imports skip that subject and the
+preview reports a previously erased account without caching its personal fields.
+The connection and other students' access remain enabled. These suppression hashes
+are retained while the connection exists to prevent re-import after erasure, unless
+a school administrator clears an individual erased-subject skip in a Settings dry run.
+Clearing uses an opaque per-preview handle bound to that administrator and connection;
+the encrypted mapping expires with the preview and contains no erased email or subject.
+Clearing is audited with actor, connection and digest; future imports require a new dry run.
+The administrator who connects Google is recorded separately from the configuration
+creator and included in their GDPR export. Erasing the connector clears the refresh
+token and connector ID; the connection stays enabled but needs reconnection.
+Other institutional credentials remain encrypted; administrators can
+replace them in Settings and revoke the OAuth grant/developer key at the provider.
+
+Imports revoke absent users' current class grants while retaining users, retained
+Education memberships, classes, assignments, submissions, assessments, school audit
+records and print history. Removing someone from one roster does not remove their
+other class grants. School-entered titles and retained audit/history follow the
+existing D2/GDPR rules; roster sync never purges school history.

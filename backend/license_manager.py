@@ -73,7 +73,7 @@ TIERS = {
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
-            "education_workflows", "classes",
+            "education_workflows", "classes", "roster_sync",
         ],
     },
     "enterprise": {
@@ -88,7 +88,7 @@ TIERS = {
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
-            "education_workflows", "classes",
+            "education_workflows", "classes", "roster_sync",
             "mqtt_republish", "audit_export",
         ],
     },

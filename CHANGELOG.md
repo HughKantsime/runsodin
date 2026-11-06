@@ -6,6 +6,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Education and Enterprise: disabled-by-default `roster_sync` with admin Settings configuration for Google Classroom OAuth and Canvas LTI 1.3/Names and Roles, required dry-run confirmation into D2 classes, retained membership history, browser-bound classroom sign-in, encrypted credentials, audit and GDPR coverage. School administrators supply their provider credentials.
+- Additive migration 049 for roster connections, course/identity mappings and expiring receipts; PostgreSQL runs it after 037 and D2 048.
+
 - Education and Enterprise: term-labelled classes using existing school rosters, assignments with due dates, per-print time/material limits and per-student submission quotas, explicit pending-print linking, optional instructor-authorized auto-approval through the existing compatibility checks, revision-safe feedback and grades, and private portfolios with thumbnails and timelapses. The `classes` entitlement, permission matrix, school audit and GDPR workflows cover the feature; unassigned submissions retain their existing behavior.
 - Additive migration 048 for classes, assignments and assessments; preserve the released 046 schema for PostgreSQL archive upgrades.
 

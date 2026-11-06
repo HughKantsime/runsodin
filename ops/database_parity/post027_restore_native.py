@@ -178,6 +178,8 @@ def main():
             c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990046,'same',990046)"), {'state':'6'*32})
             from ops.database_parity.education_classes_fixtures import seed as seed_classes
             seed_classes(c)
+            from ops.database_parity.education_roster_fixtures import seed as seed_roster
+            seed_roster(c)
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -200,6 +202,9 @@ def main():
             assert c.execute(text("SELECT decision,spool_id FROM tray_confirmations WHERE slot_id=990046")).one() == ('same',990046)
             from ops.database_parity.education_classes_fixtures import verify as verify_classes
             verify_classes(c)
+            from ops.database_parity.education_roster_fixtures import verify as verify_roster
+            verify_roster(c)
+        print('post027-native-current-backup-restore-roundtrip-049-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)

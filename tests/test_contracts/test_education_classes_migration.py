@@ -33,7 +33,10 @@ assert bootstrap_database(engine)['applied']==[]
     assert result.returncode == 0, result.stderr
     engine = create_engine('sqlite:///'+str(tmp_path/'old.db'))
     try:
-        assert bootstrap_database(engine)['applied'][-1:] == [M.MIGRATION_ID]
+        from core.schema.bootstrap import POST027_MIGRATIONS
+        live_tail = [mid for mid, _ in POST027_MIGRATIONS]
+        live_tail = live_tail[live_tail.index(M.MIGRATION_ID):]
+        assert bootstrap_database(engine)['applied'][-len(live_tail):] == live_tail
         assert bootstrap_database(engine)['applied'] == []
         with engine.connect() as c:
             assert c.execute(text('SELECT name FROM groups WHERE id=1')).scalar_one() == 'Retained school'

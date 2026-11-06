@@ -8,6 +8,10 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
 PUBLIC={
+    # Reviewed D4 browser-bound OAuth/LTI initiation, callbacks and one-time exchange.
+    'GET /api/auth/classroom/{connection_id}/login', 'POST /api/auth/classroom/{connection_id}/login',
+    'GET /api/auth/classroom/{connection_id}/jwks', 'GET /api/auth/classroom/{connection_id}/callback',
+    'POST /api/auth/classroom/{connection_id}/launch', 'POST /api/auth/classroom/{connection_id}/exchange',
     # Authentication flows (credential or one-time-code carriers of their own)
     'POST /api/auth/biometric-refresh','GET /api/auth/capabilities','POST /api/auth/forgot-password',
     'POST /api/auth/login','POST /api/auth/mfa/enrollment/cancel','POST /api/auth/mfa/enrollment/confirm',

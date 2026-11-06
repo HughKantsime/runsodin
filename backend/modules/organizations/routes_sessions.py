@@ -468,8 +468,10 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         {"uid": user_id},
     ).fetchall()]
 
+    from modules.organizations.education_roster_privacy import export_roster
     from modules.organizations.education_classes_privacy import export_classes
     export = {
+        "education_roster": export_roster(db, user_id),
         "education_classes": export_classes(db, user_id),
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
@@ -596,6 +598,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     )
     from modules.organizations.education_classes_privacy import erase_classes
     erase_classes(db, user_id, identifiers)
+    from modules.organizations.education_roster_privacy import erase_roster
+    erase_roster(db, user_id)
     former_email = user_data.get("email")
     if isinstance(former_email, str) and former_email:
         db.execute(

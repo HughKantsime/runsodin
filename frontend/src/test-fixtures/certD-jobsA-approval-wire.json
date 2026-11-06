@@ -1233,6 +1233,9 @@
         "operator",
         "viewer"
       ],
+      "education.roster_manage": [
+        "admin"
+      ],
       "jobs.approve": [
         "admin",
         "operator"

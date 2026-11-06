@@ -24,6 +24,10 @@ Paths are the /api paths; the /api/v1 aliases share the same route handlers.
 """
 
 ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
+    "education.roster_manage": [("GET", "/api/education/roster"), ("PUT", "/api/education/roster"),
+        ("POST", "/api/education/roster/{connection_id}/connect"), ("GET", "/api/education/roster/{connection_id}/courses"),
+        ("POST", "/api/education/roster/{connection_id}/preview"), ("POST", "/api/education/roster/{connection_id}/import"),
+        ("POST", "/api/education/roster/{connection_id}/tombstones/clear")],
     "education.classes_read": [('GET', '/api/education/classes'), ('GET', '/api/education/classes/portfolio'), ('GET', '/api/education/classes/portfolio/{submission_id}/thumbnail'), ('GET', '/api/education/classes/{class_id}/roster'), ('GET', '/api/education/classes/{class_id}/assignments'), ('GET', '/api/education/classes/assignments/{assignment_id}/submissions')],
     "education.classes_manage": [('POST', '/api/education/classes'), ('PUT', '/api/education/classes/{class_id}'), ('POST', '/api/education/classes/{class_id}/assignments'), ('PUT', '/api/education/classes/{class_id}/assignments/{assignment_id}')],
     "education.classes_submit": [('POST', '/api/education/classes/assignments/{assignment_id}/submissions')],
@@ -360,6 +364,9 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     # Public, login and setup flows
     **{(m, p): _PUBLIC for m, p in [
         ("POST", "/api/auth/forgot-password"), ("POST", "/api/auth/login"), ("POST", "/api/auth/mfa/verify"),
+        ("POST", "/api/auth/classroom/{connection_id}/login"),
+        ("POST", "/api/auth/classroom/{connection_id}/launch"),
+        ("POST", "/api/auth/classroom/{connection_id}/exchange"),
         ("POST", "/api/auth/oidc/exchange"), ("POST", "/api/auth/reset-password"),
         ("POST", "/api/setup/admin"), ("POST", "/api/setup/test-printer"),
     ]},

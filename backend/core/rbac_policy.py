@@ -39,6 +39,7 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "settings.edit": ["admin"],
     "users.restore_superadmin": ["admin"],
     # Education grants still decide which centers a principal may reorder.
+    "education.roster_manage": ["admin"],
     "education.classes_read": ["admin", "operator", "viewer"],
     "education.classes_manage": ["admin", "operator", "viewer"],
     "education.classes_submit": ["admin", "operator", "viewer"],

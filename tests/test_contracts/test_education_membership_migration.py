@@ -23,16 +23,16 @@ def engine(request,tmp_path):
 def test_upgrade_preserves_objects_rows_and_revalidates(engine,monkeypatch):
     import core.schema.bootstrap as bootstrap
     original=bootstrap.POST027_MIGRATIONS
-    monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',tuple(pair for pair in original if pair[0] not in {M.MIGRATION_ID, 'python:048-education-classes'}))
+    monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',tuple(pair for pair in original if pair[0] not in {M.MIGRATION_ID, 'python:048-education-classes', 'python:049-roster-sync'}))
     # The dedicated final step is disabled while constructing the exact old schema.
     real=bootstrap.apply_dedicated_python_migration
     monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',lambda e,n: False if n.endswith('037_education_memberships') else real(e,n))
     real_apply=bootstrap.apply_python_migration
-    monkeypatch.setattr(bootstrap,'apply_python_migration',lambda c,n: False if n.endswith('048_education_classes') else real_apply(c,n))
+    monkeypatch.setattr(bootstrap,'apply_python_migration',lambda c,n: False if n.endswith(('048_education_classes', '049_roster_sync')) else real_apply(c,n))
     required=bootstrap.RAW_REQUIRED_TABLES
     columns=bootstrap.RAW_REQUIRED_COLUMNS
-    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required-frozenset({'education_memberships','education_classes','education_assignments','education_assignment_submissions','education_assessment_revisions'}))
-    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',{k:v for k,v in columns.items() if k not in {'education_memberships','education_classes','education_assignments','education_assignment_submissions','education_assessment_revisions'}})
+    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required-frozenset({'education_memberships','education_classes','education_assignments','education_assignment_submissions','education_assessment_revisions','education_roster_connections','education_roster_courses','education_roster_identities','education_roster_grant_links','education_roster_tombstones','education_roster_receipts'}))
+    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',{k:v for k,v in columns.items() if k not in {'education_memberships','education_classes','education_assignments','education_assignment_submissions','education_assessment_revisions','education_roster_connections','education_roster_courses','education_roster_identities','education_roster_grant_links','education_roster_tombstones','education_roster_receipts'}})
     bootstrap_database(engine)
     monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required)
     monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',columns)
@@ -66,7 +66,7 @@ def test_upgrade_preserves_objects_rows_and_revalidates(engine,monkeypatch):
     monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',original)
     monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',real)
     monkeypatch.setattr(bootstrap,'apply_python_migration',real_apply)
-    assert bootstrap_database(engine)['applied'][-1:] == ['python:048-education-classes']
+    assert bootstrap_database(engine)['applied'][-2:] == ['python:048-education-classes', 'python:049-roster-sync']
     assert bootstrap_database(engine)['applied']==[]
 
 

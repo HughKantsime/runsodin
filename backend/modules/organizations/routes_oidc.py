@@ -447,7 +447,7 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
 
 # ============== OIDC code exchange ==============
 
-async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db)):
+async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db), *, audit_method: str = "oidc"):
     """Exchange a one-time OIDC auth code for a JWT access token."""
     code = body.get("code", "")
     if not code or not isinstance(code, str):
@@ -535,7 +535,7 @@ async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depend
 
     from modules.organizations.sso_audit import prepare_success
     prepare_success(db, user.id)
-    log_audit(db, "auth.login", "user", user.id, {"method": "oidc", "username": username})
+    log_audit(db, "auth.login", "user", user.id, {"method": audit_method, "username": username})
     db.commit()
 
     from fastapi.responses import JSONResponse
