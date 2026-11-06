@@ -4,6 +4,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.45] - 2026-11-06
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Enterprise gets a tamper-evident audit log with SIEM streaming and part traceability with signed certificates; Education gets classes, training sign-off, program reports, roster sync and term retention; SSO and license connections always go to the checked address. -->
+
 ### Security
 
 - OIDC, Classroom and license-server requests connect to the DNS address validated by ITAR policy. Requests use a bounded worker pool and a total timeout covering queue wait, DNS and response streaming, with response size limits.
