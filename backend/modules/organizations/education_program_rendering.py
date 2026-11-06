@@ -4,6 +4,8 @@ import io
 from copy import deepcopy
 from html import escape
 
+from modules.organizations.education_program_disclosure import DisclosureSystem
+
 METRICS = ('students_served', 'jobs', 'unassigned_jobs', 'completed_jobs', 'failed_jobs', 'print_hours', 'material_grams',
     'cost', 'success_rate', 'instructor_entered_teaching_hours', 'print_hours_approved_by_instructors', 'unknown_approved_hours_jobs', 'participants', 'concentrators',
     'unknown_hours_jobs', 'unknown_material_jobs', 'unknown_cost_jobs', 'excluded_unproved_jobs')
@@ -73,7 +75,7 @@ def _protect(total, children, key, student_counts):
     return False
 
 
-def _complementary(rows, families, student_counts):
+def _complementary(rows, families, student_counts, disclosure):
     # Suppression only grows. Repeat across both hierarchy levels AND the flat
     # summary/leaf equation: hidden program rows alone do not protect B + D.
     changed = True
@@ -86,13 +88,8 @@ def _complementary(rows, families, student_counts):
                 continue
             for key in ADDITIVE_METRICS:
                 changed |= _protect(total, children, key, student_counts)
-        for key in ADDITIVE_METRICS:
-            # An observer may subtract a visible program wholesale, then visible
-            # classes from the other programs. Checking only the two uniform
-            # summary equations misses this smaller residual cohort.
-            mixed = [row for program, children in families[2:]
-                     for row in ([program] if isinstance(program[key], (int, float)) else children)]
-            changed |= _protect(families[0][0], mixed, key, student_counts)
+        changed |= disclosure.protect(ADDITIVE_METRICS, _suppressed, _hide,
+                                      lambda cohort: _coverage(cohort, student_counts))
 
 
 def safe_export(report):
@@ -101,16 +98,22 @@ def safe_export(report):
     report = deepcopy(report)
     rows = [report['summary'], *report['programs'], *report['classes']]
     student_counts = {id(row): row['students_served'] for row in rows}
+    disclosure = DisclosureSystem(report, rows)
     for row in rows:
+        non_concentrators = row['participants'] - row['concentrators']
         small = 0 < row['students_served'] < 5
         for key in METRICS:
             value = row[key]
             if small or (isinstance(value, (int, float)) and 0 < value < 5):
                 row[key] = 'Suppressed (<5)'
+        # Seed the fixed-point hierarchy checks using the original marks, even
+        # when primary suppression has already hidden the participant count.
+        if 0 < non_concentrators < 5:
+            _hide(row, 'concentrators')
     families = [(report['summary'], report['programs']), (report['summary'], report['classes'])]
     families += [(program, [row for row in report['classes'] if row['cost_center_id'] == program['id']])
                  for program in report['programs']]
-    _complementary(rows, families, student_counts)
+    _complementary(rows, families, student_counts, disclosure)
     report['notice'] += (' Nonzero cells below 5 and metrics for cohorts of 1-4 students are suppressed; zero is not a small cell.'
         ' Linked counts, rates and complementary cells or totals are also suppressed to prevent reconstruction.')
     return report

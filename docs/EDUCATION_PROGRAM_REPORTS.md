@@ -82,15 +82,30 @@ metric. Class/term filters exclude unassigned work. Jobs and completed/failed
 counts receive complementary protection for their status identity; success rate
 is hidden whenever completed or failed is hidden. Unknown-measurement counts and
 unassigned-job counts do not blanket-suppress unrelated status metrics.
-Complementary cells or totals are hidden until subtraction cannot recover a
-hidden value or a hidden sum covering fewer than five distinct students. Checks
-repeat across program/class-plus-Unassigned, summary/program, and directly across
-summary/all-detail rows, including subtraction that mixes visible program totals
-with classes from other programs. Original cohort evidence handles overlapping students
-without exporting their identities; a serialized report without that evidence
-uses a conservative count bound. Totals are hidden preferentially to preserve
-normal-sized class detail. Complementary suppression is labelled separately and does not
+Subtracting completed and failed jobs from jobs can reveal a small count of
+other statuses, such as cancelled or pending. This is an accepted job-level
+count, not a count of students; it does not trigger additional suppression.
+When participants minus concentrators is 1–4, concentrators are hidden, with
+complementary protection through the program and summary groups.
+Complementary cells or totals are hidden until the group equations cannot recover
+an unsafe hidden cohort. Exact rational elimination checks all determined cohort
+combinations across program/class-plus-Unassigned, summary/program and
+summary/all-detail rows. Participants, concentrators and the virtual difference
+between them use the actual inferred people count (0 or at least 5), independent
+of print submitters. The virtual metric includes separate reconstructions of
+participants and concentrators from different visible rows. Unassigned's marks
+and teaching hours are known zeros, even when the displayed cell is suppressed.
+Job and other activity metrics retain the distinct-student coverage rule. Original
+cohort evidence handles overlapping students without exporting their identities;
+a serialized report without that evidence uses a conservative count bound.
+Local checks prefer hiding totals to preserve normal-sized class detail; remaining
+unsafe equations hide the smallest involved visible cell, with stable report-order
+tie breaking, and all checks repeat until no further suppression is needed.
+Complementary suppression is labelled separately and does not
 imply a value below 5. The authorized manager JSON view retains exact values.
+For reports shared outside the school, use fixed, non-overlapping periods.
+Differences between overlapping report runs can isolate small groups; suppression
+within one report does not protect against comparisons across runs.
 Suppression never alters the source report. GDPR exports include one's own classification and instructor effort;
 a mark author/approver receives only their reviewer role metadata, not another
 person's classifications/hours. Erasure removes approver identity and retains
