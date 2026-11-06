@@ -4,6 +4,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+- Education/Enterprise end-of-term retention: per-class term policies, paginated dry runs, audited content purge with retry receipts, and bulk departed-student GDPR erasure. School history remains. Review fixes bound cleanup work, add per-category school audits and resumable graduation erasure, and allow audited deletion of unused policies. Includes migration 055 and a frozen 046 restore bridge. See [retention and privacy details](docs/education/term-retention.md); privacy wording awaits Shane and release awaits Claude review.
+
 ## [2.0.44] - 2026-11-05
 
 <!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->

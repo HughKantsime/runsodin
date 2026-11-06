@@ -18,13 +18,14 @@ import { useLicense } from '../../LicenseContext'
 import type { EducationCapabilities, EducationCostCenter, EducationSubmission, User } from '../../types'
 import CostCenterManager from '../../components/education/CostCenterManager'
 import ClassroomManager from '../../components/education/ClassroomManager'
+import TermRetention from '../../components/education/TermRetention'
 import EducationQueues from '../../components/education/EducationQueues'
 import SubmissionQueue from '../../components/education/SubmissionQueue'
 import SubmissionUploadModal, { educationAudience } from '../../components/education/SubmissionUploadModal'
 import ReadinessPanel from '../../components/education/ReadinessPanel'
 import { Button, Card, EmptyState, PageHeader, StatCard, TabBar, Select } from '../../components/ui'
 
-type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom'
+type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom' | 'retention'
 
 export default function EducationWorkbench() {
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
@@ -102,8 +103,9 @@ export default function EducationWorkbench() {
     }
     if (capabilities?.tenant_admin) items.push({ key: 'centers', label: 'Classes & clubs', icon: Building2 })
     if (capabilities?.tenant_admin) items.push({ key: 'classroom', label: 'Google Classroom', icon: BookOpen })
+    if (capabilities?.tenant_admin && license.hasFeature('term_retention')) items.push({ key: 'retention', label: 'Term retention', icon: ShieldCheck })
     return items
-  }, [capabilities])
+  }, [capabilities, license])
 
   useEffect(() => {
     if (capabilitiesQuery.isLoading || platformAdmin) return
@@ -254,6 +256,7 @@ export default function EducationWorkbench() {
         />
       )}
 
+      {activeTab === 'retention' && capabilities.tenant_admin && license.hasFeature('term_retention') && <TermRetention key={audience} audience={audience} centers={centers} />}
       {activeTab === 'classroom' && capabilities.tenant_admin && (
         <ClassroomManager centers={centers} />
       )}

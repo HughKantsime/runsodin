@@ -181,11 +181,29 @@ CREDENTIAL_OPERATIONS = {
     ("POST", "/api/timelapses/recheck-facts"),                                         # interactive superadmin only
 }
 
+# Retention requires an interactive school administrator but does not mutate credentials.
+INTERACTIVE_ADMIN_OPERATIONS = {
+    ("GET", "/api/education/term-retention"),
+    ("POST", "/api/education/term-retention"),
+    ("GET", "/api/education/term-retention/{term_id}/dry-run"),
+    ("POST", "/api/education/term-retention/{term_id}/purge"),
+    ("POST", "/api/education/term-retention/{term_id}/anonymize"),
+    ("DELETE", "/api/education/term-retention/{term_id}"),
+    ("POST", "/api/education/term-retention/erasures/{user_id}/resume"),
+}
+
 # License-gated rows: route -> license feature (license_manager.require_feature / feature_gate).
 # On a server whose tier lacks the feature every authorized caller gets the gate's 403.
 # The live container (no signed license can be installed in an image) runs Community;
 # tests/test_contracts/test_rbac_licensed_matrix.py runs the same table on Enterprise.
 LICENSE_GATED = {
+    **{route: "term_retention" for route in (
+        ("DELETE", "/api/education/term-retention/{term_id}"),
+        ("GET", "/api/education/term-retention"), ("POST", "/api/education/term-retention"),
+        ("GET", "/api/education/term-retention/{term_id}/dry-run"),
+        ("POST", "/api/education/term-retention/{term_id}/purge"),
+        ("POST", "/api/education/term-retention/{term_id}/anonymize"),
+        ("POST", "/api/education/term-retention/erasures/{user_id}/resume"))},
     **{route: "analytics" for route in (("GET", "/api/analytics"), ("GET", "/api/analytics/failures"),
                                          ("GET", "/api/analytics/time-accuracy"), ("GET", "/api/reports/chargebacks"))},
     **{route: "branding" for route in (("PUT", "/api/branding"), ("POST", "/api/branding/logo"),
@@ -218,7 +236,7 @@ LICENSE_GATED = {
 _TIER_ORDER = ("community", "pro", "education", "enterprise")
 FEATURE_MIN_TIER = {**{f: "pro" for f in ("analytics", "branding", "email_notifications", "maintenance", "orders", "products",
                                          "permissions", "sso", "usage_reports", "webhooks")},
-                    **{f: "education" for f in ("job_approval", "print_quotas", "user_groups")},
+                    **{f: "education" for f in ("job_approval", "print_quotas", "user_groups", "term_retention")},
                     "audit_export": "enterprise"}
 LICENSE_TIER = os.environ.get("RBAC_LICENSE_TIER", "community")
 
@@ -354,7 +372,7 @@ def _expectations(method, path, expected):
     """
     expected = dict(expected)
     if expected.get("api_key_only") is not None and expected.get("admin") is not None:
-        expected["api_key_only"] = 403 if (method, path) in CREDENTIAL_OPERATIONS | PRODUCTION_OPERATOR_OPERATIONS else expected["admin"]
+        expected["api_key_only"] = 403 if (method, path) in CREDENTIAL_OPERATIONS | INTERACTIVE_ADMIN_OPERATIONS | PRODUCTION_OPERATOR_OPERATIONS else expected["admin"]
     feature = LICENSE_GATED.get((method, path))
     if feature and not _tier_has(feature):
         for role, status in expected.items():

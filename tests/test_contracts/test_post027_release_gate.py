@@ -31,6 +31,14 @@ def _releases():
 
 @pytest.fixture
 def fake_pg_restore(tmp_path, monkeypatch):
+    # This matrix varies archive ledgers, not immutable source bytes. Verify each
+    # package on its first use per test; avoid repeatedly copying all ancestor
+    # bundles for every synthetic prefix on the shared build host.
+    import importlib
+    from functools import lru_cache
+    for era in (29, 34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46):
+        package = importlib.import_module(f'core.schema.preserved{era:03d}')
+        monkeypatch.setattr(package, 'ledger_ids', lru_cache(maxsize=1)(package.ledger_ids))
     tools = tmp_path / "bin"; tools.mkdir()
     fake = tools / "pg_restore"; fake.write_text(FAKE_PG_RESTORE.format(python=sys.executable)); fake.chmod(0o755)
     secret = tmp_path / "secret"; secret.write_text("owned-test-only"); secret.chmod(0o600)
@@ -41,7 +49,7 @@ def fake_pg_restore(tmp_path, monkeypatch):
 
 
 def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_restore, monkeypatch):
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046
     tmp_path, archive = fake_pg_restore
     current = [migration_id for migration_id, _ in POST027_MIGRATIONS]
     releases = _releases()
@@ -61,7 +69,7 @@ def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_
         if ids == current:
             assert routed is None, version
         else:
-            assert (routed is PRESERVED029 and ids == []) or (routed is PRESERVED034 and ids == current[:3]) or (routed is PRESERVED035 and ids == current[:4]) or (routed is PRESERVED036 and ids == current[:5]) or (routed is PRESERVED037 and ids == current[:6]) or (routed is PRESERVED038 and ids == current[:7]) or (routed is PRESERVED039 and ids == current[:8]) or (routed is PRESERVED040 and ids == current[:9]) or (routed is PRESERVED043 and ids == current[:12]) or (routed is PRESERVED044 and ids == current[:13]) or (routed is PRESERVED045 and ids == current[:14]), (version, "needs a preservedNNN bundle before this source ships")
+            assert (routed is PRESERVED029 and ids == []) or (routed is PRESERVED034 and ids == current[:3]) or (routed is PRESERVED035 and ids == current[:4]) or (routed is PRESERVED036 and ids == current[:5]) or (routed is PRESERVED037 and ids == current[:6]) or (routed is PRESERVED038 and ids == current[:7]) or (routed is PRESERVED039 and ids == current[:8]) or (routed is PRESERVED040 and ids == current[:9]) or (routed is PRESERVED043 and ids == current[:12]) or (routed is PRESERVED044 and ids == current[:13]) or (routed is PRESERVED045 and ids == current[:14]) or (routed is PRESERVED046 and ids == current[:15]), (version, "needs a preservedNNN bundle before this source ships")
 
 
 def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name(fake_pg_restore, monkeypatch):
@@ -70,7 +78,7 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
     empty one (preserved029) restore; any other prefix is an intermediate build."""
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046
     tmp_path, archive = fake_pg_restore
     from core.schema import bootstrap
     # The synthetic 099 registry is a future build: under it a released ledger such as 2.0.0's
@@ -86,7 +94,7 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
 def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046
     bases = {"025": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER], "026": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER026],
              "027": sorted(preserved029.ledger_ids())}
     releases = _releases()
@@ -111,6 +119,8 @@ def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED039
             elif frozenset(base + prefix) == __import__('core.schema.preserved043', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED043
+            elif frozenset(base + prefix) == __import__('core.schema.preserved046', fromlist=['ledger_ids']).ledger_ids():
+                assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED046
             elif frozenset(base + prefix) == __import__('core.schema.preserved045', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED045
             elif frozenset(base + prefix) == __import__('core.schema.preserved044', fromlist=['ledger_ids']).ledger_ids():

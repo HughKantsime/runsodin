@@ -45,6 +45,11 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:055-term-retention": {
+        "education_erasure_pending": frozenset("user_id identifiers_json".split()),
+        "education_term_policies": frozenset("id org_id cost_center_id name starts_at ends_at files_days timelapses_days thumbnails_days portfolio_days created_by created_at".split()),
+        "education_term_cleanup": frozenset("term_id submission_id kind state updated_at".split()),
+    },
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },

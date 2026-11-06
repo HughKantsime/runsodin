@@ -78,6 +78,13 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/products/production/assortment/{product_id}/preview"),
     ],
     "settings.edit": [
+        ("DELETE", "/api/education/term-retention/{term_id}"),
+        ("GET", "/api/education/term-retention"),
+        ("POST", "/api/education/term-retention"),
+        ("GET", "/api/education/term-retention/{term_id}/dry-run"),
+        ("POST", "/api/education/term-retention/{term_id}/purge"),
+        ("POST", "/api/education/term-retention/{term_id}/anonymize"),
+        ("POST", "/api/education/term-retention/erasures/{user_id}/resume"),
         ("PUT", "/api/config/require-job-approval"),
         ("PUT", "/api/config/require-mfa"),
         ("PUT", "/api/settings/energy-rate"),

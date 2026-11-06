@@ -44,6 +44,13 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("organizations.education_term_retention", "policy/preview/authority", "term/submission/file", "plan retention", "licensed interactive school admin, current tenant and content graph", ("term cleanup",), "test_term_retention.py", "guarded"),
+    _entry("organizations.education_term_cleanup", "purge/unlink_upload", "submission/content", "purge content", "locked school admin and exact dry-run content identity; durable intent", ("filesystem",), "test_term_retention.py", "guarded"),
+    _entry("organizations.gdpr_erasure", "erase_user_data_sync", "user/account/retained history", "GDPR", "same-school administrator; durable restart identity", ("GDPR erase",), "test_term_retention_review.py", "guarded"),
+    _entry("organizations.education_term_privacy", "anonymize/export_term_data", "student/account/term", "GDPR", "school admin; inactive student with no active grants/jobs; existing erasure", ("GDPR export/erase",), "test_term_retention.py", "guarded"),
+    _entry("organizations.education_term_files", "prepare_upload/unlink_upload", "owned upload path and inode", "purge bytes", "hash before transaction; revalidate pinned inode under cleanup locks", ("filesystem",), "test_term_retention_review.py", "guarded"),
+    _entry("organizations.education_term_media", "media_retirement", "term/timelapse", "retire media", "existing credential-bound sealed media provider", ("media retirement",), "test_term_retention_media.py", "guarded"),
+    _entry("organizations.routes_term_retention", "retention routes", "term/submission/user", "administer", "interactive school admin, settings.edit and term_retention entitlement", ("retention services",), "test_term_retention.py", "guarded"),
     _entry("printers.routes_camera_snapshot", "camera_snapshot/camera_mjpeg/_mjpeg_check", "printer/camera", "read", "viewer with read:printers; active enabled camera and organization/shared fence; MJPEG rechecks active user, role and camera every 30 seconds", ("camera fallback",), "test_camera_mjpeg.py", "guarded"),
     _entry("printers.mjpeg_relay", "open_mjpeg/claim_stream", "printer/camera", "relay", "internal transport; caller supplies admission and periodic authority checks", ("camera fallback", "OBS overlay"), "test_camera_mjpeg.py", "excluded_internal"),
     _entry("inventory.routes.rfid_onboarding", "rfid_onboarding/merge_rfid_roll/reference_reason", "spool/printer/slot/usage/alert/print snapshot", "read checklist/merge unused RFID roll", "scoped viewer reads; operator with spools.edit and write:spools merges same-org stock under assignment locks; any usage, alert or print reference vetoes merge", ("RFID onboarding checklist", "spool assignments"), "test_spool_rfid_identity.py", "guarded"),
@@ -182,6 +189,9 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "modules/organizations/routes_term_retention.py",
+    "modules/organizations/education_term_media.py",
+    "modules/organizations/education_term_files.py",
     "modules/printers/routes_camera_snapshot.py",
     "modules/printers/mjpeg_relay.py",
     "core/app.py",

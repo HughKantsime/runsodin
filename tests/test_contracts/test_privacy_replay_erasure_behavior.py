@@ -117,7 +117,8 @@ def test_final_erasure_uncertainty_never_reports_success(replay_erasure,review_d
     queued=queue(review_db,json.dumps({'data':{'actor_user_id':1}}))
     if failure=='audit':
         def audit(*args,**kwargs):raise RuntimeError('synthetic privacy audit fault')
-        monkeypatch.setattr(routes_sessions,'log_audit',audit)
+        from modules.organizations import gdpr_erasure
+        monkeypatch.setattr(gdpr_erasure,'log_audit',audit)
     else:
         original=Session.commit
         def commit(self):
