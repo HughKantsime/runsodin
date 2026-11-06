@@ -11,7 +11,7 @@ password login (JWT). Only the outermost boundaries are substituted:
 * every non-loopback connect/sendto/bind and every non-localhost DNS lookup is
   refused and recorded (``NET_ATTEMPTS``), proving no phone-home during any probe
   (loopback is allowed only so a probe can run a real uvicorn server for SSE);
-* ``httpx.AsyncClient`` is replaced only where a probe stubs the license portal;
+* ``pinned_async_request`` is replaced only where a probe stubs the license portal;
 * hard-coded ``/data/...`` log paths are redirected to probe-owned temp files.
 
 This module contains no tests itself; it is imported by test_cert_G_*.py.

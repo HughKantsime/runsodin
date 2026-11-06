@@ -2,7 +2,7 @@
 
 Signed trial licenses (throwaway issuer key, the same seam as every cert-G
 license test) go through the real verifier, the real app factory, real login,
-RBAC and the real Pro gates. The license portal is stubbed only at the httpx
+RBAC and the real Pro gates. The license portal is stubbed at the outbound request
 boundary for the online activation probe; the real portal is exercised end to
 end in odin-site tests/cert-trial-portal-pg.test.js through odin_bridge.py.
 """
@@ -380,7 +380,9 @@ class FakeAsyncClient:
         return _Resp(200, {"license_file": sign_license(license_payload("pro", key=json["key"],
                      installation_id=json["installation_id"], licensee="Pro trial" if kind == "trial" else "Paid Farm", **over)),
                      "status": "activated"})
-RH.httpx = types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+async def fake_request(method, url, *, timeout=5, **kwargs):
+    return await getattr(FakeAsyncClient(), method.lower())(url, **kwargs)
+RH.pinned_async_request = fake_request
 seed_user("trial-admin", "admin")
 a = login("trial-admin")
 OUT["start"] = body(client().get("/api/license"))

@@ -1,25 +1,12 @@
 """
 O.D.I.N. — Webhook URL validation helper.
 
-Provides SSRF-safe webhook URL validation used by the notifications
-and organizations modules.
+SSRF-safe webhook validation for notifications and organizations.
+Configuration rejects literal private addresses and non-HTTP(S) schemes.
+Dispatch validates every DNS answer and pins the connection with safe_post.
 
-Two-stage validation:
-  * _validate_webhook_url() — called at configuration time. Rejects
-    literal private/loopback/link-local addresses and non-http(s) schemes.
-  * resolve_and_check_webhook_url() — called at dispatch time (R8 from
-    2026-04-12 adversarial review). DNS-resolves the hostname and rejects
-    if ANY resolved address is private. Must be called on every dispatch,
-    without caching, to defeat DNS rebinding and split-horizon DNS.
-
-Codex pass 2 (2026-04-13):
-  * safe_post() now PINS the resolved IP to the connection. The previous
-    implementation validated DNS, then handed the original hostname back
-    to httpx, which performed a fresh resolution — leaving a
-    DNS-rebinding window where the second lookup could return a private
-    IP. The new implementation builds a custom httpx transport whose
-    socket connect is locked to one of the validated IPs, with TLS SNI
-    and certificate verification still pointed at the original hostname.
+safe_post() pins the synchronous socket lookup to the validated IPs,
+retaining the original hostname for TLS SNI and certificate verification.
 """
 
 import contextlib
@@ -98,11 +85,7 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
     return the tuple needed to pin the upcoming connection:
         (validated_ips, port, original_hostname, scheme)
 
-    Codex pass 3 (2026-04-13): returns the FULL list of validated IPs in
-    `getaddrinfo` priority order, not just the first one. Pinning a
-    single IP broke dual-stack hosts (AAAA returned first, IPv4-only
-    runner could never connect). The pin override hands all of them
-    back to httpx, which can fall back across the list as before.
+    Return all validated IPs in resolver order for dual-stack fallback.
     """
     if not url:
         raise WebhookSSRFError("Empty webhook URL")
@@ -156,30 +139,10 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
     return validated, port, host, parsed.scheme
 
 
-# Codex pass 3 (2026-04-13): replaced the process-wide lock with a
-# thread-local pin state so concurrent webhook dispatches don't
-# serialise.
-#
-# Codex pass 13 (2026-04-15): upgraded from `threading.local()` to
-# `contextvars.ContextVar`. async FastAPI runs many coroutines on
-# one thread — thread-local state leaks between them on every
-# `await`, letting coroutine B overwrite coroutine A's pin between
-# A's validation and A's socket connect. ContextVar is the canonical
-# async-aware primitive: each coroutine gets its own snapshot, no
-# cross-coroutine contamination, and synchronous callers still get
-# thread-level isolation because each thread starts with a fresh
-# context.
-#
-# Codex pass 17 (2026-04-15) propagation boundary: ContextVar
-# propagates to async worker threads via `asyncio.to_thread()`,
-# anyio.to_thread.run_sync(), and httpx's default anyio-based
-# executor — ALL of which call `contextvars.copy_context().run(...)`
-# under the hood. It does NOT propagate to raw
-# `loop.run_in_executor(None, func)` because asyncio's base
-# implementation does not copy context. Call-site rule: any async
-# code that needs the pin visible in a worker thread MUST go
-# through to_thread / anyio / httpx. Raw run_in_executor is
-# considered an out-of-context boundary.
+# ContextVar replaces threading.local() to isolate concurrent tasks and threads.
+# asyncio.to_thread copies context, but AsyncClient's asyncio DNS executor does
+# NOT. Async HTTP callers must use core.outbound_http.pinned_async_request,
+# which validates, pins and connects synchronously in one worker thread.
 _dns_pin_state: contextvars.ContextVar = contextvars.ContextVar("odin_dns_pin", default=None)
 _real_getaddrinfo = socket.getaddrinfo
 
@@ -248,14 +211,9 @@ if socket.getaddrinfo is _real_getaddrinfo:
 @contextlib.contextmanager
 def _pin_dns(hostname: str, port: int, ips: list[str]):
     """Pin DNS for `hostname:port` to the validated `ips` list for
-    the duration of the context. Async-coroutine-safe via ContextVar.
-
-    Codex pass 13 (2026-04-15): migrated from threading.local. Under
-    async FastAPI, thread-local state is shared across coroutines on
-    the same thread; coroutine B could overwrite coroutine A's pin
-    between A's validation and A's socket connect. ContextVar
-    guarantees each coroutine sees its own pin, and each thread
-    starts with a fresh context so sync callers are also isolated.
+    the duration of the context in the connecting thread. ContextVar isolates
+    tasks but does not propagate into AsyncClient's asyncio DNS executor.
+    Use core.outbound_http.pinned_async_request for async HTTP.
     """
     token = _dns_pin_state.set({"hostname": normalize_hostname(hostname), "port": port,
                                 "ips": [normalize_hostname(ip) for ip in ips]})
@@ -274,16 +232,8 @@ def safe_post(url: str, **kwargs):
     certificate verification still target the original hostname so cert
     validation behaves normally.
 
-    Codex pass 2 (2026-04-13) closed the DNS-rebinding TOCTOU.
-    Codex pass 3 (2026-04-13) closed:
-      * Outbound proxy bypass: `trust_env=False` makes httpx ignore
-        HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY env vars. With those
-        honored, the connection would go to the proxy (which then does
-        its own attacker-controlled DNS lookup) and the pinning is
-        useless. Webhook dispatch must connect direct.
-      * Throughput collapse: replaced the global lock with a thread-local
-        pin so concurrent webhook dispatches no longer serialise behind
-        one slow endpoint.
+    trust_env=False prevents a proxy from doing a second, unpinned lookup.
+    Context-local pins let concurrent dispatches proceed independently.
 
     v1.8.9: when `ODIN_ITAR_MODE=1`, refuses public destinations at
     call time (before DNS pinning). Private destinations (internal
@@ -337,16 +287,8 @@ def trusted_post(url: str, **kwargs):
     refactor that accidentally pipes user data through this path fails
     immediately rather than silently bypassing the SSRF gate.
 
-    Codex pass 3 (2026-04-13): introduced specifically because
-    safe_post()'s `trust_env=False` broke proxy-only egress for the
-    hardcoded API call sites in channels.py.
-
-    v1.8.9: when `ODIN_ITAR_MODE=1`, ALL trusted-API calls are refused
-    — the allowlisted hosts (api.telegram.org etc.) are all public
-    and violate the air-gap posture. Operators who need per-site
-    notification in ITAR deployments must set up an internal relay
-    and use user-configured webhooks (which safe_post validates for
-    privateness).
+    ITAR refuses these public APIs. Use safe_post with an internal relay
+    for ITAR notifications.
     """
     import httpx as _httpx
     from core.itar import enforce_request_destination, ItarOutboundBlocked
@@ -379,15 +321,9 @@ def trusted_post(url: str, **kwargs):
 def resolve_and_check_webhook_url(url: str) -> str:
     """Resolve a webhook URL's hostname and reject if any address is private.
 
-    This is the dispatch-time SSRF gate (R8 from 2026-04-12 adversarial
-    review). _validate_webhook_url() blocks LITERAL private IPs at config
-    time, but a hostname like ``hooks.example.com`` could resolve to
-    ``10.0.0.1`` — either via DNS rebinding (attacker-controlled zone) or
-    split-horizon DNS (internal resolver shadows the public name).
-
-    Call this immediately before every httpx.post/get — do NOT cache the
-    result. DNS records change; a webhook that was safe 5 minutes ago can
-    become an SSRF primitive now.
+    Unlike configuration-time literal checks, this checks DNS answers too.
+    Do not cache the result. This validation alone cannot prevent rebinding
+    between check and connect; use safe_post for pinned webhook dispatch.
 
     Returns the original URL unchanged if all resolved addresses are public.
     Raises WebhookSSRFError if the hostname cannot resolve, or if any
@@ -437,15 +373,9 @@ def resolve_and_check_webhook_url(url: str) -> str:
 # LAN device destinations (printers, smart plugs, cameras)
 # ====================================================================
 #
-# Devices live on private LANs, so unlike webhooks RFC-1918/ULA addresses
-# are ALLOWED. Blocked: loopback, link-local (169.254/16, fe80::/10),
-# unspecified, multicast, 0.0.0.0/8, reserved IPv4, cloud metadata, and any
-# of those embedded in IPv4-mapped / IPv4-compatible / NAT64 IPv6 forms.
-# Hostnames are resolved and EVERY address must pass; numeric IPv4 forms
-# (decimal, hex, short dotted) are normalised by the resolver and checked
-# as the address they denote. Request-time callers pin the connection to
-# the validated addresses (pinned_device_destination) so DNS rebinding
-# cannot swap the target between check and connect.
+# LAN devices allow RFC-1918/ULA but reject special/own endpoints, including
+# embedded IPv4. Every resolved address must pass. pinned_device_destination
+# binds the synchronous connection to these validated addresses.
 
 class DeviceDestinationBlocked(WebhookSSRFError):
     """A device host is malformed, unresolvable or a blocked address."""
@@ -716,8 +646,6 @@ def pinned_device_destination(url: str):
 
 # --------------------------------------------------------------------
 # Device HTTP clients: pinned, no redirects, no environment proxies
-# --------------------------------------------------------------------
-
 import urllib.request as _urllib_request
 
 

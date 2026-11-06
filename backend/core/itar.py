@@ -39,6 +39,23 @@ from urllib.parse import urlparse
 log = logging.getLogger("odin.itar")
 
 _ENABLED_VALUES = {"1", "true", "yes", "on"}
+_LOCAL_V4 = tuple(ipaddress.ip_network(cidr) for cidr in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16",
+))
+_LOCAL_V6 = tuple(ipaddress.ip_network(cidr) for cidr in ("fc00::/7", "::1/128", "fe80::/10"))
+
+
+def _is_local_address(addr) -> bool:
+    """Only RFC1918/ULA/loopback/link-local, including mapped IPv4.
+
+    ipaddress.is_private also covers special-use space that can carry public
+    IPv4 traffic. Teredo, 6to4 and both NAT64 prefixes are deliberately excluded,
+    even with private embedded IPv4; so are unspecified and documentation IPs.
+    """
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    networks = _LOCAL_V4 if addr.version == 4 else _LOCAL_V6
+    return any(addr in network for network in networks)
 
 
 def is_itar_mode() -> bool:
@@ -60,12 +77,7 @@ def is_private_destination(host: str) -> bool:
     # Literal IP short-circuit.
     try:
         addr = ipaddress.ip_address(host)
-        return (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_unspecified
-        )
+        return _is_local_address(addr)
     except ValueError:
         pass
 
@@ -83,13 +95,8 @@ def is_private_destination(host: str) -> bool:
         try:
             addr = ipaddress.ip_address(addr_str)
         except ValueError:
-            continue
-        if not (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_unspecified
-        ):
+            return False
+        if not _is_local_address(addr):
             return False  # any public address disqualifies
 
     return True
@@ -338,17 +345,19 @@ def pin_for_request(url: str):
          ITAR mode. Mixed answers (one private + one public) are
          refused outright — the public record is the rebinding
          signal.
-      3. Pins httpx's socket.getaddrinfo (via the thread-local pin
+      3. Pins synchronous socket.getaddrinfo (via the ContextVar pin
          installed by `core/webhook_utils`) to the validated list
-         for the duration of the context. httpx + PyJWKClient both
-         go through `socket.getaddrinfo` under the hood so the pin
-         covers every outbound layer.
+         for the duration of the context in the connecting thread.
       4. Outside ITAR mode: this is a pure no-op for zero overhead.
 
-    Usage:
+    Synchronous usage (disable proxies while ITAR pinning is active):
         with pin_for_request(url):
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url)
+            with httpx.Client(trust_env=should_trust_env()) as client:
+                resp = client.get(url)
+
+    Async callers must use core.outbound_http.pinned_async_request.
+    AsyncClient's asyncio DNS executor does not inherit the ContextVar;
+    wrapping an AsyncClient request in this context does not pin its DNS.
     """
     if not is_itar_mode() or not url:
         yield
@@ -366,10 +375,7 @@ def pin_for_request(url: str):
     # Literal-IP short-circuit.
     try:
         addr = ipaddress.ip_address(host)
-        if not (
-            addr.is_private or addr.is_loopback
-            or addr.is_link_local or addr.is_unspecified
-        ):
+        if not _is_local_address(addr):
             raise ItarOutboundBlocked(
                 f"ODIN_ITAR_MODE=1: literal IP {host!r} is public"
             )
@@ -391,7 +397,7 @@ def pin_for_request(url: str):
                 ip_obj = ipaddress.ip_address(ip_str)
             except ValueError:
                 continue
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified:
+            if _is_local_address(ip_obj):
                 if ip_str not in seen:
                     validated.append(ip_str)
                     seen.add(ip_str)
@@ -409,7 +415,7 @@ def pin_for_request(url: str):
             )
         validated_ips = validated
 
-    # Pin for the duration of the context. Reuses the thread-local
+    # Pin for the duration of the context. Reuses the ContextVar
     # pin + socket.getaddrinfo override installed by webhook_utils.
     from core.webhook_utils import _pin_dns
     with _pin_dns(host, port, validated_ips):

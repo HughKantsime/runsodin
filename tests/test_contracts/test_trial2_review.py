@@ -2,7 +2,7 @@
 
 * Trial redesign: the trial starts inside ODIN with a request signed by the
   installation's device key (the key activation binds), online or as an
-  offline request code. The portal is stubbed at the httpx boundary only.
+  offline request code. The portal is stubbed at the outbound request boundary.
   (O13/O14 are in test_license_tiers_unlimited_and_defaults.py.)
 """
 import base64
@@ -78,7 +78,9 @@ class FakeAsyncClient:
     async def post(self, url, json=None):
         PORTAL["calls"].append((url, json))
         return _Resp(PORTAL["status"], {"status": "request_received"} if PORTAL["status"] == 202 else {"error": "Trial service temporarily unavailable."})
-RH.httpx = types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+async def fake_request(method, url, *, timeout=5, **kwargs):
+    return await getattr(FakeAsyncClient(), method.lower())(url, **kwargs)
+RH.pinned_async_request = fake_request
 seed_user("t-admin", "admin"); seed_user("t-op", "operator")
 a = login("t-admin"); op = login("t-op")
 OUT["identity_before_key"] = body(a.get("/api/license/installation-id"))

@@ -262,19 +262,10 @@ def test_pin_for_request_refuses_empty_hostname(itar_on):
 
 
 def test_pin_propagates_to_asyncio_to_thread():
-    """Codex pass 17 (2026-04-15): verify the ContextVar-based DNS
-    pin survives the async thread-pool hop that httpx actually uses.
+    """to_thread copies the pin; this alone says nothing about AsyncClient.
 
-    httpx (async) uses anyio.to_thread.run_sync for blocking DNS.
-    anyio's thread-pool wrapper calls `copy_context().run(...)` so
-    ContextVars propagate. The stdlib equivalent is
-    `asyncio.to_thread` (Python 3.9+), which also copies context.
-
-    Note: the raw `loop.run_in_executor(None, func)` does NOT copy
-    context by default, so care matters at every integration site.
-    This test proves the canonical async path works; call-site code
-    must use `to_thread` / anyio / httpx (all of which propagate),
-    not raw run_in_executor.
+    test_async_dns_pinning exercises real HTTP transport resolution, which
+    this ContextVar unit test previously (incorrectly) claimed to cover.
     """
     import asyncio
     import socket as _sock
@@ -296,8 +287,7 @@ def test_pin_propagates_to_asyncio_to_thread():
             "ips": ["10.99.99.99"],
         })
         try:
-            # asyncio.to_thread is the context-copying wrapper used by
-            # anyio/httpx under the hood.
+            # Explicit to_thread copies context; AsyncClient DNS does not.
             infos = await asyncio.to_thread(_resolve_blocking)
             return [info[4][0] for info in infos]
         finally:
@@ -305,17 +295,14 @@ def test_pin_propagates_to_asyncio_to_thread():
 
     result = asyncio.run(_run_in_pin())
     assert "10.99.99.99" in result, (
-        f"ContextVar pin did not reach asyncio.to_thread — the canonical "
-        f"async DNS path would also miss it. Got {result}."
+        f"ContextVar pin did not reach asyncio.to_thread. Got {result}."
     )
 
 
 def test_pin_does_not_propagate_to_raw_run_in_executor():
-    """Documentation test (codex pass 17): the raw
-    loop.run_in_executor(None, func) does NOT copy ContextVar. This
-    matters because call sites MUST route async DNS through anyio /
-    httpx / asyncio.to_thread, never raw run_in_executor. The failure
-    mode is silent (no pin) — so this test pins the boundary."""
+    """Raw run_in_executor (including asyncio DNS) does not copy ContextVar.
+    Async HTTP must use the shared synchronous request worker instead.
+    """
     import asyncio
     import socket as _sock
 

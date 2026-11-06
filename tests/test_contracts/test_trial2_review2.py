@@ -99,7 +99,9 @@ class FakeAsyncClient:
             key = json["key"]
             return _Resp(200, {"license_file": sign_license(license_payload("pro", key=key, installation_id=json["installation_id"]))}, "application/json")
         s, b, c = PORTAL["answer"]; return _Resp(s, b, c)
-RH.httpx = types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+async def fake_request(method, url, *, timeout=5, **kwargs):
+    return await getattr(FakeAsyncClient(), method.lower())(url, **kwargs)
+RH.pinned_async_request = fake_request
 seed_user("t-admin", "admin")
 a = login("t-admin")
 def trial():

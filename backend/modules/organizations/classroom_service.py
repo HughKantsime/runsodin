@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.crypto import decrypt, encrypt
-from core.itar import pin_for_request, should_trust_env
+from core.outbound_http import OutboundResponseTooLarge, pinned_async_request
 
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -62,18 +62,15 @@ async def _json_request(
     headers: dict | None = None,
     data: dict | None = None,
 ) -> dict:
-    with pin_for_request(url):
-        async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-            response = await client.request(
-                method,
-                url,
-                headers=headers,
-                data=data,
-                timeout=15,
-                follow_redirects=False,
-            )
-    if len(response.content) > MAX_RESPONSE_BYTES:
-        raise ClassroomError("google_response_too_large", "Google response exceeded the allowed size", 502)
+    try:
+        response = await pinned_async_request(
+            method, url, headers=headers, data=data, timeout=15,
+            max_response_bytes=MAX_RESPONSE_BYTES,
+        )
+    except OutboundResponseTooLarge as exc:
+        raise ClassroomError("google_response_too_large", "Google response exceeded the allowed size", 502) from exc
+    except httpx.HTTPError as exc:
+        raise ClassroomError("google_request_failed", "Google authorization or Classroom request failed", 502) from exc
     if response.status_code < 200 or response.status_code >= 300:
         raise ClassroomError("google_request_failed", "Google authorization or Classroom request failed", 502)
     try:

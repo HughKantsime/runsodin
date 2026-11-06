@@ -6,6 +6,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
@@ -462,7 +463,7 @@ def test_id_token_parser_rejects_wrong_issuer_and_missing_subject(
     from cryptography.hazmat.primitives.asymmetric import rsa
     from jwt.algorithms import RSAAlgorithm
 
-    from core import itar
+    from core import itar, outbound_http
     from modules.organizations import oidc_handler
     from modules.organizations.oidc_handler import OIDCHandler
 
@@ -471,24 +472,12 @@ def test_id_token_parser_rejects_wrong_issuer_and_missing_subject(
     jwk = RSAAlgorithm.to_jwk(private_key.public_key(), as_dict=True)
     jwk["kid"] = "fixture-key"
 
-    class _Response:
-        def raise_for_status(self):
-            return None
+    real_client = httpx.Client
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"keys": [jwk]})), **kwargs)
 
-        def json(self):
-            return {"keys": [jwk]}
-
-    class _Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url: str, timeout: int):
-            return _Response()
-
-    monkeypatch.setattr(oidc_handler.httpx, "AsyncClient", lambda **kwargs: _Client())
+    monkeypatch.setattr(outbound_http.httpx, "Client", client)
     monkeypatch.setattr(itar, "pin_for_request", lambda url: nullcontext())
     handler = OIDCHandler("client-id", "secret", "tenant", "https://callback")
 
@@ -536,36 +525,25 @@ def test_id_token_parser_rejects_wrong_issuer_and_missing_subject(
 def test_provider_neutral_userinfo_uses_discovery_endpoint_and_allowlist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from core import itar
+    from core import itar, outbound_http
     from modules.organizations import oidc_handler
     from modules.organizations.oidc_handler import OIDCHandler
 
     seen = {}
 
-    class _Response:
-        status_code = 200
+    def upstream(request):
+        seen.update(url=str(request.url), authorization=request.headers.get("Authorization"))
+        return httpx.Response(200, json={
+            "sub": "subject-1", "email": "student@example.test", "email_verified": True,
+            "picture": "must-not-leave-handler", "unexpected": "discarded",
+        })
 
-        def json(self):
-            return {
-                "sub": "subject-1",
-                "email": "student@example.test",
-                "email_verified": True,
-                "picture": "must-not-leave-handler",
-                "unexpected": "discarded",
-            }
+    real_client = httpx.Client
+    def client(**kwargs):
+        seen["timeout"] = kwargs["timeout"]
+        return real_client(transport=httpx.MockTransport(upstream), **kwargs)
 
-    class _Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url: str, headers: dict, timeout: int):
-            seen.update(url=url, authorization=headers.get("Authorization"), timeout=timeout)
-            return _Response()
-
-    monkeypatch.setattr(oidc_handler.httpx, "AsyncClient", lambda **kwargs: _Client())
+    monkeypatch.setattr(outbound_http.httpx, "Client", client)
     monkeypatch.setattr(itar, "pin_for_request", lambda url: nullcontext())
     handler = OIDCHandler("client-id", "secret", "tenant", "https://callback")
 
@@ -574,10 +552,10 @@ def test_provider_neutral_userinfo_uses_discovery_endpoint_and_allowlist(
 
     monkeypatch.setattr(handler, "_get_oidc_config", _config)
     result = asyncio.run(handler.get_user_info("access-token"))
+    assert 0 < seen.pop("timeout") <= 10  # DNS/setup consume the total deadline.
     assert seen == {
         "url": "https://issuer.example/oidc/userinfo",
         "authorization": "Bearer access-token",
-        "timeout": 10,
     }
     assert result == {
         "sub": "subject-1",

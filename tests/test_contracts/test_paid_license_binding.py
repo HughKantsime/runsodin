@@ -7,6 +7,7 @@ from pathlib import Path
 from contextlib import nullcontext
 from unittest.mock import Mock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from tests.test_contracts.test_license_offline_import import owned_import
@@ -100,24 +101,23 @@ def test_trial_restriction_and_expiry_preserved(device):
 @pytest.fixture
 def portal(device, monkeypatch):
     from modules.system import routes_health as routes
-    from core import itar
+    from core import itar, outbound_http
     (upload, path, old, audit, db, lm, sign), fields = device
     monkeypatch.setattr(routes, 'get_installation_id', lm.get_installation_id)
     monkeypatch.setattr(routes, 'get_device_keypair', lm.get_device_keypair)
     monkeypatch.setattr(itar, 'pin_for_request', lambda _: nullcontext())
     calls = []
     response = dict(status=200, body={'license_file': sign(**fields).decode()})
-    class Client:
-        def __init__(self, **kwargs): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *args): pass
-        async def post(self, url, json):
-            calls.append((url, json))
-            answer = response['sequence'].pop(0) if response.get('sequence') else response
-            return Mock(status_code=answer['status'], headers={'content-type': 'application/json'}, json=lambda: answer['body'])
+    def upstream(request):
+        calls.append((str(request.url), json.loads(request.content)))
+        answer = response['sequence'].pop(0) if response.get('sequence') else response
+        return httpx.Response(answer['status'], json=answer['body'])
+    real_client = httpx.Client
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(upstream), **kwargs)
     async def challenge(*args): return 'fresh-test-challenge'
     monkeypatch.setattr(routes, '_fetch_license_challenge', challenge)
-    monkeypatch.setattr(routes.httpx, 'AsyncClient', Client)
+    monkeypatch.setattr(outbound_http.httpx, 'Client', client)
     def activate(**kwargs):
         return asyncio.run(routes.activate_license(routes.LicenseActivateRequest(key='TEST-ONLY', **kwargs), current_user={'id':1}, license_mutation_allowed=None))
     return device, routes, calls, response, activate
@@ -191,7 +191,8 @@ def test_structured_portal_refusals_preserve_current_file(portal, refusal):
 def test_network_failure_keeps_current_file(portal, monkeypatch):
     device, routes, calls, response, activate = portal
     def failed(**kwargs): raise OSError('test transport failure')
-    monkeypatch.setattr(routes.httpx, 'AsyncClient', failed)
+    from core import outbound_http
+    monkeypatch.setattr(outbound_http.httpx, 'Client', failed)
     with pytest.raises(HTTPException): activate(binding_protocol='device-v1')
     assert device[0][1].read_text() == device[0][2]
 

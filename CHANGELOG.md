@@ -4,6 +4,15 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Async OIDC, Classroom and license-server requests now connect to the DNS address validated by ITAR policy. Outbound requests use a dedicated 16-worker pool, wait within their total deadline, and check streamed responses against that deadline and a 4 MiB default body limit.
+- ITAR now refuses all Teredo (`2001::/32`), 6to4 (`2002::/16`) and NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) addresses, plus special-use ranges Python classifies as private, including `0.0.0.0`, `198.18.0.0/15` and `192.0.0.0/24`. Internal services using these ranges must move to RFC1918 IPv4 or ULA IPv6 addresses.
+
+### Changed
+
+- OIDC sign-in allows 30 attempts per minute per client IP, shared across API aliases. Clients behind a proxy configured in `ODIN_TRUSTED_PROXIES` have separate limits; forwarding headers from other peers do not change the limit key.
+
 ## [2.0.44] - 2026-11-05
 
 <!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->

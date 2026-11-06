@@ -35,7 +35,9 @@ class FakeAsyncClient:
     async def post(self, url, json=None):
         CALLS.append(json)
         return _Resp(200, {"license_file": sign_license(license_payload("pro", key=json["key"], installation_id=json["installation_id"]))})
-RH.httpx = types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+async def fake_request(method, url, *, timeout=5, **kwargs):
+    return await getattr(FakeAsyncClient(), method.lower())(url, **kwargs)
+RH.pinned_async_request = fake_request
 seed_user("t-admin", "admin")
 a = login("t-admin")
 for mode in ("network", "status", "not-json", "json-garbage", "no-nonce", "wrong-type", None):

@@ -23,6 +23,7 @@ from core.rbac import require_role, require_superadmin, require_interactive_sess
 import core.auth as auth_module
 from core.auth import create_access_token
 from core.config import settings as _settings
+from core.rate_limit import limiter
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -350,7 +351,10 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
 
 # ============== OIDC login flow ==============
 
+# TrustedProxySchemeMiddleware resolves request.client using ODIN_TRUSTED_PROXIES
+# before slowapi reads it; never interpret forwarding headers again here.
 @router.get("/auth/oidc/login", tags=["Auth"])
+@limiter.shared_limit("30/minute", scope="oidc-login")
 async def oidc_login(request: Request, db: Session = Depends(get_db)):
     """Initiate OIDC login flow. Redirects to identity provider."""
     from modules.organizations.oidc_handler import create_handler_from_config
