@@ -1,7 +1,6 @@
 """Single schema-mutating startup path shared by container and tests."""
 
 from __future__ import annotations
-from core.schema.audit_integrity_version import MODULE as AUDIT_MIGRATION_MODULE, MIGRATION_ID as AUDIT_MIGRATION_ID
 
 import hashlib
 import json
@@ -361,7 +360,7 @@ POST027_MIGRATIONS = (
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
-    (AUDIT_MIGRATION_ID, AUDIT_MIGRATION_MODULE),
+    ("python:047-audit-integrity", "core.schema.migrations.047_audit_integrity"),
     ("python:048-training-signoff", "core.schema.migrations.048_training_signoff"),
     ("python:049-education-classes", "core.schema.migrations.049_education_classes"),
     ("python:050-education-program-reports", "core.schema.migrations.050_education_program_reports"),

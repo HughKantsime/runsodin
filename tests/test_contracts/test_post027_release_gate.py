@@ -6,6 +6,7 @@ current POST027_MIGRATIONS (and not the empty 027-era one) would be refused as a
 must route that ledger. publish-image.yml refuses to publish a VERSION whose entry is
 missing or differs from the candidate's registry.
 """
+import ast
 import json
 import os
 from pathlib import Path
@@ -214,3 +215,12 @@ def test_record_helper_appends_once_and_never_rewrites(tmp_path):
     assert helper.main(["--root", str(candidate)]) == 0
     with pytest.raises(SystemExit, match="cannot be rewritten"):
         helper.record(candidate, "1.9.24")
+
+
+def test_registry_is_a_plain_literal_that_matches_the_audit_identity():
+    # publish-image.yml runs from main and literal_eval's this tuple, so names are not allowed.
+    from core.schema import audit_integrity_version as identity
+    tree = ast.parse((ROOT / "backend/core/schema/bootstrap.py").read_text(encoding="utf-8"))
+    [node] = [n.value for n in tree.body if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["POST027_MIGRATIONS"]]
+    assert ast.literal_eval(node) == POST027_MIGRATIONS
+    assert (identity.MIGRATION_ID, identity.MODULE) in POST027_MIGRATIONS

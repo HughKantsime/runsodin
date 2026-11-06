@@ -276,23 +276,13 @@ jobs:
         run: |
           set -euo pipefail
           python3.11 -P - <<'PY'
-          import ast, json, os, re
+          import ast, json, os
           from pathlib import Path
           version = os.environ["INPUT_VERSION"]
           tree = ast.parse(Path("backend/core/schema/bootstrap.py").read_text(encoding="utf-8"))
           registry = [node.value for node in tree.body if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["POST027_MIGRATIONS"]]
           if len(registry) != 1: raise SystemExit("POST027_MIGRATIONS literal not found")
-          identity = Path('backend/core/schema/audit_integrity_version.py')
-          names = {}
-          if identity.is_file():
-              source = ast.parse(identity.read_text(encoding='utf-8'))
-              ids = [ast.literal_eval(n.value) for n in source.body if isinstance(n, ast.Assign) and [getattr(t, 'id', None) for t in n.targets] == ['MIGRATION_ID']]
-              if len(ids) != 1 or not re.fullmatch(r'python:[0-9]{3}-audit-integrity', ids[0]): raise SystemExit('Invalid audit migration identity')
-              names = {'AUDIT_MIGRATION_ID': ids[0], 'AUDIT_MIGRATION_MODULE': 'core.schema.migrations.'+ids[0].split(':')[1].split('-')[0]+'_audit_integrity'}
-          class ResolveIdentity(ast.NodeTransformer):
-              def visit_Name(self, node):
-                  return ast.copy_location(ast.Constant(names[node.id]), node) if node.id in names else node
-          current = [migration_id for migration_id, _module in ast.literal_eval(ResolveIdentity().visit(registry[0]))]
+          current = [migration_id for migration_id, _module in ast.literal_eval(registry[0])]
           ledgers = Path("backend/core/schema/released_post027_ledgers.json")
           if not ledgers.is_file(): raise SystemExit("backend/core/schema/released_post027_ledgers.json is missing from the candidate; run ops/release_control/record_post027_ledger.py and commit it")
           try: releases = json.loads(ledgers.read_text(encoding="utf-8"))["releases"]
