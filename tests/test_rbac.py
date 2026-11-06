@@ -100,6 +100,7 @@ ENDPOINT_MATRIX = _ENDPOINTS_A + _ENDPOINTS_B + [
 
 def _resolve_path(path_template, test_data):
     subs = {
+        "{destination_id}": "e1" * 16,
         "{printer_id}": str(test_data.get("printer_id", 1)),
         "{job_id}": str(test_data.get("job_id", 1)),
         "{model_id}": str(test_data.get("model_id", 1)),
@@ -168,6 +169,9 @@ def _resolve_body(body, test_data):
 # them to the non-interactive legacy-API-key admin with 403 "API tokens cannot create or change
 # credentials; sign in with a password session". Asserted explicitly as 403 for api_key_only.
 CREDENTIAL_OPERATIONS = {
+    ("POST", "/api/audit-logs/initialize-keyring"),
+    ("POST", "/api/audit-logs/accept-restore-baseline"),
+    ("PUT", "/api/settings/siem/{destination_id}"), ("DELETE", "/api/settings/siem/{destination_id}"),
     ("POST", "/api/tokens"), ("DELETE", "/api/tokens/{token_id}"),                     # API tokens
     ("DELETE", "/api/sessions/{session_id}"), ("DELETE", "/api/admin/sessions/{session_id}"),  # sessions
     ("POST", "/api/auth/mfa/setup"), ("POST", "/api/auth/mfa/confirm"), ("DELETE", "/api/auth/mfa"),
@@ -186,6 +190,13 @@ CREDENTIAL_OPERATIONS = {
 # The live container (no signed license can be installed in an image) runs Community;
 # tests/test_contracts/test_rbac_licensed_matrix.py runs the same table on Enterprise.
 LICENSE_GATED = {
+    ("GET", "/api/audit-logs/verify"): "audit_integrity",
+    ("POST", "/api/audit-logs/initialize-keyring"): "audit_integrity",
+    ("POST", "/api/audit-logs/accept-restore-baseline"): "audit_integrity",
+    ("GET", "/api/export/audit-logs/jsonl"): "audit_integrity",
+    ("GET", "/api/settings/siem"): "siem_stream",
+    ("PUT", "/api/settings/siem/{destination_id}"): "siem_stream",
+    ("DELETE", "/api/settings/siem/{destination_id}"): "siem_stream",
     **{route: "analytics" for route in (("GET", "/api/analytics"), ("GET", "/api/analytics/failures"),
                                          ("GET", "/api/analytics/time-accuracy"), ("GET", "/api/reports/chargebacks"))},
     **{route: "branding" for route in (("PUT", "/api/branding"), ("POST", "/api/branding/logo"),
@@ -219,7 +230,7 @@ _TIER_ORDER = ("community", "pro", "education", "enterprise")
 FEATURE_MIN_TIER = {**{f: "pro" for f in ("analytics", "branding", "email_notifications", "maintenance", "orders", "products",
                                          "permissions", "sso", "usage_reports", "webhooks")},
                     **{f: "education" for f in ("job_approval", "print_quotas", "user_groups")},
-                    "audit_export": "enterprise"}
+                    "audit_export": "enterprise", "audit_integrity": "enterprise", "siem_stream": "enterprise"}
 LICENSE_TIER = os.environ.get("RBAC_LICENSE_TIER", "community")
 
 

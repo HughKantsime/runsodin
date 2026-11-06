@@ -20,6 +20,7 @@ export interface NetworkConfig {
 
 export interface BackupEntry {
   filename: string;
+  audit_keys?: boolean;
   size: number;
   size_bytes?: number;
   created_at: string;
@@ -101,14 +102,14 @@ export const backups = {
   create: (): Promise<BackupEntry> => fetchAPI('/backups', { method: 'POST' }),
   remove: (filename: string): Promise<void> => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
   stage: (filename: string): Promise<StagedRestore> => fetchAPI(`/backups/${encodeURIComponent(filename)}/stage`, { method: 'POST' }),
-  download: async (filename: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/backups/${filename}`, { credentials: 'include' })
+  download: async (filename: string, bundle = false): Promise<void> => {
+    const res = await fetch(`${API_BASE}/backups/${filename}${bundle ? '?bundle=true' : ''}`, { credentials: 'include' })
     if (!res.ok) throw new Error('Download failed')
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = filename
+    a.download = filename + (bundle ? '.zip' : '')
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

@@ -14,6 +14,8 @@ def daemon_ams(sync_client, review_db, monkeypatch):
     @contextmanager
     def database():
         connection=sqlite3.connect(path)
+        from core.audit_integrity import install_sqlite
+        install_sqlite(connection)  # production engine installs this on every DBAPI connection
         try:yield connection
         finally:connection.close()
     monkeypatch.setattr(module,'get_db',database)

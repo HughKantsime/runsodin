@@ -151,3 +151,75 @@ DATABASE_MAINTENANCE_URL=postgresql://odin_maintenance@postgres:5432/postgres
 - If automatic rollback also fails, keep all application roles stopped, preserve the pending manifest and rollback archive, capture redacted logs, and escalate to database recovery. Do not retry with ad-hoc `pg_restore` flags.
 
 The browser-readable version is [BACKUP_RESTORE_RUNBOOK.html](BACKUP_RESTORE_RUNBOOK.html).
+
+## Audit integrity files and restore baseline
+
+Preserve both `.audit-hmac-keys.json` and `.audit-signed-head.json` from
+`ODIN_AUDIT_KEY_DIR` (default `LICENSE_DIR`, normally `/data`). The first holds
+active and retired receipt HMAC keys; the second holds signed-head history.
+Keep them mode 0600, owned by the container's `odin` user. Do not paste their
+contents into tickets or logs. A database alone cannot recover these secrets.
+
+ODIN's manual SQLite/PostgreSQL and scheduled SQLite backups capture existing
+audit files into a mode-0600 `<database filename>.audit.zip` companion. Its
+manifest binds it to the database SHA-256 and lists any absent files (the signed
+head does not exist before the first verification). Scheduled pruning and manual
+deletion remove the companion with its database. Settings provides **Download
+with audit keys**, or use `GET /api/backups/<filename>?bundle=true`, to download
+one ZIP containing the native database plus the captured audit files. The ordinary
+download remains database-only. Existing backups without a companion refuse the
+bundle request; preserve their original installation key directory separately.
+
+To recover onto a replacement installation, privately extract the bundle. Restore
+the native .db/.dump through the normal staging flow, and install the audit files
+in the configured key directory as `odin` before startup. No uploaded archive
+automatically replaces live keys. When restoring only the database on an existing
+installation, keep the current audit files: they preserve evidence of the rollback.
+The existing off-server database-stream job still copies the database only; include
+the audit companion or key directory in your separately secured volume backup.
+
+A lost key directory with sealed evidence reports **audit_key_missing**, distinct
+from tampering. ODIN will not auto-create a new keyring, sign exports, or create
+authenticated erasure/retention receipts in that state. Required erasure and retention
+continue with explicit unsealed `audit_key_missing` receipts/checkpoints; they remain
+unverified deletion/redaction breaks after key recovery: they can't be told apart
+from tampering. Recover the original keyring to resume signing.
+Do not rotate as a recovery substitute. If the original keys cannot be restored,
+an interactive platform superadmin can verify in Settings → Audit integrity and
+choose **Initialize audit keyring**, supplying a reason. The Enterprise endpoint is
+`POST /api/audit-logs/initialize-keyring` with `{"reason":"Original keys cannot be restored"}`.
+It requires `audit_key_missing`, commits a chained `audit.keyring_initialized`
+authorization and critical alerts before writing replacement keys, and never
+replaces an existing keyring. A file-write failure leaves the authorization/alert
+recorded and permits a retry. Earlier evidence and signed heads remain unverified;
+initialization does not accept a restore baseline or repair history.
+
+Both native restore flows seal `restore_completed` with the audit HMAC key.
+Recover missing original keys before finalizing a restore that has sealed evidence. Daily verification continues to save
+new heads after a break, marked after_break and retaining history, so further
+deletions remain detectable. Investigate the restore and preserve the evidence.
+Then an interactive superadmin can open Settings → Audit integrity, verify, and
+**Accept restore baseline**, supplying a reason. This writes an acceptance audit
+event with the actor and previous breaks. It does not erase head history and will
+refuse any row/checkpoint corruption. Verify once more after acceptance.
+
+Rotate an existing audit key as the directory owner:
+`docker exec -u odin -w /app/backend odin python -c 'from core.audit_keys import rotate; rotate()'`.
+Rotation refuses a different effective user, including root when the directory
+belongs to odin, before changing the keyring.
+
+
+Companion capture failure keeps the verified native database backup, returns
+`audit_companion: failed` in its metadata, and raises an admin backup alert. Copy
+the audit files separately and retry; the available database backup is not deleted.
+Bundle downloads record `bundle: true` in `backup.downloaded`.
+
+Baseline acceptance requires a fresh, unaccepted `restore_completed` marker from
+the native SQLite or PostgreSQL restore flow. Its HMAC signature must authenticate;
+unsigned or altered markers cannot authorize acceptance. Its `restored_at` must be newer than
+the authenticated pre-restore anchor. Daily checks preserve this pending marker
+while continuing to advance the head. Each restore can be accepted once; both
+`restore_completed` and `audit.restore_baseline_accepted` survive retention.
+
+Head-history compaction retains every restore acceptance entry permanently; the
+210-entry cap applies only to routine heads.

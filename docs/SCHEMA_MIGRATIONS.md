@@ -154,3 +154,20 @@ sources use the release branch's single `preserved040` bundle. The 2.0.24 ledger
 adds 041 inventory-color, 042 dispatch-capability and 043 recipe-configuration,
 in that order. Migration042 audits each H2D bed correction in its transaction,
 so a corrected printer cannot backfill a receipt from before that correction.
+
+## Audit integrity (E1)
+
+The identity is defined in [audit_integrity_version.py](../backend/core/schema/audit_integrity_version.py).
+Change its number and rename the migration file at merge; consumers import the constant.
+The migration adds salted hash/sequence columns, chain state, redaction receipts,
+retention checkpoints, SIEM destinations/outbox, coalesced license-gap counters,
+and verification status. Backfill
+uses canonical reads and batched updates inside one transaction. PostgreSQL also
+adds the audit-integrity alert enum label; the forward validator preserves the
+historical alert migration's accepted shapes without modifying its source.
+
+Frozen through-046 sources remain unchanged for historical restore. The SQLite
+append trigger is required only when the chain-state table exists. PostgreSQL
+canonical executable guards include the current append function and trigger.
+Native snapshot/contention/receipt proof lives in `ops/database_parity/audit_integrity_native.py`.
+See [Audit integrity](AUDIT_INTEGRITY.md) for operational and privacy semantics.

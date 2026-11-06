@@ -1,6 +1,7 @@
 """Sign-in history scrubbing within the caller's account erasure transaction."""
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
+from core.audit_erasure import record_erasure
 
 
 def erase_sso_login_history(db: Session, user_id: int):
@@ -10,12 +11,13 @@ def erase_sso_login_history(db: Session, user_id: int):
         AuditLog.action == 'auth.login', AuditLog.entity_type == 'user',
         AuditLog.entity_id == user_id,
     )).all()
-    for row in rows:
-        details = row.details
-        if isinstance(details, dict) and 'username' in details:
-            details = {**details, 'username': '[deleted]'}
-        db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
-            details=details, ip_address=None))
+    with record_erasure(db, "action='auth.login' AND entity_type='user' AND entity_id=:uid", {'uid': user_id}):
+        for row in rows:
+            details = row.details
+            if isinstance(details, dict) and 'username' in details:
+                details = {**details, 'username': '[deleted]'}
+            db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
+                details=details, ip_address=None))
 
 
 def erase_password_login_history(db: Session, username: str):
@@ -33,21 +35,24 @@ def erase_password_login_history(db: Session, username: str):
         ).order_by(AuditLog.id).limit(500)).all()
         if not rows:
             break
-        for row in rows:
-            details = row.details
-            if row.action == 'auth.login_failed':
-                if not isinstance(details, dict) or details.get('username') != username:
-                    continue
-                scrubbed = {**details, 'username': '[deleted]'}
-            else:
-                prefix = 'Login' if row.action == 'login_success' else 'Failed login'
-                if not isinstance(details, str):
-                    continue
-                identity, separator, _ = details.rpartition(' from ')
-                if not separator or identity != f'{prefix}: {username}':
-                    continue
-                scrubbed = f'{prefix}: [deleted]'
-            db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
-                details=scrubbed, ip_address=None))
+        with record_erasure(db, "id>:low AND id<=:high AND entity_type='user' AND "
+                            "action IN ('login_success','login_failed','auth.login_failed')",
+                            {'low': last_id, 'high': rows[-1].id}):
+            for row in rows:
+                details = row.details
+                if row.action == 'auth.login_failed':
+                    if not isinstance(details, dict) or details.get('username') != username:
+                        continue
+                    scrubbed = {**details, 'username': '[deleted]'}
+                else:
+                    prefix = 'Login' if row.action == 'login_success' else 'Failed login'
+                    if not isinstance(details, str):
+                        continue
+                    identity, separator, _ = details.rpartition(' from ')
+                    if not separator or identity != f'{prefix}: {username}':
+                        continue
+                    scrubbed = f'{prefix}: [deleted]'
+                db.execute(update(AuditLog).where(AuditLog.id == row.id).values(
+                    details=scrubbed, ip_address=None))
         last_id = rows[-1].id
     db.execute(text('DELETE FROM login_attempts WHERE username = :username'), {'username': username})

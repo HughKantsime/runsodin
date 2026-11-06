@@ -463,6 +463,10 @@ export default function SystemTab() {
                     onClick={() => backupsApi.download(backup.filename)}
                     title="Download backup"
                   />
+                  {backup.audit_keys && <Button variant="secondary" size="sm"
+                    onClick={() => backupsApi.download(backup.filename, true)}>
+                    Download with audit keys
+                  </Button>}
                   {deleteConfirm === backup.filename ? (
                     <div className="flex items-center gap-1">
                       <Button variant="danger" size="sm" loading={deleteBackup.isPending} onClick={() => deleteBackup.mutate(backup.filename)}>

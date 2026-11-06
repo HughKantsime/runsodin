@@ -5,6 +5,8 @@ from sqlalchemy import create_engine, text
 from core.schema import bootstrap_database
 from core.schema.migrator import MigrationError
 
+from core.schema.audit_integrity_version import MIGRATION_ID as AUDIT_MIGRATION_ID
+
 M = importlib.import_module('core.schema.migrations.045_pause_cancel_alerts')
 
 
@@ -17,7 +19,7 @@ def engine(tmp_path):
 
 def test_fresh_repeat_and_pinned_enum_matches_model(engine):
     from core.base import AlertType
-    assert M.CURRENT == tuple(item.value for item in AlertType)
+    assert M.CURRENT + ('audit_integrity',) == tuple(item.value for item in AlertType)
     first = bootstrap_database(engine)
     assert M.MIGRATION_ID in first['applied']
     second = bootstrap_database(engine)
@@ -75,10 +77,12 @@ def test_postgres_legacy_enum_upgrade_then_delivery_preferences(pg_engine):
         for table in ('alerts', 'alert_preferences'):
             c.exec_driver_sql(f'ALTER TABLE {table} ALTER COLUMN alert_type TYPE public.alerttype USING alert_type::text::public.alerttype')
         c.exec_driver_sql('DROP TYPE public.alerttype_current_test')
+        # This fixture removes the later audit label too, so replay its migration.
+        c.execute(text('DELETE FROM odin_schema_migrations WHERE migration_id=:id'), {'id': AUDIT_MIGRATION_ID})
         c.execute(text('DELETE FROM odin_schema_migrations WHERE migration_id=:id'), {'id': M.MIGRATION_ID})
         c.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(901,'pause-test','unused','admin',TRUE)"))
         c.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app) VALUES(901,'print_failed',FALSE)"))
-    assert bootstrap_database(pg_engine)['applied'] == [M.MIGRATION_ID]
+    assert bootstrap_database(pg_engine)['applied'] == [M.MIGRATION_ID, AUDIT_MIGRATION_ID]
     assert bootstrap_database(pg_engine)['applied'] == []
     with pg_engine.begin() as c:
         seed_attention_preferences(c)

@@ -21,6 +21,7 @@ import NotificationsTab from '../../components/admin/NotificationsTab'
 import GeneralTab from '../../components/admin/GeneralTab'
 import VisionSettingsTab from '../../components/admin/VisionSettingsTab'
 import SystemTab from '../../components/admin/SystemTab'
+import AuditIntegritySettings from '../../components/admin/AuditIntegritySettings'
 import LicenseTab from '../../components/admin/LicenseTab'
 import { useLicense } from '../../LicenseContext'
 import ProBadge from '../../components/shared/ProBadge'
@@ -142,6 +143,7 @@ export default function Settings() {
       {/* ==================== INTEGRATIONS TAB (Webhooks) ==================== */}
       {shownTab === 'integrations' && <div className="max-w-4xl">
         <WebhookSettings />
+        <AuditIntegritySettings />
       </div>}
 
       {/* ==================== VISION AI TAB ==================== */}

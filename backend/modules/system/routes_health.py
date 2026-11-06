@@ -7,7 +7,9 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
-from pydantic import BaseModel as PydanticBaseModel
+from modules.system.routes_health_models import (
+    LicenseActivateRequest, TrialRequestBody, OfflineActivationRequestBody, LicenseUnactivateRequest, OfflineUnactivationRequestBody
+)
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -64,12 +66,15 @@ async def health_check():
         from core.spoolman_client import spoolman_healthy
         spoolman_ok = await run_in_threadpool(spoolman_healthy, 5)
 
+    from modules.system.audit_integrity_job import health as audit_health
+    from core.db import current_engine
     return HealthCheck(
         version=__version__,
         database=settings.database_url.split("///")[-1],
         spoolman_connected=spoolman_ok,
         dispatch_freeze=deploy_freeze.active(),
         **guardian_health(settings.database_url),
+        audit_integrity={'status': 'ok' if audit_health(current_engine())['status'] in ('ok', 'not_licensed') else 'attention'},
     )
 
 
@@ -269,11 +274,7 @@ def get_license_installation_id(current_user: dict = Depends(require_role("admin
             "license_error": get_license().error}
 
 
-class LicenseActivateRequest(PydanticBaseModel):
-    key: str
-    binding_protocol: str | None = None
 
-    # None preserves ordinary legacy refresh; device-v1 must never downgrade.
 
 
 
@@ -405,9 +406,6 @@ async def activate_license(
     }
 
 
-class TrialRequestBody(PydanticBaseModel):
-    email: str
-    offline: bool = False
 
 
 @router.post("/license/trial-request", tags=["License"])
@@ -469,10 +467,6 @@ async def request_pro_trial(
     raise HTTPException(status_code=status, detail={"message": message, "portal_status": resp.status_code, "portal_code": portal_code})
 
 
-class OfflineActivationRequestBody(PydanticBaseModel):
-    key: str
-    nonce: str  # issued by GET /api/v1/challenge on the licensing server
-    binding_protocol: str | None = None
 
 
 @router.post("/license/activation-request", tags=["License"])
@@ -529,8 +523,6 @@ def build_activation_request(
     )
 
 
-class LicenseUnactivateRequest(PydanticBaseModel):
-    key: str = None  # Optional — if not provided, read from current license
 
 
 @router.post("/license/unactivate", tags=["License"])
@@ -651,8 +643,6 @@ async def reactivate_license(
     }
 
 
-class OfflineUnactivationRequestBody(PydanticBaseModel):
-    nonce: str  # issued by GET /api/v1/challenge on the licensing server
 
 
 @router.post("/license/unactivation-request", tags=["License"])

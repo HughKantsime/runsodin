@@ -1,0 +1,434 @@
+{
+  "scope": "E1 review round 3; uncommitted checkout",
+  "interpreter": "/Users/ollama/actions-runner-runsodin/_work/runsodin/runsodin/.venv-contracts/bin/python",
+  "environment": {
+    "ODIN_CONTAINER_EXEC": "/usr/bin/false"
+  },
+  "command_form": "<interpreter> -m pytest <targeted files> -q --tb=short --junitxml=<evidence>",
+  "initial_regressions": {
+    "failed_before_fix": 9,
+    "log": "/tmp/e1-r3-before.log"
+  },
+  "latest_unique_outcomes": {
+    "passed": 1307,
+    "sandbox_blocked": 88,
+    "skipped": 24
+  },
+  "deselected": 1,
+  "groups": {
+    "E1": {
+      "passed": 137
+    },
+    "backup_restore": {
+      "passed": 151,
+      "sandbox_blocked": 61
+    },
+    "retention": {
+      "sandbox_blocked": 10,
+      "passed": 47
+    },
+    "gdpr": {
+      "passed": 32,
+      "sandbox_blocked": 9
+    },
+    "migrations": {
+      "passed": 163,
+      "skipped": 24
+    },
+    "license": {
+      "passed": 436,
+      "sandbox_blocked": 8
+    },
+    "architecture": {
+      "passed": 64
+    },
+    "rbac": {
+      "passed": 277
+    }
+  },
+  "by_file": {
+    "tests/test_contracts/test_audit_integrity_continuity.py": {
+      "passed": 5
+    },
+    "tests/test_contracts/test_audit_integrity_e1.py": {
+      "passed": 57
+    },
+    "tests/test_contracts/test_audit_integrity_review.py": {
+      "passed": 24
+    },
+    "tests/test_contracts/test_audit_integrity_round2.py": {
+      "passed": 20
+    },
+    "tests/test_contracts/test_audit_integrity_scale.py": {
+      "passed": 1
+    },
+    "tests/test_contracts/test_audit_siem_transport.py": {
+      "passed": 13
+    },
+    "tests/test_contracts/test_audit_integrity_round3.py": {
+      "passed": 17
+    },
+    "tests/backup_restore/test_backup_compaction.py": {
+      "passed": 12
+    },
+    "tests/backup_restore/test_backup_service.py": {
+      "passed": 19
+    },
+    "tests/backup_restore/test_canonical_cost_trigger_backups.py": {
+      "passed": 6
+    },
+    "tests/backup_restore/test_late_trigger_backup_registration.py": {
+      "passed": 18
+    },
+    "tests/backup_restore/test_postgres_backup_service.py": {
+      "passed": 21
+    },
+    "tests/test_contracts/test_db_scheduled_backup.py": {
+      "passed": 51
+    },
+    "tests/test_contracts/test_offsite_backup.py": {
+      "passed": 24,
+      "sandbox_blocked": 61
+    },
+    "tests/test_contracts/test_cert_F_D_retention.py": {
+      "sandbox_blocked": 10
+    },
+    "tests/test_contracts/test_retention_cleanup_behavior.py": {
+      "passed": 23
+    },
+    "tests/test_contracts/test_retention_config_behavior.py": {
+      "passed": 11
+    },
+    "tests/test_contracts/test_retention_protected_jobs_behavior.py": {
+      "passed": 13
+    },
+    "tests/test_contracts/test_audit_login_erasure.py": {
+      "passed": 11
+    },
+    "tests/test_contracts/test_cert_F_D_gdpr.py": {
+      "sandbox_blocked": 9
+    },
+    "tests/test_contracts/test_gdpr_erase_deferred_deliveries.py": {
+      "passed": 2
+    },
+    "tests/test_contracts/test_gdpr_export_audit.py": {
+      "passed": 2
+    },
+    "tests/test_contracts/test_privacy_replay_erasure_behavior.py": {
+      "passed": 17
+    },
+    "tests/test_contracts/test_live_restore_inventory.py": {
+      "passed": 4
+    },
+    "tests/test_contracts/test_post027_migration_032.py": {
+      "passed": 10
+    },
+    "tests/test_contracts/test_post027_migration_033.py": {
+      "passed": 17
+    },
+    "tests/test_contracts/test_post027_migration_033_postgres.py": {
+      "skipped": 11
+    },
+    "tests/test_contracts/test_post027_migration_034.py": {
+      "passed": 17
+    },
+    "tests/test_contracts/test_post027_migration_035.py": {
+      "passed": 2
+    },
+    "tests/test_contracts/test_post027_migration_039.py": {
+      "passed": 5,
+      "skipped": 1
+    },
+    "tests/test_contracts/test_post027_migration_040.py": {
+      "passed": 6,
+      "skipped": 3
+    },
+    "tests/test_contracts/test_post027_migration_041.py": {
+      "passed": 4
+    },
+    "tests/test_contracts/test_post027_migration_042.py": {
+      "passed": 2,
+      "skipped": 1
+    },
+    "tests/test_contracts/test_post027_migration_043.py": {
+      "passed": 8,
+      "skipped": 1
+    },
+    "tests/test_contracts/test_post027_migration_044.py": {
+      "passed": 13,
+      "skipped": 6
+    },
+    "tests/test_contracts/test_post027_migration_045.py": {
+      "passed": 4,
+      "skipped": 1
+    },
+    "tests/test_contracts/test_post027_migration_046.py": {
+      "passed": 7
+    },
+    "tests/test_contracts/test_post027_migration_047.py": {
+      "passed": 5
+    },
+    "tests/test_contracts/test_post027_registry_inventory.py": {
+      "passed": 2
+    },
+    "tests/test_contracts/test_post027_release_gate.py": {
+      "passed": 7
+    },
+    "tests/test_contracts/test_postgres_canonical_executables.py": {
+      "passed": 50
+    },
+    "tests/test_contracts/test_cert_F_D_license_signing.py": {
+      "passed": 3,
+      "sandbox_blocked": 5
+    },
+    "tests/test_contracts/test_cert_G_license_flows.py": {
+      "passed": 25
+    },
+    "tests/test_contracts/test_cert_G_license_text.py": {
+      "passed": 4
+    },
+    "tests/test_contracts/test_cert_G_license_tiers.py": {
+      "passed": 76
+    },
+    "tests/test_contracts/test_integ_email_license_gate.py": {
+      "passed": 5
+    },
+    "tests/test_contracts/test_license_expiry_in_process.py": {
+      "passed": 2
+    },
+    "tests/test_contracts/test_license_installation_wire.py": {
+      "passed": 4
+    },
+    "tests/test_contracts/test_license_mutation_authority.py": {
+      "passed": 34
+    },
+    "tests/test_contracts/test_license_offline_behavior.py": {
+      "passed": 3
+    },
+    "tests/test_contracts/test_license_offline_import.py": {
+      "passed": 30
+    },
+    "tests/test_contracts/test_license_pop.py": {
+      "passed": 9
+    },
+    "tests/test_contracts/test_license_preflight.py": {
+      "passed": 3
+    },
+    "tests/test_contracts/test_license_tier_claim_acceptance.py": {
+      "passed": 5
+    },
+    "tests/test_contracts/test_license_tiers_unlimited_and_defaults.py": {
+      "passed": 5
+    },
+    "tests/test_contracts/test_license_user_limits.py": {
+      "passed": 47
+    },
+    "tests/test_contracts/test_managed_license.py": {
+      "passed": 7
+    },
+    "tests/test_contracts/test_paid_license_binding.py": {
+      "passed": 81
+    },
+    "tests/test_contracts/test_public_license_wire_fixture.py": {
+      "passed": 1
+    },
+    "tests/test_contracts/test_rbac_licensed_matrix.py": {
+      "sandbox_blocked": 3
+    },
+    "tests/test_contracts/test_trial2_review.py": {
+      "passed": 12
+    },
+    "tests/test_contracts/test_trial2_review2.py": {
+      "passed": 8
+    },
+    "tests/test_contracts/test_trial2_review3.py": {
+      "passed": 7
+    },
+    "tests/test_contracts/test_trial_license.py": {
+      "passed": 33
+    },
+    "tests/test_license.py": {
+      "passed": 32
+    },
+    "tests/test_contracts/test_architecture_lint.py": {
+      "passed": 39
+    },
+    "tests/test_contracts/test_ip_allowlist_behavior.py": {
+      "passed": 18
+    },
+    "tests/test_contracts/test_ip_allowlist_cache.py": {
+      "passed": 7
+    },
+    "tests/test_contracts/test_rbac_matrix_completeness.py": {
+      "passed": 63
+    },
+    "tests/test_contracts/test_rbac_matrix_enforcement.py": {
+      "passed": 214
+    }
+  },
+  "frontend": {
+    "passed": 23,
+    "files": 3,
+    "log": "/tmp/e1-r3-frontend-final.log"
+  },
+  "sqlite_inventory": {
+    "verified": true,
+    "sites": 464
+  },
+  "source_line_check": {
+    "files": 97,
+    "max_lines": 687,
+    "max_file": "backend/modules/system/routes_health.py"
+  },
+  "benchmarks": {
+    "erasure_seconds_20_of_100000": "0.06285804091021419",
+    "erasure_70001_seconds": "19.26907837530598",
+    "retention_300001_seconds": "83.4108753753826"
+  },
+  "items": [
+    {
+      "item": "High 1 \u2014 signed heads and restore acceptance",
+      "verified": "Daily verification explicitly skipped save_head whenever any break reason started with signed_head. Restore staging/completion events already existed.",
+      "change": "Every completed check saves a new signed head with after_break, observed break fingerprints, unresolved continuity breaks and signed head history. Added an interactive superadmin acceptance endpoint and Settings form with a reason. It audits the actor, reason and previous breaks, refuses row/checkpoint corruption, and publishes healthy status only after the head is saved. External history stores the acceptance record ID, not personal free text. SQLite restore_completed names the required review step; PostgreSQL retains its existing restore_completed event.",
+      "evidence": "Rollback followed by a second tail deletion; authenticated history; malformed head recovery; role and token refusal; audited acceptance; corruption refusal; failed head persistence remains critical."
+    },
+    {
+      "item": "Medium 2 \u2014 missing keys and backup recovery",
+      "verified": "seal called keyring(create=True) without inspecting database evidence. Backups preserved database tables but omitted both external audit files.",
+      "change": "Creating the first keyring requires a database connection proving no sealed evidence or prior audit sealing records. Lost keys return audit_key_missing with no invented tampering breaks. Daily signing, erasure/retention and signed exports refuse replacement keys. Native SQLite/PostgreSQL backups capture a private SHA-bound .audit.zip companion; scheduled backups move/prune it and Settings can download a combined database/key bundle. The runbook documents both files and recovery.",
+      "evidence": "Lost whole directory after daily verification, erasure, retention and empty retention; no replacement key; export 409; erasure unchanged; native backup ZIP contents/mode/hash; common PostgreSQL completion hook; scheduled companion move/prune."
+    },
+    {
+      "item": "Medium 3 \u2014 rotation ownership",
+      "verified": "rotate created/replaced the ring without checking the directory owner, and the documentation omitted the container user.",
+      "change": "Rotation checks effective UID against directory ownership before lock/write. Documented docker exec -u odin.",
+      "evidence": "A mismatched effective UID raises PermissionError and leaves key bytes unchanged; existing rotation/JWT-independence tests pass."
+    },
+    {
+      "item": "Medium 4 \u2014 SQLite monitor SIEM",
+      "verified": "The SQLite trigger called a UDF reading only process-local _cached_license; monitor processes could have no cached license.",
+      "change": "SQLite and PostgreSQL append triggers use the database-visible siem_until deadline, refreshed by the worker/configuration transaction. Enabled destinations skipped for unavailable entitlement produce an explicitly chained siem.gap. Legacy UDF registration remains compatible with maintenance/test engines.",
+      "evidence": "Separate Python monitor process with an empty license cache enqueues into the shared outbox; missing/expired entitlement produces a chained gap; license replacement uses the periodic refresh."
+    },
+    {
+      "item": "Tests \u2014 cert_F harness and retention floor",
+      "verified": "The cert_F retention fixture configured 60 days (and one day in the restart test) on Enterprise; its separate engine did not explicitly install audit SQLite functions.",
+      "change": "Updated licensed cases to 90 days, aged deletion fixtures past 90 days, added rejection of 89 days, and installed the production SQLite functions on the harness engine.",
+      "evidence": "Both requested cert_F files were run. Their live server setup is blocked at socket.bind by this sandbox; 47 non-live retention and 32 non-live GDPR tests pass."
+    },
+    {
+      "item": "Low \u2014 CA replacement and retention summaries",
+      "verified": "HTTPS supplied a replacing CA file while syslog added a CA to default roots. Retention inserted audit.retention for every 256-row page.",
+      "change": "Syslog uses create_default_context(cadata=...) so custom bundles replace default trust for both transports, documented in UI/operator guide. Retention emits one summary per run, including zero deletions, with deleted/range counts and an operation ID shared by bounded signed checkpoints.",
+      "evidence": "TLS context and HTTPS private CA tests; one record across 600 deletions plus an empty run; bounded-bind tests; 70,001-row erasure and 300,001-row retention."
+    }
+  ],
+  "evidence_xml": [
+    "/tmp/e1-r3-E1.xml",
+    "/tmp/e1-r3-backup_restore.xml",
+    "/tmp/e1-r3-retention.xml",
+    "/tmp/e1-r3-gdpr.xml",
+    "/tmp/e1-r3-migrations.xml",
+    "/tmp/e1-r3-license.xml",
+    "/tmp/e1-r3-architecture.xml",
+    "/tmp/e1-r3-rbac.xml",
+    "/tmp/e1-r3-final-focused.xml",
+    "/tmp/e1-r3-final-round3.xml"
+  ],
+  "targeted_files": {
+    "E1": [
+      "tests/test_contracts/test_audit_integrity_continuity.py",
+      "tests/test_contracts/test_audit_integrity_e1.py",
+      "tests/test_contracts/test_audit_integrity_review.py",
+      "tests/test_contracts/test_audit_integrity_round2.py",
+      "tests/test_contracts/test_audit_integrity_scale.py",
+      "tests/test_contracts/test_audit_siem_transport.py",
+      "tests/test_contracts/test_audit_integrity_round3.py"
+    ],
+    "backup_restore": [
+      "tests/backup_restore/test_backup_compaction.py",
+      "tests/backup_restore/test_backup_service.py",
+      "tests/backup_restore/test_canonical_cost_trigger_backups.py",
+      "tests/backup_restore/test_late_trigger_backup_registration.py",
+      "tests/backup_restore/test_postgres_backup_service.py",
+      "tests/test_contracts/test_db_scheduled_backup.py",
+      "tests/test_contracts/test_offsite_backup.py"
+    ],
+    "retention": [
+      "tests/test_contracts/test_cert_F_D_retention.py",
+      "tests/test_contracts/test_retention_cleanup_behavior.py",
+      "tests/test_contracts/test_retention_config_behavior.py",
+      "tests/test_contracts/test_retention_protected_jobs_behavior.py"
+    ],
+    "gdpr": [
+      "tests/test_contracts/test_audit_login_erasure.py",
+      "tests/test_contracts/test_cert_F_D_gdpr.py",
+      "tests/test_contracts/test_gdpr_erase_deferred_deliveries.py",
+      "tests/test_contracts/test_gdpr_export_audit.py",
+      "tests/test_contracts/test_privacy_replay_erasure_behavior.py"
+    ],
+    "migrations": [
+      "tests/test_contracts/test_live_restore_inventory.py",
+      "tests/test_contracts/test_post027_migration_032.py",
+      "tests/test_contracts/test_post027_migration_033.py",
+      "tests/test_contracts/test_post027_migration_033_postgres.py",
+      "tests/test_contracts/test_post027_migration_034.py",
+      "tests/test_contracts/test_post027_migration_035.py",
+      "tests/test_contracts/test_post027_migration_039.py",
+      "tests/test_contracts/test_post027_migration_040.py",
+      "tests/test_contracts/test_post027_migration_041.py",
+      "tests/test_contracts/test_post027_migration_042.py",
+      "tests/test_contracts/test_post027_migration_043.py",
+      "tests/test_contracts/test_post027_migration_044.py",
+      "tests/test_contracts/test_post027_migration_045.py",
+      "tests/test_contracts/test_post027_migration_046.py",
+      "tests/test_contracts/test_post027_migration_047.py",
+      "tests/test_contracts/test_post027_registry_inventory.py",
+      "tests/test_contracts/test_post027_release_gate.py",
+      "tests/test_contracts/test_postgres_canonical_executables.py"
+    ],
+    "license": [
+      "tests/test_contracts/test_cert_F_D_license_signing.py",
+      "tests/test_contracts/test_cert_G_license_flows.py",
+      "tests/test_contracts/test_cert_G_license_text.py",
+      "tests/test_contracts/test_cert_G_license_tiers.py",
+      "tests/test_contracts/test_integ_email_license_gate.py",
+      "tests/test_contracts/test_license_expiry_in_process.py",
+      "tests/test_contracts/test_license_installation_wire.py",
+      "tests/test_contracts/test_license_mutation_authority.py",
+      "tests/test_contracts/test_license_offline_behavior.py",
+      "tests/test_contracts/test_license_offline_import.py",
+      "tests/test_contracts/test_license_pop.py",
+      "tests/test_contracts/test_license_preflight.py",
+      "tests/test_contracts/test_license_tier_claim_acceptance.py",
+      "tests/test_contracts/test_license_tiers_unlimited_and_defaults.py",
+      "tests/test_contracts/test_license_user_limits.py",
+      "tests/test_contracts/test_managed_license.py",
+      "tests/test_contracts/test_paid_license_binding.py",
+      "tests/test_contracts/test_public_license_wire_fixture.py",
+      "tests/test_contracts/test_rbac_licensed_matrix.py",
+      "tests/test_contracts/test_trial2_review.py",
+      "tests/test_contracts/test_trial2_review2.py",
+      "tests/test_contracts/test_trial2_review3.py",
+      "tests/test_contracts/test_trial_license.py",
+      "tests/test_license.py"
+    ],
+    "architecture": [
+      "tests/test_contracts/test_architecture_lint.py",
+      "tests/test_contracts/test_ip_allowlist_behavior.py",
+      "tests/test_contracts/test_ip_allowlist_cache.py"
+    ],
+    "rbac": [
+      "tests/test_contracts/test_rbac_matrix_completeness.py",
+      "tests/test_contracts/test_rbac_matrix_enforcement.py"
+    ]
+  },
+  "limitations": [
+    "Sandbox loopback bind denial blocks the live cert_F tests, additional offsite harness and selected license/RBAC HTTP tests. These are failures/errors in raw XML and are never counted as passes.",
+    "Native PostgreSQL tests requiring an external test database remain environment-skipped; one preserved-bundle-only migration test was deselected by the harness. No claim of a fresh live PostgreSQL proof.",
+    "Native backup companions and downloadable bundles include existing audit files. The separate off-server database-stream job remains database-only; the runbook requires a separately secured companion/key-directory copy.",
+    "All changed source/code files remain below 700 lines. Existing CHANGELOG history and generated JSON inventory/frozen data are longer and preserved.",
+    "Two obsolete E1 fixture assumptions failed in the first full run; updated fixtures and focused reruns pass. Totals use the latest result for each unique test.",
+    "No commit, push, deployment, paid API use, external SIEM configuration or continuity-vault edits. Independent Claude review remains a handoff step."
+  ]
+}

@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Enterprise audit verification, daily integrity alerts and health status, date-bounded signed JSON Lines exports, and Settings controls for durable syslog TCP/TLS or HMAC-authenticated HTTPS SIEM streaming.
+- The E1 migration backfills a salted SHA-256 audit chain. GDPR erasure destroys salts and records authenticated receipts; every tier retains age-based cleanup with authenticated checkpoints. Verification/export use read snapshots, and SIEM retries independently per destination with a capped outbox and optional private HTTPS CAs.
+- Frozen 046 PostgreSQL restore sources preserve released backup compatibility. See [audit integrity operations](docs/AUDIT_INTEGRITY.md) for delivery, privacy, signature verification and configuration details.
+
 ## [2.0.44] - 2026-11-05
 
 <!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->

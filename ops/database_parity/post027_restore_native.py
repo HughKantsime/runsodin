@@ -150,6 +150,8 @@ def main():
         assert leftover()==0
         print('post027-native-published034-frozen-stage-live035-upgrade-validated-pass',flush=True)
 
+        from ops.database_parity.audit_integrity_native import exercise
+        exercise(engine)
         # 5. Current-schema backup -> restore round trip keeps data, including a 032 row.
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
@@ -172,6 +174,10 @@ def main():
             c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,kind,occurred_at) VALUES('roundtrip040',990034,'roundtrip040-attempt','completed',CURRENT_TIMESTAMP)"))
             c.execute(text("INSERT INTO timeline_writer_state(process_id,started_at,clean_shutdown,last_drained_at) VALUES('roundtrip040',CURRENT_TIMESTAMP,1,CURRENT_TIMESTAMP)"))
             c.execute(text("INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,stable_configuration_key,stable_key_source) VALUES(:token,1,990034,:full,:full,:full,:stable,'dispatch')"), {'token':'4'*32,'full':'4'*64,'stable':'1'*64})
+            c.execute(text("INSERT INTO audit_siem_destinations(id,name,kind,endpoint,enabled,tls) VALUES('roundtrip_e1','Owned SIEM','syslog','syslog://192.0.2.10:6514',0,1)"))
+            c.execute(text("INSERT INTO audit_logs(id,action) VALUES(990001,'roundtrip_e1')"))
+            c.execute(text("INSERT INTO audit_siem_outbox(destination_id,audit_id,attempts) VALUES('roundtrip_e1',990001,2)"))
+            c.execute(text("INSERT INTO audit_integrity_status(id,checked_at,result) VALUES(1,123,:r)"), {'r':'{"ok":true}'})
             c.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(990046,'Fixture','Roundtrip')"))
             c.execute(text("INSERT INTO spools(id,filament_id) VALUES(990046,990046)"))
             c.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation) VALUES(990046,1,990046,:state)"), {'state':'{"id":"roundtrip046"}'})
@@ -196,7 +202,12 @@ def main():
             assert c.execute(text("SELECT job_id,alert_kind,attempts FROM " + OUTBOX)).all() == [(990034, 'queue_added', 0)]
             assert c.execute(text("SELECT tray_observation FROM filament_slots WHERE id=990046")).scalar_one() == '{"id":"roundtrip046"}'
             assert c.execute(text("SELECT decision,spool_id FROM tray_confirmations WHERE slot_id=990046")).one() == ('same',990046)
-        print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
+            from core.audit_integrity import verify
+            assert verify(c)['ok']
+            assert c.execute(text("SELECT name FROM audit_siem_destinations WHERE id='roundtrip_e1'")).scalar_one() == 'Owned SIEM'
+            assert c.execute(text("SELECT attempts FROM audit_siem_outbox WHERE destination_id='roundtrip_e1' AND audit_id=990001")).scalar_one() == 2
+            assert c.execute(text("SELECT result FROM audit_integrity_status WHERE id=1")).scalar_one() == '{"ok":true}'
+        print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
         with engine.connect() as c:

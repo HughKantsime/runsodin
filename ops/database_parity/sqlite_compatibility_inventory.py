@@ -6,6 +6,7 @@ import argparse
 import ast
 import json
 import re
+import runpy
 from pathlib import Path
 
 
@@ -14,7 +15,16 @@ BACKEND = ROOT / "backend"
 INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.json"
 
 
+AUDIT_MIGRATION = runpy.run_path(str(BACKEND / 'core/schema/audit_integrity_version.py'))['MODULE']
+
+
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/schema/audit_siem_gaps.py": ("sqlite-provider-only", "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers."),
+    "backend/core/audit_snapshot.py": ("sqlite-provider-only", "SQLite read-only snapshots use query_only and explicit BEGIN; PostgreSQL uses REPEATABLE READ READ ONLY."),
+    "backend/core/audit_integrity.py": ("sqlite-provider-only", "SQLite registers a SHA-256 UDF; PostgreSQL uses native SHA-256 with the same length-prefixed UTF-8 encoding."),
+    "backend/core/audit_integrity_legacy.py": ("sqlite-provider-only", "Exact forward024 shape validator admits E1 audit hash columns without changing pinned historical sources."),
+    'backend/'+AUDIT_MIGRATION.replace('.', '/')+'.py': ("sqlite-provider-only", "Dialect-specific append triggers and exact reference schemas for SQLite and PostgreSQL."),
+    "backend/modules/system/sqlite_backup_guards.py": ("sqlite-provider-only", "Source-owned SQLite archive schema guards, extracted from backup_service."),
     "backend/core/monitor_observations.py": ("dialect-neutral", "Live state JSON uses portable UPSERT with bound SQLAlchemy parameters or the shared monitor qmark DBAPI adapter."),
     "backend/core/printer_display_facts.py": ("dialect-neutral", "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters."),
     "backend/modules/inventory/rfid_identity.py": (
@@ -463,6 +473,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved043/overlay",
     BACKEND / "core/schema/preserved044/overlay",
     BACKEND / "core/schema/preserved045/overlay",
+    BACKEND / "core/schema/preserved046/overlay",
 )
 
 

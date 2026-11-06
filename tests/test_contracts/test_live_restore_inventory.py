@@ -4,6 +4,7 @@ test_pre026_restore_contract.py and test_historical026_profile_extension.py run 
 the preserved029 bundle. These assertions check the same facts on the live tree, so
 the current schema keeps independent coverage in-process.
 """
+from core.schema.audit_integrity_version import MODULE as AUDIT_MIGRATION_MODULE, MIGRATION_ID as AUDIT_MIGRATION_ID
 import json
 
 import pytest
@@ -37,7 +38,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (32, 45)
+    assert (len(functions), len(triggers)) == (33, 46)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -45,6 +46,15 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    AUDIT_MIGRATION_ID: {
+        "audit_siem_gaps": frozenset("gap_id first_id last_id skipped closed".split()),
+        "audit_redactions": frozenset("row_id record_id evidence".split()),
+        "audit_retention_checkpoints": frozenset("first_seq evidence".split()),
+        "audit_chain_state": frozenset("id genesis head_hash head_seq siem_until".split()),
+        "audit_siem_destinations": frozenset("id name kind endpoint secret enabled tls last_error last_success ca_bundle next_attempt failures lease_until lease_token".split()),
+        "audit_siem_outbox": frozenset("destination_id audit_id attempts next_attempt lease_until lease_token".split()),
+        "audit_integrity_status": frozenset("id checked_at result".split()),
+    },
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },
@@ -102,6 +112,7 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     assert sorted(RAW_REQUIRED_TABLES) == sorted(set(accepted["raw_tables"]) | set(added))
     live_columns = {table: sorted(columns) for table, columns in RAW_REQUIRED_COLUMNS.items()}
     expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
+    expected_columns["audit_logs"] = sorted(set(expected_columns["audit_logs"]) | {"prev_hash", "row_hash", "chain_seq", "hash_salt"})
     assert live_columns == expected_columns
     # 037, 038 and 039 add exactly their source-pinned functions and triggers.
     import importlib
@@ -116,6 +127,11 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     timeline=importlib.import_module("core.schema.migrations.040_job_foundation")
     added_functions.update(timeline.pg_functions())
     added_triggers.update(timeline.pg_triggers())
+    integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
+    added_functions.update(integrity.pg_functions())
+    added_triggers.update(integrity.pg_triggers())
+    for key, ddl in integrity.pg_triggers().items():
+        assert triggers[key] == (ddl, key[1], 'public', 'O')
     assert set(functions)-set(accepted['functions']) == set(added_functions)
     assert json.loads(json.dumps({k:v for k,v in functions.items() if k not in added_functions})) == accepted["functions"]
     assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(triggers.items()) if k not in added_triggers])) == accepted["triggers"]

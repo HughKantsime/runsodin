@@ -84,6 +84,8 @@ def test_raw_departure_evidence_is_audited_and_never_guesses(graph, material, ta
     from modules.printers.monitors.ams_inventory import sync_ams_inventory
     graph.execute(text('UPDATE spools SET remaining_weight_g=:g,status=\'active\' WHERE id=199'), {'g':grams});graph.commit()
     conn = sqlite3.connect(graph.get_bind().url.database)
+    from core.audit_integrity import install_sqlite
+    install_sqlite(conn)
     try:
         sync_ams_inventory(conn,9,[{'id':'0','tray':[{'id':'0','tray_type':material,'tag_uid':tag,'tray_color':'FFFFFF'}]}])
         conn.commit()
@@ -195,6 +197,8 @@ def test_raw_tagless_type_only_keeps_location_and_flags(graph):
     graph.execute(text("UPDATE spools SET rfid_tag=NULL,remaining_weight_g=250,status='active' WHERE id=199"))
     graph.commit()
     with sqlite3.connect(graph.get_bind().url.database) as conn:
+        from core.audit_integrity import install_sqlite
+        install_sqlite(conn)
         def send(material):
             sync_ams_inventory(conn,9,[{'id':'0','tray':[{'id':'0','tray_type':material,'tag_uid':None,'tray_color':'FFFFFF'}]}])
         send('PLA')

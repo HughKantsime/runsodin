@@ -1,0 +1,372 @@
+{
+  "scope": "E1 review round 1; uncommitted checkout; no full census",
+  "interpreter": "/Users/ollama/actions-runner-runsodin/_work/runsodin/runsodin/.venv-contracts/bin/python",
+  "command_form": "<interpreter> -m pytest <targeted_files> -q --tb=short",
+  "unique_latest_outcomes": {
+    "passed": 1186,
+    "sandbox_blocked": 26,
+    "skipped": 24
+  },
+  "frontend": {
+    "passed": 14,
+    "files": 2
+  },
+  "sqlite_inventory": {
+    "sites": 462,
+    "regenerated": true,
+    "verified": true
+  },
+  "erasure_20_of_100000_seconds": 0.005048166960477829,
+  "changed_source_max_lines": 688,
+  "original_comments_preserved": true,
+  "groups": {
+    "Backup/restore": {
+      "passed": 130
+    },
+    "Architecture/allowlist": {
+      "passed": 64
+    },
+    "E1": {
+      "passed": 92
+    },
+    "GDPR": {
+      "passed": 32,
+      "sandbox_blocked": 9
+    },
+    "License": {
+      "passed": 436,
+      "sandbox_blocked": 5
+    },
+    "Retention": {
+      "sandbox_blocked": 9,
+      "passed": 47
+    },
+    "Migrations/registry": {
+      "passed": 108,
+      "skipped": 24
+    },
+    "RBAC": {
+      "sandbox_blocked": 3,
+      "passed": 277
+    }
+  },
+  "per_file": {
+    "tests.backup_restore.test_backup_compaction": {
+      "passed": 12
+    },
+    "tests.backup_restore.test_backup_service": {
+      "passed": 19
+    },
+    "tests.backup_restore.test_canonical_cost_trigger_backups": {
+      "passed": 6
+    },
+    "tests.backup_restore.test_late_trigger_backup_registration": {
+      "passed": 18
+    },
+    "tests.backup_restore.test_postgres_backup_service": {
+      "passed": 21
+    },
+    "tests.test_contracts.test_architecture_lint.TestFileSizeLimits": {
+      "passed": 3
+    },
+    "tests.test_contracts.test_architecture_lint.TestPackageRouteStructure": {
+      "passed": 32
+    },
+    "tests.test_contracts.test_architecture_lint.TestSiblingRouteStructure": {
+      "passed": 3
+    },
+    "tests.test_contracts.test_architecture_lint.TestCoreHasNoRoutes": {
+      "passed": 1
+    },
+    "tests.test_contracts.test_audit_integrity_e1": {
+      "passed": 57
+    },
+    "tests.test_contracts.test_audit_login_erasure": {
+      "passed": 11
+    },
+    "tests.test_contracts.test_audit_siem_transport": {
+      "passed": 11
+    },
+    "tests.test_contracts.test_cert_F_D_gdpr": {
+      "sandbox_blocked": 9
+    },
+    "tests.test_contracts.test_cert_F_D_license_signing": {
+      "passed": 3,
+      "sandbox_blocked": 5
+    },
+    "tests.test_contracts.test_cert_F_D_retention": {
+      "sandbox_blocked": 9
+    },
+    "tests.test_contracts.test_cert_G_license_flows": {
+      "passed": 25
+    },
+    "tests.test_contracts.test_cert_G_license_text": {
+      "passed": 4
+    },
+    "tests.test_contracts.test_cert_G_license_tiers": {
+      "passed": 76
+    },
+    "tests.test_contracts.test_gdpr_erase_deferred_deliveries": {
+      "passed": 2
+    },
+    "tests.test_contracts.test_gdpr_export_audit": {
+      "passed": 2
+    },
+    "tests.test_contracts.test_integ_email_license_gate": {
+      "passed": 5
+    },
+    "tests.test_contracts.test_ip_allowlist_behavior": {
+      "passed": 18
+    },
+    "tests.test_contracts.test_ip_allowlist_cache": {
+      "passed": 7
+    },
+    "tests.test_contracts.test_license_expiry_in_process": {
+      "passed": 2
+    },
+    "tests.test_contracts.test_license_installation_wire": {
+      "passed": 4
+    },
+    "tests.test_contracts.test_license_mutation_authority": {
+      "passed": 34
+    },
+    "tests.test_contracts.test_license_offline_behavior": {
+      "passed": 3
+    },
+    "tests.test_contracts.test_license_offline_import": {
+      "passed": 30
+    },
+    "tests.test_contracts.test_license_pop.TestDeviceKeypairLifecycle": {
+      "passed": 2
+    },
+    "tests.test_contracts.test_license_pop.TestSignatureFormat": {
+      "passed": 3
+    },
+    "tests.test_contracts.test_license_pop.TestRoutesWireKeypairAndSignature": {
+      "passed": 3
+    },
+    "tests.test_contracts.test_license_pop.TestOfflineActivationRequest": {
+      "passed": 1
+    },
+    "tests.test_contracts.test_license_preflight": {
+      "passed": 3
+    },
+    "tests.test_contracts.test_license_tier_claim_acceptance": {
+      "passed": 5
+    },
+    "tests.test_contracts.test_license_tiers_unlimited_and_defaults": {
+      "passed": 5
+    },
+    "tests.test_contracts.test_license_user_limits": {
+      "passed": 47
+    },
+    "tests.test_contracts.test_managed_license": {
+      "passed": 7
+    },
+    "tests.test_contracts.test_paid_license_binding": {
+      "passed": 81
+    },
+    "tests.test_contracts.test_post027_migration_032": {
+      "passed": 10
+    },
+    "tests.test_contracts.test_post027_migration_033": {
+      "passed": 17
+    },
+    "tests.test_contracts.test_post027_migration_033_postgres": {
+      "skipped": 11
+    },
+    "tests.test_contracts.test_post027_migration_034": {
+      "passed": 17
+    },
+    "tests.test_contracts.test_post027_migration_035": {
+      "passed": 2
+    },
+    "tests.test_contracts.test_post027_migration_039": {
+      "passed": 5,
+      "skipped": 1
+    },
+    "tests.test_contracts.test_post027_migration_040": {
+      "passed": 6,
+      "skipped": 3
+    },
+    "tests.test_contracts.test_post027_migration_041": {
+      "passed": 4
+    },
+    "tests.test_contracts.test_post027_migration_042": {
+      "passed": 2,
+      "skipped": 1
+    },
+    "tests.test_contracts.test_post027_migration_043": {
+      "passed": 8,
+      "skipped": 1
+    },
+    "tests.test_contracts.test_post027_migration_044": {
+      "passed": 13,
+      "skipped": 6
+    },
+    "tests.test_contracts.test_post027_migration_045": {
+      "passed": 4,
+      "skipped": 1
+    },
+    "tests.test_contracts.test_post027_migration_046": {
+      "passed": 7
+    },
+    "tests.test_contracts.test_post027_migration_047": {
+      "passed": 5
+    },
+    "tests.test_contracts.test_postgres_canonical_executables": {
+      "passed": 50
+    },
+    "tests.test_contracts.test_privacy_replay_erasure_behavior": {
+      "passed": 17
+    },
+    "tests.test_contracts.test_public_license_wire_fixture": {
+      "passed": 1
+    },
+    "tests.test_contracts.test_rbac_licensed_matrix": {
+      "sandbox_blocked": 3
+    },
+    "tests.test_contracts.test_rbac_matrix_completeness": {
+      "passed": 63
+    },
+    "tests.test_contracts.test_rbac_matrix_enforcement": {
+      "passed": 214
+    },
+    "tests.test_contracts.test_retention_cleanup_behavior": {
+      "passed": 23
+    },
+    "tests.test_contracts.test_retention_config_behavior": {
+      "passed": 11
+    },
+    "tests.test_contracts.test_retention_protected_jobs_behavior": {
+      "passed": 13
+    },
+    "tests.test_contracts.test_trial2_review": {
+      "passed": 12
+    },
+    "tests.test_contracts.test_trial2_review2": {
+      "passed": 8
+    },
+    "tests.test_contracts.test_trial2_review3": {
+      "passed": 7
+    },
+    "tests.test_contracts.test_trial_license": {
+      "passed": 33
+    },
+    "tests.test_license.TestNoLicenseFile": {
+      "passed": 2
+    },
+    "tests.test_license.TestInvalidLicense": {
+      "passed": 4
+    },
+    "tests.test_license.TestMissingFields": {
+      "passed": 3
+    },
+    "tests.test_license.TestExpiredLicense": {
+      "passed": 2
+    },
+    "tests.test_license.TestValidLicense": {
+      "passed": 16
+    },
+    "tests.test_license.TestGatingFunctions": {
+      "passed": 5
+    },
+    "tests.test_contracts.test_audit_integrity_review": {
+      "passed": 24
+    },
+    "tests.test_contracts.test_live_restore_inventory": {
+      "passed": 4
+    },
+    "tests.test_contracts.test_post027_registry_inventory": {
+      "passed": 2
+    },
+    "tests.test_contracts.test_post027_release_gate": {
+      "passed": 6
+    }
+  },
+  "targeted_files": [
+    "tests/backup_restore/test_backup_compaction.py",
+    "tests/backup_restore/test_backup_service.py",
+    "tests/backup_restore/test_canonical_cost_trigger_backups.py",
+    "tests/backup_restore/test_late_trigger_backup_registration.py",
+    "tests/backup_restore/test_postgres_backup_service.py",
+    "tests/test_contracts/test_architecture_lint.py",
+    "tests/test_contracts/test_audit_integrity_e1.py",
+    "tests/test_contracts/test_audit_login_erasure.py",
+    "tests/test_contracts/test_audit_siem_transport.py",
+    "tests/test_contracts/test_cert_F_D_gdpr.py",
+    "tests/test_contracts/test_cert_F_D_license_signing.py",
+    "tests/test_contracts/test_cert_F_D_retention.py",
+    "tests/test_contracts/test_cert_G_license_flows.py",
+    "tests/test_contracts/test_cert_G_license_text.py",
+    "tests/test_contracts/test_cert_G_license_tiers.py",
+    "tests/test_contracts/test_gdpr_erase_deferred_deliveries.py",
+    "tests/test_contracts/test_gdpr_export_audit.py",
+    "tests/test_contracts/test_integ_email_license_gate.py",
+    "tests/test_contracts/test_ip_allowlist_behavior.py",
+    "tests/test_contracts/test_ip_allowlist_cache.py",
+    "tests/test_contracts/test_license_expiry_in_process.py",
+    "tests/test_contracts/test_license_installation_wire.py",
+    "tests/test_contracts/test_license_mutation_authority.py",
+    "tests/test_contracts/test_license_offline_behavior.py",
+    "tests/test_contracts/test_license_offline_import.py",
+    "tests/test_contracts/test_license_pop.py",
+    "tests/test_contracts/test_license_preflight.py",
+    "tests/test_contracts/test_license_tier_claim_acceptance.py",
+    "tests/test_contracts/test_license_tiers_unlimited_and_defaults.py",
+    "tests/test_contracts/test_license_user_limits.py",
+    "tests/test_contracts/test_managed_license.py",
+    "tests/test_contracts/test_paid_license_binding.py",
+    "tests/test_contracts/test_post027_migration_032.py",
+    "tests/test_contracts/test_post027_migration_033.py",
+    "tests/test_contracts/test_post027_migration_033_postgres.py",
+    "tests/test_contracts/test_post027_migration_034.py",
+    "tests/test_contracts/test_post027_migration_035.py",
+    "tests/test_contracts/test_post027_migration_039.py",
+    "tests/test_contracts/test_post027_migration_040.py",
+    "tests/test_contracts/test_post027_migration_041.py",
+    "tests/test_contracts/test_post027_migration_042.py",
+    "tests/test_contracts/test_post027_migration_043.py",
+    "tests/test_contracts/test_post027_migration_044.py",
+    "tests/test_contracts/test_post027_migration_045.py",
+    "tests/test_contracts/test_post027_migration_046.py",
+    "tests/test_contracts/test_post027_migration_047.py",
+    "tests/test_contracts/test_postgres_canonical_executables.py",
+    "tests/test_contracts/test_privacy_replay_erasure_behavior.py",
+    "tests/test_contracts/test_public_license_wire_fixture.py",
+    "tests/test_contracts/test_rbac_licensed_matrix.py",
+    "tests/test_contracts/test_rbac_matrix_completeness.py",
+    "tests/test_contracts/test_rbac_matrix_enforcement.py",
+    "tests/test_contracts/test_retention_cleanup_behavior.py",
+    "tests/test_contracts/test_retention_config_behavior.py",
+    "tests/test_contracts/test_retention_protected_jobs_behavior.py",
+    "tests/test_contracts/test_trial2_review.py",
+    "tests/test_contracts/test_trial2_review2.py",
+    "tests/test_contracts/test_trial2_review3.py",
+    "tests/test_contracts/test_trial_license.py",
+    "tests/test_license.py"
+  ],
+  "additional_files": [
+    "tests/test_contracts/test_audit_integrity_review.py",
+    "tests/test_contracts/test_live_restore_inventory.py",
+    "tests/test_contracts/test_post027_registry_inventory.py",
+    "tests/test_contracts/test_post027_release_gate.py"
+  ],
+  "evidence_xml": [
+    "/tmp/e1-targeted.xml",
+    "/tmp/e1-final-e1.xml",
+    "/tmp/e1-followup.xml",
+    "/tmp/e1-core-final.xml",
+    "/tmp/e1-registry-fixes.xml",
+    "/tmp/e1-erasure-final.xml"
+  ],
+  "limitations": [
+    "26 test cases are blocked by sandbox denial of owned loopback listeners: 9 GDPR, 9 retention cert, 5 license, 3 licensed RBAC harnesses. Pytest reports these as 20 errors and 6 failures; none is counted as passed.",
+    "24 tests remain environment-gated skips. Full census intentionally not run.",
+    "The redundant exhaustive future/synthetic restore-ledger variant run was interrupted after 604 seconds to limit shared-host work. Its completed passing tests are included once; its stale inventory assertion was fixed and rerun successfully. The interrupted case is not counted as a pass.",
+    "Native PostgreSQL execution is assigned to Claude and was not run here. The native proof was extended.",
+    "Repository-wide frontend typecheck still reports 292 diagnostics, none in changed E1 UI files. Two targeted UI files pass 14 tests.",
+    "All changed source files are under 700 lines. Existing CHANGELOG and generated inventory/frozen ORM JSON remain longer; history and pinned data were retained.",
+    "No commit, publication, deployment, release-ledger rewrite, or external receiver configuration was performed."
+  ]
+}

@@ -18,6 +18,9 @@ _MISSED_MESSAGES = {
 
 
 def backup_failure_reason(error):
+    from modules.system.audit_backup import AuditCompanionError
+    if isinstance(error, AuditCompanionError):
+        return 'audit_companion', 'Database backup kept, but audit-key companion capture failed. Preserve the audit key directory separately and retry the backup.'
     from modules.system.backup_service import BackupMissedError, BackupValidationError, SourceDatabaseError
     if isinstance(error, BackupMissedError):
         return error.reason, _MISSED_MESSAGES[error.reason]
@@ -99,7 +102,8 @@ def report_backup_failure(function):
     @wraps(function)
     def checked(*args, **kwargs):
         try:
-            return function(*args, **kwargs)
+            from modules.system.audit_backup import complete_backup
+            return complete_backup(function(*args, **kwargs))
         except Exception as error:
             try:
                 publish_backup_failure(error)

@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.pool import NullPool, QueuePool
 from core.postgres_restore_gate import assert_postgres_restore_ready
+from core.audit_integrity import install_sqlite  # installs hash UDF on every Engine connection
 
 
 class DatabaseConfigurationError(ValueError):

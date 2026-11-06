@@ -1,6 +1,7 @@
 """Single schema-mutating startup path shared by container and tests."""
 
 from __future__ import annotations
+from core.schema.audit_integrity_version import MODULE as AUDIT_MIGRATION_MODULE, MIGRATION_ID as AUDIT_MIGRATION_ID
 
 import hashlib
 import json
@@ -11,6 +12,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 from core.base import Base
+from core.audit_integrity import install_sqlite
 from core.schema.migrator import (
     MIGRATION_TABLE,
     apply_dedicated_python_migration,
@@ -115,7 +117,7 @@ RAW_REQUIRED_TABLES = frozenset(
 # a newer migration helper before selecting its closed source contract.
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
-RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations'})
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations', 'audit_chain_state', 'audit_siem_gaps', 'audit_siem_destinations', 'audit_siem_outbox', 'audit_integrity_status', 'audit_redactions', 'audit_retention_checkpoints'})
 
 RAW_REQUIRED_COLUMNS = {
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
@@ -131,7 +133,14 @@ RAW_REQUIRED_COLUMNS = {
     "cost_global_origin_exclusions": frozenset("order_uid resource_kind owner_scope owner_key".split()),
     "spool_purchase_evidence": frozenset("evidence_nonce spool_uid birth_nonce resource_kind owner_scope owner_key revision currency price_decimal net_weight_g_decimal weight_basis provenance recorded_at".split()),
     "audit_actor_erasures": frozenset({"user_id", "erased_at"}),
-    "audit_logs": frozenset({"actor_user_id", "actor_username", "actor_auth_kind"}),
+    "audit_logs": frozenset({"actor_user_id", "actor_username", "actor_auth_kind", "prev_hash", "row_hash", "chain_seq", "hash_salt"}),
+    "audit_redactions": frozenset("row_id record_id evidence".split()),
+    "audit_retention_checkpoints": frozenset("first_seq evidence".split()),
+    "audit_siem_gaps": frozenset("gap_id first_id last_id skipped closed".split()),
+    "audit_chain_state": frozenset("id genesis head_hash head_seq siem_until".split()),
+    "audit_siem_destinations": frozenset("id name kind endpoint secret enabled tls last_error last_success ca_bundle next_attempt failures lease_until lease_token".split()),
+    "audit_siem_outbox": frozenset("destination_id audit_id attempts next_attempt lease_until lease_token".split()),
+    "audit_integrity_status": frozenset("id checked_at result".split()),
     "cost_identities": frozenset("identity_uid resource_kind resource_id owner_scope owner_key".split()),
     "cost_order_memberships": frozenset("child_uid child_kind order_uid order_kind owner_scope owner_key".split()),
     "cost_job_bindings": frozenset("job_uid job_kind order_uid item_uid item_kind owner_scope owner_key".split()),
@@ -327,6 +336,7 @@ POST027_MIGRATIONS = (
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
+    (AUDIT_MIGRATION_ID, AUDIT_MIGRATION_MODULE),
 )
 
 

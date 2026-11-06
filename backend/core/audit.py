@@ -2,6 +2,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import event
 from core.audit_actor import stage_actor, stamp_actor
+from core.audit_integrity import capture_insert_seal, finish_insert_seal
 from core.models import AuditLog
 
 
@@ -44,8 +45,9 @@ def log_audit(
 
 
 # No database work at import; the supplied flush Connection owns the stamp.
-if not event.contains(AuditLog, "after_insert", stamp_actor):
-    event.listen(AuditLog, "after_insert", stamp_actor)
+for listener in (capture_insert_seal, stamp_actor, finish_insert_seal):
+    if not event.contains(AuditLog, "after_insert", listener):
+        event.listen(AuditLog, "after_insert", listener)
 
 
 def audit_download(db, action, entity_type=None, entity_id=None, details=None):

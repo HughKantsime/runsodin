@@ -289,7 +289,7 @@ PAGE_SHARED: dict[str, str] = {
     "maintenance": "GET /api/maintenance/status also feeds the dashboard widget",
     "settings": "Settings reads are admin/superadmin-only per section",
     "admin": "user administration reads are admin-only",
-    "audit": "GET /api/audit-logs is platform-superadmin-only",
+    "audit": "GET /api/audit-logs, /api/audit-logs/verify, /api/export/audit-logs/jsonl and /api/settings/siem are platform-superadmin-only",
     "branding": "GET /api/branding is public (login page and invoices)",
     "education": "Education reads are governed by Education workflow principals",
     "orders": "GET /api/orders also feeds global search and products",
@@ -308,6 +308,9 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/inventory/conflicts/resolve"): "admin role; audited explicit inventory conflict resolution is stricter than spools.edit",
     # Platform administration (superadmin)
     **{(m, p): _SUPERADMIN for m, p in [
+        ("POST", "/api/audit-logs/accept-restore-baseline"),
+        ("POST", "/api/audit-logs/initialize-keyring"),
+        ("PUT", "/api/settings/siem/{destination_id}"), ("DELETE", "/api/settings/siem/{destination_id}"),
         ("PUT", "/api/admin/oidc"), ("POST", "/api/admin/retention/cleanup"),
         ("POST", "/api/archives/reconcile-ownership"),
         ("POST", "/api/timelapses/recheck-facts"),  # re-admit timelapses after a restart, by content digest

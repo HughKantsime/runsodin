@@ -43,7 +43,7 @@ def test_defaults_and_ttl_configurable_for_each_of_four_data_types(odin):
     assert r.status_code == 200
     o.wire["get_defaults"] = r.json()
     assert r.json() == {"completed_jobs_days": 0, "audit_logs_days": 365, "timelapses_days": 30, "alert_history_days": 90}
-    body = {"completed_jobs_days": 30, "audit_logs_days": 60, "timelapses_days": 7, "alert_history_days": 10}
+    body = {"completed_jobs_days": 30, "audit_logs_days": 90, "timelapses_days": 7, "alert_history_days": 10}
     r = o.put("/api/config/retention", headers=o.H, json=body)
     assert r.status_code == 200 and r.json() == body
     o.wire["put_result"] = r.json()
@@ -52,7 +52,7 @@ def test_defaults_and_ttl_configurable_for_each_of_four_data_types(odin):
     assert stored == body
 
 
-@pytest.mark.parametrize("bad", [{"audit_logs_days": -1}, {"alert_history_days": None}, {"completed_jobs_days": "x"}])
+@pytest.mark.parametrize("bad", [{"audit_logs_days": 89}, {"audit_logs_days": -1}, {"alert_history_days": None}, {"completed_jobs_days": "x"}])
 def test_invalid_ttl_rejected_and_policy_unchanged(odin, bad):
     o = odin
     before = o.get("/api/config/retention", headers=o.H).json()
@@ -78,7 +78,7 @@ def _seed(o):
                               ("new-done", "completed", 5), ("old-queued", "pending", 45), ("old-printing", "printing", 45)):
         _exec(o, f"INSERT INTO jobs (item_name, status, quantity, created_at, updated_at) VALUES (:n, :s, 1, {_age(age)}, {_age(age)})",
               n="ret-" + name, s=status)
-    for name, age in (("old", 70), ("new", 3)):
+    for name, age in (("old", 100), ("new", 3)):
         _exec(o, f"INSERT INTO audit_logs (timestamp, action, entity_type, details) VALUES ({_age(age)}, 'cert.ret', 'system', :d)",
               d="ret-audit-" + name)
         _exec(o, f"INSERT INTO alerts (user_id, alert_type, severity, title, is_read, is_dismissed, created_at) "
@@ -92,7 +92,7 @@ def _seed(o):
 @pytest.fixture(scope="module")
 def cleaned(odin):
     o = odin
-    body = {"completed_jobs_days": 30, "audit_logs_days": 60, "timelapses_days": 7, "alert_history_days": 10}
+    body = {"completed_jobs_days": 30, "audit_logs_days": 90, "timelapses_days": 7, "alert_history_days": 10}
     assert o.put("/api/config/retention", headers=o.H, json=body).status_code == 200
     _seed(o)
     r = o.post("/api/admin/retention/cleanup", headers=o.H)
@@ -140,8 +140,8 @@ def test_no_automatic_cleanup_runs_without_manual_trigger(tmp_path):
     try:
         o.setup_admin()
         h = o.admin_headers()
-        assert o.put("/api/config/retention", headers=h, json={"audit_logs_days": 1}).status_code == 200
-        _exec(o, f"INSERT INTO audit_logs (timestamp, action, entity_type, details) VALUES ({_age(30)}, 'cert.auto', 'system', 'x')")
+        assert o.put("/api/config/retention", headers=h, json={"audit_logs_days": 90}).status_code == 200
+        _exec(o, f"INSERT INTO audit_logs (timestamp, action, entity_type, details) VALUES ({_age(100)}, 'cert.auto', 'system', 'x')")
         o.restart()
         import time
         time.sleep(3)

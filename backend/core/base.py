@@ -169,6 +169,7 @@ class AlertType(str, Enum):
     QUEUE_ADDED = "queue_added"
     QUEUE_SKIPPED = "queue_skipped"
     QUEUE_FAILED_START = "queue_failed_start"
+    AUDIT_INTEGRITY = "audit_integrity"
 
 
 class AlertSeverity(str, Enum):
