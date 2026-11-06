@@ -34,61 +34,7 @@ MCowBQYDK2VwAyEA7PGXt2pCPkWUtPXbjwIjRTGoRwsYdmEzsSsS2AGAy28=
 -----END PUBLIC KEY-----
 """
 
-# ── Tier definitions ──
-TIERS = {
-    "community": {
-        "name": "Community",
-        "max_printers": 5,
-        "max_users": 1,
-        # Browser push is included in every tier (it is listed in each tier below too).
-        "features": ["push_notifications"],
-    },
-    "pro": {
-        "name": "Pro",
-        "max_printers": None,
-        "max_users": None,
-        "features": [
-            "multi_user", "rbac", "sso", "white_label",
-            "permissions", "branding",
-            "webhooks", "email_notifications", "push_notifications",
-            "orders", "products", "bom",
-            "analytics", "csv_export", "cost_calculator",
-            "maintenance", "care_counters",
-            "usage_reports",
-        ],
-    },
-    "education": {
-        "name": "Education",
-        "max_printers": None,
-        "max_users": None,
-        "features": [
-            "multi_user", "rbac", "sso", "white_label",
-            "permissions", "branding",
-            "webhooks", "email_notifications", "push_notifications",
-            "orders", "products", "bom",
-            "analytics", "csv_export", "cost_calculator",
-            "maintenance", "care_counters",
-            "job_approval", "user_groups", "print_quotas", "usage_reports",
-            "education_workflows",
-        ],
-    },
-    "enterprise": {
-        "name": "Enterprise",
-        "max_printers": None,
-        "max_users": None,
-        "features": [
-            "multi_user", "rbac", "sso", "white_label",
-            "permissions", "branding",
-            "webhooks", "email_notifications", "push_notifications",
-            "orders", "products", "bom",
-            "analytics", "csv_export", "cost_calculator",
-            "maintenance", "care_counters",
-            "job_approval", "user_groups", "print_quotas", "usage_reports",
-            "education_workflows",
-            "mqtt_republish", "audit_export",
-        ],
-    },
-}
+from core.license_tiers import TIERS
 
 # Pro trial (spec .claude/specs/pro-trial.md): the portal signs "trial": true
 # into a 14-day Pro license. Admins get a one-time notice this many days out.
@@ -115,69 +61,8 @@ def get_installation_id() -> str:
 
 
 def get_device_keypair():
-    """Return this instance's Ed25519 (private, public) device keypair.
-
-    Proof-of-possession gate for license operations (S1 from 2026-04-12
-    adversarial review). The private key is persisted at
-    ``{LICENSE_DIR}/.odin-device.key`` with file mode 0600, so only the
-    ODIN server process on this host can sign license operations.
-
-    If the file doesn't exist yet (new install), generate a fresh keypair
-    and store it. Subsequent calls read the same material.
-
-    The public half is sent to the license server on activation and bound
-    to the activation row; unactivation / reactivation requests must
-    carry a signature this pubkey can verify.
-
-    Returns (private_key_pem: bytes, public_key_b64: str).
-    """
-    if not CRYPTO_AVAILABLE:
-        raise RuntimeError(
-            "cryptography package is required for license device keys. "
-            "pip install cryptography"
-        )
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-        Ed25519PrivateKey, Ed25519PublicKey,
-    )
-    from cryptography.hazmat.primitives import serialization
-
-    path = os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)
-    if os.path.isfile(path):
-        with open(path, "rb") as f:
-            priv_pem = f.read()
-        priv = serialization.load_pem_private_key(priv_pem, password=None)
-    else:
-        # Generate fresh keypair. Store with 0600 so only this process's
-        # user can read it — that's our trust boundary for "the machine
-        # holds the license."
-        priv = Ed25519PrivateKey.generate()
-        priv_pem = priv.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-        os.makedirs(LICENSE_DIR, exist_ok=True)
-        # Write atomically with the right mode — don't leave a world-
-        # readable file on disk for even a moment.
-        tmp_path = path + ".tmp"
-        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(priv_pem)
-        except Exception:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            raise
-        os.rename(tmp_path, path)
-
-    pub = priv.public_key()
-    pub_raw = pub.public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
-    )
-    pub_b64 = base64.b64encode(pub_raw).decode("ascii")
-    return priv, pub_b64
-
+    from core.license_device_key import get_device_keypair as read_key
+    return read_key(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME, CRYPTO_AVAILABLE)
 
 def sign_license_challenge(action: str, key: str, installation_id: str, nonce: str) -> str:
     """Sign a license-operation challenge with this device's private key.
@@ -239,12 +124,7 @@ def short_fingerprint(fingerprint: str) -> str:
     head = fingerprint[:16]
     return " ".join(head[i:i + 4] for i in range(0, 16, 4))
 
-
-def trial_request_message(request: Dict[str, Any]) -> bytes:
-    return "\n".join([
-        "odin-trial-request-v1", request["installation_id"], request["device_pubkey"],
-        request["email"], request["nonce"], request["issued_at"],
-    ]).encode("utf-8")
+from core.license_trial_message import trial_request_message
 
 
 def build_trial_request(email: str) -> Dict[str, Any]:
@@ -267,123 +147,7 @@ def trial_request_code(request: Dict[str, Any]) -> str:
     raw = json.dumps(request, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return TRIAL_REQUEST_CODE_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
-
-class LicenseInfo:
-    """Parsed and validated license information."""
-
-    def __init__(self):
-        self.valid = False
-        self.tier = "community"
-        self.key = ""
-        self.licensee = ""
-        self.email = ""
-        self.issued_at = ""
-        self.expires_at = ""
-        self.max_printers = 5
-        self.max_users = 1
-        self.features = []
-        self.error = None
-        self.expired = False
-        self.device_bound = False
-        self.device_fingerprint = None
-        self.binding_present = False
-        self.binding_matches_current = False
-        self.license_sha256 = ""
-        self.expiry_deadline: Optional[datetime] = None  # set for valid licenses
-        self.trial = False  # signed "trial": true (portal Pro trial), kept after expiry
-
-    def days_left(self, now: Optional[datetime] = None) -> Optional[int]:
-        """Whole days until a valid license expires (rounded up), None when not valid."""
-        if not self.valid or self.expiry_deadline is None:
-            return None
-        remaining = (self.expiry_deadline - (now or datetime.now(timezone.utc))).total_seconds()
-        if remaining <= 0:
-            return 0
-        return int(-(-remaining // 86400))
-
-    def trial_days_left(self, now: Optional[datetime] = None) -> Optional[int]:
-        """Whole days left on a trial (rounded up; 0 once ended), None if not a trial."""
-        if not self.trial:
-            return None
-        days = self.days_left(now)
-        return 0 if days is None else days
-
-    def has_feature(self, feature: str) -> bool:
-        """Check if the current license includes a feature.
-        Checks both the license payload and the tier definition,
-        so features added to a tier after license issuance are available."""
-        if not self.valid:
-            return feature in TIERS["community"]["features"]
-        tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
-        if feature == "education_workflows":
-            return self.tier in {"education", "enterprise"} and feature in self.features
-        return feature in self.features or feature in tier_features
-
-    def effective_features(self) -> list[str]:
-        """Return the deterministic feature set enforced by ``has_feature``."""
-        if not self.valid:
-            return sorted(set(TIERS["community"]["features"]))
-        tier_features = set(TIERS.get(self.tier, TIERS["community"])["features"])
-        features = tier_features | set(self.features)
-        if not self.has_feature("education_workflows"):
-            features.discard("education_workflows")
-        return sorted(features)
-
-    def to_dict(self) -> Dict[str, Any]:
-        tier_def = TIERS.get(self.tier, TIERS["community"])
-        return {
-            "valid": self.valid,
-            "tier": self.tier,
-            "tier_name": tier_def["name"],
-            "key": self.key,
-            "licensee": self.licensee,
-            "email": self.email,
-            "issued_at": self.issued_at,
-            "expires_at": self.expires_at,
-            "expired": self.expired,
-            "trial": self.trial,
-            "trial_days_left": self.trial_days_left(),
-            "max_printers": self.max_printers,
-            "max_users": self.max_users,
-            "features": self.effective_features(),
-            "managed_externally": license_is_managed_externally(),
-            "device_bound": self.device_bound,
-            "binding_present": self.binding_present,
-            "binding_matches_current": self.binding_matches_current,
-            "license_sha256": self.license_sha256,
-            "error": self.error,
-            "device_fingerprint": self.device_fingerprint,
-            "installation_id": get_installation_id(),
-        }
-
-    def to_public_dict(self) -> Dict[str, Any]:
-        """Return license capabilities without customer or device identity.
-
-        ``GET /api/license`` is intentionally unauthenticated so the login and
-        setup screens can render tier-aware UI.  Keep that response limited to
-        operational capability data; support diagnostics and activation flows
-        use authenticated endpoints for installation identity.
-        """
-        tier_def = TIERS.get(self.tier, TIERS["community"])
-        return {
-            "valid": self.valid,
-            "tier": self.tier,
-            "tier_name": tier_def["name"],
-            "issued_at": self.issued_at,
-            "expires_at": self.expires_at,
-            "expired": self.expired,
-            "trial": self.trial,
-            "trial_days_left": self.trial_days_left(),
-            "max_printers": self.max_printers,
-            "max_users": self.max_users,
-            "features": self.effective_features(),
-            "managed_externally": license_is_managed_externally(),
-            "device_bound": self.device_bound,
-            "binding_present": self.binding_present,
-            "binding_matches_current": self.binding_matches_current,
-            "license_sha256": self.license_sha256,
-        }
-
+from core.license_info import LicenseInfo
 
 def _find_license_file() -> Optional[str]:
     """Look for a license file in known locations."""

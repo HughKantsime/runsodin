@@ -184,6 +184,8 @@ def dispatch(db,user,order_id,data):
     when=utc(data.handed_at)
     paid_at=datetime.fromisoformat(doc['details']['payment_received_at'].replace('Z','+00:00')).astimezone(timezone.utc)
     if when<paid_at:raise HTTPException(409,'Parcel handoff cannot precede the recorded full-payment time.')
+    from core.traceability_delivery import deliver_order
+    deliver_order(db, order_id, user['id'])
     doc['dispatch']={'physically_handed_over':True,'recorded_by':user['id'],'carrier':data.carrier,'tracking_number':data.tracking_number,'handed_at':when.isoformat()}
     save(db,order,doc,previous)
     order.status='shipped';order.shipped_date=when;order.tracking_number=data.tracking_number

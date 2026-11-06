@@ -13,6 +13,8 @@ TABLES = [
     "print_presets",
     "print_jobs",
     "print_files",
+    "traceability_records",
+    "traceability_policies",
 ]
 
 PUBLISHES = [

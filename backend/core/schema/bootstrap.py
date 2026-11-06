@@ -23,6 +23,7 @@ from core.schema.migrator import (
 
 RAW_REQUIRED_TABLES = frozenset(
     {
+        "traceability_records", "traceability_policies",
         "audit_actor_erasures",
         "spool_purchase_evidence",
         "cost_global_order_origins",
@@ -118,6 +119,8 @@ POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce print
 RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations'})
 
 RAW_REQUIRED_COLUMNS = {
+    "traceability_records": frozenset("job_id attempt snapshot snapshot_sha256 captured_at inspection_result inspection_notes inspected_by inspected_at delivered_by delivered_at".split()),
+    "traceability_policies": frozenset("owner_id org_id target_kind target_key required".split()),
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
     "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
     "job_timeline_events": frozenset("id job_id print_attempt_uid printer_id org_id kind code detail actor_user_id actor_token_id occurred_at recorded_at".split()),
@@ -327,6 +330,7 @@ POST027_MIGRATIONS = (
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
+    ("python:050-traceability", "core.schema.migrations.050_traceability"),
 )
 
 

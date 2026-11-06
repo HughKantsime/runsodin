@@ -15,6 +15,7 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/schema/migrations/050_traceability.py": ("sqlite-provider-only", "Dialect-guarded SQLite PRAGMA verifies enforced foreign-key delete actions; PostgreSQL uses native reflection."),
     "backend/core/monitor_observations.py": ("dialect-neutral", "Live state JSON uses portable UPSERT with bound SQLAlchemy parameters or the shared monitor qmark DBAPI adapter."),
     "backend/core/printer_display_facts.py": ("dialect-neutral", "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters."),
     "backend/modules/inventory/rfid_identity.py": (
@@ -463,6 +464,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved043/overlay",
     BACKEND / "core/schema/preserved044/overlay",
     BACKEND / "core/schema/preserved045/overlay",
+    BACKEND / "core/schema/preserved046/overlay",
 )
 
 

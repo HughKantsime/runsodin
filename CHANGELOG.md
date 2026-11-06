@@ -4,6 +4,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Enterprise part traceability for completed job attempts: retained file SHA-256 and manufacturing evidence, operator inspections, printer-tag/product inspection policies, delivery receipts, branded PDF certificates signed with the installation device key, and date-range ZIP exports. The Jobs panel includes inspection and export controls; RBAC, audit logging, GDPR cleanup, and additive migration 050 cover the new records. Historical evidence gaps are shown explicitly. See [traceability documentation](docs/features/traceability.md).
+- E4 review: capture completion evidence and snapshot hashes atomically; enforce inspection on every shipping path; retain attempt records through metadata drift; bound batch exports, domain-separate certificate signatures, and preserve scrubbed quality notes.
+
 ## [2.0.44] - 2026-11-05
 
 <!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->

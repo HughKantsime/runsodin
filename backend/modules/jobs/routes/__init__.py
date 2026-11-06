@@ -7,7 +7,10 @@ from .jobs_lifecycle import router as jobs_lifecycle_router
 from .jobs_agent import router as jobs_agent_router
 from .presets import router as presets_router
 
+from .traceability import router as traceability_router
+
 router = APIRouter()
+router.include_router(traceability_router)
 # jobs_crud first: static paths (/jobs/filament-check, /jobs/bulk, /jobs/batch,
 # /jobs/reorder, /jobs/bulk-update) must register before parameterized /jobs/{job_id}
 # in jobs_lifecycle_router / jobs_agent_router.

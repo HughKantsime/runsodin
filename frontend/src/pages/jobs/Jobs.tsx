@@ -15,6 +15,7 @@ import { updateJobFailure } from '../../api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import JobRow from '../../components/jobs/JobRow'
+import TraceabilityPanel from '../../components/jobs/TraceabilityPanel'
 import RecentlyCompleted from '../../components/jobs/RecentlyCompleted'
 import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs/JobModals'
 import { statusOptions, statusOrder, queueCompare } from '../../components/jobs/jobUtils'
@@ -290,6 +291,7 @@ export default function Jobs() {
           </Button>
         )}
       </PageHeader>
+      <TraceabilityPanel />
 
       {/* Job Type Tabs */}
       <div className="mb-4">

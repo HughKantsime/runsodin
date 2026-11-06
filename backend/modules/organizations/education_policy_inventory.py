@@ -44,6 +44,9 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("jobs.traceability_batch", "export_batch", "completed job/file/attempt", "export", "licensed RBAC principal; tenant SQL filter; Education submissions excluded; per-job loader rechecks file aliases", ("jobs.routes.traceability",), "test_traceability_evidence.py", "guarded"),
+    _entry("core.traceability", "owned_job/capture/render_record", "job/file/attempt/audit", "read/mutate", "caller-authorized job; locked tenant and Education recheck; protected file aliases refused", ("certificate and JSON export",), "test_traceability.py", "guarded"),
+    _entry("core.traceability_privacy", "export_personal/erase_personal", "user manufacturing records", "export/erase", "existing GDPR self/admin authorization; caller-owned transaction", (), "test_traceability.py", "guarded"),
     _entry("printers.routes_camera_snapshot", "camera_snapshot/camera_mjpeg/_mjpeg_check", "printer/camera", "read", "viewer with read:printers; active enabled camera and organization/shared fence; MJPEG rechecks active user, role and camera every 30 seconds", ("camera fallback",), "test_camera_mjpeg.py", "guarded"),
     _entry("printers.mjpeg_relay", "open_mjpeg/claim_stream", "printer/camera", "relay", "internal transport; caller supplies admission and periodic authority checks", ("camera fallback", "OBS overlay"), "test_camera_mjpeg.py", "excluded_internal"),
     _entry("inventory.routes.rfid_onboarding", "rfid_onboarding/merge_rfid_roll/reference_reason", "spool/printer/slot/usage/alert/print snapshot", "read checklist/merge unused RFID roll", "scoped viewer reads; operator with spools.edit and write:spools merges same-org stock under assignment locks; any usage, alert or print reference vetoes merge", ("RFID onboarding checklist", "spool assignments"), "test_spool_rfid_identity.py", "guarded"),
@@ -182,6 +185,8 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "core/traceability.py",
+    "core/traceability_privacy.py",
     "modules/printers/routes_camera_snapshot.py",
     "modules/printers/mjpeg_relay.py",
     "core/app.py",

@@ -186,7 +186,10 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
             while upper is not None and last < upper:
                 candidates = list(db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; values are bound
                     "SELECT id FROM jobs WHERE id>:last AND id<=:upper "
-                    "AND status IN ('completed','failed','cancelled') AND " + expired("updated_at") +
+                    "AND status IN ('completed','failed','cancelled') AND order_item_id IS NULL "
+                    "AND NOT EXISTS (SELECT 1 FROM production_acceptances a WHERE a.job_uid=jobs.economic_uid) "
+                    "AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id) "
+                    "AND NOT EXISTS (SELECT 1 FROM education_submissions e WHERE e.job_id=jobs.id) AND " + expired("updated_at") +
                     " ORDER BY id LIMIT 256" + ("" if sqlite else " FOR UPDATE")
                 ), {"last": last, "upper": upper, "cutoff": cutoff}).scalars())
                 if not candidates:
@@ -194,14 +197,22 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 last = candidates[-1]
                 # A separate statement observes authority committed while the
                 # candidate lock waited. Never add unlocked/new candidates.
-                statement = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; values are bound
-                    """DELETE FROM jobs WHERE id IN :candidate_ids
+                predicate = ("""WHERE id IN :candidate_ids
                     AND status IN ('completed','failed','cancelled')
                     AND order_item_id IS NULL
                     AND NOT EXISTS (SELECT 1 FROM production_acceptances a WHERE a.job_uid=jobs.economic_uid)
                     AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id)
                     AND NOT EXISTS (SELECT 1 FROM education_submissions e WHERE e.job_id=jobs.id)
-                    AND """ + expired("updated_at") + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))
+                    AND """ + expired("updated_at"))
+                # Recheck protected ancestry after lock waits before discarding
+                # undelivered receipts, not just before deleting the job itself.
+                eligible = text("SELECT id FROM jobs " + predicate).bindparams(bindparam("candidate_ids", expanding=True))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed predicate and dialect fragment, bound values
+                candidates = list(db.execute(eligible, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                from core.traceability_delivery import retention_candidates
+                candidates = retention_candidates(db, candidates)
+                if not candidates:
+                    continue
+                statement = text("DELETE FROM jobs " + predicate + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed predicate and dialect fragment, bound values
                 removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
                 # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner

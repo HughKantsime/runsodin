@@ -176,6 +176,8 @@ def main():
             c.execute(text("INSERT INTO spools(id,filament_id) VALUES(990046,990046)"))
             c.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation) VALUES(990046,1,990046,:state)"), {'state':'{"id":"roundtrip046"}'})
             c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990046,'same',990046)"), {'state':'6'*32})
+            c.execute(text("INSERT INTO traceability_records(job_id,attempt,snapshot,snapshot_sha256,captured_at,inspection_result,inspected_by) VALUES(990034,0,'{}','44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a','2026-11-05T00:00:00Z','pass',3)"))
+            c.execute(text("INSERT INTO traceability_policies(owner_id,org_id,target_kind,target_key,required) VALUES(1,1,'printer_tag','roundtrip050',1)"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -196,6 +198,10 @@ def main():
             assert c.execute(text("SELECT job_id,alert_kind,attempts FROM " + OUTBOX)).all() == [(990034, 'queue_added', 0)]
             assert c.execute(text("SELECT tray_observation FROM filament_slots WHERE id=990046")).scalar_one() == '{"id":"roundtrip046"}'
             assert c.execute(text("SELECT decision,spool_id FROM tray_confirmations WHERE slot_id=990046")).one() == ('same',990046)
+        with engine.connect() as c:
+            assert c.execute(text('SELECT inspection_result,inspected_by FROM traceability_records WHERE job_id=990034')).one()==('pass',3)
+            assert c.execute(text("SELECT required FROM traceability_policies WHERE owner_id=1 AND target_key='roundtrip050'")).scalar_one()==1
+        print('post027-native-current-backup-restore-roundtrip-050-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)

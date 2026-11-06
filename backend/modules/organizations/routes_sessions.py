@@ -468,7 +468,9 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         {"uid": user_id},
     ).fetchall()]
 
+    from core.traceability_privacy import export_personal
     export = {
+        "traceability": export_personal(db, user_id),
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
         "jobs_submitted": jobs,
@@ -520,6 +522,9 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         )
         if isinstance(value, str) and value and value != "[deleted]"
     }
+
+    from core.traceability_privacy import erase_personal
+    erase_personal(db, user_id, identifiers)
 
     db.execute(text("""UPDATE users SET
         username = :anon_name, email = '[deleted]', password_hash = '[deleted]',

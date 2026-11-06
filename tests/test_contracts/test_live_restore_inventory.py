@@ -45,6 +45,10 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:050-traceability": {
+        "traceability_records": frozenset("job_id attempt snapshot snapshot_sha256 captured_at inspection_result inspection_notes inspected_by inspected_at delivered_by delivered_at".split()),
+        "traceability_policies": frozenset("owner_id org_id target_kind target_key required".split()),
+    },
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },

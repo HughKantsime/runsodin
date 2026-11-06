@@ -18,5 +18,7 @@ def delete_org_jobs(db, org_id):
     from sqlalchemy import text
     from core.print_attempts import clear_job_attempts, sqlalchemy_runner
     for job_id in db.execute(text('SELECT id FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id}).scalars():
+        from core.traceability_delivery import prepare_job_deletion
+        prepare_job_deletion(db, job_id)
         clear_job_attempts(sqlalchemy_runner(db), job_id)
     db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})

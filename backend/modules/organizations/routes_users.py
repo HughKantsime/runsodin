@@ -343,9 +343,11 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
             detail="User has retained history (" + ", ".join(retained) + "). "
                    "Deactivate the account or use GDPR erase to anonymize it instead.",
         )
-    target_row = db.execute(text("SELECT username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    target_row = db.execute(text("SELECT username,email FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     try:
         _revoke_user_credentials(db, user_id)
+        from core.traceability_privacy import erase_personal
+        erase_personal(db, user_id, {v for v in (target_row.username, target_row.email) if v})
         db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
         log_audit(db, "user.deleted", "user", user_id,
                   {"deleted_username": target_row.username if target_row else str(user_id),

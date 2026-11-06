@@ -270,6 +270,9 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
         if not order.items or not all(item.quantity > 0 and item.fulfilled_quantity >= item.quantity for item in order.items):
             raise HTTPException(409, "Complete scheduled jobs or explicitly confirm production before marking this order fulfilled")
 
+    if data.status == OrderStatus.SHIPPED:
+        from core.traceability_delivery import deliver_order
+        deliver_order(db, order_id, current_user["id"])
     from modules.orders.show_fulfillment import guard_patch
     guard_patch(db,order,data.model_dump(exclude_unset=True))
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -585,6 +588,8 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
     if current not in (OrderStatus.IN_PROGRESS.value, OrderStatus.PARTIAL.value, OrderStatus.FULFILLED.value):
         db.rollback()
         raise HTTPException(status_code=409, detail=f"Cannot ship an order in {current} status")
+    from core.traceability_delivery import deliver_order
+    deliver_order(db, order_id, current_user["id"])
     order.status = OrderStatus.SHIPPED
     order.tracking_number = data.tracking_number
     order.shipped_date = data.shipped_date or datetime.now(timezone.utc)
