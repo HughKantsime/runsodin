@@ -4,6 +4,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Education and Enterprise: term-labelled classes using existing school rosters, assignments with due dates, per-print time/material limits and per-student submission quotas, explicit pending-print linking, optional instructor-authorized auto-approval through the existing compatibility checks, revision-safe feedback and grades, and private portfolios with thumbnails and timelapses. The `classes` entitlement, permission matrix, school audit and GDPR workflows cover the feature; unassigned submissions retain their existing behavior.
+- Additive migration 048 for classes, assignments and assessments; preserve the released 046 schema for PostgreSQL archive upgrades.
+
 ## [2.0.44] - 2026-11-05
 
 <!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->

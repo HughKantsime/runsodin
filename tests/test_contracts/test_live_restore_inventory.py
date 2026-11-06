@@ -37,7 +37,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (32, 45)
+    assert (len(functions), len(triggers)) == (33, 48)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -45,6 +45,13 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:048-education-classes": {
+        "education_assessment_revisions": frozenset("id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at".split()),
+        "education_classes": frozenset("id org_id cost_center_id title term state revision created_by created_at".split()),
+        "education_assignments": frozenset("id org_id class_id title brief due_at max_print_seconds max_material_grams allowed_materials submission_quota auto_print_seconds auto_material_grams auto_printer_ids authorized_by state revision created_at".split()),
+        "education_assignment_submissions": frozenset("submission_id org_id assignment_id feedback grade learning_status reviewed_by revision first_approved_at attached_at updated_at".split()),
+    },
+
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },
@@ -103,7 +110,7 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     live_columns = {table: sorted(columns) for table, columns in RAW_REQUIRED_COLUMNS.items()}
     expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
     assert live_columns == expected_columns
-    # 037, 038 and 039 add exactly their source-pinned functions and triggers.
+    # Registered migrations add exactly their source-owned functions and triggers.
     import importlib
     retained=importlib.import_module('core.schema.migrations.037_education_memberships')
     recovery=importlib.import_module('core.schema.migrations.038_dispatch_recovery')
@@ -116,6 +123,9 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     timeline=importlib.import_module("core.schema.migrations.040_job_foundation")
     added_functions.update(timeline.pg_functions())
     added_triggers.update(timeline.pg_triggers())
+    classes=importlib.import_module('core.schema.migrations.048_education_classes')
+    added_functions.update(classes.pg_functions())
+    added_triggers.update(classes.pg_triggers())
     assert set(functions)-set(accepted['functions']) == set(added_functions)
     assert json.loads(json.dumps({k:v for k,v in functions.items() if k not in added_functions})) == accepted["functions"]
     assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(triggers.items()) if k not in added_triggers])) == accepted["triggers"]

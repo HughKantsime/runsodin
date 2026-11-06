@@ -376,3 +376,19 @@ ENDPOINTS = [
     ("GET", "/api/analytics/failures",      _api_read(), None, "Failure analytics"),
     ("GET", "/api/analytics/time-accuracy", _api_read(), None, "Time accuracy analytics"),
 ]
+
+# D2: installation license plus live school roster; these census identities have no school.
+ENDPOINTS += [
+    ('GET', '/api/education/classes', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D2 classes: school membership required'),
+    ('POST', '/api/education/classes', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'cost_center_id': 1, 'title': 'Class', 'term': 'Term'}, 'D2 classes: school membership required'),
+    ('GET', '/api/education/classes/portfolio', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D2 classes: school membership required'),
+    ('GET', '/api/education/classes/portfolio/{submission_id}/thumbnail', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D2 classes: school membership required'),
+    ('PUT', '/api/education/classes/{class_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'revision': 1, 'title': 'Class', 'term': 'Term'}, 'D2 classes: school membership required'),
+    ('GET', '/api/education/classes/{class_id}/roster', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D2 classes: school membership required'),
+    ('GET', '/api/education/classes/{class_id}/assignments', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D2 classes: school membership required'),
+    ('POST', '/api/education/classes/{class_id}/assignments', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'title': 'Assignment'}, 'D2 classes: school membership required'),
+    ('PUT', '/api/education/classes/{class_id}/assignments/{assignment_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'title': 'Assignment', 'revision': 1}, 'D2 classes: school membership required'),
+    ('GET', '/api/education/classes/assignments/{assignment_id}/submissions', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D2 classes: school membership required'),
+    ('POST', '/api/education/classes/assignments/{assignment_id}/submissions', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'submission_id': 1, 'revision': 1}, 'D2 classes: school membership required'),
+    ('PUT', '/api/education/classes/assignments/{assignment_id}/submissions/{submission_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'revision': 1, 'learning_status': 'reviewed'}, 'D2 classes: school membership required'),
+]

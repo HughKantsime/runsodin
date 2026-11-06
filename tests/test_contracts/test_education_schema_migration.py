@@ -122,6 +122,13 @@ def test_legacy_education_foundation_applies_monitor_claims_afterward(tmp_path: 
     engine = _engine(tmp_path, "legacy-monitor-claims.db")
     bootstrap_database(engine, BACKEND)
     with engine.begin() as connection:
+        # Construct a real pre003 graph: D2 cannot exist before the composite
+        # submission key it references. Remove its additive tail with its ledger.
+        classes = importlib.import_module('core.schema.migrations.048_education_classes')
+        for table in reversed(tuple(classes.DDL)):
+            connection.exec_driver_sql('DROP TABLE ' + table)
+        connection.execute(text('DELETE FROM odin_schema_migrations WHERE migration_id=:id'),
+                           {'id': classes.MIGRATION_ID})
         connection.execute(
             text(
                 "DELETE FROM odin_schema_migrations "
@@ -132,7 +139,8 @@ def test_legacy_education_foundation_applies_monitor_claims_afterward(tmp_path: 
         connection.exec_driver_sql("DROP INDEX uq_education_submissions_id_org")
 
     result = bootstrap_database(engine, BACKEND)
-    assert result["applied"] == ["python:003-education-monitor-claims"]
+    assert result["applied"][0] == "python:003-education-monitor-claims"
+    assert result["applied"][-1:] == [classes.MIGRATION_ID]
     with engine.connect() as connection:
         assert connection.execute(
             text(

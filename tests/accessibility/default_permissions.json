@@ -5,6 +5,26 @@
       "operator",
       "viewer"
     ],
+    "education.classes_assess": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education.classes_manage": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education.classes_read": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education.classes_submit": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
     "education.reorder": [
       "admin",
       "operator",
@@ -71,6 +91,10 @@
       "admin",
       "operator"
     ],
+    "models.plates": [
+      "admin",
+      "operator"
+    ],
     "orders.create": [
       "admin",
       "operator"
@@ -90,6 +114,9 @@
       "admin"
     ],
     "printers.delete": [
+      "admin"
+    ],
+    "printers.dispatch_recovery": [
       "admin"
     ],
     "printers.edit": [
@@ -130,10 +157,6 @@
       "admin",
       "operator"
     ],
-    "products.outside_prints": [
-      "admin",
-      "operator"
-    ],
     "products.inspections": [
       "admin",
       "operator"
@@ -150,6 +173,10 @@
       "operator"
     ],
     "products.operations": [
+      "admin",
+      "operator"
+    ],
+    "products.outside_prints": [
       "admin",
       "operator"
     ],
@@ -193,47 +220,13 @@
     ],
     "users.restore_superadmin": [
       "admin"
-    ],
-    "printers.dispatch_recovery": [
-      "admin"
-    ],
-    "models.plates": [
-      "admin",
-      "operator"
     ]
   },
   "page_access": {
-    "dashboard": [
-      "admin",
-      "operator",
-      "viewer"
+    "admin": [
+      "admin"
     ],
-    "timeline": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "jobs": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "printers": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "models": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "spools": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "cameras": [
+    "alerts": [
       "admin",
       "operator",
       "viewer"
@@ -243,36 +236,46 @@
       "operator",
       "viewer"
     ],
-    "calculator": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "upload": [
-      "admin",
-      "operator"
-    ],
-    "maintenance": [
-      "admin",
-      "operator"
-    ],
-    "settings": [
-      "admin"
-    ],
-    "admin": [
-      "admin"
-    ],
     "audit": [
       "admin"
     ],
     "branding": [
       "admin"
     ],
+    "calculator": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "cameras": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "dashboard": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
     "education_reports": [
       "admin",
       "operator"
     ],
-    "education": [
+    "jobs": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "maintenance": [
+      "admin",
+      "operator"
+    ],
+    "models": [
       "admin",
       "operator",
       "viewer"
@@ -282,15 +285,32 @@
       "operator",
       "viewer"
     ],
+    "printers": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
     "products": [
       "admin",
       "operator",
       "viewer"
     ],
-    "alerts": [
+    "settings": [
+      "admin"
+    ],
+    "spools": [
       "admin",
       "operator",
       "viewer"
+    ],
+    "timeline": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "upload": [
+      "admin",
+      "operator"
     ]
   }
 }

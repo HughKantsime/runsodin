@@ -175,7 +175,7 @@ _LATE_TRIGGER_MODULES = (
     '021_economic_identity', '022_economic_source_lifetimes',
     '023_timelapse_retirement_membership', '024_audit_actor',
     '025_spool_purchase_evidence', '026_global_order_origins',
-    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation',
+    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation', '048_education_classes',
 )
 
 
@@ -201,7 +201,7 @@ def _canonical_sqlite_triggers():
                         if name in definitions:
                             raise ValueError('Duplicate packaged trigger')
                         definitions[name] = sql
-            elif suffix.startswith(('037_', '038_', '039_', '040_')):
+            elif suffix.startswith(('037_', '038_', '039_', '040_', '048_')):
                 definitions = module.sqlite_triggers()
             elif suffix.startswith('022_'):
                 definitions = module._sqlite_triggers()
@@ -346,6 +346,8 @@ def _required_sqlite_guards(columns, allowed):
             require(table, names)
     if 'power_target_operations' in columns:
         require('power_target_operations', _POWER_COLUMNS)
+    if 'education_assessment_revisions' in columns:
+        require('education_assessment_revisions', 'id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at')
     if 'education_audit_events' in columns:
         required_tables.add('education_audit_events')
     if any(t in columns for t in ('terminal_filament_measurements', 'filament_cost_events')):

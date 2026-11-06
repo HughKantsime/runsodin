@@ -39,6 +39,10 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "settings.edit": ["admin"],
     "users.restore_superadmin": ["admin"],
     # Education grants still decide which centers a principal may reorder.
+    "education.classes_read": ["admin", "operator", "viewer"],
+    "education.classes_manage": ["admin", "operator", "viewer"],
+    "education.classes_submit": ["admin", "operator", "viewer"],
+    "education.classes_assess": ["admin", "operator", "viewer"],
     "education.reorder": ["admin", "operator", "viewer"],
     # Submitting a job (POST /jobs, schedule from a model): every role. Viewer
     # submissions wait for approval when the approval workflow is on.

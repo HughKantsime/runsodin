@@ -289,3 +289,13 @@ def test_dispatch_recovery_executables_are_exact_and_tampering_is_rejected():
     validate_executables(Connection())
     with pytest.raises(BackupValidationError, match='noncanonical'):
         validate_executables(Connection(changed=True))
+
+
+def test_assessment_history_guards_are_registered_for_current_restore():
+    import importlib
+    migration = importlib.import_module('core.schema.migrations.048_education_classes')
+    functions, triggers = canonical_functions(), canonical_triggers()
+    assert functions[migration.FUNCTION][0] == migration.pg_functions()[migration.FUNCTION]
+    assert functions[migration.FUNCTION][1] == ['search_path=pg_catalog, public']
+    for key, definition in migration.pg_triggers().items():
+        assert triggers[key] == (definition, migration.FUNCTION, 'public', 'O')

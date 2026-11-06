@@ -453,6 +453,26 @@
     "operator",
     "viewer"
    ],
+   "education.classes_assess": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
+   "education.classes_manage": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
+   "education.classes_read": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
+   "education.classes_submit": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
    "education.reorder": [
     "admin",
     "operator",
@@ -585,10 +605,6 @@
     "admin",
     "operator"
    ],
-   "products.outside_prints": [
-     "admin",
-     "operator"
-   ],
    "products.inspections": [
     "admin",
     "operator"
@@ -605,6 +621,10 @@
     "operator"
    ],
    "products.operations": [
+    "admin",
+    "operator"
+   ],
+   "products.outside_prints": [
     "admin",
     "operator"
    ],

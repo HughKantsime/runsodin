@@ -102,6 +102,9 @@ def _resolve_path(path_template, test_data):
     subs = {
         "{printer_id}": str(test_data.get("printer_id", 1)),
         "{job_id}": str(test_data.get("job_id", 1)),
+        "{submission_id}": str(test_data.get("submission_id", 1)),
+        "{class_id}": str(test_data.get("class_id", 1)),
+        "{assignment_id}": str(test_data.get("assignment_id", 1)),
         "{model_id}": str(test_data.get("model_id", 1)),
         "{spool_id}": str(test_data.get("spool_id", 1)),
         "{product_id}": str(test_data.get("product_id", 1)),

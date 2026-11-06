@@ -468,7 +468,9 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         {"uid": user_id},
     ).fetchall()]
 
+    from modules.organizations.education_classes_privacy import export_classes
     export = {
+        "education_classes": export_classes(db, user_id),
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
         "jobs_submitted": jobs,
@@ -592,6 +594,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         text("UPDATE classroom_connections SET created_by=NULL WHERE created_by=:uid"),
         {"uid": user_id},
     )
+    from modules.organizations.education_classes_privacy import erase_classes
+    erase_classes(db, user_id, identifiers)
     former_email = user_data.get("email")
     if isinstance(former_email, str) and former_email:
         db.execute(

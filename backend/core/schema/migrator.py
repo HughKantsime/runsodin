@@ -106,6 +106,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.044_spool_tray_uuid",
         "core.schema.migrations.045_pause_cancel_alerts",
         "core.schema.migrations.046_tray_identity",
+        "core.schema.migrations.048_education_classes",
         "core.schema.migrations.036_ctec_pilot",
     }
 )
