@@ -129,15 +129,15 @@ U["nonadmin_put"] = op.put("/api/pricing-config", json={"ui_mode": "simple"}).st
 
 # ---- admin logs ----
 G = OUT["logs"] = {}
-G["access"] = {"operator": op.get("/api/admin/logs").status_code, "viewer": vw.get("/api/admin/logs").status_code,
-               "anon": client().get("/api/admin/logs").status_code, "admin": a.get("/api/admin/logs").status_code,
+G["access"] = {"operator": op.post("/api/admin/logs").status_code, "viewer": vw.post("/api/admin/logs").status_code,
+               "anon": client().post("/api/admin/logs").status_code, "admin": a.post("/api/admin/logs").status_code,
                "stream_operator": op.get("/api/admin/logs/stream").status_code,
                "bundle_operator": op.get("/api/admin/support-bundle").status_code,
                "bundle_viewer": vw.get("/api/admin/support-bundle").status_code}
 G["source_ids"] = sorted(routes_admin._LOG_FILES)
-G["per_source"] = {s: a.get(f"/api/admin/logs?source={s}").json()["lines"] for s in routes_admin._LOG_FILES}
-G["levels"] = {lvl: a.get(f"/api/admin/logs?source=mqtt&level={lvl}").json()["lines"] for lvl in ["ERROR", "WARNING", "INFO", "DEBUG", "error"]}
-G["backend_error_level"] = a.get("/api/admin/logs?source=backend&level=ERROR").json()["lines"]
+G["per_source"] = {s: a.post(f"/api/admin/logs?source={s}").json()["lines"] for s in routes_admin._LOG_FILES}
+G["levels"] = {lvl: a.post(f"/api/admin/logs?source=mqtt&level={lvl}").json()["lines"] for lvl in ["ERROR", "WARNING", "INFO", "DEBUG", "error"]}
+G["backend_error_level"] = a.post("/api/admin/logs?source=backend&level=ERROR").json()["lines"]
 # Other real formats: Python logging without brackets, supervisord, go2rtc (zerolog INF/WRN/ERR)
 with Path(routes_admin._LOG_FILES["supervisord"]).open("w") as f:
     f.write("2026-10-14 10:00:00,000 ERROR odin.api: printer connection refused while fetching info\n")
@@ -145,20 +145,21 @@ with Path(routes_admin._LOG_FILES["supervisord"]).open("w") as f:
     f.write("10:00:02.000 WRN go2rtc stream warning about an ERROR counter\n")
     f.write("10:00:03.000 ERR go2rtc stream failed\n")
     f.write("    continuation line mentioning ERROR without a level\n")
-G["formats"] = {lvl: a.get(f"/api/admin/logs?source=supervisord&level={lvl}").json()["lines"] for lvl in ["ERROR", "WARNING", "INFO"]}
-G["search"] = a.get("/api/admin/logs?source=moonraker&search=LINE%203").json()["lines"]
-G["search_level"] = a.get("/api/admin/logs?source=backend&level=ERROR&search=odin.auth").json()["lines"]
-G["backend_all_lines"] = a.get("/api/admin/logs?source=backend&lines=5000").json()["lines"]
+G["formats"] = {lvl: a.post(f"/api/admin/logs?source=supervisord&level={lvl}").json()["lines"] for lvl in ["ERROR", "WARNING", "INFO"]}
+G["search"] = a.post("/api/admin/logs?source=moonraker&search=LINE%203").json()["lines"]
+G["search_level"] = a.post("/api/admin/logs?source=backend&level=ERROR&search=odin.auth").json()["lines"]
+G["backend_all_lines"] = a.post("/api/admin/logs?source=backend&lines=5000").json()["lines"]
 pages = []; cursor = None
 for _ in range(10):
     q = "/api/admin/logs?source=go2rtc&lines=2" + (f"&cursor={cursor}" if cursor else "")
-    d = a.get(q).json(); pages.append(d["lines"]); cursor = d["next_cursor"]
+    d = a.post(q).json(); pages.append(d["lines"]); cursor = d["next_cursor"]
     if not cursor: break
 G["pages"] = pages
 with Path(routes_admin._LOG_FILES["go2rtc"]).open("a") as f: f.write("2026-10-14 11:00:00 [INFO] appended after snapshot\n")
-G["bad_cursor"] = a.get("/api/admin/logs?source=go2rtc&cursor=garbage").status_code
+G["bad_cursor"] = a.post("/api/admin/logs?source=go2rtc&cursor=garbage").status_code
 
 # SSE live tail
+stream_token = a.post('/api/admin/logs/stream-token').json()['token']
 def _appender():
     time.sleep(1.5)
     with Path(routes_admin._LOG_FILES["vision"]).open("a") as f:
@@ -176,7 +177,7 @@ events = []; sse_meta = {}
 def _reader():
     try:
         with httpx.Client(timeout=httpx.Timeout(60.0)) as hc:
-            with hc.stream("GET", f"http://127.0.0.1:{port}/api/admin/logs/stream?source=vision&level=ERROR",
+            with hc.stream("GET", f"http://127.0.0.1:{port}/api/admin/logs/stream?source=vision&level=ERROR&token={stream_token}",
                            headers={"Authorization": a.headers["Authorization"]}) as r:
                 sse_meta["status"] = r.status_code; sse_meta["type"] = r.headers.get("content-type")
                 for line in r.iter_lines():
@@ -194,7 +195,7 @@ while len(events) < 2 and time.time() < deadline:
     time.sleep(0.2)
 G["sse_status"] = sse_meta.get("status"); G["sse_type"] = sse_meta.get("type"); G["sse_error"] = sse_meta.get("error")
 G["sse_events"] = events
-G["sse_unknown_source"] = a.get("/api/admin/logs/stream?source=nope").status_code
+G["sse_unknown_source"] = a.get(f"/api/admin/logs/stream?source=nope&token={stream_token}").status_code
 
 # ---- support bundle ----
 sql("INSERT INTO system_config(key,value) VALUES('spoolman_url', :v)", v=json.dumps("http://" + S["ipv4"] + ":7912"))

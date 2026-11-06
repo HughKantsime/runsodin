@@ -1,3 +1,4 @@
+import ControlledPart from '../shared/ControlledPart'
 import PrinterNumber from '../ui/PrinterNumber'
 import { displayName } from '../../utils/displayName'
 import type { ReactNode } from 'react'
@@ -57,6 +58,7 @@ function ScheduledJobDetail({ block }) {
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
       </div>
 
+      <ControlledPart kind="jobs" id={job.id} />
       <JobAmsMapping job={job} />
       <JobTimeline jobId={block.job_id} />
       {/* Color swatches */}

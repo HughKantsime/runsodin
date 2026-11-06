@@ -166,6 +166,10 @@ def _release_reservation(db: Session, operation) -> bool:
 def abort_upload(db: Session, *, operation_id: str, paths: tuple[Path, ...]) -> None:
     cleanup_error = None
     for path in paths:
+        from core.controlled_education import controlled_path
+        if controlled_path(db, path):
+            cleanup_error = RuntimeError("controlled_part_education_source")
+            continue
         try:
             existed = path.exists()
             path.unlink(missing_ok=True)

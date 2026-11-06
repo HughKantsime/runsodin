@@ -1,4 +1,6 @@
 """Owned Linux SQLite/PostgreSQL real frame-journal -> encode -> MP4 proof."""
+# Raw job INSERT exemption: isolated minimal pre-055 schema fixtures have no
+# allocator table; fixed IDs test media bindings, not production job creation.
 import os
 import json
 import tempfile

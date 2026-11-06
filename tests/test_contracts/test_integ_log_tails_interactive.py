@@ -8,6 +8,7 @@ for include_logs, and a 403 on rotation."""
 import asyncio
 
 import pytest
+from tests.test_contracts.test_controlled_parts import database
 from fastapi import HTTPException
 
 LINE = "2026-10-17 10:00:00 [ERROR] tenant B printed widget.3mf"
@@ -30,8 +31,8 @@ def test_token_superadmin_gets_diagnostics_without_log_content(tails, principal)
     assert result["recent_logs"] == tails.LOGS_INTERACTIVE_ONLY
 
 
-def test_interactive_superadmin_still_gets_sanitized_logs(tails):
-    result = asyncio.run(tails.get_diagnostics(current_user=INTERACTIVE))
+def test_interactive_superadmin_still_gets_sanitized_logs(tails, database):
+    result = asyncio.run(tails.get_diagnostics(current_user=INTERACTIVE, db=database))
     assert any("tenant B" in line for line in result["recent_logs"])
 
 

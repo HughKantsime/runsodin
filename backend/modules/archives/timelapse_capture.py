@@ -196,6 +196,8 @@ def main_loop():
     # Track active captures: {(printer_id, job_id): timelapse_id}
     active = {}
     tick = 0
+    from modules.archives.controlled_retention import start_worker
+    start_worker(engine, TIMELAPSE_DIR)
 
     while True:
         session = None
@@ -234,11 +236,10 @@ def main_loop():
             if tick % 10 == 0:
                 finalize_stale_timelapses()
 
-            tick += 1
-
         except Exception as e:
             log.error(f"Main loop error: {e}")
         finally:
+            tick += 1
             if session is not None:
                 session.close()
 

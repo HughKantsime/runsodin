@@ -509,12 +509,13 @@ def record_job_ended(
                 item_name = observed_item_name(conn, current_job_id)
                 actual_start = pj_row[0] if pj_row else now_utc
                 # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
-                cur.execute(f"""
+                from core.job_identity import insert_job
+                insert_job(cur, f"""
                     INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end,
                                      duration_hours, quantity, hold, is_locked, quantity_on_bed)
                     VALUES (?, ?, ?, ?, ?, ?, 1, FALSE, FALSE, 1)
                     {sql.returning_id()}
-                """, (item_name, printer_id, job_status, actual_start, now_utc, duration_hours))
+                """, (item_name, printer_id, job_status, actual_start, now_utc, duration_hours), postgres=sql.is_postgres)
                 if sql.is_postgres:
                     linked_job_id = cur.fetchone()[0]
                 else:

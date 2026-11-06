@@ -251,6 +251,8 @@ def create_preset(
     db: Session = Depends(get_db),
 ):
     """Create a new print preset."""
+    from core.controlled_parts import assert_access
+    assert_access(db, "model", request_data.model_id, current_user)
     preset = PrintPreset(
         name=request_data.name,
         model_id=request_data.model_id,
@@ -294,6 +296,8 @@ def schedule_from_preset(
     if not preset:
         raise HTTPException(status_code=404, detail="Preset not found")
 
+    from core.controlled_parts import assert_access
+    assert_access(db, "model", preset.model_id, current_user)
     job = Job(
         item_name=preset.item_name or preset.name,
         model_id=preset.model_id,

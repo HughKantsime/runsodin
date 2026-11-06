@@ -335,6 +335,9 @@ def _complete(db,principal,plan):
     db.execute(intent.update().where(intent.c.operation_id==nonce,intent.c.revision==plan['intent']['revision']).values(state='complete',completed_at=stamp,revision=plan['intent']['revision']+1,reason_code=None))
     from core.audit import log_audit
     log_audit(db,'retirement_complete','timelapse',plan['intent']['timelapse_id'],{'operation_id':nonce,'actor_id':principal['id']})
+    from core.controlled_retention import RetentionPrincipal
+    if type(principal) is RetentionPrincipal:
+        log_audit(db,'controlled_part.timelapse_purged','timelapse',principal.identifier,{'operation_id':nonce})
 
 
 def retire_sealed_lifetime(engine,root,tid,evidence,*,expected_nonce,budget=None):

@@ -249,6 +249,13 @@ def _publish(topic_suffix: str, payload: dict):
     topic = f"{prefix}/{topic_suffix}"
 
     try:
+        from core.controlled_mqtt import redact_payload
+        payload = redact_payload(engine, payload)
+    except Exception as error:
+        from core.controlled_warnings import warn_failure
+        warn_failure('MQTT republish', error)
+        return
+    try:
         msg = json.dumps(payload, default=str)
         client.publish(topic, msg, qos=0, retain=False)
     except Exception as e:
@@ -312,7 +319,7 @@ def republish_job(printer_id: int, printer_name: str, event: str, data: dict):
 
 
 def republish_alert(alert_type: str, severity: str, title: str, message: str,
-                     printer_id: int = None, printer_name: str = None):
+                     printer_id: int = None, printer_name: str = None, job_id: int = None):
     """Republish alerts."""
     _publish("alerts", {
         "type": alert_type,
@@ -321,6 +328,7 @@ def republish_alert(alert_type: str, severity: str, title: str, message: str,
         "message": message,
         "printer_id": printer_id,
         "printer_name": printer_name,
+        "job_id": job_id,
         "timestamp": time.time(),
     })
 
@@ -478,6 +486,7 @@ def _on_alert_dispatched(event) -> None:
         message=data.get("message", ""),
         printer_id=data.get("printer_id"),
         printer_name=data.get("printer_name"),
+        job_id=data.get("job_id"),
     )
 
 

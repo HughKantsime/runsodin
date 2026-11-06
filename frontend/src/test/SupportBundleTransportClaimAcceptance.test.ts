@@ -21,7 +21,7 @@ test('actual support adapter downloads returned ZIP bytes and releases URL', asy
 
 test('server refusal does not fabricate a bundle download', async () => {
   const body = vi.fn()
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403, blob: body }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403, clone: () => ({ json: async () => ({ detail: "Forbidden" }) }), blob: body }))
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   await expect(adminBundle.download()).rejects.toThrow('Failed to generate bundle')
   expect(body).not.toHaveBeenCalled()

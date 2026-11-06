@@ -383,6 +383,15 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
 
     # Education jobs fail closed and recompute against live printer/slot facts
     # immediately before any adapter is allowed to touch hardware.
+    from core.controlled_parts import dispatch_refusal
+    from sqlalchemy.orm import Session
+    from core.db import engine
+    with Session(engine) as controlled_db:
+        reason = dispatch_refusal(controlled_db, job_id, printer_id)
+        if reason:
+            from core.audit import audit_download
+            audit_download(controlled_db, 'controlled_part.refused', 'job', job_id, {'reason': reason})
+            return False, reason
     education_decision = _authorize_education_hardware_action(job, creds)
     if education_decision is not None and not education_decision[0]:
         return education_decision

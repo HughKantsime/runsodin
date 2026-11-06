@@ -187,9 +187,11 @@ def dispatch_alert(
                         with engine.connect() as connection:
                             org_settings = provider.get_org_settings(connection, resource_org_id)
                         if org_settings.get("webhook_url"):
+                            from core.controlled_events import external_copy
+                            external_title, external_message = external_copy(title, message, printer_id=printer_id, job_id=job_id)
                             _send_org_webhook(org_settings["webhook_url"],
                                 org_settings.get("webhook_type", "generic"),
-                                alert_type, title, message, severity)
+                                alert_type, external_title, external_message, severity)
             except Exception as e:
                 log.debug(f"Webhook delivery failed: {e}")
 

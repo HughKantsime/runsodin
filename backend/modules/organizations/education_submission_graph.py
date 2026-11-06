@@ -89,6 +89,8 @@ def _commit_submission_graph(
     from modules.organizations.education_training_policy import require_submission_training
     org_id = owner._lock_job_birth_authority(db, operation_id, principal, cost_center_id)
     require_submission_training(db, principal=principal, cost_center_id=cost_center_id)
+    from core.controlled_education import assert_unmarked_upload_path
+    assert_unmarked_upload_path(db, final_path)
     filaments = [
         {
             "slot": item.slot,

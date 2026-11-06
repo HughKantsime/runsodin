@@ -11,6 +11,8 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
+from core.controlled_csrf import require_controlled_ack
+from core.rbac import require_action
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
@@ -63,7 +65,6 @@ def _line_level(line: str) -> Optional[str]:
     return _LEVEL_ALIASES.get(match.group(1), match.group(1)) if match else None
 
 
-@router.get("/admin/logs", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 def get_logs(
     source: str = Query("backend", description="Configured application log source"),
     lines: int = Query(200, ge=1, le=5000),
@@ -71,12 +72,16 @@ def get_logs(
     search: Optional[str] = Query(None, description="Text filter"),
     cursor: Optional[str] = Query(None, max_length=128, description="Opaque older-page cursor returned by this endpoint"),
     user=Depends(require_superadmin()),
+    db: Session = Depends(get_db),
+    acknowledge_controlled: bool = False,
 ):
     """Return a bounded newest-first page selection, with lines in file order.
 
     Default calls retain tail-N behavior. A cursor pins the snapshot and oldest
     shown byte boundary so appends do not move subsequent older pages.
     """
+    from core.controlled_logs import check_log_access
+    check_log_access(db, user, acknowledge_controlled)
     log_path = _LOG_FILES.get(source)
     if not log_path or not os.path.isfile(log_path):
         return {"lines": [], "source": source, "next_cursor": None, "page_cursor": None}
@@ -132,6 +137,36 @@ def get_logs(
             "page_cursor": f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{boundary}"}
 
 
+@router.get('/admin/logs', tags=['Admin'], dependencies=[Depends(require_interactive_session())])
+def legacy_logs(source: str = Query('backend'), lines: int = Query(200, ge=1, le=5000),
+                level: Optional[str] = Query(None), search: Optional[str] = Query(None),
+                cursor: Optional[str] = Query(None, max_length=128),
+                user=Depends(require_superadmin()), db: Session = Depends(get_db)):
+    from core.controlled_parts import any_marks
+    if any_marks(db):
+        return {'lines': [], 'source': source, 'next_cursor': None, 'page_cursor': None,
+                'omitted': {'code': 'controlled_part_acknowledgement_required',
+                            'message': 'Use POST /api/admin/logs with X-ODIN-Controlled-Ack: true'}}
+    return get_logs(source, lines, level, search, cursor, user, db)
+
+
+@router.post('/admin/logs', tags=['Admin'], dependencies=[Depends(require_interactive_session())])
+def read_logs(request: Request, source: str = Query('backend'), lines: int = Query(200, ge=1, le=5000),
+              level: Optional[str] = Query(None), search: Optional[str] = Query(None),
+              cursor: Optional[str] = Query(None, max_length=128),
+              user=Depends(require_superadmin()), db: Session = Depends(get_db)):
+    from core.controlled_logs import request_ack
+    return get_logs(source, lines, level, search, cursor, user, db, request_ack(request))
+
+
+@router.post('/admin/logs/stream-token', tags=['Admin'], dependencies=[Depends(require_interactive_session())])
+def log_stream_token(request: Request, user=Depends(require_superadmin()), db: Session = Depends(get_db)):
+    from core.controlled_logs import request_ack, check_log_access, issue_stream_token
+    acknowledged = request_ack(request)
+    check_log_access(db, user, acknowledged, audit_success=False)
+    return {'token': issue_stream_token(user, acknowledged)}
+
+
 @router.get("/admin/logs/stream", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 async def stream_logs(
     request: Request,
@@ -139,10 +174,19 @@ async def stream_logs(
     level: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     user=Depends(require_superadmin()),
+    db: Session = Depends(get_db),
+    token: str = "",
 ):
     """SSE endpoint — streams new log lines in real time. Superadmin only."""
     import asyncio
 
+    from core.controlled_logs import check_log_access, stream_ack
+    from core.controlled_parts import any_marks
+    acknowledge_controlled = stream_ack(token, user) if any_marks(db) else False
+    check_log_access(db, user, acknowledge_controlled, audit=False)
+    from core.audit import audit_download
+    audit_download(db, 'controlled_part.log_stream_opened', 'log_viewer', user['id'],
+                   {'acknowledged': acknowledge_controlled})
     log_path = _LOG_FILES.get(source)
     if not log_path or not os.path.isfile(log_path):
         raise HTTPException(status_code=404, detail="Log source not found")
@@ -159,6 +203,8 @@ async def stream_logs(
                 if not line:
                     await asyncio.sleep(0.5)
                     continue
+                from core.controlled_logs import stream_log_access
+                stream_log_access(db.get_bind(), user, acknowledge_controlled)
                 shown = sanitize_log_line(line.rstrip("\n"))  # filter what the caller would see
                 if level_upper and _line_level(shown) != level_upper:
                     continue
@@ -171,9 +217,10 @@ async def stream_logs(
 
 # ============== Support Bundle ==============
 
-@router.get("/admin/support-bundle", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
-def download_support_bundle(user=Depends(require_superadmin()), db: Session = Depends(get_db)):
+def _download_support_bundle(user=Depends(require_superadmin()), db: Session = Depends(get_db), acknowledge_controlled: bool = False):
     """Generate a privacy-filtered diagnostic ZIP for issue reporting. Superadmin only."""
+    from core.controlled_exports import acknowledge_export
+    controlled = acknowledge_export(db, user, acknowledge_controlled, "support_bundle")
     import io
     import platform
     import sqlite3
@@ -230,7 +277,7 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         # not configuration and never belong in a shared diagnostics bundle.
         internal_prefixes = ("outside_print_binding:", "outside_print_previous_job:", "quota_attempt:", "quota_charged:", "setup_admin_claimed",
                              "biometric_revoked", "square_readonly:", "show_fulfillment:", "production_finishing:", "production_operations:", "material_purchases:", "material_identity:", "material_mutex:")
-        for k, v in config_rows:
+        for k, v in ([] if controlled else config_rows):
             if any(k.startswith(p) for p in internal_prefixes):
                 continue
             if any(s in k.lower() for s in sensitive) or k in ("smtp_config", "base_url"):
@@ -240,7 +287,7 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         zf.writestr("settings_safe.json", json.dumps(safe_config, indent=2))
 
         from modules.system.diagnostics import _read_tail
-        recent = _read_tail('/data/backend.log', 100)
+        recent = [] if controlled else _read_tail('/data/backend.log', 100)
         error_lines = [line for line in recent if 'WARNING' in line or 'ERROR' in line] if isinstance(recent, list) else []
         zf.writestr("recent_errors.txt", "\n".join(sanitize_log_lines(error_lines)))
 
@@ -345,6 +392,9 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
     orders = oq.filter(false() if not allowed("agent:read", "agent:write") else True).order_by(Order.created_at.desc()).limit(5).all()
     products = cq.filter(false() if not allowed("read") else True).order_by(Product.name).limit(5).all()
 
+    from core.controlled_parts import allowed as controlled_allowed
+    models = [m for m in models if controlled_allowed(db, 'model', m.id, current_user)]
+    jobs = [j for j in jobs if controlled_allowed(db, 'job', j.id, current_user)]
     return {
         "orders": [{"id": o.id, "name": o.order_number or f"Order #{o.id}", "type": "order", "status": o.status.value if o.status else None} for o in orders],
         "products": [{"id": p.id, "name": p.name, "type": "product"} for p in products],
@@ -353,3 +403,13 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
         "spools": [{"id": s.id, "name": f"{s.filament.brand} {s.filament.name}" if s.filament else (s.vendor or f"Spool #{s.id}"), "qr_code": s.qr_code, "type": "spool"} for s in spools],
         "printers": [{"id": p.id, "name": p.name, "type": "printer"} for p in printers],
     }
+
+
+@router.get("/admin/support-bundle", dependencies=[Depends(require_interactive_session())])
+def download_support_bundle(user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    return _download_support_bundle(user, db, False)
+
+
+@router.post("/admin/support-bundle/acknowledge", dependencies=[Depends(require_interactive_session()), Depends(require_controlled_ack), Depends(require_action("settings.edit"))])
+def acknowledge_download_support_bundle(user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    return _download_support_bundle(user, db, True)

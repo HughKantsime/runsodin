@@ -50,6 +50,8 @@ class LicenseInfo:
         if not self.valid:
             return feature in TIERS["community"]["features"]
         tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
+        if feature == "controlled_parts":
+            return self.tier == "enterprise"
         if feature == "training_signoff":
             return self.tier in {"education", "enterprise"} and self.has_feature("education_workflows")
         if feature == "education_workflows":
@@ -66,7 +68,7 @@ class LicenseInfo:
         if not self.has_feature("education_workflows"):
             features.discard("education_workflows")
             features.discard("training_signoff")
-        return sorted(features)
+        return sorted(f for f in features if self.has_feature(f))
 
     def to_dict(self) -> Dict[str, Any]:
         from license_manager import TIERS, license_is_managed_externally, get_installation_id

@@ -29,7 +29,7 @@ _LATE_TRIGGER_MODULES = (
     '021_economic_identity', '022_economic_source_lifetimes',
     '023_timelapse_retirement_membership', '024_audit_actor',
     '025_spool_purchase_evidence', '026_global_order_origins',
-    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation', '049_education_classes',
+    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation', '049_education_classes', '055_controlled_history',
 )
 
 
@@ -59,6 +59,8 @@ def _canonical_sqlite_triggers():
                         if name in definitions:
                             raise ValueError('Duplicate packaged trigger')
                         definitions[name] = sql
+            elif suffix.startswith('055_'):
+                definitions = module.job_id_triggers()
             elif suffix.startswith(('037_', '038_', '039_', '040_', '049_')):
                 definitions = module.sqlite_triggers()
             elif suffix.startswith('022_'):
@@ -74,7 +76,7 @@ def _canonical_sqlite_triggers():
             for name, definition in definitions.items():
                 # Parse only the closed trusted producer's simple header.
                 header = re.match(r'CREATE\s+TRIGGER\s+([a-z_][a-z0-9_]*)\s+BEFORE\s+(?:INSERT|UPDATE|DELETE)\s+ON\s+([a-z_][a-z0-9_]*)\b', definition, re.I)
-                after_header = re.match(r'CREATE\s+TRIGGER\s+([a-z_][a-z0-9_]*)\s+AFTER\s+UPDATE\s+ON\s+([a-z_][a-z0-9_]*)\b', definition, re.I)
+                after_header = re.match(r'CREATE\s+TRIGGER\s+([a-z_][a-z0-9_]*)\s+AFTER\s+(?:INSERT|UPDATE|DELETE)\s+ON\s+([a-z_][a-z0-9_]*)\b', definition, re.I)
                 header = header or after_header
                 if not header or header[1] != name:
                     raise ValueError('Packaged trigger header differs')
@@ -148,7 +150,7 @@ _ORIGIN_COLUMNS = {
 _POWER_COLUMNS = 'operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason'
 
 
-def _required_sqlite_guards(columns, allowed):
+def _required_sqlite_guards(columns, allowed, present=()):
     from modules.system.backup_service import BackupValidationError
     required_tables = set()
     def require(table, names):
@@ -229,6 +231,9 @@ def _required_sqlite_guards(columns, allowed):
         require('printers', 'id')
         require('users', 'id')
         require('api_tokens', 'id')
+    if 'job_id_high_water' in columns or {'jobs_high_water_insert', 'jobs_high_water_delete'}.intersection(present):
+        require('job_id_high_water', 'singleton high_water')
+        require('jobs', 'id')
     # Table requirements do not imply unrelated late families on the same source.
     required = set()
     for name, (table, _) in allowed.items():
@@ -241,6 +246,8 @@ def _required_sqlite_guards(columns, allowed):
         if '_membership_' in name and not membership_active:
             continue
         if name.startswith('spools_purchase_') and 'spool_purchase_evidence' not in required_tables:
+            continue
+        if name.startswith('jobs_high_water_') and 'job_id_high_water' not in columns:
             continue
         if name.startswith('orders_global_origin_') and 'cost_global_order_origins' not in required_tables:
             continue

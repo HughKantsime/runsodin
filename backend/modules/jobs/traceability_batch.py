@@ -23,10 +23,13 @@ def export_batch(db, user, start, end, load):
         raise HTTPException(422, 'Choose a positive date range of at most 366 days (end exclusive)')
     identity = signing_identity()
     platform = user['role'] == 'admin' and user.get('group_id') is None
+    from core.controlled_parts import job_visibility
+    visibility, controlled_values = job_visibility(user, 'jobs')
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- job_visibility validates the jobs alias and emits fixed policy SQL; actor, dates, owner and limit are bound
     ids = db.execute(text('''SELECT id FROM jobs WHERE status='completed' AND actual_end>=:start AND actual_end<:end
         AND (:platform=1 OR charged_to_org_id=:owner)
         AND NOT EXISTS(SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-        ORDER BY id LIMIT :limit'''), {'start':start,'end':end,'platform':int(platform),'owner':user.get('group_id'), 'limit':MAX_JOBS+1}).scalars().all()
+        AND (''' + visibility + ''') ORDER BY id LIMIT :limit'''), {**controlled_values, 'start':start,'end':end,'platform':int(platform),'owner':user.get('group_id'), 'limit':MAX_JOBS+1}).scalars().all()
     db.rollback()
     if len(ids) > MAX_JOBS:
         raise HTTPException(413, f'More than {MAX_JOBS} jobs; choose a smaller date range')

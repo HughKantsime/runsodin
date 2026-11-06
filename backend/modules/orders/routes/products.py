@@ -52,6 +52,8 @@ def list_products(current_user: dict = Depends(require_role("viewer", scope="rea
 @router.post("", response_model=ProductResponse)
 def create_product(data: ProductCreate, current_user: dict = Depends(require_action("products.create", scope="write")), db: Session = Depends(get_db)):
     """Create a new product with optional BOM components."""
+    from core.controlled_request import authorize_references
+    authorize_references(db, current_user, data.model_dump())
     # Validate the complete supplied BOM before persisting the parent or any child.
     for component in data.components or []:
         model = db.query(Model).filter(Model.id == component.model_id).first()
@@ -175,6 +177,8 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
     if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
+    from core.controlled_parts import assert_access
+    assert_access(db, "model", data.model_id, current_user)
     comp = ProductComponent(
         product_id=product_id,
         model_id=data.model_id,

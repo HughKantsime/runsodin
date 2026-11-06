@@ -58,9 +58,21 @@ def test_compacted_size_cap_and_cleanup(tmp_path, monkeypatch):
     assert _marker(live) == 'kept'
 
 
+@pytest.fixture
+def unmarked_db(tmp_path):
+    from core.schema import bootstrap_database
+    engine = create_engine(f'sqlite:///{tmp_path / "unmarked.db"}')
+    bootstrap_database(engine)
+    try:
+        with sessionmaker(bind=engine)() as db:
+            yield db
+    finally:
+        engine.dispose()
+
+
 @pytest.mark.parametrize('oversized', [False, True])
 @pytest.mark.parametrize('postgres', [False, True])
-def test_upload_is_bounded_and_cleans_temporary_file(tmp_path, monkeypatch, oversized, postgres):
+def test_upload_is_bounded_and_cleans_temporary_file(tmp_path, monkeypatch, oversized, postgres, unmarked_db):
     from modules.system import routes_backup as routes
     cap = 2 * 1024 * 1024
     monkeypatch.setattr(routes, 'MAX_BACKUP_BYTES', cap)
@@ -87,11 +99,11 @@ def test_upload_is_bounded_and_cleans_temporary_file(tmp_path, monkeypatch, over
     if oversized:
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as error:
-            asyncio.run(routes.restore_backup(upload, {'id': 1}, None))
+            asyncio.run(routes.restore_backup(upload, {'id': 1}, unmarked_db))
         assert error.value.status_code == 413
         assert upload.remaining == 10 * cap - 1
     else:
-        assert asyncio.run(routes.restore_backup(upload, {'id': 1}, None))['status'] == 'staged'
+        assert asyncio.run(routes.restore_backup(upload, {'id': 1}, unmarked_db))['status'] == 'staged'
     assert not list(tmp_path.glob('odin-restore-upload-*'))
 
 

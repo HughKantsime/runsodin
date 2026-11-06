@@ -1,3 +1,4 @@
+import { controlledRestore } from '../../api/controlledDownload'
 import PageState from '../ui/PageState'
 import { useState, useRef, type ChangeEvent } from 'react'
 import { Upload, AlertTriangle, CheckCircle } from 'lucide-react'
@@ -31,7 +32,7 @@ export default function BackupRestore({ onRestored }: BackupRestoreProps) {
       const formData = new FormData()
       formData.append('file', confirmFile)
       
-      const res = await fetch('/api/backups/restore', {
+      const res = await controlledRestore('/api/backups/restore', {
         method: 'POST',
         credentials: 'include',
         body: formData,

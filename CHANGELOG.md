@@ -4,6 +4,15 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Enterprise controlled-part handling: reasoned CUI/ITAR/custom file and job markings, explicit named audiences independent of organizations, hard printer-tag constraints, protected names/previews/exports/cameras, acknowledged administrative downloads, and previewed timelapse retention through sealed media retirement. Printer status and controls remain available to nonmembers. Includes marking controls, GDPR handling, and additive migrations 054–055. See `docs/CONTROLLED_PARTS.md`.
+
+### Fixed
+
+- Controlled timelapse retention runs from each print’s completion or marking time, whichever is later; shortening grace and policy cycles cannot postpone existing purges. Deleted-job audiences retain immutable audit history without restricting reused job IDs. Log acknowledgements use POST and expiring stream tokens with bounded audit volume; failed MQTT protection checks now warn without exposing payloads.
+- Controlled names remain protected on idle printers after completion, in GDPR exports, scheduling conflicts, stored alerts, order SKUs and invoice PDFs, and retained audit details after job deletion. Log viewing now requires explicit privileged acknowledgement when controlled marks exist. Audience switches preserve the retention clock; cross-process MQTT policy refresh and nested response identity mappings are corrected.
+
 ## [2.0.45] - 2026-11-06
 
 <!-- summary: Enterprise gets a tamper-evident audit log with SIEM streaming and part traceability with signed certificates; Education gets classes, training sign-off, program reports, roster sync and term retention; SSO and license connections always go to the checked address. -->

@@ -224,7 +224,7 @@ def test_every_credential_write_or_bulk_read_route_is_interactive_only():
 # request URLs; the bundle includes logs and config). Pinned explicitly because
 # the static signals above cannot see "reads a log file".
 REQUIRED_INTERACTIVE_READS = {
-    ("GET", "/admin/logs"), ("GET", "/admin/logs/stream"), ("GET", "/admin/support-bundle"),
+    ("GET", "/admin/logs"), ("POST", "/admin/logs"), ("POST", "/admin/logs/stream-token"), ("GET", "/admin/logs/stream"), ("GET", "/admin/support-bundle"),
 }
 
 

@@ -259,7 +259,7 @@ def _deliver_webhook_digests(session, org_id, org_name, config, window_end, entr
             # A system-level target that carries its own digest webhook URL also gets them.
             if org_id is None and config.get("webhook_url") and _claim_org_webhook_send(session, None, window_end):
                 ok = _deliver_digest_webhook(config["webhook_url"], config.get("webhook_type", "generic"),
-                                             items, org_name, window_end)
+                                             _external_digest_rows(session, items), org_name, window_end)
                 _update_org_digest_status(session, None, window_end, "sent" if ok else "failed:webhook")
                 for item in items:
                     previous = outcome.get(id(item))
@@ -272,7 +272,7 @@ def _deliver_webhook_digests(session, org_id, org_name, config, window_end, entr
                 destination = _org_webhook_settings(session, owner)
             outcome = None
             if destination and _claim_org_webhook_send(session, owner, window_end):
-                ok = _deliver_digest_webhook(destination[0], destination[1], items, destination[2], window_end)
+                ok = _deliver_digest_webhook(destination[0], destination[1], _external_digest_rows(session, items), destination[2], window_end)
                 _update_org_digest_status(session, owner, window_end, "sent" if ok else "failed:webhook")
                 outcome = {id(item): ok for item in items}
             elif not destination:
@@ -322,7 +322,7 @@ def _deliver_global_webhook_digests(session, alerts: list, window_end):
             url = crypto.decrypt(raw_url)
         except Exception:
             url = raw_url
-        ok = _deliver_digest_webhook(url, wtype, selected, "system", window_end)
+        ok = _deliver_digest_webhook(url, wtype, _external_digest_rows(session, selected), "system", window_end)
         _update_org_digest_status(session, None, window_end, "sent" if ok else "failed:webhook", scope_key=scope)
         for a in selected:
             previous = outcome[id(a)]
@@ -635,6 +635,12 @@ def main_loop():
         _check_database_guardian()
         time.sleep(POLL_INTERVAL)
 
+
+
+
+def _external_digest_rows(session, rows):
+    from core.controlled_events import external_payload
+    return [external_payload(session, row) for row in rows]
 
 if __name__ == "__main__":
     from core.log_redaction import install_log_redaction

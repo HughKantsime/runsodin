@@ -26,6 +26,7 @@ _PROOF=object()
 _SCOPE='odin.private.audit_actor_scope'
 RELATIONS=tuple(sorted(('api_tokens','education_cost_center_grants','education_cost_centers',
  'education_submissions','education_upload_operations','jobs','models','print_files','printers',
+ 'controlled_files','controlled_jobs',
  'timelapse_frame_bindings','timelapse_frame_namespaces','timelapse_media_lifetimes','timelapse_media_versions',
  'timelapse_ownership_anchors','timelapse_publication_facts','timelapse_publications',
  'timelapse_retained_versions','timelapses','token_blacklist','users')))
@@ -198,6 +199,9 @@ def _action_database_matches(db,evidence):
 
 def fresh_action_principal(db,evidence):
     if type(evidence) is not ActionCredential or evidence.proof is not _PROOF or not _action_database_matches(db,evidence) or not evidence.scope.live or evidence.request.scope.get(_SCOPE) is not evidence.scope:_refuse('unknown_authority')
+    if evidence.kind=='controlled_retention':
+        from core.controlled_retention import retention_principal
+        return retention_principal(db,evidence.user_id,evidence.subject)
     row=db.execute(text('SELECT * FROM users WHERE id=:id'),{'id':evidence.user_id}).first()
     if row is None or not (row._mapping['is_active'] is True or (type(row._mapping['is_active']) is int and row._mapping['is_active']==1)):_refuse('unknown_authority')
     if evidence.kind=='legacy_global_api_key':
@@ -248,3 +252,12 @@ def lock_media_sources(db,groups):
             query=select(table).where(and_(*(key==expected[key.name] for key in keys))).with_for_update(read=True,nowait=True)
             actual=db.execute(query).mappings().one_or_none()
             if actual is None or dict(actual)!=expected:_refuse('ownership_changed')
+
+
+def controlled_retention_evidence(engine, identifier, nonce):
+    """Private daemon capability; never accepted from an HTTP request carrier."""
+    from types import SimpleNamespace
+    scope = RequestAuditScope(None)
+    request = SimpleNamespace(scope={_SCOPE: scope})
+    return ActionCredential(request, scope, 'controlled_retention', identifier, nonce,
+                            None, None, None, None, engine, _PROOF, purpose='retire')

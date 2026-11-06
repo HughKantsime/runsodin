@@ -114,6 +114,8 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.051_roster_sync",
         "core.schema.migrations.052_traceability",
         "core.schema.migrations.053_term_retention",
+        "core.schema.migrations.054_controlled_parts",
+        "core.schema.migrations.055_controlled_history",
         "core.schema.migrations.036_ctec_pilot",
     }
 )
@@ -495,6 +497,9 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
             from core.schema.education_archive_validation import validate_education_with_archive
             validate_education_with_archive(module, connection)
         else:
+            if migration_id == 'python:055-controlled-history':
+                from core.schema.job_identity_repair import repair_job_identity
+                repair_job_identity(connection)
             module.validate(connection)
     try:
         if prior:

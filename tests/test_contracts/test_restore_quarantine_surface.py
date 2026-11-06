@@ -12,10 +12,23 @@ import time
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
+from core.schema import bootstrap_database
 
 from modules.system import postgres_backup_service as b
 from modules.system import restore_artifacts
 from modules.system import routes_backup
+
+
+@pytest.fixture
+def notice_db(tmp_path):
+    engine = create_engine('sqlite:///' + str(tmp_path / 'notices.db'))
+    bootstrap_database(engine)
+    try:
+        with Session(engine) as db:
+            yield db
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture
@@ -38,25 +51,21 @@ def test_backups_list_shows_the_quarantined_archive_with_reason(quarantined):
     assert listed[0]["reason"] == "Archive schema differs" and "re-stage" in listed[0]["action"].lower()
 
 
-def test_quarantined_archive_can_be_staged_again_from_the_list(quarantined, monkeypatch):
+def test_quarantined_archive_can_be_staged_again_from_the_list(quarantined, monkeypatch, notice_db):
     paths, record, _ = quarantined
     staged = []
     monkeypatch.setattr(routes_backup, "_postgres_maintenance_config", lambda: ("postgresql://m@pg/postgres", "/a", "/b"))
     monkeypatch.setattr(routes_backup, "stage_postgres_restore", lambda path, *a, **k: staged.append(path) or {"candidate_sha256": "a" * 64})
     monkeypatch.setattr(routes_backup, "log_audit", lambda *a, **k: None)
-    class DB:
-        def commit(self): pass
-    result = routes_backup.stage_existing_backup(record["archive"], current_user={"id": 1}, db=DB())
+    result = routes_backup.stage_existing_backup(record["archive"], current_user={"id": 1}, db=notice_db)
     assert result["status"] == "staged" and staged == [paths.backups / record["archive"]]
     assert not list(paths.backups.glob("failed_restore_*"))
 
 
-def test_quarantined_archive_delete_removes_its_record(quarantined, monkeypatch):
+def test_quarantined_archive_delete_removes_its_record(quarantined, monkeypatch, notice_db):
     paths, record, _ = quarantined
     monkeypatch.setattr(routes_backup, "log_audit", lambda *a, **k: None)
-    class DB:
-        def commit(self): pass
-    routes_backup.delete_backup(record["archive"], current_user={"id": 1}, db=DB())
+    routes_backup.delete_backup(record["archive"], current_user={"id": 1}, db=notice_db)
     assert not list(paths.backups.glob("failed_restore_*"))
 
 
@@ -86,28 +95,24 @@ def test_quarantined_restores_are_retained_30_days(quarantined):
     assert b.quarantined_restores() == []
 
 
-def test_system_notice_is_active_until_the_archive_is_restaged(quarantined, monkeypatch):
+def test_system_notice_is_active_until_the_archive_is_restaged(quarantined, monkeypatch, notice_db):
     paths, record, _ = quarantined
-    notices = routes_backup.system_notices(current_user={"id": 1})["notices"]
+    notices = routes_backup.system_notices(current_user={"id": 1}, db=notice_db)["notices"]
     assert [(n["kind"], n["archive"], n["link"]) for n in notices] == [("restore_quarantined", record["archive"], "/settings?tab=system#backups")]
     assert "Archive schema differs" in notices[0]["message"] and notices[0]["severity"] == "critical"
     monkeypatch.setattr(routes_backup, "_postgres_maintenance_config", lambda: ("postgresql://m@pg/postgres", "/a", "/b"))
     monkeypatch.setattr(routes_backup, "stage_postgres_restore", lambda path, *a, **k: {"candidate_sha256": "a" * 64})
     monkeypatch.setattr(routes_backup, "log_audit", lambda *a, **k: None)
-    class DB:
-        def commit(self): pass
-    routes_backup.stage_existing_backup(record["archive"], current_user={"id": 1}, db=DB())
-    assert routes_backup.system_notices(current_user={"id": 1}) == {"notices": []}
+    routes_backup.stage_existing_backup(record["archive"], current_user={"id": 1}, db=notice_db)
+    assert routes_backup.system_notices(current_user={"id": 1}, db=notice_db) == {"notices": []}
 
 
-def test_system_notice_clears_when_the_archive_is_deleted(quarantined, monkeypatch):
+def test_system_notice_clears_when_the_archive_is_deleted(quarantined, monkeypatch, notice_db):
     paths, record, _ = quarantined
     monkeypatch.setattr(routes_backup, "log_audit", lambda *a, **k: None)
-    class DB:
-        def commit(self): pass
-    assert routes_backup.system_notices(current_user={"id": 1})["notices"]
-    routes_backup.delete_backup(record["archive"], current_user={"id": 1}, db=DB())
-    assert routes_backup.system_notices(current_user={"id": 1}) == {"notices": []}
+    assert routes_backup.system_notices(current_user={"id": 1}, db=notice_db)["notices"]
+    routes_backup.delete_backup(record["archive"], current_user={"id": 1}, db=notice_db)
+    assert routes_backup.system_notices(current_user={"id": 1}, db=notice_db) == {"notices": []}
 
 
 def test_system_notices_are_empty_on_sqlite_and_write_no_alerts(quarantined, monkeypatch):
@@ -117,11 +122,13 @@ def test_system_notices_are_empty_on_sqlite_and_write_no_alerts(quarantined, mon
     assert "INSERT INTO alerts" not in inspect.getsource(b)
 
 
-def test_system_notices_endpoint_requires_a_superadmin():
+def test_system_notices_endpoint_requires_a_superadmin(notice_db):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from core.dependencies import get_current_user
+    from core.db import get_db
     app = FastAPI(); app.include_router(routes_backup.router)
+    app.dependency_overrides[get_db] = lambda: notice_db
     with TestClient(app) as client:
         assert client.get("/system/notices").status_code in (401, 403)
         for principal in ({"id": 2, "role": "admin", "group_id": 5}, {"id": 3, "role": "viewer", "group_id": None}):

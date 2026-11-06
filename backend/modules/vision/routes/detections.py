@@ -457,8 +457,11 @@ def _not_training():
 
 # ============== Vigil AI: Frames ==============
 
-def _frame_response(current_user, printer_id, relative):
+def _frame_response(current_user, printer_id, relative, db):
     from fastapi.responses import Response
+    from core.controlled_parts import historical_camera_allowed, refuse
+    if not historical_camera_allowed(db, printer_id, current_user):
+        refuse(db, 'controlled_part_group_required', 'printer', printer_id)
     from modules.vision.training_service import maintenance,snapshot
     # Current printer membership cannot establish historical image ownership.
     if not maintenance(current_user):raise HTTPException(404,"Frame not found")
@@ -475,7 +478,7 @@ async def serve_training_frame(
     current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    return _frame_response(current_user, printer_id, f"{printer_id}/training/{filename}")
+    return _frame_response(current_user, printer_id, f"{printer_id}/training/{filename}", db)
 
 
 @router.get("/vision/frames/{printer_id}/{filename}", tags=["Vigil AI"])
@@ -485,7 +488,7 @@ async def serve_vision_frame(
     current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    return _frame_response(current_user, printer_id, f"{printer_id}/{filename}")
+    return _frame_response(current_user, printer_id, f"{printer_id}/{filename}", db)
 
 
 # ============== Vigil AI: Stats ==============

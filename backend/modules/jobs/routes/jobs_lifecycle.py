@@ -619,10 +619,11 @@ def move_job(
     ).first()
 
     if conflict:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Time slot conflicts with job '{conflict.item_name}'"
-        )
+        from core.controlled_parts import allowed
+        detail = (f"Time slot conflicts with job '{conflict.item_name}'"
+                  if allowed(db, 'job', conflict.id, current_user)
+                  else 'Time slot conflicts with another job')
+        raise HTTPException(status_code=400, detail=detail)
 
     # Moving a job onto a printer is an explicit printer choice: a pinned job's
     # pin follows the move (it never stays pointing at the old printer).

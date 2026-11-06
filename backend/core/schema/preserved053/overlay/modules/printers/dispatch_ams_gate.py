@@ -1,0 +1,258 @@
+"""Fresh post-upload check for one already-admitted, mapped attempt."""
+from core.material_identity import canonical_reported_material
+import copy
+import math
+import json
+import os
+import time
+from threading import Lock
+from dataclasses import dataclass
+from core.runtime_identity import read_runtime_identity, revalidate_runtime_identity
+from modules.printers.dispatch_admission import recheck_admitted
+from modules.printers.telemetry.bambu.ams_configuration import load_ams_configuration
+from modules.printers.telemetry.bambu.trusted_ams_acquisition import read_current_selected_ams
+
+
+@dataclass(frozen=True)
+class GateRefusal:
+    code: str
+    detail: str
+
+
+def record_refusal(gate, code, detail):
+    """Best-effort diagnostics must never change a clean refusal outcome."""
+    try:
+        if getattr(gate, "refusal", None) is None:
+            setattr(gate, "refusal", GateRefusal(code, detail))
+    except Exception:
+        pass
+    return False
+
+
+def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False, inspected_facts=None):
+    """Read-only source check. No admission, database transaction or device I/O."""
+    from modules.printers.services import inspect_ams_payload
+    from modules.printers.dispatch_options import _ams_plate_index
+    plate_index = _ams_plate_index(job)
+    if (type(mapping) is not list or not 1 <= len(mapping) <= 16
+            or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
+            or plate_index != 0):
+        raise ValueError('Explicit AMS dispatch requires supported source and plate')
+    stored_mapping = job.get('ams_mapping')
+    if isinstance(stored_mapping, str):
+        stored_mapping = json.loads(stored_mapping)
+    if derived:
+        if stored_mapping is not None:
+            raise ValueError('AMS selection differs from the admitted job')
+    elif (type(stored_mapping) is not list or stored_mapping != mapping
+            or any(type(slot) is not int for slot in stored_mapping)):
+        raise ValueError('AMS selection differs from the admitted job')
+    # Only options validation supplies facts, inspected from this same staged path/hash.
+    facts = inspected_facts if inspected_facts is not None else inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
+                               expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index,
+                               **({} if derived or job.get('education_submission_id') is not None else {'multi_source': True}))
+    sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
+    used = {source['source_index'] for source in sources}
+    if {i for i, slot in enumerate(mapping) if slot != -1} != used:
+        raise ValueError('AMS selection must cover every verified file source and no unused sources')
+    materials = {}
+    for source in sources:
+        slot = mapping[source['source_index']]
+        if slot in materials and materials[slot] != source['material']:
+            raise ValueError(f'AMS slot {slot + 1} maps sources with different materials')
+        materials[slot] = source['material']
+    source = sources[0]['source_index']
+    if derived and mapping != [-1] * source + [source]:
+        raise ValueError('Derived AMS selection must match the verified file source')
+    return facts
+
+
+def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, target_handle, source_facts=None):
+    """Private orchestrator boundary; callers must already own the admitted attempt.
+
+    No transaction stays open during file inspection or the owned network read.
+    Returned callback cannot grant a new claim or renew original evidence.
+    """
+    captured = dict(admission_inputs)
+    for field in ('job', 'creds', 'education_reservation'):
+        if field in captured:
+            captured[field] = copy.deepcopy(captured[field])
+    job = captured['job']
+    derived = job.get('ams_mapping') is None
+    if derived:
+        from modules.printers.dispatch_options import _requires_ams_mapping
+        if not _requires_ams_mapping(captured['creds']):
+            raise ValueError('Derived AMS selection requires a Bambu printer with AMS')
+    # Only the orchestrator supplies facts, from this exact staged snapshot before
+    # the readiness window. Direct callers retain the full inspection.
+    facts = source_facts if source_facts is not None else preflight_ams_source(
+        job, mapping=mapping, staged_path=staged_path,
+        payload_sha256=captured['payload_sha256'], derived=derived)
+    expected_mapping = tuple(mapping)
+    sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
+    slots = tuple(sorted({mapping[source['source_index']] + 1 for source in sources}))
+    from modules.printers.printer_models import bambu_nozzle_count
+    dual = bambu_nozzle_count(captured['creds'].get('machine_type') or captured['creds'].get('model')) == 2
+    check_bindings = dual and len(sources) > 1
+    runtime = read_runtime_identity()
+    with engine.connect() as conn:
+        configuration = load_ams_configuration(conn, job['printer_id'])
+    if configuration.owner_org_id != captured['creds'].get('org_id'):
+        raise ValueError('AMS owner changed')
+
+    invocation_lock = Lock()
+    prepared = False
+    preparation_ok = False
+    used = False
+    snapshot = None
+    read_ms = None
+
+    def refuse(code, detail):
+        if read_ms is not None:
+            detail += f'; ams_read_ms={read_ms}'
+        return record_refusal(checked, code, detail)
+
+    def runtime_current():
+        try:
+            revalidate_runtime_identity(runtime)
+        except Exception:
+            return refuse("runtime_changed", "Runtime identity could not be revalidated")
+        return True
+
+    def current():
+        if tuple(mapping) != expected_mapping or any(type(slot) is not int for slot in mapping):
+            return refuse("mapping_changed", "AMS selection changed")
+        if target_handle.held() is not True:
+            return refuse("target_lock_lost", "Printer target lock is no longer held")
+        if not runtime_current():
+            return False
+        admission = recheck_admitted(engine, **captured)
+        if not admission.admitted:
+            if str(getattr(admission, 'reason', '')).startswith('printer_maintenance_hold:'):
+                return refuse('printer_maintenance_hold', admission.reason)
+            return refuse("admission_changed", f"Dispatch admission is no longer valid: {getattr(admission, 'reason', 'Admission recheck refused')}")
+        with engine.connect() as conn:
+            present = load_ams_configuration(conn, job['printer_id'])
+        if present.owner_org_id != configuration.owner_org_id:
+            return refuse("ams_owner_changed", "AMS owner changed")
+        if present != configuration:
+            return refuse("ams_configuration_changed", "AMS configuration changed")
+        return True
+
+    def acquire(deadline=None, nozzle_dual=None):
+        nonlocal snapshot, read_ms
+        if not current():
+            return False
+        started = time.monotonic()
+        try:
+            result = read_current_selected_ams(configuration.transport,
+                configuration_key=configuration.configuration_key,
+                owner_org_id=configuration.owner_org_id, selected_slots=slots,
+                timeout=max(0.0, min(10.0, deadline - time.monotonic())) if deadline is not None else 10.0, operation_id=captured['token'],
+                **({'nozzle_dual': nozzle_dual} if nozzle_dual is not None else {}))
+        finally:
+            read_ms = round((time.monotonic() - started) * 1000)
+        if result.success is not True:
+            return refuse("ams_read_failed", "Fresh AMS read failed")
+        if result.cleanup_confirmed is not True:
+            return refuse("ams_read_cleanup_unconfirmed", "AMS read cleanup was not confirmed")
+        if (result.runtime_incarnation != runtime.incarnation or result.clock_domain != runtime.clock_domain):
+            return refuse("ams_read_runtime_mismatch", "AMS read belongs to another runtime")
+        snapshot = result.snapshot
+        return valid()
+
+    def valid():
+        if snapshot is None:
+            return refuse("snapshot_missing", "Fresh AMS snapshot is missing")
+        if (snapshot.incarnation != captured['token'] or snapshot.configuration_key != configuration.configuration_key
+                or snapshot.owner_org_id != configuration.owner_org_id):
+            return refuse("snapshot_identity_mismatch", "AMS snapshot identity does not match this attempt")
+        if snapshot.idle_without_error is not True:
+            return refuse("printer_not_idle_or_error", f"gcode_state={getattr(snapshot, 'gcode_state', None)}; print_error={getattr(snapshot, 'print_error', None)}; active_hms_codes={getattr(snapshot, 'active_hms_codes', None)}")
+        # Preserve the single-tray refusal contract, including its actionable
+        # count/slot details, while multi-tray reads identify the missing slot.
+        if len(slots) == 1:
+            if len(snapshot.trays) != 1:
+                return refuse("tray_count", f"Selected tray count={len(snapshot.trays)}; expected=1")
+            if snapshot.trays[0].slot_number != slots[0]:
+                return refuse("tray_slot_mismatch", f"Reported slot={snapshot.trays[0].slot_number}; expected slot={slots[0]}")
+        trays = {tray.slot_number: tray for tray in snapshot.trays}
+        missing = set(slots) - set(trays)
+        if missing:
+            return refuse("tray_missing", f"AMS slot {min(missing)} is missing from the fresh snapshot")
+        if len(snapshot.trays) != len(slots) or set(trays) != set(slots):
+            return refuse("tray_slot_mismatch", f"Reported slots={sorted(trays)}; expected slots={list(slots)}")
+        for source in sources:
+            tray = trays[mapping[source['source_index']] + 1]
+            if tray.material_state != 'reported':
+                if tray.material_state == 'explicit_empty':
+                    return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")
+                return refuse("tray_material_unreported", f"AMS slot {tray.slot_number}: set the filament type on the printer")
+            if canonical_reported_material(tray.material) != source['material']:
+                return refuse("material_mismatch", f"Reported material={canonical_reported_material(tray.material)}; required material={canonical_reported_material(source['material'])} (AMS slot {tray.slot_number})")
+            if tray.mechanically_ready is not None:
+                return refuse("tray_not_mechanically_ready", f"AMS slot {tray.slot_number}: mechanical readiness is unsupported")
+            if check_bindings:
+                extruder = source.get('extruder')
+                if type(extruder) is not int or extruder not in (0, 1):
+                    return refuse("source_extruder_unverified", f"File source {source['source_index'] + 1}: the slicer's nozzle map can't be verified")
+                if type(tray.extruder) is not int or tray.extruder not in (0, 1):
+                    return refuse("ams_binding_unverified", f"AMS slot {tray.slot_number}: H2D nozzle binding is missing or unsupported")
+                if tray.extruder != extruder:
+                    return refuse("ams_binding_mismatch", f"AMS slot {tray.slot_number} feeds extruder {tray.extruder}; file source {source['source_index'] + 1} requires extruder {extruder}")
+        if not current():
+            return False
+        if not runtime_current():
+            return False
+        if type(snapshot.received_monotonic) not in (int, float) or not math.isfinite(snapshot.received_monotonic):
+            return refuse("snapshot_stale", "Snapshot age seconds=invalid")
+        age = time.monotonic() - snapshot.received_monotonic
+        if not (type(age) in (int, float) and math.isfinite(age) and 0 <= age < 10):
+            return refuse("snapshot_stale", f"Snapshot age seconds={format(age, '.1f') if math.isfinite(age) else 'invalid'}")
+        if target_handle.held() is not True:
+            return refuse("target_lock_lost", "Printer target lock is no longer held")
+        return True
+
+    def prepare(*, deadline=None, nozzle_dual=None):
+        nonlocal prepared, preparation_ok
+        with invocation_lock:
+            if prepared or used:
+                return refuse("already_used", "AMS gate preparation is single use")
+            # Never reacquire after failure, or renew a proof's receipt time.
+            prepared = True
+            try:
+                preparation_ok = acquire(deadline, nozzle_dual)
+                return preparation_ok
+            except Exception as exc:
+                return refuse("exception:" + type(exc).__name__, "AMS gate raised an exception")
+
+    def checked():
+        nonlocal prepared, preparation_ok, used
+        with invocation_lock:
+            if used:
+                return refuse("already_used", "AMS gate is single use")
+            used = True
+            try:
+                # Preserve the private direct-call contract for callers/tests.
+                # Dispatch prepares before connecting and takes only this cheap
+                # one-shot final check at the command boundary.
+                if not prepared:
+                    prepared = True
+                    preparation_ok = acquire()
+                return preparation_ok is True and valid()
+            except Exception as exc:
+                return refuse("exception:" + type(exc).__name__, "AMS gate raised an exception")
+
+    def prepare_report(*, deadline, dual):
+        """Prepare once and share only nozzle facts from the trusted tray packet."""
+        if not prepare(deadline=deadline, nozzle_dual=dual):
+            return None
+        if type(snapshot.nozzles) is not tuple:
+            refuse('nozzle_read_failed', 'Fresh printer report could not be verified')
+            return None
+        return snapshot.nozzles
+
+    checked.prepare_report = prepare_report
+    checked.refusal = None
+    checked.prepare = prepare
+    return checked

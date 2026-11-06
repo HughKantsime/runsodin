@@ -17,8 +17,6 @@ from backend.scripts.seed_edu_sandbox import (
     EduSeedError,
     seed_sqlite,
 )
-from core.base import Base
-from core.db import run_core_migrations, run_module_migrations
 
 
 def _initialized_database(tmp_path: Path) -> Path:
@@ -36,9 +34,10 @@ def _initialized_database(tmp_path: Path) -> Path:
     import modules.system.models  # noqa: F401
     import modules.vision.models  # noqa: F401
 
-    Base.metadata.create_all(create_engine(database_url))
-    run_core_migrations(database_url=database_url)
-    run_module_migrations(Path(__file__).parents[2] / "backend" / "modules", database_url=database_url)
+    from core.schema import bootstrap_database
+    engine = create_engine(database_url)
+    bootstrap_database(engine)
+    engine.dispose()
     upsert_personas(
         str(database),
         [

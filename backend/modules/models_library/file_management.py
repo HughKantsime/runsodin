@@ -62,8 +62,10 @@ def _file_has_active_jobs(db, file_id):
 def list_generic_files(db, actor, limit, include_scheduled):
     files, offset = [], 0
     while len(files) < limit:
-        predicate = '' if include_scheduled else ' WHERE NOT ' + _ACTIVE_FILE_JOBS
-        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from the closed set {'', ' WHERE NOT ' + _ACTIVE_FILE_JOBS}; values are bound
+        from core.controlled_parts import file_visibility
+        visible, values = file_visibility(actor, 'print_files.id')
+        predicate = ' WHERE (' + visible + ')' + ('' if include_scheduled else ' AND NOT ' + _ACTIVE_FILE_JOBS)
+        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {**values, 'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from the closed set {'', ' WHERE NOT ' + _ACTIVE_FILE_JOBS}; values are bound
         if not candidates:
             break
         offset += len(candidates)

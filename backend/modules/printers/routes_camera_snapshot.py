@@ -36,6 +36,7 @@ async def camera_snapshot(printer_id: int, db: Session = Depends(get_db),
                         raise HTTPException(502, "Camera snapshot too large")
         if not frame.startswith(b"\xff\xd8\xff"):
             raise HTTPException(502, "Camera snapshot unavailable")
+        await run_in_threadpool(get_camera_stream, printer_id, db, user)
         await run_in_threadpool(audit_view, db, "camera.viewed", "printer", printer_id, "snapshot")
         return Response(bytes(frame), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     except httpx.HTTPError:
@@ -68,7 +69,7 @@ def _mjpeg_check(bind, auth_kind, credential, user_id, printer_id):
         _authorize_media(user)
         get_camera_stream(printer_id, db, user)
         printer = db.get(Printer, printer_id)
-        return {"user_id": user["id"], "token_id": user.get("_token_id"),
+        return {"user_id": user["id"], "auth_kind": auth_kind, "token_id": user.get("_token_id"),
                 "privileged": user["role"] in ("admin", "operator")
                 and check_org_access(user, printer.org_id)}
 
@@ -106,9 +107,11 @@ async def camera_mjpeg(printer_id: int, request: Request, db: Session = Depends(
             per_printer=MJPEG_MAX_STREAMS_PER_PRINTER,
         )
 
+    from modules.printers.controlled_camera import frame_guard
     return await mjpeg_relay.open_mjpeg(
         printer_id, check=lambda: _mjpeg_check(bind, auth_kind, credential, user_id, printer_id),
         sync=sync, claim=claim,
         release=lambda entry: mjpeg_relay.release_stream(mjpeg_relay.STREAMS, entry),
         revalidate_seconds=MJPEG_REVALIDATE_SECONDS, audit=record,
+        check_frame=frame_guard(bind, printer_id),
     )

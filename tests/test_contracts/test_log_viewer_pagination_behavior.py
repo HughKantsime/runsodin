@@ -3,13 +3,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from modules.system import routes_admin
+from tests.test_contracts.test_controlled_parts import database
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(tmp_path, monkeypatch, database):
     path = tmp_path / 'synthetic.log'
     path.write_text(''.join(f'[INFO] Synthetic line {i}\n' for i in range(1, 8)))
     monkeypatch.setattr(routes_admin, '_LOG_FILES', {'backend': str(path), 'supervisord': str(path)})
     app = FastAPI()
+    from core.db import get_db
+    app.dependency_overrides[get_db] = lambda: database
     app.include_router(routes_admin.router, prefix='/api')
     route = next(r for r in app.routes if r.path == '/api/admin/logs')
     auth = next(d.call for d in route.dependant.dependencies if d.name == 'user')
@@ -23,16 +26,16 @@ def client(tmp_path, monkeypatch):
 
 def test_tail_default_and_older_pages_preserve_original_order_and_append_snapshot(client):
     http, path = client
-    first = http.get('/api/admin/logs', params={'lines': 3}).json()
+    first = http.post('/api/admin/logs', params={'lines': 3}).json()
     assert first['lines'] == [f'[INFO] Synthetic line {i}' for i in (5, 6, 7)]
     with path.open('a') as file:
         file.write('[INFO] Synthetic appended line\n')
-    second = http.get('/api/admin/logs', params={'lines': 3, 'cursor': first['next_cursor']}).json()
+    second = http.post('/api/admin/logs', params={'lines': 3, 'cursor': first['next_cursor']}).json()
     assert second['lines'] == [f'[INFO] Synthetic line {i}' for i in (2, 3, 4)]
-    last = http.get('/api/admin/logs', params={'lines': 3, 'cursor': second['next_cursor']}).json()
+    last = http.post('/api/admin/logs', params={'lines': 3, 'cursor': second['next_cursor']}).json()
     assert last['lines'] == ['[INFO] Synthetic line 1']
     assert last['next_cursor'] is None
-    original = http.get('/api/admin/logs', params={'lines': 3, 'cursor': first['page_cursor']}).json()
+    original = http.post('/api/admin/logs', params={'lines': 3, 'cursor': first['page_cursor']}).json()
     assert original['lines'] == first['lines']
 
 
@@ -40,40 +43,40 @@ def test_filtered_pagination_only_counts_matching_lines(client):
     http, path = client
     path.write_text('[INFO] Alpha\n[ERROR] Synthetic 1\n[INFO] Noise\n[ERROR] Synthetic 2\n[ERROR] Synthetic 3\n')
     params = {'lines': 2, 'level': 'error', 'search': 'SYNTHETIC'}
-    first = http.get('/api/admin/logs', params=params).json()
+    first = http.post('/api/admin/logs', params=params).json()
     assert first['lines'] == ['[ERROR] Synthetic 2', '[ERROR] Synthetic 3']
-    last = http.get('/api/admin/logs', params={**params, 'cursor': first['next_cursor']}).json()
+    last = http.post('/api/admin/logs', params={**params, 'cursor': first['next_cursor']}).json()
     assert last['lines'] == ['[ERROR] Synthetic 1']
     assert last['next_cursor'] is None
 
 
 def test_supervisord_fixed_source_is_served_and_unknown_source_cannot_read_paths(client):
     http, _ = client
-    assert http.get('/api/admin/logs', params={'source': 'supervisord', 'lines': 1}).json()['lines'] == ['[INFO] Synthetic line 7']
-    assert http.get('/api/admin/logs', params={'source': '/etc/passwd'}).json()['lines'] == []
+    assert http.post('/api/admin/logs', params={'source': 'supervisord', 'lines': 1}).json()['lines'] == ['[INFO] Synthetic line 7']
+    assert http.post('/api/admin/logs', params={'source': '/etc/passwd'}).json()['lines'] == []
 
 
 @pytest.mark.parametrize('params', [{'lines': 0}, {'lines': 5001}, {'cursor': 'x' * 129}])
 def test_page_input_bounds(client, params):
-    assert client[0].get('/api/admin/logs', params=params).status_code == 422
+    assert client[0].post('/api/admin/logs', params=params).status_code == 422
 
 
 @pytest.mark.parametrize('cursor', ['invalid', '1:2:3:-1', '1:2:3:4', '1:2:3:0:5'])
 def test_malformed_cursor_rejected(client, cursor):
-    assert client[0].get('/api/admin/logs', params={'cursor': cursor}).status_code == 400
+    assert client[0].post('/api/admin/logs', params={'cursor': cursor}).status_code == 400
 
 
 def test_truncation_requires_refresh(client):
     http, path = client
-    cursor = http.get('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
+    cursor = http.post('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
     path.write_text('[INFO] Short\n')
-    assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
+    assert http.post('/api/admin/logs', params={'cursor': cursor}).status_code == 409
 
 
 @pytest.mark.parametrize('rotate', ['rename', 'delete'])
 def test_rotation_requires_refresh(client, rotate):
     http, path = client
-    cursor = http.get('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
+    cursor = http.post('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
     device, inode, snapshot, _ = map(int, cursor.split(':'))
     # Holding the old file open keeps its inode allocated, so the new file can't be given it.
     with path.open('rb'):
@@ -85,15 +88,15 @@ def test_rotation_requires_refresh(client, rotate):
         current = path.stat()
         # The file's identity is all that differs: it is long enough for the cursor's snapshot.
         assert (current.st_dev, current.st_ino) != (device, inode) and current.st_size >= snapshot
-        assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
+        assert http.post('/api/admin/logs', params={'cursor': cursor}).status_code == 409
 
 
 def test_large_physical_line_is_bounded_and_still_one_pagination_entry(client):
     http, path = client
     path.write_text('x' * (routes_admin._MAX_LOG_LINE_BYTES * 4) + '\n[INFO] Next\n')
-    page = http.get('/api/admin/logs', params={'lines': 1}).json()
+    page = http.post('/api/admin/logs', params={'lines': 1}).json()
     assert page['lines'] == ['[INFO] Next']
-    older = http.get('/api/admin/logs', params={'lines': 1, 'cursor': page['next_cursor']}).json()
+    older = http.post('/api/admin/logs', params={'lines': 1, 'cursor': page['next_cursor']}).json()
     assert len(older['lines']) == 1
     assert len(older['lines'][0]) <= routes_admin._MAX_LOG_LINE_BYTES + 20
     assert older['lines'][0].endswith('[line truncated]')
@@ -106,4 +109,4 @@ def test_real_superadmin_dependency_retained(client, principal, status):
     dependency = next(dependency for dependency in route.dependant.dependencies if dependency.name == 'user')
     http.app.dependency_overrides.pop(dependency.call)
     http.app.dependency_overrides[dependency.dependencies[0].call] = lambda: principal
-    assert http.get('/api/admin/logs', params={'lines':1}).status_code == status
+    assert http.post('/api/admin/logs', params={'lines':1}).status_code == status

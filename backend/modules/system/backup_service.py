@@ -11,8 +11,6 @@ import contextlib
 import fcntl
 import hashlib
 import json
-import importlib
-import re
 import os
 import shutil
 import sqlite3
@@ -234,8 +232,8 @@ def validate_database(path: Path) -> dict[str, object]:
                     raise BackupValidationError(
                         "Backup contains unexpected triggers or views"
                     )
-            required_guards = _required_sqlite_guards(all_columns, allowed_triggers)
             present_guards = {name for kind, name, _, _ in objects if kind == 'trigger'}
+            required_guards = _required_sqlite_guards(all_columns, allowed_triggers, present_guards)
             if required_guards - present_guards:
                 raise BackupValidationError('Backup is missing required canonical trigger guards')
         finally:
@@ -529,6 +527,8 @@ def apply_pending_restore(
             _discard_invalid_pending(paths, type(exc).__name__)
             raise
         validate_database(paths.database)
+        from modules.system.sqlite_restore_identity import job_identity_floor, preserve_job_identity
+        live_job_floor = job_identity_floor(paths.database)
         checkpoint = sqlite3.connect(str(paths.database))
         try:
             checkpoint.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
@@ -558,6 +558,8 @@ def apply_pending_restore(
             os.replace(paths.pending, paths.database)
             _secure(paths.database)
             _remove_sidecars(paths.database)
+            validate_database(paths.database)
+            preserve_job_identity(paths.database, live_job_floor)
             validate_database(paths.database)
             manifest.update(
                 {

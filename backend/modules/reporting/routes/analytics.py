@@ -46,7 +46,9 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     active_printers = active_printer_query.count()
 
     # Job queries — org-scoped users see jobs charged to their org + unscoped
-    job_query = db.query(Job)
+    from core.controlled_parts import job_visibility
+    controlled, controlled_params = job_visibility(current_user)
+    job_query = db.query(Job).filter(text(controlled)).params(**controlled_params)
     if should_filter_org(current_user, org):
         job_org_filter = (Job.charged_to_org_id == org) | (Job.charged_to_org_id == None)
         job_query = job_query.filter(job_org_filter)
@@ -79,7 +81,9 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     completed_today += mqtt_completed_today
 
     # Model queries — org-scoped users see their org's models + unscoped
-    model_query = db.query(Model)
+    from core.controlled_parts import model_visibility
+    model_clause, model_params = model_visibility(current_user)
+    model_query = db.query(Model).filter(text(model_clause)).params(**model_params)
     if should_filter_org(current_user, org):
         model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
     total_models = model_query.count()
@@ -201,7 +205,9 @@ def get_analytics(
     range_start = (now - timedelta(days=days)).replace(tzinfo=None) if days else None
 
     # Get all models with profitability data
-    model_query = db.query(Model)
+    from core.controlled_parts import model_visibility
+    model_clause, model_params = model_visibility(current_user)
+    model_query = db.query(Model).filter(text(model_clause)).params(**model_params)
     if should_filter_org(current_user, org):
         model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
     models = model_query.all()
@@ -237,7 +243,9 @@ def get_analytics(
     } for m in models_by_value_asc]
 
     # Jobs stats
-    job_query = db.query(Job)
+    from core.controlled_parts import job_visibility
+    controlled, controlled_params = job_visibility(current_user)
+    job_query = db.query(Job).filter(text(controlled)).params(**controlled_params)
     if should_filter_org(current_user, org):
         job_query = job_query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     tenant_jobs = job_query.all()
@@ -372,7 +380,7 @@ def get_analytics(
     # valued exactly like the summary totals (unknown quantities are not valued).
     series_days = days or 30
     series_start = (now - timedelta(days=series_days)).replace(tzinfo=None)
-    recent_jobs_q = db.query(Job).filter(Job.created_at >= series_start)
+    recent_jobs_q = job_query.filter(Job.created_at >= series_start)
     if should_filter_org(current_user, org):
         recent_jobs_q = recent_jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     recent_jobs = recent_jobs_q.all()
@@ -467,6 +475,9 @@ def get_failure_analytics(
         db.query(Job)
         .filter(Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]), Job.created_at >= cutoff)
     )
+    from core.controlled_parts import job_visibility
+    clause, params = job_visibility(current_user)
+    jobs_q = jobs_q.filter(text(clause)).params(**params)
     if should_filter_org(current_user, org):
         jobs_q = jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     jobs = jobs_q.all()
@@ -507,7 +518,8 @@ def get_failure_analytics(
     for j in jobs:
         if j.model and not check_org_access(current_user, j.model.org_id):
             continue
-        name = j.model.name if j.model else j.item_name
+        from core.controlled_parts import allowed
+        name = (j.model.name if j.model else j.item_name) if allowed(db, "job", j.id, current_user) else "Controlled work"
         m = by_model.setdefault(name, {"completed": 0, "failed": 0})
         if j.status.value == "completed":
             m["completed"] += 1
@@ -598,6 +610,9 @@ def get_time_accuracy(
             Job.actual_end >= cutoff,
         )
     )
+    from core.controlled_parts import job_visibility
+    clause, params = job_visibility(current_user)
+    completed_q = completed_q.filter(text(clause)).params(**params)
     if should_filter_org(current_user, org):
         completed_q = completed_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     completed = completed_q.all()

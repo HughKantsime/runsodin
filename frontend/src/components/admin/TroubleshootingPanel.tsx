@@ -52,7 +52,7 @@ export default function TroubleshootingPanel() {
   async function createReport() {
     setBusy('report'); setError(''); setReport(null)
     try {
-      const result = await fetchAPI<Report>('/system/troubleshooting/report', { method: 'POST', body: JSON.stringify({ problem, include_logs: logs }) })
+      const result = await fetchAPI<Report>('/system/troubleshooting/report', { method: 'POST', headers: logs ? { 'X-ODIN-Controlled-Ack': 'true' } : {}, body: JSON.stringify({ problem, include_logs: logs }) })
       setReport({ ...result, included: [...(result.included || []), ...(printer ? ['latest selected-printer checks'] : []), ...(transfer ? ['latest selected-printer transfer checks'] : [])], printer_checks: printer, transfer_checks: transfer })
     } catch (e) { setError(e instanceof Error ? e.message : 'Support report could not be created.') }
     finally { setBusy('') }
@@ -89,7 +89,7 @@ export default function TroubleshootingPanel() {
       <section className="mt-5"><h3 className="font-semibold">Support report</h3>
         <label htmlFor="diagnostic-problem" className="block text-sm">What happened? Avoid names, passwords and student information.</label>
         <textarea id="diagnostic-problem" maxLength={2000} className="w-full rounded-md p-2 bg-[var(--brand-input-bg)]" value={problem} disabled={Boolean(busy)} onChange={e => { setProblem(e.target.value); setReport(null) }}/>
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={logs} disabled={Boolean(busy)} onChange={e => { setLogs(e.target.checked); setReport(null) }}/>Include recent filtered logs. Review them for personal information before sharing.</label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" checked={logs} disabled={Boolean(busy)} onChange={e => { setLogs(e.target.checked); setReport(null) }}/>Include recent filtered logs. I acknowledge these may contain controlled part names and details; review before sharing.</label>
         <div className="mt-3"><Button disabled={Boolean(busy)} onClick={createReport}>{busy === 'report' ? 'Preparing report…' : 'Preview support report'}</Button></div>
         {report && <div className="mt-3">
           <p className="text-sm">Review the full report below. Nothing has been sent.</p>

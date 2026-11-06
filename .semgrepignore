@@ -85,3 +85,6 @@ testsuite/
 /backend/core/audit_integrity_legacy.py
 # migrator checksum registry; canonical_projection uses fixed FIELDS/a. and dialect expressions, no input values
 /backend/core/schema/migrations/047_audit_integrity.py
+
+# Frozen released 2.0.45 sources, manifest-pinned by preserved053/integrity.py.
+/backend/core/schema/preserved053/overlay/

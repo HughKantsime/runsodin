@@ -101,6 +101,11 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/education/term-retention/{term_id}/purge"),
         ("POST", "/api/education/term-retention/{term_id}/anonymize"),
         ("POST", "/api/education/term-retention/erasures/{user_id}/resume"),
+        ("POST", "/api/backups/{filename}/acknowledge"),
+        ("POST", "/api/admin/support-bundle/acknowledge"),
+        ("POST", "/api/controlled-parts/audiences"),
+        ("PUT", "/api/controlled-parts/audiences/{audience_id}"),
+        ("DELETE", "/api/controlled-parts/audiences/{audience_id}"),
         ("PUT", "/api/config/require-job-approval"),
         ("PUT", "/api/config/require-mfa"),
         ("PUT", "/api/settings/energy-rate"),
@@ -123,7 +128,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/prints"),
         ("POST", "/api/archives/{archive_id}/reprint"),
     ],
-    "jobs.edit": [
+    "jobs.edit": [("POST", "/api/controlled-parts/retention/acknowledge"), ("PUT", "/api/controlled-parts/jobs/{identifier}"),
         ("PATCH", "/api/jobs/{job_id}"),
         ("POST", "/api/jobs/bulk-update"),
         ("PATCH", "/api/jobs/reorder"),
@@ -193,7 +198,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/models"),
         ("POST", "/api/models/{model_id}/revisions"),
     ],
-    "models.edit": [
+    "models.edit": [("PUT", "/api/controlled-parts/files/{identifier}"),
         ("PATCH", "/api/print-files/{file_id}/name"),
         ("POST", "/api/models/{model_id}/hide"),
         ("PATCH", "/api/models/{model_id}"),
@@ -327,6 +332,7 @@ _EDU = "Education workflow: governed by cost-center grants (Education principals
 _ADMIN = "user and organization administration: admin role, no matrix key"
 
 WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
+    ("POST", "/api/system/diagnostics"): "Admin diagnostics read; install-wide logs additionally require interactive superadmin and controlled acknowledgement.",
     ("PUT", "/api/printers/{printer_id}/maintenance-state"): "Safety hold administration is fixed admin-only, with write:printers scope and owner check; not delegable via the permissions matrix.",
     ("POST", "/api/inventory/conflicts/resolve"): "admin role; audited explicit inventory conflict resolution is stricter than spools.edit",
     # Platform administration (superadmin)
@@ -356,6 +362,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("PUT", "/api/settings/education-mode"), ("PUT", "/api/settings/language"),
         ("POST", "/api/setup/complete"), ("POST", "/api/setup/printer"),
         ("PUT", "/api/smtp-config"),
+        ("POST", "/api/admin/logs"), ("POST", "/api/admin/logs/stream-token"),
         ("POST", "/api/system/troubleshooting/printer"), ("POST", "/api/system/troubleshooting/report"),
         ("POST", "/api/system/troubleshooting/server"),
         ("POST", "/api/system/notices/{kind}/dismiss"),  # license expiry / Pro trial notices (cert-trial)
@@ -433,6 +440,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
 
 # Every /api/education/* write is an Education workflow route.
 WRITE_EXEMPT_PREFIXES: dict[str, str] = {"/api/education/": _EDU}
+
 
 
 def write_exemption(method: str, path: str):

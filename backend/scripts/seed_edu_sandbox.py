@@ -230,10 +230,12 @@ def seed_connection(connection, sandbox_id: str) -> dict[str, object]:
     ):
         note = f"edu-sandbox:{sandbox_id}:{suffix}"
         if _one_id(connection, "SELECT id FROM jobs WHERE notes=?", (note,)) is None:
-            connection.execute(
+            from core.job_identity import insert_job
+            insert_job(connection,
                 "INSERT INTO jobs (model_id, item_name, quantity, status, priority, printer_id, duration_hours, colors_required, filament_type, notes, estimated_cost, suggested_price, order_item_id, quantity_on_bed, submitted_by, approved_by, charged_to_user_id, charged_to_org_id, required_tags, target_type, queue_position, hold, is_locked) "
                 "VALUES (?, ?, 1, ?, 3, ?, 0.75, 'blue', 'PLA', ?, 0.58, 0, ?, 1, ?, ?, ?, ?, '[]', 'specific', ?, FALSE, FALSE)",
                 (model_id, f"Northstar Badge ({suffix})", status, printer_id, note, order_item_id, submitted, approved, submitted, org_id, 1 if status == "submitted" else None),
+                postgres=getattr(connection, "_postgres", False),
             )
     if _one_id(connection, "SELECT id FROM alerts WHERE title=?", ("Northstar Inert Printer Reminder",)) is None:
         connection.execute(

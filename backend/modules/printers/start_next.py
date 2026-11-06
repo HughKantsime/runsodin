@@ -68,7 +68,7 @@ def start(db, printer, user, data, *, background=False):
     if data.bed_clear_confirmed is not True:
         raise HTTPException(422, 'Confirm the bed is clear before starting')
     visible = lambda job: check_org_access(user, job.charged_to_org_id)
-    suggestion = next_suggestion(db, printer, visible=visible)
+    suggestion = next_suggestion(db, printer, visible=visible, actor=user)
     if suggestion['job_id'] != data.suggested_job_id or suggestion['fingerprint'] != data.suggestion_fingerprint:
         raise HTTPException(409, {'message': 'Suggestion changed. Review the new suggestion.', 'suggestion': suggestion})
     record = {'actor': principal(user), 'printer_id': printer_id, 'job_id': data.suggested_job_id,

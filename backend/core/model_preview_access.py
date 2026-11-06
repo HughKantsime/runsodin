@@ -51,6 +51,8 @@ def accessible_preview_file(db, file_id, principal):
     ), {"id": file_id}).fetchone()
     if not row or not check_org_access(principal, row.org_id):
         raise preview_not_found()
+    from core.controlled_parts import assert_access
+    assert_access(db, 'file', file_id, principal)
     owned = is_education_owned_file(db, file_id, row.stored_path)
     if owned:
         provider = registry.get_provider("EducationPolicyProvider")

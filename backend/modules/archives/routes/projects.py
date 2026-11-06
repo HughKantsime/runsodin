@@ -323,7 +323,12 @@ def export_project(
     ).fetchall()
 
     try:
-        payload = build_project_zip(project, [dict(a._mapping) for a in archives])
+        from core.controlled_parts import path_allowed
+        export_rows = [dict(a._mapping) for a in archives]
+        for archive in export_rows:
+            if not path_allowed(db, archive.get('file_path'), user):
+                archive['file_path'] = None
+        payload = build_project_zip(project, export_rows)
     except ProjectZipExportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 

@@ -5,7 +5,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from core.controlled_csrf import require_controlled_ack
+from core.rbac import require_action
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -78,8 +80,14 @@ async def restore_backup(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_superadmin(scope="admin")),
     db: Session = Depends(get_db),
+    acknowledge_controlled: bool = False,
+    request: Request = None,
 ):
     """Validate and stage a database restore for the next process start."""
+    from core.controlled_exports import acknowledge_export
+    if acknowledge_controlled:
+        require_controlled_ack(request)
+    acknowledge_export(db, current_user, acknowledge_controlled, 'restore')
     expected_suffix = ".dump" if sql.is_postgres else ".db"
     if not file.filename or not file.filename.lower().endswith(expected_suffix):
         raise HTTPException(
@@ -244,10 +252,11 @@ def active_system_notices() -> list[dict]:
 
 
 @router.get("/system/notices", tags=["System"])
-def system_notices(current_user: dict = Depends(require_superadmin(scope="admin"))):
+def system_notices(current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Active system notices for superadmins (restore quarantine, license expiring, Pro trial ending)."""
     from modules.system.license_notices import license_notices
-    return {"notices": active_system_notices() + license_notices(current_user.get("id"))}
+    from core.controlled_retention import pending_notice
+    return {"notices": active_system_notices() + license_notices(current_user.get("id")) + pending_notice(db)}
 
 
 @router.post("/system/notices/{kind}/dismiss", tags=["System"])
@@ -277,8 +286,9 @@ def _safe_backup_path(filename: str) -> Path:
     return candidate
 
 
-@router.get("/backups/{filename}", tags=["System"], dependencies=[Depends(require_interactive_session())])
-def download_backup(filename: str, bundle: bool = False, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
+def _download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db), acknowledge_controlled: bool = False, bundle: bool = False):
+    from core.controlled_exports import acknowledge_export
+    acknowledge_export(db, current_user, acknowledge_controlled, "backup")
     path = _safe_backup_path(filename)
     audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
     if bundle:
@@ -308,8 +318,14 @@ def stage_existing_backup(
     filename: str,
     current_user: dict = Depends(require_superadmin(scope="admin")),
     db: Session = Depends(get_db),
+    acknowledge_controlled: bool = False,
+    request: Request = None,
 ):
     """Validate and stage a listed PostgreSQL backup (or quarantined restore) for the next start."""
+    from core.controlled_exports import acknowledge_export
+    if acknowledge_controlled:
+        require_controlled_ack(request)
+    acknowledge_export(db, current_user, acknowledge_controlled, 'restore_stage')
     if not sql.is_postgres:
         raise HTTPException(status_code=501, detail="Staging a listed backup is available for PostgreSQL")
     path = _safe_backup_path(filename)
@@ -337,3 +353,13 @@ def stage_existing_backup(
         "restart_required": True,
         "candidate_sha256": result.get("candidate_sha256"),
     }
+
+
+@router.get("/backups/{filename}", dependencies=[Depends(require_interactive_session())])
+def download_backup(filename: str, bundle: bool = False, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
+    return _download_backup(filename, current_user, db, False, bundle=bundle)
+
+
+@router.post("/backups/{filename}/acknowledge", dependencies=[Depends(require_interactive_session()), Depends(require_controlled_ack), Depends(require_action("settings.edit"))])
+def acknowledge_download_backup(filename: str, bundle: bool = False, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
+    return _download_backup(filename, current_user, db, True, bundle=bundle)

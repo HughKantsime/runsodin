@@ -1,4 +1,6 @@
 """D2 rows for the existing current-schema PostgreSQL backup/restore proof."""
+# Raw job INSERT exemption: isolated PostgreSQL restore fixtures use fixed IDs
+# to bind the D2 class/submission graph; this is not a SQLite creation path.
 from sqlalchemy import text
 
 

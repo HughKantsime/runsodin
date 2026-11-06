@@ -370,6 +370,8 @@ def prepare_upload_paths(
     final_dir = storage_root / str(principal["group_id"])
     staging_path = staging_dir / f"{operation_id}.part"
     final_path = final_dir / f"{operation_id}.3mf"
+    from core.controlled_education import assert_unmarked_upload_path
+    assert_unmarked_upload_path(db, final_path)
     staging_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     final_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     changed = db.execute(
@@ -437,6 +439,8 @@ def finalize_staged_3mf_submission(
         if not metadata or metadata.print_time_seconds <= 0:
             raise OdinError(ErrorCode.validation_failed, "Education upload must be a sliced .3mf", status=400)
         compatibility_meta = _compatibility_meta_from_parsed(metadata)
+        from core.controlled_education import assert_unmarked_upload_path
+        assert_unmarked_upload_path(db, final_path)
         os.replace(staging_path, final_path)
         _fsync_directory(final_path.parent)
         renamed = True

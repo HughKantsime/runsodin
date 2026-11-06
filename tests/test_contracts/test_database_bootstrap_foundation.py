@@ -361,7 +361,9 @@ def test_database_parity_runner_is_exact_repeatable_and_emits_html() -> None:
     ).read_text(encoding="utf-8")
     assert 'environment["PGPASSWORD"]' in postgres_service
     assert ".odin-pgpass-" not in postgres_service
-    assert 'command.extend(["--table", f"public.{table_name}"])' in postgres_service
+    from inspect import getsource
+    from modules.system.postgres_backup_service import create_postgres_backup
+    assert 'command.extend(["--table", f"public.{table_name}"])' in getsource(create_postgres_backup)
     assert "timeout=timeout" in runner
     assert "_cleanup_resources(leaked)" in runner
     assert 'render_report(manifest, artifact_dir / "index.html")' in runner

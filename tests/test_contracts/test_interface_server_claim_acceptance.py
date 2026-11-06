@@ -48,10 +48,19 @@ def test_theme_persists_between_clients_and_is_account_isolated():
 
 @pytest.fixture
 def bundle_client(monkeypatch):
+    from core.schema.bootstrap import import_all_models
+    import_all_models()  # The export audit constructs an ORM model even with a fake DB.
     class Result:
         def scalar(self): return 0
+        def first(self): return None
         def fetchall(self): return []
     class DB:
+        def __init__(self):
+            self.info = {}
+            self.entries = []
+        def add(self, entry): self.entries.append(entry)
+        def commit(self): pass
+        def rollback(self): self.entries.clear()
         def execute(self, *_args, **_kwargs): return Result()
     monkeypatch.setattr(routes_admin, 'sql', SimpleNamespace(is_sqlite=False))
     monkeypatch.setattr(diagnostics, '_read_tail', lambda *_: ['ERROR address=192.0.2.12 password=synthetic-test-value'])

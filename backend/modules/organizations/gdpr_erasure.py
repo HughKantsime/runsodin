@@ -63,6 +63,10 @@ def erase_user_data_sync(user_id, current_user, db):
 
     from core.audit_actor import actor_is_erased
     from core.audit_erasure import erase_actor_history, rewrite, record_erasure
+    db.execute(text('DELETE FROM controlled_audience_members WHERE user_id=:uid'), {'uid': user_id})
+    db.execute(text('UPDATE controlled_audiences SET created_by=NULL WHERE created_by=:uid'), {'uid': user_id})
+    for controlled_table in ('controlled_files', 'controlled_jobs'):
+        db.execute(text(f"UPDATE {controlled_table} SET changed_by=NULL,reason='[erased]' WHERE changed_by=:uid"), {'uid': user_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- closed tuple of controlled policy tables; user id is bound
     erase_actor_history(db, user_id)
     erase_sso_login_history(db, user_id)
 

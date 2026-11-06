@@ -87,6 +87,17 @@ POST027_RAW_TABLES = {
         "education_term_policies": frozenset("id org_id cost_center_id name starts_at ends_at files_days timelapses_days thumbnails_days portfolio_days created_by created_at".split()),
         "education_term_cleanup": frozenset("term_id submission_id kind state updated_at".split()),
     },
+    "python:055-controlled-history": {
+        "job_id_high_water": frozenset("singleton high_water".split()),
+        "controlled_job_tombstones": frozenset("job_id audience_id label printer_tag retention_days marked_at created_at audit_max_id rule_index purge_previewed_at retention_initial_days retention_changes".split()),
+        "controlled_retention_clocks": frozenset("resource_type resource_id marked_at initial_days changes released_at".split()),
+    },
+    "python:054-controlled-parts": {
+        "controlled_audiences": frozenset({"id", "name", "created_by"}),
+        "controlled_audience_members": frozenset({"audience_id", "user_id"}),
+        "controlled_files": frozenset("file_id label audience_id printer_tag retention_days reason changed_by marked_at purge_previewed_at".split()),
+        "controlled_jobs": frozenset("job_id label audience_id printer_tag retention_days reason changed_by marked_at purge_previewed_at".split()),
+    },
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },

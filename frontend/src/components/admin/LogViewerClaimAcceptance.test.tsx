@@ -44,7 +44,7 @@ test('F16-16.8-04 search Enter sends keyword and renders filtered response', asy
 })
 test('F16-16.8-05 SSE appends parsed lines, ignores malformed frames and closes on stop/unmount', async () => {
   const view = await mount()
-  fireEvent.click(screen.getByRole('button', { name: 'Live Stream' }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Live Stream' })) })
   const stream = TestEventSource.instances[0]
   expect(stream.url).toBe('/api/admin/logs/stream?source=backend')
   expect(stream.options).toEqual({ withCredentials: true })
@@ -53,13 +53,13 @@ test('F16-16.8-05 SSE appends parsed lines, ignores malformed frames and closes 
   expect(screen.queryByText('bad-json')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Stop Stream' }))
   expect(stream.close).toHaveBeenCalledOnce()
-  fireEvent.click(screen.getByRole('button', { name: 'Live Stream' }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Live Stream' })) })
   view.unmount()
   expect(TestEventSource.instances[1].close).toHaveBeenCalledOnce()
 })
 test('F16-16.8-05 SSE error closes connection and restores start control', async () => {
   await mount()
-  fireEvent.click(screen.getByRole('button', { name: 'Live Stream' }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Live Stream' })) })
   act(() => TestEventSource.instances[0].onerror?.())
   expect(screen.getByRole('button', { name: 'Live Stream' })).toBeInTheDocument()
   expect(TestEventSource.instances[0].close).toHaveBeenCalledOnce()
@@ -140,9 +140,17 @@ test('failed older-page request preserves displayed page and offers refresh guid
  expect(screen.getByText('Page 1')).toBeInTheDocument()
 })
 test('closed stream messages and errors cannot corrupt newly selected stream',async()=>{
- await mount();fireEvent.click(screen.getByRole('button',{name:'Live Stream'}));const old=TestEventSource.instances[0]
- fireEvent.click(screen.getByRole('button',{name:'Stop Stream'}));fireEvent.click(screen.getByRole('button',{name:'Live Stream'}))
+ await mount();await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Live Stream'}))});const old=TestEventSource.instances[0]
+ fireEvent.click(screen.getByRole('button',{name:'Stop Stream'}));await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Live Stream'}))})
  act(()=>{old.onmessage?.({data:JSON.stringify('Synthetic stale stream')});old.onerror?.()})
  expect(screen.queryByText('Synthetic stale stream')).not.toBeInTheDocument()
  expect(screen.getByRole('button',{name:'Stop Stream'})).toBeInTheDocument()
+})
+
+test('controlled log acknowledgement is explicit and used for pages and streaming', async () => {
+  await mount()
+  fireEvent.click(screen.getByRole('checkbox', { name: /I acknowledge logs may contain controlled part/ }))
+  await waitFor(() => expect(logs.get).toHaveBeenLastCalledWith('backend', 500, null, null, null, true))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Live Stream' })) })
+  expect(logs.streamUrl).toHaveBeenLastCalledWith('backend', null, null, true)
 })

@@ -487,10 +487,14 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "alert_preferences": prefs,
         "api_tokens": api_tokens_data,
         "quota_usage": quota_data,
+        "controlled_part_changes": _rows("SELECT 'file' AS resource_type,file_id AS resource_id,reason FROM controlled_files WHERE changed_by=:uid UNION ALL SELECT 'job' AS resource_type,job_id AS resource_id,reason FROM controlled_jobs WHERE changed_by=:uid"),
         "classroom_identity": classroom_identity,
         "classroom_memberships": classroom_memberships,
     }
 
+    from core.controlled_redaction import redact_export
+    export = redact_export(db, current_user, export)
+    export["controlled_audience_memberships"] = _rows("SELECT audience_id FROM controlled_audience_members WHERE user_id=:uid")
     log_audit(db, "gdpr_export", "user", user_id, f"Data exported for user {user.username}")
     db.commit()
     return export

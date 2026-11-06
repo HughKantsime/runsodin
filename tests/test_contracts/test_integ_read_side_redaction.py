@@ -67,7 +67,7 @@ def test_parameter_names_survive_and_prose_is_untouched():
     assert sanitize_log_line("zip code=12345 in prose") == "zip code=12345 in prose"
 
 
-def test_log_viewer_serves_go2rtc_and_supervisord_logs_redacted(tmp_path, monkeypatch):
+def test_log_viewer_serves_go2rtc_and_supervisord_logs_redacted(tmp_path, monkeypatch, review_db):
     from modules.system import routes_admin
     files = {"go2rtc": GO2RTC_LOG, "supervisord": SUPERVISORD_LOG, "backend": STDOUT_BACKEND}
     paths = {}
@@ -78,7 +78,7 @@ def test_log_viewer_serves_go2rtc_and_supervisord_logs_redacted(tmp_path, monkey
     monkeypatch.setattr(routes_admin, "_LOG_FILES", paths)
     for source, lines in files.items():
         page = routes_admin.get_logs(source=source, lines=200, level=None, search=None, cursor=None,
-                                     user={"id": 1, "role": "admin", "group_id": None})
+                                     user={"id": 1, "role": "admin", "group_id": None}, db=review_db)
         assert len(page["lines"]) == len(lines) and _clean(json.dumps(page)), page
 
 

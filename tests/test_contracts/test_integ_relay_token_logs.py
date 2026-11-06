@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import secrets
+from tests.test_contracts.test_controlled_parts import database
 
 TOKEN = secrets.token_hex(32)  # synthetic, generated per run
 LINE = f'127.0.0.1:51234 - "GET /internal/camera-source/12/{TOKEN} HTTP/1.1" 200'
@@ -30,10 +31,10 @@ def test_relay_token_is_redacted_on_read():
     assert TOKEN not in out and "/internal/camera-source/12/[REDACTED]" in out
 
 
-def _diagnostics(monkeypatch, user):
+def _diagnostics(monkeypatch, user, db=None):
     from modules.system import diagnostics
     monkeypatch.setattr(diagnostics, "_read_tail", lambda path, n: [LINE, "tenant B printed widget.3mf"])
-    return asyncio.run(diagnostics.get_diagnostics(current_user=user))
+    return asyncio.run(diagnostics.get_diagnostics(current_user=user, db=db))
 
 
 def test_org_admin_does_not_get_install_wide_log_lines(monkeypatch):
@@ -43,7 +44,7 @@ def test_org_admin_does_not_get_install_wide_log_lines(monkeypatch):
     assert "tenant B" not in str(result)
 
 
-def test_superadmin_gets_sanitized_log_lines(monkeypatch):
-    result = _diagnostics(monkeypatch, {"id": 1, "role": "admin", "group_id": None})
+def test_superadmin_gets_sanitized_log_lines(monkeypatch, database):
+    result = _diagnostics(monkeypatch, {"id": 1, "role": "admin", "group_id": None}, database)
     assert any("tenant B" in line for line in result["recent_logs"])
     assert TOKEN not in str(result["recent_logs"])

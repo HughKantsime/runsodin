@@ -161,7 +161,8 @@ def _get_next_scheduled_job(printer_id: int, *, generic_only: bool = False) -> O
                 {"pid": printer_id},
             ).fetchall()
             from modules.jobs.services import education_order, ordered_waiting
-            candidates = [dict(row._mapping) for row in rows]
+            from core.controlled_parts import dispatch_refusal
+            candidates = [dict(row._mapping) for row in rows if not dispatch_refusal(conn, row.id, printer_id)]
             candidates = education_order(candidates,
                 {row['id'] for row in candidates if row['education_submission_id'] is not None},
                 lambda row, key: row[key])

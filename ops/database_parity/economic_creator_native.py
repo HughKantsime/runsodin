@@ -1,4 +1,6 @@
 """Affected actual PostgreSQL HTTP creators, isolated owned fixtures only."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os
 from pathlib import Path
 import secrets

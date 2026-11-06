@@ -35,6 +35,8 @@ def _true(value):return value is True or (type(value) is int and value==1)
 
 
 def _floor(principal):
+    from core.controlled_retention import RetentionPrincipal
+    if type(principal) is RetentionPrincipal:return
     if not isinstance(principal,dict) or principal.get('role')!='admin' or type(principal.get('id')) is not int or principal['id']<=0:_refuse('unknown_authority')
     group=principal.get('group_id')
     if group is not None and (type(group) is not int or group<=0):_refuse('unknown_authority')
@@ -44,6 +46,8 @@ def _floor(principal):
 
 
 def _actor(db,principal,*,lock=False):
+    from core.controlled_retention import check_retention
+    if check_retention(db,principal):return
     if lock:db.execute(text('UPDATE users SET id=id WHERE id=:id'),{'id':principal['id']})
     row=db.execute(text('SELECT role,group_id,is_active FROM users WHERE id=:id'),{'id':principal['id']}).first()
     if row is None or row[0]!='admin' or row[1]!=principal.get('group_id') or not _true(row[2]):_refuse('unknown_authority')

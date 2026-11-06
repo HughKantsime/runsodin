@@ -126,6 +126,10 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
     try:
         from modules.printers.dispatch_background import claimed
         claimed(engine, claim.token, job)
+        from modules.printers.controlled_camera import prepare_camera
+        camera_refusal = prepare_camera(engine, job['id'], job['printer_id'])
+        if camera_refusal:
+            raise CapabilityRefused(camera_refusal)
         with stage_payload(source_path,payload_sha256) as staged:
             options,error=dispatch._validated_print_options(job,creds,staged.path,staged.sha256)
             if error:result=(False,error)

@@ -32,7 +32,7 @@ AUDIT_IMPL = BACKEND_DIR / "core" / "audit.py"
 
 PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle", BACKEND_DIR / "core/schema/preserved034/bundle") + tuple(
     BACKEND_DIR / f"core/schema/preserved{version}/overlay"
-    for version in ("035", "036", "037", "038", "039", "040", "043")
+    for version in ("035", "036", "037", "038", "039", "040", "043", "044", "045", "046", "053")
 )
 
 
@@ -228,9 +228,18 @@ def _retirement_audit_transaction_is_atomic(source: str) -> bool:
     if any(transaction_end(n) for n in ast.walk(helper)):
         return False
     audit = [n for n in ast.walk(helper) if named(n, 'log_audit')]
-    if (len(audit) != 1 or not audit[0].args or not isinstance(audit[0].args[0], ast.Name)
-            or audit[0].args[0].id != 'db'
-            or not any(isinstance(n, ast.Expr) and n.value is audit[0] for n in helper.body)):
+    if len(audit) != 2 or any(not n.args or not isinstance(n.args[0], ast.Name)
+                              or n.args[0].id != 'db' for n in audit):
+        return False
+    if not any(isinstance(n, ast.Expr) and n.value is audit[0] for n in helper.body):
+        return False
+    # The extra controlled-retention event shares the same transaction. Accept
+    # only this exact conditional, not an arbitrary nested exception boundary.
+    guards = [n for n in helper.body if isinstance(n, ast.If)
+              and ast.unparse(n.test) == 'type(principal) is RetentionPrincipal']
+    if (len(guards) != 1 or guards[0].orelse or len(guards[0].body) != 1
+            or not isinstance(guards[0].body[0], ast.Expr)
+            or guards[0].body[0].value is not audit[1]):
         return False
     if not any(isinstance(n, ast.Name) and n.id == 'contextmanager' for n in manager.decorator_list):
         return False
@@ -473,6 +482,17 @@ class TestEveryCallSiteCommitsAfter:
                     sources = {path: (BACKEND_DIR / path).read_text()
                                for path in {key[0], *PROTOCOLS[key]}}
                     has_commit = caller_owned_audit_is_atomic(key, sources)
+            if (not has_commit and py == BACKEND_DIR / 'core/controlled_deletion.py'
+                    and fn_name == 'redact_job_history_ids'):
+                from tests.test_contracts.controlled_deletion_atomicity import deletion_is_atomic
+                has_commit = deletion_is_atomic(BACKEND_DIR)
+            if (not has_commit and py == BACKEND_DIR / 'core/schema/job_identity_repair.py'
+                    and fn_name == 'repair_job_identity'):
+                # Session(bind=connection).flush() joins the caller's transaction.
+                # Bootstrap's engine.begin() commits both migration validation's
+                # repair and the late boot repair. Round18's separate-connection
+                # test proves persistence and rollback at BOTH entrypoints.
+                has_commit = True
             if not has_commit:
                 missing.append(f"{py.relative_to(BACKEND_DIR.parent)}:{line_no} in {fn_name}()")
 
@@ -625,3 +645,10 @@ def test_telemetry_audit_protocol_rejects_broken_boundaries(mutation):
     else:
         sources["modules/unsafe.py"] = "def unsafe(db):\n    provider.observe_slots(db, 1, [], set(), {})\n    db.commit()\n"
     assert not _telemetry_audit_transaction_is_atomic(sources)
+
+
+def test_controlled_retirement_audit_cannot_use_another_session():
+    source=(BACKEND_DIR/'modules/archives/timelapse_lifetime_action.py').read_text()
+    changed=source.replace("log_audit(db,'controlled_part.timelapse_purged'", "log_audit(other_db,'controlled_part.timelapse_purged'")
+    assert changed != source
+    assert not _retirement_audit_transaction_is_atomic(changed)

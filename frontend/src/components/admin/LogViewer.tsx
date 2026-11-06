@@ -48,6 +48,7 @@ function highlight(line: string, keyword: string) {
 }
 
 export default function LogViewer() {
+  const [acknowledged, setAcknowledged] = useState(false)
   const [source, setSource] = useState('backend')
   const [level, setLevel] = useState('ALL')
   const [search, setSearch] = useState('')
@@ -68,7 +69,7 @@ export default function LogViewer() {
   useEffect(() => {
     loadLogs()
     return () => { requestRef.current++; stopStream() }
-  }, [source, level])
+  }, [source, level, acknowledged])
 
   const loadLogs = async (cursor: string | null = null, previous: (string | null)[] = []) => {
     const request = ++requestRef.current
@@ -77,7 +78,8 @@ export default function LogViewer() {
     setError('')
     try {
       const args = [source, 500, level === 'ALL' ? null : level, search || null] as const
-      const data = cursor ? await adminLogs.get(...args, cursor) : await adminLogs.get(...args)
+      const data = acknowledged ? await adminLogs.get(...args, cursor, true)
+        : cursor ? await adminLogs.get(...args, cursor) : await adminLogs.get(...args)
       if (request !== requestRef.current) return
       setLines(data?.lines || [])
       setNextCursor(data?.next_cursor || null)
@@ -91,8 +93,8 @@ export default function LogViewer() {
     }
   }
 
-  const startStream = () => {
-    requestRef.current++
+  const startStream = async () => {
+    const request = ++requestRef.current
     setLoading(false)
     setError('')
     setNextCursor(null)
@@ -100,7 +102,15 @@ export default function LogViewer() {
     setPageCursor(null)
     setAppliedSearch(search)
     stopStream()
-    const url = adminLogs.streamUrl(source, level === 'ALL' ? null : level, search || null)
+    const args = [source, level === 'ALL' ? null : level, search || null] as const
+    let url: string
+    try {
+      url = acknowledged ? await adminLogs.streamUrl(...args, true) : await adminLogs.streamUrl(...args)
+    } catch (failure) {
+      if (request === requestRef.current) setError(`Failed to open stream: ${failure instanceof Error ? failure.message : 'Access refused'}`)
+      return
+    }
+    if (request !== requestRef.current) return
     const es = new EventSource(url, { withCredentials: true })
     es.onmessage = (e) => {
       if (esRef.current !== es) return
@@ -129,6 +139,10 @@ export default function LogViewer() {
 
   return (
     <div className="space-y-3">
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={acknowledged} onChange={e => { setLines([]); setAcknowledged(e.target.checked) }} />
+        I acknowledge logs may contain controlled part names and details.
+      </label>
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Source selector */}

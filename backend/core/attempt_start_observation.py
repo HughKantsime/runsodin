@@ -89,4 +89,10 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
             from core.print_attempts import bind_print_attempt
             bind_print_attempt(lambda statement,params:view.execute(text(statement),params),identifier,plan.job_id)
         finalize_start(executor,scope,plan)
-        return ObservedStart(identifier,plan.job_id,True,education_sensitive,reserved,candidates,parents)
+        linked_job_id = plan.job_id
+        if linked_job_id is None and not education_sensitive:
+            from core.controlled_reprint import bind_reprint
+            linked_job_id = bind_reprint(view, identifier, printer_id, protocol,
+                                        (job_name, filename), auth.SECRET_KEY.encode())
+            reserved = reserved or linked_job_id is not None
+        return ObservedStart(identifier,linked_job_id,True,education_sensitive,reserved,candidates,parents)

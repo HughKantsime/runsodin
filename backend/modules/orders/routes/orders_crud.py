@@ -435,6 +435,8 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
             model = component.model
             if not model or not check_org_access(current_user, model.org_id):
                 raise HTTPException(status_code=404, detail="Model not found")
+            from core.controlled_parts import assert_access
+            assert_access(db, "model", model.id, current_user)
             if component.quantity_needed <= 0:
                 raise HTTPException(status_code=409, detail="BOM quantities must be positive")
             requirements[item.id][model.id]=requirements[item.id].get(model.id,0)+component.quantity_needed
@@ -548,7 +550,9 @@ def get_order_invoice(
         enriched = _enrich_order_response(order, db)
         branding = effective_branding(db)
 
-        gen = InvoiceGenerator(branding, enriched.model_dump())
+        from core.controlled_redaction import redact_export
+        invoice = redact_export(db, current_user, enriched.model_dump())
+        gen = InvoiceGenerator(branding, invoice)
         pdf_bytes = bytes(gen.generate())
     except InvoiceUnsupportedText:
         raise HTTPException(status_code=422, detail="Invoice text contains characters outside the supported fonts.")

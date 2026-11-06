@@ -6,11 +6,12 @@ apply to what the caller would see."""
 import asyncio
 import json
 import secrets
+from tests.test_contracts.test_controlled_parts import database
 
 SECRET = "synthetic-" + secrets.token_hex(8)  # generated per run, never a committed literal
 LINES = [f"2026-10-17 10:00:00 [ERROR] smtp login failed password={SECRET}",
          "2026-10-17 10:00:01 [ERROR] printer offline"]
-SUPER = {"id": 1, "role": "admin", "group_id": None}
+SUPER = {"id": 2, "role": "admin", "group_id": None}
 
 
 def _setup(tmp_path, monkeypatch):
@@ -21,16 +22,17 @@ def _setup(tmp_path, monkeypatch):
     return routes_admin, path
 
 
-def test_page_search_cannot_match_redacted_secret(tmp_path, monkeypatch):
+def test_page_search_cannot_match_redacted_secret(tmp_path, monkeypatch, database):
     routes_admin, _ = _setup(tmp_path, monkeypatch)
-    page = routes_admin.get_logs(source="backend", lines=200, level=None, search=SECRET[-10:], cursor=None, user=SUPER)
+    page = routes_admin.get_logs(source="backend", lines=200, level=None, search=SECRET[-10:], cursor=None, user=SUPER, db=database)
     assert page["lines"] == []
-    page = routes_admin.get_logs(source="backend", lines=200, level=None, search="smtp login", cursor=None, user=SUPER)
+    page = routes_admin.get_logs(source="backend", lines=200, level=None, search="smtp login", cursor=None, user=SUPER, db=database)
     assert len(page["lines"]) == 1 and SECRET not in json.dumps(page)
 
 
-def test_sse_search_cannot_match_redacted_secret(tmp_path, monkeypatch):
+def test_sse_search_cannot_match_redacted_secret(tmp_path, monkeypatch, database):
     routes_admin, path = _setup(tmp_path, monkeypatch)
+    from core.controlled_logs import issue_stream_token
 
     class Request:
         calls = 0
@@ -41,7 +43,7 @@ def test_sse_search_cannot_match_redacted_secret(tmp_path, monkeypatch):
 
     async def collect(search):
         Request.calls = 0
-        response = await routes_admin.stream_logs(Request(), source="backend", level=None, search=search, user=SUPER)
+        response = await routes_admin.stream_logs(Request(), source="backend", level=None, search=search, user=SUPER, db=database, token=issue_stream_token(SUPER, False))
         events = []
         iterator = response.body_iterator.__aiter__()
         first = asyncio.ensure_future(iterator.__anext__())

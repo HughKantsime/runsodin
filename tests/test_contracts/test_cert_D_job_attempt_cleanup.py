@@ -1,4 +1,4 @@
-"""cert-D: every job-deletion path clears that job's print-attempt markers (SQLite id reuse is safe)."""
+"""cert-D: every job-deletion path clears that job's print-attempt markers."""
 from pathlib import Path
 
 import pytest
@@ -18,7 +18,7 @@ def test_census_every_job_deletion_site_clears_attempt_markers():
     _, deletes, clearing = job_census.scan()
     offenders = [site for site in deletes if not clearing.get((site[0], site[1]))]
     assert offenders == [], offenders
-    assert {site[1] for site in deletes} >= {'delete_job', 'bulk_update_jobs', 'run_retention_cleanup'}
+    assert {site[1] for site in deletes} >= {'delete_job', 'delete_bulk_jobs', 'run_retention_cleanup'}
 
 
 @pytest.mark.parametrize('planted', [

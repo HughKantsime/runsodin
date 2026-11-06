@@ -19,6 +19,7 @@ import importlib
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine, event, text
@@ -68,6 +69,7 @@ def _authenticate(engine, jti):
                         "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, auth.SECRET_KEY, algorithm=auth.ALGORITHM)
 
     class Request:
+        state = SimpleNamespace()
         cookies = {}
         headers = {}
         url = type("U", (), {"path": "/api/x"})()

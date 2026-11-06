@@ -337,6 +337,7 @@ def test_live_engine_stays_out_of_engine_type_checks():
             # dispatch_transaction (core.dispatch_connection) uses the engine only through
             # attributes (.url, .begin(), .connect()), never isinstance/inspect.
             # observe_status (monitors.live_state) likewise only opens engine.begin().
+            # redact_payload (core.controlled_mqtt) uses .connect() and a dict key.
             assert call in {"bind_generic_observation", "retire_observed_terminal", "Session",
-                            "dispatch_transaction", "observe_status"}, (name, call)
+                            "dispatch_transaction", "observe_status", "redact_payload"}, (name, call)
 

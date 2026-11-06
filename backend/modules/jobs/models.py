@@ -12,7 +12,7 @@ from typing import List
 from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    ForeignKey, Enum as SQLEnum, Text, JSON
+    ForeignKey, Enum as SQLEnum, Text, JSON, event
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -191,3 +191,8 @@ class PrintPreset(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     model = relationship("Model", passive_deletes=True)
+
+
+# All ORM queue, repeat, preset, order, archive and Education births share this hook.
+from core.job_identity import before_job_insert
+event.listen(Job, "before_insert", before_job_insert)
