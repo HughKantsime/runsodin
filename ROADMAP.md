@@ -4,7 +4,7 @@ Updated - see CHANGELOG for current version.
 
 ## Prepared: Education funding and program reports
 
-- D3 class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks. PostgreSQL verification and Claude review are pending; Shane must confirm CTEC Perkins fields. Generic reporting is independent of that approval.
+- Class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks, with small-cell suppression. The Perkins worksheet stays off until a school's reporting fields are confirmed.
 
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
@@ -365,10 +365,10 @@ Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/co
 
 ## Next Up
 
-- Enterprise E1: audit integrity and SIEM streaming implemented with round-one review fixes; see [operations guide](docs/AUDIT_INTEGRITY.md). Pending Claude review, PostgreSQL native proof and release ledger assignment.
+- Enterprise: audit integrity and SIEM streaming; see [operations guide](docs/AUDIT_INTEGRITY.md).
 
 ## Parked (needs more design)
 
-### D4 — roster sync build (disabled pending school configuration)
+### Roster sync (disabled until configured by the school)
 
-Google Classroom OAuth and Canvas LTI 1.3/NRPS import into D2 classes via required preview. Settings, imported-identity sign-in, audit and GDPR are implemented. School credentials and PostgreSQL/Claude release review remain pending; see docs/EDUCATION_ROSTER_SYNC.md.
+Google Classroom OAuth and Canvas LTI 1.3/NRPS import into classes via required preview. Settings, imported-identity sign-in, audit and GDPR are implemented. School credentials are required; see [Roster sync and classroom sign-in](docs/EDUCATION_ROSTER_SYNC.md).

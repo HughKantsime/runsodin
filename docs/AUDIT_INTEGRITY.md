@@ -60,8 +60,7 @@ data. The receiver administrator controls receiver retention and deletion.
 
 The migration identity is defined only in
 [`audit_integrity_version.py`](../backend/core/schema/audit_integrity_version.py).
-Change its `MIGRATION_ID` and rename the migration file when assigning the merge number;
-runtime registration, validators, restore guards, and tests import that identity.
+Runtime registration, validators, and restore guards use that identity.
 The frozen through-046 restore bundle is historical and must not be renumbered.
 
 Migration backfill reads canonical records in batches and calculates hashes in
@@ -167,7 +166,7 @@ chain evidence. Destroyed salts mean erased hashes require receipt evidence,
 rather than direct recomputation. Receipt HMAC verification requires the retained
 audit HMAC keyring; the device-signed export attests to the exported evidence.
 
-## Restore and release
+## Restore compatibility
 
 New tables are `audit_chain_state`, `audit_siem_destinations`, `audit_siem_outbox`,
 `audit_integrity_status`, `audit_redactions`, and `audit_retention_checkpoints`.
@@ -175,13 +174,11 @@ All are in the backup inventory. PostgreSQL executable guards and SQLite restore
 admission use the source-owned append trigger. SQLite backups before this migration
 remain valid: actor columns alone do not require the new append trigger.
 
-Existing release ledgers and frozen sources are preserved. Assign the next release
-ledger at merge. Claude's independent review and the native PostgreSQL proof in
-`ops/database_parity/audit_integrity_native.py` remain release acceptance gates.
+Existing release ledgers and frozen sources are preserved.
 Receiver endpoints, HMAC secrets, and optional private CAs are local customer
-configuration. The separate odin-site pricing page is outside this checkout.
+configuration.
 
-## Round-two operational details
+## Retention processing, shared audit files, and SIEM delivery
 
 Retention walks indexed sequence ranges in 256-row pages; erasure spools its
 preimages to an unlinked private temporary file and records bounded receipt

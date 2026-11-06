@@ -12,7 +12,7 @@ No external account, credential or paid service is required.
 2. Open **Education → Training**, select the class, and choose **New training**.
 3. Give it a name and description. Choose all printers authorized for that class,
    an exact `machine_type` (for example `P1S`), or the printer's configured model name.
-   Model/type matching ignores case and surrounding whitespace. This checkout has no
+   Model/type matching ignores case and surrounding whitespace. There is no
    separate printer-group entity: the class's existing authorized-printer set is the group.
    Tenant admins can select **School-wide training** to cover matching printers across the school.
    Only a live tenant admin can create, edit, archive or toggle a school-wide definition;
@@ -100,7 +100,7 @@ profile names/emails are anonymized by the existing erasure process. Training de
 remain class-owned content. Do not put personal information in training names/descriptions.
 Hard deletion of Education users or organizations remains blocked by retained history.
 
-## Schema and release
+## Schema and restore compatibility
 
 Migration `python:048-training-signoff` creates `education_trainings` and
 `education_training_records`, with tenant-bound foreign keys to existing centers and
@@ -109,11 +109,4 @@ triggers. Both tables are in the canonical backup inventory. Schema validation c
 column types, nullability, defaults, keys, constraints and indexes on SQLite/PostgreSQL.
 
 `preserved046` retains the published 046 restore contract. Existing entries in
-`released_post027_ledgers.json` are unchanged. The next release must append its own entry
-with 047 and 048 through the existing release helper; this implementation does not invent a
-published version or update VERSION. The PostgreSQL round-trip fixture includes a training
-and completion record. See the [D1 review-round-1 report](training-signoff-review-round-1.html) for current per-item evidence, test counts and sandbox limits. The [original build report](training-signoff-verification.html) retains the pre-review evidence.
-
-D2–D5 are outside this change. The public marketing pricing page is maintained in the
-separate odin-site checkout; its Education/Enterprise copy needs to mention training sign-off
-when D1 is released. This checkout only links to that page.
+`released_post027_ledgers.json` are unchanged.

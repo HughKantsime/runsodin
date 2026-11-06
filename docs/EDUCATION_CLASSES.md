@@ -1,4 +1,4 @@
-# Classes and assignments (D2)
+# Classes and assignments
 
 Education and Enterprise include the `classes` feature. A valid signed
 `education_workflows` entitlement is also required. Community and Pro requests
@@ -101,14 +101,14 @@ approval records the rule's instructor as its authorizer and marks the approver
 as automatic in both the class event and ordinary submission approval event.
 
 GDPR exports add the user's associated classes, authored assignments, their own
-assessments and assessment revisions, and their D2 school audit actions. Teacher
+assessments and assessment revisions, and their class and assignment school audit actions. Teacher
 exports contain only identifiers and reviewer role for students' assessments and
 revision history. Erasure clears feedback and grades only on the student's own
 work and history. For teachers it retains marks, nulls their reviewer IDs,
 disables their auto-approval rules, and scrubs their known identifiers from class,
 assignment and assessment free text. Existing erasure revokes their center grants
 and anonymizes/disables the account. No mutable assessment copy is stored in an
-idempotency cache or school audit record. D2 responses carry `private, no-store`,
+idempotency cache or school audit record. Class and assignment responses carry `private, no-store`,
 which also makes the generic idempotency middleware retain only a non-replayable
 receipt, not the response body. An inactive or erased student cannot receive new
 assessment text. Each assessment save appends who, when, and old/new grade,
@@ -120,25 +120,18 @@ instructors. Update requests change only explicitly supplied fields.
 What remains: pseudonymous user IDs, retained Education membership, class/term and
 assignment structure, submission links, assessment status, timestamps/revisions,
 job outcomes, and immutable school audit IDs/actions. Existing Education files and
-media retention policy is unchanged; D2 does not claim to purge all historical
-content. Term-based content cleanup belongs to D5. School records have RESTRICT
+media retention policy is unchanged; classes and assignments do not purge all historical
+content. See [End-of-term retention and graduation cleanup](education/term-retention.md) for term-based content cleanup. School records have RESTRICT
 foreign keys and cannot be hard-deleted through user/organization deletion.
 
-## Schema, release and integration
+## Schema and compatibility
 
 `python:049-education-classes` is additive, creates its own four tables, registers
 in the post027 runner and backup inventory, and validates exact shapes on SQLite
 and PostgreSQL. Its assessment-history function and triggers are registered in
 the canonical PostgreSQL executable inventory. Released ledgers remain unchanged. `preserved046` freezes the released schema lineage ending at 046
-for historical PostgreSQL archive staging. The existing native post027 restore
-runner now seeds and checks a row in each D2 table.
+for historical PostgreSQL archive staging.
 
-Claude owns final independent review and the full census. Native PostgreSQL
-backup/restore verification remains a release check when a disposable server is
-available. Parallel feature branches must preserve migration order when merging.
-
-Pricing-page handoff (the pricing site is outside this checkout): lead Education
-with “Classes and assignments, instructor review, and student portfolios”; Enterprise
-includes these Education workflows plus its own enterprise controls. Air-gapped
-operation and unlimited capacity are not Enterprise-only claims. No credentials or
-NEEDS SHANE configuration is required for D2 itself.
+Enterprise includes these Education workflows plus its own enterprise controls.
+Air-gapped operation and unlimited capacity are not exclusive to Enterprise. No
+credentials or extra configuration are required for classes and assignments.

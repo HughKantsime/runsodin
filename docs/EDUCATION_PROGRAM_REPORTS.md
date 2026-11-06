@@ -1,7 +1,7 @@
-# Funding and program reports (D3)
+# Funding and program reports
 
 Education and Enterprise licenses include `program_reports`. The existing
-`education_workflows` entitlement is also required. D2 classes remain the source
+`education_workflows` entitlement is also required. Classes remain the source
 of attribution. No paid service or new account is used.
 
 In Education → Classes, report an existing program without creating a class,
@@ -20,7 +20,7 @@ unsupported by its built-in font with `?`.
   graph. All statuses count. A student in several classes counts once in the
   total. Class totals therefore need not sum to the distinct student total.
 - **Jobs:** the same proved jobs. Program totals include unassigned submissions,
-  counted separately as `unassigned_jobs`. Class/term filters include only D2's
+  counted separately as `unassigned_jobs`. Class/term filters include only
   explicitly assignment-linked submissions. Programs without classes still have
   program totals in the web UI, API and scheduled reports. Unproved history is counted separately
   and never contributes student, material, time or cost totals.
@@ -57,17 +57,17 @@ unsupported by its built-in font with `?`.
 The generic report ships independently of the **draft Perkins V planning
 worksheet**. The organization setting `program_reports_perkins_enabled` is off
 by default; admins can enable it in organization settings. Perkins requests require
-a term or class (422 otherwise), and are refused while disabled (403). Customer
-wording says “field definitions not yet confirmed.” That worksheet presents participant/concentrator counts alongside
-program metrics, and clearly says it is not an official filing. **NEEDS SHANE:
-confirm the exact fields CTEC reports and approve the worksheet before release.**
+a term or class (422 otherwise), and are refused while disabled (403). The worksheet
+displays “field definitions not yet confirmed.” That worksheet presents participant/concentrator counts alongside
+program metrics, and clearly says it is not an official filing. The worksheet stays
+off until a school's reporting fields are confirmed.
 No statutory definition or eligibility is inferred by ODIN.
 
 ## Authority, audit and privacy
 
 The existing `education.classes_read` and `education.classes_manage` matrix
 keys cover the new routes. A live cost-center manager or tenant admin must also
-pass D2's scope checks. Students cannot read class aggregates or classmates'
+pass class scope checks. Students cannot read class aggregates or classmates'
 marks. Read/write Education API token scopes are required; a global API key is
 insufficient. All outputs use `private, no-store`.
 
@@ -138,7 +138,6 @@ of both the original owner and last configuring actor are rechecked at execution
 program entitlement, missing Education entitlement, or unconfigured SMTP prevents
 delivery. Pause/delete remain available after a license lapse. This uses the
 existing runner's retry/timing behavior; it does not promise exactly-once email.
-No email was sent during implementation tests.
 
 ## API and migration
 
@@ -160,14 +159,9 @@ Reports refuse more than 1,000 selected classes or 65,536 submission/mark rows;
 use a narrower scope instead of accepting silently truncated totals.
 
 Migration `050_education_program_reports.py` owns `education_program_marks` and
-`education_instructor_hours`. It follows D2's exact shape/FK validation pattern;
+`education_instructor_hours`. It follows the classes migration’s exact shape/FK validation pattern;
 PostgreSQL temporary shape tables omit permanent FKs and validate FK targets
-separately. It runs after dedicated 037 and D2 049, outside the post027 loop.
+separately. It runs after dedicated membership migration 037 and classes migration 049, outside the post027 loop.
 It refuses missing `education_memberships` or `education_classes` before creating
 any tables. There are no new PostgreSQL functions or triggers. The migration is registered
-in the ledger and raw schema/backup inventory. Release 2.0.45 assigns this migration number 050, after D2 classes at 049.
-
-PostgreSQL execution and independent Claude review remain required at review.
-The external pricing site is a separate checkout and is not modified by D3.
-Suggested Education/Enterprise copy: “Funding and program reports by class and
-term, CSV/PDF exports, scheduled email, and instructor-marked CTE participation.”
+in the ledger and raw schema/backup inventory.

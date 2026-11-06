@@ -1,4 +1,4 @@
-# Roster sync and classroom sign-in (D4)
+# Roster sync and classroom sign-in
 
 Education and Enterprise include `roster_sync`. This feature ships disabled and has
 no embedded credentials. It also requires the existing `education_workflows` and
@@ -7,7 +7,7 @@ interactive **school administrator**. Platform administrators must use an accoun
 in the school; neither teachers nor API tokens can configure/import. The permission
 matrix's `education.roster_manage` key can narrow access but cannot bypass that floor.
 
-## Setup: NEEDS SHANE / school administrator
+## Setup: school administrator
 
 Use the school's or SubLab's existing Google Cloud OAuth client / Canvas developer
 registration. No paid API, new account, or provider fallback is required by ODIN.
@@ -47,9 +47,7 @@ Neither redirects nor token-supplied key URLs are followed. Provider destination
 must resolve only to public addresses, which are DNS-pinned; environment proxies are
 not used. Private-network Canvas deployments are refused. Existing ODIN ITAR egress
 policy also applies. Requests use the shared worker pool with resolution and
-pinning in the same thread as the synchronous httpx client. Regression tests exercise
-real httpx socket resolution with connect intercepted; no real Google/Canvas requests
-are made by the tests. All provider calls use `core.outbound_http.pinned_async_request` with its bounded
+pinning in the same thread as the synchronous httpx client. All provider calls use `core.outbound_http.pinned_async_request` with its bounded
 worker pool, a single 15-second total deadline (including slot wait, DNS, connection
 and response streaming), and `max_response_bytes=2 * 1024 * 1024`. The
 `public_only` guard retains the roster public-address and no-proxy policy.
@@ -59,7 +57,7 @@ and response streaming), and `max_response_bytes=2 * 1024 * 1024`. The
 1. Load provider courses (Canvas courses appear after their first signed launch).
 2. Select a course and run Dry run roster import. Review new accounts, added roles
    and revoked roles, skipped entries, and each proposed existing-account link.
-   Nothing in the D2 class/user/grant graph changes during preview. Each existing
+   Nothing in the class/user/grant graph changes during preview. Each existing
    account link shows the ODIN username, provider email and class role. Confirm or
    decline each link; import is enabled when every link has a decision. Declined
    links are skipped and reported, without creating an identity or grant.
@@ -68,7 +66,7 @@ and response streaming), and `max_response_bytes=2 * 1024 * 1024`. The
    The receipt is single-use and binds the school, admin, configuration revision and
    local roster state. Changes require another preview. Import is one transaction.
 
-Each external course owns a dedicated D2 class and cost center. Repeated imports
+Each external course owns a dedicated class and cost center. Repeated imports
 update the same class title/term and grants. Unchanged active grants retain their
 original timestamps and actors. Only leaving grants are revoked; missing grants
 are inserted or reactivated. Imports never delete historical rows.
@@ -76,9 +74,9 @@ Teachers and Canvas teaching assistants become class managers; students receive 
 accounts have the viewer platform role. No printers are assigned automatically:
 assign printers to the new cost center using existing Education administration.
 Manual grants on an imported center are included in the preview and replaced on
-confirmation. A center shared with a second D2 class is refused to avoid changing
+confirmation. A center shared with a second class is refused to avoid changing
 another class. Archived classes/centers cannot be silently reactivated by import.
-Existing legacy Google Classroom cost-center imports remain separate; D4 does not
+Existing legacy Google Classroom cost-center imports remain separate; roster sync does not
 silently adopt or overwrite those mappings.
 
 Provider subjects are the sign-in identity. Google may link a same-school active,
@@ -105,13 +103,9 @@ already-issued ODIN sessions follow the existing session revocation controls.
 `051_roster_sync` adds connections, course mappings, external identities, grant-only
 links, erasure tombstones and short-lived encrypted receipts. It creates no PostgreSQL functions or triggers.
 The post027 registry validates it on every boot. PostgreSQL applies it after the
-037 retained-membership step and D2's 049, matching D2's ordering and temporary
-shape-check pattern. Merge-time migration renumbering must update the registry,
-migrator allowlist, migration ID and tests. Released ledgers are not rewritten.
-The pre-037 test harness derives dependent migrations from the live registry and
-disables training 048, classes 049, program reports 050 and roster 051.
-Merge D4 erase_roster calls into D5’s gdpr_erasure.py. Retiring the legacy
-routes_classroom integration remains a later product decision.
+037 retained-membership step and classes migration 049, using the same ordering
+and temporary shape checks as the classes migration. Released ledgers are not rewritten.
+The legacy Google Classroom integration remains available separately.
 
 Google authorization records the ODIN administrator who connected it. Erasing that
 person removes the refresh token while retaining the connection; another school
@@ -125,14 +119,8 @@ on each entry. An opaque handle binds that action to this preview and administra
 it expires with the preview after ten minutes and cannot be reused. Clearing is
 audited with the actor, connection and hash, and requires a fresh dry run before
 import. The preview contains no erased email, subject or suppression hash; the
-hash-to-handle mapping stays inside the encrypted preview receipt. Anonymous sign-in starts do not create audit rows; the unused
-in-process counter has been removed.
+hash-to-handle mapping stays inside the encrypted preview receipt. Anonymous sign-in starts do not create audit rows.
 
 See [the privacy map](EDU_PRIVACY_DATA_MAP.md) for export/erasure and retained history.
 No scheduled/background sync, LMS grade passback, cross-provider identity merging,
-or migration of legacy Google imports is included in D4.
-
-Release handoff: Claude must run PostgreSQL fresh/pre037/upgrade cases and review
-the diff. The external `odin-site` pricing page is outside this checkout; proposed
-Education copy: “Classes, assignments, and reviewed Google Classroom / Canvas roster
-imports with classroom sign-in.” Enterprise includes those Education capabilities.
+or migration of legacy Google imports is included in roster sync.

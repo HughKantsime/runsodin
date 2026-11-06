@@ -27,7 +27,7 @@ Integrations and subprocessors are deployment-specific. At minimum, inventory SM
 Product controls do not replace school obligations. The institution and vendor must settle FERPA school-official terms where applicable, COPPA authority for under-13 use, California student-data contract clauses, breach notification, record review/correction, retention, contract-end deletion certification, accessibility procurement, and incident contacts.
 
 
-## D3 funding and program reporting
+## Funding and program reporting
 
 `education_program_marks` retains class/student IDs, participant/concentrator flags,
 reviewer ID and revisions. `education_instructor_hours` retains instructor/class IDs,
@@ -49,10 +49,10 @@ program and summary totals; zero counts alone do not blank normal-sized classes.
 rows exclude classification values; these remain in school audit only. JSON views
 write no audit rows.
 See [definitions and limits](EDUCATION_PROGRAM_REPORTS.md).
-## D4 roster sync and classroom sign-in
+## Roster sync and classroom sign-in
 
 The opt-in `roster_sync` feature stores an external provider subject bound to an ODIN
-user and school, a provider course bound to a D2 class, and encrypted institutional
+user and school, a provider course bound to a class, and encrypted institutional
 configuration. OAuth refresh tokens, Canvas launch contexts and preview rosters are
 encrypted with the installation encryption key. API responses never include secrets.
 Preview rosters include subjects, emails and roles and expire after ten minutes;
@@ -82,4 +82,4 @@ Imports revoke absent users' current class grants while retaining users, retaine
 Education memberships, classes, assignments, submissions, assessments, school audit
 records and print history. Removing someone from one roster does not remove their
 other class grants. School-entered titles and retained audit/history follow the
-existing D2/GDPR rules; roster sync never purges school history.
+existing class and assignment GDPR rules; roster sync never purges school history.

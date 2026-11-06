@@ -1,6 +1,6 @@
 # Schema migrations after 027
 
-This document explains how to add a database schema migration numbered 030 or higher. The first registered one is 032 (quiet-hours deferred deliveries); 030 was withdrawn and 031 is not registered. The design decision is recorded in `.claude/specs/post027-migrations.md`.
+This document explains how to add a database schema migration numbered 030 or higher. The first registered one is 032 (quiet-hours deferred deliveries); 030 was withdrawn and 031 is not registered.
 
 ## How it works
 
@@ -155,10 +155,9 @@ adds 041 inventory-color, 042 dispatch-capability and 043 recipe-configuration,
 in that order. Migration042 audits each H2D bed correction in its transaction,
 so a corrected printer cannot backfill a receipt from before that correction.
 
-## Audit integrity (E1)
+## Audit integrity
 
 The identity is defined in [audit_integrity_version.py](../backend/core/schema/audit_integrity_version.py).
-Change its number and rename the migration file at merge; consumers import the constant.
 The migration adds salted hash/sequence columns, chain state, redaction receipts,
 retention checkpoints, SIEM destinations/outbox, coalesced license-gap counters,
 and verification status. Backfill
@@ -182,5 +181,4 @@ requirements change. Stale edit versions are refused without invalidating comple
 048 creates tenant-bound training definitions and completion evidence, registered in the
 post027 ledger and canonical table inventory. No PostgreSQL functions/triggers are added.
 The new preserved046 overlay pins the released 046 schema and routes its backups through
-the existing isolated restore protocol before applying 048. Published ledger entries are
-unchanged; register the next release's prefix only when assigning that release version.
+the existing isolated restore protocol before applying 048. Published ledger entries remain unchanged.

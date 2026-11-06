@@ -1,6 +1,6 @@
 # End-of-term retention and graduation cleanup
 
-D5 is available with a valid Education or Enterprise license carrying
+Term retention is available with a valid Education or Enterprise license carrying
 `term_retention` and `education_workflows`. Open **Education → Term retention**
 using an interactive school administrator account with **Settings: edit**
 permission. Platform administrators can use the API with an explicit `org_id`.
@@ -11,8 +11,8 @@ legacy global API key cannot administer retention.
 
 Create a named term for one existing class/club (Education cost center). Supply
 UTC start and exclusive end timestamps. A submission belongs to the term when
-its creation time is inside that window. Policies do not depend on the parallel
-D2 classes schema. Different classes can have different policies for the same term.
+its creation time is inside that window. Policies do not depend on the
+classes and assignments schema. Different classes can have different policies for the same term.
 Policies with no cleanup receipts can be deleted with an audit record and replaced; overlapping windows for the same class are rejected.
 Review the dates and delays before saving. No policy is created automatically.
 
@@ -52,7 +52,7 @@ associated publication content. Its ordinary refusal/recovery rules still apply.
 | Files | Owned Education upload bytes; extracted mesh data; charged storage released once | File and upload rows, original filename/path metadata, SHA-256, compatibility metadata and submission/job relationships |
 | Thumbnails | Embedded preview fields in the print file, model and associated print archives; model thumbnail URL reference | Other metadata. A thumbnail embedded inside a retained 3MF remains inside that file. Remote or separately managed image bytes are not deleted by removing a URL reference. |
 | Timelapses | Media proven owned by the existing sealed retirement workflow; current media rows are retired | Immutable ownership, publication and retirement evidence and purge audit trail |
-| Portfolio visibility | Submission moves to the retained archive; model is hidden from the active library | School archive, submission, review/approval history and model metadata. There is no separate D2 portfolio table in this checkout. This is archival visibility, not deletion of school records. |
+| Portfolio visibility | Submission moves to the retained archive; model is hidden from the active library | School archive, submission, review/approval history and model metadata. There is no separate portfolio table. This is archival visibility, not deletion of school records. |
 | Graduation | Existing GDPR account erasure: account becomes a disabled tombstone, credentials/sessions/tokens and supported identity records are removed or scrubbed | Stable numeric account references, school memberships, submissions, decisions, jobs, accounting and audit history |
 
 Every cleanup keeps Education submissions, membership and grant history,
@@ -60,7 +60,7 @@ review/approval identities by stable ID, lifecycle revisions, job and print
 outcomes, material/cost/quota totals, archive records and both general and
 Education audit trails. User-supplied filenames, titles, notes, reasons and other
 school-record free text can remain. Content cleanup is not a global search for
-personal information. Neither D5 nor existing erasure guarantees that arbitrary
+personal information. Neither term retention nor existing erasure guarantees that arbitrary
 personal text embedded in those retained records is anonymized.
 
 Backups, exported/downloaded copies, printer SD cards, external storage and
@@ -128,20 +128,8 @@ No PostgreSQL functions or triggers are introduced. `preserved046` freezes the
 previously released schema for historical PostgreSQL restore staging; no existing
 frozen package or released ledger entry is changed.
 
-## Privacy wording for approval — NEEDS SHANE
+## What cleanup covers
 
-Proposed text (review round 1):
+When a school runs term cleanup, ODIN deletes the selected students' uploaded print files, the timelapse videos it can prove belong to those submissions, and stored preview images, and hides that work from the active view. Graduation erasure disables a departed student's account and replaces or removes its username, email, password, sign-in links, sessions, tokens and Classroom identity, leaving a numbered placeholder. The school keeps its records under that number: submissions, approvals and rejections, jobs, print outcomes, material use, costs, quotas, archive entries and audit logs. Those records can still contain text people typed, such as file names, titles, notes and review comments. Cleanup does not reach backups, downloaded or exported copies, printer storage, camera detection frames, or timelapses ODIN cannot attribute to a submission.
 
-> When a school runs term cleanup, ODIN deletes the selected students' uploaded print files, the timelapse videos it can prove belong to those submissions, and stored preview images, and hides that work from the active view. Graduation erasure disables a departed student's account and replaces or removes its username, email, password, sign-in links, sessions, tokens and Classroom identity, leaving a numbered placeholder. The school keeps its records under that number: submissions, approvals and rejections, jobs, print outcomes, material use, costs, quotas, archive entries and audit logs. Those records can still contain text people typed, such as file names, titles, notes and review comments. Cleanup does not reach backups, downloaded or exported copies, printer storage, camera detection frames, or timelapses ODIN cannot attribute to a submission.
-
-Shane must approve this wording and the school's chosen retention periods before
-release. This is an implementation description, not a claim of legal compliance.
-
-## Pricing-page handoff
-
-The public pricing page is in the separate `odin-site` checkout and was not edited
-by this ODIN-only task. Suggested Education lead: **Classroom governance, print
-review and end-of-term content cleanup**. Enterprise inherits these Education
-capabilities alongside its own shipped audit/export controls. Do not present
-unlimited capacity or air-gap operation as Enterprise-only differentiators, and
-do not advertise the other parallel tier-value features until they are released.
+Each school chooses its own retention periods. This describes what ODIN does; it is not a claim of legal compliance.
