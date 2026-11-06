@@ -31,6 +31,14 @@ def _releases():
 
 @pytest.fixture
 def fake_pg_restore(tmp_path, monkeypatch):
+    # This matrix varies archive ledgers, not immutable source bytes. Verify each
+    # package on its first use per test; avoid repeatedly copying all ancestor
+    # bundles for every synthetic prefix on the shared build host.
+    import importlib
+    from functools import lru_cache
+    for era in (29, 34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46):
+        package = importlib.import_module(f'core.schema.preserved{era:03d}')
+        monkeypatch.setattr(package, 'ledger_ids', lru_cache(maxsize=1)(package.ledger_ids))
     tools = tmp_path / "bin"; tools.mkdir()
     fake = tools / "pg_restore"; fake.write_text(FAKE_PG_RESTORE.format(python=sys.executable)); fake.chmod(0o755)
     secret = tmp_path / "secret"; secret.write_text("owned-test-only"); secret.chmod(0o600)

@@ -241,6 +241,10 @@ RAW_REQUIRED_COLUMNS['terminal_filament_measurements'] = frozenset('observation_
 RAW_REQUIRED_COLUMNS['filament_cost_events'] = frozenset('event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at'.split())
 RAW_REQUIRED_COLUMNS['education_trainings'] = frozenset('id org_id cost_center_id school_wide name description scope_kind scope_value quiz_json pass_mark instructor_required expiry_days active revision edit_version created_by created_at'.split())
 RAW_REQUIRED_COLUMNS['education_training_records'] = frozenset('training_id org_id user_id training_revision quiz_attempts failed_attempts cooldown_until quiz_score quiz_passed_at instructor_id instructor_at completed_at expires_at revoked_at'.split())
+RAW_REQUIRED_TABLES |= frozenset({'education_term_policies', 'education_term_cleanup', 'education_erasure_pending'})
+RAW_REQUIRED_COLUMNS['education_term_policies'] = frozenset('id org_id cost_center_id name starts_at ends_at files_days timelapses_days thumbnails_days portfolio_days created_by created_at'.split())
+RAW_REQUIRED_COLUMNS['education_erasure_pending'] = frozenset({'user_id', 'identifiers_json'})
+RAW_REQUIRED_COLUMNS['education_term_cleanup'] = frozenset('term_id submission_id kind state updated_at'.split())
 RAW_REQUIRED_COLUMNS['tray_confirmations'] = frozenset('state_id slot_id decision spool_id previous_spool_id'.split())
 RAW_REQUIRED_COLUMNS['education_classes'] = frozenset('id org_id cost_center_id title term state revision created_by created_at'.split())
 RAW_REQUIRED_COLUMNS['education_assignments'] = frozenset('id org_id class_id title brief due_at max_print_seconds max_material_grams allowed_materials submission_quota auto_print_seconds auto_material_grams auto_printer_ids authorized_by state revision created_at'.split())
@@ -363,6 +367,7 @@ POST027_MIGRATIONS = (
     ("python:050-education-program-reports", "core.schema.migrations.050_education_program_reports"),
     ("python:051-roster-sync", "core.schema.migrations.051_roster_sync"),
     ("python:052-traceability", "core.schema.migrations.052_traceability"),
+    ("python:053-term-retention", "core.schema.migrations.053_term_retention"),
 )
 
 
@@ -625,7 +630,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -657,6 +662,10 @@ def _bootstrap_database_contract(
         # Keep the release tail ordered after the dedicated Education migrations.
         if contract is None and apply_python_migration(connection, "core.schema.migrations.052_traceability"):
             applied.append("python:052-traceability")
+        # D5 retains submission history; run last, after the Education table rebuilds.
+        for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
+            if migration_id == "python:053-term-retention" and apply_python_migration(connection, module_name):
+                applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:

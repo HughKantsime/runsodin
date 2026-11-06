@@ -37,6 +37,7 @@
       "roster_sync",
       "sso",
       "training_signoff",
+      "term_retention",
       "usage_reports",
       "user_groups",
       "webhooks",

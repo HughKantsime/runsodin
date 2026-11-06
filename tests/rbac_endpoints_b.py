@@ -304,6 +304,14 @@ ENDPOINTS = [
     ("GET", "/api/search", _api_read(), None, "Global search (template)"),
 
     # =========================================================================
+    ("DELETE", "/api/education/term-retention/{term_id}", _admin_only(), None, "Delete unused term policy — interactive admin"),
+    ("GET", "/api/education/term-retention", _admin_only(), None, "Term retention policies — school admin"),
+    ("POST", "/api/education/term-retention", _admin_only(), None, "Create term policy — school admin"),
+    ("GET", "/api/education/term-retention/{term_id}/dry-run", _admin_only(), None, "Term retention dry run — school admin"),
+    ("POST", "/api/education/term-retention/{term_id}/purge", _admin_only(), None, "Purge due term content — interactive admin"),
+    ("POST", "/api/education/term-retention/{term_id}/anonymize", _admin_only(), None, "Graduation erasure — interactive admin"),
+    ("POST", "/api/education/term-retention/erasures/{user_id}/resume", _admin_only(), None, "Resume erasure — interactive school admin"),
+
     # 58. Settings — education mode
     # =========================================================================
     ("GET", "/api/settings/education-mode", _pub(),        None,               "Get education mode"),

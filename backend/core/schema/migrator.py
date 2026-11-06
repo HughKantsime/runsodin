@@ -113,6 +113,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.050_education_program_reports",
         "core.schema.migrations.051_roster_sync",
         "core.schema.migrations.052_traceability",
+        "core.schema.migrations.053_term_retention",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

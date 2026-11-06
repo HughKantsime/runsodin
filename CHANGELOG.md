@@ -30,6 +30,7 @@ All notable changes to O.D.I.N. are documented here.
 - Enterprise part traceability for completed job attempts: retained file SHA-256 and manufacturing evidence, operator inspections, printer-tag/product inspection policies, delivery receipts, branded PDF certificates signed with the installation device key, and date-range ZIP exports. The Jobs panel includes inspection and export controls; RBAC, audit logging, GDPR cleanup, and additive migration 052 cover the new records. Historical evidence gaps are shown explicitly. See [traceability documentation](docs/features/traceability.md).
 - E4 review: capture completion evidence and snapshot hashes atomically; enforce inspection on every shipping path; retain attempt records through metadata drift; bound batch exports, domain-separate certificate signatures, and preserve scrubbed quality notes.
 - Organizations with any delivered traceability record cannot be deleted (409), preserving delivered manufacturing evidence.
+- Education/Enterprise end-of-term retention: per-class term policies, paginated dry runs, audited content purge with retry receipts, and bulk departed-student GDPR erasure. School history remains. Review fixes bound cleanup work, add per-category school audits and resumable graduation erasure, and allow audited deletion of unused policies. Includes migration 053 and a frozen 046 restore bridge. See [retention and privacy details](docs/education/term-retention.md); privacy wording awaits Shane and release awaits Claude review.
 
 ## [2.0.44] - 2026-11-05
 

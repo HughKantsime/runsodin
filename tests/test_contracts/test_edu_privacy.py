@@ -3,11 +3,11 @@
 import inspect
 from pathlib import Path
 
-from modules.organizations import routes_sessions
+from modules.organizations import gdpr_erasure
 
 
 def test_erasure_response_and_audit_do_not_reintroduce_former_identity():
-    source = inspect.getsource(routes_sessions.erase_user_data)
+    source = inspect.getsource(gdpr_erasure.erase_user_data_sync)
     post_update = source.split("UPDATE users SET", 1)[1]
     assert "was: {user.username}" not in post_update
     assert 'f"User {user.username}' not in post_update
