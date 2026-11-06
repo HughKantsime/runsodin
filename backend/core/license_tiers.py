@@ -50,7 +50,7 @@ TIERS = {
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
             "education_workflows", "classes", "training_signoff", "program_reports", "roster_sync",
-            "mqtt_republish", "audit_export", "audit_integrity", "siem_stream",
+            "mqtt_republish", "audit_export", "audit_integrity", "siem_stream", "traceability",
         ],
     },
 }

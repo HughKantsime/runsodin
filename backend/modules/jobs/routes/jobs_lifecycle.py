@@ -246,6 +246,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
 
     log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions),
                "accounting_skip": accounting_skip})
+    from core.traceability_evidence import capture_completion
+    capture_completion(db, job.id)
     reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)
@@ -567,6 +569,8 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     if new_status:
         status_applied = transition_job(db, job_id, new_status, "monitor")
 
+    from core.traceability_evidence import capture_completion
+    capture_completion(db, job_id)
     reconcile_job_write(db, production_orders)
     db.commit()
     return {"message": "Linked", "job_id": job_id, "print_job_id": print_job_id,

@@ -34,6 +34,7 @@
       "program_reports",
       "push_notifications",
       "rbac",
+      "roster_sync",
       "sso",
       "training_signoff",
       "usage_reports",

@@ -467,6 +467,13 @@ class TestEveryCallSiteCommitsAfter:
                 sources = {name: (BACKEND_DIR / "modules/organizations" / name).read_text() for name in FILES}
                 has_commit = classes_audit_is_atomic(sources)
             if not has_commit:
+                from tests.test_contracts.release_audit_contract import PROTOCOLS, caller_owned_audit_is_atomic
+                key = (py.relative_to(BACKEND_DIR).as_posix(), fn_name)
+                if key in PROTOCOLS:
+                    sources = {path: (BACKEND_DIR / path).read_text()
+                               for path in {key[0], *PROTOCOLS[key]}}
+                    has_commit = caller_owned_audit_is_atomic(key, sources)
+            if not has_commit:
                 missing.append(f"{py.relative_to(BACKEND_DIR.parent)}:{line_no} in {fn_name}()")
 
         assert not missing, (

@@ -69,8 +69,8 @@
     "python:046-tray-identity"
   ],
   "profile": "restore-046",
-  "source_commit": "c27d6d6dbe2a25803f6c5c144f5043f8d387a2eb",
-  "source_note": "Released schema through 046, on the immutable 045 base.",
+  "source_commit": "d18788ee4b5212687e8cca6d3134bd235c557f73",
+  "source_note": "Released schema through 046, pinned schema sources from source_commit over the frozen 045 base. ORM JSON is whitespace-normalized only.",
   "sources": {
     "core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core/ams_evidence_schema.py": "9b4b919c0756a7a032b5d13c6cab250fda2cf614d43fd2a05add78f030db0df1",
@@ -216,7 +216,7 @@
     "core/schema/migrations/046_tray_identity.py": "5992c0fb18772a8a15d609b8f99a3b02c283b3d15064cf4a7f591046b8dfdb80",
     "core/schema/migrations/__init__.py": "4ab5983cc93dfa41b4fef3b58882453f45abeaf8d49e3234a4c7b11793c182d2",
     "core/schema/migrator.py": "eec91dbdb1a04da72575e9699cadfec8b8b30b4b6bc426b1f6e1dda7744f66cc",
-    "core/schema/orm_baselines.json": "5221bbefa6a2b81d2f968aff4f43979b78ea5591d786062ca72b6e12d22d591b",
+    "core/schema/orm_baselines.json": "e1dd911541a18db296f191987603454cdebf42f328795e0c5412028f48933c3a",
     "core/schema/pre026_restore_contract.py": "a69f865465cb478ad0c490ba7096a83f171d0714377b88d566994309d1ccbd9d",
     "core/schema/pre026_restore_integrity.py": "2b83c4c2f7986c46fc7806dbcd9a290baf86467edc0eb17ad029126c5919236c",
     "core/schema/prepriced_restore_contract.py": "2009b49bce52e7630422bbefce007defc79b560f5bcac1e01e07606c7792d5e7",
@@ -255,6 +255,7 @@
     "core/timelapse_retirement_schema.py": "8378fa6a133a595e2c2817a8b37f7e5a748e5c58a230a7c6ba45ea06f9f7ae7d",
     "core/timelapse_staging_fs.py": "61512c2332e085e35f694315e3652f7d503852abe5b80b38192e63bb0eb2cac4",
     "core/timelapse_unlink_schema.py": "72ca5b022067d86e5892230362046dabfd319319a81a3ebfddc919c70ffa3a25",
+    "core/tray_identity.py": "c4d3a130157b292bafad2c13038da1bc4b5860e83f1491227c41132e621b94a4",
     "core/webhook_utils.py": "ba7a3ae284edfa8b798473ca49db5144f6a2433514b52481275f94ba45a02519",
     "core/ws_hub.py": "22fda3e6afac35d78c4625b2c25d55caf5982c5f677613ac35f6c7c9861a39da",
     "core/zip_bounds.py": "c01561ce8ac774ac54f3bb90795eb7b890f65ef5938fe4ca7ecc62e72328a0cc",

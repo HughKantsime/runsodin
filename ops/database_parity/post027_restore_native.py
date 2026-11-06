@@ -193,6 +193,8 @@ def main():
             seed_program(c)
             from ops.database_parity.education_roster_fixtures import seed as seed_roster
             seed_roster(c)
+            c.execute(text("INSERT INTO traceability_records(job_id,attempt,snapshot,snapshot_sha256,captured_at,inspection_result,inspected_by) VALUES(990034,0,'{}','44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a','2026-11-05T00:00:00Z','pass',3)"))
+            c.execute(text("INSERT INTO traceability_policies(owner_id,org_id,target_kind,target_key,required) VALUES(1,1,'printer_tag','roundtrip052',1)"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -230,6 +232,10 @@ def main():
         print('post027-native-current-backup-restore-roundtrip-051-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-049-pass', flush=True)
+        with engine.connect() as c:
+            assert c.execute(text('SELECT inspection_result,inspected_by FROM traceability_records WHERE job_id=990034')).one()==('pass',3)
+            assert c.execute(text("SELECT required FROM traceability_policies WHERE owner_id=1 AND target_key='roundtrip052'")).scalar_one()==1
+        print('post027-native-current-backup-restore-roundtrip-052-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-050-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)

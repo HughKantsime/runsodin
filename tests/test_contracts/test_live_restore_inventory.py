@@ -78,6 +78,10 @@ POST027_RAW_TABLES = {
         "education_assignment_submissions": frozenset("submission_id org_id assignment_id feedback grade learning_status reviewed_by revision first_approved_at attached_at updated_at".split()),
     },
 
+    "python:052-traceability": {
+        "traceability_records": frozenset("job_id attempt snapshot snapshot_sha256 captured_at inspection_result inspection_notes inspected_by inspected_at delivered_by delivered_at".split()),
+        "traceability_policies": frozenset("owner_id org_id target_kind target_key required".split()),
+    },
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },

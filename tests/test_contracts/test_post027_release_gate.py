@@ -83,6 +83,13 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
     """Migrations apply in registry order, so an archive's post-027 ids are a registry prefix,
     on top of a 025, 026 or 027-era base ledger. Only the full prefix (current) and the
     empty one (preserved029) restore; any other prefix is an intermediate build."""
+    # This matrix tests routing, not repeated filesystem verification. Verify each
+    # frozen bundle once; dedicated bundle tests exercise tamper detection.
+    from importlib import import_module
+    for era in ('029','034','035','036','037','038','039','040','043','044','045','046'):
+        bundle = import_module('core.schema.preserved' + era)
+        verified_ids = bundle.ledger_ids()
+        monkeypatch.setattr(bundle, 'ledger_ids', lambda ids=verified_ids: ids)
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
     from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046

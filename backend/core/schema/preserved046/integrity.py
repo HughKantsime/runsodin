@@ -9,7 +9,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-MANIFEST_SHA256 = '4d4051e476e8ba1e69976fbf6a2f409a3e2eebc84ff32715dd3e8b3d2791c752'
+MANIFEST_SHA256 = '85c11781142e30d51c236a3ee48f53786687105e9426614a061745aed2afe7c5'
 _MATERIALIZED = None
 
 

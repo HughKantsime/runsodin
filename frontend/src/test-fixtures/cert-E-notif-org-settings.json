@@ -29,7 +29,9 @@
     "webhook_url": "https://hooks.cert-e.test/org-1",
     "webhook_type": "discord",
     "branding_app_name": null,
-    "branding_logo_url": null
+    "branding_logo_url": null,
+    "program_reports_perkins_enabled": false,
+    "timezone": "UTC"
   },
   "put_response": {
     "default_filament_type": null,
@@ -39,6 +41,8 @@
     "quiet_hours_end": "06:45",
     "webhook_type": "discord",
     "branding_app_name": null,
-    "branding_logo_url": null
+    "branding_logo_url": null,
+    "program_reports_perkins_enabled": false,
+    "timezone": "UTC"
   }
 }

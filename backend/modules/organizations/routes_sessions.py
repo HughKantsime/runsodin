@@ -6,10 +6,8 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel as PydanticBaseModel
+from modules.organizations.session_schemas import QuotaUpdateRequest
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -348,13 +346,6 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
     return result
 
 
-class QuotaUpdateRequest(PydanticBaseModel):
-    quota_grams: Optional[float] = None
-    quota_hours: Optional[float] = None
-    quota_jobs: Optional[int] = None
-    quota_period: Optional[str] = None
-
-
 @router.put("/admin/quotas/{user_id}", tags=["Quotas"])
 async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: set quotas for a user."""
@@ -472,7 +463,9 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     from modules.organizations.education_roster_privacy import export_roster
     from modules.organizations.education_classes_privacy import export_classes
     from modules.organizations.education_program_records import export_program_records
+    from core.traceability_privacy import export_personal
     export = {
+        "traceability": export_personal(db, user_id),
         "training": export_training_data(db, user_id),
         "education_program_reports": export_program_records(db, user_id),
         "education_roster": export_roster(db, user_id),
@@ -528,6 +521,9 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         )
         if isinstance(value, str) and value and value != "[deleted]"
     }
+
+    from core.traceability_privacy import erase_personal
+    erase_personal(db, user_id, identifiers)
 
     db.execute(text("""UPDATE users SET
         username = :anon_name, email = '[deleted]', password_hash = '[deleted]',

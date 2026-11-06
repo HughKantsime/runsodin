@@ -1441,6 +1441,21 @@
       ],
       "education.roster_manage": [
         "admin"
+      ],
+      "jobs.traceability": [
+        "admin",
+        "operator"
+      ],
+      "jobs.inspect": [
+        "admin",
+        "operator"
+      ],
+      "jobs.deliver": [
+        "admin",
+        "operator"
+      ],
+      "jobs.inspection_policy": [
+        "admin"
       ]
     },
     "page_access": {

@@ -35,6 +35,10 @@ RBAC_DEFAULT_PAGE_ACCESS = {
 }
 
 RBAC_DEFAULT_ACTION_ACCESS = {
+    "jobs.traceability": ["admin", "operator"],
+    "jobs.inspect": ["admin", "operator"],
+    "jobs.deliver": ["admin", "operator"],
+    "jobs.inspection_policy": ["admin"],
     "printers.dispatch_recovery": ["admin"],
     "settings.edit": ["admin"],
     "users.restore_superadmin": ["admin"],

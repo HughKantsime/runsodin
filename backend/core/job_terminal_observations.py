@@ -15,6 +15,9 @@ def claim_terminal(executor, print_job_id, *, deliver_alerts=True,
     if row is None or row[4] not in ('completed','failed','cancelled'):
         return False
     uid, birth, job, printer, outcome, org = row
+    if outcome == "completed" and job is not None:
+        from core.traceability_evidence import capture_completion
+        capture_completion(executor, job)
     # Historical/unlinked attempts have no economic identity. Never invent one
     # from a reusable integer ID, or attach their outcome to a newer attempt.
     if uid is None or birth is None:

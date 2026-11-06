@@ -34,7 +34,7 @@ with engine.begin() as c:
     apply_pending_restore('sqlite:///'+str(live))
     path = live
     engine=create_engine('sqlite:///'+str(path))
-    assert bootstrap_database(engine)['applied']==[M.MIGRATION_ID, 'python:048-training-signoff', 'python:049-education-classes', 'python:050-education-program-reports', 'python:051-roster-sync']
+    assert bootstrap_database(engine)['applied']==[M.MIGRATION_ID, 'python:048-training-signoff', 'python:049-education-classes', 'python:050-education-program-reports', 'python:051-roster-sync', 'python:052-traceability']
     with engine.begin() as c:
         assert verify(c)['ok']
         assert c.execute(text('SELECT action FROM audit_logs')).scalar_one()=='retained'

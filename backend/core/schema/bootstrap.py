@@ -25,6 +25,7 @@ from core.schema.migrator import (
 
 RAW_REQUIRED_TABLES = frozenset(
     {
+        "traceability_records", "traceability_policies",
         "audit_actor_erasures",
         "spool_purchase_evidence",
         "cost_global_order_origins",
@@ -120,6 +121,8 @@ POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce print
 RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations', 'audit_chain_state', 'audit_siem_gaps', 'audit_siem_destinations', 'audit_siem_outbox', 'audit_integrity_status', 'audit_redactions', 'audit_retention_checkpoints'}) | frozenset({'education_trainings', 'education_training_records'})
 
 RAW_REQUIRED_COLUMNS = {
+    "traceability_records": frozenset("job_id attempt snapshot snapshot_sha256 captured_at inspection_result inspection_notes inspected_by inspected_at delivered_by delivered_at".split()),
+    "traceability_policies": frozenset("owner_id org_id target_kind target_key required".split()),
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
     "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
     "job_timeline_events": frozenset("id job_id print_attempt_uid printer_id org_id kind code detail actor_user_id actor_token_id occurred_at recorded_at".split()),
@@ -359,6 +362,7 @@ POST027_MIGRATIONS = (
     ("python:049-education-classes", "core.schema.migrations.049_education_classes"),
     ("python:050-education-program-reports", "core.schema.migrations.050_education_program_reports"),
     ("python:051-roster-sync", "core.schema.migrations.051_roster_sync"),
+    ("python:052-traceability", "core.schema.migrations.052_traceability"),
 )
 
 
@@ -621,7 +625,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -650,6 +654,9 @@ def _bootstrap_database_contract(
             applied.append("python:050-education-program-reports")
         if contract is None and apply_python_migration(connection, "core.schema.migrations.051_roster_sync"):
             applied.append("python:051-roster-sync")
+        # Keep the release tail ordered after the dedicated Education migrations.
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.052_traceability"):
+            applied.append("python:052-traceability")
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:

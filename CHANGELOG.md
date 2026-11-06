@@ -27,6 +27,9 @@ All notable changes to O.D.I.N. are documented here.
 
 - Education and Enterprise: term-labelled classes using existing school rosters, assignments with due dates, per-print time/material limits and per-student submission quotas, explicit pending-print linking, optional instructor-authorized auto-approval through the existing compatibility checks, revision-safe feedback and grades, and private portfolios with thumbnails and timelapses. The `classes` entitlement, permission matrix, school audit and GDPR workflows cover the feature; unassigned submissions retain their existing behavior.
 - Additive migration 049 for classes, assignments and assessments; preserve the released 046 schema for PostgreSQL archive upgrades.
+- Enterprise part traceability for completed job attempts: retained file SHA-256 and manufacturing evidence, operator inspections, printer-tag/product inspection policies, delivery receipts, branded PDF certificates signed with the installation device key, and date-range ZIP exports. The Jobs panel includes inspection and export controls; RBAC, audit logging, GDPR cleanup, and additive migration 052 cover the new records. Historical evidence gaps are shown explicitly. See [traceability documentation](docs/features/traceability.md).
+- E4 review: capture completion evidence and snapshot hashes atomically; enforce inspection on every shipping path; retain attempt records through metadata drift; bound batch exports, domain-separate certificate signatures, and preserve scrubbed quality notes.
+- Organizations with any delivered traceability record cannot be deleted (409), preserving delivered manufacturing evidence.
 
 ## [2.0.44] - 2026-11-05
 
