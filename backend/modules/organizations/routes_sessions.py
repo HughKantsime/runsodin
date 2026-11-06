@@ -468,7 +468,9 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         {"uid": user_id},
     ).fetchall()]
 
+    from modules.organizations.education_training_policy import export_training_data
     export = {
+        "training": export_training_data(db, user_id),
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
         "jobs_submitted": jobs,
@@ -576,6 +578,9 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     from modules.organizations.routes_users import delete_deferred_deliveries, _DEFERRED_DELIVERIES_TABLE
     delete_deferred_deliveries(db, user_id=user_id)
     deferred_present = inspect(db.connection()).has_table(_DEFERRED_DELIVERIES_TABLE)
+
+    from modules.organizations.education_training_policy import erase_training_data
+    erase_training_data(db, user_id, current_user["id"])
 
     # Remove direct Classroom identity data and any unconsumed OAuth state.
     # Operational course mappings and cost centers remain, while grants are

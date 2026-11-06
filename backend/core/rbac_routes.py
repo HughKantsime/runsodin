@@ -24,6 +24,9 @@ Paths are the /api paths; the /api/v1 aliases share the same route handlers.
 """
 
 ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
+    "education.training_read": [("GET", "/api/education/cost-centers/{center_id}/trainings"), ("GET", "/api/education/trainings/{training_id}/records")],
+    "education.training_take": [("POST", "/api/education/trainings/{training_id}/quiz")],
+    "education.training_manage": [("POST", "/api/education/cost-centers/{center_id}/trainings"), ("PUT", "/api/education/trainings/{training_id}"), ("POST", "/api/education/trainings/{training_id}/students/{user_id}/signoff"), ("POST", "/api/education/trainings/{training_id}/students/{user_id}/revoke")],
     "printers.dispatch_recovery": [("POST", "/api/printers/{printer_id}/dispatch-recovery/" + action) for action in ("hold", "reconcile-retain", "release")],
     "users.restore_superadmin": [("POST", "/api/users/{user_id}/restore-superadmin")],
     "education.reorder": [("PATCH", "/api/education/queues/jobs/{printer_id}/order")],

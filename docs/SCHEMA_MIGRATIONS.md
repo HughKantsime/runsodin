@@ -171,3 +171,16 @@ append trigger is required only when the chain-state table exists. PostgreSQL
 canonical executable guards include the current append function and trigger.
 Native snapshot/contention/receipt proof lives in `ops/database_parity/audit_integrity_native.py`.
 See [Audit integrity](AUDIT_INTEGRITY.md) for operational and privacy semantics.
+
+## Training sign-off (048)
+
+048 runs after the dedicated 037 membership step (alongside 039), so PostgreSQL
+upgrades from pre-037 schemas have the referenced membership table. It includes
+school-wide scope and durable quiz attempt/cooldown evidence. A separate `edit_version`
+advances for every definition save; requirement `revision` changes only when completion
+requirements change. Stale edit versions are refused without invalidating completion.
+048 creates tenant-bound training definitions and completion evidence, registered in the
+post027 ledger and canonical table inventory. No PostgreSQL functions/triggers are added.
+The new preserved046 overlay pins the released 046 schema and routes its backups through
+the existing isolated restore protocol before applying 048. Published ledger entries are
+unchanged; register the next release's prefix only when assigning that release version.

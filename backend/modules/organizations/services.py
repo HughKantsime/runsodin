@@ -6,6 +6,8 @@ expose its settings via the registry without forcing other modules to
 import directly from organizations/routes.py.
 """
 
+from modules.organizations.education_training_scope import printer_edit_warnings, scope_loss_warnings
+
 from typing import Optional
 
 from core.interfaces.org_settings import OrgSettingsProvider

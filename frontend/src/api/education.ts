@@ -102,7 +102,7 @@ export const education = {
     revision: number
     printer_ids: number[]
     command_id: string
-  }): Promise<{ id: number; revision: number; printer_ids: number[] }> => fetchAPI(
+  }): Promise<{ id: number; revision: number; printer_ids: number[]; training_warnings?: string[] }> => fetchAPI(
     `/education/cost-centers/${centerId}/printers`, { method: 'PUT', body: JSON.stringify(data) }
   ),
 

@@ -191,6 +191,8 @@ def begin_upload_attempt(
     org_id = principal.get("group_id")
     if org_id is None:
         raise OdinError(ErrorCode.permission_denied, "Tenant membership is required", status=403)
+    from modules.organizations.education_training_policy import lock_center
+    lock_center(db, cost_center_id, org_id)
     retain_membership(db, principal["id"], org_id)
     existing = _operation(db, operation_id)
     if existing:
@@ -212,6 +214,9 @@ def begin_upload_attempt(
     ).fetchone()
     if not grant:
         raise OdinError(ErrorCode.not_found, "Cost center not found", status=404)
+
+    from modules.organizations.education_training_policy import require_submission_training
+    require_submission_training(db, principal=principal, cost_center_id=cost_center_id)
 
     claimed = db.execute(
         text(
@@ -283,207 +288,6 @@ def begin_upload_attempt(
     return None
 
 
-def _ensure_storage_account(
-    db: Session, *, org_id: int, scope_kind: str, scope_id: int, user_id: int | None
-) -> None:
-    db.execute(
-        text(
-            "INSERT INTO education_storage_accounts "
-            "(org_id,scope_kind,scope_id,user_id,reserved_bytes,accounted_bytes) "
-            "VALUES (:org_id,:scope_kind,:scope_id,:user_id,0,0) "
-            "ON CONFLICT (org_id,scope_kind,scope_id) DO NOTHING"
-        ),
-        {
-            "org_id": org_id,
-            "scope_kind": scope_kind,
-            "scope_id": scope_id,
-            "user_id": user_id,
-        },
-    )
-
-
-def reserve_storage_chunk(
-    db: Session, *, operation_id: str, amount: int, storage_root: Path = UPLOAD_ROOT
-) -> None:
-    if amount <= 0 or amount > CHUNK_BYTES:
-        raise ValueError("reservation amount must be one positive upload chunk")
-    usage = shutil.disk_usage(storage_root)
-    try:
-        required_free = required_free_bytes(usage.total)
-    except StorageConfigurationError as exc:
-        raise OdinError(ErrorCode.validation_failed,
-                        "Education upload storage configuration is invalid. "
-                        "Ask your administrator to correct EDUCATION_MIN_FREE_GIB (minimum 1 GiB).",
-                        status=503, retriable=False) from exc
-    if usage.free - amount < required_free:
-        raise OdinError(
-            ErrorCode.quota_exceeded,
-            ("Upload would violate the Education storage headroom reserve. "
-             f"Available: {usage.free / (1024 ** 3):.2f} GiB; "
-             f"required reserve: {required_free / (1024 ** 3):.2f} GiB. "
-             "Ask your administrator to free space or expand the filesystem "
-             "backing Education uploads, and confirm the upload volume is mounted correctly."),
-            status=507,
-            retriable=True,
-        )
-    operation = _operation(db, operation_id)
-    if not operation or operation.state not in ("reserved", "streaming"):
-        raise OdinError(ErrorCode.invalid_state_transition, "Upload is not streamable", status=409)
-    org_id = int(operation.org_id)
-    user_id = int(operation.user_id)
-    _ensure_storage_account(
-        db, org_id=org_id, scope_kind="user", scope_id=user_id, user_id=user_id
-    )
-    _ensure_storage_account(
-        db, org_id=org_id, scope_kind="tenant", scope_id=org_id, user_id=None
-    )
-    for scope_kind, scope_id, cap in (
-        ("user", user_id, USER_STORAGE_CAP_BYTES),
-        ("tenant", org_id, TENANT_STORAGE_CAP_BYTES),
-    ):
-        changed = db.execute(
-            text(
-                "UPDATE education_storage_accounts SET reserved_bytes=reserved_bytes+:amount, "
-                "revision=revision+1, updated_at=CURRENT_TIMESTAMP "
-                "WHERE org_id=:org_id AND scope_kind=:scope_kind AND scope_id=:scope_id "
-                "AND reserved_bytes+accounted_bytes+:amount <= :cap"
-            ),
-            {
-                "amount": amount,
-                "org_id": org_id,
-                "scope_kind": scope_kind,
-                "scope_id": scope_id,
-                "cap": cap,
-            },
-        )
-        if changed.rowcount != 1:
-            db.rollback()
-            raise OdinError(
-                ErrorCode.quota_exceeded,
-                f"Education {scope_kind} storage quota exceeded",
-                status=413,
-            )
-    db.execute(
-        text(
-            "UPDATE education_upload_operations SET state='streaming', "
-            "reserved_bytes=reserved_bytes+:amount, updated_at=CURRENT_TIMESTAMP "
-            "WHERE operation_id=:id"
-        ),
-        {"amount": amount, "id": operation_id},
-    )
-    db.commit()
-
-
-def _release_reservation(db: Session, operation) -> bool:
-    if operation.reservation_released_at is not None:
-        return False
-    amount = int(operation.reserved_bytes or 0)
-    claimed = db.execute(
-        text(
-            "UPDATE education_upload_operations SET reservation_released_at=CURRENT_TIMESTAMP, "
-            "updated_at=CURRENT_TIMESTAMP WHERE operation_id=:id "
-            "AND reservation_released_at IS NULL"
-        ),
-        {"id": operation.operation_id},
-    )
-    if claimed.rowcount != 1:
-        return False
-    if amount == 0:
-        return True
-    for scope_kind, scope_id in (
-        ("user", int(operation.user_id)),
-        ("tenant", int(operation.org_id)),
-    ):
-        changed = db.execute(
-            text(
-                "UPDATE education_storage_accounts SET "
-                "reserved_bytes=reserved_bytes-:amount, "
-                "revision=revision+1, updated_at=CURRENT_TIMESTAMP "
-                "WHERE org_id=:org_id AND scope_kind=:scope_kind AND scope_id=:scope_id "
-                "AND reserved_bytes>=:amount"
-            ),
-            {
-                "amount": amount,
-                "org_id": operation.org_id,
-                "scope_kind": scope_kind,
-                "scope_id": scope_id,
-            },
-        )
-        if changed.rowcount != 1:
-            raise RuntimeError("Education reservation accounting is inconsistent")
-    return True
-
-
-def abort_upload(db: Session, *, operation_id: str, paths: tuple[Path, ...]) -> None:
-    cleanup_error = None
-    for path in paths:
-        try:
-            existed = path.exists()
-            path.unlink(missing_ok=True)
-            if existed and path.parent.exists():
-                _fsync_directory(path.parent)
-        except OSError as exc:
-            cleanup_error = exc
-    operation = _operation(db, operation_id)
-    if not operation:
-        return
-    if cleanup_error:
-        db.execute(
-            text(
-                "UPDATE education_upload_operations SET state='needs_reconciliation', "
-                "cleanup_path=COALESCE(cleanup_path,final_path,staging_path), "
-                "updated_at=CURRENT_TIMESTAMP WHERE operation_id=:id"
-            ),
-            {"id": operation_id},
-        )
-        db.commit()
-        return
-    _release_reservation(db, operation)
-    db.execute(
-        text(
-            "UPDATE education_upload_operations SET state='aborted', cleanup_path=NULL, "
-            "updated_at=CURRENT_TIMESTAMP WHERE operation_id=:id"
-        ),
-        {"id": operation_id},
-    )
-    db.commit()
-
-
-def reconcile_upload_operation(db: Session, *, operation_id: str) -> dict | None:
-    """Resolve an uncertain commit from a fresh graph check or durable cleanup."""
-    operation = _operation(db, operation_id)
-    if not operation or operation.state != "needs_reconciliation":
-        row = _submission_result(db, operation_id)
-        return dict(row._mapping) if row else None
-    row = _submission_result(db, operation_id)
-    if row:
-        changed = db.execute(
-            text(
-                "UPDATE education_upload_operations SET state='committed',cleanup_path=NULL,"
-                "updated_at=CURRENT_TIMESTAMP WHERE operation_id=:id "
-                "AND state='needs_reconciliation' AND reservation_released_at IS NOT NULL"
-            ),
-            {"id": operation_id},
-        )
-        if changed.rowcount != 1:
-            db.rollback()
-            raise OdinError(
-                ErrorCode.internal_error,
-                "Committed submission has inconsistent storage accounting",
-                status=503,
-                retriable=True,
-            )
-        db.commit()
-        return dict(row._mapping)
-    paths = tuple(
-        Path(value)
-        for value in (operation.staging_path, operation.final_path, operation.cleanup_path)
-        if value
-    )
-    abort_upload(db, operation_id=operation_id, paths=paths)
-    return None
-
-
 def _material_value(raw: str | None) -> str:
     return FilamentType.from_bambu_code(raw or "").value
 
@@ -546,241 +350,6 @@ def _fresh_session_factory(db: Session):
     from sqlalchemy.orm import sessionmaker
 
     return sessionmaker(bind=db.get_bind())
-
-
-def _lock_job_birth_authority(db: Session, operation_id: str, principal: dict, cost_center_id: int) -> int:
-    """Revalidate persisted upload ownership in the graph writer transaction."""
-    org_id, user_id = principal.get("group_id"), principal.get("id")
-    if any(type(value) is not int or value <= 0 for value in (org_id, user_id, cost_center_id)):
-        raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
-    connection = db.connection()
-    pg = connection.dialect.name == "postgresql"
-    if pg:
-        current = int(db.execute(text("SELECT setting FROM pg_settings WHERE name='lock_timeout'")).scalar_one())
-        bound = min(current, 1000) if current > 0 else 1000
-        db.execute(text("SELECT set_config('lock_timeout',:bound,true)"), {"bound": str(bound) + "ms"})
-    else:
-        # A deferred SQLite transaction is not writer authority. This harmless
-        # exact-row update acquires the writer lock before any scope reads.
-        changed = db.execute(text("UPDATE education_upload_operations SET operation_id=operation_id WHERE operation_id=:id"), {"id": operation_id})
-        if changed.rowcount != 1:
-            raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
-    suffix = " FOR UPDATE NOWAIT" if pg else ""
-    user = db.execute(text("SELECT id,group_id,is_active FROM users WHERE id=:id" + suffix), {"id": user_id}).one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
-    center = db.execute(text("SELECT id,org_id,state FROM education_cost_centers WHERE id=:id" + suffix), {"id": cost_center_id}).one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
-    grants = db.execute(text("SELECT user_id,org_id,cost_center_id,role,state FROM education_cost_center_grants WHERE user_id=:user AND org_id=:org AND cost_center_id=:center AND role='student'" + suffix), {"user": user_id, "org": org_id, "center": cost_center_id}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
-    operation = db.execute(text("SELECT operation_id,org_id,user_id,state FROM education_upload_operations WHERE operation_id=:id" + suffix), {"id": operation_id}).one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
-    if (user is None or tuple(user) != (user_id, org_id, True)
-            or center is None or tuple(center) != (cost_center_id, org_id, "active")
-            or len(grants) != 1 or tuple(grants[0]) != (user_id, org_id, cost_center_id, "student", "active")
-            or operation is None or tuple(operation) != (operation_id, org_id, user_id, "renamed")):
-        raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
-    return org_id
-
-
-def _raw_insert_job_defaults(db: Session) -> dict:
-    """Preserve omitted raw INSERT defaults instead of introducing ORM defaults."""
-    columns = {column["name"]: column for column in inspect(db.connection()).get_columns("jobs")}
-    result = {}
-    for name in ("quantity_on_bed", "is_favorite", "required_tags", "target_type"):
-        default = columns[name]["default"]
-        # This is the current database's own default, which the previous raw
-        # INSERT executed implicitly. It is never a request/archive expression.
-        result[name] = literal_column(default) if default is not None else null()
-    return result
-
-
-def _commit_submission_graph(
-    db: Session,
-    *,
-    operation_id: str,
-    principal: dict,
-    cost_center_id: int,
-    original_filename: str,
-    final_path: Path,
-    byte_count: int,
-    digest: str,
-    metadata,
-    compatibility_meta: dict,
-) -> dict:
-    org_id = _lock_job_birth_authority(db, operation_id, principal, cost_center_id)
-    filaments = [
-        {
-            "slot": item.slot,
-            "type": item.type,
-            "color": item.color,
-            "used_meters": item.used_meters,
-            "used_grams": item.used_grams,
-        }
-        for item in metadata.filaments
-    ]
-    print_file_id = execute_insert_returning_id(
-        db,
-        """INSERT INTO print_files
-        (filename,original_filename,project_name,print_time_seconds,total_weight_grams,
-         layer_count,layer_height,nozzle_diameter,printer_model,supports_used,bed_type,
-         filaments_json,stored_path,bed_x_mm,bed_y_mm,compatible_api_types,file_hash,
-         org_id,created_by,storage_bytes,blob_state,compatibility_facts_json)
-        VALUES (:filename,:original_filename,:project_name,:print_time,:weight,:layers,
-        :layer_height,:nozzle,:printer_model,:supports,:bed_type,:filaments,:stored_path,
-        :bed_x,:bed_y,:api_types,:file_hash,:org_id,:created_by,:storage_bytes,'present',:facts)""",
-        {
-            "filename": original_filename,
-            "original_filename": original_filename,
-            "project_name": metadata.project_name,
-            "print_time": metadata.print_time_seconds,
-            "weight": metadata.total_weight_grams,
-            "layers": metadata.layer_count,
-            "layer_height": metadata.layer_height,
-            "nozzle": metadata.nozzle_diameter,
-            "printer_model": metadata.printer_model,
-            "supports": metadata.supports_used,
-            "bed_type": metadata.bed_type,
-            "filaments": json.dumps(filaments, sort_keys=True),
-            "stored_path": str(final_path),
-            "bed_x": compatibility_meta["bed_x_mm"],
-            "bed_y": compatibility_meta["bed_y_mm"],
-            "api_types": compatibility_meta["compatible_api_types"],
-            "file_hash": digest,
-            "org_id": org_id,
-            "created_by": principal["id"],
-            "storage_bytes": byte_count,
-            "facts": json.dumps(compatibility_meta["safety_facts"], sort_keys=True),
-        },
-    )
-    primary_material = filaments[0]["type"] if filaments else None
-    model_id = execute_insert_returning_id(
-        db,
-        """INSERT INTO models
-        (name,build_time_hours,default_filament_type,print_file_id,category,org_id)
-        VALUES (:name,:hours,:material,:file_id,'Education Submission',:org_id)""",
-        {
-            "name": metadata.project_name,
-            "hours": round(float(metadata.print_time_seconds) / 3600.0, 2),
-            "material": _material_value(primary_material),
-            "file_id": print_file_id,
-            "org_id": org_id,
-        },
-    )
-    db.execute(
-        text("UPDATE print_files SET model_id=:model_id WHERE id=:file_id"),
-        {"model_id": model_id, "file_id": print_file_id},
-    )
-    job = Job(
-        model_id=model_id, item_name=metadata.project_name, status=JobStatus.SUBMITTED,
-        priority=3, quantity=1, submitted_by=principal["id"],
-        charged_to_user_id=principal["id"], charged_to_org_id=org_id,
-        hold=False, is_locked=False, print_file_id=print_file_id,
-        payload_sha256=digest, plate_index=0, **_raw_insert_job_defaults(db),
-    )
-    _add_created(db, job, "job", owner_org_id=org_id)
-    job_id = job.id
-    submission_id = execute_insert_returning_id(
-        db,
-        """INSERT INTO education_submissions
-        (org_id,operation_id,job_id,print_file_id,model_id,cost_center_id,submitted_by,status)
-        VALUES (:org_id,:operation_id,:job_id,:file_id,:model_id,:center_id,:user_id,'submitted')""",
-        {
-            "org_id": org_id,
-            "operation_id": operation_id,
-            "job_id": job_id,
-            "file_id": print_file_id,
-            "model_id": model_id,
-            "center_id": cost_center_id,
-            "user_id": principal["id"],
-        },
-    )
-    operation = _operation(db, operation_id)
-    reserved = int(operation.reserved_bytes or 0)
-    for scope_kind, scope_id in (("user", principal["id"]), ("tenant", org_id)):
-        changed = db.execute(
-            text(
-                "UPDATE education_storage_accounts SET reserved_bytes=reserved_bytes-:reserved, "
-                "accounted_bytes=accounted_bytes+:bytes, revision=revision+1, "
-                "updated_at=CURRENT_TIMESTAMP WHERE org_id=:org_id AND scope_kind=:kind "
-                "AND scope_id=:scope_id AND reserved_bytes>=:reserved"
-            ),
-            {
-                "reserved": reserved,
-                "bytes": byte_count,
-                "org_id": org_id,
-                "kind": scope_kind,
-                "scope_id": scope_id,
-            },
-        )
-        if changed.rowcount != 1:
-            raise RuntimeError("Education storage reservation was lost before graph commit")
-    committed_operation = db.execute(
-        text(
-            "UPDATE education_upload_operations SET state='committed', accounted_bytes=:bytes, "
-            "expected_bytes=:bytes, expected_hash=:digest, final_path=:path, staging_path=NULL, "
-            "reservation_released_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP "
-            "WHERE operation_id=:id AND state='renamed'"
-        ),
-        {
-            "bytes": byte_count,
-            "digest": digest,
-            "path": str(final_path),
-            "id": operation_id,
-        },
-    )
-    if committed_operation.rowcount != 1:
-        raise RuntimeError("Education upload lost its renamed state before graph commit")
-    event_id = str(uuid.uuid4())
-    request_hash = hashlib.sha256(
-        json.dumps(
-            {"cost_center_id": cost_center_id, "sha256": digest},
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
-    result = {
-        "id": submission_id,
-        "job_id": job_id,
-        "print_file_id": print_file_id,
-        "model_id": model_id,
-        "cost_center_id": cost_center_id,
-        "status": "submitted",
-        "lifecycle_revision": 1,
-    }
-    db.execute(
-        text(
-            "INSERT INTO education_audit_events "
-            "(event_id,org_id,actor_kind,actor_id,action,command_id,request_hash,resource_type,"
-            "resource_id,cost_center_id,lifecycle_revision,details_json,result_json) "
-            "VALUES (:event_id,:org_id,'user',:actor_id,'submission.create',:command_id,:request_hash,"
-            "'submission',:resource_id,:center_id,1,:details,:result)"
-        ),
-        {
-            "event_id": event_id,
-            "org_id": org_id,
-            "actor_id": str(principal["id"]),
-            "command_id": operation_id,
-            "request_hash": request_hash,
-            "resource_id": str(submission_id),
-            "center_id": cost_center_id,
-            "details": json.dumps({"bytes": byte_count, "sha256": digest}, sort_keys=True),
-            "result": json.dumps(result, sort_keys=True),
-        },
-    )
-    recipients = db.execute(
-        text(
-            "SELECT DISTINCT u.id FROM users u LEFT JOIN education_cost_center_grants g "
-            "ON g.user_id=u.id AND g.org_id=u.group_id AND g.cost_center_id=:center_id "
-            "AND g.role='manager' AND g.state='active' WHERE u.group_id=:org_id "
-            "AND u.is_active IS TRUE AND (u.role='admin' OR g.id IS NOT NULL)"
-        ),
-        {"center_id": cost_center_id, "org_id": org_id},
-    ).fetchall()
-    for recipient in recipients:
-        db.execute(
-            text(
-                "INSERT INTO education_notification_outbox (event_id,org_id,recipient_user_id) "
-                "VALUES (:event_id,:org_id,:user_id) ON CONFLICT (event_id,recipient_user_id) DO NOTHING"
-            ),
-            {"event_id": event_id, "org_id": org_id, "user_id": recipient.id},
-        )
-    return result
 
 
 def prepare_upload_paths(
@@ -1019,3 +588,17 @@ def process_sliced_3mf_submission(
         byte_count=total,
         digest=digest.hexdigest(),
     )
+
+from modules.organizations.education_upload_storage import (
+    _ensure_storage_account,
+    reserve_storage_chunk,
+    _release_reservation,
+    abort_upload,
+    reconcile_upload_operation,
+)
+
+from modules.organizations.education_submission_graph import (
+    _lock_job_birth_authority,
+    _raw_insert_job_defaults,
+    _commit_submission_graph,
+)

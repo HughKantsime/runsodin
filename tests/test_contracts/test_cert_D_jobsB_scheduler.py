@@ -392,7 +392,7 @@ def test_deleting_a_printer_marks_its_pins_deleted_and_never_retargets(fleet, si
     job = client.post('/api/v1/jobs', json={'item_name': 'Synthetic pinned to doomed', 'duration_hours': 1, 'printer_id': 12}).json()['id']
     fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12')); fleet.commit()
     response = client.delete('/api/v1/printers/12')
-    assert response.status_code in (200, 204), response.text
+    assert response.status_code == 204, response.text
     body = client.get(f'/api/v1/jobs/{job}').json()
     assert (body['pinned_printer_id'], body['pinned_printer_issue']) == (None, 'pinned_printer_deleted')
     # SQLite may hand the id out again: the job must not follow it.
@@ -509,7 +509,7 @@ def _delete_printer_12(client, fleet):
     from modules.printers import routes_crud
     client.app.include_router(routes_crud.router, prefix='/api/v1')
     fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12')); fleet.commit()
-    assert client.delete('/api/v1/printers/12').status_code in (200, 204)
+    assert client.delete('/api/v1/printers/12').status_code == 204
     fleet.expire_all()
 
 

@@ -23,14 +23,16 @@ def engine(request,tmp_path):
 def test_upgrade_preserves_objects_rows_and_revalidates(engine,monkeypatch):
     import core.schema.bootstrap as bootstrap
     original=bootstrap.POST027_MIGRATIONS
-    monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',tuple(pair for pair in original if pair[0]!=M.MIGRATION_ID))
+    monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',tuple(pair for pair in original if pair[0] not in {M.MIGRATION_ID, 'python:048-training-signoff'}))
     # The dedicated final step is disabled while constructing the exact old schema.
     real=bootstrap.apply_dedicated_python_migration
     monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',lambda e,n: False if n.endswith('037_education_memberships') else real(e,n))
+    real_apply=bootstrap.apply_python_migration
+    monkeypatch.setattr(bootstrap,'apply_python_migration',lambda c,n: False if n.endswith('048_training_signoff') else real_apply(c,n))
     required=bootstrap.RAW_REQUIRED_TABLES
     columns=bootstrap.RAW_REQUIRED_COLUMNS
-    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required-frozenset({'education_memberships'}))
-    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',{k:v for k,v in columns.items() if k!='education_memberships'})
+    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required-frozenset({'education_memberships','education_trainings','education_training_records'}))
+    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',{k:v for k,v in columns.items() if k not in {'education_memberships','education_trainings','education_training_records'}})
     bootstrap_database(engine)
     monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required)
     monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',columns)
@@ -63,6 +65,8 @@ def test_upgrade_preserves_objects_rows_and_revalidates(engine,monkeypatch):
     with engine.begin() as c:c.execute(text('DROP INDEX custom_retained_grant'))
     monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',original)
     monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',real)
+    monkeypatch.setattr(bootstrap,'apply_python_migration',real_apply)
+    assert bootstrap_database(engine)['applied']==['python:048-training-signoff']
     assert bootstrap_database(engine)['applied']==[]
 
 

@@ -182,6 +182,11 @@ def main():
             c.execute(text("INSERT INTO spools(id,filament_id) VALUES(990046,990046)"))
             c.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation) VALUES(990046,1,990046,:state)"), {'state':'{"id":"roundtrip046"}'})
             c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990046,'same',990046)"), {'state':'6'*32})
+            #048 Training and completion evidence survive the canonical round trip.
+            c.execute(text("INSERT INTO education_memberships(user_id,org_id) VALUES(3,1) ON CONFLICT(user_id,org_id) DO NOTHING"))
+            c.execute(text("INSERT INTO education_cost_centers(id,org_id,name_key,code_key,display_name,code,state,revision,created_by) VALUES(990048,1,'training048','training048','Training048','Training048','active',1,3)"))
+            c.execute(text("INSERT INTO education_trainings(id,org_id,cost_center_id,name,description,scope_kind,scope_value,quiz_json,pass_mark,instructor_required,active,revision,created_by) VALUES('roundtrip048',1,990048,'Safety','','printer_group','','[]',80,TRUE,TRUE,1,3)"))
+            c.execute(text("INSERT INTO education_training_records(training_id,org_id,user_id,training_revision,instructor_id,instructor_at,completed_at) VALUES('roundtrip048',1,3,1,3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -207,7 +212,10 @@ def main():
             assert c.execute(text("SELECT name FROM audit_siem_destinations WHERE id='roundtrip_e1'")).scalar_one() == 'Owned SIEM'
             assert c.execute(text("SELECT attempts FROM audit_siem_outbox WHERE destination_id='roundtrip_e1' AND audit_id=990001")).scalar_one() == 2
             assert c.execute(text("SELECT result FROM audit_integrity_status WHERE id=1")).scalar_one() == '{"ok":true}'
+            assert c.execute(text("SELECT name FROM education_trainings WHERE id='roundtrip048'")).scalar_one() == 'Safety'
+            assert c.execute(text("SELECT training_revision FROM education_training_records WHERE training_id='roundtrip048'")).scalar_one() == 1
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
         with engine.connect() as c:

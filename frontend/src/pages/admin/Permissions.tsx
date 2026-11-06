@@ -54,6 +54,7 @@ const PAGE_GROUPS = [
 ]
 
 const ACTION_GROUPS = [
+  { label: 'Training', actions: ['education.training_read', 'education.training_take', 'education.training_manage'] },
   { label: 'Education', actions: ['education.reorder'] },
   { label: 'Users', actions: ['users.restore_superadmin'] },
   { label: 'Sublab operations', actions: ['products.square_manage', 'products.square_send', 'products.recipes', 'products.inspections', 'products.outside_prints', 'products.operations', 'products.materials_manage', 'products.materials_preview', 'products.materials_receive', 'products.finishing', 'products.assortment', 'products.assortment_preview'] },

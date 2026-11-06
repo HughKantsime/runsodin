@@ -304,6 +304,8 @@ def preview_submission_compatibility(
     ).fetchone()
     if not entitled:
         raise _not_found()
+    from modules.organizations.education_training_policy import require_printer_training
+    require_printer_training(db, org_id=row.org_id, center_id=row.cost_center_id, user_id=row.submitted_by, printer_id=printer_id, lock=False)
     compatibility = evaluate_submission_compatibility(
         db,
         org_id=int(row.org_id),
@@ -410,6 +412,8 @@ def _discard_pending_claim(
 
 def approve_submission(db: Session, *, submission_id: int, body, principal: dict, prepared_ams=None) -> dict:
     row = _reviewable_submission(db, submission_id=submission_id, principal=principal)
+    from modules.organizations.education_training_policy import lock_center
+    lock_center(db, row.cost_center_id, row.org_id)
     retain_membership(db, principal["id"], int(row.org_id))
     action = "submission.approve"
     command_id = str(body.command_id)
@@ -466,6 +470,8 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
         ).fetchone()
         if not entitled:
             raise OdinError(ErrorCode.not_found, "Printer not found", status=404)
+        from modules.organizations.education_training_policy import require_printer_training
+        require_printer_training(db, org_id=row.org_id, center_id=row.cost_center_id, user_id=row.submitted_by, printer_id=body.printer_id)
         compatibility = evaluate_submission_compatibility(
             db,
             org_id=int(row.org_id),

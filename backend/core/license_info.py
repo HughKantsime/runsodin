@@ -50,6 +50,8 @@ class LicenseInfo:
         if not self.valid:
             return feature in TIERS["community"]["features"]
         tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
+        if feature == "training_signoff":
+            return self.tier in {"education", "enterprise"} and self.has_feature("education_workflows")
         if feature == "education_workflows":
             return self.tier in {"education", "enterprise"} and feature in self.features
         return feature in self.features or feature in tier_features
@@ -63,6 +65,7 @@ class LicenseInfo:
         features = tier_features | set(self.features)
         if not self.has_feature("education_workflows"):
             features.discard("education_workflows")
+            features.discard("training_signoff")
         return sorted(features)
 
     def to_dict(self) -> Dict[str, Any]:

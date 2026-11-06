@@ -610,6 +610,9 @@ async def replace_cost_center_printers(
             db.rollback()
             raise validation_error("Printer is inactive, shared, or cross-tenant", "printer_ids")
     before = _active_printer_set(db, center_id)
+    from modules.organizations.education_training_scope import scope_loss_warnings
+    training_warnings = scope_loss_warnings(db, org_id=org_id, center_id=center_id,
+                                           removed_printer_ids=set(before) - set(requested))
     changed = db.execute(
         text(
             "UPDATE education_cost_centers SET revision=revision+1, updated_at=CURRENT_TIMESTAMP "
@@ -642,6 +645,8 @@ async def replace_cost_center_printers(
         )
     after = _active_printer_set(db, center_id)
     result = {"id": center_id, "revision": body.revision + 1, "printer_ids": after}
+    if training_warnings:
+        result["training_warnings"] = training_warnings
     finish_mutation(
         db, principal=principal, org_id=org_id, action="cost_center.printers.replace",
         command_id=command_id, request_digest=digest, resource_id=center_id,

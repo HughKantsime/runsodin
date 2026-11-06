@@ -55,6 +55,10 @@ POST027_RAW_TABLES = {
         "audit_siem_outbox": frozenset("destination_id audit_id attempts next_attempt lease_until lease_token".split()),
         "audit_integrity_status": frozenset("id checked_at result".split()),
     },
+    "python:048-training-signoff": {
+        "education_trainings": frozenset("id org_id cost_center_id school_wide name description scope_kind scope_value quiz_json pass_mark instructor_required expiry_days active revision edit_version created_by created_at".split()),
+        "education_training_records": frozenset("training_id org_id user_id training_revision quiz_attempts failed_attempts cooldown_until quiz_score quiz_passed_at instructor_id instructor_at completed_at expires_at revoked_at".split()),
+    },
     "python:046-tray-identity": {
         "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
     },

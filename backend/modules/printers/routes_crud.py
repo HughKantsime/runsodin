@@ -13,7 +13,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text, or_, bindparam
+from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
@@ -303,6 +303,8 @@ def update_printer(
                 if new_count < slot.slot_number < AMS_HT_FIRST_SLOT:
                     db.delete(slot)
 
+    from modules.organizations.services import printer_edit_warnings
+    training_warnings = printer_edit_warnings(db, printer, update_data)
     for field, value in update_data.items():
         setattr(printer, field, value)
 
@@ -311,6 +313,7 @@ def update_printer(
     db.commit()
     db.refresh(printer)
 
+    printer.training_warnings = training_warnings
     if 'camera_url' in update_data:
         try:
             from modules.printers.route_utils import sync_go2rtc_config
@@ -324,51 +327,8 @@ def update_printer(
 @router.delete("/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
 def delete_printer(printer_id: int, current_user: dict = Depends(require_action("printers.delete", scope="write:printers")), db: Session = Depends(get_db)):
     """Delete a printer."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
-
-    from core.registry import registry
-    education_policy = registry.get_provider("EducationPolicyProvider")
-    if education_policy is None:
-        raise HTTPException(status_code=503, detail="Education policy unavailable")
-    education_policy.assert_printer_tenant_change_or_delete_allowed(db, printer_id)
-    printer_name = printer.name
-    # Jobs pinned to this printer must not silently follow a reused id: mark
-    # their pin deleted (they wait for a new choice) and tell their owners.
-    from modules.jobs.services import clear_pins_for_deleted_printer
-    from core.base import AlertType, AlertSeverity
-    from modules.notifications.alert_dispatcher import stage_alert, deliver_staged_alert
-    pins = clear_pins_for_deleted_printer(db, printer_id)
-    live_jobs = pins.live
-    # One alert per owner of a still-schedulable job (not per job), in bounded chunks.
-    owners = {}
-    for start in range(0, len(live_jobs), 500):
-        for row in db.execute(text("SELECT id,charged_to_user_id,submitted_by FROM jobs WHERE id IN :ids")
-                              .bindparams(bindparam("ids", expanding=True)), {"ids": live_jobs[start:start + 500]}).all():
-            owner = row[1] or row[2]
-            if owner is not None:
-                owners.setdefault(owner, []).append(row[0])
-    plans = []
-    for owner, job_ids in sorted(owners.items()):
-        count = len(job_ids)
-        plan = stage_alert(db, AlertType.QUEUE_SKIPPED,
-            AlertSeverity.WARNING, f"Pinned printer deleted: {printer_name}",
-            f"{printer_name} was deleted. {count} queued job{'s' if count != 1 else ''} pinned to it "
-            f"wait for a new printer choice.",
-            job_id=job_ids[0],  # scopes the alert to this owner's job audience
-            metadata={"reason": "pinned_printer_deleted", "job_ids": job_ids[:50], "job_count": count},
-            target_user_ids=[owner])
-        if plan is not None:
-            plans.append(plan)
-    db.delete(printer)
-    log_audit(db, "printer.deleted", "printer", printer_id,
-              {"name": printer_name, "pinned_job_count": len(pins.marked), "queued_pinned_jobs": live_jobs[:200]})
-    db.commit()
-    for plan in plans:
-        deliver_staged_alert(db, plan)
+    from modules.printers.printer_deletion import delete_printer as delete
+    return delete(db, printer_id, current_user)
 
 
 # Filament Slots

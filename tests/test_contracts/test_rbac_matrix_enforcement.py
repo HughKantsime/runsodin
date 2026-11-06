@@ -135,8 +135,37 @@ def recovery_request(user):
     snapshot=C[user].get(f"/api/printers/{pid}/dispatch-recovery").json()
     return ("post",f"/api/printers/{pid}/dispatch-recovery/hold",{"json":{"attempt_handle":snapshot["attempt_handle"],"snapshot_handle":snapshot["snapshot_handle"],"reason_category":"investigation"}})
 
+def training_request(user, action):
+    import uuid
+    center = next(SEQ)
+    sql("INSERT INTO education_cost_centers(id,org_id,name_key,code_key,display_name,code,created_by) "
+        "VALUES(:i,1,:n,:n,:n,:n,:u)", i=center,n=f"mx-training-{center}",u=USERS['orgadmin'])
+    for uid in USERS.values():
+        if uid != SUPER_ID:
+            sql("INSERT INTO education_cost_center_grants(org_id,cost_center_id,user_id,role,state,granted_by) "
+                "VALUES(1,:c,:u,:role,'active',:a)", c=center,u=uid,
+                role='manager' if action=='manage' else 'student',a=USERS['orgadmin'])
+    # Training scopes must match a real authorized printer.
+    pid = printer()
+    sql("INSERT INTO education_cost_center_printers(org_id,cost_center_id,printer_id,state,granted_by) "
+        "VALUES(1,:c,:p,'active',:a)", c=center,p=pid,a=USERS['orgadmin'])
+    path = f'/api/education/cost-centers/{center}/trainings'
+    if action == 'read':
+        return ('get', path, {})
+    definition = {'command_id': str(uuid.uuid4()), 'name': 'Matrix safety', 'instructor_required': False,
+                  'quiz': [{'prompt': 'Ready?', 'choices': ['Yes', 'No'], 'correct': 0}]}
+    if action == 'manage':
+        return ('post', path, {'json': definition})
+    created = C['orgadmin'].post(path, json=definition)
+    assert created.status_code == 200, created.text
+    return ('post', f"/api/education/trainings/{created.json()['id']}/quiz",
+            {'json': {'command_id': str(uuid.uuid4()), 'revision': 1, 'answers': [0]}})
+
 # key -> builder(user) returning (method, path, request kwargs) for one fresh call
 CASES = {
+    "education.training_read": lambda u: training_request(u, 'read'),
+    "education.training_manage": lambda u: training_request(u, 'manage'),
+    "education.training_take": lambda u: training_request(u, 'take'),
     "printers.dispatch_recovery": recovery_request,
     "users.restore_superadmin": restore_request,
     "education.reorder": education_reorder_request,
@@ -362,7 +391,10 @@ def test_page_key_widening_admits_on_the_next_request(matrix, path):
 @pytest.mark.parametrize("key", KEYS)
 def test_platform_superadmin_is_never_locked_out(matrix, key):
     status = matrix["results"][key]["superadmin_after_reset"]
-    if key == "education.reorder":
+    if key.startswith("education.training_"):
+        # Training is scoped to a school's classes; platform accounts have no tenant.
+        assert status == 404, status
+    elif key == "education.reorder":
         # Platform accounts stay read-only even though they pass the RBAC matrix.
         assert status == 403, status
     else:

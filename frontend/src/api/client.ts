@@ -70,7 +70,10 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
     if (err.detail && !quiet) console.error('[API] Error detail:', err.detail)
     throw apiError(err, 'Request failed. Please try again.', response.status)
   }
-  if (response.status === 204) return null as unknown as T
+  if (response.status === 204) {
+    onResponse?.(response)
+    return null as unknown as T
+  }
   if (responseFormat === 'csv') {
     const mediaType = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
     if (mediaType !== 'text/csv') throw new Error('Unexpected export response')

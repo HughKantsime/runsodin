@@ -66,6 +66,7 @@ class ErrorCode(str, Enum):
     quota_exceeded = "quota_exceeded"
     validation_failed = "validation_failed"
     feature_disabled = "feature_disabled"
+    training_required = "training_required"
 
     # Auth / authorization
     not_authenticated = "not_authenticated"

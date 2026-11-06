@@ -348,7 +348,7 @@ class TestValidLicense:
             data = info.to_dict()
 
         assert data["features"] == sorted(
-            (set(lm.TIERS["education"]["features"]) - {"education_workflows"})
+            (set(lm.TIERS["education"]["features"]) - {"education_workflows", "training_signoff"})
             | {"custom_school_feature"}
         )
         assert "print_quotas" in data["features"]

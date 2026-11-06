@@ -18,6 +18,9 @@ All notable changes to O.D.I.N. are documented here.
 - Enterprise audit verification, daily integrity alerts and health status, date-bounded signed JSON Lines exports, and Settings controls for durable syslog TCP/TLS or HMAC-authenticated HTTPS SIEM streaming.
 - The E1 migration backfills a salted SHA-256 audit chain. GDPR erasure destroys salts and records authenticated receipts; every tier retains age-based cleanup with authenticated checkpoints. Verification/export use read snapshots, and SIEM retries independently per destination with a capped outbox and optional private HTTPS CAs.
 - Frozen 046 PostgreSQL restore sources preserve released backup compatibility. See [audit integrity operations](docs/AUDIT_INTEGRITY.md) for delivery, privacy, signature verification and configuration details.
+- Education and Enterprise training sign-off before student printing: class printer groups or exact type/model scopes, multiple-choice quizzes, instructor assessment, expiry, revocation, and a Training workspace. Checks run at submission, approval, scheduling and physical dispatch; teachers/admins bypass their own requirements. Tenant-scoped RBAC, immutable Education audits, personal export and erasure are included.
+- Training requirements span all classes sharing a printer, with optional school-wide scope. Requirement edits warn and invalidate completions; prose and expiry edits preserve them. Quiz cooldowns, matched-printer warnings, private exports and read-only previews are included.
+- Additive migration 048 and a preserved 046 backup restore contract. See [Training before printing](docs/education/training-signoff.md).
 
 ## [2.0.44] - 2026-11-05
 

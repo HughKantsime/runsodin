@@ -56,7 +56,16 @@ export const printers = {
   get: (id: number | string): Promise<Printer> => fetchAPI('/printers/' + id),
   create: (data: PrinterCreate): Promise<Printer> => fetchAPI('/printers', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: PrinterUpdate): Promise<Printer> => fetchAPI('/printers/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
-  delete: (id: number): Promise<void> => fetchAPI('/printers/' + id, { method: 'DELETE' }),
+  delete: async (id: number): Promise<{ training_warnings: string[] }> => {
+    let warnings: string[] = []
+    await fetchAPI('/printers/' + id, { method: 'DELETE', onResponse: response => {
+      try {
+        const value: unknown = JSON.parse(response.headers.get('X-ODIN-Training-Warnings') || '[]')
+        if (Array.isArray(value)) warnings = value.filter((item): item is string => typeof item === 'string')
+      } catch { /* A malformed advisory header must not report a successful deletion as failed. */ }
+    } })
+    return { training_warnings: warnings }
+  },
   reorder: (ids: number[]): Promise<void> => fetchAPI('/printers/reorder', { method: 'POST', body: JSON.stringify({ printer_ids: ids }) }),
   toggleLights: (id: number): Promise<{ lights_on?: boolean; success?: boolean }> => fetchAPI(`/printers/${id}/lights`, { method: 'POST' }),
   updateSlot: (printerId: number, slotNumber: number, data: FilamentSlotUpdate): Promise<void> =>
