@@ -109,10 +109,10 @@ def test_patch_updates_report_type(admin_client):
 
 # ---------------- F10-10.9-02 five supported types ----------------
 
-def test_exactly_the_five_advertised_types_are_accepted(admin_client):
+def test_five_generic_types_and_education_program_type_registered(admin_client):
     from modules.reporting.routes.reports import REPORT_TYPES
     from modules.reporting.report_runner import GENERATORS
-    assert REPORT_TYPES == list(TYPES) and set(GENERATORS) == set(TYPES)
+    assert REPORT_TYPES == [*TYPES, 'program_report'] and set(GENERATORS) == {*TYPES, 'program_report'}
     client, headers = admin_client
     for report_type in TYPES:
         identifier = _create(client, headers, name=f'Cert {report_type}', report_type=report_type)

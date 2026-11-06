@@ -146,6 +146,8 @@ def _resolve_path(path_template, test_data):
     path = path_template
     for k, v in subs.items():
         path = path.replace(k, v)
+    if path == '/api/education/program-reports':
+        path += '?start_date=2026-10-01&end_date=2026-10-31'
     return path
 
 

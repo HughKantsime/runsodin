@@ -132,7 +132,7 @@ class TestDigestDriver:
     """process_quiet_hours_digest() uses the new helpers + table."""
 
     def test_driver_uses_new_helpers(self):
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         fn = _get_function_source(src, "process_quiet_hours_digest")
         assert fn, "process_quiet_hours_digest is missing"
         for helper in (
@@ -150,7 +150,7 @@ class TestDigestDriver:
     def test_driver_does_not_use_old_global_flag(self):
         """Old 'last_digest_sent' system_config flag must be gone —
         replaced by the per-user idempotency table."""
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         fn = _get_function_source(src, "process_quiet_hours_digest")
         code_only = re.sub(r'""".*?"""', "", fn, flags=re.DOTALL)
         code_only = re.sub(r"#[^\n]*", "", code_only)
@@ -162,7 +162,7 @@ class TestDigestDriver:
         )
 
     def test_driver_uses_new_idempotency_table(self):
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         assert "quiet_hours_digest_sends" in src, (
             "report_runner doesn't touch quiet_hours_digest_sends — "
             "either idempotency isn't wired or the table isn't used."
@@ -174,7 +174,7 @@ class TestDigestDriver:
         check-then-act flow let two workers both pass _already_sent_digest()
         and both deliver before either recorded the send — duplicate
         notifications shipped before the race resolved."""
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         fn = _get_function_source(src, "process_quiet_hours_digest")
         assert "_claim_digest_send" in fn, (
             "process_quiet_hours_digest must call _claim_digest_send() "
@@ -195,7 +195,7 @@ class TestDigestDriver:
         Previously it had no idempotency at all, so every 60s daemon
         poll re-sent the same digest webhook for the duration of the
         next quiet period."""
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         # The driver delegates webhook routing to _deliver_webhook_digests.
         fn = _get_function_source(src, "process_quiet_hours_digest")
         assert "_deliver_webhook_digests(" in fn
@@ -221,7 +221,7 @@ class TestDigestDriver:
         )
 
     def test_driver_respects_user_preferences(self):
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         fn = _get_function_source(src, "process_quiet_hours_digest")
         assert "alert_preferences" in fn, (
             "Per-user digest delivery must consult alert_preferences "
@@ -229,7 +229,7 @@ class TestDigestDriver:
         )
 
     def test_driver_dispatches_org_webhook_via_safe_post(self):
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         # Look in the helper we delegate to
         helper = _get_function_source(src, "_deliver_digest_webhook")
         assert helper, "_deliver_digest_webhook helper missing"
@@ -245,7 +245,7 @@ class TestDigestDriver:
 
     def test_driver_survives_single_endpoint_failure(self):
         """Errors must be logged and the loop continues, not raise out."""
-        src = REPORT_RUNNER.read_text()
+        src = REPORT_RUNNER.read_text() + "\n" + REPORT_RUNNER.with_name("report_digest.py").read_text()
         fn = _get_function_source(src, "process_quiet_hours_digest")
         # Must have try/except around per-user delivery calls
         # (simple heuristic: at least one `except ... log.error` exists

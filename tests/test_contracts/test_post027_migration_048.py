@@ -32,7 +32,7 @@ assert bootstrap_database(engine)['applied']==[]
         cwd=tmp_path, capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr
     engine = create_engine('sqlite:///'+str(tmp_path/'old.db'))
-    assert bootstrap_database(engine)['applied'] == [AUDIT_MIGRATION_ID, M.MIGRATION_ID, 'python:049-education-classes']
+    assert bootstrap_database(engine)['applied'] == [AUDIT_MIGRATION_ID, M.MIGRATION_ID, 'python:049-education-classes', 'python:050-education-program-reports']
     assert bootstrap_database(engine)['applied'] == []
     with engine.connect() as c:
         assert c.execute(text('SELECT name FROM printers')).scalar_one() == 'Retained'
@@ -116,10 +116,10 @@ def test_full_bootstrap_from_pre037_orders_memberships_before_training(engine, m
         original = bootstrap.POST027_MIGRATIONS
         dedicated = bootstrap.apply_dedicated_python_migration
         regular = bootstrap.apply_python_migration
-        omitted = {'education_memberships', 'education_trainings', 'education_training_records'}
-        old.setattr(bootstrap, 'POST027_MIGRATIONS', tuple(pair for pair in original if pair[0] not in {'python:037-education-memberships', M.MIGRATION_ID}))
+        omitted = {'education_memberships', 'education_trainings', 'education_training_records', 'education_classes', 'education_assignments', 'education_assignment_submissions', 'education_assessment_revisions', 'education_program_marks', 'education_instructor_hours'}
+        old.setattr(bootstrap, 'POST027_MIGRATIONS', tuple(pair for pair in original if pair[0] not in {'python:037-education-memberships', M.MIGRATION_ID, 'python:049-education-classes', 'python:050-education-program-reports'}))
         old.setattr(bootstrap, 'apply_dedicated_python_migration', lambda e, n: False if n.endswith('037_education_memberships') else dedicated(e, n))
-        old.setattr(bootstrap, 'apply_python_migration', lambda c, n: False if n.endswith('048_training_signoff') else regular(c, n))
+        old.setattr(bootstrap, 'apply_python_migration', lambda c, n: False if n.endswith(('048_training_signoff', '049_education_classes', '050_education_program_reports')) else regular(c, n))
         old.setattr(bootstrap, 'RAW_REQUIRED_TABLES', bootstrap.RAW_REQUIRED_TABLES - omitted)
         old.setattr(bootstrap, 'RAW_REQUIRED_COLUMNS', {k: v for k, v in bootstrap.RAW_REQUIRED_COLUMNS.items() if k not in omitted})
         bootstrap_database(engine)
@@ -127,7 +127,7 @@ def test_full_bootstrap_from_pre037_orders_memberships_before_training(engine, m
     with engine.begin() as c:
         c.execute(text("INSERT INTO groups(id,name,is_org) VALUES(1,'Retained school',TRUE)"))
         c.execute(text("INSERT INTO users(id,username,password_hash,role,is_active,group_id) VALUES(1,'Retained student','fixture','viewer',TRUE,1)"))
-    assert bootstrap_database(engine)['applied'] == ['python:037-education-memberships', M.MIGRATION_ID]
+    assert bootstrap_database(engine)['applied'] == ['python:037-education-memberships', M.MIGRATION_ID, 'python:049-education-classes', 'python:050-education-program-reports']
     assert bootstrap_database(engine)['applied'] == []
     with engine.connect() as c:
         assert c.execute(text('SELECT user_id,org_id FROM education_memberships')).one() == (1, 1)

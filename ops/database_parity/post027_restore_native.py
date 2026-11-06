@@ -189,6 +189,8 @@ def main():
             c.execute(text("INSERT INTO education_training_records(training_id,org_id,user_id,training_revision,instructor_id,instructor_at,completed_at) VALUES('roundtrip048',1,3,1,3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
             from ops.database_parity.education_classes_fixtures import seed as seed_classes
             seed_classes(c)
+            from ops.database_parity.education_program_fixtures import seed as seed_program
+            seed_program(c)
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -218,9 +220,12 @@ def main():
             assert c.execute(text("SELECT training_revision FROM education_training_records WHERE training_id='roundtrip048'")).scalar_one() == 1
             from ops.database_parity.education_classes_fixtures import verify as verify_classes
             verify_classes(c)
+            from ops.database_parity.education_program_fixtures import verify as verify_program
+            verify_program(c)
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-049-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-050-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)

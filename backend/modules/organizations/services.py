@@ -241,3 +241,28 @@ def upload_storage_probe():
     from modules.organizations.education_submission_service import UPLOAD_ROOT
     from modules.organizations.education_storage import storage_readiness
     return UPLOAD_ROOT, storage_readiness(UPLOAD_ROOT)
+
+
+def validate_program_schedule(db, filters, creator, recipients=None):
+    """Reporting boundary: validate an explicitly scoped system schedule."""
+    from modules.organizations.education_program_schedules import validate_filters
+    config = validate_filters(db, filters, creator)
+    if recipients is not None:
+        validate_program_recipients(db, config, recipients)
+    return config
+
+
+def validate_program_recipients(db, filters, recipients):
+    from modules.organizations.education_program_policy import validate_recipients
+    validate_recipients(db, filters, recipients)
+
+
+def deactivate_program_schedules(db, user_id=None):
+    from modules.organizations.education_program_policy import deactivate_schedules
+    deactivate_schedules(db, user_id)
+
+
+def generate_program_report_email(db, filters):
+    """Existing report runner uses the same Education aggregation as HTTP."""
+    from modules.organizations.education_program_schedules import generate_email
+    return generate_email(db, filters)

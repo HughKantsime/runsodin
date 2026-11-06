@@ -15,12 +15,14 @@ from modules.reporting.recipient_policy import normalize_recipients
 from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 from license_manager import feature_gate, require_feature
+from core.audit import log_audit
+from modules.organizations.services import validate_program_schedule
 
 log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Reports"])
 
-REPORT_TYPES = ["fleet_utilization", "job_summary", "filament_consumption", "failure_analysis", "chargeback_summary"]
+REPORT_TYPES = ["fleet_utilization", "job_summary", "filament_consumption", "failure_analysis", "chargeback_summary", "program_report"]
 
 
 def _validated_schedule_fields(body, *, partial=False):
@@ -168,6 +170,9 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
     if frequency not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=400, detail="Frequency must be daily, weekly, or monthly")
 
+    if report_type == 'program_report':
+        body['filters'] = validate_program_schedule(db, body.get('filters', {}), current_user['id'], recipients)
+
     # Calculate next run
     now = datetime.now(timezone.utc)
     if frequency == "daily":
@@ -184,6 +189,8 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
               "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
               "next": next_run, "uid": current_user["id"], "active": body.get("is_active", True)}
     sched_id = execute_insert_returning_id(db, insert_sql, params)
+    if report_type == 'program_report':
+        log_audit(db, 'program.schedule_create', 'report_schedule', sched_id)
     db.commit()
     return {"id": sched_id, "status": "ok"}
 
@@ -191,9 +198,11 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
 @router.delete("/report-schedules/{schedule_id}")
 async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Delete a scheduled report. Superadmin only."""
-    row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
+    row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    if row._mapping['report_type'] == 'program_report':
+        log_audit(db, 'program.schedule_delete', 'report_schedule', schedule_id)
     db.execute(text("DELETE FROM report_schedules WHERE id = :id"), {"id": schedule_id})
     db.commit()
     return {"status": "ok"}
@@ -202,11 +211,18 @@ async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(
 @router.patch("/report-schedules/{schedule_id}")
 async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Update a scheduled report. Superadmin only."""
-    row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
+    row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     body = _validated_schedule_fields(body, partial=True)
+    effective_type = body.get('report_type', row._mapping['report_type'])
+    if effective_type == 'program_report':
+        filters = body.get('filters', json.loads(row._mapping['filters'] or '{}'))
+        # Pausing a schedule remains possible after entitlement expires.
+        if body != {'is_active': False}:
+            body['filters'] = validate_program_schedule(db, filters, current_user['id'],
+                body.get('recipients', json.loads(row._mapping['recipients'] or '[]')))
     sets = []
     params = {"id": schedule_id}
     for field in ["name", "report_type", "frequency", "is_active"]:
@@ -221,6 +237,8 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
         params["filters"] = json.dumps(body["filters"])
     if sets:
         db.execute(text(f"UPDATE report_schedules SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+        if effective_type == 'program_report' or row._mapping['report_type'] == 'program_report':
+            log_audit(db, 'program.schedule_update', 'report_schedule', schedule_id)
         db.commit()
 
     return {"status": "ok"}
@@ -235,6 +253,12 @@ async def run_report_now(schedule_id: int, current_user: dict = Depends(require_
     from modules.reporting.report_runner import run_report, ReportDeliveryError, ANALYTICS_REPORT_TYPES
     if row._mapping["report_type"] in ANALYTICS_REPORT_TYPES:
         require_feature("analytics")
+    if row._mapping['report_type'] == 'program_report':
+        require_feature('program_reports')
+        validate_program_schedule(db, json.loads(row._mapping['filters'] or '{}'), current_user['id'],
+            json.loads(row._mapping['recipients'] or '[]'))
+        log_audit(db, 'program.schedule_run', 'report_schedule', schedule_id)
+        db.commit()
     try:
         run_report(dict(row._mapping))
     except ReportDeliveryError as e:

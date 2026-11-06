@@ -59,6 +59,10 @@ POST027_RAW_TABLES = {
         "education_trainings": frozenset("id org_id cost_center_id school_wide name description scope_kind scope_value quiz_json pass_mark instructor_required expiry_days active revision edit_version created_by created_at".split()),
         "education_training_records": frozenset("training_id org_id user_id training_revision quiz_attempts failed_attempts cooldown_until quiz_score quiz_passed_at instructor_id instructor_at completed_at expires_at revoked_at".split()),
     },
+    "python:050-education-program-reports": {
+        "education_program_marks": frozenset("class_id org_id user_id participant concentrator marked_by revision updated_at".split()),
+        "education_instructor_hours": frozenset("id class_id org_id instructor_id activity_date hours approved_by revision updated_at".split()),
+    },
     "python:049-education-classes": {
         "education_assessment_revisions": frozenset("id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at".split()),
         "education_classes": frozenset("id org_id cost_center_id title term state revision created_by created_at".split()),

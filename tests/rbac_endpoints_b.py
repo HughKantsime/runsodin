@@ -399,3 +399,12 @@ ENDPOINTS += [
     ('POST', '/api/education/classes/assignments/{assignment_id}/submissions', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'submission_id': 1, 'revision': 1}, 'D2 classes: school membership required'),
     ('PUT', '/api/education/classes/assignments/{assignment_id}/submissions/{submission_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'revision': 1, 'learning_status': 'reviewed'}, 'D2 classes: school membership required'),
 ]
+
+# D3 uses the same live school authority; unscoped census accounts are refused.
+ENDPOINTS += [
+    ('GET', '/api/education/program-reports', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D3 aggregate report: school manager required'),
+    ('GET', '/api/education/program-reports/options', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D3 aggregate report: school manager required'),
+    ('GET', '/api/education/program-reports/classes/{class_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D3 reporting records: school manager required'),
+    ('PUT', '/api/education/program-reports/classes/{class_id}/marks/{user_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'participant': True, 'concentrator': False}, 'D3 class participation mark'),
+    ('PUT', '/api/education/program-reports/classes/{class_id}/instructor-hours', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'instructor_id': 1, 'activity_date': '2026-10-01', 'hours': 1}, 'D3 approved instructor effort'),
+]
