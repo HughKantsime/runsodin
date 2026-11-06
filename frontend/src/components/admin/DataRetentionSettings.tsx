@@ -5,7 +5,7 @@ import { retention } from '../../api'
 
 const FIELDS = [
   { key: 'completed_jobs_days', label: 'Completed jobs', desc: '0 = keep forever' },
-  { key: 'audit_logs_days', label: 'Audit logs', desc: 'Default: 365 days' },
+  { key: 'audit_logs_days', label: 'Audit logs', desc: 'Expired events leave authenticated checkpoints; licensed audit integrity requires at least 90 days; 0 keeps all' },
   { key: 'timelapses_days', label: 'Timelapses', desc: 'Default: 30 days' },
   { key: 'alert_history_days', label: 'Alert history', desc: 'Default: 90 days' },
 ]
@@ -93,11 +93,11 @@ export default function DataRetentionSettings() {
       if (!mounted.current || uncertain || !validPolicy(observed) || dirty) return
       const result: any = await retention.runCleanup()
       if (!mounted.current) return
-      if (!result?.deleted || typeof result.deleted !== 'object' || Array.isArray(result.deleted) || !Object.values(result.deleted).every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('Unable to verify cleanup result')
+      if (!result?.deleted || typeof result.deleted !== 'object' || Array.isArray(result.deleted) || !Object.values(result.deleted).every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) throw new Error('Unable to verify cleanup result')
       const refused = result.refused ?? {}
       if (typeof refused !== 'object' || Array.isArray(refused)) throw new Error('Unable to verify cleanup result')
       const refusedReasons: Record<string, string> = Object.fromEntries(Object.entries(refused).map(([k, v]: [string, any]) => [k, typeof v?.reason === 'string' ? v.reason : 'refused']))
-      const partial = result.status !== 'complete' || Object.keys(refusedReasons).length > 0
+      const partial = !['ok', 'complete'].includes(result.status) || Object.keys(refusedReasons).length > 0
       setCleanResult({ deleted: result.deleted, refused: refusedReasons, partial })
     } catch (err) {
       if (mounted.current) setError(err.message || 'Unable to verify data cleanup')

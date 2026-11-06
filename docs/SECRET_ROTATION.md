@@ -1,6 +1,6 @@
 # Secret Rotation Guide — O.D.I.N.
 
-How to rotate the two critical secrets in a deployed ODIN instance.
+How to rotate authentication, encryption, and audit signing keys in a deployed ODIN instance.
 
 ## When to Rotate
 
@@ -152,3 +152,27 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 | Installation ID | — | `/data/.odin-install-id` | `docker/entrypoint.sh` |
 
 All files are created with `chmod 600` (owner read/write only).
+
+## Audit integrity HMAC keyring
+
+Audit receipts/checkpoints use a dedicated `.audit-hmac-keys.json` (mode 0600)
+under `LICENSE_DIR` (default `/data`) or `ODIN_AUDIT_KEY_DIR`. It is never stored
+in SQLite and is independent of `JWT_SECRET_KEY`. Rotating JWT credentials does
+not invalidate audit evidence. Every receipt, checkpoint and saved status names
+its `key_id`. Do not remove retired keys while their evidence remains retained.
+
+To rotate the audit key inside the backend environment, run:
+
+```sh
+docker exec -u odin -w /app/backend odin python -c 'from core.audit_keys import rotate; rotate()'
+```
+
+The operation atomically adds a new active key, preserving old keys for verification.
+It refuses unless the effective process user owns the key directory, before taking a lock or writing files. Do not run it as root. It does not print key material. All API workers must share this persistent directory.
+ODIN native backups capture a private audit-key companion; download the bundle with audit keys or preserve that companion alongside the database. Also include the keyring in the data-volume backup along with
+`.audit-signed-head.json`; keep these files restricted and restore both from a
+consistent installation backup. The signed head detects database-only rollback
+and chain replacement. Restoring an older database against a newer head correctly
+reports attention; investigate and preserve the evidence. Daily checks continue saving signed heads marked after the observed break, preserving head history. An interactive superadmin can then use Settings → Audit integrity → Accept restore baseline with a reason. Acceptance is audited and refuses row/checkpoint corruption.
+A database-only backup cannot recover audit HMAC verification keys. Loss of the
+keyring reports audit_key_missing, distinct from tampering, and blocks new sealing and signed exports. ODIN never creates a replacement keyring over sealed evidence. Recover the original keyring; do not claim continuity after key loss.

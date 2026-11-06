@@ -23,6 +23,7 @@ class SystemConfig(Base):
 class AuditLog(Base):
     """Audit log for tracking user actions."""
     __tablename__ = "audit_logs"
+    __mapper_args__ = {"batch": False}  # seal each actor before the next append
 
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, server_default=func.now())

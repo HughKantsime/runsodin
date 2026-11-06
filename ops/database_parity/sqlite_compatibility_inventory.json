@@ -274,11 +274,35 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 316,
+      "line": 289,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
       "reason": "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
       "source": "response.headers[\"Pragma\"] = \"no-cache\""
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 8,
+      "path": "backend/core/audit_integrity.py",
+      "pattern": "sqlite3",
+      "reason": "SQLite registers a SHA-256 UDF; PostgreSQL uses native SHA-256 with the same length-prefixed UTF-8 encoding.",
+      "source": "import sqlite3"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 15,
+      "path": "backend/core/audit_snapshot.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite read-only snapshots use query_only and explicit BEGIN; PostgreSQL uses REPEATABLE READ READ ONLY.",
+      "source": "connection.exec_driver_sql('PRAGMA query_only=ON')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 21,
+      "path": "backend/core/audit_snapshot.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite read-only snapshots use query_only and explicit BEGIN; PostgreSQL uses REPEATABLE READ READ ONLY.",
+      "source": "connection.exec_driver_sql('PRAGMA query_only=OFF')"
     },
     {
       "classification": "dialect-neutral",
@@ -298,7 +322,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 124,
+      "line": 125,
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -306,7 +330,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 137,
+      "line": 138,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -314,7 +338,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 139,
+      "line": 140,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -322,7 +346,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 140,
+      "line": 141,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -938,6 +962,22 @@
     },
     {
       "classification": "sqlite-provider-only",
+      "line": 12,
+      "path": "backend/core/schema/audit_siem_gaps.py",
+      "pattern": "last_insert_rowid",
+      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
+      "source": "return f\"\"\"UPDATE audit_logs SET prev_hash=(SELECT head_hash FROM audit_chain_state WHERE id=1),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 47,
+      "path": "backend/core/schema/audit_siem_gaps.py",
+      "pattern": "last_insert_rowid",
+      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
+      "source": "return f\"\"\"INSERT INTO audit_logs(action,entity_type,chain_seq,details)"
+    },
+    {
+      "classification": "sqlite-provider-only",
       "line": 40,
       "path": "backend/core/schema/education_archive_validation.py",
       "pattern": "PRAGMA",
@@ -1122,7 +1162,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 257,
+      "line": 259,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1130,7 +1170,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 506,
+      "line": 518,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1138,7 +1178,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 532,
+      "line": 544,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1146,7 +1186,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 534,
+      "line": 546,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1154,7 +1194,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 544,
+      "line": 556,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1162,7 +1202,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 559,
+      "line": 571,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1170,7 +1210,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 561,
+      "line": 573,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -2578,15 +2618,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 218,
-      "path": "backend/modules/system/backup_service.py",
-      "pattern": "qmark-parameter",
-      "reason": "Dedicated SQLite backup, validation, and offline restore provider",
-      "source": "header = re.match(r'CREATE\\s+TRIGGER\\s+([a-z_][a-z0-9_]*)\\s+BEFORE\\s+(?:INSERT|UPDATE|DELETE)\\s+ON\\s+([a-z_][a-z0-9_]*)\\b', definition, re.I)"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 409,
+      "line": 192,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2594,7 +2626,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 412,
+      "line": 195,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2602,7 +2634,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 426,
+      "line": 209,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2610,7 +2642,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 426,
+      "line": 209,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2618,7 +2650,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 432,
+      "line": 215,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2626,7 +2658,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 432,
+      "line": 215,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2634,7 +2666,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 497,
+      "line": 280,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2642,7 +2674,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 498,
+      "line": 281,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2650,7 +2682,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 499,
+      "line": 282,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2658,7 +2690,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 507,
+      "line": 290,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2666,15 +2698,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 609,
-      "path": "backend/modules/system/backup_service.py",
-      "pattern": "qmark-parameter",
-      "reason": "Dedicated SQLite backup, validation, and offline restore provider",
-      "source": "\"INSERT INTO audit_logs (action, entity_type, details) VALUES (?, ?, ?)\","
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 747,
+      "line": 534,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2711,6 +2735,14 @@
       "pattern": "qmark-parameter",
       "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
       "source": "r'|(?=[0-9A-Fa-f:]*[0-9A-Fa-f]{3})(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?::(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?)'"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 75,
+      "path": "backend/modules/system/sqlite_backup_guards.py",
+      "pattern": "qmark-parameter",
+      "reason": "Source-owned SQLite archive schema guards, extracted from backup_service.",
+      "source": "header = re.match(r'CREATE\\s+TRIGGER\\s+([a-z_][a-z0-9_]*)\\s+BEFORE\\s+(?:INSERT|UPDATE|DELETE)\\s+ON\\s+([a-z_][a-z0-9_]*)\\b', definition, re.I)"
     },
     {
       "classification": "sqlite-provider-only",

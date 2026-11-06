@@ -2,6 +2,7 @@
 
 Archive SQL is compared as evidence only; this module never executes it.
 """
+from core.schema.audit_integrity_version import MODULE as AUDIT_MIGRATION_MODULE, MIGRATION_ID as AUDIT_MIGRATION_ID
 import importlib
 import re
 from collections import Counter
@@ -65,6 +66,10 @@ def canonical_functions(*, _contract=None):
         timeline=importlib.import_module('core.schema.migrations.040_job_foundation')
         for name,source in timeline.pg_functions().items():
             if name in functions:raise BackupValidationError('Canonical function registry collision')
+            functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
+    if _contract is None:
+        integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
+        for name,source in integrity.pg_functions().items():
             functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     functions['odin_reject_education_audit_mutation']=(" BEGIN RAISE EXCEPTION 'education audit events are immutable'; END; ",None,False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     return functions if _contract is None else {n:v for n,v in functions.items() if n in INVENTORY["functions"]}
@@ -137,6 +142,10 @@ def canonical_triggers(*, _contract=None):
         for key,definition in timeline.pg_triggers().items():
             if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
             triggers[key]=(definition.replace('EXECUTE FUNCTION public.','EXECUTE FUNCTION '),'odin_timeline_mutation_guard','public','O')
+    if _contract is None:
+        integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
+        for key,definition in integrity.pg_triggers().items():
+            triggers[key]=(definition,key[1],'public','O')
     for action in ('DELETE','UPDATE'):
         name='trg_education_audit_no_'+action.lower()
         function='odin_reject_education_audit_mutation'

@@ -123,7 +123,7 @@ def test_manual_cleanup_refuses_timelapses_and_preserves_owned_media(allowlist_a
     finally:event.remove(engine,'before_cursor_execute',observe)
     assert response.status_code==200
     result=response.json();assert result['status']=='partial'
-    assert result['refused']=={'timelapses':{'status':'refused','reason':'lifetime_retirement_pending'}}
+    assert result['refused']=={'timelapses':{'status':'refused','reason':'lifetime_retirement_pending'}, 'audit_logs':{'status':'refused','reason':'audit_integrity_retained'}}
     assert 'timelapses' not in result['deleted'] and result['deleted']['alerts']>=1
     assert writes==[]
     with Session(engine) as db:

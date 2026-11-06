@@ -89,6 +89,7 @@ class HealthCheck(BaseModel):
     dispatch_freeze: Optional[DispatchFreeze] = None
     database_integrity: Optional[DatabaseIntegrity] = None
     database_backup: Optional[DatabaseBackup] = None
+    audit_integrity: Optional[dict] = None
 
 
 class PaginatedResponse(BaseModel):

@@ -126,7 +126,10 @@ class LiveOdin:
             time.sleep(0.25)
         else:
             raise AssertionError("server did not become healthy")
+        from sqlalchemy import event
+        from core.audit_integrity import install_sqlite
         self.engine = create_engine(f"sqlite:///{self.db_path}")
+        event.listen(self.engine, 'connect', install_sqlite)
         return self
 
     def stop(self):

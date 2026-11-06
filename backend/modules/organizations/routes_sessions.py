@@ -530,7 +530,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
 
     db.execute(text("UPDATE job_timeline_events SET actor_user_id=NULL,actor_token_id=NULL WHERE actor_user_id=:uid OR actor_token_id IN (SELECT id FROM api_tokens WHERE user_id=:uid)"), {"uid": user_id})
 
-    from core.audit_actor import erase_actor_history, actor_is_erased
+    from core.audit_actor import actor_is_erased
+    from core.audit_erasure import erase_actor_history, rewrite, record_erasure
     erase_actor_history(db, user_id)
     erase_sso_login_history(db, user_id)
 
@@ -608,8 +609,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     # Historical audit detail strings can contain the former username (for
     # example the export audit). Preserve event metadata while removing the
     # erased identity before writing the final erasure record.
-    db.execute(
-        text("UPDATE audit_logs SET details = :details WHERE entity_type = 'user' AND entity_id = :uid"),
+    rewrite(db,
+        "UPDATE audit_logs SET details = :details WHERE entity_type = 'user' AND entity_id = :uid",
         {"details": json.dumps({"anonymized_user_id": user_id}), "uid": user_id},
     )
 
@@ -658,16 +659,20 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     # scrub it structurally; rows that do not name the user stay byte-identical.
     audit_ids = _candidate_ids("audit_logs", "CAST(details AS TEXT)")
     for start in range(0, len(audit_ids), CHUNK):
-        for audit_id in audit_ids[start:start + CHUNK]:
-            # Password history was handled by exact identity above. A broad
-            # free-text scrub could otherwise change a different login name.
-            raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id "
-                                  "AND NOT (COALESCE(entity_type,'')='user' AND action IN "
-                                  "('login_success','login_failed','auth.login_failed'))"), {"id": audit_id}).scalar()
-            scrubbed = scrub_json_text(raw, identifiers)
-            if scrubbed is not None:
-                db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
-                           {"details": scrubbed, "id": audit_id})
+        batch = audit_ids[start:start + CHUNK]
+        parameters = {f'id{i}': value for i, value in enumerate(batch)}
+        predicate = 'id IN ('+','.join(':'+name for name in parameters)+')'
+        with record_erasure(db, predicate, parameters):
+            for audit_id in audit_ids[start:start + CHUNK]:
+                # Password history was handled by exact identity above. A broad
+                # free-text scrub could otherwise change a different login name.
+                raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id "
+                                      "AND action!='audit.erasure' AND NOT (COALESCE(entity_type,'')='user' AND action IN "
+                                      "('login_success','login_failed','auth.login_failed'))"), {"id": audit_id}).scalar()
+                scrubbed = scrub_json_text(raw, identifiers)
+                if scrubbed is not None:
+                    db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
+                               {"details": scrubbed, "id": audit_id})
         db.commit()  # commit per chunk: bounded lock, idempotent and resumable
         if audit_ids:
             log.info("GDPR erase: scrubbed audit_logs %d/%d", min(start + CHUNK, len(audit_ids)), len(audit_ids))

@@ -22,9 +22,23 @@ BOOTSTRAP = Path("backend/core/schema/bootstrap.py")
 
 def registered_ids(root: Path) -> list[str]:
     tree = ast.parse((root / BOOTSTRAP).read_text(encoding="utf-8"))
+    identity = root / 'backend/core/schema/audit_integrity_version.py'
+    names = {}
+    if identity.is_file():
+        source = ast.parse(identity.read_text(encoding='utf-8'))
+        ids = [ast.literal_eval(n.value) for n in source.body if isinstance(n, ast.Assign)
+               and [getattr(t, 'id', None) for t in n.targets] == ['MIGRATION_ID']]
+        if len(ids) != 1 or not re.fullmatch(r'python:[0-9]{3}-audit-integrity', ids[0]):
+            raise SystemExit('Invalid audit migration identity')
+        names = {'AUDIT_MIGRATION_ID': ids[0],
+                 'AUDIT_MIGRATION_MODULE': 'core.schema.migrations.'+ids[0].split(':')[1].split('-')[0]+'_audit_integrity'}
+    class ResolveIdentity(ast.NodeTransformer):
+        def visit_Name(self, node):
+            return ast.copy_location(ast.Constant(names[node.id]), node) if node.id in names else node
+
     for node in tree.body:
         if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["POST027_MIGRATIONS"]:
-            return [migration_id for migration_id, _module in ast.literal_eval(node.value)]
+            return [migration_id for migration_id, _module in ast.literal_eval(ResolveIdentity().visit(node.value))]
     raise SystemExit("POST027_MIGRATIONS literal not found")
 
 

@@ -34,6 +34,7 @@ beforeEach(() => {
     if (url === '/api/backups' && init?.method === 'POST') { listed = wire.backup.list; return json(wire.backup.create) }
     if (url === '/api/backups') return json(listed)
     if (url === `/api/backups/${wire.backup.create.filename}`) return new Response(sqliteBytes(), { status: 200, headers: { 'Content-Type': 'application/octet-stream' } })
+    if (url === `/api/backups/${wire.backup.create.filename}?bundle=true`) return new Response('owned ZIP fixture', { status: 200 })
     if (url === '/api/backups/restore') return json(wire.restore)
     throw new Error('unexpected ' + url)
   })
@@ -95,4 +96,16 @@ describe('F18 Settings System tab backups', () => {
     expect(init.method).toBe('POST')
     expect((init.body as FormData).get('file')).toBe(file)
   })
+})
+
+it('downloads a database and audit-key bundle when the backup advertises one', async () => {
+  listed = wire.backup.list.map(entry => ({ ...entry, audit_keys: true }))
+  class OwnedURL extends URL { static createObjectURL = vi.fn(() => 'blob:bundle'); static revokeObjectURL = vi.fn() }
+  vi.stubGlobal('URL', OwnedURL)
+  const downloads: string[] = []
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download) })
+  system()
+  fireEvent.click(await screen.findByText('Download with audit keys'))
+  await waitFor(() => expect(downloads).toEqual([wire.backup.create.filename + '.zip']))
+  expect(transport.mock.calls.some(([url]) => String(url).endsWith('?bundle=true'))).toBe(true)
 })

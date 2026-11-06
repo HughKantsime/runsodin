@@ -46,6 +46,13 @@ ENDPOINTS = [
     # 31. Audit Logs
     # =========================================================================
     ("GET", "/api/audit-logs", _admin_only(), None, "Audit logs"),
+    ("POST", "/api/audit-logs/initialize-keyring", _admin_only(), {"reason":"Original audit keys unavailable"}, "Initialize audit keyring; interactive superadmin"),
+    ("POST", "/api/audit-logs/accept-restore-baseline", _admin_only(), {"reason":"Reviewed restored database"}, "Accept restore baseline; interactive superadmin"),
+    ("GET", "/api/audit-logs/verify", _admin_read(), None, "Verify installation audit chain"),
+    ("GET", "/api/export/audit-logs/jsonl", _admin_read(), None, "Signed audit export; date bounds required"),
+    ("GET", "/api/settings/siem", _admin_read(), None, "SIEM destination status"),
+    ("PUT", "/api/settings/siem/{destination_id}", _admin_only(), {"name":"RBAC fixture","kind":"syslog","endpoint":"syslog://192.0.2.1:6514","enabled":False}, "Configure SIEM; interactive superadmin"),
+    ("DELETE", "/api/settings/siem/{destination_id}", _admin_only(), None, "Delete SIEM; interactive superadmin"),
 
     # =========================================================================
     # 32. Settings

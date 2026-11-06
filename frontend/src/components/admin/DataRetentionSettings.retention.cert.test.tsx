@@ -108,3 +108,11 @@ it('F12-12.5-03 description does not promise automatic cleanup that never runs',
   await screen.findByLabelText('Audit logs')
   expect(screen.queryByText(/automatic cleanup/i)).toBeNull()
 })
+
+it('reports completion for the backend ok status when no type is refused', async () => {
+  render(<DataRetentionSettings />)
+  await screen.findByLabelText('Audit logs')
+  vi.mocked(fetch).mockImplementationOnce(() => json({ status: 'ok', deleted: { audit_logs: 2 }, refused: {} }))
+  fireEvent.click(screen.getByRole('button', { name: /Run Cleanup Now/ }))
+  expect(await screen.findByText('Cleanup complete:')).toBeInTheDocument()
+})

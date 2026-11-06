@@ -175,6 +175,8 @@ def prune_scheduled_backups(backups: Path) -> list[str]:
     removed = []
     for _, backup in scheduled:
         if backup not in keep:
+            from modules.system.audit_backup import companion
+            companion(backup).unlink(missing_ok=True)
             backup.unlink(missing_ok=True)
             backup.with_name(backup.name + RECEIPT_SUFFIX).unlink(missing_ok=True)
             removed.append(backup.name)
@@ -201,9 +203,14 @@ def create_scheduled_backup(database_url: str, *, now: datetime | None = None) -
             rehearse_restore(partial, paths.database)
             _write_receipt(final, now, verified)
             # Last: readers list odin_backup_*, so nothing unverified ever appears under that name.
+            from modules.system.audit_backup import move_material
+            move_material(partial, final)
             os.replace(partial, final)
             _fsync_directory(paths.backups)
         except Exception:
+            from modules.system.audit_backup import companion
+            companion(partial).unlink(missing_ok=True)
+            companion(final).unlink(missing_ok=True)
             partial.unlink(missing_ok=True)
             receipt.unlink(missing_ok=True)
             final.unlink(missing_ok=True)

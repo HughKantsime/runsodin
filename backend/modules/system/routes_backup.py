@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from modules.system.audit_backup import companion
 from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import sql
@@ -164,6 +165,7 @@ def create_backup(current_user: dict = Depends(require_superadmin(scope="admin")
     db.commit()
     return {
         "filename": path.name,
+        "audit_keys": companion(path).is_file(),
         "size_bytes": metadata["size_bytes"],
         "size_mb": round(int(metadata["size_bytes"]) / 1048576, 2),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -178,6 +180,7 @@ def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))
     entries = [
         {
             "filename": item.name,
+            "audit_keys": companion(item).is_file(),
             "size_bytes": item.stat().st_size,
             "size_mb": round(item.stat().st_size / 1048576, 2),
             "created_at": datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc).isoformat(),
@@ -275,9 +278,12 @@ def _safe_backup_path(filename: str) -> Path:
 
 
 @router.get("/backups/{filename}", tags=["System"], dependencies=[Depends(require_interactive_session())])
-def download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
+def download_backup(filename: str, bundle: bool = False, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     path = _safe_backup_path(filename)
-    audit_download(db, "backup.downloaded", "system", details={"filename": path.name})
+    audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
+    if bundle:
+        from modules.system.audit_backup import download_bundle
+        return download_bundle(path)
     return FileResponse(path=path, filename=path.name, media_type="application/octet-stream")
 
 
@@ -288,6 +294,8 @@ def delete_backup(
     db: Session = Depends(get_db),
 ):
     path = _safe_backup_path(filename)
+    from modules.system.audit_backup import companion
+    companion(path).unlink(missing_ok=True)
     path.unlink()
     if path.name.startswith(_QUARANTINED_PREFIX):
         path.with_suffix(".json").unlink(missing_ok=True)

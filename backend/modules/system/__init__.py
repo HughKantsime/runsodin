@@ -6,6 +6,7 @@ ROUTES = [
     "system.routes",           # aggregator
     "system.profile_routes",
     "system.routes_health",
+    "system.routes_audit_integrity",
     "system.routes_config",
     "system.routes_setup",
     "system.routes_backup",

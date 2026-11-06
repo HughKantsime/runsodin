@@ -1,6 +1,7 @@
 """System config routes — Spoolman URL and blackout hours (/config, /spoolman/test), IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
 import asyncio
+from sqlalchemy import inspect
 import json
 import time
 import logging
@@ -118,7 +119,8 @@ async def get_retention_config(current_user: dict = Depends(require_superadmin()
     if not row:
         return RETENTION_DEFAULTS
     val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
-    return {**RETENTION_DEFAULTS, **val}
+    from core.audit_retention_policy import effective_retention
+    return effective_retention({**RETENTION_DEFAULTS, **val})
 
 
 class RetentionConfigRequest(PydanticBaseModel):
@@ -142,6 +144,8 @@ async def set_retention_config(body: RetentionConfigRequest, current_user: dict 
                 raise HTTPException(status_code=400, detail=f"{key} must be >= 0")
             config[key] = val
 
+    from core.audit_retention_policy import validate_retention
+    validate_retention(config)
     db.execute(text("""INSERT INTO system_config (key, value) VALUES ('data_retention', :val)
                        ON CONFLICT(key) DO UPDATE SET value = :val"""),
                {"val": json.dumps(config)})
@@ -161,6 +165,8 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
             val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
             config.update(val)
 
+        from core.audit_retention_policy import effective_retention
+        config = effective_retention(config)
         deleted = {}
         now = datetime.now(timezone.utc)
         sqlite = db.get_bind().dialect.name == "sqlite"
@@ -213,9 +219,9 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
             deleted["completed_jobs"] = count
 
         if config["audit_logs_days"] > 0:
+            from core.audit_retention import retain
             cutoff = now - timedelta(days=config["audit_logs_days"])
-            r = db.execute(text("DELETE FROM audit_logs WHERE " + expired("timestamp")), {"cutoff": cutoff})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; cutoff is bound
-            deleted["audit_logs"] = r.rowcount
+            deleted["audit_logs"] = retain(db, expired("timestamp"), cutoff)
 
         if config["alert_history_days"] > 0:
             cutoff = now - timedelta(days=config["alert_history_days"])

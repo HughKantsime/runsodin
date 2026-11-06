@@ -31,6 +31,8 @@ from modules.system import (  # noqa: E402
     troubleshooting,
 )
 
+from modules.system import routes_audit_integrity
+router.include_router(routes_audit_integrity.router)
 router.include_router(routes_health.router)
 router.include_router(routes_config.router)
 router.include_router(routes_setup.router)

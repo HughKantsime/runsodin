@@ -317,3 +317,9 @@ def pytest_runtest_teardown(item, nextitem):
         _INSTALLED.clear()
     if leaks:
         pytest.fail("test double outlived its test in backend module(s): " + ", ".join(sorted(leaks)), pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def _audit_evidence_directory(tmp_path, monkeypatch):
+    """Contracts own their audit keys/anchors; never use the installation volume."""
+    monkeypatch.setenv('ODIN_AUDIT_KEY_DIR', str(tmp_path / 'audit-evidence'))

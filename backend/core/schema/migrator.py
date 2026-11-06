@@ -1,6 +1,7 @@
 """Transactional, checksummed migration runner for SQLite and PostgreSQL."""
 
 from __future__ import annotations
+from core.schema.audit_integrity_version import MODULE as AUDIT_MIGRATION_MODULE, MIGRATION_ID as AUDIT_MIGRATION_ID
 
 import hashlib
 import importlib
@@ -106,6 +107,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.044_spool_tray_uuid",
         "core.schema.migrations.045_pause_cancel_alerts",
         "core.schema.migrations.046_tray_identity",
+        AUDIT_MIGRATION_MODULE,
         "core.schema.migrations.036_ctec_pilot",
     }
 )
@@ -476,6 +478,11 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
                 raise MigrationError('Dispatch receipt source contract changed')
             receipt_revision = importlib.import_module('core.schema.migrations.043_recipe_configuration')
             receipt_revision.validate_legacy(connection)
+        elif migration_id == 'python:045-pause-cancel-alerts':
+            importlib.import_module(AUDIT_MIGRATION_MODULE).validate_alert_legacy(connection)
+        elif migration_id == 'python:024-audit-actor' and inspect(connection).has_table('audit_chain_state'):
+            module._source()
+            importlib.import_module(AUDIT_MIGRATION_MODULE).validate_actor_legacy(connection)
         elif migration_id == 'python:002-education-tenant-integrity':
             from core.schema.education_archive_validation import validate_education_with_archive
             validate_education_with_archive(module, connection)
@@ -485,7 +492,12 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
         if prior:
             validate()
             return False
-        if migration_id == 'python:012-dispatch-receipts' and inspect(connection).has_table('dispatch_attempt_receipts'):
+        if (migration_id == 'python:045-pause-cancel-alerts' and connection.dialect.name == 'postgresql'
+                and 'audit_integrity' in importlib.import_module(AUDIT_MIGRATION_MODULE).alert_labels(connection)):
+            validate()
+        elif migration_id == 'python:024-audit-actor' and inspect(connection).has_table('audit_chain_state'):
+            validate()
+        elif migration_id == 'python:012-dispatch-receipts' and inspect(connection).has_table('dispatch_attempt_receipts'):
             validate()
         else:
             module.apply(connection)

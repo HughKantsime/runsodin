@@ -361,6 +361,6 @@ Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/co
 
 ## Next Up
 
-*(All roadmap items shipped — see backlog for future work)*
+- Enterprise E1: audit integrity and SIEM streaming implemented with round-one review fixes; see [operations guide](docs/AUDIT_INTEGRITY.md). Pending Claude review, PostgreSQL native proof and release ledger assignment.
 
 ## Parked (needs more design)
