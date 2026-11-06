@@ -15,10 +15,24 @@ def privacy_writes_exclude_jobs(source):
     }
     if len(loops) != len(expected):
         return False
+    module = ast.parse(source)
+
+    def sole_constant(name):
+        # The loop may iterate the module's closed target tuple by name, but only
+        # when that name is bound exactly once, by a plain top-level assignment.
+        stores = [n for n in ast.walk(module) if isinstance(n, ast.Name)
+                  and n.id == name and not isinstance(n.ctx, ast.Load)]
+        top = [n for n in module.body if isinstance(n, ast.Assign) and len(n.targets) == 1
+               and isinstance(n.targets[0], ast.Name) and n.targets[0].id == name]
+        return top[0].value if len(stores) == 1 and len(top) == 1 else None
+
     for loop in loops:
         target = ast.unparse(loop.target).strip('()')
+        iterable = sole_constant(loop.iter.id) if isinstance(loop.iter, ast.Name) else loop.iter
+        if iterable is None:
+            return False
         try:
-            if ast.literal_eval(loop.iter) != expected.get(target):
+            if ast.literal_eval(iterable) != expected.get(target):
                 return False
         except (ValueError, TypeError):
             return False
