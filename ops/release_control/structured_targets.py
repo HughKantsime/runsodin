@@ -53,7 +53,9 @@ def _pytest_target(target: str, tests: str, timeout: int) -> int:
 CONTRACT_BATCH_JOBS = 8
 CONTRACT_BATCH_FILES = 10
 CONTRACT_BATCH_TIMEOUT_SECONDS = 1800
-CONTRACT_TIMEOUT_SECONDS = 3600
+# 2026-11-06 (2.0.45): 895 files / 27,843 s of test time; 8 jobs on odin-ci finished 87 of
+# 90 batches in 3,600 s. Allow 90 minutes until the suite is profiled and trimmed.
+CONTRACT_TIMEOUT_SECONDS = 5400
 
 
 def contracts() -> int:
