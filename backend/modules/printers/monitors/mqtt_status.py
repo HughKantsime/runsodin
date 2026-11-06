@@ -36,10 +36,10 @@ def handle_status(self, status, generation, runtime):
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
         raw = status.raw_data.get('print', {})
-        # Deltas refresh only a live explicit state from this connection, never
-        # the display cache (which also merges retained and previous reports).
-        from modules.printers.monitors.live_state import observe_mqtt
-        observe_mqtt(self, status, raw, runtime)
+        # Keep the live delta seed across a refused status commit, but publish
+        # no evidence until status persistence below succeeds (or is throttled).
+        from modules.printers.monitors.live_state import stage_mqtt
+        stage_mqtt(self, status, raw)
         from modules.printers.monitors.terminal_evidence import capture
         from modules.printers.monitors.pause_cause import observe as observe_pause, stage as pause_stage
         capture(self, raw, runtime.log)
@@ -286,7 +286,9 @@ def handle_status(self, status, generation, runtime):
             transition(gcode_state)
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
+        live_state_allowed = True
         if self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+            live_state_allowed = False
             try:
                 with runtime.get_db() as conn:
                     bed_t = self._state.get('bed_temper')
@@ -341,6 +343,7 @@ def handle_status(self, status, generation, runtime):
                     from modules.printers.monitors.nozzle_observations import persist
                     persist(conn, self)
                     conn.commit()
+                    live_state_allowed = True
                     self._pending_nozzle_diameter = None
                     self._pending_installed_nozzles = {}
                     self._pending_right_nozzle = {}
@@ -527,6 +530,12 @@ def handle_status(self, status, generation, runtime):
                                 runtime.log.debug(f"[{self.name}] HMS history insert: {e}")
             except Exception as e:
                 runtime.log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
+
+        # Optional evidence never precedes an attempted status commit. Throttled
+        # deltas still refresh only this connection's explicit live state.
+        if live_state_allowed:
+            from modules.printers.monitors.live_state import observe_mqtt
+            observe_mqtt(self, status, raw, runtime)
 
         # Check for camera URL auto-discovery (only X1C/H2D broadcast rtsp_url)
         # Only sync once per connection — MQTT broadcasts this on every message

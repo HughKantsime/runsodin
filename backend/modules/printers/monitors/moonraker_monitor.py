@@ -319,13 +319,13 @@ class MoonrakerMonitor(MoonrakerJobTracking):
 
     def _process_status_locked(self, status, *, history=None):
         """Process a status update — detect state changes, track jobs."""
-        from modules.printers.monitors.live_state import observe_status
-        observe_status(engine, self.printer_id, status, 'moonraker', owner=self)
         import modules.notifications.event_dispatcher as printer_events
         now = time.time()
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
+        live_state_allowed = True
         if self._marked_offline or now - getattr(self, '_last_heartbeat', 0) >= 10:
+            live_state_allowed = False
             try:
               with engine.begin() as conn:
                 bed_t = bed_tt = noz_t = noz_tt = None
@@ -402,6 +402,7 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                     except Exception as e:
                         log.debug(f"[{self.name}] Env telemetry insert: {e}")
 
+              live_state_allowed = True
               self._last_heartbeat = now
               self._marked_offline = False
 
@@ -425,6 +426,12 @@ class MoonrakerMonitor(MoonrakerJobTracking):
 
             except Exception:
                 log.warning("Telemetry persistence failed; retry on next observation")
+
+        # Keep optional evidence separate and after a successful status commit;
+        # reports between heartbeats still refresh live-state freshness.
+        if live_state_allowed:
+            from modules.printers.monitors.live_state import observe_status
+            observe_status(engine, self.printer_id, status, 'moonraker', owner=self)
 
         internal_state = status.internal_state
 

@@ -30,22 +30,30 @@ def reset_mqtt(monitor, runtime):
         runtime.log.warning('[%s] Live state invalidation failed', monitor.name)
 
 
-def observe_mqtt(monitor, status, raw, runtime):
-    if getattr(monitor, '_live_mqtt_generation', None) != monitor._connection_generation:
-        reset_mqtt(monitor, runtime)
+def stage_mqtt(monitor, status, raw):
+    """Remember fresh explicit state for retries without writing any evidence."""
     retained = getattr(status, 'mqtt_retained', None) is True
     age = getattr(status, 'report_age_seconds', None)
     if not raw or not fresh_report(retained, age):
-        return
+        return False
     explicit = raw.get('gcode_state')
     if isinstance(explicit, str) and explicit:
         monitor._live_mqtt_state = explicit
+    return True
+
+
+def observe_mqtt(monitor, status, raw, runtime):
+    if getattr(monitor, '_live_mqtt_generation', None) != monitor._connection_generation:
+        reset_mqtt(monitor, runtime)
+    if not stage_mqtt(monitor, status, raw):
+        return
     state = getattr(monitor, '_live_mqtt_state', None)
     if state is None:
         return
     try:
         publisher(monitor, monitor.printer_id).publish(
-            runtime.get_db, monitor.printer_id, state, dbapi=True, report_age_seconds=age)
+            runtime.get_db, monitor.printer_id, state, dbapi=True,
+            report_age_seconds=getattr(status, 'report_age_seconds', None))
     except Exception:
         runtime.log.warning('[%s] Live state evidence persistence failed', monitor.name)
 

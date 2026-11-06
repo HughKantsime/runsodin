@@ -55,7 +55,7 @@ def test_raw_safety_survives_filtering_and_clear(api_defaults, hidden_bundle, ra
     db, handler, _, outgoing = api_defaults
     from modules.printers.models import Printer
     from modules.printers.schemas import PrinterResponse
-    from modules.printers.hms_state import has_display_entries
+    from core.hms_state import has_display_entries
     result = handler.process_hms_errors(9, [raw], live_state='FAILED')
     value = stored(db)
     assert json.loads(value) == [{'display': False, 'hms_safety': raw}]

@@ -154,8 +154,6 @@ class ElegooMonitorThread(threading.Thread):
 
     def _process_status_locked(self, status):
         """Process status update — detect transitions, update DB, push events."""
-        from modules.printers.monitors.live_state import observe_status
-        observe_status(engine, self.printer_id, status, 'elegoo', owner=self)
         import modules.notifications.event_dispatcher as printer_events
 
         # ----------------------------------------------------------
@@ -249,7 +247,9 @@ class ElegooMonitorThread(threading.Thread):
         # ----------------------------------------------------------
         # 3. Telemetry + heartbeat (throttled to every 10 seconds)
         # ----------------------------------------------------------
+        live_state_allowed = True
         if self._marked_offline or time.time() - self._last_heartbeat >= 10:
+            live_state_allowed = False
             try:
                 with engine.begin() as conn:
                     bed_t = status.bed_temp
@@ -315,6 +315,7 @@ class ElegooMonitorThread(threading.Thread):
                         except Exception as e:
                             log.debug(f"[{self.name}] Enclosure env capture: {e}")
 
+                live_state_allowed = True
                 self._last_heartbeat = time.time()
                 self._marked_offline = False
 
@@ -338,6 +339,12 @@ class ElegooMonitorThread(threading.Thread):
 
             except Exception:
                 log.warning("Telemetry persistence failed; retry on next observation")
+
+        # Keep optional evidence separate and after a successful status commit;
+        # reports between heartbeats still refresh live-state freshness.
+        if live_state_allowed:
+            from modules.printers.monitors.live_state import observe_status
+            observe_status(engine, self.printer_id, status, 'elegoo', owner=self)
 
 
 # ------------------------------------------------------------------

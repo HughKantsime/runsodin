@@ -23,7 +23,7 @@ log = logging.getLogger("printer_events")
 
 from modules.printers.hms_codes import parse_hms_errors
 from modules.printers.hms_codes import credential_prefix
-from modules.printers.hms_state import display_entries, safety_entries
+from core.hms_state import display_entries, safety_entries
 
 
 def record_error(

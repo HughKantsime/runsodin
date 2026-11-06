@@ -169,7 +169,7 @@ class PrinterResponse(PrinterBase):
     def _active_hms(self, value):
         import json
         from modules.printers.hms_codes import parse_hms_errors
-        from modules.printers.hms_state import display_entries
+        from core.hms_state import display_entries
         try:
             stored = json.loads(value or '[]')
             entries = display_entries(stored)
