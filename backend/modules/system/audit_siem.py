@@ -38,6 +38,7 @@ def deliver_once(engine, *, now=None, sender=send, destination_id=None):
             return False
         destination = dict(connection.execute(text('SELECT * FROM audit_siem_destinations WHERE id=:id'),
                                               {'id': key['destination_id'], 'token': token}).mappings().one())
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- canonical_projection uses fixed FIELDS, a. alias and dialect timestamp expressions; audit id is bound
         row = connection.execute(text(f'SELECT {canonical_projection(connection)} FROM audit_logs a WHERE id=:id'), {'id': key['audit_id']}).mappings().first()
         body = payload(row) if row else None
     error = None

@@ -177,3 +177,70 @@ def test_bounded_alias_query_accepts_only_allowlisted_statements():
         with pytest.raises(ValueError):
             module._bounded(db, statement, {}, ())
         assert db.statements == []
+
+
+@pytest.mark.parametrize('predicate', [
+    'id=:id OR 1=1', 'id IN (:id0); DROP TABLE users',
+    'id IN (:id0) --', 'actor_user_id=:uid UNION SELECT 1',
+])
+def test_audit_erasure_refuses_caller_sql_before_database_access(predicate):
+    from core.audit_erasure import record_erasure, rewrite
+    db = _Recorder()
+    with pytest.raises(ValueError, match='erasure predicate'):
+        with record_erasure(db, predicate, {}):
+            pytest.fail('Untrusted SQL reached erasure')
+    with pytest.raises(ValueError, match='erasure update'):
+        rewrite(db, 'UPDATE audit_logs SET ip_address=NULL WHERE ' + predicate, {})
+    assert not db.statements
+
+
+@pytest.mark.parametrize('predicate', [
+    'timestamp<:cutoff OR 1=1', 'id=1; DROP TABLE users AND timestamp<:cutoff',
+    'timestamp < CURRENT_TIMESTAMP', 'julianday(timestamp) < julianday(:cutoff)--',
+])
+def test_audit_retention_refuses_caller_sql_before_database_access(predicate):
+    from core.audit_retention import retain
+    db = _Recorder()
+    with pytest.raises(ValueError, match='retention predicate'):
+        retain(db, predicate, '2020-01-01')
+    assert not db.statements
+
+
+def test_audit_scopes_keep_values_bound():
+    from core.audit_sql import erasure_predicate, retention_predicate
+    assert erasure_predicate('id IN (:id0,:id1)') == 'id IN (:id0,:id1)'
+    assert retention_predicate('id=42 AND timestamp<:cutoff') == (
+        'id=:retention_id AND timestamp<:cutoff', {'retention_id': 42})
+    for predicate in ('timestamp<:cutoff', 'timestamp < :cutoff',
+                      'julianday(timestamp) < julianday(:cutoff)'):
+        assert retention_predicate(predicate) == (predicate, {})
+
+
+@pytest.mark.parametrize('target', [
+    ('users', 'id', ('username',)),
+    ('education_classes; DROP TABLE users', 'id', ('title', 'term')),
+    ('education_classes', 'id OR 1=1', ('title', 'term')),
+    ('education_classes', 'id', ('title', 'term) FROM users--')),
+])
+def test_class_scrubbing_refuses_caller_identifiers(target):
+    from modules.organizations.education_classes_privacy import _scrub_rows
+    db = _Recorder()
+    with pytest.raises(ValueError, match='scrub target'):
+        _scrub_rows(db, *target, ['student'])
+    assert not db.statements
+
+
+def test_program_report_bounded_helper_refuses_raw_sql():
+    from modules.organizations.education_program_reports import _bounded
+    db = _Recorder()
+    with pytest.raises(TypeError, match='prepared report statement'):
+        _bounded(db, 'SELECT 1; DROP TABLE users', {})
+    assert not db.statements
+
+
+def test_program_report_limit_cannot_be_overridden_by_params():
+    from sqlalchemy import text
+    from modules.organizations.education_program_reports import _bounded
+    db = _Recorder()
+    _bounded(db, text('SELECT 1 LIMIT :row_limit'), {'row_limit': 10000}, limit=2)
+    assert db.statements[0][1]['row_limit'] == 3

@@ -97,7 +97,7 @@ def test_failed_then_reprinted_attempts_and_approval_evidence(program):
 
 
 def test_bounded_65536_limit_and_runtime_override(review_db, monkeypatch):
-    query = 'WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM n WHERE v<:count) SELECT v FROM n'
+    query = text('WITH RECURSIVE n(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM n WHERE v<:count) SELECT v FROM n LIMIT :row_limit')
     assert len(reports._bounded(review_db, query, {'count':65536})) == 65536
     with pytest.raises(HTTPException) as error:
         reports._bounded(review_db, query, {'count':65537})
@@ -130,7 +130,7 @@ def test_job_totals_deduplicated_across_class_join_rows(program, monkeypatch):
     bounded = reports._bounded
     def duplicate(db, query, params, limit=None):
         rows = bounded(db, query, params, limit)
-        if 'AS job_id' in query:
+        if 'AS job_id' in str(query):
             return [*rows, {**rows[0], 'class_id':second['id']}]
         return rows
     # D2's unique link normally prevents this; protect aggregate semantics if a

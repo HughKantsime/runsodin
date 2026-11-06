@@ -188,9 +188,11 @@ def save_assignment(db, principal, class_id, body, assignment_id=None):
     # Only schema-owned column identifiers are interpolated; request values are bound.
     fields = tuple(ASSIGNMENT_FIELDS)
     if assignment_id:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fields is the fixed ASSIGNMENT_FIELDS tuple; column and bind names never come from body keys; values are bound
         db.execute(text('UPDATE education_assignments SET ' + ','.join(f'{f}=:{f}' for f in fields) +
             ',authorized_by=:actor,revision=revision+1 WHERE id=:id AND org_id=:org'), values)
     else:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fields is the fixed ASSIGNMENT_FIELDS tuple; column and bind names never come from body keys; values are bound
         db.execute(text('INSERT INTO education_assignments(id,org_id,class_id,authorized_by,' + ','.join(fields) +
             ') VALUES(:id,:org,:cls,:actor,' + ','.join(':' + f for f in fields) + ')'), values)
     audit(db, principal, 'assignment.update' if assignment_id else 'assignment.create', 'assignment',

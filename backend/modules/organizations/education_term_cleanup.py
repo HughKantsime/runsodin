@@ -74,6 +74,7 @@ def current_submission(db, term, sid, *, lock=False):
             ('education_upload_operations', 'operation_id', row['operation_id']),
             ('print_archives', 'education_submission_id', sid),
         ):
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/key iterate the five literal parent-table pairs above; row identifiers use the key bind
             db.execute(text(f'SELECT {key} FROM {table} WHERE {key}=:key FOR UPDATE'), {'key': value}).all()
         db.execute(text("SELECT scope_kind,scope_id FROM education_storage_accounts WHERE org_id=:org "
                         "AND ((scope_kind='user' AND scope_id=:uid) OR (scope_kind='tenant' AND scope_id=:org)) "

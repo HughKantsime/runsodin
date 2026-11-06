@@ -42,6 +42,7 @@ def _canonical_sqlite_triggers():
             raise ValueError('Duplicate packaged trigger')
         allowed[name] = (table, _normalized_schema_sql(definition))
     try:
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
         integrity = importlib.import_module(AUDIT_MIGRATION_MODULE)
         add("odin_audit_append", "audit_logs", integrity.sqlite_trigger())
         contract = importlib.import_module("core.schema.migrations.009_cost_foundation")

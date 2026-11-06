@@ -23,6 +23,7 @@ def erase_term_identity(db, user_id):
 def eligible_student(db, uid, org, *, lock=False):
     suffix = ' FOR UPDATE' if lock and db.get_bind().dialect.name == 'postgresql' else ''
     try:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- suffix is empty or literal FOR UPDATE selected by lock and dialect; uid is bound
         row = db.execute(text('SELECT role,is_active,group_id,username FROM users WHERE id=:uid' + suffix), {'uid': uid}).first()
     except DBAPIError as error:
         if suffix and (getattr(error.orig, 'sqlstate', None) or getattr(error.orig, 'pgcode', None)) == '55P03':

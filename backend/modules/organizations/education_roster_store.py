@@ -35,6 +35,7 @@ def audit(db, action, org, *, resource=None, reason=None, user_id=None, subject_
 def load(db, connection_id, org=None, *, enabled=True, lock=False):
     if lock:
         scope = ' AND org_id=:o' if org is not None else ''
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- scope is empty or the literal AND org_id=:o; connection id and org are bound
         db.execute(text('UPDATE education_roster_connections SET revision=revision WHERE id=:id' + scope),
                    {'id': connection_id, 'o': org})
     row = db.execute(text('SELECT * FROM education_roster_connections WHERE id=:id'), {'id': connection_id}).mappings().first()

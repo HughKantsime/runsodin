@@ -34,6 +34,14 @@ _SCRUB_UPDATES = {
     'education_assessment_revisions': 'UPDATE education_assessment_revisions SET old_feedback=:old_feedback,new_feedback=:new_feedback,old_grade=:old_grade,new_grade=:new_grade WHERE id=:key',
 }
 
+_SCRUB_TARGETS = (
+    ('education_classes', 'id', ('title', 'term')),
+    ('education_assignments', 'id', ('title', 'brief')),
+    ('education_assignment_submissions', 'submission_id', ('feedback', 'grade')),
+    ('education_assessment_revisions', 'id', ('old_feedback', 'new_feedback', 'old_grade', 'new_grade')),
+)
+
+
 def _scrub_rows(db, table, key, fields, identifiers):
     """Bound both result buffering and Python work; LIKE is only a broad prefilter.
 
@@ -41,6 +49,8 @@ def _scrub_rows(db, table, key, fields, identifiers):
     prevent usernames containing '%' or '_' from turning into table-wide matches.
     Tables/columns come only from the closed inventory below, never a request.
     """
+    if (table, key, fields) not in _SCRUB_TARGETS:
+        raise ValueError('Unsupported class scrub target')
     ids = sorted({v for v in identifiers if isinstance(v, str) and v})
     for start in range(0, len(ids), 20):
         params = {f'p{i}': '%' + value.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
@@ -49,6 +59,7 @@ def _scrub_rows(db, table, key, fields, identifiers):
         after = None
         while True:
             paging = '' if after is None else f' AND {key}>:after'
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/key/fields are checked against _SCRUB_TARGETS; predicates use fixed columns and enumerated pN binds; identifiers and paging values are bound
             rows = db.execute(text('SELECT ' + key + ',' + ','.join(fields) + ' FROM ' + table +
                 ' WHERE (' + predicate + ')' + paging + f' ORDER BY {key} LIMIT 200'),
                 {**params, 'after': after}).mappings().all()
@@ -72,6 +83,7 @@ def _lock_erased_assessments(db, user_id, identifiers):
         key = f'p{i}'
         params[key] = '%' + value.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
         predicates.extend(f"LOWER({field}) LIKE LOWER(:{key}) ESCAPE '!'" for field in ('feedback', 'grade'))
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicates use literal reviewed_by/submission clauses or fixed feedback/grade columns and enumerated pN binds; identity values are bound
     db.execute(text('SELECT submission_id FROM education_assignment_submissions WHERE (' +
         ' OR '.join(predicates) + ') ORDER BY submission_id FOR UPDATE'), params).all()
 
@@ -127,10 +139,5 @@ def _erase_classes(db, user_id, identifiers):
     db.execute(text("UPDATE education_assignments SET auto_printer_ids='[]',auto_print_seconds=NULL,"
         'auto_material_grams=NULL,revision=revision+1 WHERE authorized_by=:u'), {'u': user_id})
     # Operational school text may mention this person even when authored by someone else.
-    for table, key, fields in (
-        ('education_classes', 'id', ('title', 'term')),
-        ('education_assignments', 'id', ('title', 'brief')),
-        ('education_assignment_submissions', 'submission_id', ('feedback', 'grade')),
-        ('education_assessment_revisions', 'id', ('old_feedback', 'new_feedback', 'old_grade', 'new_grade')),
-    ):
+    for table, key, fields in _SCRUB_TARGETS:
         _scrub_rows(db, table, key, fields, identifiers)

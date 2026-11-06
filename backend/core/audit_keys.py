@@ -72,6 +72,7 @@ def sealed_evidence(connection):
     ):
         if table not in tables:
             continue
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table, column and predicate come from the four literal tuples above; schema inspection only skips absent tables
         rows = connection.execute(text(
             'SELECT '+column+' FROM '+table+' WHERE '+predicate+
             "CAST("+column+" AS TEXT) LIKE '%\"key_id\"%' AND "

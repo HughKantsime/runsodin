@@ -1186,7 +1186,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 524,
+      "line": 527,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1194,7 +1194,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 550,
+      "line": 553,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1202,7 +1202,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 552,
+      "line": 555,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1210,7 +1210,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 562,
+      "line": 565,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1218,7 +1218,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 577,
+      "line": 580,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1226,7 +1226,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 579,
+      "line": 582,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -2754,7 +2754,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 75,
+      "line": 76,
       "path": "backend/modules/system/sqlite_backup_guards.py",
       "pattern": "qmark-parameter",
       "reason": "Source-owned SQLite archive schema guards, extracted from backup_service.",

@@ -23,6 +23,7 @@ def portfolio(db, principal, *, assignment_id=None, offset=0, limit=30):
         _, cls = assignment_access(db, principal, assignment_id)
         manager = cls['can_manage']
     assignment_filter = 'AND x.assignment_id=:a ' if assignment_id is not None else ''
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- _SELECT is a literal; assignment_filter is empty or fixed AND x.assignment_id=:a; all request values are bound
     rows = db.execute(text(_SELECT + ' WHERE s.org_id=:o AND (:manager=1 OR s.submitted_by=:u) '
         + assignment_filter + 'ORDER BY s.created_at DESC,s.id DESC LIMIT :limit OFFSET :offset'),
         {'o': org, 'u': principal['id'], 'manager': int(manager), 'a': assignment_id,

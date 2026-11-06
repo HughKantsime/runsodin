@@ -68,6 +68,7 @@ def canonical_functions(*, _contract=None):
             if name in functions:raise BackupValidationError('Canonical function registry collision')
             functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     if _contract is None:
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
         integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
         for name,source in integrity.pg_functions().items():
             functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
@@ -147,6 +148,7 @@ def canonical_triggers(*, _contract=None):
             if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
             triggers[key]=(definition.replace('EXECUTE FUNCTION public.','EXECUTE FUNCTION '),'odin_timeline_mutation_guard','public','O')
     if _contract is None:
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
         integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
         for key,definition in integrity.pg_triggers().items():
             triggers[key]=(definition,key[1],'public','O')

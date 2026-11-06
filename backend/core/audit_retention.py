@@ -6,16 +6,19 @@ from core.audit_integrity import enabled, lock_chain, projection
 from core.audit_verify import accepted
 from core.audit_receipts import seal_deletion, deletion_key, authentic
 from core.audit_keys import saved_head
+from core.audit_sql import retention_predicate
 
 BATCH_SIZE = 256
 
 
 def retain(db, expired, cutoff):
+    expired, scope = retention_predicate(expired)
     c = db.connection()
     expired = '('+expired+") AND action NOT IN ('audit.erasure','audit.retention'," \
               "'restore_completed','audit.restore_baseline_accepted','audit.keyring_initialized')"
     if not enabled(c):
-        return db.execute(text('DELETE FROM audit_logs WHERE '+expired), {'cutoff': cutoff}).rowcount
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- retention_predicate validates the closed timestamp comparisons and binds any numeric row id; cutoff is bound
+        return db.execute(text('DELETE FROM audit_logs WHERE '+expired), {**scope, 'cutoff': cutoff}).rowcount
     lock_chain(c)
     signing_available = deletion_key(c)
     operation = uuid.uuid4().hex
@@ -31,11 +34,12 @@ def retain(db, expired, cutoff):
     if anchor and not authentic(anchor):
         anchor = None
     while True:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- projection uses fixed FIELDS and dialect expressions; retention_predicate validates expired; cutoff, ids and page bounds are bound
         rows = c.execute(text(f'SELECT {projection(c)} FROM audit_logs a WHERE '+expired+
             " AND chain_seq>:last AND chain_seq<=:upper"
             " AND NOT EXISTS (SELECT 1 FROM audit_siem_gaps g WHERE g.gap_id=a.id AND g.closed=0)"
             " ORDER BY chain_seq LIMIT :limit"),
-            {'cutoff': cutoff, 'last': last, 'upper': upper, 'limit': BATCH_SIZE}).mappings().all()
+            {**scope, 'cutoff': cutoff, 'last': last, 'upper': upper, 'limit': BATCH_SIZE}).mappings().all()
         if not rows:
             c.execute(text("INSERT INTO audit_logs(action,entity_type,details) VALUES('audit.retention','audit_log',:d)"),
                       {'d': json.dumps(seal_deletion({'operation': operation, 'deleted': count, 'ranges': range_count,
@@ -60,6 +64,7 @@ def retain(db, expired, cutoff):
         for r in ranges:
             params = {'first': r['first_seq'], 'last': r['last_seq']}
             for table, column in (('audit_siem_outbox', 'audit_id'), ('audit_redactions', 'row_id'), ('audit_siem_gaps', 'gap_id')):
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/column iterate three literal pairs (outbox/audit_id, redactions/row_id, gaps/gap_id); range endpoints are bound
                 c.execute(text(f'DELETE FROM {table} WHERE {column} IN '
                     '(SELECT id FROM audit_logs WHERE chain_seq BETWEEN :first AND :last)'), params)
             c.execute(text('DELETE FROM audit_logs WHERE chain_seq BETWEEN :first AND :last'), params)

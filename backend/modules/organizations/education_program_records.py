@@ -15,6 +15,7 @@ def records(db, principal, class_id, activity_date=None):
         'WHERE class_id=:c AND org_id=:o ORDER BY user_id'), params).mappings().all()
     day_filter = '' if activity_date is None else ' AND activity_date=:day'
     params['day'] = activity_date.isoformat() if activity_date else None
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- day_filter is empty or the literal AND activity_date=:day; date, class and org are bound
     hours = db.execute(text('SELECT id,instructor_id,activity_date,hours,revision FROM education_instructor_hours '
         'WHERE class_id=:c AND org_id=:o' + day_filter + ' ORDER BY activity_date DESC,instructor_id LIMIT 100'), params).mappings().all()
     return {'marks': [{**r, 'participant': bool(r['participant']), 'concentrator': bool(r['concentrator'])} for r in marks], 'hours': [dict(r) for r in hours],

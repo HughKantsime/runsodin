@@ -485,9 +485,11 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
             receipt_revision = importlib.import_module('core.schema.migrations.043_recipe_configuration')
             receipt_revision.validate_legacy(connection)
         elif migration_id == 'python:045-pause-cancel-alerts':
+            # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
             importlib.import_module(AUDIT_MIGRATION_MODULE).validate_alert_legacy(connection)
         elif migration_id == 'python:024-audit-actor' and inspect(connection).has_table('audit_chain_state'):
             module._source()
+            # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
             importlib.import_module(AUDIT_MIGRATION_MODULE).validate_actor_legacy(connection)
         elif migration_id == 'python:002-education-tenant-integrity':
             from core.schema.education_archive_validation import validate_education_with_archive
@@ -499,6 +501,7 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
             validate()
             return False
         if (migration_id == 'python:045-pause-cancel-alerts' and connection.dialect.name == 'postgresql'
+                # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
                 and 'audit_integrity' in importlib.import_module(AUDIT_MIGRATION_MODULE).alert_labels(connection)):
             validate()
         elif migration_id == 'python:024-audit-actor' and inspect(connection).has_table('audit_chain_state'):

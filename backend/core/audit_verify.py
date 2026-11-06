@@ -14,6 +14,7 @@ def accepted(connection, row, *, recorded=False):
         return False
     try:
         d = json.loads(evidence[0])
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- projection uses fixed FIELDS, a. alias and dialect hash expressions; evidence row id is bound
         record = connection.execute(text(f'SELECT {projection(connection)} FROM audit_logs a WHERE id=:id'),
                                     {'id': evidence[1]}).mappings().first()
         return (authentic(d) and d['row_id'] == row['id'] and d['record_id'] == evidence[1]
@@ -65,6 +66,7 @@ def walk(connection, start=None):
     for row_id, seq in connection.execute(text('SELECT id,chain_seq FROM audit_logs WHERE chain_seq IS NULL OR chain_seq<=0 ORDER BY id')):
         broken('unchained', row_id, chain_seq=seq)
     previous, sequence = (start['head'], start['rows']) if start else (GENESIS, 0)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- projection uses fixed FIELDS, a. alias and dialect hash expressions; starting sequence is bound
     rows = connection.execute(text(f'SELECT {projection(connection)} FROM audit_logs a WHERE chain_seq>:seq ORDER BY chain_seq,id')
                               .execution_options(stream_results=True, max_row_buffer=256), {'seq': sequence}).mappings()
     used = set()

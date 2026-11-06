@@ -2,6 +2,7 @@
 from datetime import datetime, time, timedelta, timezone
 import math
 from sqlalchemy import text
+from sqlalchemy.sql.elements import TextClause
 from fastapi import HTTPException
 from zoneinfo import ZoneInfo
 from modules.organizations.education_program_policy import options, template_allowed
@@ -22,8 +23,11 @@ class ReportRow(dict):
 
 
 def _bounded(db, query, params, limit=None):
+    """Execute a prepared report statement; callers cannot pass raw SQL strings."""
+    if not isinstance(query, TextClause):
+        raise TypeError('A prepared report statement is required')
     limit = MAX_ROWS if limit is None else limit
-    rows = db.execute(text(query + ' LIMIT :row_limit'), {**params, 'row_limit': limit + 1}).mappings().all()
+    rows = db.execute(query, {**params, 'row_limit': limit + 1}).mappings().all()
     if len(rows) > limit:
         raise HTTPException(413, 'Program report exceeds row limit; select a narrower scope')
     return rows
@@ -139,17 +143,20 @@ def build_report(db, principal, filters, *, scheduled_org=None):
     cte = ('WITH centers AS (SELECT p.* FROM education_cost_centers p WHERE ' + scope + '), '
         'selected AS (SELECT c.* FROM education_classes c JOIN centers p '
         'ON p.id=c.cost_center_id AND p.org_id=c.org_id WHERE 1=1' + class_scope + ') ')
-    classes = _bounded(db, cte + 'SELECT c.id,c.title,c.term,c.cost_center_id,p.display_name AS program '
-        'FROM selected c JOIN centers p ON p.id=c.cost_center_id AND p.org_id=c.org_id ORDER BY c.term,c.title,c.id', params, MAX_CLASSES)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- cte uses literal scope clauses and the fixed id/term columns; SELECT and ORDER BY are literals; filters and row_limit are bound
+    classes = _bounded(db, text(cte + 'SELECT c.id,c.title,c.term,c.cost_center_id,p.display_name AS program '
+        'FROM selected c JOIN centers p ON p.id=c.cost_center_id AND p.org_id=c.org_id ORDER BY c.term,c.title,c.id LIMIT :row_limit'), params, MAX_CLASSES)
     restricted = bool(filters.class_id or filters.term)
     program_scope = ' WHERE EXISTS (SELECT 1 FROM selected c WHERE c.cost_center_id=p.id)' if restricted else ''
-    programs = _bounded(db, cte + 'SELECT p.id,p.display_name AS program FROM centers p' + program_scope + ' ORDER BY p.id', params, MAX_CLASSES)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- cte uses fixed scope/id/term clauses; program_scope is empty or a literal EXISTS clause; filters and row_limit are bound
+    programs = _bounded(db, text(cte + 'SELECT p.id,p.display_name AS program FROM centers p' + program_scope + ' ORDER BY p.id LIMIT :row_limit'), params, MAX_CLASSES)
     buckets = {r['id']: _bucket() for r in classes}
     program_buckets = {r['id']: _bucket() for r in programs}
     unassigned = {r['id']: _bucket() for r in programs} if not restricted else {}
     summary = _bucket()
     proof = '(' + proved_job_owner_sql() + ') AND (' + proved_education_job_sql() + ')'
-    rows = _bounded(db, cte + 'SELECT j.id AS job_id,c.id AS class_id,s.cost_center_id,s.submitted_by,j.status,j.estimated_cost,'
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- cte and restricted suffix use fixed clauses; proof comes from no-argument source-owned ownership builders; filters and row_limit are bound
+    rows = _bounded(db, text(cte + 'SELECT j.id AS job_id,c.id AS class_id,s.cost_center_id,s.submitted_by,j.status,j.estimated_cost,'
         'CASE WHEN ' + proof + ' THEN 1 ELSE 0 END AS proved,pa.grams,pa.unmeasured,pa.seconds,pa.unmeasured_hours, '
         "EXISTS (SELECT 1 FROM education_audit_events e WHERE e.org_id=s.org_id AND e.resource_type='submission' "
         "AND e.resource_id=CAST(s.id AS TEXT) AND e.action='submission.approve') AS instructor_approved "
@@ -163,7 +170,7 @@ def build_report(db, principal, filters, *, scheduled_org=None):
         'SUM(actual_duration_seconds) AS seconds, '
         'SUM(CASE WHEN actual_duration_seconds IS NULL THEN 1 ELSE 0 END) AS unmeasured_hours '
         'FROM print_archives GROUP BY job_id) pa ON pa.job_id=j.id '
-        'WHERE s.created_at>=:start AND s.created_at<:end' + (' AND c.id IS NOT NULL' if restricted else '') + ' ORDER BY s.id', params)
+        'WHERE s.created_at>=:start AND s.created_at<:end' + (' AND c.id IS NOT NULL' if restricted else '') + ' ORDER BY s.id LIMIT :row_limit'), params)
     for row in rows:
         if row['class_id'] in buckets:
             _job(buckets[row['class_id']], row)
@@ -172,14 +179,16 @@ def build_report(db, principal, filters, *, scheduled_org=None):
         if row['cost_center_id'] in program_buckets:
             _job(program_buckets[row['cost_center_id']], row)
         _job(summary, row)
-    marks = _bounded(db, cte + 'SELECT m.class_id,c.cost_center_id,m.user_id,m.participant,m.concentrator FROM education_program_marks m '
-        'JOIN selected c ON c.id=m.class_id AND c.org_id=m.org_id ORDER BY m.class_id,m.user_id', params)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- cte uses literal scope clauses and the fixed id/term columns; marks SELECT and ORDER BY are literals; filters and row_limit are bound
+    marks = _bounded(db, text(cte + 'SELECT m.class_id,c.cost_center_id,m.user_id,m.participant,m.concentrator FROM education_program_marks m '
+        'JOIN selected c ON c.id=m.class_id AND c.org_id=m.org_id ORDER BY m.class_id,m.user_id LIMIT :row_limit'), params)
     for row in marks:
         for bucket in (buckets[row['class_id']], program_buckets[row['cost_center_id']], summary):
             if row['participant']:
                 bucket['_participants'].add(row['user_id'])
             if row['concentrator']:
                 bucket['_concentrators'].add(row['user_id'])
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- cte uses literal scope clauses and only id/term columns from the fixed class_id/term loop; filter values and dates are bound
     hours = db.execute(text(cte + 'SELECT h.class_id,c.cost_center_id,SUM(h.hours) AS hours FROM education_instructor_hours h '
         'JOIN selected c ON c.id=h.class_id AND c.org_id=h.org_id '
         'WHERE h.activity_date>=:start_day AND h.activity_date<=:end_day GROUP BY h.class_id,c.cost_center_id'), params).mappings()

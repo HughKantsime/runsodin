@@ -64,6 +64,7 @@ def authority(db, principal, org_id=None, *, lock=False):
 
 
 def policy(db, term_id, org_id, *, lock=False):
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- suffix is empty or literal FOR UPDATE selected by lock and dialect; term and org are bound
     row = db.execute(text('SELECT * FROM education_term_policies WHERE id=:id AND org_id=:org' +
                      (' FOR UPDATE' if lock and db.get_bind().dialect.name == 'postgresql' else '')),
                      {'id': term_id, 'org': org_id}).mappings().first()

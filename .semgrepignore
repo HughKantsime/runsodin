@@ -78,3 +78,10 @@ testsuite/
 /backend/core/timelapse_retirement_membership_validation.py
 # committed-completion-boundary fixture (source-current.json job_events_sha256)
 /backend/modules/notifications/job_events.py
+
+# migration 047 SOURCE_PINS; row(): fixed FIELDS/a. projection and dialect hash expressions; id is bound
+/backend/core/audit_integrity.py
+# migration 047 SOURCE_PINS; checks(True) returns literal constraints; LEDGER is audit_actor_erasures
+/backend/core/audit_integrity_legacy.py
+# migrator checksum registry; canonical_projection uses fixed FIELDS/a. and dialect expressions, no input values
+/backend/core/schema/migrations/047_audit_integrity.py

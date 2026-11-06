@@ -29,6 +29,7 @@ def export(db, date_from, date_to, bundle=False):
             if any(not b['known'] for b in result['breaks']):
                 raise HTTPException(409, 'Audit integrity verification failed')
             digest, count = hashlib.sha256(), 0
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- canonical_projection uses fixed FIELDS, a. alias and dialect timestamp expressions; both dates are bound
             rows = connection.execute(text(f'''SELECT {canonical_projection(connection)} FROM audit_logs a WHERE chain_seq>0 AND timestamp>=:start AND timestamp<:end
                 ORDER BY chain_seq''').execution_options(stream_results=True, max_row_buffer=256), {'start': date_from.isoformat(), 'end': (date_to+timedelta(days=1)).isoformat()})
             for row in rows.mappings():
