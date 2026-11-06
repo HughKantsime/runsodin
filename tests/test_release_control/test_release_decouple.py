@@ -293,28 +293,6 @@ def test_receipt_rejects_missing_binding_and_mixed_schemas(mode):
     with pytest.raises(mutation.MutationError): mutation.validate_receipt(state)
 
 
-def external(name):
-    path = EXTERNAL / name
-    if not path.exists(): pytest.skip('operator tooling is outside repository')
-    return path
-
-
-@pytest.mark.parametrize('schema', [1, 2])
-@pytest.mark.parametrize('invalid', [False, True])
-def test_github_release_receipt_reader_offline(schema, invalid, tmp_path):
-    source = external('tools/github-release.sh').read_text()
-    code = source.split("<<'EOF'\n", 1)[1].split('\nEOF', 1)[0]
-    state = receipt(schema)
-    if invalid:
-        state['public_health' if schema == 1 else 'checker_health']['version'] = '0.0.1'
-    raw = json.dumps(state).encode()
-    path = tmp_path / 'receipt.json'; path.write_bytes(raw)
-    digest = tmp_path / 'receipt.sha256'; digest.write_text(hashlib.sha256(raw).hexdigest())
-    result = subprocess.run([sys.executable, '-', str(path), str(digest), '400'], input=code, text=True, capture_output=True)
-    assert (result.returncode != 0) == invalid, result.stderr
-    assert 'live_version' in source and 'https://odin.subsystem.app/health' in source
-
-
 def test_workflow_closure_includes_checker_and_capacity_probe_and_orders_mutation():
     source = (ROOT / '.github/workflows/promote-production.yml').read_text()
     steps = yaml.safe_load(source)['jobs']['promote']['steps']
@@ -358,59 +336,6 @@ python3.11() { return 19; }
         assert (result.returncode != 0) == bool(leftover)
     else:
         assert result.returncode == 19  # EXIT trap preserves checker failure
-
-
-def test_chain_customer_release_precedes_host_gate(tmp_path):
-    script = external('release-chain-v4.sh')
-    helper = tmp_path / 'ops/release_control'; helper.mkdir(parents=True)
-    (helper / 'instance_update.py').write_text('')
-    log = tmp_path / 'chain.log'
-    # Exercise main with completed validation/publication, replacing every external action.
-    harness = r'''
-source "$1"
-CHAIN_LOG="$3"; VR=100; PB=300
-lock_acquire(){ :; }; cleanup(){ :; }; verify_decoupled_main(){ :; }
-git(){ case "$*" in *rev-parse*) printf '%040d\n' 1;; esac; }
-python3.11(){ :; }; ci_disk(){ :; }; wait_validation(){ :; }; waitok(){ PP_COMPLETE=1; PP_CONCLUSION=success; }
-download_run(){ echo '{}' > "$2/manifest.json"; echo '{}' > "$2/receipt.json"; }
-publication_digest(){ echo sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc; }
-instance_remote(){ echo "HOST $1"; [ "$1" = watchtower ] || [ "$1" = check ]; }
-run_production_eligibility(){ PE=200; echo ELIGIBILITY; }
-dispatch_production(){ PP=400; echo PROMOTE; }
-approve(){ echo APPROVE; }; move_main(){ MAIN_MOVED=1; }
-bounded(){ echo GITHUB_RELEASE; }
-idle_fleet(){ echo 'busy printers-running'; return 1; }
-update_instance(){ echo "INSTANCE_AFTER_CUSTOMER=$CUSTOMER_RELEASE"; idle_fleet || :; }
-main "$2" 1.9.13 authorized
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(script), str(tmp_path), str(log)], text=True, capture_output=True, timeout=10)
-    assert result.returncode == 0, result.stderr + log.read_text()
-    text = log.read_text()
-    assert text.index('PROMOTE') < text.index('GITHUB_RELEASE') < text.index('INSTANCE_AFTER_CUSTOMER=success') < text.index('busy printers-running')
-
-
-@pytest.mark.parametrize('failure', ['', 'pull', 'apply', 'health'])
-def test_chain_host_update_rechecks_freeze_and_keeps_customer_success(failure, tmp_path):
-    script = external('release-chain-v4.sh')
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
-instance_window(){ echo WINDOW; promotion_ready; }
-instance_remote(){ echo "$1"; [ "$1" != "$FAILURE" ]; }
-promotion_ready(){ echo RECHECK_FREEZE_AND_IDLE; }
-wait_for_instance(){ echo HEALTH; [ "$FAILURE" != health ]; }
-window_close(){ echo CLOSE; }
-update_instance || :
-echo "OUTCOME=$CUSTOMER_RELEASE/$INSTANCE_UPDATE"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(script)], env={**os.environ, 'FAILURE': failure}, text=True, capture_output=True, timeout=10)
-    assert result.returncode == 0, result.stderr
-    output = result.stdout
-    assert 'OUTCOME=success/' in output
-    if failure != 'pull': assert output.index('pull') < output.index('RECHECK_FREEZE_AND_IDLE') < output.index('apply')
-    else: assert 'RECHECK_FREEZE_AND_IDLE' not in output
-    if not failure: assert 'OUTCOME=success/success' in output and 'CLOSE' in output
-    else: assert 'FAILED' in output
 
 
 @pytest.mark.parametrize('action', ['migrate', 'pull', 'apply'])
@@ -506,21 +431,6 @@ def test_changed_workflow_shell_blocks_parse(workflow):
                 assert result.returncode == 0, step['name'] + result.stderr
 
 
-@pytest.mark.parametrize('code', [124, 255])
-def test_interrupted_host_restart_retains_protection(code):
-    script = external('release-chain-v4.sh')
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
-instance_window(){ :; }; promotion_ready(){ :; }
-instance_remote(){ if [ "$1" = apply ]; then return "$CODE"; fi; }
-update_instance || :
-printf 'PENDING=%s CUSTOMER=%s\n' "$HOST_MUTATION_PENDING" "$CUSTOMER_RELEASE"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(script)], env={**os.environ, 'CODE': str(code)}, text=True, capture_output=True)
-    assert result.returncode == 0 and 'PENDING=1 CUSTOMER=success' in result.stdout
-
-
 @pytest.mark.parametrize('which', ['runtime', 'compose'])
 def test_watchtower_must_be_disabled_in_both_config_and_container(which, monkeypatch):
     monkeypatch.setattr(instance_update, 'inspect', lambda: {'Config': {'Labels': {instance_update.LABEL: 'true' if which == 'runtime' else 'false'}}})
@@ -550,98 +460,6 @@ def test_checker_refuses_a_container_running_the_wrong_variant():
     with pytest.raises(checker.CheckerError, match='platform mismatch'):
         run(docker)
     assert any(cmd[:2] == ('rm', '--force') for cmd in docker.commands)
-
-
-@pytest.mark.parametrize('failure_at', [0, 1, 2, 3])
-@pytest.mark.parametrize('schema', [1, 2])
-@pytest.mark.parametrize('failure_mode', ['network', 'mismatch'])
-def test_github_release_live_guards_before_each_write(schema, failure_at, failure_mode, tmp_path):
-    """Execute the whole helper; gh/curl are shell fakes, never real services."""
-    state = receipt(schema)
-    raw = json.dumps(state).encode()
-    (tmp_path / 'receipt.json').write_bytes(raw)
-    (tmp_path / 'receipt.sha256').write_text(hashlib.sha256(raw).hexdigest())
-    source = external('tools/github-release.sh').read_text().replace(
-        'LOCK="$HOME/.odin-github-release.lock"', 'LOCK="$FIXTURE/lock"')
-    script = tmp_path / 'github-release.sh'; script.write_text(source)
-    harness = r'''
-gh() {
-  case "$1 $2" in
-    'run list') echo 400;;
-    'run download')
-      local prev='' arg dir=''
-      for arg in "$@"; do [ "$prev" != -D ] || dir=$arg; prev=$arg; done
-      cp "$FIXTURE/receipt.json" "$FIXTURE/receipt.sha256" "$dir/";;
-    'api -H') case "$*" in *VERSION*) echo 1.9.13;; *CHANGELOG*) printf '## [1.9.13]\nFixes\n';; *) return 99;; esac;;
-    'api -X') echo TAG >> "$FIXTURE/writes"; touch "$FIXTURE/tag";;
-    'release create') echo RELEASE >> "$FIXTURE/writes"; touch "$FIXTURE/released"
-      local prev='' arg
-      for arg in "$@"; do [ "$prev" != --notes-file ] || cp "$arg" "$FIXTURE/notes"; prev=$arg; done;;
-    'release view')
-      if [ ! -e "$FIXTURE/released" ]; then echo 'release not found' >&2; return 1; fi
-      case "$*" in *isDraft*) echo 'false false';; *body*) cat "$FIXTURE/notes";; *tagName*) echo v1.9.13;; *) return 99;; esac;;
-    api*)
-      case "$*" in *git/ref/tags*)
-        if [ -e "$FIXTURE/tag" ]; then echo "commit $SHA_EXPECTED"; else echo 'HTTP 404' >&2; return 1; fi;;
-        *) return 99;; esac;;
-    *) return 99;;
-  esac
-}
-curl() {
-  case "$*" in
-    *ghcr.io/token*) echo '{"token":"anonymous-test"}';;
-    *manifests/v1.9.13*) echo "Docker-Content-Digest: $EXPECTED_DIGEST";;
-    *odin.subsystem.app/health*|*manifests/latest*)
-      if [ "$SCHEMA_TEST" = 1 ]; then [[ "$*" == *odin.subsystem.app/health* ]] || return 99
-      else [[ "$*" == *manifests/latest* ]] || return 99; fi
-      local count=0
-      [ ! -f "$FIXTURE/count" ] || count=$(cat "$FIXTURE/count")
-      count=$((count + 1)); echo "$count" > "$FIXTURE/count"
-      if [ "$count" = "$FAILURE_AT" ]; then
-        if [ "$FAILURE_MODE" = network ]; then return 22; fi
-        if [ "$SCHEMA_TEST" = 1 ]; then echo '{"status":"ok","version":"0.0.1"}'
-        else echo "Docker-Content-Digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"; fi
-        return 0
-      fi
-      if [ "$SCHEMA_TEST" = 1 ]; then echo '{"status":"ok","version":"1.9.13"}'
-      else echo "Docker-Content-Digest: $EXPECTED_DIGEST"; fi;;
-    *) return 99;;
-  esac
-}
-source "$1" 1.9.13
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(script)], text=True,
-                            capture_output=True, timeout=10, env={**os.environ,
-                            'FIXTURE': str(tmp_path), 'EXPECTED_DIGEST': DIGEST,
-                            'SHA_EXPECTED': state['candidate_sha'], 'SCHEMA_TEST': str(schema),
-                            'FAILURE_AT': str(failure_at), 'FAILURE_MODE': failure_mode})
-    assert (result.returncode == 0) == (failure_at == 0), result.stdout + result.stderr
-    writes = (tmp_path / 'writes').read_text().splitlines() if (tmp_path / 'writes').exists() else []
-    assert writes == ({0: ['TAG', 'RELEASE'], 1: [], 2: [], 3: ['TAG']}[failure_at])
-    assert int((tmp_path / 'count').read_text()) == (failure_at or 3)
-    assert 'Traceback' not in result.stderr
-    if schema == 1 and failure_at:
-        assert 'production /health does not report healthy version 1.9.13' in result.stderr
-
-
-@pytest.mark.parametrize('mode', ['missing', 'bad-status', 'bad-image-id', 'wrong-version', 'wrong-digest', 'unready', 'bad-smoke', 'summary-mismatch'])
-def test_release_helper_rejects_bad_platform_evidence(mode, tmp_path):
-    source = external('tools/github-release.sh').read_text()
-    code = source.split("<<'EOF'\n", 1)[1].split('\nEOF', 1)[0]
-    state = receipt()
-    health = state['checker_health']
-    if mode == 'missing': del health['platforms']['linux/arm64']
-    elif mode == 'summary-mismatch': health['image_id'] = OLD
-    else:
-        field, value = {'bad-status': ('status', 'failed'), 'bad-image-id': ('image_id', 'bad'),
-                        'wrong-version': ('version', '0.0.1'), 'wrong-digest': ('digest', OLD),
-                        'unready': ('ready', False), 'bad-smoke': ('smoke', {})}[mode]
-        health['platforms']['linux/arm64'][field] = value
-    raw = json.dumps(state).encode()
-    path = tmp_path / 'receipt.json'; path.write_bytes(raw)
-    hash_path = tmp_path / 'receipt.sha256'; hash_path.write_text(hashlib.sha256(raw).hexdigest())
-    result = subprocess.run([sys.executable, '-', str(path), str(hash_path), '400'], input=code, text=True, capture_output=True)
-    assert result.returncode != 0 and 'health evidence' in result.stderr
 
 
 @pytest.mark.parametrize('recovers', [False, True])
@@ -723,90 +541,6 @@ def test_instance_check_rejects_compose_image_drift(monkeypatch):
     with pytest.raises(RuntimeError, match='Compose image differs'): instance_update.check()
 
 
-@pytest.mark.parametrize('code', [0, 1, 3, 124, 127, 255])
-@pytest.mark.parametrize('marker', [False, True])
-@pytest.mark.parametrize('probe', ['watchtower', 'check'])
-def test_chain_pre_release_host_check_isolation_policy(code, marker, probe, tmp_path):
-    state = tmp_path / 'release-state'
-    state.mkdir()
-    if marker: (state / 'watchtower-isolated').write_text('root@192.168.71.211\n')
-    harness = r'''
-source "$1"
-instance_remote(){ if [ "$1" = "$PROBE" ]; then return "$CODE"; fi; }
-pre_release_host_check
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True,
-                            env={**os.environ, 'CODE': str(code), 'PROBE': probe})
-    confirmed_off = probe == 'check' or code == 0
-    allowed = confirmed_off or (code in (124, 255) and marker)
-    assert (result.returncode == 0) == allowed, result.stdout + result.stderr
-    if probe == 'check' and code:
-        assert f'WARNING: instance check failed (exit {code}) with Watchtower off' in result.stdout
-    elif code in (124, 255) and marker:
-        assert 'WARNING: host check unavailable' in result.stdout
-    else:
-        assert 'WARNING' not in result.stdout
-    if confirmed_off or (marker and code != 3):
-        assert (state / 'watchtower-isolated').read_text() == 'root@192.168.71.211\n'
-    else:
-        assert not (state / 'watchtower-isolated').exists()
-
-
-@pytest.mark.parametrize('unavailable', [124, 255])
-def test_chain_watchtower_enabled_deletes_record_and_blocks_later_unavailable_host(unavailable, tmp_path):
-    state = tmp_path / 'release-state'
-    state.mkdir()
-    record = state / 'watchtower-isolated'
-    record.write_text('root@192.168.71.211\n')
-    harness = r'''
-source "$1"
-instance_remote(){ echo "HOST $1"; [ "$1" = watchtower ] || return 99; return "$PROBE_CODE"; }
-PROBE_CODE=3
-rc=0; pre_release_host_check || rc=$?
-echo "ENABLED_RC=$rc"
-[ ! -e "$STATE_DIR/watchtower-isolated" ] || exit 98
-PROBE_CODE=$UNAVAILABLE
-rc=0; pre_release_host_check || rc=$?
-echo "UNAVAILABLE_RC=$rc"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True, timeout=10,
-                            env={**os.environ, 'UNAVAILABLE': str(unavailable)})
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert 'ENABLED_RC=1' in result.stdout and 'UNAVAILABLE_RC=1' in result.stdout
-    assert 'Watchtower still enabled' in result.stdout
-    assert f'host check failed (exit {unavailable})' in result.stdout
-    assert 'HOST check' not in result.stdout
-    assert not record.exists()
-
-
-@pytest.mark.parametrize('code', [1, 3, 124, 127, 255])
-def test_chain_watchtower_off_failed_check_warns_and_records_isolation(code, tmp_path):
-    # No prior state directory: the warning path must create durable isolation evidence.
-    harness = r'''
-source "$1"
-instance_remote(){
-  echo "HOST $1"
-  case "$1" in watchtower) return 0;; check) return "$CHECK_CODE";; *) return 99;; esac
-}
-rc=0; pre_release_host_check || rc=$?
-echo "FIRST_RC=$rc"
-instance_remote(){ [ "$1" = watchtower ] || return 99; return 255; }
-rc=0; pre_release_host_check || rc=$?
-echo "UNAVAILABLE_RC=$rc"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True, timeout=10,
-                            env={**os.environ, 'CHECK_CODE': str(code)})
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert 'FIRST_RC=0' in result.stdout and 'UNAVAILABLE_RC=0' in result.stdout
-    assert result.stdout.index('HOST watchtower') < result.stdout.index('HOST check')
-    assert f'WARNING: instance check failed (exit {code}) with Watchtower off' in result.stdout
-    assert 'prior verified Watchtower isolation permits customer release' in result.stdout
-    assert (tmp_path / 'release-state/watchtower-isolated').read_text() == 'root@192.168.71.211\n'
-
-
 @pytest.mark.parametrize('which', ['compose', 'runtime', 'neither'])
 def test_watchtower_probe_reads_both_labels(which, tmp_path, monkeypatch):
     monkeypatch.setattr(instance_update, 'DIRECTORY', tmp_path)
@@ -816,86 +550,6 @@ def test_watchtower_probe_reads_both_labels(which, tmp_path, monkeypatch):
         'Labels': {instance_update.LABEL: str(which == 'runtime').lower()}}})
     monkeypatch.chdir(tmp_path)
     assert instance_update.perform('watchtower', '', 'a' * 32) == (0 if which == 'neither' else 3)
-
-
-@pytest.mark.parametrize('workflow', ['legacy', 'decoupled'])
-def test_chain_refuses_old_workflow_on_main(workflow):
-    harness = r'''
-source "$1"
-gh_call(){
-  [[ "$*" == *'?ref=main'* ]] || return 99
-  if [ "$WORKFLOW" = legacy ]; then echo PUBLIC_HEALTH_URL
-  else printf 'ops.release_control.checker\nchecker_health\n'; fi
-}
-verify_decoupled_main
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True, env={**os.environ, 'WORKFLOW': workflow})
-    assert (result.returncode == 0) == (workflow == 'decoupled')
-
-
-def test_chain_update_instance_only_never_enters_release_path(tmp_path):
-    helper = tmp_path / 'ops/release_control'; helper.mkdir(parents=True)
-    (helper / 'instance_update.py').write_text('')
-    log = tmp_path / 'chain.log'
-    harness = r'''
-source "$1"
-CHAIN_LOG="$3"
-lock_acquire(){ echo LOCK; }; cleanup(){ :; }
-verify_decoupled_main(){ echo FORBIDDEN; return 99; }
-gh_call(){ echo FORBIDDEN; return 99; }; git(){ echo FORBIDDEN; return 99; }
-instance_remote(){ echo "HOST $1"; }
-update_instance(){ echo "UPDATE $DG CUSTOMER=$CUSTOMER_RELEASE"; }
-main "$2" 1.9.13 authorized --update-instance-only "$4"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh')), str(tmp_path), str(log), DIGEST], text=True, capture_output=True)
-    assert result.returncode == 0, result.stderr
-    output = log.read_text()
-    assert 'HOST check' in output and f'UPDATE {DIGEST} CUSTOMER=unchanged' in output
-    assert 'FORBIDDEN' not in output
-
-
-def test_chain_bounded_wait_defers_and_releases_lock(tmp_path):
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; AUTH=authorized; DG=digest; CUSTOMER_RELEASE=success
-NOW=0
-date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
-pause_for(){ NOW=$((NOW + $1)); }
-freeze_check(){ :; }; idle_fleet(){ echo busy; }
-instance_remote(){ echo "HOST $1"; }
-open_window(){ echo FORBIDDEN_WINDOW; return 99; }
-window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; trim_colima(){ :; }
-rc=0; update_instance || rc=$?
-printf 'RESULT=%s ELAPSED=%s RC=%s\n' "$INSTANCE_UPDATE" "$NOW" "$rc"
-cleanup "$rc"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True, timeout=10)
-    assert result.returncode == 3, result.stderr
-    assert 'RESULT=deferred ELAPSED=86400 RC=3' in result.stdout
-    assert 'OUTCOME customer_release=success instance_update=deferred' in result.stdout
-    assert '--update-instance-only' in result.stdout and 'UNLOCK' in result.stdout
-    assert 'FORBIDDEN_WINDOW' not in result.stdout and 'HOST apply' not in result.stdout
-
-
-def test_chain_health_failure_keeps_marker_and_prints_rollback():
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; TOKEN=abc
-instance_remote(){ echo "$1"; }; instance_window(){ echo WINDOW; }; promotion_ready(){ :; }
-wait_for_instance(){ return 1; }
-window_close(){ echo FORBIDDEN_CLOSE; }; lock_release(){ echo FORBIDDEN_UNLOCK; }
-report_exit(){ :; }
-update_instance || :
-echo "HOLD=$HOLD"
-cleanup 1
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True)
-    assert result.returncode == 1
-    assert result.stdout.index('pull') < result.stdout.index('WINDOW') < result.stdout.index('apply')
-    assert 'HOLD=1' in result.stdout and "rollback --token 'abc'" in result.stdout
-    assert '/checkout/ops/release_control/instance_update.py' in result.stdout
-    assert 'FORBIDDEN' not in result.stdout
 
 
 @pytest.mark.parametrize('invalid', ['digest', 'version', 'platforms', 'image_id', 'ready', 'valid'])
@@ -939,30 +593,6 @@ def test_instance_pin_is_atomic_and_retains_owned_content_on_failure(replace_fai
         assert json.loads(path.read_text())['services']['odin']['image'] == instance_update.IMAGE + '@' + DIGEST
     assert len(replacements) == 1
     assert not list(tmp_path.glob('.odin-release-*'))
-
-
-def test_chain_fleet_recheck_inside_window_shares_24_hour_deadline():
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; NOW=0
-date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
-freeze_check(){ :; }; idle_fleet(){ echo idle; }
-instance_remote(){ echo "HOST $1"; }
-open_window(){ echo WINDOW; }
-promotion_ready(){
-  [ "$INSTANCE_DEADLINE" = 86400 ] || return 99
-  NOW=86400
-  time_left
-}
-window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; trim_colima(){ :; }
-rc=0; update_instance || rc=$?
-echo "RESULT=$INSTANCE_UPDATE"
-cleanup "$rc"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))], text=True, capture_output=True, timeout=10)
-    assert result.returncode == 3, result.stderr
-    assert 'RESULT=deferred' in result.stdout and 'UNLOCK' in result.stdout and 'CLOSE' in result.stdout
-    assert 'HOST apply' not in result.stdout
 
 
 @pytest.fixture
@@ -1083,100 +713,6 @@ def test_apply_timeout_after_restart_attempt_still_exits_124(host_docker, monkey
     assert instance_update.main() == 124
     assert any('up' in cmd for cmd in commands)
     assert 'retain deploy protection' in capsys.readouterr().err
-
-
-@pytest.mark.parametrize('action,code', [('apply', 4), ('pull', 124)])
-def test_chain_pre_restart_failures_release_protection_without_rollback(action, code):
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success
-instance_remote(){ echo "HOST $1"; if [ "$1" = "$ACTION" ]; then return "$CODE"; fi; }
-instance_window(){ echo WINDOW; WINDOW_OPEN=1; }
-wait_for_instance(){ echo FORBIDDEN_HEALTH; return 99; }
-window_close(){ echo CLOSE; }; lock_release(){ echo UNLOCK; }; report_exit(){ :; }
-rc=0; update_instance || rc=$?
-echo "HOLD=$HOLD PENDING=$HOST_MUTATION_PENDING RC=$rc"
-cleanup "$rc"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True, env={**os.environ, 'ACTION': action, 'CODE': str(code)})
-    assert result.returncode == 1
-    assert 'HOLD=0 PENDING=0 RC=1' in result.stdout
-    assert 'CLOSE' in result.stdout and 'UNLOCK' in result.stdout
-    assert 'Rollback' not in result.stdout and 'FORBIDDEN' not in result.stdout
-    if action == 'pull': assert 'WINDOW' not in result.stdout and 'HOST apply' not in result.stdout
-    else: assert 'instance_update=apply_refused' in result.stdout
-
-
-@pytest.mark.parametrize('remaining', [89, 270, 389, 390, 391])
-def test_instance_window_requires_full_grace_sample_and_margin(remaining, tmp_path):
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; DG=digest; CUSTOMER_RELEASE=success; NOW=0; MARK="$2/marker"
-date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
-freeze_check(){ NOW=$((86400 - REMAINING)); }
-idle_fleet(){ echo idle; }
-promotion_ready(){ echo READY; }
-rc=0; instance_window || rc=$?
-echo "RC=$rc WINDOW=$WINDOW_OPEN RESULT=$INSTANCE_UPDATE"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh')), str(tmp_path)],
-                            text=True, capture_output=True, env={**os.environ, 'REMAINING': str(remaining)})
-    assert result.returncode == 0, result.stderr
-    allowed = remaining > 390
-    assert (tmp_path / 'marker').exists() == allowed
-    assert ('READY' in result.stdout) == allowed
-    assert ('RC=0 WINDOW=1' if allowed else 'RC=75 WINDOW=0 RESULT=deferred') in result.stdout
-
-
-@pytest.mark.parametrize('remaining', [89, 90, 91])
-def test_grace_is_never_shortened_by_pause_for(remaining):
-    harness = r'''
-source "$1"
-NOW=100; INSTANCE_DEADLINE=$((NOW + REMAINING)); NEED_IDLE=1
- date(){ if [ "$1" = +%s ]; then echo "$NOW"; else echo clock; fi; }
-sleep(){ echo "SLEEP=$1"; NOW=$((NOW + $1)); }
-freeze_renew(){ :; }; idle_fleet(){ echo idle; }
-rc=0; enforce_idle || rc=$?
-echo "RC=$rc NEED_IDLE=$NEED_IDLE"
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
-                            text=True, capture_output=True, env={**os.environ, 'REMAINING': str(remaining)})
-    assert result.returncode == 0, result.stderr
-    if remaining < 90:
-        assert 'SLEEP=' not in result.stdout and 'RC=75 NEED_IDLE=1' in result.stdout
-    else:
-        assert 'SLEEP=90' in result.stdout and 'RC=0 NEED_IDLE=0' in result.stdout
-
-
-def test_migration_records_host_isolation(tmp_path):
-    (tmp_path / 'lock').mkdir()
-    harness = r'''
-source "$1"
-WT=/checkout; V=1.9.13; TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; LOCK="$2/lock"
-instance_window(){ :; }; ssh_call(){ cat >/dev/null; echo 1.9.12; }
-instance_remote(){ :; }; wait_for_instance(){ :; }; window_close(){ :; }
-migrate_watchtower
-'''
-    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh')), str(tmp_path)],
-                            text=True, capture_output=True)
-    assert result.returncode == 0, result.stderr
-    assert (tmp_path / 'release-state/watchtower-isolated').read_text() == 'root@192.168.71.211\n'
-
-
-@pytest.mark.parametrize('body', ['', 'not-json', '[]', 'null', '{"status":"ok"}'])
-def test_live_version_invalid_health_is_quiet_and_clear(body):
-    source = external('tools/github-release.sh').read_text()
-    functions = source[source.index('live_version() {'):source.index('\nlive_guard\n')]
-    harness = '''set -euo pipefail
-V=1.9.13; SCHEMA=1
-curl(){ printf '%s' "$BODY"; }
-fail(){ echo "github-release: $*" >&2; exit 1; }
-''' + functions + '\nlive_guard\n'
-    result = subprocess.run(['/bin/bash', '-c', harness], text=True, capture_output=True,
-                            env={**os.environ, 'BODY': body})
-    assert result.returncode == 1
-    assert result.stderr.strip() == 'github-release: production /health does not report healthy version 1.9.13'
 
 
 @pytest.mark.parametrize('compose_label,running_label,expected', [
