@@ -9,9 +9,15 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from core.schema import bootstrap_database, preserved045
 from core.schema.migrator import MigrationError
+from core.schema.bootstrap import POST027_MIGRATIONS
 
 M = importlib.import_module('core.schema.migrations.046_tray_identity')
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _live_tail(first):
+    ids = [migration_id for migration_id, _ in POST027_MIGRATIONS]
+    return ids[ids.index(first):]
 
 
 def test_frozen045_upgrade_preserves_rows_and_repeat_is_noop(tmp_path):
@@ -31,7 +37,7 @@ assert bootstrap_database(engine)['applied']==[]
     result = subprocess.run([sys.executable,'-I','-c',code,str(Path(preserved045.__file__).with_name('runner.py')),str(tmp_path/'old.db')],cwd=tmp_path,capture_output=True,text=True,timeout=90)
     assert result.returncode == 0, result.stderr
     engine = create_engine('sqlite:///'+str(tmp_path/'old.db'))
-    assert bootstrap_database(engine)['applied'] == [M.MIGRATION_ID, AUDIT_MIGRATION_ID, 'python:048-training-signoff']
+    assert bootstrap_database(engine)['applied'] == _live_tail(M.MIGRATION_ID)
     assert bootstrap_database(engine)['applied'] == []
     with engine.connect() as c:
         assert c.execute(text('SELECT color,tray_observation FROM filament_slots')).one() == ('retained',None)
@@ -99,8 +105,7 @@ bootstrap_database(create_engine('sqlite:///'+sys.argv[2]))
     assert result.returncode == 0, result.stderr
     engine = create_engine('sqlite:///' + str(tmp_path/'old043.db'))
     try:
-        assert bootstrap_database(engine)['applied'] == [
-            'python:044-spool-tray-uuid', 'python:045-pause-cancel-alerts', M.MIGRATION_ID, AUDIT_MIGRATION_ID, 'python:048-training-signoff']
+        assert bootstrap_database(engine)['applied'] == _live_tail('python:044-spool-tray-uuid')
         assert bootstrap_database(engine)['applied'] == []
         with engine.connect() as connection:
             M.validate(connection)

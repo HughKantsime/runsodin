@@ -90,7 +90,7 @@ DOWNLOADS = [
     ('/files/901/preview-model','print_file.downloaded','print_file',901,{'what':'model'}),
     ('/print-files/901/mesh','print_file.downloaded','print_file',901,{'what':'mesh'}),
     ('/projects/901/export','project.exported','project',901,None),
-    ('/backups/odin_backup_owned.db','backup.downloaded','system',None,{'filename':'odin_backup_owned.db'}),
+    ('/backups/odin_backup_owned.db','backup.downloaded','system',None,{'filename':'odin_backup_owned.db','bundle':False}),
     ('/profiles/901/export','profile.exported','profile',901,None),
     ('/vision/training-data/export','vision.training_data_exported','vision',None,None),
     *[('/export/'+name,'export.downloaded',None,None,{'export':name,'filters':{}})

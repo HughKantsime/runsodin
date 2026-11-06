@@ -357,7 +357,8 @@ def _record_decision(
             "resource_id": str(row.id),
             "center_id": row.cost_center_id,
             "revision": result["lifecycle_revision"],
-            "details": json.dumps(jsonable_encoder(details), sort_keys=True),
+            "details": json.dumps(jsonable_encoder({**details, **({"approver": "automatic",
+                "authorized_by": principal["id"]} if principal.get("_automatic_class_approval") else {})}), sort_keys=True),
             "result": json.dumps(jsonable_encoder(result), sort_keys=True),
         },
     )
@@ -486,6 +487,8 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
                 status=409,
                 extra={"compatibility_reasons": reasons},
             )
+        from modules.organizations.education_assignment_submissions import validate_assigned_approval
+        validate_assigned_approval(db, row, print_file_id=approved_ams["print_file_id"] if approved_ams else None)
         next_revision = int(row.lifecycle_revision) + 1
         changed = db.execute(
             text(

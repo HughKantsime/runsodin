@@ -213,6 +213,7 @@
     "core/schema/migrations/043_recipe_configuration.py": "13e7bb86fb77171a714a98881cd81792e26a64693f7c386839e48ab1ead58bd7",
     "core/schema/migrations/044_spool_tray_uuid.py": "76ee7f0b1f56eb8b745ded91e70b81a18926579741f651aa53830cf0b6011254",
     "core/schema/migrations/045_pause_cancel_alerts.py": "c57035420e5cc4c33fd03165c376ef6bf8d9aa41b5c85f487c2e939a626eee8c",
+    "core/schema/migrations/046_tray_identity.py": "5992c0fb18772a8a15d609b8f99a3b02c283b3d15064cf4a7f591046b8dfdb80",
     "core/schema/migrations/__init__.py": "4ab5983cc93dfa41b4fef3b58882453f45abeaf8d49e3234a4c7b11793c182d2",
     "core/schema/migrator.py": "eec91dbdb1a04da72575e9699cadfec8b8b30b4b6bc426b1f6e1dda7744f66cc",
     "core/schema/orm_baselines.json": "5221bbefa6a2b81d2f968aff4f43979b78ea5591d786062ca72b6e12d22d591b",
@@ -477,8 +478,7 @@
     "modules/vision/__init__.py": "4d952e8ea20f4b5da193de9caaca4d70ac3f9945fc8037a21386f9c7707444ed",
     "modules/vision/migrations/001_initial.sql": "8a1fb12c8600dbae6b74572e17407081adda6f9a30cad11cd30ebcafdc52fe78",
     "modules/vision/models.py": "d09f2923906a82fb7168ad767dc58d0b19bde643a764c11338acb138d1e87583",
-    "modules/vision/routes/__init__.py": "548471e3483e2baed826653d8519f074a512ecbe80e87b22498293f32bf9ae81",
-    "core/schema/migrations/046_tray_identity.py": "5992c0fb18772a8a15d609b8f99a3b02c283b3d15064cf4a7f591046b8dfdb80"
+    "modules/vision/routes/__init__.py": "548471e3483e2baed826653d8519f074a512ecbe80e87b22498293f32bf9ae81"
   },
   "sql_paths": [
     "core/migrations/001_initial.sql",

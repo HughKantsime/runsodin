@@ -32,7 +32,7 @@ assert bootstrap_database(engine)['applied']==[]
         cwd=tmp_path, capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr
     engine = create_engine('sqlite:///'+str(tmp_path/'old.db'))
-    assert bootstrap_database(engine)['applied'] == [AUDIT_MIGRATION_ID, M.MIGRATION_ID]
+    assert bootstrap_database(engine)['applied'] == [AUDIT_MIGRATION_ID, M.MIGRATION_ID, 'python:049-education-classes']
     assert bootstrap_database(engine)['applied'] == []
     with engine.connect() as c:
         assert c.execute(text('SELECT name FROM printers')).scalar_one() == 'Retained'

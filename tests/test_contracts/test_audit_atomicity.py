@@ -461,6 +461,11 @@ class TestEveryCallSiteCommitsAfter:
             if (not has_commit and py == BACKEND_DIR / "modules/inventory/slot_assignments.py"
                     and fn_name == "observe_slots"):
                 has_commit = _telemetry_audit_transaction_is_atomic(_telemetry_sources())
+            if (not has_commit and py == BACKEND_DIR / "modules/organizations/education_classes_service.py"
+                    and fn_name == "audit"):
+                from tests.test_contracts.education_classes_audit_contract import FILES, classes_audit_is_atomic
+                sources = {name: (BACKEND_DIR / "modules/organizations" / name).read_text() for name in FILES}
+                has_commit = classes_audit_is_atomic(sources)
             if not has_commit:
                 missing.append(f"{py.relative_to(BACKEND_DIR.parent)}:{line_no} in {fn_name}()")
 

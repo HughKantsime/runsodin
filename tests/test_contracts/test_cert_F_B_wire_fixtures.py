@@ -23,7 +23,7 @@ FILES = [
 
 
 @pytest.mark.parametrize("path", FILES)
-def test_embedded_wire_fixture_matches_live_producer_fields(path):
+def test_embedded_wire_fixture_matches_live_producer_fields(path, graph):
     captured = json.loads(CAPTURE.read_text())
     src = (ROOT / path).read_text()
     m = re.search(r"const WIRE: any = (\{.*?\})\n// WIRE-END", src, re.S)
@@ -31,7 +31,9 @@ def test_embedded_wire_fixture_matches_live_producer_fields(path):
     embedded = json.loads(m.group(1))
     for key, value in embedded.items():
         assert key in captured, key
-        live = captured[key]
+        # Printer schema evolves independently of the optional socket capture.
+        # Use the same current producer as the self-contained contract below.
+        live = [_current_printer(graph)] if key == 'printers_list' else captured[key]
         assert type(value) is type(live), key
         if isinstance(value, list):
             assert value and live, key
@@ -40,15 +42,19 @@ def test_embedded_wire_fixture_matches_live_producer_fields(path):
             assert sorted(value) == sorted(live), (key, set(value) ^ set(live))
 
 
-def test_embedded_printer_wire_matches_current_route_without_capture_dependency(graph):
-    """The printer fixture also has a self-contained live producer check."""
+def _current_printer(graph):
     from modules.printers.routes_crud import list_printers
     from modules.printers.schemas import PrinterResponse
     from sqlalchemy import text
     graph.execute(text("UPDATE printers SET shared=FALSE,tags='[]',timelapse_enabled=FALSE WHERE id=9"))
     graph.commit()
     rows = list_printers(current_user=USER, db=graph)
-    live = PrinterResponse.model_validate(next(row for row in rows if row.id == 9)).model_dump(mode='json')
+    return PrinterResponse.model_validate(next(row for row in rows if row.id == 9)).model_dump(mode='json')
+
+
+def test_embedded_printer_wire_matches_current_route_without_capture_dependency(graph):
+    """The printer fixture also has a self-contained live producer check."""
+    live = _current_printer(graph)
     source = (ROOT / FILES[-1]).read_text()
     embedded = json.loads(re.search(r"const WIRE: any = (\{.*?\})\n// WIRE-END", source, re.S)[1])
     for printer in embedded['printers_list']:

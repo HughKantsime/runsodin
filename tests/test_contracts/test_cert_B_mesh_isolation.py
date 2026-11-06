@@ -66,7 +66,8 @@ def test_isolated_extraction_returns_plain_data(tmp_path):
 
 
 def test_diamond_is_refused_with_bounded_memory_and_no_leftovers(tmp_path):
-    before_threads = threading.active_count()
+    from modules.models_library import mesh_isolation
+    before_threads = set(threading.enumerate())
     before_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     assert _isolated(diamond(tmp_path / "d.3mf")) is None
     after_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -74,7 +75,11 @@ def test_diamond_is_refused_with_bounded_memory_and_no_leftovers(tmp_path):
     scale = 1 if os.uname().sysname == "Darwin" else 1024  # ru_maxrss: bytes on macOS, KiB on Linux
     assert (after_rss - before_rss) * scale < 200 * 2**20  # the parent never held the geometry
     assert child_peak * scale < 1.5 * 2**30
-    assert threading.active_count() == before_threads
+    # The dedicated executor intentionally retains bounded idle worker threads.
+    # Refuse any new unowned thread, rather than depending on prior pool warmup.
+    added_threads = set(threading.enumerate()) - before_threads
+    assert added_threads <= mesh_isolation.EXECUTOR._threads
+    assert len(mesh_isolation.EXECUTOR._threads) <= mesh_isolation.MAX_WORKERS + mesh_isolation.MAX_WAITERS
 
 
 def test_timeout_kills_the_worker_process(tmp_path, monkeypatch):

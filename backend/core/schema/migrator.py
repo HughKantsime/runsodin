@@ -109,6 +109,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.046_tray_identity",
         AUDIT_MIGRATION_MODULE,
         "core.schema.migrations.048_training_signoff",
+        "core.schema.migrations.049_education_classes",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

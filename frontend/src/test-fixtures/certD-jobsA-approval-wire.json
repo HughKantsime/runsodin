@@ -1208,6 +1208,26 @@
         "operator",
         "viewer"
       ],
+      "education.classes_assess": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "education.classes_manage": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "education.classes_read": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "education.classes_submit": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
       "education.reorder": [
         "admin",
         "operator",

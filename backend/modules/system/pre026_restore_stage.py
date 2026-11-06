@@ -123,8 +123,8 @@ def identify_contract(archive,url,password_file,directory):
     if ids == preserved040.ledger_ids():return PRESERVED040
     if ids == preserved043.ledger_ids():return PRESERVED043
     if ids == preserved044.ledger_ids():return PRESERVED044
-    if ids == preserved046.ledger_ids():return PRESERVED046
     if ids == preserved045.ledger_ids():return PRESERVED045
+    if ids == preserved046.ledger_ids():return PRESERVED046
     if ids&post:
         raise b.BackupValidationError('PostgreSQL archive is from an intermediate post-027 build; restore it on that build or a matching release')
     if not ids<=ledger_ids():raise b.BackupValidationError('Unsupported PostgreSQL archive schema version or partial table inventory')

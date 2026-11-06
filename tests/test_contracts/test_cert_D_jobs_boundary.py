@@ -67,7 +67,19 @@ def _migrations_never_name_jobs_internals():
 
 # Imports whose module name is wholly computed: allowed per (file, expression),
 # with an exact count and a check that the names cannot be jobs internals.
+def _audit_migration_is_closed():
+    from core.schema.audit_integrity_version import MODULE, MIGRATION_ID
+    return (MODULE == 'core.schema.migrations.047_audit_integrity'
+            and MIGRATION_ID == 'python:047-audit-integrity')
+
+
 COMPUTED_IMPORTS = {
+    ("backend/core/schema/migrator.py", "AUDIT_MIGRATION_MODULE"):
+        (3, "closed audit migration identity", _audit_migration_is_closed),
+    ("backend/modules/system/sqlite_backup_guards.py", "AUDIT_MIGRATION_MODULE"):
+        (1, "closed audit migration identity", _audit_migration_is_closed),
+    ("backend/modules/system/postgres_canonical_executables.py", "AUDIT_MIGRATION_MODULE"):
+        (2, "closed audit migration identity", _audit_migration_is_closed),
     ("backend/core/app_maintenance.py", "pkg_name"): (1, "module discovery imports package roots modules.<name>",
         lambda: "pkg_name = f'modules.{entry.name}'" in ast.unparse(ast.parse(_source("backend/core/app_maintenance.py")))),
     ("backend/core/app_maintenance.py", "pkg"): (1, "load order visits only supplied discovered roots",

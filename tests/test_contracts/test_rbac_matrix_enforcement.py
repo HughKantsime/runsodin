@@ -169,6 +169,11 @@ CASES = {
     "printers.dispatch_recovery": recovery_request,
     "users.restore_superadmin": restore_request,
     "education.reorder": education_reorder_request,
+    "education.classes_read": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("read", u, sql, USERS, SEQ),
+    "education.classes_manage": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("manage", u, sql, USERS, SEQ),
+    "education.classes_submit": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("submit", u, sql, USERS, SEQ),
+    "education.classes_assess": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("assess", u, sql, USERS, SEQ),
+
     "settings.edit": lambda u: ("put", "/api/settings/energy-rate", {"json": {"energy_cost_per_kwh": 0.2}}),
     "jobs.submit": lambda u: ("post", "/api/jobs", {"json": {"item_name": f"MX submit {next(SEQ)}", "duration_hours": 1}}),
     "jobs.create": lambda u: ("post", "/api/scheduler/run", {}),
@@ -394,7 +399,7 @@ def test_platform_superadmin_is_never_locked_out(matrix, key):
     if key.startswith("education.training_"):
         # Training is scoped to a school's classes; platform accounts have no tenant.
         assert status == 404, status
-    elif key == "education.reorder":
+    elif key == "education.reorder" or key.startswith("education.classes_"):
         # Platform accounts stay read-only even though they pass the RBAC matrix.
         assert status == 403, status
     else:

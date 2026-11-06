@@ -18,6 +18,8 @@ import { useOrg } from '../../contexts/OrgContext'
 import { useLicense } from '../../LicenseContext'
 import type { EducationCapabilities, EducationCostCenter, EducationSubmission, User } from '../../types'
 import CostCenterManager from '../../components/education/CostCenterManager'
+import ClassesPanel from '../../components/education/ClassesPanel'
+import StudentPortfolio from '../../components/education/StudentPortfolio'
 import ClassroomManager from '../../components/education/ClassroomManager'
 import EducationQueues from '../../components/education/EducationQueues'
 import SubmissionQueue from '../../components/education/SubmissionQueue'
@@ -25,7 +27,7 @@ import SubmissionUploadModal, { educationAudience } from '../../components/educa
 import ReadinessPanel from '../../components/education/ReadinessPanel'
 import { Button, Card, EmptyState, PageHeader, StatCard, TabBar, Select } from '../../components/ui'
 
-type WorkbenchTab = 'training' | 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom'
+type WorkbenchTab = 'training' | 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom' | 'classes' | 'portfolio'
 
 export default function EducationWorkbench() {
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
@@ -95,6 +97,10 @@ export default function EducationWorkbench() {
     const items: Array<{ key: WorkbenchTab; label: string; icon: typeof GraduationCap }> = [
       { key: 'overview', label: 'Overview', icon: GraduationCap },
     ]
+    if (license.hasFeature('classes')) {
+      items.push({ key: 'classes', label: 'Classes & assignments', icon: BookOpen })
+      items.push({ key: 'portfolio', label: 'My portfolio', icon: GraduationCap })
+    }
     if (capabilities?.student) items.push({ key: 'submissions', label: 'My submissions', icon: FileUp })
     if (capabilities?.manager || capabilities?.tenant_admin) {
       items.push({ key: 'review', label: 'Review queue', icon: ClipboardCheck })
@@ -102,7 +108,7 @@ export default function EducationWorkbench() {
       items.push({ key: 'archive', label: 'Archive', icon: BookOpenCheck })
     }
     if (license.hasFeature('training_signoff')) items.push({ key: 'training', label: 'Training', icon: GraduationCap })
-    if (capabilities?.tenant_admin) items.push({ key: 'centers', label: 'Classes & clubs', icon: Building2 })
+    if (capabilities?.tenant_admin) items.push({ key: 'centers', label: 'Cost centers & rosters', icon: Building2 })
     if (capabilities?.tenant_admin) items.push({ key: 'classroom', label: 'Google Classroom', icon: BookOpen })
     return items
   }, [capabilities, license])
@@ -258,6 +264,9 @@ export default function EducationWorkbench() {
         />
       )}
 
+      {activeTab === 'classes' && license.hasFeature('classes') && <ClassesPanel key={audience} audience={audience} managedCenters={capabilities.tenant_admin ? activeCenters : managedCenters} />}
+      {activeTab === 'portfolio' && license.hasFeature('classes') && <StudentPortfolio key={audience} audience={audience} />}
+
       {activeTab === 'classroom' && capabilities.tenant_admin && (
         <ClassroomManager centers={centers} />
       )}
@@ -312,7 +321,7 @@ function Overview({
       </div>
 
       <p className="text-sm text-[var(--brand-text-secondary)]">
-        Classroom access is assigned separately from your application role. An Operator needs Manager access in each class to review its submissions. Ask an organization administrator to update the roster under Education → Classes &amp; clubs.
+        Classroom access is assigned separately from your application role. An Operator needs Manager access in each class to review its submissions. Ask an organization administrator to update the roster under Education → Cost centers &amp; rosters.
       </p>
       <div className="grid gap-4 lg:grid-cols-3">
         {capabilities.student && (

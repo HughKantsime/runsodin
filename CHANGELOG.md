@@ -21,6 +21,8 @@ All notable changes to O.D.I.N. are documented here.
 - Education and Enterprise training sign-off before student printing: class printer groups or exact type/model scopes, multiple-choice quizzes, instructor assessment, expiry, revocation, and a Training workspace. Checks run at submission, approval, scheduling and physical dispatch; teachers/admins bypass their own requirements. Tenant-scoped RBAC, immutable Education audits, personal export and erasure are included.
 - Training requirements span all classes sharing a printer, with optional school-wide scope. Requirement edits warn and invalidate completions; prose and expiry edits preserve them. Quiz cooldowns, matched-printer warnings, private exports and read-only previews are included.
 - Additive migration 048 and a preserved 046 backup restore contract. See [Training before printing](docs/education/training-signoff.md).
+- Education and Enterprise: term-labelled classes using existing school rosters, assignments with due dates, per-print time/material limits and per-student submission quotas, explicit pending-print linking, optional instructor-authorized auto-approval through the existing compatibility checks, revision-safe feedback and grades, and private portfolios with thumbnails and timelapses. The `classes` entitlement, permission matrix, school audit and GDPR workflows cover the feature; unassigned submissions retain their existing behavior.
+- Additive migration 049 for classes, assignments and assessments; preserve the released 046 schema for PostgreSQL archive upgrades.
 
 ## [2.0.44] - 2026-11-05
 

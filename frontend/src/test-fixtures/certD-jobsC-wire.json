@@ -144,10 +144,10 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-11-05T23:55:15"
+  "updated_at": "2026-11-06T04:31:23"
  },
  "fail_printing_response": {
-  "actual_end": "2026-11-05T23:55:15.255085Z",
+  "actual_end": "2026-11-06T04:31:23.875090Z",
   "actual_start": "2026-10-12T06:00:00",
   "ams_mapping": [
    0
@@ -658,7 +658,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-11-05T23:55:15"
+   "updated_at": "2026-11-06T04:31:23"
   },
   {
    "actual_end": null,
@@ -3213,6 +3213,26 @@
     "operator",
     "viewer"
    ],
+   "education.classes_assess": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
+   "education.classes_manage": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
+   "education.classes_read": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
+   "education.classes_submit": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
    "education.reorder": [
     "admin",
     "operator",
@@ -3529,7 +3549,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-11-05T23:55:15",
+  "created_at": "2026-11-06T04:31:23",
   "display_name": "CertC pinned blocked",
   "due_date": null,
   "duration_hours": 1.0,
@@ -3565,7 +3585,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-11-05T23:55:15"
+  "updated_at": "2026-11-06T04:31:23"
  },
  "printers": [
   {
@@ -3580,7 +3600,7 @@
    "camera_source": "auto",
    "camera_url": "bambu-chamber://auto",
    "chamber_temp": null,
-   "created_at": "2026-11-05T23:55:14",
+   "created_at": "2026-11-06T04:31:22",
    "current_print_display_name": null,
    "fan_speed": null,
    "feeding_slot": null,
@@ -3594,7 +3614,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-11-05T23:55:14",
+     "loaded_at": "2026-11-06T04:31:22",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3648,7 +3668,8 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-11-05T23:55:14"
+   "updated_at": "2026-11-06T04:31:22",
+   "training_warnings": []
   },
   {
    "api_host": null,
@@ -3662,7 +3683,7 @@
    "camera_source": null,
    "camera_url": null,
    "chamber_temp": null,
-   "created_at": "2026-11-05T23:55:14",
+   "created_at": "2026-11-06T04:31:22",
    "current_print_display_name": null,
    "fan_speed": null,
    "feeding_slot": null,
@@ -3676,7 +3697,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-11-05T23:55:14",
+     "loaded_at": "2026-11-06T04:31:22",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3730,7 +3751,8 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-11-05T23:55:14"
+   "updated_at": "2026-11-06T04:31:22",
+   "training_warnings": []
   }
  ],
  "recent_terminal": [

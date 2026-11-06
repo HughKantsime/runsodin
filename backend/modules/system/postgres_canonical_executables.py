@@ -71,6 +71,10 @@ def canonical_functions(*, _contract=None):
         integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
         for name,source in integrity.pg_functions().items():
             functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
+        classes=importlib.import_module('core.schema.migrations.049_education_classes')
+        for name,source in classes.pg_functions().items():
+            if name in functions:raise BackupValidationError('Canonical function registry collision')
+            functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     functions['odin_reject_education_audit_mutation']=(" BEGIN RAISE EXCEPTION 'education audit events are immutable'; END; ",None,False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     return functions if _contract is None else {n:v for n,v in functions.items() if n in INVENTORY["functions"]}
 
@@ -146,6 +150,10 @@ def canonical_triggers(*, _contract=None):
         integrity=importlib.import_module(AUDIT_MIGRATION_MODULE)
         for key,definition in integrity.pg_triggers().items():
             triggers[key]=(definition,key[1],'public','O')
+        classes=importlib.import_module('core.schema.migrations.049_education_classes')
+        for key,definition in classes.pg_triggers().items():
+            if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
+            triggers[key]=(definition,classes.FUNCTION,'public','O')
     for action in ('DELETE','UPDATE'):
         name='trg_education_audit_no_'+action.lower()
         function='odin_reject_education_audit_mutation'

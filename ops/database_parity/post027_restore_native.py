@@ -187,6 +187,8 @@ def main():
             c.execute(text("INSERT INTO education_cost_centers(id,org_id,name_key,code_key,display_name,code,state,revision,created_by) VALUES(990048,1,'training048','training048','Training048','Training048','active',1,3)"))
             c.execute(text("INSERT INTO education_trainings(id,org_id,cost_center_id,name,description,scope_kind,scope_value,quiz_json,pass_mark,instructor_required,active,revision,created_by) VALUES('roundtrip048',1,990048,'Safety','','printer_group','','[]',80,TRUE,TRUE,1,3)"))
             c.execute(text("INSERT INTO education_training_records(training_id,org_id,user_id,training_revision,instructor_id,instructor_at,completed_at) VALUES('roundtrip048',1,3,1,3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
+            from ops.database_parity.education_classes_fixtures import seed as seed_classes
+            seed_classes(c)
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -214,8 +216,12 @@ def main():
             assert c.execute(text("SELECT result FROM audit_integrity_status WHERE id=1")).scalar_one() == '{"ok":true}'
             assert c.execute(text("SELECT name FROM education_trainings WHERE id='roundtrip048'")).scalar_one() == 'Safety'
             assert c.execute(text("SELECT training_revision FROM education_training_records WHERE training_id='roundtrip048'")).scalar_one() == 1
+            from ops.database_parity.education_classes_fixtures import verify as verify_classes
+            verify_classes(c)
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-049-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
         with engine.connect() as c:

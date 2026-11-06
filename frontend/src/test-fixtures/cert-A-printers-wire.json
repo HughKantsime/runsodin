@@ -246,7 +246,8 @@
       "org_id": 1,
       "has_api_key": true,
       "camera_enabled": false,
-      "camera_source": "auto"
+      "camera_source": "auto",
+      "training_warnings": []
     },
     {
       "name": "Cert Voron",
@@ -307,7 +308,8 @@
       "org_id": 1,
       "has_api_key": false,
       "camera_enabled": true,
-      "camera_source": "configured"
+      "camera_source": "configured",
+      "training_warnings": []
     },
     {
       "name": "Cert MK4",
@@ -366,7 +368,8 @@
       "org_id": 1,
       "has_api_key": false,
       "camera_enabled": true,
-      "camera_source": "configured"
+      "camera_source": "configured",
+      "training_warnings": []
     },
     {
       "name": "Cert Centauri",
@@ -425,7 +428,8 @@
       "org_id": 1,
       "has_api_key": false,
       "camera_enabled": true,
-      "camera_source": null
+      "camera_source": null,
+      "training_warnings": []
     }
   ],
   "telemetry_301": [

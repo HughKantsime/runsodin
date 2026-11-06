@@ -27,6 +27,11 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     "education.training_read": [("GET", "/api/education/cost-centers/{center_id}/trainings"), ("GET", "/api/education/trainings/{training_id}/records")],
     "education.training_take": [("POST", "/api/education/trainings/{training_id}/quiz")],
     "education.training_manage": [("POST", "/api/education/cost-centers/{center_id}/trainings"), ("PUT", "/api/education/trainings/{training_id}"), ("POST", "/api/education/trainings/{training_id}/students/{user_id}/signoff"), ("POST", "/api/education/trainings/{training_id}/students/{user_id}/revoke")],
+    "education.classes_read": [('GET', '/api/education/classes'), ('GET', '/api/education/classes/portfolio'), ('GET', '/api/education/classes/portfolio/{submission_id}/thumbnail'), ('GET', '/api/education/classes/{class_id}/roster'), ('GET', '/api/education/classes/{class_id}/assignments'), ('GET', '/api/education/classes/assignments/{assignment_id}/submissions')],
+    "education.classes_manage": [('POST', '/api/education/classes'), ('PUT', '/api/education/classes/{class_id}'), ('POST', '/api/education/classes/{class_id}/assignments'), ('PUT', '/api/education/classes/{class_id}/assignments/{assignment_id}')],
+    "education.classes_submit": [('POST', '/api/education/classes/assignments/{assignment_id}/submissions')],
+    "education.classes_assess": [('PUT', '/api/education/classes/assignments/{assignment_id}/submissions/{submission_id}')],
+
     "printers.dispatch_recovery": [("POST", "/api/printers/{printer_id}/dispatch-recovery/" + action) for action in ("hold", "reconcile-retain", "release")],
     "users.restore_superadmin": [("POST", "/api/users/{user_id}/restore-superadmin")],
     "education.reorder": [("PATCH", "/api/education/queues/jobs/{printer_id}/order")],

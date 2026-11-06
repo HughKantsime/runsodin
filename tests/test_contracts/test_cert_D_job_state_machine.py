@@ -77,7 +77,16 @@ def _enum_repair_is_status_only(sites):
 
 # Each allowed (file, function, kind) pins its exact number of call sites, and
 # its check runs on those sites (the SQL text the node builds, or the call it makes).
+def _classes_privacy_tables(sites):
+    from tests.test_contracts.education_classes_privacy_contract import privacy_writes_exclude_jobs
+    return privacy_writes_exclude_jobs((BACKEND / 'modules/organizations/education_classes_privacy.py').read_text())
+
+
 ALLOWED_WRITES = {
+    ('backend/modules/organizations/education_classes_privacy.py', '_scrub_rows', 'sql update (dynamic table)'):
+        (1, 'scrubs only the closed class/assignment/assessment text inventory', _classes_privacy_tables),
+    ('backend/modules/organizations/education_classes_privacy.py', '_erase_classes', 'sql update (dynamic table)'):
+        (1, 'clears only assessment text and reviewer identities', _classes_privacy_tables),
     ('backend/modules/jobs/routes/jobs_crud.py', 'update_job', 'setattr'):
         (1, 'PATCH copies JobUpdate fields only after refusing a sent status (422)',
          lambda sites: [s.detail for s in sites] == ['setattr(job, field, value)']
@@ -406,9 +415,11 @@ def test_reconcile_dispatch_denial_rolls_back_when_the_job_already_finished():
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     with engine.begin() as c:
         c.execute(text("CREATE TABLE jobs (id INTEGER PRIMARY KEY, charged_to_org_id INTEGER, status TEXT, printer_id INTEGER, notes TEXT)"))
-        c.execute(text("CREATE TABLE education_submissions (id INTEGER PRIMARY KEY, org_id INTEGER, cost_center_id INTEGER, job_id INTEGER, status TEXT, lifecycle_revision INTEGER, approved_printer_id INTEGER, approved_by INTEGER, compatibility_engine_version TEXT, updated_at TEXT)"))
+        c.execute(text("CREATE TABLE education_submissions (id INTEGER PRIMARY KEY, org_id INTEGER, cost_center_id INTEGER, job_id INTEGER, status TEXT, lifecycle_revision INTEGER, approved_printer_id INTEGER, approved_by INTEGER, compatibility_engine_version TEXT, updated_at TEXT, submitted_by INTEGER)"))
+        c.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT, group_id INTEGER, is_active BOOLEAN)"))
+        c.execute(text("INSERT INTO users VALUES (5, 'admin', 2, TRUE)"))
         c.execute(text("INSERT INTO jobs VALUES (72, 2, 'completed', 9, NULL)"))
-        c.execute(text("INSERT INTO education_submissions VALUES (4, 2, 7, 72, 'scheduled', 3, 9, 5, 'e', NULL)"))
+        c.execute(text("INSERT INTO education_submissions VALUES (4, 2, 7, 72, 'scheduled', 3, 9, 5, 'e', NULL, 5)"))
     with Session(engine) as db:
         assert reconcile_dispatch_denial(db, submission_id=4, job_id=72, expected_revision=3, reason='drift') is False
     with engine.connect() as c:

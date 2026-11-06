@@ -239,6 +239,11 @@ RAW_REQUIRED_COLUMNS['filament_cost_events'] = frozenset('event_id observation_i
 RAW_REQUIRED_COLUMNS['education_trainings'] = frozenset('id org_id cost_center_id school_wide name description scope_kind scope_value quiz_json pass_mark instructor_required expiry_days active revision edit_version created_by created_at'.split())
 RAW_REQUIRED_COLUMNS['education_training_records'] = frozenset('training_id org_id user_id training_revision quiz_attempts failed_attempts cooldown_until quiz_score quiz_passed_at instructor_id instructor_at completed_at expires_at revoked_at'.split())
 RAW_REQUIRED_COLUMNS['tray_confirmations'] = frozenset('state_id slot_id decision spool_id previous_spool_id'.split())
+RAW_REQUIRED_COLUMNS['education_classes'] = frozenset('id org_id cost_center_id title term state revision created_by created_at'.split())
+RAW_REQUIRED_COLUMNS['education_assignments'] = frozenset('id org_id class_id title brief due_at max_print_seconds max_material_grams allowed_materials submission_quota auto_print_seconds auto_material_grams auto_printer_ids authorized_by state revision created_at'.split())
+RAW_REQUIRED_COLUMNS['education_assignment_submissions'] = frozenset('submission_id org_id assignment_id feedback grade learning_status reviewed_by revision first_approved_at attached_at updated_at'.split())
+RAW_REQUIRED_COLUMNS['education_assessment_revisions'] = frozenset('id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at'.split())
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset(('education_classes', 'education_assignments', 'education_assignment_submissions', 'education_assessment_revisions'))
 RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
 RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
@@ -340,6 +345,7 @@ POST027_MIGRATIONS = (
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
     (AUDIT_MIGRATION_ID, AUDIT_MIGRATION_MODULE),
     ("python:048-training-signoff", "core.schema.migrations.048_training_signoff"),
+    ("python:049-education-classes", "core.schema.migrations.049_education_classes"),
 )
 
 
@@ -602,7 +608,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -623,6 +629,9 @@ def _bootstrap_database_contract(
         # Training foreign keys require the retained memberships installed by 037.
         if contract is None and apply_python_migration(connection, "core.schema.migrations.048_training_signoff"):
             applied.append("python:048-training-signoff")
+        # Classes reference the retained memberships installed by dedicated037.
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.049_education_classes"):
+            applied.append("python:049-education-classes")
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:
