@@ -1,6 +1,6 @@
 """Cert G: F20-20.2-01/02/04/05/06 and F20-20.3-10 (ODIN half) through real HTTP.
 
-The license portal is the external boundary: ``routes_health.httpx`` is replaced
+The license portal is the external boundary: ``pinned_async_request`` is replaced
 with an in-process portal stub that issues challenges, verifies the device
 proof-of-possession signatures exactly like api/_lib/license-pop.js, enforces a
 1-grant slot, and returns licenses signed by the throwaway issuer key. All
@@ -64,7 +64,9 @@ class FakeAsyncClient:
         if action == "unactivate":
             acts.pop(inst, None); return _Resp(200, {"status": "unactivated"})
         return _Resp(200, {"license_file": _issue(key, inst)})
-RH.httpx = types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+async def fake_request(method, url, *, timeout=5, **kwargs):
+    return await getattr(FakeAsyncClient(), method.lower())(url, **kwargs)
+RH.pinned_async_request = fake_request
 '''
 
 FLOW = PORTAL_STUB + r'''

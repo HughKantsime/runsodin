@@ -16,12 +16,21 @@ Flow:
 
 import logging
 import secrets
-import httpx
+from collections import OrderedDict
+from threading import Lock
+from time import monotonic as _cache_clock
+from core.outbound_http import pinned_async_request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from typing import Optional, Dict, Any
 
 log = logging.getLogger("oidc")
+
+# Routes create a handler per login. Cache by discovery URL across handlers,
+# with a one-hour TTL and a fixed bound on retained admin configuration URLs.
+_discovery_cache = OrderedDict()
+_discovery_cache_lock = Lock()
+_DISCOVERY_CACHE_SIZE = 128
 
 # State tokens are stored in SQLite via _state_db_*() helpers below.
 # The in-memory dict is kept only as a fast fallback for the brief
@@ -138,36 +147,26 @@ class OIDCHandler:
             template = self.DISCOVERY_URLS.get(environment, self.DISCOVERY_URLS["commercial"])
             self.discovery_url = template.format(tenant=tenant_id)
         
-        self._config: Optional[Dict[str, Any]] = None
-        self._config_fetched_at: Optional[datetime] = None
-    
     async def _get_oidc_config(self) -> Dict[str, Any]:
         """Fetch OIDC configuration from discovery endpoint. Cached for 1 hour."""
-        now = datetime.now(timezone.utc)
+        with _discovery_cache_lock:
+            cached = _discovery_cache.get(self.discovery_url)
+            if cached and _cache_clock() < cached[0]:
+                _discovery_cache.move_to_end(self.discovery_url)
+                return cached[1]
 
-        if self._config and self._config_fetched_at:
-            age = (now - self._config_fetched_at).total_seconds()
-            if age < 3600:  # Cache for 1 hour
-                return self._config
-
-        # v1.8.9 (codex pass 11): ITAR guard with DNS pinning. The
-        # bare check was TOCTOU — resolution could drift between
-        # check and httpx connect. pin_for_request pins the socket
-        # to the vetted addresses for the duration of the block.
-        from core.itar import pin_for_request, should_trust_env
-        with pin_for_request(self.discovery_url):
-            # trust_env=should_trust_env() (codex pass 12): httpx honors
-            # HTTP(S)_PROXY by default, which would route the socket
-            # through a proxy and bypass our DNS pin entirely. The
-            # proxy then does its own lookup and can connect to a
-            # public IdP. Disable env proxies so the pin holds.
-            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                resp = await client.get(self.discovery_url, timeout=10)
-                resp.raise_for_status()
-                self._config = resp.json()
-                self._config_fetched_at = now
-                log.info(f"Fetched OIDC config from {self.discovery_url}")
-                return self._config
+        resp = await pinned_async_request("GET", self.discovery_url, timeout=10)
+        resp.raise_for_status()
+        config = resp.json()
+        if not isinstance(config, dict):
+            raise ValueError("OIDC discovery response is invalid")
+        with _discovery_cache_lock:
+            _discovery_cache[self.discovery_url] = (_cache_clock() + 3600, config)
+            _discovery_cache.move_to_end(self.discovery_url)
+            while len(_discovery_cache) > _DISCOVERY_CACHE_SIZE:
+                _discovery_cache.popitem(last=False)
+        log.info(f"Fetched OIDC config from {self.discovery_url}")
+        return config
     
     async def get_authorization_url(self, state: Optional[str] = None) -> tuple[str, str]:
         """
@@ -230,21 +229,11 @@ class OIDCHandler:
             "grant_type": "authorization_code",
         }
         
-        # v1.8.9 (codex pass 11): ITAR DNS-pinned exchange.
-        from core.itar import pin_for_request, should_trust_env
-        with pin_for_request(token_endpoint):
-            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                resp = await client.post(
-                    token_endpoint,
-                    data=data,
-                    timeout=10,
-                )
-
-                if resp.status_code != 200:
-                    log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
-                    raise Exception(f"Token exchange failed: {resp.text}")
-
-                return resp.json()
+        resp = await pinned_async_request("POST", token_endpoint, data=data, timeout=10)
+        if resp.status_code != 200:
+            log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
+            raise Exception(f"Token exchange failed: {resp.text}")
+        return resp.json()
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """Fetch allowlisted standard identity claims from discovery userinfo."""
@@ -253,34 +242,28 @@ class OIDCHandler:
         if not isinstance(userinfo_url, str) or not userinfo_url:
             raise ValueError("OIDC discovery document has no userinfo_endpoint")
 
-        # v1.8.9 (codex pass 11): ITAR DNS-pinned Graph fetch.
-        from core.itar import pin_for_request, should_trust_env
-        with pin_for_request(userinfo_url):
-            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                resp = await client.get(
-                    userinfo_url,
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    timeout=10,
-                )
-            
-            if resp.status_code != 200:
-                log.error("OIDC userinfo fetch failed with status %s", resp.status_code)
-                raise ValueError("OIDC userinfo request failed")
+        resp = await pinned_async_request(
+            "GET", userinfo_url,
+            headers={"Authorization": f"Bearer {access_token}"}, timeout=10,
+        )
+        if resp.status_code != 200:
+            log.error("OIDC userinfo fetch failed with status %s", resp.status_code)
+            raise ValueError("OIDC userinfo request failed")
 
-            raw = resp.json()
-            if not isinstance(raw, dict):
-                raise ValueError("OIDC userinfo response is invalid")
-            allowed = {
-                "sub", "email", "email_verified", "name", "given_name",
-                "family_name", "preferred_username", "mail", "userPrincipalName",
-            }
-            return {key: raw[key] for key in allowed if key in raw}
+        raw = resp.json()
+        if not isinstance(raw, dict):
+            raise ValueError("OIDC userinfo response is invalid")
+        allowed = {
+            "sub", "email", "email_verified", "name", "given_name",
+            "family_name", "preferred_username", "mail", "userPrincipalName",
+        }
+        return {key: raw[key] for key in allowed if key in raw}
     
     async def parse_id_token(self, id_token: str) -> Dict[str, Any]:
         """
         Parse and validate ID token signature against the provider's JWKS endpoint.
-        Fetches JWKS via direct httpx (trust_env=should_trust_env()) so
-        HTTP(S)_PROXY env vars cannot defeat ITAR DNS pinning.
+        Fetches JWKS through the shared worker so DNS pinning and the
+        ITAR proxy policy also cover the signing-key request.
         """
         import jwt as _jwt
 
@@ -292,20 +275,13 @@ class OIDCHandler:
         if not isinstance(issuer, str) or not issuer:
             raise ValueError("No issuer in OIDC config")
 
-        # v1.8.9 (codex pass 11 + 12): ITAR DNS-pinned JWKS fetch.
-        # PyJWKClient uses urllib.request internally, which honors
-        # HTTP(S)_PROXY env vars — a proxy would defeat the DNS pin.
-        # Fetch the JWKS ourselves via httpx with trust_env=should_trust_env(),
-        # then build a PyJWKSet from the JSON.
-        from core.itar import pin_for_request, should_trust_env
+        # Fetch ourselves: PyJWKClient's proxy handling could bypass the pin.
         from jwt import PyJWKSet
 
         try:
-            with pin_for_request(jwks_uri):
-                async with httpx.AsyncClient(trust_env=should_trust_env()) as _client:
-                    _resp = await _client.get(jwks_uri, timeout=10)
-                    _resp.raise_for_status()
-                    _jwks_json = _resp.json()
+            _resp = await pinned_async_request("GET", jwks_uri, timeout=10)
+            _resp.raise_for_status()
+            _jwks_json = _resp.json()
 
             jwk_set = PyJWKSet.from_dict(_jwks_json)
             unverified = _jwt.get_unverified_header(id_token)

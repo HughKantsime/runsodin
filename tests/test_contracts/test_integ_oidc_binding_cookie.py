@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def login(review_db, monkeypatch):  # noqa: F811
     from core.db import get_db
+    from core.rate_limit import limiter
     from modules.organizations import oidc_handler, routes_oidc
+    limiter._storage.reset()
     review_db.execute(text("INSERT INTO oidc_config(id,client_id,tenant_id,is_enabled,provider_type) "
                            "VALUES(1,'client','tenant',TRUE,'microsoft')"))
     review_db.commit()
@@ -46,7 +48,8 @@ def login(review_db, monkeypatch):  # noqa: F811
         response = TestClient(app, base_url=base).get(path, follow_redirects=False)
         assert response.status_code == 302, response.text
         return [h for h in response.headers.get_list("set-cookie") if h.startswith(routes_oidc.OIDC_BINDING_COOKIE + "=")]
-    return run
+    yield run
+    limiter._storage.reset()
 
 
 def _paths(cookies):

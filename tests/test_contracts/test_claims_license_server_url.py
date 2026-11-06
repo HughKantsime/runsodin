@@ -5,6 +5,9 @@ with the outbound HTTP client stubbed (no network, no portal POST).
 """
 import asyncio
 import contextlib
+import json
+
+import httpx
 
 import pytest
 from fastapi import HTTPException
@@ -26,37 +29,26 @@ def test_license_server_url_env_override(monkeypatch):
     assert s.license_server_url == "http://localhost:18999"
 
 
-class _Resp:
-    status_code = 403
-    headers = {"content-type": "application/json"}
-
-    def json(self):
-        return {"error": "stub"}
-
-
 def _run_activate(monkeypatch, url):
     import core.itar as itar
+    from core import outbound_http
     from modules.system import routes_health as rh
 
     captured = {}
 
-    class _Client:
-        def __init__(self, *a, **k):
-            pass
+    def upstream(request):
+        if request.method != "POST":
+            raise OSError("no challenge available")
+        captured["url"] = str(request.url)
+        captured["keys"] = sorted(json.loads(request.content).keys())
+        return httpx.Response(403, json={"error": "stub"})
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, u, json=None):
-            captured["url"] = u
-            captured["keys"] = sorted(json.keys())
-            return _Resp()
+    real_client = httpx.Client
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(upstream), **kwargs)
 
     monkeypatch.setattr(rh.settings, "license_server_url", url)
-    monkeypatch.setattr(rh.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(outbound_http.httpx, "Client", client)
     monkeypatch.setattr(itar, "pin_for_request", lambda u: contextlib.nullcontext())
     monkeypatch.setattr(rh, "get_installation_id", lambda: "inst-claims-test")
     monkeypatch.setattr(rh, "get_device_keypair", lambda: (None, "PUBKEY"))
