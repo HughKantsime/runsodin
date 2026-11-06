@@ -235,6 +235,9 @@
       "admin",
       "operator",
       "viewer"
+    ],
+    "education.roster_manage": [
+      "admin"
     ]
   },
   "page_access": {

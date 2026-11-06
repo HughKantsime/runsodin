@@ -96,7 +96,9 @@ engine.dispose()
         # Do not echo connection arguments or credentials if the process fails.
         assert result.returncode == 0, result.stderr
         from ops.database_parity.education_classes_fixtures import verify
-        assert bootstrap_database(engine)['applied'] == [M.MIGRATION_ID]
+        from core.schema.bootstrap import POST027_MIGRATIONS
+        live_tail = [mid for mid, _ in POST027_MIGRATIONS]
+        assert bootstrap_database(engine)['applied'] == live_tail[live_tail.index(M.MIGRATION_ID):]
         with engine.begin() as c:
             M.validate(c); verify(c)
             c.execute(text("INSERT INTO education_program_marks(class_id,org_id,user_id,participant,concentrator) VALUES('roundtrip049-class',990049,990049,TRUE,TRUE)"))

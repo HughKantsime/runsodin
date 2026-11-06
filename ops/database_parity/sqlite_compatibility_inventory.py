@@ -25,6 +25,7 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     "backend/core/audit_integrity_legacy.py": ("sqlite-provider-only", "Exact forward024 shape validator admits E1 audit hash columns without changing pinned historical sources."),
     'backend/'+AUDIT_MIGRATION.replace('.', '/')+'.py': ("sqlite-provider-only", "Dialect-specific append triggers and exact reference schemas for SQLite and PostgreSQL."),
     "backend/modules/system/sqlite_backup_guards.py": ("sqlite-provider-only", "Source-owned SQLite archive schema guards, extracted from backup_service."),
+    "backend/core/schema/migrations/051_roster_sync.py": ("sqlite-provider-only", "SQLite writer promotion is dialect guarded; PostgreSQL follows D2 temporary shape validation after retained memberships and classes."),
     "backend/core/monitor_observations.py": ("dialect-neutral", "Live state JSON uses portable UPSERT with bound SQLAlchemy parameters or the shared monitor qmark DBAPI adapter."),
     "backend/core/printer_display_facts.py": ("dialect-neutral", "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters."),
     "backend/modules/inventory/rfid_identity.py": (

@@ -3443,6 +3443,9 @@
    ],
    "users.restore_superadmin": [
     "admin"
+   ],
+   "education.roster_manage": [
+    "admin"
    ]
   },
   "page_access": {

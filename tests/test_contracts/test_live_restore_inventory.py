@@ -63,6 +63,14 @@ POST027_RAW_TABLES = {
         "education_program_marks": frozenset("class_id org_id user_id participant concentrator marked_by revision updated_at".split()),
         "education_instructor_hours": frozenset("id class_id org_id instructor_id activity_date hours approved_by revision updated_at".split()),
     },
+    "python:051-roster-sync": {
+        "education_roster_connections": frozenset("id org_id provider enabled revision config_encrypted tokens_encrypted created_by connected_by".split()),
+        "education_roster_courses": frozenset("connection_id org_id course_id class_id".split()),
+        "education_roster_identities": frozenset("connection_id org_id subject user_id".split()),
+        "education_roster_grant_links": frozenset("connection_id org_id subject user_id".split()),
+        "education_roster_tombstones": frozenset("connection_id subject_hash".split()),
+        "education_roster_receipts": frozenset("id connection_id actor_id kind payload_encrypted expires_at".split()),
+    },
     "python:049-education-classes": {
         "education_assessment_revisions": frozenset("id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at".split()),
         "education_classes": frozenset("id org_id cost_center_id title term state revision created_by created_at".split()),

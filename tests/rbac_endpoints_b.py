@@ -408,3 +408,16 @@ ENDPOINTS += [
     ('PUT', '/api/education/program-reports/classes/{class_id}/marks/{user_id}', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'participant': True, 'concentrator': False}, 'D3 class participation mark'),
     ('PUT', '/api/education/program-reports/classes/{class_id}/instructor-hours', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'instructor_id': 1, 'activity_date': '2026-10-01', 'hours': 1}, 'D3 approved instructor effort'),
 ]
+
+# D4: interactive school admin only; these census accounts have no school.
+# Public OAuth/LTI routes are browser-bound, with explicit RBAC exemptions and
+# signed-provider/anonymous refusal coverage in test_roster_auth.py.
+ENDPOINTS += [
+    ('GET', '/api/education/roster', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D4 roster settings: school admin required'),
+    ('PUT', '/api/education/roster', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'provider': 'google', 'enabled': False, 'config': {}}, 'D4 roster configuration: school admin required'),
+    ('POST', '/api/education/roster/{connection_id}/connect', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D4 OAuth connection: school admin required'),
+    ('GET', '/api/education/roster/{connection_id}/courses', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, None, 'D4 provider courses: school admin required'),
+    ('POST', '/api/education/roster/{connection_id}/preview', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'course_id': 'fixture'}, 'D4 dry run: school admin required'),
+    ('POST', '/api/education/roster/{connection_id}/import', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'preview_token': 'fixture-opaque-preview-token-00000000'}, 'D4 reviewed import: school admin required'),
+    ('POST', '/api/education/roster/{connection_id}/tombstones/clear', {'no_headers': 401, 'api_key_only': 403, 'viewer': 403, 'operator': 403, 'admin': 403}, {'preview_token': 'fixture-opaque-preview-token-00000000', 'clear_handle': 'fixture-opaque-clear-handle-000000000'}, 'D4 clear preview erasure suppression: school admin required'),
+]

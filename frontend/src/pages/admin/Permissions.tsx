@@ -55,7 +55,7 @@ const PAGE_GROUPS = [
 
 const ACTION_GROUPS = [
   { label: 'Training', actions: ['education.training_read', 'education.training_take', 'education.training_manage'] },
-  { label: 'Education', actions: ['education.reorder', 'education.classes_read', 'education.classes_manage', 'education.classes_submit', 'education.classes_assess'] },
+  { label: 'Education', actions: ['education.reorder', 'education.roster_manage', 'education.classes_read', 'education.classes_manage', 'education.classes_submit', 'education.classes_assess'] },
   { label: 'Users', actions: ['users.restore_superadmin'] },
   { label: 'Sublab operations', actions: ['products.square_manage', 'products.square_send', 'products.recipes', 'products.inspections', 'products.outside_prints', 'products.operations', 'products.materials_manage', 'products.materials_preview', 'products.materials_receive', 'products.finishing', 'products.assortment', 'products.assortment_preview'] },
   { label: 'Jobs', actions: ['jobs.submit', 'jobs.create', 'jobs.edit', 'jobs.cancel', 'jobs.delete', 'jobs.start', 'jobs.complete'] },

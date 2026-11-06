@@ -191,6 +191,8 @@ def main():
             seed_classes(c)
             from ops.database_parity.education_program_fixtures import seed as seed_program
             seed_program(c)
+            from ops.database_parity.education_roster_fixtures import seed as seed_roster
+            seed_roster(c)
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -222,7 +224,10 @@ def main():
             verify_classes(c)
             from ops.database_parity.education_program_fixtures import verify as verify_program
             verify_program(c)
+            from ops.database_parity.education_roster_fixtures import verify as verify_roster
+            verify_roster(c)
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-051-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-049-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-050-pass', flush=True)

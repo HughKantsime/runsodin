@@ -247,6 +247,14 @@ RAW_REQUIRED_COLUMNS['education_program_marks'] = frozenset('class_id org_id use
 RAW_REQUIRED_COLUMNS['education_instructor_hours'] = frozenset('id class_id org_id instructor_id activity_date hours approved_by revision updated_at'.split())
 RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset(('education_program_marks', 'education_instructor_hours'))
 RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset(('education_classes', 'education_assignments', 'education_assignment_submissions', 'education_assessment_revisions'))
+
+RAW_REQUIRED_COLUMNS['education_roster_connections'] = frozenset('id org_id provider enabled revision config_encrypted tokens_encrypted created_by connected_by'.split())
+RAW_REQUIRED_COLUMNS['education_roster_courses'] = frozenset('connection_id org_id course_id class_id'.split())
+RAW_REQUIRED_COLUMNS['education_roster_identities'] = frozenset('connection_id org_id subject user_id'.split())
+RAW_REQUIRED_COLUMNS['education_roster_grant_links'] = frozenset('connection_id org_id subject user_id'.split())
+RAW_REQUIRED_COLUMNS['education_roster_tombstones'] = frozenset('connection_id subject_hash'.split())
+RAW_REQUIRED_COLUMNS['education_roster_receipts'] = frozenset('id connection_id actor_id kind payload_encrypted expires_at'.split())
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset(('education_roster_connections', 'education_roster_courses', 'education_roster_identities', 'education_roster_grant_links', 'education_roster_tombstones', 'education_roster_receipts'))
 RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
 RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
@@ -350,6 +358,7 @@ POST027_MIGRATIONS = (
     ("python:048-training-signoff", "core.schema.migrations.048_training_signoff"),
     ("python:049-education-classes", "core.schema.migrations.049_education_classes"),
     ("python:050-education-program-reports", "core.schema.migrations.050_education_program_reports"),
+    ("python:051-roster-sync", "core.schema.migrations.051_roster_sync"),
 )
 
 
@@ -612,7 +621,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -639,6 +648,8 @@ def _bootstrap_database_contract(
         # D3 references D2 classes and retained037 memberships (including on PG).
         if contract is None and apply_python_migration(connection, "core.schema.migrations.050_education_program_reports"):
             applied.append("python:050-education-program-reports")
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.051_roster_sync"):
+            applied.append("python:051-roster-sync")
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:

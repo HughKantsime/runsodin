@@ -23,7 +23,7 @@ from tests.test_contracts.test_cert_G_harness import run_probe
 PROBE = r'''
 import itertools
 from sqlalchemy import text as _t
-install_license("enterprise", features=["education_workflows"])
+install_license("enterprise", features=["education_workflows", "classes", "roster_sync"])
 sql("INSERT INTO groups(id,name,is_org) VALUES (1,'Matrix org',1)")
 SUPER_ID = seed_user("mx-super", "admin")
 USERS = {"orgadmin": seed_user("mx-orgadmin", "admin", 1), "operator": seed_user("mx-operator", "operator", 1),
@@ -169,6 +169,7 @@ CASES = {
     "printers.dispatch_recovery": recovery_request,
     "users.restore_superadmin": restore_request,
     "education.reorder": education_reorder_request,
+    "education.roster_manage": lambda u: ("get", "/api/education/roster", {}),
     "education.classes_read": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("read", u, sql, USERS, SEQ),
     "education.classes_manage": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("manage", u, sql, USERS, SEQ),
     "education.classes_submit": lambda u: __import__("tests.test_contracts.education_classes_rbac_cases", fromlist=["request"]).request("submit", u, sql, USERS, SEQ),
@@ -364,7 +365,9 @@ def test_narrowing_the_key_refuses_the_previous_holder(matrix, key):
 @pytest.mark.parametrize("key", REFUSABLE)
 def test_widening_the_key_admits_the_previously_refused_role(matrix, key):
     r = matrix["results"][key]
-    if key in {"users.restore_superadmin", "printers.dispatch_recovery"}:
+    if key == "education.roster_manage":
+        assert r["widened_refused"]["status"] == 403, r
+    elif key in {"users.restore_superadmin", "printers.dispatch_recovery"}:
         # Recovery retains its independent admin floor. Widening the matrix must not bypass the independent Super Admin guard.
         assert _denied(r["widened_refused"]), r
     else:
@@ -399,7 +402,7 @@ def test_platform_superadmin_is_never_locked_out(matrix, key):
     if key.startswith("education.training_"):
         # Training is scoped to a school's classes; platform accounts have no tenant.
         assert status == 404, status
-    elif key == "education.reorder" or key.startswith("education.classes_"):
+    elif key in {"education.reorder", "education.roster_manage"} or key.startswith("education.classes_"):
         # Platform accounts stay read-only even though they pass the RBAC matrix.
         assert status == 403, status
     else:

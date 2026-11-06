@@ -6,10 +6,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
+from contextlib import ExitStack
 
 import httpx
 
-from core import itar
+from core import itar, webhook_utils
 
 
 _WORKERS = 16
@@ -41,7 +42,7 @@ def _release_slot(loop, slots):
 
 async def pinned_async_request(
     method: str, url: str, *, timeout=5,
-    max_response_bytes=_DEFAULT_MAX_RESPONSE_BYTES, **kwargs,
+    max_response_bytes=_DEFAULT_MAX_RESPONSE_BYTES, public_only=False, **kwargs,
 ) -> httpx.Response:
     """Validate, pin and complete one request in the same worker thread.
 
@@ -55,6 +56,9 @@ async def pinned_async_request(
     size limit (4 MiB by default, overridable by the caller), then returned buffered.
 
     Outside ITAR, retain the existing unpinned, proxy-aware egress policy.
+    Callers accepting untrusted provider URLs can set public_only to require
+    public DNS answers and disable proxies even outside ITAR. Validation and
+    pinning still happen in the connecting worker.
     Redirects remain disabled so an upstream cannot change the destination.
 
     Cancellation/deadline cannot interrupt an in-progress synchronous operation.
@@ -80,8 +84,12 @@ async def pinned_async_request(
 
     def request():
         remaining()
-        with itar.pin_for_request(url):
-            with httpx.Client(trust_env=itar.should_trust_env(), timeout=remaining()) as client:
+        with ExitStack() as pins:
+            pins.enter_context(itar.pin_for_request(url))
+            if public_only:
+                ips, port, host, _ = webhook_utils._resolve_and_pin(url)
+                pins.enter_context(webhook_utils._pin_dns(host, port, ips))
+            with httpx.Client(trust_env=not public_only and itar.should_trust_env(), timeout=remaining()) as client:
                 with client.stream(method, url, timeout=remaining(), follow_redirects=False, **kwargs) as response:
                     body = bytearray()
                     for chunk in response.iter_bytes():

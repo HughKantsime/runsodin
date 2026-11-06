@@ -40,6 +40,8 @@ GUARDED_TABLES = frozenset({
     # Google Classroom OAuth client secret / refresh and access tokens, pending OAuth
     # states, and MFA enrolment secrets.
     "classroom_connections", "classroom_oauth_states", "mfa_enrollments",
+    "education_roster_connections", "education_roster_identities", "education_roster_receipts",
+    "education_roster_grant_links", "education_roster_tombstones",
 })
 # users: only credential / account-recovery columns (role, is_active, group_id, theme stay writable).
 USERS_CREDENTIAL_COLUMNS = frozenset({

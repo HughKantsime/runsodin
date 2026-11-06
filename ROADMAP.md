@@ -368,3 +368,7 @@ Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/co
 - Enterprise E1: audit integrity and SIEM streaming implemented with round-one review fixes; see [operations guide](docs/AUDIT_INTEGRITY.md). Pending Claude review, PostgreSQL native proof and release ledger assignment.
 
 ## Parked (needs more design)
+
+### D4 — roster sync build (disabled pending school configuration)
+
+Google Classroom OAuth and Canvas LTI 1.3/NRPS import into D2 classes via required preview. Settings, imported-identity sign-in, audit and GDPR are implemented. School credentials and PostgreSQL/Claude release review remain pending; see docs/EDUCATION_ROSTER_SYNC.md.

@@ -23,16 +23,19 @@ def engine(request,tmp_path):
 def test_upgrade_preserves_objects_rows_and_revalidates(engine,monkeypatch):
     import core.schema.bootstrap as bootstrap
     original=bootstrap.POST027_MIGRATIONS
-    monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',tuple(pair for pair in original if pair[0] not in {M.MIGRATION_ID, 'python:048-training-signoff', 'python:049-education-classes', 'python:050-education-program-reports'}))
+    from tests.test_contracts.education_membership_harness import membership_dependents
+    dependent_ids, dependent_modules, absent_tables = membership_dependents(original)
+    monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',tuple(
+        pair for pair in original if pair[0] != M.MIGRATION_ID and pair[1] not in dependent_modules))
     # The dedicated final step is disabled while constructing the exact old schema.
     real=bootstrap.apply_dedicated_python_migration
-    monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',lambda e,n: False if n.endswith('037_education_memberships') else real(e,n))
+    monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',lambda e,n: False if n == M.__name__ else real(e,n))
     real_apply=bootstrap.apply_python_migration
-    monkeypatch.setattr(bootstrap,'apply_python_migration',lambda c,n: False if n.endswith(('048_training_signoff', '049_education_classes', '050_education_program_reports')) else real_apply(c,n))
+    monkeypatch.setattr(bootstrap,'apply_python_migration',lambda c,n: False if n in dependent_modules else real_apply(c,n))
     required=bootstrap.RAW_REQUIRED_TABLES
     columns=bootstrap.RAW_REQUIRED_COLUMNS
-    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required-frozenset({'education_memberships','education_trainings','education_training_records','education_classes','education_assignments','education_assignment_submissions','education_assessment_revisions','education_program_marks','education_instructor_hours'}))
-    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',{k:v for k,v in columns.items() if k not in {'education_memberships','education_trainings','education_training_records','education_classes','education_assignments','education_assignment_submissions','education_assessment_revisions','education_program_marks','education_instructor_hours'}})
+    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required-absent_tables)
+    monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',{k:v for k,v in columns.items() if k not in absent_tables})
     bootstrap_database(engine)
     monkeypatch.setattr(bootstrap,'RAW_REQUIRED_TABLES',required)
     monkeypatch.setattr(bootstrap,'RAW_REQUIRED_COLUMNS',columns)
@@ -66,7 +69,7 @@ def test_upgrade_preserves_objects_rows_and_revalidates(engine,monkeypatch):
     monkeypatch.setattr(bootstrap,'POST027_MIGRATIONS',original)
     monkeypatch.setattr(bootstrap,'apply_dedicated_python_migration',real)
     monkeypatch.setattr(bootstrap,'apply_python_migration',real_apply)
-    assert bootstrap_database(engine)['applied'] == ['python:048-training-signoff', 'python:049-education-classes', 'python:050-education-program-reports']
+    assert bootstrap_database(engine)['applied'] == dependent_ids
     assert bootstrap_database(engine)['applied']==[]
 
 
