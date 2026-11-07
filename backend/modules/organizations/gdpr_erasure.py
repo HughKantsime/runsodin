@@ -24,6 +24,8 @@ def erase_user_data_sync(user_id, current_user, db):
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot erase the last admin account")
 
+    from core.controlled_siem_privacy import erase_acknowledgements
+    erase_acknowledgements(db, user_id)
     from modules.organizations.education_term_privacy import erase_term_identity
     erase_term_identity(db, user_id)
     user_data = dict(user._mapping)

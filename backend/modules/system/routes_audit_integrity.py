@@ -3,7 +3,7 @@ from datetime import date
 from typing import Literal
 from urllib.parse import urlsplit
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ class Destination(BaseModel):
     enabled: bool = False
     tls: bool = True
     ca_bundle: str | None = Field(default=None, max_length=65536)
+    acknowledge_controlled: bool = False
 
     @model_validator(mode='after')
     def validate_endpoint(self):
@@ -46,6 +47,11 @@ class Destination(BaseModel):
             except (ValueError, ssl.SSLError):
                 raise ValueError('CA bundle must contain valid PEM certificates') from None
         return self
+
+
+def require_save_ack(body: Destination, request: Request):
+    if body.acknowledge_controlled:
+        require_controlled_ack(request)
 
 
 @router.get('/audit-logs/verify', dependencies=[Depends(feature_gate('audit_integrity'))])
@@ -98,7 +104,8 @@ def destinations(current_user: dict = Depends(require_superadmin(scope='read')),
     return result
 
 
-@router.put('/settings/siem/{destination_id}', dependencies=[Depends(feature_gate('siem_stream')), Depends(require_interactive_session())])
+@router.put('/settings/siem/{destination_id}', dependencies=[
+    Depends(feature_gate('siem_stream')), Depends(require_interactive_session()), Depends(require_save_ack)])
 def save_destination(destination_id: str, body: Destination,
                      current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     from core.controlled_siem import lock_policy
@@ -106,10 +113,6 @@ def save_destination(destination_id: str, body: Destination,
     # Serialize config/backlog changes with the append trigger's destination snapshot.
     from core.audit_integrity import lock_chain
     lock_chain(db.connection())
-    from license_manager import get_license
-    license = get_license()
-    db.execute(text('UPDATE audit_chain_state SET siem_until=:until WHERE id=1'),
-               {'until': license.expiry_deadline.timestamp() if license.expiry_deadline else 0})
     if destination_id == 'new':
         destination_id = uuid.uuid4().hex
     elif len(destination_id) != 32 or any(c not in '0123456789abcdef' for c in destination_id):
@@ -127,15 +130,24 @@ def save_destination(destination_id: str, body: Destination,
     if prior and (prior['endpoint'], prior['kind'], prior['tls']) != (body.endpoint, body.kind, int(body.tls)):
         if db.execute(text('SELECT 1 FROM audit_siem_outbox WHERE destination_id=:id LIMIT 1'), values).first():
             raise HTTPException(409, 'Drain pending deliveries or delete this destination before changing its endpoint')
-    from core.controlled_siem import restrictions_exist, require_acknowledged, clear_acknowledgement, target
-    if body.enabled and restrictions_exist(db):
+    from core.controlled_siem import restrictions_exist, require_acknowledged, clear_acknowledgement, store_acknowledgement, target
+    if body.enabled and not body.acknowledge_controlled and restrictions_exist(db):
         require_acknowledged(db, values)
+    from license_manager import get_license
+    license = get_license()
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed singleton update with a bound verified-license deadline, after acknowledgement validation
+    db.execute(text('UPDATE audit_chain_state SET siem_until=:until WHERE id=1'),
+               {'until': license.expiry_deadline.timestamp() if license.expiry_deadline else 0})
     if prior and target(prior) != target(values):
         clear_acknowledgement(db, destination_id)
     db.execute(text('''INSERT INTO audit_siem_destinations(id,name,kind,endpoint,secret,enabled,tls,ca_bundle)
         VALUES(:id,:name,:kind,:endpoint,:secret,:enabled,:tls,:ca_bundle) ON CONFLICT(id) DO UPDATE SET
         name=excluded.name,kind=excluded.kind,endpoint=excluded.endpoint,secret=excluded.secret,
         enabled=excluded.enabled,tls=excluded.tls,ca_bundle=excluded.ca_bundle'''), values)
+    if body.acknowledge_controlled:
+        store_acknowledgement(db, values, current_user)
+        log_audit(db, 'controlled_part.siem_acknowledged', 'system', None,
+                  {'destination_id': destination_id, 'acknowledged': True})
     log_audit(db, 'siem.configured', details={'destination_id': destination_id, 'kind': body.kind, 'enabled': body.enabled})
     db.commit()
     return {'id': destination_id}

@@ -67,6 +67,8 @@ def require_acknowledged(db, destination):
     from fastapi import HTTPException
     from core.audit import audit_download
     code = 'controlled_part_siem_acknowledgement_required'
+    # A refusal may persist its audit, never caller-staged policy/config writes.
+    db.rollback()
     audit_download(db, 'controlled_part.refused', 'system', None,
                    {'reason': code, 'destination_id': destination['id']})
     raise HTTPException(403, {'code': code, 'destination_id': destination['id'],

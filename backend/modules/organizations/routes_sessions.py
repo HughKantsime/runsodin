@@ -463,8 +463,10 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     from modules.organizations.education_classes_privacy import export_classes
     from modules.organizations.education_program_records import export_program_records
     from core.traceability_privacy import export_personal
+    from core.controlled_siem_privacy import export_acknowledgements
     from modules.organizations.education_term_privacy import export_term_data
     export = {
+        "controlled_siem_acknowledgements": export_acknowledgements(db, user_id),
         "term_retention": export_term_data(db, user_id),
         "traceability": export_personal(db, user_id, current_user),
         "training": export_training_data(db, user_id),

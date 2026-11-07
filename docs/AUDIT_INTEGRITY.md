@@ -287,12 +287,27 @@ under the same-origin check. The standing acknowledgement records who and when i
 `system_config` (no migration), binds to the receiver and transport settings, and
 writes `controlled_part.siem_acknowledged`. It can be granted before or after marks
 exist. API tokens cannot acknowledge destinations. Settings shows its author and time.
+GDPR exports include the subject's `controlled_siem_acknowledgements` (destination ID,
+author ID and timestamp). Erasure nulls the author ID while preserving the timestamp
+and target hash, so standing trust remains valid; Settings labels the author erased.
 
-When live marks or retained read restrictions exist, save a new destination disabled,
-acknowledge it, then enable it. Enabling requires a valid standing acknowledgement.
-Changing the endpoint, transport, TLS, signing secret or CA clears the acknowledgement;
-deleting a destination removes it. Existing pending deliveries must drain before an
-endpoint/transport/TLS change. Marking requires every enabled destination to have a
+When live marks or retained read restrictions exist, enabling requires a valid standing
+acknowledgement. To create or rotate an enabled destination in one save, check the
+trusted-boundary acknowledgement in the destination form. The API accepts
+`acknowledge_controlled: true` in `PUT /api/settings/siem/{id}` (or `/new`) with
+`X-ODIN-Controlled-Ack: true`, same-origin validation and an interactive superadmin
+session. The save binds trust to the new target hash and writes
+`controlled_part.siem_acknowledged` in the same transaction as the configuration.
+Delivery stays enabled throughout; an audit failure rolls back both changes.
+API tokens and non-interactive callers cannot grant this acknowledgement.
+
+Without fresh consent, changing the endpoint, transport, TLS, signing secret or CA
+clears the acknowledgement; such a change is refused while enabled with restrictions.
+A refused enable or rotation preserves the saved configuration, acknowledgement and
+SIEM license deadline; only the refusal audit is committed. Saving disabled and using
+the separate acknowledgement action remains available. Deleting a destination removes
+its acknowledgement. Existing pending deliveries must drain before an
+endpoint/transport/TLS change, even with fresh consent. Marking requires every enabled destination to have a
 standing acknowledgement; otherwise `controlled_part_siem_acknowledgement_required`
 names the destination a superadmin must acknowledge. An entitled operator can then
 create the first mark without a superadmin joining the audience. Mark requests have
