@@ -45,6 +45,10 @@ def main() -> int:
         password_file=os.getenv("DATABASE_PASSWORD_FILE"),
     )
     result = bootstrap_database(engine)
+    # The entrypoint has copied bundled models; only the boot schema owner seeds
+    # the registry, before API/vision workers start (also on PostgreSQL).
+    from modules.vision.default_model import register_default_model
+    register_default_model(engine)
     print(json.dumps({**database_identity(database_url), **result}, sort_keys=True))
     engine.dispose()
     return 0
