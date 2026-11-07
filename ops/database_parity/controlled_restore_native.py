@@ -5,6 +5,8 @@ pg_dump/pg_restore through the production backup service. No client doubles.
 """
 # Raw job INSERT exemption: this PostgreSQL-only restore proof uses generated
 # sequence IDs to verify that deleted, post-stage IDs are never issued again.
+# Every raw row sets status: the column's default is ORM-side only, and the
+# post-restore runtime probe lists these jobs through the API.
 import os
 from pathlib import Path
 import tempfile
@@ -94,7 +96,7 @@ def run():
             assert metadata['size_bytes'] > 100
             staged = backup.stage_postgres_restore(candidate, target, maintenance, **options)
             with engine.begin() as db:
-                issued = [execute(db, "INSERT INTO jobs(item_name) VALUES(:name) RETURNING id", name=tag+'-later').scalar_one()
+                issued = [execute(db, "INSERT INTO jobs(item_name,status) VALUES(:name,'pending') RETURNING id", name=tag+'-later').scalar_one()
                           for _ in range(5)]
                 execute(db, 'DELETE FROM jobs WHERE id BETWEEN :first AND :last', first=issued[0], last=issued[-1])
                 assert job_identity_floor(db) == (issued[-1], True)
@@ -115,13 +117,13 @@ def run():
             assert snapshot(engine) == before, 'Controlled archive data changed during restore'
             with engine.begin() as db:
                 assert job_identity_floor(db) == (issued[-1], True)
-                next_id = execute(db, "INSERT INTO jobs(item_name) VALUES(:name) RETURNING id", name=tag+'-after').scalar_one()
+                next_id = execute(db, "INSERT INTO jobs(item_name,status) VALUES(:name,'pending') RETURNING id", name=tag+'-after').scalar_one()
                 assert next_id == issued[-1] + 1
                 assert execute(db, 'SELECT count(*) FROM jobs WHERE id=:job', job=deleted_job).scalar_one() == 0
             assert bootstrap_database(engine)['applied'] == []
             assert snapshot(engine) == before
             with engine.begin() as db:
-                assert execute(db, "INSERT INTO jobs(item_name) VALUES(:name) RETURNING id", name=tag+'-reboot').scalar_one() == next_id + 1
+                assert execute(db, "INSERT INTO jobs(item_name,status) VALUES(:name,'pending') RETURNING id", name=tag+'-reboot').scalar_one() == next_id + 1
             assert not backup.postgres_paths(root).pending.exists()
             assert not backup.postgres_paths(root).manifest.exists()
         print('controlled-restore-native-pass marks audiences tombstones high-water sequence-floor reboot', flush=True)
