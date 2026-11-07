@@ -23,6 +23,8 @@ All notable changes to O.D.I.N. are documented here.
 - Controlled names remain protected on idle printers after completion, in GDPR exports, scheduling conflicts, stored alerts, order SKUs and invoice PDFs, and retained audit details after job deletion. Log viewing now requires explicit privileged acknowledgement when controlled marks exist. Audience switches preserve the retention clock; cross-process MQTT policy refresh and nested response identity mappings are corrected.
 - Setup offline activation uploads the signed license as multipart form data to the existing license upload route, using the setup session token.
 - A frontend/backend route contract checks fetch and fetchAPI paths and HTTP methods, including parameterized URLs. Timeline print-job detail now has a matching, organization-scoped backend route; unused project and notification-preference callers of nonexistent routes were removed.
+- Vigil's bundled spaghetti model is registered on first boot, so detection works on a fresh install without an upload. It is seeded once: a deleted model stays deleted. Camera frames are converted to RGB before inference.
+- FEATURES.md now distinguishes Elegoo SDCP monitoring and pause/resume/stop controls from Anycubic LAN monitoring-only support; neither supports job sending. Moonraker examples require Moonraker, and Kobra S1/Kobra 3 job sending is explicitly refused.
 
 ## [2.0.45] - 2026-11-06
 

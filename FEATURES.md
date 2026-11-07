@@ -12,12 +12,12 @@
 - Telemetry snapshots stored every 60 seconds during active prints (90-day retention)
 - Telemetry timeseries chart on printer detail panel
 - Fan speed extraction from MQTT heartbeat (Bambu, gear 0-15), REST poll (Moonraker 0-100%, PrusaLink RPM), SDCP status (Elegoo 0-100%)
-- All four printer protocols at telemetry parity as of v1.1.4
+- Telemetry integrations: Bambu MQTT, Moonraker REST, PrusaLink REST, Elegoo SDCP, and Anycubic LAN; available fields and units vary by printer and protocol
 
 ### 1.2 Printer Status Tracking
 - Real-time state detection: Idle, Printing, Paused, Error, Offline
 - Live heartbeat system with 90-second threshold for online/offline determination
-- Offline detection for all protocols (MQTT disconnect/120 s staleness for Bambu, REST poll failure for Moonraker, failed REST polls for PrusaLink, 60 s status timeout for Elegoo)
+- Offline detection for all protocols (MQTT disconnect/120 s staleness for Bambu, REST poll failure for Moonraker, failed REST polls for PrusaLink, 60 s status timeout for Elegoo; connection/query failure or 90 s without fresh lifecycle information for Anycubic LAN)
 - Progress percentage and ETA displayed on printer cards and job views
 
 ### 1.3 HMS Error System (Bambu)
@@ -40,8 +40,8 @@
 - **SpoolRing visualization** — SVG circular arc indicator for filament visualization across all pages (color, material, fill level); dashed ring for empty, amber warning below 15% (v1.5.3+)
 
 ### 1.5 Printer Controls
-- **Emergency Stop** — floating button on every page lists active prints; operators/admins can pause, resume or stop (with confirmation) each printer
-- **Pause / Resume** — pause active prints, resume paused ones (operator/admin)
+- **Emergency Stop** — floating button on every page lists active prints; operators/admins can request pause, resume, or stop on Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers, with confirmation before stop. Anycubic LAN is monitoring only
+- **Pause / Resume** — operator/admin controls for Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers
 - **Light Toggle** — chamber light on/off for Bambu printers with cooldown (operator/admin)
 - **Smart Plug Control** — on/off/status for configured smart plugs (operator/admin)
 - **Skip Objects** — exclude specific objects mid-print for Bambu printers via `POST /api/printers/{id}/skip-objects` (operator/admin)
@@ -195,7 +195,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 3.1 Detection Engine
 - Supervised daemon (`modules/vision/monitor.py`, run as `python3 -m modules.vision.monitor`) managed by supervisord
-- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty (spaghetti model bundled: Obico's published model, licensed separately under AGPL-3.0, see `backend/vision_models_default/NOTICE.txt`; the other three run with your uploaded ONNX model)
+- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty. The spaghetti model is bundled and registered automatically on first boot (once; deleting it keeps it deleted). It is Obico's published model, licensed separately under AGPL-3.0, see `backend/vision_models_default/NOTICE.txt`. First-layer and detachment detection need an uploaded, activated model; build-plate-empty has a built-in image check that is off by default and runs only while the printer is idle
 - Per-printer monitoring threads that capture frames from go2rtc camera streams
 - Confidence filtering with configurable thresholds per detection type
 - Non-maximum suppression (NMS) for deduplication
@@ -792,8 +792,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Receives: temps, progress, state, AMS RFID, HMS errors, camera URL, fan speed
 - Credentials: serial + access code, Fernet-encrypted at rest
 
-### 21.2 Moonraker REST/WebSocket
-- Printers: Any Klipper printer (Anycubic Kobra S1, Creality K1, Voron, QIDI, Sovol)
+### 21.2 Moonraker REST
+- Printers: Klipper printers running Moonraker (for example Voron, QIDI, Sovol). A Kobra S1 or Kobra 3 set up as Moonraker is refused for job sending
 - Connection: REST API polling (every 3 s)
 - Receives: temps, progress, state, layers, fan speed, webcam URL
 
@@ -805,11 +805,16 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Offline detection after 5 consecutive poll failures (v1.1.4)
 
 ### 21.4 Elegoo SDCP
-- Printers: Centauri Carbon, Neptune 4, Saturn (resin)
+- Printers: SDCP printers such as the Centauri Carbon
 - Connection: SDCP WebSocket protocol
+- Monitoring plus pause, resume and stop; no job sending
 - Receives: temps, progress, state, fan speed (v1.1.4), enclosure temperature (v1.1.4)
 - Print failure detection on state transition (v1.1.4)
 - Offline detection after 60-second timeout (v1.1.4)
+
+### 21.5 Anycubic LAN mode
+- Printers: Kobra S1, Kobra 3
+- Monitoring only; no job sending
 
 ---
 
