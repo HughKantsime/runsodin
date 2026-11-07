@@ -75,7 +75,7 @@ Bambu P1P, P1S, A1 and A1 Mini built-in cameras are auto-detected when printer c
 ## How it differs
 
 - **Self-hosted.** You run O.D.I.N. on your own server (Docker). Your files, camera feeds and records stay with you. It sends no telemetry and has no update checker; it contacts outside services only for integrations an admin sets up and for license activation or a trial request, which can also be done offline.
-- **Four printer protocols.** Bambu Lab (local MQTT), Klipper printers running Moonraker, Prusa (PrusaLink) and Elegoo (SDCP). Job sending works for Bambu, Moonraker and PrusaLink printers; Elegoo printers get monitoring plus pause, resume, stop and speed control, and Anycubic printers in LAN mode are monitoring only.
+- **Five printer families.** Bambu Lab (local MQTT), Klipper printers running Moonraker, Prusa (PrusaLink), Elegoo (SDCP) and Anycubic (LAN mode). Job sending works for Bambu, Moonraker and PrusaLink printers; Elegoo printers get monitoring plus pause, resume, stop and speed control, and Anycubic printers are monitoring only.
 - **Flat pricing.** Community is free (5 printers, 1 user). Pro is $15 per month or $150 per year with unlimited printers and users, orders, analytics and single sign-on. Education is quoted per site; Enterprise is custom.
 - **Failure detection included.** Vigil AI works from camera images on FDM printers. Its bundled spaghetti model is [Obico](https://www.obico.io/)'s published model (AGPL-3.0); first-layer, detachment and empty-plate detection need an uploaded model.
 
