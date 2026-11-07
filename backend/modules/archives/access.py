@@ -7,7 +7,7 @@ from core.tenancy_mode import NO_ORGANIZATIONS_SQL
 from core.interfaces.education_policy import generic_archive_audience_sql
 
 
-def archive_visibility(principal):
+def _archive_visibility(principal):
     org = get_org_scope(principal)
     if not should_filter_org(principal, org):
         return "1=1", {}
@@ -32,3 +32,12 @@ def assert_archive_access(db, archive_id, principal):
                        {**parameters, "_arc_id": archive_id}).first()
     if found is None:
         raise HTTPException(status_code=404, detail="Archive not found")
+
+
+def archive_visibility(principal):
+    from core.controlled_history import media_visibility
+    base, params = _archive_visibility(principal)
+    controlled, values = media_visibility(principal, 'a.job_id')
+    from core.controlled_parts import file_visibility
+    files, _ = file_visibility(principal, 'a.print_file_id')
+    return '(' + base + ') AND ' + controlled + ' AND ' + files, {**params, **values}

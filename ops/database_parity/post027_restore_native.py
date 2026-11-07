@@ -3,6 +3,8 @@
 Live source on PYTHONPATH. Archives of each era are written by the preserved029 sources
 (post027_archive_fixtures.py). Prints post027-native-* facts; the last is post027-native-pass.
 """
+# Raw job INSERT exemption: fixed-ID historical PostgreSQL restore fixtures
+# must preserve the archived schema and links; SQLite allocation is not involved.
 import json
 import os
 from pathlib import Path

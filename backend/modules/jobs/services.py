@@ -17,8 +17,14 @@ def delete_org_jobs(db, org_id):
     """Organization deletion removes owned jobs and their cascading history."""
     from sqlalchemy import text
     from core.print_attempts import clear_job_attempts, sqlalchemy_runner
-    for job_id in db.execute(text('SELECT id FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id}).scalars():
+    from core.controlled_parts import assert_group_deletable
+    assert_group_deletable(db, org_id)
+    from core.controlled_deletion import controlled_job_ids, redact_job_history_ids
+    job_ids = list(db.execute(text('SELECT id FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id}).scalars())
+    restricted = controlled_job_ids(db, job_ids)
+    for job_id in job_ids:
         from core.traceability_delivery import prepare_job_deletion
         prepare_job_deletion(db, job_id)
         clear_job_attempts(sqlalchemy_runner(db), job_id)
     db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})
+    redact_job_history_ids(db, restricted)

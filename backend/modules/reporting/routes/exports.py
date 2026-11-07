@@ -59,7 +59,9 @@ def export_jobs_csv(
         query = query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     if status:
         query = query.filter(Job.status == status)
-    jobs = query.order_by(Job.created_at.desc()).all()
+    from core.controlled_parts import job_visibility
+    controlled, params = job_visibility(current_user)
+    jobs = query.filter(text(controlled)).params(**params).order_by(Job.created_at.desc()).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -192,7 +194,8 @@ def export_models_csv(current_user: dict = Depends(require_role("operator", scop
     mq = db.query(Model)
     if should_filter_org(current_user, org):
         mq = mq.filter((Model.org_id == org) | (Model.org_id == None))
-    models = mq.order_by(Model.name).all()
+    from core.controlled_parts import allowed
+    models = [model for model in mq.order_by(Model.name).all() if allowed(db, 'model', model.id, current_user)]
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -246,11 +249,13 @@ def export_audit_logs_csv(
     db: Session = Depends(get_db)
 ):
     """Export audit logs as CSV. Superadmin only — audit logs span all tenants."""
-    query = _audit_filters(_audit_projection(db), entity_type=entity_type, action=action,
+    query = _audit_filters(_audit_projection(db), actor=current_user, entity_type=entity_type, action=action,
                           date_from=date_from, date_to=date_to, q=q)
     logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(5001).all()
     truncated = len(logs) > 5000
     logs = logs[:5000]
+    from core.controlled_audit import redact_audit_rows
+    logs = redact_audit_rows(db, current_user, logs)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -288,7 +293,7 @@ def export_audit_logs_csv(
 
 # ============== Audit Log ==============
 
-def _audit_filters(query, *, entity_type=None, action=None, date_from=None, date_to=None, q=None):
+def _audit_filters(query, *, actor=None, entity_type=None, action=None, date_from=None, date_to=None, q=None):
     """One bounded literal filter shared by the list and CSV projection."""
     if date_from and date_to and date_from > date_to:
         raise HTTPException(422, 'date_from must not be after date_to')
@@ -310,6 +315,9 @@ def _audit_filters(query, *, entity_type=None, action=None, date_from=None, date
         end = next_day.isoformat() if sqlite_dates else datetime.combine(next_day, time.min)
         query = query.filter(AuditLog.timestamp < end)
     if q and q.strip():
+        from core.controlled_parts import audit_visibility
+        clause, params = audit_visibility(actor, query.session)
+        query = query.filter(text(clause)).params(**params)
         literal = q.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
         pattern = '%' + literal + '%'
         query = query.filter(or_(*[
@@ -334,11 +342,13 @@ def list_audit_logs(
     current_user: dict = Depends(require_superadmin(scope='read')),
 ):
     """List audit log entries with pagination and filters. Superadmin only."""
-    query = _audit_filters(_audit_projection(db), entity_type=entity_type, action=action,
+    query = _audit_filters(_audit_projection(db), actor=current_user, entity_type=entity_type, action=action,
                           date_from=date_from, date_to=date_to, q=q)
 
     total = query.count()
     logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).offset(offset).limit(limit).all()
+    from core.controlled_audit import redact_audit_rows
+    logs = redact_audit_rows(db, current_user, logs)
 
     return {
         "total": total,

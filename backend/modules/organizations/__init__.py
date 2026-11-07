@@ -4,6 +4,9 @@ MODULE_DESCRIPTION = "Organizations, users, roles, OIDC/SSO, branding, and quota
 
 ROUTES = [
     "organizations.routes",
+    "organizations.routes_controlled_parts",
+    "organizations.routes_controlled_retention",
+    "organizations.routes_controlled_audiences",
     "organizations.auth_routes",       # aggregator
     "organizations.routes_auth",
     "organizations.routes_mfa_enrollment",
@@ -24,6 +27,10 @@ ROUTES = [
 ]
 
 TABLES = [
+    "controlled_audiences",
+    "controlled_audience_members",
+    "controlled_files",
+    "controlled_jobs",
     "groups",
     "users",
     "oidc_config",
@@ -85,12 +92,18 @@ def register(app, registry) -> None:
         routes_education_reviews,
         routes_education_submissions,
         routes_classroom,
+        routes_controlled_parts,
+        routes_controlled_retention,
+        routes_controlled_audiences,
     )
 
     from modules.organizations.education_slice_info import router as education_slice_router
 
     for router in (
         routes.router,
+        routes_controlled_audiences.router,
+        routes_controlled_retention.router,
+        routes_controlled_parts.router,
         auth_routes.router,
         routes_education.router,
         routes_education_training.router,

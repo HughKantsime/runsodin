@@ -229,7 +229,7 @@ def _get_client():
             return None
 
 
-def _publish(topic_suffix: str, payload: dict):
+def _publish(topic_suffix: str, payload: dict, *, job_id: int = None):
     """Publish a message to the external broker."""
     # Event republishing is an Enterprise entitlement. The broker settings stay
     # configurable on every tier because MQTT smart-plug commands
@@ -248,6 +248,13 @@ def _publish(topic_suffix: str, payload: dict):
     prefix = config["topic_prefix"].rstrip("/")
     topic = f"{prefix}/{topic_suffix}"
 
+    try:
+        from core.controlled_mqtt import redact_payload
+        payload = redact_payload(engine, payload, job_id=job_id)
+    except Exception as error:
+        from core.controlled_warnings import warn_failure
+        warn_failure('MQTT republish', error)
+        return
     try:
         msg = json.dumps(payload, default=str)
         client.publish(topic, msg, qos=0, retain=False)
@@ -312,7 +319,7 @@ def republish_job(printer_id: int, printer_name: str, event: str, data: dict):
 
 
 def republish_alert(alert_type: str, severity: str, title: str, message: str,
-                     printer_id: int = None, printer_name: str = None):
+                     printer_id: int = None, printer_name: str = None, job_id: int = None):
     """Republish alerts."""
     _publish("alerts", {
         "type": alert_type,
@@ -322,7 +329,7 @@ def republish_alert(alert_type: str, severity: str, title: str, message: str,
         "printer_id": printer_id,
         "printer_name": printer_name,
         "timestamp": time.time(),
-    })
+    }, job_id=job_id)
 
 
 def republish_fleet(online: int, total: int, printing: int, idle: int):
@@ -461,9 +468,10 @@ def _on_alert_dispatched(event) -> None:
     # Alert MQTT is external delivery; in-app events remain live during quiet hours.
     try:
         from sqlalchemy.orm import Session
+        from core.db import concrete_engine
         from modules.notifications.recipient_policy import resolve_alert_scope
         from modules.notifications.quiet_hours import should_suppress_notification
-        with Session(engine) as db:
+        with Session(bind=concrete_engine(engine)) as db:
             _, org_id = resolve_alert_scope(db, printer_id=data.get("printer_id"),
                                            job_id=data.get("job_id"), spool_id=data.get("spool_id"))
         if should_suppress_notification(org_id=org_id):
@@ -478,6 +486,7 @@ def _on_alert_dispatched(event) -> None:
         message=data.get("message", ""),
         printer_id=data.get("printer_id"),
         printer_name=data.get("printer_name"),
+        job_id=data.get("job_id"),
     )
 
 

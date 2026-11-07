@@ -518,6 +518,8 @@ def _deliver_staged_alert(db: Session, plan: StagedAlert):
         with dispatch_transaction(db.get_bind()) as scope_connection:
             eligible, org_id = resolve_alert_scope(scope_connection, printer_id=plan.printer_id,
                 job_id=plan.job_id, spool_id=plan.spool_id)
+            from core.controlled_events import external_copy
+            external_title, external_message = external_copy(plan.title, plan.message, printer_id=plan.printer_id, job_id=plan.job_id, db=scope_connection)
         if org_id != plan.org_id:
             logger.info("Push skip reason=org_mismatch alert_type=%s", plan.alert_type.value)
             return
@@ -567,7 +569,7 @@ def _deliver_staged_alert(db: Session, plan: StagedAlert):
                 settings = provider.get_org_settings(settings_connection, org_id) if provider else {}
             if settings.get("webhook_url"):
                 _send_org_webhook(settings["webhook_url"], settings.get("webhook_type", "generic"),
-                    plan.alert_type.value, plan.title, plan.message, plan.severity.value)
+                    plan.alert_type.value, external_title, external_message, plan.severity.value)
     except Exception:
         logger.warning("External alert delivery failed after confirmed commit")
 

@@ -52,6 +52,8 @@ def owned_job(db, job_id, user, *, mutate=False, attempt=None):
     if policy is None:
         raise HTTPException(503, 'Education policy unavailable')
     policy.assert_generic_job_mutation_allowed(db, job_id)
+    from core.controlled_parts import assert_access
+    assert_access(db, 'job', job_id, user)
     if mutate:
         if db.execute(text('UPDATE users SET id=id WHERE id=:id AND is_active IS TRUE'), {'id':user['id']}).rowcount != 1:
             raise HTTPException(401, 'Not authenticated')
@@ -64,6 +66,7 @@ def owned_job(db, job_id, user, *, mutate=False, attempt=None):
         if not job or (not platform and job['charged_to_org_id'] != user.get('group_id')):
             raise HTTPException(404, 'Job not found')
         policy.assert_generic_job_mutation_allowed(db, job_id)
+        assert_access(db, 'job', job_id, user)
     seq = attempt_seq(sqlalchemy_runner(db), job_id) if attempt is None else attempt
     if one(db, 'SELECT job_id FROM traceability_records WHERE job_id=:id AND attempt=:seq', id=job_id, seq=seq):
         return job

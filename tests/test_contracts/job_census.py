@@ -42,6 +42,7 @@ import re
 from collections import namedtuple
 from dataclasses import dataclass
 from pathlib import Path
+from tests._frozen_bundles import is_frozen_source
 
 # One call site: ``detail`` is the SQL text the node builds (interpolations
 # bracketed by DYNAMIC) or the unparsed ORM call/assignment, for checks at the node.
@@ -49,8 +50,6 @@ Site = namedtuple("Site", "path site kind line detail")
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
-# Frozen byte copies of released restore-stage sources (run only in the isolated restore child).
-SKIP = ("preserved027", "preserved029/bundle/", "preserved034/bundle/", "preserved039/overlay/", "preserved040/overlay/", "preserved043/overlay/", "preserved045/overlay/", "preserved046/overlay/", "__pycache__")
 DYNAMIC = "\x00"  # brackets an interpolated or concatenated non-literal part
 _Q = r"[\"'`\[\]]?"
 
@@ -383,7 +382,7 @@ def backend_sources(skip_files=()):
     sources = {}
     for path in sorted(BACKEND.rglob("*.py")):
         rel = path.relative_to(ROOT).as_posix()
-        if not any(part in rel for part in SKIP) and not rel.startswith(tuple(skip_files)):
+        if not is_frozen_source(path) and '__pycache__' not in path.parts and not rel.startswith(tuple(skip_files)):
             sources[rel] = path.read_text(encoding="utf-8")
     return sources
 

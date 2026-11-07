@@ -1,3 +1,4 @@
+import ControlledPart from '../../components/shared/ControlledPart'
 import { displayName } from '../../utils/displayName'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -407,6 +408,7 @@ export default function Upload() {
         </div>
       </div>
 
+      {uploadedFile && <ControlledPart kind="files" id={uploadedFile.id} />}
       {uploadedFile?.target_printer_id && <p className="mb-3 text-sm">Bound to printer {uploadPrinters.find(p => p.id === uploadedFile.target_printer_id)?.name || uploadedFile.target_printer_id}</p>}
       {uploadedFile ? (
         <UploadSuccess

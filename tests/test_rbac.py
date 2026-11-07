@@ -186,6 +186,7 @@ CREDENTIAL_OPERATIONS = {
     ("POST", "/api/backups"), ("GET", "/api/backups/{backup_filename}"),               # backups carry every
     ("DELETE", "/api/backups/{backup_filename}"), ("POST", "/api/backups/restore"),    # stored credential
     ("GET", "/api/admin/logs"), ("GET", "/api/admin/logs/stream"),                     # install-wide logs and
+    ("POST", "/api/admin/logs"), ("POST", "/api/admin/logs/stream-token"),
     ("GET", "/api/admin/support-bundle"),                                              # the support bundle
     ("POST", "/api/timelapses/recheck-facts"),                                         # interactive superadmin only
 }

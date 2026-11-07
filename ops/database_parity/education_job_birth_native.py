@@ -1,4 +1,6 @@
 """Actual PostgreSQL direct Education graph service; HTTP auth is separate evidence."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import hashlib,io,json,os,secrets,tempfile,zipfile
 from pathlib import Path
 from uuid import UUID,uuid4

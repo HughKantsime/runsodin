@@ -1,3 +1,4 @@
+import { controlledDownload } from '../../api/controlledDownload'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../../LicenseContext'
@@ -21,6 +22,7 @@ function Controls() {
   const cache = useQueryClient()
   const [editing, setEditing] = useState('new')
   const [form, setForm] = useState<DestinationInput>(empty)
+  const [acknowledgeSave, setAcknowledgeSave] = useState(false)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [message, setMessage] = useState('')
@@ -36,12 +38,22 @@ function Controls() {
     setMessage('Restore baseline accepted and recorded. Previous signed heads remain in history.')
     setRestoreReason(''); verify.mutate()
   } })
-  const save = useMutation({ mutationFn: () => auditIntegrity.save(editing, form), onSuccess: () => {
-    setForm(empty); setEditing('new'); setMessage('Destination saved.'); cache.invalidateQueries({ queryKey: ['siem'] })
+  const save = useMutation({ mutationFn: () => auditIntegrity.save(editing, {
+    ...form, ...(acknowledgeSave ? { acknowledge_controlled: true } : {}),
+  }), onSuccess: () => {
+    setForm(empty); setEditing('new'); setAcknowledgeSave(false); setMessage('Destination saved.'); cache.invalidateQueries({ queryKey: ['siem'] })
+  } })
+  const acknowledge = useMutation({ mutationFn: auditIntegrity.acknowledge, onSuccess: () => {
+    setMessage('Destination acknowledged. You can now enable delivery or mark controlled work.')
+    cache.invalidateQueries({ queryKey: ['siem'] })
   } })
   const remove = useMutation({ mutationFn: auditIntegrity.remove, onSuccess: () => cache.invalidateQueries({ queryKey: ['siem'] }) })
   function edit(d: SiemDestination) {
+    setAcknowledgeSave(false)
     setEditing(d.id); setForm({ name: d.name, kind: d.kind, endpoint: d.endpoint, enabled: !!d.enabled, tls: !!d.tls, ca_bundle: d.ca_bundle })
+  }
+  function changeTarget(values: Partial<DestinationInput>) {
+    setAcknowledgeSave(false); setForm({ ...form, ...values })
   }
   return <section className="mt-8 space-y-4" aria-label="Audit security">
     <h2 className="text-lg font-semibold">Audit integrity & SIEM</h2>
@@ -67,15 +79,30 @@ function Controls() {
     <div className="flex gap-3 flex-wrap items-end">
       <label>Export from<input aria-label="Export from" type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
       <label>Export through<input aria-label="Export through" type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
-      {from && to && from <= to && <a href={`/api/export/audit-logs/jsonl?date_from=${from}&date_to=${to}&bundle=true`} className="btn btn-secondary">Download signed JSON Lines</a>}
+      {from && to && from <= to && <a href={`/api/export/audit-logs/jsonl?date_from=${from}&date_to=${to}&bundle=true`} className="btn btn-secondary" onClick={async e => {
+        e.preventDefault()
+        try {
+          const response = await controlledDownload(e.currentTarget.href, 'signed audit export')
+          if (!response.ok) throw new Error('Signed audit export failed')
+          const url = URL.createObjectURL(await response.blob())
+          const link = document.createElement('a'); link.href = url; link.download = 'audit-export.zip'; link.click()
+          setTimeout(() => URL.revokeObjectURL(url), 1000)
+        } catch (error) { setMessage((error as Error).message) }
+      }}>Download signed JSON Lines</a>}
     </div>
     <p className="text-sm">The download includes JSON Lines, the detached signature, public key and signed manifest in one ZIP.</p>
     <h3 className="font-medium">SIEM destinations</h3>
+    <p>Acknowledge a destination as part of your trusted boundary when saving to enable it or rotate its endpoint, transport, credentials or CA while delivery stays enabled. Without a new acknowledgement, target changes clear existing trust and are refused while enabled with controlled restrictions. Drain pending deliveries before changing the endpoint, transport or TLS setting.</p>
     {list.isPending && <p>Loading destinations…</p>}
     {list.data?.length === 0 && <p>No destinations configured. Streaming is disabled until you add and enable one.</p>}
     {list.data?.map(d => <div key={d.id} className="border rounded p-3 space-y-2">
       <p>{d.name} · {d.enabled ? 'Enabled' : 'Disabled'} · {d.pending} pending</p>
       <p>Last success: {d.last_success || 'Never'} · Last error: {d.last_error || 'None'}</p>
+      {d.controlled_acknowledgement
+        ? <p>Controlled audit access acknowledged by {d.controlled_acknowledgement.user_id === null ? 'an erased user' : `user ${d.controlled_acknowledgement.user_id}`} at {d.controlled_acknowledgement.acknowledged_at}.</p>
+        : <><p>Controlled audit access requires acknowledgement.</p><button disabled={acknowledge.isPending} onClick={() => {
+          if (window.confirm(`Acknowledge ${d.name} (${d.endpoint}) as inside your trusted boundary? It may receive controlled audit details outside your audience.`)) acknowledge.mutate(d.id)
+        }}>Acknowledge {d.name}</button></>}
       <button onClick={() => edit(d)}>Edit {d.name}</button>{' '}
       <button disabled={remove.isPending} onClick={() => {
         if (window.confirm('Delete this destination and discard its pending deliveries?')) remove.mutate(d.id)
@@ -84,19 +111,20 @@ function Controls() {
     <form className="space-y-3" onSubmit={e => { e.preventDefault(); setMessage(''); save.mutate() }}>
       <h3>{editing === 'new' ? 'Add destination' : 'Edit destination'}</h3>
       <label className="block">Name<input required maxLength={100} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
-      <label className="block">Transport<select value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value as DestinationInput['kind'], endpoint: '', secret: undefined })}>
+      <label className="block">Transport<select value={form.kind} onChange={e => changeTarget({ kind: e.target.value as DestinationInput['kind'], endpoint: '', secret: undefined })}>
         <option value="webhook">HTTPS webhook</option><option value="syslog">Syslog TCP (RFC 5424)</option>
       </select></label>
-      <label className="block">Endpoint<input required placeholder={form.kind === 'webhook' ? 'https://siem.example/events' : 'syslog://siem.example:6514'} value={form.endpoint} onChange={e => setForm({ ...form, endpoint: e.target.value })} /></label>
-      {form.kind === 'webhook' ? <label className="block">HMAC secret (32+ characters; leave blank to keep existing)<input type="password" autoComplete="new-password" minLength={32} value={form.secret || ''} onChange={e => setForm({ ...form, secret: e.target.value || undefined })} /></label>
-        : <label className="block"><input type="checkbox" checked={form.tls} onChange={e => setForm({ ...form, tls: e.target.checked })} /> Use TLS with certificate verification</label>}
-      {(form.kind === 'webhook' || form.tls) && <label className="block">Private CA bundle (optional PEM)<textarea value={form.ca_bundle || ''} onChange={e => setForm({ ...form, ca_bundle: e.target.value || null })} /></label>}
+      <label className="block">Endpoint<input required placeholder={form.kind === 'webhook' ? 'https://siem.example/events' : 'syslog://siem.example:6514'} value={form.endpoint} onChange={e => changeTarget({ endpoint: e.target.value })} /></label>
+      {form.kind === 'webhook' ? <label className="block">HMAC secret (32+ characters; leave blank to keep existing)<input type="password" autoComplete="new-password" minLength={32} value={form.secret || ''} onChange={e => changeTarget({ secret: e.target.value || undefined })} /></label>
+        : <label className="block"><input type="checkbox" checked={form.tls} onChange={e => changeTarget({ tls: e.target.checked })} /> Use TLS with certificate verification</label>}
+      {(form.kind === 'webhook' || form.tls) && <label className="block">Private CA bundle (optional PEM)<textarea value={form.ca_bundle || ''} onChange={e => changeTarget({ ca_bundle: e.target.value || null })} /></label>}
       <p className="text-sm">A custom CA bundle replaces the default trust store for both HTTPS and syslog TLS.</p>
       <label className="block"><input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Enable delivery of new audit events</label>
+      <label className="block"><input type="checkbox" checked={acknowledgeSave} onChange={e => setAcknowledgeSave(e.target.checked)} /> I acknowledge this destination and its current settings as inside my trusted boundary. It may receive controlled audit details outside my audience.</label>
       <button type="submit" className="btn btn-primary" disabled={save.isPending}>Save destination</button>{' '}
-      {editing !== 'new' && <button type="button" onClick={() => { setEditing('new'); setForm(empty) }}>Cancel edit</button>}
+      {editing !== 'new' && <button type="button" onClick={() => { setEditing('new'); setForm(empty); setAcknowledgeSave(false) }}>Cancel edit</button>}
     </form>
     {message && <p role="status">{message}</p>}
-    {[list.error, verify.error, save.error, remove.error, accept.error, initialize.error].filter(Boolean).map((e, i) => <p role="alert" key={i}>{(e as Error).message}</p>)}
+    {[list.error, verify.error, save.error, acknowledge.error, remove.error, accept.error, initialize.error].filter(Boolean).map((e, i) => <p role="alert" key={i}>{(e as Error).message}</p>)}
   </section>
 }

@@ -63,8 +63,11 @@ async def _recheck_upload_permission(db, fresh):
 
 
 def _visible_upload_duplicate(db, file_hash, principal):
-    candidates = db.execute(text("SELECT id FROM print_files WHERE file_hash=:hash ORDER BY id"),
-                            {"hash": file_hash}).fetchall()
+    from core.controlled_parts import file_visibility
+    visible, values = file_visibility(principal, 'print_files.id')
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- file_visibility emits fixed policy SQL with a validated file alias; actor and file hash are bound
+    candidates = db.execute(text("SELECT id FROM print_files WHERE file_hash=:hash AND " + visible + " ORDER BY id"),
+                            {"hash": file_hash, **values}).fetchall()
     for candidate in candidates:
         try:
             row = accessible_preview_file(db, candidate.id, principal)
@@ -87,7 +90,8 @@ def _own_upload_model(db, normalized_name, raw_name, org_id):
         "ORDER BY m.id LIMIT 2"
     ), {"name": normalized_name, "raw": raw_name, "org": org_id}).fetchall()
     from core.print_file_binding import job_file_id, target_printer
-    rows = [row for row in rows if target_printer(db, job_file_id(db, row[0])) is None]
+    from core.controlled_parts import policies
+    rows = [row for row in rows if target_printer(db, job_file_id(db, row[0])) is None and not policies(db, 'model', row[0])]
     # An ambiguous namespace requires a new model, not an arbitrary attachment.
     return rows[0] if len(rows) == 1 else None
 

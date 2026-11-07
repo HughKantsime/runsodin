@@ -18,7 +18,12 @@ def immutable_timelapse_policy(principal,*,mutation=False):
     if not principal:return '1=0',{}
     org=get_org_scope(principal)
     platform=not should_filter_org(principal,org)
-    if platform and not mutation:return '1=1',{}
+    if platform and not mutation:
+        from core.controlled_history import media_visibility
+        jobs, values = media_visibility(principal, 'a.job_id')
+        from core.controlled_parts import file_visibility
+        files, _ = file_visibility(principal, 'a.print_file_id')
+        return '(' + jobs + ') AND (' + files + ')', values
     if platform:
         policy="a.owner_state IN ('known','shared')"
         parameters={}
@@ -29,23 +34,37 @@ def immutable_timelapse_policy(principal,*,mutation=False):
         from core.tenancy_mode import SHARED_CAPTURE_AUDIENCE_SQL
         policy="((a.owner_state='known' AND a.org_id=:_arc_org) OR (a.owner_state='shared' AND "+SHARED_CAPTURE_AUDIENCE_SQL+")) AND ("+education+")"
         parameters={'_arc_org':org,'_arc_user':principal.get('id'),'_arc_admin':1 if principal.get('role')=='admin' else 0}
-    return policy,parameters
+    from core.controlled_history import media_visibility
+    controlled, values = media_visibility(principal, 'a.job_id')
+    from core.controlled_parts import file_visibility
+    files, _ = file_visibility(principal, 'a.print_file_id')
+    return '(' + policy + ') AND ' + controlled + ' AND ' + files, {**parameters, **values}
 
 
 def timelapse_visibility(principal,*,mutation=False):
     policy,parameters=immutable_timelapse_policy(principal,mutation=mutation)
     if policy=='1=1' or policy=='1=0':return policy,parameters
-    return 'EXISTS (SELECT 1 FROM '+_PROJECTION+' WHERE '+_TUPLE+' AND '+policy+')',parameters
+    predicate = 'EXISTS (SELECT 1 FROM '+_PROJECTION+' WHERE '+_TUPLE+' AND '+policy+')'
+    if principal and not mutation and not should_filter_org(principal, get_org_scope(principal)):
+        from core.controlled_history import media_visibility
+        legacy, values = media_visibility(principal, 'timelapses.print_job_id')
+        predicate = '(' + predicate + ' OR (timelapses.ownership_operation_id IS NULL AND ' + legacy + '))'
+        parameters.update(values)
+    return predicate,parameters
 
 
 def assert_timelapse_access(db,media,principal,*,mutation=False):
+    from core.controlled_retention import check_retention
+    if mutation and check_retention(db, principal, media.id):
+        from modules.printers.models import Printer
+        return db.get(Printer, media.printer_id)
     condition,parameters=timelapse_visibility(principal,mutation=mutation)
     # Bind the loaded object too: authorizing a newly replaced row by ID must
     # never permit reading an older ORM object's filename or ownership.
     identity="""timelapses.id=:_media_id AND timelapses.printer_id=:_media_printer
         AND timelapses.filename=:_media_filename
-        AND (timelapses.print_job_id=:_media_job OR (timelapses.print_job_id IS NULL AND :_media_job IS NULL))
-        AND (timelapses.ownership_operation_id=:_media_nonce OR (timelapses.ownership_operation_id IS NULL AND :_media_nonce IS NULL))"""
+        AND (timelapses.print_job_id=:_media_job OR (timelapses.print_job_id IS NULL AND CAST(:_media_job AS INTEGER) IS NULL))
+        AND (timelapses.ownership_operation_id=:_media_nonce OR (timelapses.ownership_operation_id IS NULL AND CAST(:_media_nonce AS VARCHAR(64)) IS NULL))"""
     found=db.execute(text('SELECT timelapses.id FROM timelapses WHERE '+identity+' AND '+condition),{  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
         **parameters,'_media_id':media.id,'_media_printer':media.printer_id,
         '_media_filename':media.filename,'_media_job':media.print_job_id,'_media_nonce':media.ownership_operation_id,

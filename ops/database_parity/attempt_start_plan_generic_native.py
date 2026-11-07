@@ -1,4 +1,6 @@
 """Owned real PostgreSQL company-origin acceptance; never dispatches."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os,stat,json,hashlib,tempfile,zipfile
 from pathlib import Path
 os.environ['JWT_SECRET_KEY']='owned-queue-native-signing-key-only'

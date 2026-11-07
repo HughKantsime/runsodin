@@ -5,6 +5,7 @@ Every deducer -- operator /complete, the Moonraker monitor, archive accounting
 through the ledger; automatic deductions are once per physical print / job
 attempt, claimed atomically and only when something is actually deducted.
 """
+import ast
 import json
 import re
 import threading
@@ -378,6 +379,38 @@ def _never_filament(path, resolve_parameter=None):
     return lambda sites: not (_tables_at(sites, path, resolve_parameter) & FILAMENT_TABLES)
 
 
+def _controlled_mark_tables(sites):
+    path = "backend/modules/organizations/routes_controlled_parts.py"
+    # change_mark writes `'controlled_' + resource_type`; every backend call passes a literal 'files' or
+    # 'jobs' positionally, so the table is controlled_files / controlled_jobs, never a filament table.
+    function = ast.parse(job_census.function_source(path, "change_mark")).body[0]
+    # Every binding of `table` (assignment, tuple, for, with, walrus, ...) is a Name in Store context.
+    bindings = [n for n in ast.walk(function) if isinstance(n, ast.Name) and n.id == "table" and isinstance(n.ctx, ast.Store)]
+    stores = [n for n in ast.walk(function) if isinstance(n, ast.Assign) and len(n.targets) == 1
+              and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "table"]
+    assigned = (len(bindings) == 1 and len(stores) == 1 and stores[0].targets[0] is bindings[0]
+                and ast.unparse(stores[0].value) == "'controlled_' + resource_type")
+    arguments, keyword_or_dynamic = set(), False
+    for source in job_census.backend_sources().values():
+        tree = ast.parse(source)
+        calls = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and ast.unparse(node.func).split(".")[-1] == "change_mark"}
+        for node in ast.walk(tree):
+            # Any other reference (alias, callback, import-as) could reach change_mark unseen: refuse it.
+            named = (isinstance(node, ast.Name) and node.id == "change_mark") or (isinstance(node, ast.Attribute) and node.attr == "change_mark")
+            imported = isinstance(node, ast.alias) and node.name.split(".")[-1] == "change_mark"
+            keyword_or_dynamic |= (named and id(node) not in calls) or imported
+            if isinstance(node, ast.Call) and id(node.func) in calls:
+                literal = len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
+                keyword_or_dynamic |= not literal or any(k.arg in (None, "resource_type") for k in node.keywords)
+                if literal:
+                    arguments.add(node.args[1].value)
+    tables = {"controlled_" + value for value in arguments}
+    return (all(job_census.dynamic_parts(site.detail)[0] == "table" for site in sites) and assigned
+            and not keyword_or_dynamic and tables == {"controlled_files", "controlled_jobs"}
+            and not tables & FILAMENT_TABLES)
+
+
 def _exact(*details):
     return lambda sites: sorted(site.detail for site in sites) == sorted(details)
 
@@ -450,6 +483,8 @@ SHARED_DYNAMIC = {
     # Integration (migration 032, cert-fix-E): the module's TABLE constant is the deferral table.
     ("backend/modules/notifications/deferred_deliveries.py", "record_suppressed", "sql insert (dynamic table)"):
         (1, "quiet-hours deferred-delivery table", _never_filament("backend/modules/notifications/deferred_deliveries.py")),
+    ("backend/modules/organizations/routes_controlled_parts.py", "change_mark", "sql insert (dynamic table)"):
+        (1, "controlled-part marking tables (controlled_files / controlled_jobs)", _controlled_mark_tables),
 }
 ALLOWED = {
     "spools": {

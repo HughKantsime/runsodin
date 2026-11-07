@@ -171,7 +171,11 @@ def dispatch_alert(
             plan = StagedAlert(len(in_app_users), False, AlertType(alert_type), AlertSeverity(severity),
                                title, message, printer_id, job_id, spool_id, resource_org_id,
                                False, tuple(_push_users), tuple(_email_users), tuple(in_app_users))
-            with Session(bind=engine) as mobile_db:
+            # Session keys its connections by the concrete Engine. The live
+            # proxy misses that key on every query, opening another connection
+            # while the recipient cursor still holds a SQLite read lock.
+            from core.db import concrete_engine
+            with Session(bind=concrete_engine(engine)) as mobile_db:
                 deliver_mobile(mobile_db, plan)
             # Webhooks (system-wide, not per-user)
             try:
@@ -187,9 +191,11 @@ def dispatch_alert(
                         with engine.connect() as connection:
                             org_settings = provider.get_org_settings(connection, resource_org_id)
                         if org_settings.get("webhook_url"):
+                            from core.controlled_events import external_copy
+                            external_title, external_message = external_copy(title, message, printer_id=printer_id, job_id=job_id)
                             _send_org_webhook(org_settings["webhook_url"],
                                 org_settings.get("webhook_type", "generic"),
-                                alert_type, title, message, severity)
+                                alert_type, external_title, external_message, severity)
             except Exception as e:
                 log.debug(f"Webhook delivery failed: {e}")
 

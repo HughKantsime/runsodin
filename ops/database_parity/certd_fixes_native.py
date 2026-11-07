@@ -9,6 +9,8 @@ guard on orders, and the maintenance care-counter reset. Real routers and the
 real bootstrap schema; the authenticated principal is injected at the
 get_current_user boundary (auth is not the DB semantic under test).
 """
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import json, os, stat, secrets
 from pathlib import Path
 private = Path(os.environ['CALLBACK_NATIVE_PASSWORD_FILE'])

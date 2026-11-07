@@ -133,6 +133,10 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             # lock also blocks new FK-referencing slots on PostgreSQL.
             if conn.dialect.name=='postgresql':
                 conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:id ORDER BY id FOR UPDATE NOWAIT'),{'id':job['printer_id']}).all()
+            from core.controlled_parts import dispatch_refusal
+            controlled = dispatch_refusal(conn, job['id'], job['printer_id'])
+            if controlled:
+                raise _Refused(controlled)
             current_job=dispatch._load_job(job['id'],connection=conn)
             current_creds=dispatch._get_printer_info(job['printer_id'],connection=conn)
             unsupported = dispatch_unsupported_reason(current_creds)
@@ -223,6 +227,11 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
                     broker_connection=broker_connection,power_accepted=power_accepted)
         return Admission(True,'Admitted dispatch authority rechecked' if already_admitted else 'Dispatch admitted')
     except _Refused as exc:
+        if str(exc).startswith('controlled_part_'):
+            from sqlalchemy.orm import Session
+            from core.audit import audit_download
+            with Session(engine) as db:
+                audit_download(db, 'controlled_part.refused', 'job', job['id'], {'reason': str(exc)})
         return Admission(False,str(exc))
     except Exception:
         return Admission(False,'Admitted dispatch authority could not be confirmed' if already_admitted else 'Final dispatch admission could not be confirmed; no command was sent')

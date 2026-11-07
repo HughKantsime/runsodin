@@ -370,7 +370,7 @@ def resolve_legacy_api_key(api_key: str, db: Session) -> Optional[dict]:
     return _principal(admin, "legacy_global_api_key")
 
 
-async def get_current_user(
+async def _resolve_current_user(
     request: Request,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
@@ -490,3 +490,26 @@ async def get_current_user(
             return principal
 
     return None
+
+
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    principal = await _resolve_current_user(request, token, db)
+    from core.controlled_parts import any_read_restrictions
+    request.state.controlled_actor = principal
+    request.state.controlled_marks = bool(principal) and any_read_restrictions(db)
+    if not request.state.controlled_marks:
+        return principal
+    from core.controlled_request import authorize_request
+    authorize_request(db, request, principal)
+    body = None
+    if principal and request.method in ('POST', 'PUT', 'PATCH') and __import__('core.controlled_request', fromlist=['json_content']).json_content(request.headers.get('content-type')):
+        from core.controlled_request import authorize_references
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        authorize_references(db, principal, body)
+    if principal:
+        from core.controlled_request import guard_source_changes
+        guard_source_changes(db, request, principal, body)
+    return principal

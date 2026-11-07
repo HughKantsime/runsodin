@@ -198,7 +198,7 @@ def eligible(db, job, printer):
     return True
 
 
-def next_suggestion(db, printer, *, visible=None, at=None):
+def next_suggestion(db, printer, *, visible=None, at=None, actor=None):
     from modules.printers.services import dispatch_unsupported_reason
     unsupported = dispatch_unsupported_reason(printer)
     if unsupported:
@@ -211,7 +211,9 @@ def next_suggestion(db, printer, *, visible=None, at=None):
     finished = finished_attempt(db, printer.id)
     config = configuration_key(db, printer.id)
     recipe_config = recipe_configuration_key(db, printer.id)
-    candidates = db.query(Job).filter(Job.status == 'pending', Job.hold.is_(False)).order_by(
+    from core.controlled_parts import job_visibility
+    clause, parameters = job_visibility(actor)
+    candidates = db.query(Job).filter(text(clause)).params(**parameters).filter(Job.status == 'pending', Job.hold.is_(False)).order_by(
         Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id).all()
     from modules.jobs.education_order import education_order
     education_ids = set(db.execute(text('SELECT job_id FROM education_submissions')).scalars())

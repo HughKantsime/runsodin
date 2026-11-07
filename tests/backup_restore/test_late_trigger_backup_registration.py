@@ -19,7 +19,7 @@ def _columns(path):
 def test_current_union_and_every_missing_guard_refused(review_db, tmp_path):
     path = Path(review_db.get_bind().url.database)
     allowed = service._canonical_sqlite_triggers()
-    assert len(allowed) == 94  # Includes D2's three assessment-history guards.
+    assert len(allowed) == 98  # Current packaged union, including E3's four job-identity guards.
     with sqlite3.connect(path) as db:
         actual = {name: (table, service._normalized_schema_sql(sql)) for name, table, sql in db.execute(
             "SELECT name,tbl_name,sql FROM sqlite_master WHERE type='trigger'")}
@@ -49,7 +49,8 @@ def test_every_dependency_column_and_table_is_required(review_db, tmp_path):
             service._PURCHASE_COLUMNS, service._ORIGIN_COLUMNS,
             {'power_target_operations': service._POWER_COLUMNS,
              'audit_actor_erasures': 'user_id erased_at',
-             'audit_logs': 'actor_user_id actor_username actor_auth_kind'}]
+             'audit_logs': 'actor_user_id actor_username actor_auth_kind',
+             'job_id_high_water': 'singleton high_water'}]
     checked = set()
     for mapping in maps:
         for table, names in mapping.items():
@@ -63,7 +64,7 @@ def test_every_dependency_column_and_table_is_required(review_db, tmp_path):
                     service._required_sqlite_guards(changed, allowed)
     # Actual owned SQLite copies refuse removed dependency tables before restore.
     for table in ('cost_identities','cost_job_bindings','cost_source_lifetimes',
-                  'timelapse_media_versions','audit_actor_erasures','cost_global_origin_exclusions'):
+                  'timelapse_media_versions','audit_actor_erasures','cost_global_origin_exclusions','job_id_high_water'):
         candidate = tmp_path / 'dependency.sqlite'
         with sqlite3.connect(path) as original, sqlite3.connect(candidate) as copy:
             original.backup(copy)
@@ -95,7 +96,7 @@ def test_late_packaged_integrity_failure_closed(review_db,monkeypatch,suffix):
     module = importlib.import_module('core.schema.migrations.'+suffix)
     def unavailable():
         raise RuntimeError('synthetic source mismatch')
-    monkeypatch.setattr(module,'sqlite_triggers' if suffix.startswith(('037_', '038_', '039_', '040_', '049_')) else '_source',unavailable)
+    monkeypatch.setattr(module,'job_id_triggers' if suffix.startswith('055_') else 'sqlite_triggers' if suffix.startswith(('037_', '038_', '039_', '040_', '049_')) else '_source',unavailable)
     with pytest.raises(service.BackupValidationError, match='Packaged backup trigger contract is unavailable'):
         service.validate_database(Path(review_db.get_bind().url.database))
 

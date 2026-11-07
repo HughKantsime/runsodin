@@ -354,7 +354,8 @@ def _ensure_domain_graph(
         note = f"{marker}:{suffix}"
         job_id = _single_id(connection, "jobs", "notes = ?", (note,))
         if job_id is None:
-            _insert_id(
+            from core.job_identity import insert_job
+            insert_job(
                 connection,
                 "INSERT INTO jobs (model_id, item_name, quantity, status, priority, printer_id, duration_hours, "
                 "colors_required, filament_type, notes, estimated_cost, suggested_price, order_item_id, "
@@ -367,6 +368,7 @@ def _ensure_domain_graph(
                     order_item_id, user_ids[VIEWER_EMAIL], user_ids[VIEWER_EMAIL],
                     1 if status == "pending" else None,
                 ),
+                postgres=getattr(connection, "_postgres", False),
             )
         else:
             connection.execute(

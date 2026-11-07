@@ -638,6 +638,8 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
     if not existing:
         raise HTTPException(status_code=404, detail="Group not found")
     from modules.orders.services import lock_tenant_for_deletion, forget_tenant
+    from core.controlled_parts import assert_group_deletable
+    assert_group_deletable(db, group_id)
     lock_tenant_for_deletion(db, group_id)
     assert_org_hard_delete_allowed(db, group_id)
     assert_no_admins_left_without_org(db, group_id)

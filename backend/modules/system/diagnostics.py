@@ -11,7 +11,9 @@ import re
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import Request, APIRouter, Depends, HTTPException
+from core.db import get_db
+from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
 
 from core.rbac import require_role
@@ -223,8 +225,8 @@ LOGS_SUPERADMIN_ONLY = {"restricted": "Install-wide logs are available to the su
 LOGS_INTERACTIVE_ONLY = {"restricted": "Install-wide logs need an interactive superadmin session (not an API token)"}
 
 
-@router.get("/system/diagnostics")
-async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
+async def get_diagnostics(current_user: dict = Depends(require_role("admin")),
+                          db: Session = Depends(get_db), acknowledge_controlled: bool = False):
     """Admin-only diagnostics bundle for troubleshooting."""
     from modules.system.sanitize import sanitize_log_lines, sanitize_structure
     from core.error_buffer import error_buffer
@@ -272,7 +274,16 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     # superadmin only. Org admins get the rest of the bundle.
     from core.rbac import is_interactive_session
     superadmin = current_user.get("role") == "admin" and not current_user.get("group_id")
-    if not superadmin:
+    omission = None
+    if superadmin and is_interactive_session(current_user):
+        from core.controlled_logs import check_log_access
+        try:
+            check_log_access(db, current_user, acknowledge_controlled)
+        except HTTPException as exc:
+            omission = exc.detail
+    if omission:
+        result['recent_logs'] = result['error_buffer'] = {'omitted': omission}
+    elif not superadmin:
         result["recent_logs"] = result["error_buffer"] = LOGS_SUPERADMIN_ONLY
     elif not is_interactive_session(current_user):
         # Tokens (scoped or the legacy global key) never read log content.
@@ -333,3 +344,22 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     result["spoolman_link_conflicts"] = _spoolman_link_conflicts(current_user)
 
     return sanitize_structure(result)
+
+
+@router.get('/system/diagnostics')
+async def legacy_diagnostics(current_user: dict = Depends(require_role('admin')),
+                             db: Session = Depends(get_db)):
+    result = await get_diagnostics(current_user, db)
+    from core.controlled_parts import any_marks
+    if any_marks(db):
+        result['recent_logs'] = result['error_buffer'] = {'omitted': {
+            'code': 'controlled_part_acknowledgement_required',
+            'message': 'Use POST /api/system/diagnostics with X-ODIN-Controlled-Ack: true'}}
+    return result
+
+
+@router.post('/system/diagnostics')
+async def post_diagnostics(request: Request, current_user: dict = Depends(require_role('admin', scope='read')),
+                           db: Session = Depends(get_db)):
+    from core.controlled_logs import request_ack
+    return await get_diagnostics(current_user, db, request_ack(request))

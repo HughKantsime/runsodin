@@ -1,0 +1,251 @@
+"""Durable dispatch ownership, bounded preparation and exact staged transport."""
+import hmac
+import os
+import time
+import zipfile
+from core import deploy_freeze, dispatch_claims
+from core.dispatch_identity import build_identity,ownership_refusal
+from core.dispatch_target_lock import acquire_target_lock
+from core.dispatch_target_guard import unresolved_target
+from modules.printers.dispatch_payload_snapshot import stage_payload,hash_regular_payload,PayloadUnavailable
+from modules.printers.dispatch_admission import admit, deploy_window_refusal
+
+ADMISSION_SECONDS=30.0
+
+
+class CapabilityRefused(RuntimeError):
+    pass
+
+
+class TargetOwnershipLost(RuntimeError):
+    pass
+
+
+def _require_target(handle):
+    if not handle.held():
+        raise TargetOwnershipLost('Configured target ownership could not be confirmed')
+
+
+def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,education_decision):
+    from core.auth import SECRET_KEY
+    from core.db import engine
+    from modules.printers import dispatch
+    from modules.printers.maintenance_gate import refusal, report
+    reason = refusal(engine, job['printer_id'])
+    if reason:
+        report(job, reason)
+        return False, reason
+    key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
+    identity=build_identity(creds,key)
+    if identity is None:
+        return False,'Dispatch configuration identity could not be verified; no command was sent'
+    acquired=acquire_target_lock(engine,identity.target_key)
+    if acquired.status=='unsupported':
+        return False,'Dispatch locking is unsupported by this database or storage configuration; this attempt sent no command'
+    if acquired.status!='acquired':
+        return False,'A dispatch claim or target ownership conflict/uncertainty blocks dispatch; reconcile before retrying'
+    handle=acquired.handle
+    result=(False,'Dispatch target ownership requires reconciliation before retrying')
+    try:
+        _require_target(handle)
+        current_job=dispatch._load_job(job['id'])
+        current_creds=dispatch._get_printer_info(job['printer_id'])
+        current_identity=build_identity(current_creds,key)
+        if (current_job is None or current_creds is None or current_identity!=identity
+                or current_job['printer_id']!=job['printer_id'] or current_job.get('hold')
+                or current_job.get('status') not in ('pending','scheduled')
+                or current_creds.get('is_active') is not True
+                or ownership_refusal(current_job,current_creds)
+                or current_job.get('stored_path')!=source_path):
+            result=(False,'Dispatch authority or configuration changed; no command was sent')
+        elif dispatch_claims.retire_terminal_locked(engine,printer_id=job['printer_id'],physical_key=identity.target_key,
+                configuration_key=identity.configuration_key,owner_org_id=current_creds.get('org_id'),
+                target_handle=handle,key=key) not in ('clear','retired'):
+            result=(False,'An unresolved dispatch claim or database uncertainty blocks dispatch; check diagnostics and reconcile before retrying')
+        elif unresolved_target(engine,job['printer_id'],identity.target_key):
+            result=(False,'An unresolved dispatch claim or sender blocks dispatch; reconcile before retrying')
+        else:
+            _require_target(handle)
+            current_education_decision=dispatch._authorize_education_hardware_action(current_job,current_creds)
+            from modules.jobs.services import head_refusal
+            with engine.connect() as queue_connection:
+                queue_refusal = head_refusal(queue_connection, current_job)
+            if queue_refusal:
+                result = (False, queue_refusal)
+            elif current_education_decision is not None and not current_education_decision[0]:
+                result=current_education_decision
+            else:
+                _require_target(handle)
+                result=_dispatch_claimed(current_job,current_creds,source_path,remote_filename,
+                    payload_sha256,current_education_decision,handle)
+    except Exception:
+        result=(False,'Dispatch target ownership requires reconciliation before retrying')
+    finally:
+        if not handle.close().released:
+            result=(False,'Dispatch target cleanup could not be confirmed; reconcile before retrying')
+    if result[0] is True:
+        # A tiny print may end before adapter return. Only reconcile after our
+        # target handle closes; the monitor could not acquire it earlier.
+        dispatch_claims.retire_observed_terminal(engine,printer_id=job['printer_id'])
+    return result
+
+
+def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,education_decision,target_handle):
+    if deploy_window_refusal(job):
+        return False, 'deploy_window: ' + deploy_freeze.MESSAGE
+    from core.auth import SECRET_KEY
+    from core.db import engine
+    from modules.printers import dispatch,smart_plug
+    from modules.printers.dispatch_acquisition import bounded_status_is_idle
+    key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
+    identity=build_identity(creds,key)
+    if identity is None:
+        return False,'Dispatch configuration identity could not be verified; no command was sent'
+    if creds['api_type'] == 'bambu':
+        from modules.printers.dispatch_capability_gate import static_refusal
+        try:
+            refusal = static_refusal(source_path, (job.get('plate_index') or 0) + 1, creds)
+        except (ValueError, OSError, zipfile.BadZipFile) as exc:
+            from modules.printers.dispatch_options import _requires_ams_mapping, _missing_mapping
+            if _requires_ams_mapping(creds) and job.get('ams_mapping') is None:
+                return False, _missing_mapping(job)
+            return False, f'Payload capability inspection failed: {exc}; no command was sent'
+        if refusal:
+            dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=refusal)
+            return False, f'{refusal.code}: {refusal.detail}'
+    from modules.printers.dispatch_background import attempt_token
+    claim=dispatch_claims.acquire(engine,job['printer_id'],job['id'],identity.target_key,
+        identity.configuration_key,payload_sha256,creds.get('org_id'), token=attempt_token())
+    if claim.status!='acquired':
+        return False,'An unresolved dispatch claim or database uncertainty blocks dispatch; check diagnostics and reconcile before retrying'
+    provider=reservation=None
+    adapter_called=False
+    ownership_lost=False
+    result=(False,'Dispatch preparation could not be confirmed; no print command was sent')
+    cleanup=[]
+    try:
+        from modules.printers.dispatch_background import claimed
+        claimed(engine, claim.token, job)
+        with stage_payload(source_path,payload_sha256) as staged:
+            options,error=dispatch._validated_print_options(job,creds,staged.path,staged.sha256)
+            if error:result=(False,error)
+            else:
+                derived = options.get('ams_mapping') is not None and job.get('ams_mapping') is None
+                if derived:
+                    from modules.printers.dispatch_background import progress
+                    progress('preparing', message='AMS mapping derived from verified file source', ams_mapping_derived=True)
+                if education_decision is not None:
+                    reserved,error=dispatch._reserve_education_hardware_action(job,os.path.splitext(remote_filename)[1].lower())
+                    if error:result=(False,error)
+                    else:provider,reservation=reserved
+                if not error:
+                    # Options validation inspected this exact staged snapshot once.
+                    source_facts = options.source_facts
+                    deadline=time.monotonic()+ADMISSION_SECONDS
+                    _require_target(target_handle)
+                    power=smart_plug.prepare_bounded_dispatch_power(job['printer_id'],deadline)
+                    if power.accepted is not True:
+                        result=(False,power.error or 'Power preparation was not confirmed; no print command was sent')
+                    elif not target_handle.held():
+                        raise TargetOwnershipLost()
+                    elif not bounded_status_is_idle(creds,deadline):
+                        result=(False,'Fresh printer readiness was not confirmed; no print command was sent')
+                    elif time.monotonic()>=deadline:
+                        result=(False,'Dispatch preparation deadline elapsed; no print command was sent')
+                    elif not hmac.compare_digest(hash_regular_payload(source_path),staged.sha256):
+                        result=(False,'Print payload changed during preparation; no print command was sent')
+                    else:
+                        if creds['api_type'] == 'bambu':
+                            from modules.printers.dispatch_capability_gate import create_capability_gate
+                            preflight = create_capability_gate(job=job, creds=creds,
+                                staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle)
+                            if not preflight.prepare():
+                                dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=preflight.refusal)
+                                result = (False, dispatch._gate_refusal_message(preflight))
+                                raise CapabilityRefused(result[1])
+                        # Generic observations need an exact attempt identity,
+                        # independent of display names and reused source names.
+                        # Education keeps its authoritative reservation token.
+                        transport_filename=(reservation['remote_filename'] if reservation else
+                            f"odin-dispatch-{claim.token}{os.path.splitext(staged.path)[1].lower()}")
+                        _require_target(target_handle)
+                        admission=admit(engine,token=claim.token,job=job,creds=creds,key=key,
+                            payload_sha256=staged.sha256,transport_filename=transport_filename,power_accepted=power.accepted,broker_connection=power.connection,
+                            education_provider=provider,education_reservation=reservation)
+                        if not admission.admitted:
+                            if admission.reason.startswith('printer_maintenance_hold:'):
+                                from modules.printers.maintenance_gate import report
+                                report(job, admission.reason)
+                            result=(False, 'deploy_window: ' + deploy_freeze.MESSAGE
+                                if admission.reason == 'deploy_window' else admission.reason)
+                        elif time.monotonic()>=deadline:
+                            result=(False,'Dispatch admission completed after the preparation deadline; reconciliation is required before retrying')
+                        else:
+                            _require_target(target_handle)
+                            from modules.printers.maintenance_gate import start_gate
+                            before_start = start_gate(engine, job['printer_id']) if creds['api_type'] == 'bambu' else None
+                            if options.get('ams_mapping') is not None:
+                                from modules.printers.dispatch_ams_gate import create_ams_start_gate
+                                before_start = create_ams_start_gate(engine,
+                                    admission_inputs=dict(token=claim.token,job=job,creds=creds,key=key,
+                                        payload_sha256=staged.sha256,transport_filename=transport_filename,
+                                        power_accepted=power.accepted,broker_connection=power.connection,
+                                        education_provider=provider,education_reservation=reservation),
+                                    staged_path=staged.path,mapping=options['ams_mapping'],target_handle=target_handle,
+                                    source_facts=source_facts)
+                            if creds['api_type'] == 'bambu':
+                                from modules.printers.dispatch_capability_gate import create_capability_gate
+                                before_start = create_capability_gate(job=job, creds=creds,
+                                    staged_path=staged.path, plate_number=options.get('plate_num', 1),
+                                    target_handle=target_handle, previous=before_start)
+                            adapter_called=True
+                            from modules.printers.maintenance_gate import command_context
+                            with command_context(engine, job):
+                                result=dispatch._run_admitted_dispatch(job,creds,staged.path,
+                                    transport_filename,options,provider,reservation,
+                                    **({"before_start":before_start} if before_start is not None else {}))
+                            if derived:
+                                result = (result[0], result[1] + '; AMS mapping derived from verified file source')
+                            _require_target(target_handle)
+                            accepted=type(result[0]) is bool and result[0]
+                            # A hold arriving after admission retains inventory-maint's
+                            # conservative fence; initial holds refuse before any claim.
+                            gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
+                            clean_refusal = (not accepted and getattr(before_start, 'clean_no_start', False)
+                                and gate_code != 'printer_maintenance_hold')
+                            from modules.printers.dispatch_background import audit_actor
+                            actor = audit_actor()
+                            recorded = (dispatch_claims.release_unstarted(engine, claim.token) if clean_refusal else
+                                dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain',
+                                    **({'audit_actor': actor} if actor is not None else {})))
+                            if recorded and clean_refusal:
+                                from modules.printers.start_next import confirm_no_start
+                                confirm_no_start()
+                            if not recorded:
+                                result=(False,'Printer command outcome needs database reconciliation before retrying')
+                            elif not accepted and not clean_refusal:
+                                result=(False,result[1]+'; Dispatch claim requires explicit reconciliation before retrying')
+    except CapabilityRefused as exc:
+        result = (False, str(exc))
+    except TargetOwnershipLost:
+        ownership_lost=True
+        if adapter_called:dispatch_claims.record_outcome(engine,claim.token,'uncertain')
+        result=(False,'Configured target ownership changed; explicit reconciliation is required before retrying')
+    except PayloadUnavailable as exc:
+        result=(False,str(exc))
+    except Exception:
+        if adapter_called:
+            dispatch_claims.record_outcome(engine,claim.token,'uncertain')
+            result=(False,'Printer command outcome is unknown; explicit reconciliation is required before retrying')
+        else:
+            result=(False,'Dispatch preparation could not be confirmed; no print command was sent')
+    finally:
+        if not target_handle.held():ownership_lost=True
+        if not adapter_called:
+            if reservation and not dispatch._cancel_education_reservation(provider,reservation):
+                cleanup.append('Education reservation requires explicit reconciliation')
+            if ownership_lost or not dispatch_claims.release_preparing(engine,claim.token):
+                cleanup.append('Dispatch claim requires explicit reconciliation')
+    if cleanup:
+        return False,result[1]+'; '+'; '.join(cleanup)
+    return result

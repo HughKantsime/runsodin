@@ -99,6 +99,10 @@ def display_names(db, kind, ids, user=None):
         rows = db.execute(query, {'ids': ids[offset:offset+400]}).mappings().all()
         previous = _previous_names(db, rows) if kind == 'job' else {}
         for row in rows:
+            from core.controlled_parts import allowed
+            if user is not None and not allowed(db, kind, row['id'], user):
+                result[row['id']] = 'Controlled work'
+                continue
             model = row['model_name'] if user is None or check_org_access(user, row['model_org']) else None
             filename = row['original_filename'] if user is None or check_org_access(user, row['file_org']) else None
             if kind == 'job':
@@ -113,11 +117,17 @@ def display_names(db, kind, ids, user=None):
 
 
 def name_payloads(db, kind, rows, user=None):
+    from core.controlled_parts import allowed
+    if user is not None:
+        rows = [row for row in rows if allowed(db, kind, row['id'], user)]
     names = display_names(db, kind, [row['id'] for row in rows], user)
     return [dict(row, display_name=names.get(row['id'], human_name(row.get('item_name') or row.get('job_name') or row.get('print_name')))) for row in rows]
 
 
 def name_jobs(db, jobs, user=None):
+    from core.controlled_parts import allowed
+    if user is not None:
+        jobs = [job for job in jobs if allowed(db, 'job', job.id, user)]
     names = display_names(db, 'job', [job.id for job in jobs], user)
     for job in jobs:
         job._read_display_name = names.get(job.id, human_name(job.item_name))
@@ -126,6 +136,7 @@ def name_jobs(db, jobs, user=None):
 
 def name_printers(db, printers, user=None):
     """Batch the currently tracked print name for printer cards."""
+    from core.controlled_parts import allowed
     if not printers:
         return printers
     query = text("SELECT id,printer_id FROM print_jobs WHERE printer_id IN :ids AND status='running' ORDER BY id DESC").bindparams(bindparam('ids', expanding=True))
@@ -136,6 +147,8 @@ def name_printers(db, printers, user=None):
         active.setdefault(row['printer_id'], names[row['id']])
     for printer in printers:
         printer.current_print_display_name = active.get(printer.id)
+        if printer.current_print_display_name and not allowed(db, 'printer_names', printer.id, user):
+            printer.current_print_display_name = 'Controlled work'
     return printers
 
 

@@ -157,12 +157,13 @@ def test_read_printers_token_cannot_start_jobs(odin):
 
 def test_unrelated_scope_cannot_read_admin_data(odin):
     edu = odin.mint(odin.admin_bearer, ["read:education"])["token"]
-    statuses = {p: odin.get(p, headers=key(edu)).status_code for p in ("/api/users", "/api/admin/oidc", "/api/smtp-config", "/api/admin/logs")}
+    statuses = {p: (odin.post if p == "/api/admin/logs" else odin.get)(p, headers=key(edu)).status_code for p in ("/api/users", "/api/admin/oidc", "/api/smtp-config", "/api/admin/logs")}
     assert set(statuses.values()) == {403}, statuses
 
 
 # Non-GET routes whose declared scope is a read scope (a read token may reach them).
 READ_SCOPED_POSTS = {
+    "POST /api/system/diagnostics",  # read-only diagnostics; logs require interactive acknowledgement
     "POST /api/cameras/{printer_id}/webrtc",  # WebRTC signaling to view a camera (read:printers)
     "POST /api/auth/ws-token",                # short-lived telemetry socket token (read)
 }

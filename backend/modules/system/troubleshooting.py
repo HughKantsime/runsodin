@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Request, APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -274,8 +274,7 @@ def run_printer(request:PrinterTest,user=Depends(require_superadmin()),db:Sessio
     with printer_lock(printer.id): return printer_checks(printer,request.transfer)
 
 
-@router.post('/system/troubleshooting/report')
-def support_report(request:ReportRequest,user=Depends(require_superadmin()),db:Session=Depends(get_db)):
+def support_report(request:ReportRequest,user=Depends(require_superadmin()),db:Session=Depends(get_db),acknowledge_controlled:bool=False):
     report=server_checks(db)
     report['problem']=sanitize_log_line(request.problem)
     report['sharing_notice']='Review before sharing. Free-form text can contain personal information. No email has been sent.'
@@ -284,6 +283,12 @@ def support_report(request:ReportRequest,user=Depends(require_superadmin()),db:S
         from core.rbac import CREDENTIAL_ROUTE_DETAIL, is_interactive_session
         if not is_interactive_session(user):
             raise HTTPException(403, CREDENTIAL_ROUTE_DETAIL)  # log content: interactive sessions only
+        from core.controlled_logs import check_log_access
+        try:
+            check_log_access(db, user, acknowledge_controlled)
+        except HTTPException as exc:
+            report['logs_omitted'] = exc.detail
+            return report
         from modules.system.diagnostics import _read_tail
         from modules.system.sanitize import sanitize_log_lines
         report['recent_logs']={}
@@ -292,3 +297,10 @@ def support_report(request:ReportRequest,user=Depends(require_superadmin()),db:S
             report['recent_logs'][source]=sanitize_log_lines(logs) if isinstance(logs,list) else []
         report['included'].append('up to 100 filtered lines per source from seven server/printer logs, at most 64 KiB per source')
     return report
+
+
+@router.post('/system/troubleshooting/report')
+def post_support_report(http_request: Request, request: ReportRequest,
+                        user=Depends(require_superadmin()), db: Session=Depends(get_db)):
+    from core.controlled_logs import request_ack
+    return support_report(request, user, db, request_ack(http_request))

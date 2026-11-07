@@ -1,4 +1,6 @@
 """Owned PG/real directory probe; no camera or frame publication."""
+# Raw job INSERT exemption: isolated minimal pre-055 schema fixtures have no
+# allocator table; fixed IDs test media bindings, not production job creation.
 import os
 import tempfile
 import time

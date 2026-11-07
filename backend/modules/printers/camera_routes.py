@@ -37,6 +37,7 @@ from core.timelapse_access import assert_timelapse_access,timelapse_visibility,v
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
 from modules.printers.bambu_chamber_camera import SOURCE as CHAMBER_CAMERA_SOURCE
 from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+from modules.printers.controlled_camera import frame_guard as _controlled_frame_guard
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -346,6 +347,9 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
     # Build camera list from DB — don't gate on go2rtc being live
     cameras = []
     for p in printers:
+        from core.controlled_parts import allowed
+        if not allowed(db, 'printer', p.id, current_user):
+            continue
         url = get_camera_url(p)
         if url:
             cameras.append({"id": p.id, "name": p.name, "has_camera": True, "display_order": p.display_order or 0, "camera_enabled": bool(p.camera_enabled)})
@@ -388,10 +392,14 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
 
     if not printer.is_active or not printer.camera_enabled:
         raise HTTPException(status_code=404, detail="Camera not found")
+    from core.controlled_parts import assert_access
+    assert_access(db, 'printer', printer_id, current_user)
     camera_url = get_camera_url(printer)
     if not camera_url:
         raise HTTPException(status_code=404, detail="Camera not found")
 
+    from core.controlled_parts import policies
+    controlled_camera = bool(policies(db, 'printer', printer_id))
     stream_name = f"printer_{printer_id}"
 
     return {
@@ -399,7 +407,7 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
         "printer_name": printer.name,
         "stream_name": stream_name,
         "webrtc_url": f"/api/cameras/{printer_id}/webrtc",
-        "transport": "mjpeg" if camera_url == CHAMBER_CAMERA_SOURCE or camera_url.lower().startswith(("http://", "https://")) else "webrtc",
+        "transport": "mjpeg" if controlled_camera or camera_url == CHAMBER_CAMERA_SOURCE or camera_url.lower().startswith(("http://", "https://")) else "webrtc",
     }
 
 
@@ -414,6 +422,11 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
 
     if not printer.is_active or not printer.camera_enabled:
         raise HTTPException(status_code=404, detail="Camera not found")
+    from core.controlled_parts import assert_access
+    assert_access(db, 'printer', printer_id, current_user)
+    from core.controlled_parts import policies, refuse
+    if policies(db, 'printer', printer_id):
+        refuse(db, 'controlled_part_use_authenticated_mjpeg', 'printer', printer_id)
     camera_url = get_camera_url(printer)
     if not camera_url:
         raise HTTPException(status_code=404, detail="Camera not found")
@@ -448,6 +461,10 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"go2rtc returned {resp.status_code}")
+        db.expire_all()
+        assert_access(db, 'printer', printer_id, current_user)
+        if policies(db, 'printer', printer_id):
+            refuse(db, 'controlled_part_use_authenticated_mjpeg', 'printer', printer_id)
         await run_in_threadpool(audit_view, db, "camera.viewed", "printer", printer_id, "webrtc")
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
     except httpx.ConnectError:
@@ -483,6 +500,8 @@ def overlay_camera_principal(db: Session, token: Optional[str], printer: Optiona
         raise HTTPException(status_code=404, detail="Printer not found")
     if not printer.is_active or not printer.camera_enabled or not get_camera_url(printer):
         raise HTTPException(status_code=404, detail="Camera not found")
+    from core.controlled_parts import assert_access
+    assert_access(db, 'printer', printer.id, principal)
     return principal
 
 
@@ -549,4 +568,5 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
         printer_id, check=lambda: _overlay_check(bind, token, printer_id),
         sync=sync, claim=_overlay_claim, release=_overlay_release,
         revalidate_seconds=OVERLAY_REVALIDATE_SECONDS, audit=record,
+        check_frame=_controlled_frame_guard(bind, printer_id),
     )

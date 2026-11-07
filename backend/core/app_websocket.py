@@ -87,13 +87,18 @@ class ConnectionManager:
         public_message = {key: value for key, value in message.items() if key != "_audience"}
         dead = []
         delivered = 0
-        for ws, principal in list(self.active):
+        audience = list(self.active)
+        from core.controlled_events import audience_messages
+        messages = await asyncio.to_thread(audience_messages, [p for _, p in audience], public_message)
+        for (ws, principal), controlled_message in zip(audience, messages):
             if not self._can_receive(principal, user_ids, org_id, shared):
                 continue
             if not await asyncio.to_thread(self._education_principal_current, principal, message):
                 continue
+            if controlled_message is None:
+                continue
             try:
-                await asyncio.wait_for(ws.send_json(public_message), timeout=1)
+                await asyncio.wait_for(ws.send_json(controlled_message), timeout=1)
                 delivered += 1
             except Exception:
                 dead.append(ws)

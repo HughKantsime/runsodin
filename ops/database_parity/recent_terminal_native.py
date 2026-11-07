@@ -1,4 +1,6 @@
 """Actual PG HTTP recent projection; minimal owned tables, no application data."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os
 import secrets
 os.environ.setdefault('JWT_SECRET_KEY',secrets.token_urlsafe(48))

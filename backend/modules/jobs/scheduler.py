@@ -435,7 +435,13 @@ class Scheduler(SchedulerPlanning):
 
         from core.dispatch_identity import ownership_refusal
         from modules.printers.services import dispatch_unsupported_reason
+        from core.controlled_parts import dispatch_refusal
+        from sqlalchemy.orm import object_session
+        db = object_session(job)
         for printer_id, state in printer_states.items():
+            from core.controlled_scheduler import refusal
+            if refusal(db, job.id, printer_id):
+                continue
             if dispatch_unsupported_reason(state.printer):
                 continue
             if state.authority is None or ownership_refusal(

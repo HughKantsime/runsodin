@@ -153,6 +153,8 @@ async def list_alerts(
             data.job_name = human_name(*job_names(db, alert.job_id))
         if alert.spool and alert.spool.filament:
             data.spool_name = f"{alert.spool.filament.brand} {alert.spool.filament.name}"
+        from core.controlled_redaction import redact_export
+        data = AlertResponse.model_validate(redact_export(db, current_user, data.model_dump(), resource_kind='alert'))
         results.append(data)
 
     return results

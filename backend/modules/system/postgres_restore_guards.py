@@ -202,6 +202,7 @@ def _schema_sql_evidence(archive, database_url, password_file, directory, *, all
 
 
 def _restore_postgres_archive(archive: service.Path, target_url: str, password_file: str | None, directory: service.Path, *, _contract=None, _stage=None) -> None:
+    from modules.system.postgres_restore_identity import job_identity_floor, preserve_job_identity
     from core.schema.pre026_restore_contract import check_contract
     check_contract(_contract)
     if _contract is not None:
@@ -220,6 +221,7 @@ def _restore_postgres_archive(archive: service.Path, target_url: str, password_f
                 raise service.BackupValidationError('Restore target schema has unsupported historical compatibility')
             restore_list = service._validated_restore_list(archive, target_url, password_file, directory,
                 trusted_prevalidated=True, data_connection=connection,_contract=_contract)
+            identity_floor = job_identity_floor(connection)
             remove_trusted_guards(connection,_contract=_contract)
             names = ','.join('public."'+name+'"' for name in sorted((service.canonical_tables() if _contract is None else service.canonical_tables(_contract=_contract))))
             connection.exec_driver_sql('TRUNCATE '+names+' RESTART IDENTITY')
@@ -227,6 +229,7 @@ def _restore_postgres_archive(archive: service.Path, target_url: str, password_f
             '--no-owner', '--no-privileges', '--use-list', str(restore_list), '--dbname',
             service._credentialless_cli_url(target_url, 'odin-restore'), str(archive)], target_url, password_file, directory)
         with engine.begin() as connection:
+            preserve_job_identity(connection, identity_floor)
             install_trusted_guards(connection,_contract=_contract)
         # Migration adoption/data associations are verified after guard installation.
         if _contract is None:service.bootstrap_database(engine)

@@ -1,4 +1,6 @@
 """Owned native producer/bootstrap delivery proof; no power command or timer fires."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os,secrets,tempfile,threading,sys,traceback
 _sensitive=[]
 class RedactedOutput:

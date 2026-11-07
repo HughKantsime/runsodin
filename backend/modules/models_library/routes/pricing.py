@@ -196,7 +196,9 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
-    models = query.order_by(Model.name).all()
+    from core.controlled_parts import model_visibility
+    visible, values = model_visibility(current_user)
+    models = query.filter(text(visible)).params(**values).order_by(Model.name).all()
 
     # Job aggregates have their own resource permission, independent of models.
     from core.api_token_policy import token_scope_granted

@@ -150,6 +150,8 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     from modules.orders.services import lock_tenant_for_deletion, forget_tenant
+    from core.controlled_parts import assert_group_deletable
+    assert_group_deletable(db, org_id)
     lock_tenant_for_deletion(db, org_id)
     assert_org_hard_delete_allowed(db, org_id)
     # A spool's owning organization is part of its immutable cost history

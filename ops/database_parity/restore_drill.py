@@ -327,6 +327,9 @@ def run() -> None:
     assert marker() == '"before-interruption"'
     assert not paths.pending.exists()
     assert not paths.manifest.exists()
+    from controlled_restore_native import run as controlled_restore
+    controlled_restore()
+
     evidence = {
         "dialect": "postgresql",
         "backup_size_bytes": candidate_metadata["size_bytes"],

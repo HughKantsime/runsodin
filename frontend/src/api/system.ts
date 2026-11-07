@@ -1,3 +1,4 @@
+import { controlledDownload, controlledRestore } from './controlledDownload'
 import { fetchAPI } from './client'
 import type { SmtpConfig, SmtpConfigResponse } from '../types'
 
@@ -101,9 +102,13 @@ export const backups = {
   list: (): Promise<BackupEntry[]> => fetchAPI('/backups'),
   create: (): Promise<BackupEntry> => fetchAPI('/backups', { method: 'POST' }),
   remove: (filename: string): Promise<void> => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
-  stage: (filename: string): Promise<StagedRestore> => fetchAPI(`/backups/${encodeURIComponent(filename)}/stage`, { method: 'POST' }),
+  stage: async (filename: string): Promise<StagedRestore> => {
+    const response = await controlledRestore(`${API_BASE}/backups/${encodeURIComponent(filename)}/stage`, { method: 'POST', credentials: 'include' })
+    if (!response.ok) throw new Error('Restore staging refused')
+    return response.json()
+  },
   download: async (filename: string, bundle = false): Promise<void> => {
-    const res = await fetch(`${API_BASE}/backups/${filename}${bundle ? '?bundle=true' : ''}`, { credentials: 'include' })
+    const res = await controlledDownload(`${API_BASE}/backups/${filename}${bundle ? "?bundle=true" : ""}`, 'backup')
     if (!res.ok) throw new Error('Download failed')
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -118,7 +123,7 @@ export const backups = {
 }
 
 export const adminBundle = {
-  download: (): Promise<void> => fetch('/api/admin/support-bundle', { credentials: 'include' })
+  download: (): Promise<void> => controlledDownload('/api/admin/support-bundle', 'support bundle')
     .then(res => {
       if (!res.ok) throw new Error('Failed to generate bundle')
       return res.blob()
@@ -134,17 +139,19 @@ export const adminBundle = {
 };
 
 export const adminLogs = {
-  get: (source = 'backend', lines = 200, level: string | null = null, search: string | null = null, cursor: string | null = null): Promise<{ lines: string[]; source: string; next_cursor?: string | null; page_cursor?: string | null }> => {
+  get: (source = 'backend', lines = 200, level: string | null = null, search: string | null = null, cursor: string | null = null, acknowledgeControlled = false): Promise<{ lines: string[]; source: string; next_cursor?: string | null; page_cursor?: string | null }> => {
     const params = new URLSearchParams({ source, lines: String(lines) })
     if (cursor) params.set('cursor', cursor)
     if (level) params.set('level', level)
     if (search) params.set('search', search)
-    return fetchAPI(`/admin/logs?${params}`)
+    return fetchAPI(`/admin/logs?${params}`, { method: 'POST', headers: acknowledgeControlled ? { 'X-ODIN-Controlled-Ack': 'true' } : {} })
   },
-  streamUrl: (source = 'backend', level: string | null = null, search: string | null = null): string => {
+  streamUrl: async (source = 'backend', level: string | null = null, search: string | null = null, acknowledgeControlled = false): Promise<string> => {
+    const { token } = await fetchAPI<{ token: string }>('/admin/logs/stream-token', { method: 'POST', headers: acknowledgeControlled ? { 'X-ODIN-Controlled-Ack': 'true' } : {} })
     const params = new URLSearchParams({ source })
     if (level) params.set('level', level)
     if (search) params.set('search', search)
+    params.set('token', token)
     return `/api/admin/logs/stream?${params}`
   },
 };
@@ -180,9 +187,13 @@ export const setLanguage = (lang: string): Promise<LanguageConfig> => fetchAPI('
 
 // ---- Diagnostics ----
 export const diagnostics = {
-  fetch: (): Promise<Record<string, unknown>> => fetchAPI('/v1/system/diagnostics'),
+  fetch: (acknowledged = false): Promise<Record<string, unknown>> => fetchAPI('/v1/system/diagnostics', { method: 'POST', headers: acknowledged ? { 'X-ODIN-Controlled-Ack': 'true' } : {} }),
   download: async (): Promise<void> => {
-    const data = await fetchAPI<Record<string, unknown>>('/v1/system/diagnostics')
+    let data = await diagnostics.fetch()
+    const omitted = (data.recent_logs as { omitted?: { code?: string } } | undefined)?.omitted
+    if (omitted?.code === 'controlled_part_acknowledgement_required' && window.confirm('Include application logs? They may contain controlled part names and details. Cancel to download diagnostics without controlled logs.')) {
+      data = await diagnostics.fetch(true)
+    }
     const version = (data.odin_version as string) || 'unknown'
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })

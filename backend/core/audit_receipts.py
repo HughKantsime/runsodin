@@ -78,6 +78,21 @@ def redaction(before, after):
     except (TypeError, ValueError):
         return False
 
+    if before['action'] == 'controlled_part.changed' and isinstance(old, dict):
+        from core.controlled_privacy import erased_details
+        authors = {before.get('actor_user_id')}
+        authors.update(value.get('changed_by') for value in (old.get('before'), old.get('after')) if isinstance(value, dict))
+        if any(new == erased_details(old, uid, actor_id=before.get('actor_user_id'))
+               for uid in authors if uid is not None):
+            return True
+
+    if before['action'] in ('controlled_audience.saved', 'controlled_audience.deleted') and isinstance(old, dict):
+        from core.controlled_privacy import erased_audience_details
+        members = {uid for side in ('before', 'after') if isinstance(old.get(side), list)
+                   for uid in old[side] if type(uid) is int}
+        if any(new == erased_audience_details(old, uid) for uid in members):
+            return True
+
     def scrubbed(a, b, key=None):
         from core.identity_scrub import PROTECTED_KEYS, STRUCTURAL_KEYS
         if key in PROTECTED_KEYS:

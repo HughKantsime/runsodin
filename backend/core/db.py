@@ -51,7 +51,12 @@ class _CurrentEngine:
     as `engine` instead of binding the Engine object at import time, so a
     module imported while core.db.engine was temporarily replaced never keeps
     a stale engine. Works wherever an Engine is used through its attributes
-    (connect, begin, raw_connection, dialect, Session(bind=...)).
+    (connect, begin, raw_connection, dialect).
+
+    ORM Sessions must bind to concrete_engine(engine), not this proxy: SQLAlchemy
+    keys their connections by the concrete Engine returned by connect(). A
+    proxy bind misses that key and opens a new connection for every query.
+    The helper preserves module-level engine overrides while unwrapping this proxy.
 
     INTERNAL PROXY: it is not an Engine instance, so isinstance(x, Engine)
     and sqlalchemy.inspect() reject it. Code that validates its engine
@@ -78,6 +83,12 @@ class _CurrentEngine:
 
 
 live_engine = _CurrentEngine()
+
+
+def concrete_engine(engine):
+    """Unwrap the live proxy, preserving concrete engines and caller overrides."""
+    return current_engine() if engine is live_engine else engine
+
 
 # Configure connection behavior based on database type
 if IS_SQLITE:

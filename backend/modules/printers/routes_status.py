@@ -158,7 +158,8 @@ def _fetch_live_status_legacy(printer_id, printer, serial, access_code) -> dict:
 def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Get real-time status from printer via MQTT."""
     _visible_printer(printer_id, db, current_user)
-    return _fetch_printer_live_status(printer_id, db)
+    from core.controlled_redaction import printer_status
+    return printer_status(db, printer_id, current_user, _fetch_printer_live_status(printer_id, db))
 
 
 # ====================================================================

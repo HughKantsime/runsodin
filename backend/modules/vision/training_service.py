@@ -173,6 +173,10 @@ def export_frames(db,user):
     with zipfile.ZipFile(result,'w',zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('data.yaml','names:\n  0: spaghetti\n  1: first_layer\n  2: detachment\n  3: build_plate_empty\nnc: 4\ntrain: images/\nval: images/\n')
         for row in rows:
+            from core.controlled_parts import historical_camera_allowed
+            if not historical_camera_allowed(db, row.printer_id, user):
+                excluded.append({'id': row.id, 'reason': 'controlled_part_group_required'})
+                continue
             try:
                 value=metadata(row.metadata_json).get('training_annotation')
                 if value is None:excluded.append({'id':row.id,'reason':'unannotated'});continue
@@ -206,6 +210,9 @@ def list_frames(db,user,printer_id,labeled,limit,offset):
     rows=query.order_by(VisionDetection.created_at.desc(),VisionDetection.id.desc()).offset(offset).limit(limit).all()
     result=[]
     for row in rows:
+        from core.controlled_parts import historical_camera_allowed
+        if not historical_camera_allowed(db, row.printer_id, user):
+            continue
         try:
             value=metadata(row.metadata_json).get('training_annotation')
             is_labeled=isinstance(value,dict) and type(value.get('version')) is int and value.get('version')==1

@@ -1,4 +1,6 @@
 """Owned actual PostgreSQL final retirement COMMIT/replay controls."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os,secrets,stat,tempfile,subprocess,json,re,traceback
 from pathlib import Path
 from contextlib import contextmanager

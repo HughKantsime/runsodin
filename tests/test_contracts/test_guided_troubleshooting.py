@@ -4,6 +4,7 @@ import ipaddress
 import secrets
 import socket
 from types import SimpleNamespace
+from tests.test_contracts.test_controlled_parts import database
 import pytest
 
 
@@ -175,12 +176,21 @@ def test_read_only_admin_token_cannot_run_printer_diagnostic(monkeypatch):
 def test_legacy_zip_filters_recent_errors_and_nested_config(monkeypatch):
     import asyncio,io,json,zipfile
     from modules.system import routes_admin,diagnostics
+    from core.schema.bootstrap import import_all_models
+    import_all_models()  # The export audit constructs an ORM model even with a fake DB.
     secret=secrets.token_urlsafe(24)
     class Result:
         def __init__(self,rows=()):self.rows=rows
         def scalar(self):return 0
+        def first(self):return self.rows[0] if self.rows else None
         def fetchall(self):return self.rows
     class DB:
+        def __init__(self):
+            self.info = {}
+            self.entries = []
+        def add(self, entry): self.entries.append(entry)
+        def commit(self): pass
+        def rollback(self): self.entries.clear()
         def execute(self,statement):
             query=str(statement)
             return Result([('smtp_url','http://user:'+secret+'@example.test')]) if 'system_config' in query else Result()
@@ -193,22 +203,22 @@ def test_legacy_zip_filters_recent_errors_and_nested_config(monkeypatch):
     assert secret not in content and '[REDACTED]' in content
 
 
-def test_report_logs_are_fixed_bounded_and_filtered(monkeypatch):
+def test_report_logs_are_fixed_bounded_and_filtered(monkeypatch, database):
     from modules.system import diagnostics
     secret=secrets.token_urlsafe(24);paths=[]
     monkeypatch.setattr(t,'server_checks',lambda _:t.envelope([]))
     def tail(path,limit):
         paths.append((path,limit));return ['PASS '+secret]
     monkeypatch.setattr(diagnostics,'_read_tail',tail)
-    result=t.support_report(t.ReportRequest(include_logs=True),{'id':1,'role':'admin','group_id':None},None)  # interactive superadmin
+    result=t.support_report(t.ReportRequest(include_logs=True),{'id':1,'role':'admin','group_id':None},database)  # interactive superadmin
     assert len(paths)==7 and all(limit==100 for _,limit in paths)
     assert secret not in str(result)
     assert set(result['recent_logs'])=={'backend','mqtt_monitor','moonraker_monitor','prusalink_monitor','elegoo_monitor','anycubic_lan_monitor','supervisord'}
 
 
-def test_existing_log_viewer_remains_working_and_filters_secrets(tmp_path,monkeypatch):
+def test_existing_log_viewer_remains_working_and_filters_secrets(tmp_path,monkeypatch,database):
     from modules.system import routes_admin
     secret=secrets.token_urlsafe(24);path=tmp_path/'backend.log';path.write_text('ERROR PASS '+secret+'\n')
     monkeypatch.setitem(routes_admin._LOG_FILES,'backend',str(path))
-    result=routes_admin.get_logs('backend',200,None,None,{})
+    result=routes_admin.get_logs('backend',200,None,None,None,{'id':2,'role':'admin','group_id':None},database)
     assert result['lines'] and secret not in str(result)

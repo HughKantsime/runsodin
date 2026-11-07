@@ -156,6 +156,8 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
         log.error(f"Failed to read webhooks: {e}")
         return
 
+    from core.controlled_events import external_copy
+    title, message = external_copy(title, message, printer_id=printer_id, job_id=job_id)
     severity_colors = {"critical": 0xef4444, "error": 0xe74c3c, "warning": 0xf59e0b, "info": 0x3b82f6}
     severity_emoji = {"critical": "\U0001f534", "error": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}
 

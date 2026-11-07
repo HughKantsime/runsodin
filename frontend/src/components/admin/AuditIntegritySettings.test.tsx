@@ -124,3 +124,88 @@ test('missing-key initialization sends a reason and refreshes verification', asy
   expect(JSON.parse(String(call[1]?.body))).toEqual({ reason: 'Original keys cannot be recovered' })
   expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/verify'))).toHaveLength(2)
 })
+test('standing acknowledgement confirms the saved receiver and sends the CSRF header', async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'abc', name: 'SOC', endpoint: 'syslog://soc.example:6514', pending: 0, enabled: 0 }]), { status: 200 }))
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  mount(); const button = await screen.findByText('Acknowledge SOC')
+  fireEvent.click(button)
+  expect(vi.mocked(fetch).mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false)
+  confirm.mockReturnValue(true); fireEvent.click(button)
+  await screen.findByText(/Destination acknowledged/)
+  const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith('/acknowledge'))!
+  expect(call[0]).toBe('/api/settings/siem/abc/acknowledge')
+  expect(call[1]?.method).toBe('POST')
+  expect(new Headers(call[1]?.headers).get('X-ODIN-Controlled-Ack')).toBe('true')
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('syslog://soc.example:6514'))
+  confirm.mockRestore()
+})
+test('standing acknowledgement displays who and when and disappears after target changes', async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'abc', name: 'SOC', kind: 'syslog', endpoint: 'syslog://soc.example:6514', tls: true, pending: 0, enabled: 0,
+    controlled_acknowledgement: { user_id: 4, acknowledged_at: '2026-11-06T12:00:00Z' } }]), { status: 200 }))
+  mount(); await screen.findByText(/acknowledged by user 4 at 2026-11-06T12:00:00Z/)
+  expect(screen.queryByText('Acknowledge SOC')).toBeNull()
+  fireEvent.click(screen.getByText('Edit SOC'))
+  fireEvent.change(screen.getByLabelText('Endpoint'), { target: { value: 'syslog://new.example:6514' } })
+  vi.mocked(fetch).mockImplementation(async (url: string) => new Response(JSON.stringify(url.endsWith('/siem')
+    ? [{ id: 'abc', name: 'SOC', endpoint: 'syslog://new.example:6514', pending: 0, enabled: 0, controlled_acknowledgement: null }] : {}), { status: 200 }))
+  fireEvent.click(screen.getByText('Save destination'))
+  await screen.findByText('Acknowledge SOC')
+  expect(screen.queryByText(/acknowledged by user 4/)).toBeNull()
+})
+
+test('rotation saves explicit acknowledgement with CSRF while keeping delivery enabled', async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'abc', name: 'SOC', kind: 'webhook', endpoint: 'https://soc.example/events', tls: true, pending: 0, enabled: 1,
+    controlled_acknowledgement: { user_id: 4, acknowledged_at: '2026-11-06T12:00:00Z' } }]), { status: 200 }))
+  mount(); fireEvent.click(await screen.findByText('Edit SOC'))
+  fireEvent.change(screen.getByLabelText(/HMAC secret/), { target: { value: 'fixture-only-new-secret-0000000000' } })
+  const consent = screen.getByLabelText(/I acknowledge this destination/)
+  expect((consent as HTMLInputElement).checked).toBe(false)
+  fireEvent.click(consent)
+  fireEvent.click(screen.getByText('Save destination'))
+  await screen.findByText('Destination saved.')
+  const writes = vi.mocked(fetch).mock.calls.filter(([, o]) => o?.method === 'PUT')
+  expect(writes).toHaveLength(1)
+  expect(writes[0][0]).toBe('/api/settings/siem/abc')
+  expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({ enabled: true, acknowledge_controlled: true, secret: 'fixture-only-new-secret-0000000000' })
+  expect(new Headers(writes[0][1]?.headers).get('X-ODIN-Controlled-Ack')).toBe('true')
+  expect(new Headers(writes[0][1]?.headers).get('Content-Type')).toBe('application/json')
+  expect((consent as HTMLInputElement).checked).toBe(false)
+})
+
+test('target changes and switching destinations clear unsaved consent', async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'abc', name: 'SOC', kind: 'webhook', endpoint: 'https://soc.example/events', tls: true, pending: 0, enabled: 1 }]), { status: 200 }))
+  mount(); fireEvent.click(await screen.findByText('Edit SOC'))
+  const consent = screen.getByLabelText(/I acknowledge this destination/) as HTMLInputElement
+  for (const [label, value] of [['Endpoint', 'https://new.example/events'], [/HMAC secret/, 'fixture-only-new-secret-0000000000'], ['Private CA bundle (optional PEM)', 'PEM fixture']] as const) {
+    fireEvent.click(consent); expect(consent.checked).toBe(true)
+    fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    expect(consent.checked).toBe(false)
+  }
+  fireEvent.click(consent)
+  fireEvent.click(screen.getByText('Cancel edit'))
+  expect(consent.checked).toBe(false)
+  fireEvent.click(consent)
+  fireEvent.click(screen.getByText('Edit SOC'))
+  expect(consent.checked).toBe(false)
+})
+
+test('rotation refusal preserves the enabled form and shows the server reason', async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'abc', name: 'SOC', kind: 'webhook', endpoint: 'https://soc.example/events', tls: true, pending: 0, enabled: 1 }]), { status: 200 }))
+  mount(); fireEvent.click(await screen.findByText('Edit SOC'))
+  fireEvent.change(screen.getByLabelText('Endpoint'), { target: { value: 'https://new.example/events' } })
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code: 'controlled_part_siem_acknowledgement_required', message: 'A superadmin must acknowledge SIEM destination SOC.' } }), { status: 403 }))
+  fireEvent.click(screen.getByText('Save destination'))
+  expect((await screen.findByRole('alert')).textContent).toBe('A superadmin must acknowledge SIEM destination SOC.')
+  expect((screen.getByLabelText('Endpoint') as HTMLInputElement).value).toBe('https://new.example/events')
+  expect((screen.getByLabelText('Enable delivery of new audit events') as HTMLInputElement).checked).toBe(true)
+  const call = vi.mocked(fetch).mock.calls.find(([, o]) => o?.method === 'PUT')!
+  expect(JSON.parse(String(call[1]?.body)).acknowledge_controlled).toBeUndefined()
+  expect(new Headers(call[1]?.headers).get('X-ODIN-Controlled-Ack')).toBeNull()
+})
+
+test('erased acknowledgement author remains visibly acknowledged', async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'abc', name: 'SOC', pending: 0, enabled: 1,
+    controlled_acknowledgement: { user_id: null, acknowledged_at: '2026-11-06T12:00:00Z' } }]), { status: 200 }))
+  mount(); await screen.findByText(/acknowledged by an erased user at 2026-11-06T12:00:00Z/)
+  expect(screen.queryByText('Acknowledge SOC')).toBeNull()
+})

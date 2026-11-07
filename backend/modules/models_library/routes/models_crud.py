@@ -58,7 +58,9 @@ def list_models(
     if should_filter_org(current_user, effective_org):
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
 
-    return query.order_by(Model.name).all()
+    from core.controlled_parts import model_visibility
+    visible, values = model_visibility(current_user)
+    return query.filter(text(visible)).params(**values).order_by(Model.name).all()
 
 
 @router.get("-with-pricing")

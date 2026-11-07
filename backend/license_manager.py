@@ -48,16 +48,8 @@ DEVICE_PRIVATE_KEY_FILENAME = ".odin-device.key"
 
 
 def get_installation_id() -> str:
-    """Read the persistent installation ID. Generates one if missing (defensive)."""
-    id_path = os.path.join(LICENSE_DIR, INSTALL_ID_FILENAME)
-    if os.path.isfile(id_path):
-        return open(id_path).read().strip()
-    # Defensive: generate if file was deleted
-    install_id = str(uuid.uuid4())
-    os.makedirs(LICENSE_DIR, exist_ok=True)
-    with open(id_path, "w") as f:
-        f.write(install_id)
-    return install_id
+    from license_device import get_installation_id as read
+    return read()
 
 
 def get_device_keypair():
@@ -65,21 +57,8 @@ def get_device_keypair():
     return read_key(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME, CRYPTO_AVAILABLE)
 
 def sign_license_challenge(action: str, key: str, installation_id: str, nonce: str) -> str:
-    """Sign a license-operation challenge with this device's private key.
-
-    Returns base64 Ed25519 signature. Canonical message format MUST match
-    api/_lib/license-pop.js's canonicalMessage() on the license server:
-
-        odin-license-v1\\n${action}\\n${key}\\n${installation_id}\\n${nonce}
-
-    action ∈ {"unactivate", "reactivate", "activate-bootstrap"}.
-    """
-    if action not in ("unactivate", "reactivate", "activate-bootstrap"):
-        raise ValueError(f"unknown action: {action}")
-    priv, _pub = get_device_keypair()
-    message = f"odin-license-v1\n{action}\n{key}\n{installation_id}\n{nonce}".encode("utf-8")
-    sig = priv.sign(message)
-    return base64.b64encode(sig).decode("ascii")
+    from license_device import sign_license_challenge as sign
+    return sign(action, key, installation_id, nonce)
 
 
 # ── Pro trial request (signed with the device key) ──
@@ -633,23 +612,9 @@ def require_license_mutation_enabled() -> None:
         )
 
 
-def check_printer_limit(current_count: int):
-    """Check if adding another printer would exceed the license limit."""
-    from fastapi import HTTPException
-    license_info = get_license()
-    if license_info.max_printers is not None and current_count >= license_info.max_printers:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Printer limit reached ({license_info.max_printers}). Upgrade to Pro for unlimited printers."
-        )
+from license_limits import check_printer_limit, check_user_limit
 
+ENTERPRISE_ONLY_FEATURES = frozenset({"controlled_parts"})
 
-def check_user_limit(current_count: int):
-    """Check if adding another user would exceed the license limit."""
-    from fastapi import HTTPException
-    license_info = get_license()
-    if license_info.max_users is not None and current_count >= license_info.max_users:
-        raise HTTPException(
-            status_code=403,
-            detail=f"User limit reached ({license_info.max_users}). Upgrade to Pro for unlimited users."
-        )
+def enterprise_feature_allowed(license_info, feature):
+    return license_info.valid and license_info.tier == "enterprise"

@@ -46,7 +46,7 @@ def release_stream(entries, entry):
         entries.remove(entry)
 
 
-async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seconds=30, audit=None):
+async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seconds=30, audit=None, check_frame=None):
     """Authorize, admit, open upstream and relay without retaining a DB session."""
     viewer = await run_in_threadpool(check)
     entry = claim(viewer, printer_id)
@@ -135,6 +135,11 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
                     except StopAsyncIteration:
                         return
                     pending = None
+                    if check_frame is not None:
+                        try:
+                            await run_in_threadpool(check_frame, viewer)
+                        except HTTPException:
+                            return
                     yield chunk
         except httpx.HTTPError:
             return

@@ -1,4 +1,6 @@
 """Owned current PostgreSQL report query and real JWT HTTP controls."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os,stat,secrets
 from pathlib import Path
 private=Path(os.environ['CALLBACK_NATIVE_PASSWORD_FILE'])

@@ -315,6 +315,7 @@ docker run --rm \
     --mount "type=bind,src=${maintenance_password_file},dst=/run/secrets/postgres_maintenance_password,readonly" \
     --mount "type=volume,src=${application_volume},dst=/data" \
     -v "$(pwd)/ops/database_parity/restore_drill.py:/tmp/restore_drill.py:ro" \
+    -v "$(pwd)/ops/database_parity/controlled_restore_native.py:/tmp/controlled_restore_native.py:ro" \
     "${image}" \
     /tmp/restore_drill.py \
     2>&1 | tee "${runtime_diagnostic_file}"

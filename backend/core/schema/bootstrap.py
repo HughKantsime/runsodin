@@ -110,6 +110,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "users",
         "webhooks",
         "ws_events",
+        "controlled_audiences", "controlled_audience_members", "controlled_files", "controlled_jobs", "controlled_job_tombstones", "job_id_high_water", "controlled_retention_clocks",
     }
 )
 
@@ -122,6 +123,9 @@ RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 
 RAW_REQUIRED_COLUMNS = {
     "traceability_records": frozenset("job_id attempt snapshot snapshot_sha256 captured_at inspection_result inspection_notes inspected_by inspected_at delivered_by delivered_at".split()),
     "traceability_policies": frozenset("owner_id org_id target_kind target_key required".split()),
+    "job_id_high_water": frozenset({"singleton", "high_water"}), "controlled_job_tombstones": frozenset({"job_id", "audience_id", "label", "printer_tag", "retention_days", "marked_at", "created_at", "audit_max_id", "rule_index", "purge_previewed_at", "retention_initial_days", "retention_changes"}), "controlled_retention_clocks": frozenset({"resource_type", "resource_id", "marked_at", "initial_days", "changes", "released_at"}),
+    "controlled_audiences": frozenset({"id", "name", "created_by"}), "controlled_audience_members": frozenset({"audience_id", "user_id"}), "controlled_files": frozenset({"file_id", "label", "audience_id", "printer_tag", "retention_days", "reason", "changed_by", "marked_at", "purge_previewed_at"}),
+    "controlled_jobs": frozenset({"job_id", "label", "audience_id", "printer_tag", "retention_days", "reason", "changed_by", "marked_at", "purge_previewed_at"}),
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
     "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
     "job_timeline_events": frozenset("id job_id print_attempt_uid printer_id org_id kind code detail actor_user_id actor_token_id occurred_at recorded_at".split()),
@@ -367,6 +371,8 @@ POST027_MIGRATIONS = (
     ("python:051-roster-sync", "core.schema.migrations.051_roster_sync"),
     ("python:052-traceability", "core.schema.migrations.052_traceability"),
     ("python:053-term-retention", "core.schema.migrations.053_term_retention"),
+    ("python:054-controlled-parts", "core.schema.migrations.054_controlled_parts"),
+    ("python:055-controlled-history", "core.schema.migrations.055_controlled_history"),
 )
 
 
@@ -457,6 +463,10 @@ def validate_schema(connection, *, _contract=None) -> dict[str, int]:
             )
     from core.schema.mfa_enrollments import validate_enrollment_shape
     validate_enrollment_shape(connection)
+    if _contract is None:
+        # Recheck after all migrations: a later jobs rebuild can drop its guards.
+        from importlib import import_module
+        import_module('core.schema.migrations.055_controlled_history').validate(connection)
     return {"tables": len(actual_tables), "required_tables": len(required_tables)}
 
 
@@ -629,7 +639,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -661,9 +671,9 @@ def _bootstrap_database_contract(
         # Keep the release tail ordered after the dedicated Education migrations.
         if contract is None and apply_python_migration(connection, "core.schema.migrations.052_traceability"):
             applied.append("python:052-traceability")
-        # D5 retains submission history; run last, after the Education table rebuilds.
+        # D5 and E3 run after Education rebuilds; identity guards cover the final jobs table.
         for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
-            if migration_id == "python:053-term-retention" and apply_python_migration(connection, module_name):
+            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history"} and apply_python_migration(connection, module_name):
                 applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
@@ -672,6 +682,8 @@ def _bootstrap_database_contract(
             import_module('core.schema.migrations.036_ctec_pilot').retry_spool_index(connection)
             from modules.inventory.slot_material_repair import repair_slot_materials
             repair_slot_materials(connection)
+            from core.schema.job_identity_repair import repair_job_identity
+            repair_job_identity(connection)
         validation = validate_schema(connection, _contract=contract)
         fingerprint = schema_fingerprint(connection)
     return {

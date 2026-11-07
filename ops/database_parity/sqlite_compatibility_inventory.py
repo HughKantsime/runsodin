@@ -27,6 +27,14 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     "backend/modules/system/sqlite_backup_guards.py": ("sqlite-provider-only", "Source-owned SQLite archive schema guards, extracted from backup_service."),
     "backend/core/schema/migrations/051_roster_sync.py": ("sqlite-provider-only", "SQLite writer promotion is dialect guarded; PostgreSQL follows D2 temporary shape validation after retained memberships and classes."),
     "backend/core/schema/migrations/052_traceability.py": ("sqlite-provider-only", "Dialect-guarded SQLite PRAGMA verifies enforced foreign-key delete actions; PostgreSQL uses native reflection."),
+    "backend/core/schema/migrations/055_controlled_history.py": (
+        "sqlite-provider-only", "Dialect-guarded SQLite high-water initialization uses bound qmark SQL and packaged triggers; PostgreSQL uses native sequences."),
+    "backend/modules/system/sqlite_restore_identity.py": (
+        "sqlite-provider-only", "Offline SQLite restore preserves the live and restored job ID floors and referenced IDs inside the rollback-protected swap."),
+    "backend/modules/system/sqlite_backup_guards.py": (
+        "sqlite-provider-only", "Closed packaged SQLite trigger definitions and dependency checks for backup admission; no archive SQL is executed."),
+    "backend/core/job_identity.py": (
+        "sqlite-provider-only", "SQLite job IDs use a writer-locked high-water allocator shared by ORM and qmark creation paths; PostgreSQL retains native sequences."),
     "backend/core/monitor_observations.py": ("dialect-neutral", "Live state JSON uses portable UPSERT with bound SQLAlchemy parameters or the shared monitor qmark DBAPI adapter."),
     "backend/core/printer_display_facts.py": ("dialect-neutral", "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters."),
     "backend/modules/inventory/rfid_identity.py": (
@@ -476,6 +484,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved044/overlay",
     BACKEND / "core/schema/preserved045/overlay",
     BACKEND / "core/schema/preserved046/overlay",
+    BACKEND / "core/schema/preserved053/overlay",
 )
 
 

@@ -20,7 +20,9 @@ def resolve_alert_scope(db, *, printer_id=None, job_id=None, spool_id=None):
     if len(tenants) > 1:
         raise ValueError('Conflicting alert resource owners')
     users = db.execute(text('SELECT id,role,group_id FROM users WHERE is_active IS TRUE')).mappings()
-    eligible = {u['id'] for u in users if all(check_org_access(dict(u), owner) for owner in owners)}
+    from core.controlled_parts import allowed
+    eligible = {u['id'] for u in users if all(check_org_access(dict(u), owner) for owner in owners)
+                and allowed(db, 'job', job_id, dict(u)) and allowed(db, 'printer', printer_id, dict(u))}
     return eligible, next(iter(tenants), None)
 
 

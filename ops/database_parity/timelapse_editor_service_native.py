@@ -1,4 +1,6 @@
 """Actual PostgreSQL editor journal and fixed codec; owned synthetic camera input."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os,secrets,tempfile,json,subprocess,time,stat
 from pathlib import Path
 from contextlib import contextmanager

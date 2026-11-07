@@ -1,4 +1,6 @@
 """Owned actual PostgreSQL calendar boundaries through real report authentication."""
+# Raw job INSERT exemption: isolated PostgreSQL fixture graph; native sequences
+# (or explicit fixture IDs) are intentional. This is not a SQLite creation path.
 import os,stat,secrets,tempfile,logging,json
 from pathlib import Path
 private=Path(os.environ['CALLBACK_NATIVE_PASSWORD_FILE'])

@@ -90,6 +90,8 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
     """Create multiple jobs at once."""
     from modules.models_library.services import calculate_job_cost
 
+    from core.controlled_request import authorize_references
+    authorize_references(db, current_user, [job.model_dump() for job in jobs])
     # Pre-load org settings for default filament
     org_settings = {}
     if current_user and current_user.get("group_id"):
@@ -163,6 +165,8 @@ def create_jobs_batch(
     """
     from modules.models_library.services import calculate_job_cost
 
+    from core.controlled_request import authorize_references
+    authorize_references(db, current_user, body.model_dump())
     if not body.printer_ids:
         raise HTTPException(status_code=400, detail="printer_ids cannot be empty")
     if len(body.printer_ids) > 50:
@@ -224,6 +228,8 @@ def create_jobs_batch(
 @router.patch("/reorder", tags=["Jobs"])
 async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Reorder job queue. Sets queue_position on each job based on array index."""
+    from core.controlled_request import authorize_references
+    authorize_references(db, current_user, req.model_dump())
     reordered = 0
     for position, job_id in enumerate(req.job_ids):
         job = db.query(Job).filter(Job.id == job_id).first()
@@ -242,6 +248,8 @@ async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depen
 @router.post("/bulk-update", tags=["Jobs"])
 async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Bulk update job fields (status, priority) for multiple jobs."""
+    from core.controlled_request import authorize_references
+    authorize_references(db, current_user, body)
     job_ids = body.get("job_ids", [])
     if not job_ids or not isinstance(job_ids, list):
         raise HTTPException(status_code=400, detail="job_ids list is required")
@@ -265,30 +273,16 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
         if candidate and check_org_access(current_user, candidate.charged_to_org_id):
             assert_generic_job_mutation_allowed(db, identifier)
             authorized_ids.append(identifier)
+    if action == "delete":
+        from core.controlled_deletion import assert_jobs_deletable
+        assert_jobs_deletable(db, authorized_ids)
     production_orders = prepare_job_write(db, authorized_ids)
     db.expire_all()
 
 
     if action == "delete":
-        for jid in job_ids:
-            job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
-                continue
-            assert_generic_job_mutation_allowed(db, jid)
-            from modules.orders.services import assert_job_history_deletable
-            assert_job_history_deletable(db, jid)
-            from core.traceability_delivery import prepare_job_deletion
-            if job.status in (JobStatus.PENDING, JobStatus.SUBMITTED, JobStatus.CANCELLED):
-                prepare_job_deletion(db, jid)
-            changed = db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
-                       {"id": jid})
-            if changed.rowcount:
-                from core.print_attempts import clear_job_attempts, sqlalchemy_runner
-                clear_job_attempts(sqlalchemy_runner(db), jid)
-                # cert-fix-F's hook also drops the monitor print:<print_job_id> quota markers.
-                from core.quota import clear_print_consumption_markers
-                clear_print_consumption_markers(sqlalchemy_runner(db), jid)
-            count += changed.rowcount
+        from modules.jobs.bulk_deletion import delete_bulk_jobs
+        count = delete_bulk_jobs(db, current_user, job_ids, check=assert_generic_job_mutation_allowed)
     else:
         from modules.jobs.bulk_actions import apply_bulk_action
         count = apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority)
@@ -319,6 +313,9 @@ def list_jobs(
     """List jobs with optional filters."""
     query = db.query(Job).filter(text("NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"))
 
+    from core.controlled_parts import job_visibility
+    controlled, controlled_params = job_visibility(current_user)
+    query = query.filter(text(controlled)).params(**controlled_params)
     if status:
         query = query.filter(Job.status == status)
     if printer_id:
@@ -359,6 +356,8 @@ def create_job(
     the job fields they need. If future strictness is wanted, extend
     JobResponse with an optional `next_actions: List[dict]` field.
     """
+    from core.controlled_request import authorize_references
+    authorize_references(db, current_user, job.model_dump())
     # Import here to avoid circular at module level
     from modules.models_library.services import calculate_job_cost
 
@@ -514,6 +513,8 @@ def get_job(
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    from core.controlled_parts import assert_access
+    assert_access(db, 'job', job_id, current_user)
     from modules.jobs.ams_mapping import detail_view
     return detail_view(db, job, current_user)
 
@@ -622,7 +623,11 @@ def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.de
 
     from core.quota import clear_print_consumption_markers, sqlalchemy_runner as _sar
     clear_print_consumption_markers(_sar(db), job_id)
-    log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
+    from core.controlled_parts import policies
+    from core.controlled_deletion import redact_deleted_job_history
+    audit_name = job.item_name
+    log_audit(db, "job.deleted", "job", job.id, {"item_name": audit_name})
+    redact_deleted_job_history(db, job.id)
     from core.print_attempts import clear_job_attempts, sqlalchemy_runner
     clear_job_attempts(sqlalchemy_runner(db), job.id)
     db.delete(job)

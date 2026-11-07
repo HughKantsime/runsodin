@@ -130,10 +130,10 @@ class TestGetCurrentUserUsesCache:
         tree = ast.parse(src_text)
         fn_src = ""
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "get_current_user":
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_resolve_current_user":
                 fn_src = ast.get_source_segment(src_text, node)
                 break
-        assert fn_src, "get_current_user is missing"
+        assert fn_src, "_resolve_current_user is missing"
 
         # Every last_seen write goes through _touch_session_last_seen (which writes
         # only a stale stored value), and every touch is behind the in-process gate.

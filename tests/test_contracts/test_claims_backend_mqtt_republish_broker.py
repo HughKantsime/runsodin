@@ -46,9 +46,14 @@ def broker(tmp_path):
     proc.terminate(); proc.wait(timeout=10)
 
 
-def test_republish_round_trip_through_real_broker(broker, monkeypatch):
+def test_republish_round_trip_through_real_broker(broker, monkeypatch, tmp_path):
     import paho.mqtt.client as mqtt
     from modules.notifications import mqtt_republish as module
+    from sqlalchemy import create_engine
+    from core.schema import bootstrap_database
+    engine = create_engine('sqlite:///' + str(tmp_path / 'mqtt.db'))
+    bootstrap_database(engine)
+    monkeypatch.setattr(module, 'engine', engine)
     received, ready = [], threading.Event()
     sub = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id='claims-subscriber', protocol=mqtt.MQTTv311)
     sub.on_connect = lambda c, u, f, rc, p=None: (c.subscribe('#', qos=0), None)
@@ -68,10 +73,9 @@ def test_republish_round_trip_through_real_broker(broker, monkeypatch):
         while len(received) < 4 and time.monotonic() < deadline:
             time.sleep(0.05)
     finally:
-        module.disconnect(); sub.loop_stop(); sub.disconnect()
+        module.disconnect(); sub.loop_stop(); sub.disconnect(); engine.dispose()
     topics = {t: p for t, p, _ in received}
-    RECEIPTS.mkdir(parents=True, exist_ok=True)
-    (RECEIPTS / 'mqtt-republish-broker.json').write_text(json.dumps(
+    (tmp_path / 'mqtt-republish-broker.json').write_text(json.dumps(
         {'broker': 'mosquitto (local, 127.0.0.1)', 'messages': [{'topic': t, 'retain': r, 'keys': sorted(p)} for t, p, r in received]}, indent=1))
     assert set(topics) == {'odin-claims/bay_1_x1c/status', 'odin-claims/bay_1_x1c/job', 'odin-claims/alerts', 'odin-claims/fleet'}
     assert topics['odin-claims/bay_1_x1c/status']['gcode_state'] == 'RUNNING' and topics['odin-claims/bay_1_x1c/status']['printer_id'] == 7

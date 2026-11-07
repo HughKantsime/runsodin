@@ -205,6 +205,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 # candidate lock waited. Never add unlocked/new candidates.
                 predicate = ("""WHERE id IN :candidate_ids
                     AND status IN ('completed','failed','cancelled')
+                    AND NOT EXISTS (SELECT 1 FROM controlled_jobs c WHERE c.job_id=jobs.id)
                     AND order_item_id IS NULL
                     AND NOT EXISTS (SELECT 1 FROM production_acceptances a WHERE a.job_uid=jobs.economic_uid)
                     AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id)
@@ -219,7 +220,10 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 if not candidates:
                     continue
                 statement = text("DELETE FROM jobs " + predicate + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed predicate and dialect fragment, bound values
+                from core.controlled_deletion import controlled_job_ids, redact_job_history_ids
+                restricted = controlled_job_ids(db, candidates)
                 removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                redact_job_history_ids(db, {jid: restricted[jid] for jid in removed_ids if jid in restricted})
                 # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
                 from core.quota import clear_print_consumption_markers

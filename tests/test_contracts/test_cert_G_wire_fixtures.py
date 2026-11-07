@@ -56,9 +56,9 @@ sql("INSERT INTO products(name,sku) VALUES('CertGalaxy kit','CG-1')")
 a.post("/api/printers", json={"name": "CertGalaxy Printer", "model": "X1C", "api_type": "bambu", "slot_count": 1})
 OUT["search_CertGalaxy"] = body(a.get("/api/search?q=CertGalaxy"))
 
-OUT["logs_page"] = body(a.get("/api/admin/logs?source=backend&lines=3"))
-OUT["logs_sources"] = {src: body(a.get(f"/api/admin/logs?source={src}&lines=200")) for src in routes_admin._LOG_FILES}
-OUT["logs_unknown_source"] = body(a.get("/api/admin/logs?source=nonexistent"))
+OUT["logs_page"] = body(a.post("/api/admin/logs?source=backend&lines=3"))
+OUT["logs_sources"] = {src: body(a.post(f"/api/admin/logs?source={src}&lines=200")) for src in routes_admin._LOG_FILES}
+OUT["logs_unknown_source"] = body(a.post("/api/admin/logs?source=nonexistent"))
 
 OUT["license_status_pro"] = body(a.get("/api/license"))
 install_license(None)
@@ -78,9 +78,9 @@ ROUTES = {
     "printers.json": "GET /api/printers?active_only=false (4 printers: RUNNING fresh, IDLE fresh, OFFLINE, IDLE stale last_seen 2 days)",
     "maintenance_status.json": "GET /api/maintenance/status (task interval 100h; printer at 150h -> overdue, 50h -> ok)",
     "search_CertGalaxy.json": "GET /api/search?q=CertGalaxy (one match in each of six categories)",
-    "logs_page.json": "GET /api/admin/logs?source=backend&lines=3 (first page; next_cursor set)",
-    "logs_sources.json": "GET /api/admin/logs?source=<id> for every backend-accepted source id (frontend source list is static in LogViewer.tsx; no source-list endpoint exists)",
-    "logs_unknown_source.json": "GET /api/admin/logs?source=nonexistent",
+    "logs_page.json": "POST /api/admin/logs?source=backend&lines=3 (first page; next_cursor set)",
+    "logs_sources.json": "POST /api/admin/logs?source=<id> for every backend-accepted source id (frontend source list is static in LogViewer.tsx; no source-list endpoint exists)",
+    "logs_unknown_source.json": "POST /api/admin/logs?source=nonexistent",
     "license_status_community.json": "GET /api/license (unauthenticated) with no license file",
     "license_status_pro.json": "GET /api/license with a signed Pro license installed",
     "settings_language.json": "GET /api/settings/language after PUT {language:de}",
