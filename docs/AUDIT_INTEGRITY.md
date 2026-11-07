@@ -281,16 +281,30 @@ names and reasons; redaction would invalidate per-row hash verification. SIEM re
 are part of the customer's trusted boundary, unlike generic webhooks and MQTT, which
 continue to use generic controlled-work copy.
 
-With live marks, a superadmin must explicitly acknowledge each enabled SIEM destination
-save (`acknowledge_controlled: true`). Creating the first live mark while any destination
-is enabled requires a superadmin who belongs to that audience and sets
-`acknowledge_siem: true`. The acknowledgement and configuration/mark commit together;
-the `controlled_part.siem_acknowledged` event records which direction was accepted.
-Ordinary operators must ask their superadmin to establish the first mark in this case.
+An interactive superadmin acknowledges each saved destination with
+`POST /api/settings/siem/{id}/acknowledge` and `X-ODIN-Controlled-Ack: true`
+under the same-origin check. The standing acknowledgement records who and when in
+`system_config` (no migration), binds to the receiver and transport settings, and
+writes `controlled_part.siem_acknowledged`. It can be granted before or after marks
+exist. API tokens cannot acknowledge destinations. Settings shows its author and time.
 
-Signed JSONL GET exports require acknowledgement when marks exist. The UI retries only
+When live marks or retained read restrictions exist, save a new destination disabled,
+acknowledge it, then enable it. Enabling requires a valid standing acknowledgement.
+Changing the endpoint, transport, TLS, signing secret or CA clears the acknowledgement;
+deleting a destination removes it. Existing pending deliveries must drain before an
+endpoint/transport/TLS change. Marking requires every enabled destination to have a
+standing acknowledgement; otherwise `controlled_part_siem_acknowledgement_required`
+names the destination a superadmin must acknowledge. An entitled operator can then
+create the first mark without a superadmin joining the audience. Mark requests have
+no SIEM acknowledgement flag.
+
+Signed JSONL GET exports require acknowledgement when live marks or retained read restrictions exist. The UI retries only
 after confirmation through `POST /api/export/audit-logs/jsonl/acknowledge`, preserving
 the date and bundle parameters, with an interactive superadmin and
 `X-ODIN-Controlled-Ack: true` under the same-origin check. The download records a
 `controlled_part.privileged_export` event with kind `audit_jsonl`. Protect downloaded
 copies and SIEM storage according to the controlled audience's handling requirements.
+
+Controlled policy reasons use `[erased]` during GDPR erasure. Audience save/delete
+audit snapshots remove the erased member ID from before/after lists through authenticated
+E1 receipts; other members and policy fields remain unchanged.

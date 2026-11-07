@@ -4,7 +4,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from core.db import get_db
@@ -17,12 +17,12 @@ router = APIRouter()
 
 
 class Destination(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=100)
     kind: Literal['webhook', 'syslog']
     endpoint: str = Field(max_length=2000)
     secret: str | None = Field(default=None, min_length=32, max_length=512)
     enabled: bool = False
-    acknowledge_controlled: bool = False
     tls: bool = True
     ca_bundle: str | None = Field(default=None, max_length=65536)
 
@@ -83,11 +83,19 @@ def acknowledged_signed_export(date_from: date, date_to: date, bundle: bool = Fa
 
 @router.get('/settings/siem', dependencies=[Depends(feature_gate('siem_stream'))])
 def destinations(current_user: dict = Depends(require_superadmin(scope='read')), db: Session = Depends(get_db)):
-    rows = db.execute(text('''SELECT d.id,d.name,d.kind,d.endpoint,d.enabled,d.tls,d.ca_bundle,d.last_error,d.last_success,
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- constant destination/status projection without external input; secrets are removed before returning
+    rows = db.execute(text('''SELECT d.id,d.name,d.kind,d.endpoint,d.enabled,d.tls,d.ca_bundle,d.secret,d.last_error,d.last_success,
         CASE WHEN d.secret IS NULL THEN 0 ELSE 1 END AS has_secret,
         (SELECT count(*) FROM audit_siem_outbox o WHERE o.destination_id=d.id) AS pending
         FROM audit_siem_destinations d ORDER BY d.name,d.id''')).mappings().all()
-    return [dict(row) for row in rows]
+    from core.controlled_siem import acknowledgement
+    result = []
+    for row in rows:
+        item = dict(row)
+        item['controlled_acknowledgement'] = acknowledgement(db, row)
+        item.pop('secret')
+        result.append(item)
+    return result
 
 
 @router.put('/settings/siem/{destination_id}', dependencies=[Depends(feature_gate('siem_stream')), Depends(require_interactive_session())])
@@ -119,12 +127,11 @@ def save_destination(destination_id: str, body: Destination,
     if prior and (prior['endpoint'], prior['kind'], prior['tls']) != (body.endpoint, body.kind, int(body.tls)):
         if db.execute(text('SELECT 1 FROM audit_siem_outbox WHERE destination_id=:id LIMIT 1'), values).first():
             raise HTTPException(409, 'Drain pending deliveries or delete this destination before changing its endpoint')
-    if body.enabled:
-        from core.controlled_siem import marks_exist, acknowledge_siem
-        if marks_exist(db):
-            acknowledge_siem(db, current_user, body.acknowledge_controlled)
-            log_audit(db, 'controlled_part.siem_acknowledged', 'system', None,
-                      {'direction': 'destination_enabled', 'destination_id': destination_id, 'acknowledged': True})
+    from core.controlled_siem import restrictions_exist, require_acknowledged, clear_acknowledgement, target
+    if body.enabled and restrictions_exist(db):
+        require_acknowledged(db, values)
+    if prior and target(prior) != target(values):
+        clear_acknowledgement(db, destination_id)
     db.execute(text('''INSERT INTO audit_siem_destinations(id,name,kind,endpoint,secret,enabled,tls,ca_bundle)
         VALUES(:id,:name,:kind,:endpoint,:secret,:enabled,:tls,:ca_bundle) ON CONFLICT(id) DO UPDATE SET
         name=excluded.name,kind=excluded.kind,endpoint=excluded.endpoint,secret=excluded.secret,
@@ -134,14 +141,35 @@ def save_destination(destination_id: str, body: Destination,
     return {'id': destination_id}
 
 
+@router.post('/settings/siem/{destination_id}/acknowledge', dependencies=[
+    Depends(feature_gate('siem_stream')), Depends(require_interactive_session()), Depends(require_controlled_ack)])
+def acknowledge_destination(destination_id: str, current_user: dict = Depends(require_superadmin()),
+                            db: Session = Depends(get_db)):
+    from core.controlled_siem import lock_policy, store_acknowledgement
+    lock_policy(db)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed destination lookup; destination id is bound
+    destination = db.execute(text('SELECT * FROM audit_siem_destinations WHERE id=:id'),
+                             {'id': destination_id}).mappings().first()
+    if destination is None:
+        raise HTTPException(404, 'Destination not found')
+    result = store_acknowledgement(db, destination, current_user)
+    log_audit(db, 'controlled_part.siem_acknowledged', 'system', None,
+              {'destination_id': destination_id, 'acknowledged': True})
+    db.commit()
+    return result
+
+
 @router.delete('/settings/siem/{destination_id}', dependencies=[Depends(feature_gate('siem_stream')), Depends(require_interactive_session())])
 def delete_destination(destination_id: str, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    from core.controlled_siem import lock_policy, clear_acknowledgement
+    lock_policy(db)
     from core.audit_integrity import lock_chain
     lock_chain(db.connection())
     db.execute(text('DELETE FROM audit_siem_outbox WHERE destination_id=:id'), {'id': destination_id})
     removed = db.execute(text('DELETE FROM audit_siem_destinations WHERE id=:id'), {'id': destination_id})
     if not removed.rowcount:
         raise HTTPException(404, 'Destination not found')
+    clear_acknowledgement(db, destination_id)
     log_audit(db, 'siem.deleted', details={'destination_id': destination_id, 'pending_deliveries_discarded': True})
     db.commit()
     return {'status': 'ok'}

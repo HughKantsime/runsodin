@@ -24,7 +24,7 @@ Audience members still receive their alerts. External system/org webhooks, quiet
 
 Source lists and CSV exports apply controlled visibility. Analytics and next suggestions filter controlled work in SQL. Orders, products/BOM, batches, presets and timeline responses redact known fields of identified controlled resources. Matching text in unrelated resources is never rewritten. GDPR exports use the exporter's membership, including when exporting another user's records; restricted reasons and audit details are redacted.
 
-Superadmins can see audit metadata, but controlled details remain redacted. Backups require explicit acknowledgement before an audited privileged download. The UI asks for acknowledgement when needed. Support bundles require the same acknowledgement and omit potentially sensitive logs/settings when controlled marks exist. They include diagnostic counts, not controlled rows. Downloaded backups remain the administrator's responsibility.
+Superadmins can see audit metadata, but controlled details remain redacted. Backups require explicit acknowledgement before an audited privileged download when live marks or retained read restrictions exist. The UI asks for acknowledgement when needed. Support bundles require the same acknowledgement and omit potentially sensitive logs/settings when live marks or retained read restrictions exist. They include diagnostic counts, not controlled rows. Downloaded backups remain the administrator's responsibility.
 
 ## Timelapse retention
 
@@ -69,7 +69,7 @@ GDPR exports map submitted/charged jobs, uploaded files and print archives to th
 
 The log viewer requires interactive superadmin access and explicit acknowledgement on a farm with controlled marks. Paged reads use `POST /api/admin/logs` with the `X-ODIN-Controlled-Ack: true` header after acknowledgement. Live streams first POST to `/api/admin/logs/stream-token` with that header, then GET `/api/admin/logs/stream?token=...`. Tokens expire after five minutes and are tied to the authenticated user; streams recheck policy, active account and admin authority before each line. This privileged access can disclose historical controlled names. A stream audits its opening and its termination when authority expires or is revoked, rather than every line. Refused log viewers are audited at most once per user per hour. Diagnostics and troubleshooting reports also use POST with the acknowledgement header; without acknowledgement they omit logs and explain why while returning the other results.
 
-Deleting file-controlled jobs, including bulk deletion, organization deletion and automatic cleanup, saves audience tombstones within the deletion transaction without changing audit rows. Entitled members retain original details; other viewers receive redacted details, including searches and exports. Tombstone rules cover all media and audit rows referencing the deleted job ID, including terminal observations and alerts written after deletion. SQLite job creation uses a shared, writer-locked high-water allocator initialized in migration 055 from all retained job references; insert/delete triggers preserve the high-water mark across bulk deletion and restart. Migration 055 also guards the high-water row against deletion and decreasing updates. At boot, missing triggers are recreated and the high-water value is raised to cover all retained references. A missing singleton row with surviving identity triggers is refused: recover its all-time value from a trusted backup or exported job history using the INSERT command in the error before restarting. Rebuilding from current references alone could reuse an untraced ID. Repairs write a warning and a `job_identity.repaired` audit event. Altered trigger definitions are refused with an exact command to drop only the conflicting triggers; restarting ODIN then reinstalls the packaged guards. PostgreSQL keeps native sequence allocation. Public deletions create no tombstones or extra audit rows. Per-source clocks remain separate even for the same audience. Retention preview returns `tombstones` as `{job_id, audit_max_id}` objects; acknowledgement targets that pair and the caller's audiences. The retained `audit_max_id` identifies the deletion for acknowledgement; it no longer limits audit visibility protection. Audiences referenced by tombstones cannot be deleted (409 and an ON DELETE RESTRICT foreign key). Tombstones keep historical redaction active without triggering live-mark export acknowledgements. Migration 055 adds the high-water table, audience rules and persistent retention change histories. MQTT observes marks written by other processes within one second. Non-JSON, HEAD, redirect, empty-status and error responses bypass credential resolution in the response redactor. Component IDs are not model IDs; timelapse `print_job_id` identifies a scheduled job, unlike physical print events.
+Deleting file-controlled jobs, including bulk deletion, organization deletion and automatic cleanup, saves audience tombstones within the deletion transaction without changing audit rows. Entitled members retain original details; other viewers receive redacted details, including searches and exports. Tombstone rules cover all media and audit rows referencing the deleted job ID, including terminal observations and alerts written after deletion. SQLite job creation uses a shared, writer-locked high-water allocator initialized in migration 055 from all retained job references; insert/delete triggers preserve the high-water mark across bulk deletion and restart. Migration 055 also guards the high-water row against deletion and decreasing updates. At boot, missing triggers are recreated and the high-water value is raised to cover all retained references. A missing singleton row with surviving identity triggers is refused: recover its all-time value from a trusted backup or exported job history using the INSERT command in the error before restarting. Rebuilding from current references alone could reuse an untraced ID. Repairs write a warning and a `job_identity.repaired` audit event. Altered trigger definitions are refused with an exact command to drop only the conflicting triggers; restarting ODIN then reinstalls the packaged guards. PostgreSQL keeps native sequence allocation. Public deletions create no tombstones or extra audit rows. Per-source clocks remain separate even for the same audience. Retention preview returns `tombstones` as `{job_id, audit_max_id}` objects; acknowledgement targets that pair and the caller's audiences. The retained `audit_max_id` identifies the deletion for acknowledgement; it no longer limits audit visibility protection. Audiences referenced by tombstones cannot be deleted (409 and an ON DELETE RESTRICT foreign key). Tombstones keep historical redaction and privileged export acknowledgements active even after the last live mark is released. Migration 055 adds the high-water table, audience rules and persistent retention change histories. MQTT observes marks written by other processes within one second. Non-JSON, HEAD, redirect, empty-status and error responses bypass credential resolution in the response redactor. Component IDs are not model IDs; timelapse `print_job_id` identifies a scheduled job, unlike physical print events.
 
 SQLite offline restore preserves the maximum of the live high-water value at apply time, the backup high-water value, and retained job references. This also applies to pre-055 backups, so IDs issued after a backup cannot be reissued after restoring it. A failure while carrying the ID floor rolls back the database swap. PostgreSQL offline restore captures the jobs sequence immediately before replacing data and keeps the larger live/restored sequence value after pg_restore, including during rollback; an unused sequence retains its initial allocation semantics.
 
@@ -82,16 +82,30 @@ names and reasons; redaction would invalidate per-row hash verification. SIEM re
 are part of the customer's trusted boundary, unlike generic webhooks and MQTT, which
 continue to use generic controlled-work copy.
 
-With live marks, a superadmin must explicitly acknowledge each enabled SIEM destination
-save (`acknowledge_controlled: true`). Creating the first live mark while any destination
-is enabled requires a superadmin who belongs to that audience and sets
-`acknowledge_siem: true`. The acknowledgement and configuration/mark commit together;
-the `controlled_part.siem_acknowledged` event records which direction was accepted.
-Ordinary operators must ask their superadmin to establish the first mark in this case.
+An interactive superadmin acknowledges each saved destination with
+`POST /api/settings/siem/{id}/acknowledge` and `X-ODIN-Controlled-Ack: true`
+under the same-origin check. The standing acknowledgement records who and when in
+`system_config` (no migration), binds to the receiver and transport settings, and
+writes `controlled_part.siem_acknowledged`. It can be granted before or after marks
+exist. API tokens cannot acknowledge destinations. Settings shows its author and time.
 
-Signed JSONL GET exports require acknowledgement when marks exist. The UI retries only
+When live marks or retained read restrictions exist, save a new destination disabled,
+acknowledge it, then enable it. Enabling requires a valid standing acknowledgement.
+Changing the endpoint, transport, TLS, signing secret or CA clears the acknowledgement;
+deleting a destination removes it. Existing pending deliveries must drain before an
+endpoint/transport/TLS change. Marking requires every enabled destination to have a
+standing acknowledgement; otherwise `controlled_part_siem_acknowledgement_required`
+names the destination a superadmin must acknowledge. An entitled operator can then
+create the first mark without a superadmin joining the audience. Mark requests have
+no SIEM acknowledgement flag.
+
+Signed JSONL GET exports require acknowledgement when live marks or retained read restrictions exist. The UI retries only
 after confirmation through `POST /api/export/audit-logs/jsonl/acknowledge`, preserving
 the date and bundle parameters, with an interactive superadmin and
 `X-ODIN-Controlled-Ack: true` under the same-origin check. The download records a
 `controlled_part.privileged_export` event with kind `audit_jsonl`. Protect downloaded
 copies and SIEM storage according to the controlled audience's handling requirements.
+
+Controlled policy reasons use `[erased]` during GDPR erasure. Audience save/delete
+audit snapshots remove the erased member ID from before/after lists through authenticated
+E1 receipts; other members and policy fields remain unchanged.

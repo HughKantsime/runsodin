@@ -337,6 +337,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/inventory/conflicts/resolve"): "admin role; audited explicit inventory conflict resolution is stricter than spools.edit",
     # Platform administration (superadmin)
     **{(m, p): _SUPERADMIN for m, p in [
+        ("POST", "/api/settings/siem/{destination_id}/acknowledge"),
         ("POST", "/api/export/audit-logs/jsonl/acknowledge"),
         ("POST", "/api/audit-logs/accept-restore-baseline"),
         ("POST", "/api/audit-logs/initialize-keyring"),

@@ -221,7 +221,7 @@ def model_visibility(actor):
 
 
 def any_read_restrictions(db):
-    """Historical redaction stays active independently of live-mark export gates."""
+    """Historical redaction and export gates stay active after live marks are gone."""
     if any_marks(db):
         return True
     from core.controlled_cache import request_cache

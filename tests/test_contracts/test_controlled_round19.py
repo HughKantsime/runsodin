@@ -35,8 +35,8 @@ assert 'snapshot-secret-1' in r.text and 'inspection-secret-1' in r.text
 r = outsider.delete(f'/api/users/{uid}/erase'); assert r.status_code == 200, r.text
 entries = sql("SELECT details FROM audit_logs WHERE action='controlled_part.changed' ORDER BY id")
 first, second = [json.loads(row[0]) for row in entries]
-assert first['after']['reason']=='[deleted]'
-assert second['before']['changed_by'] is None and second['before']['reason']=='[deleted]'
+assert first['after']['reason']=='[erased]'
+assert second['before']['changed_by'] is None and second['before']['reason']=='[erased]'
 assert second['after']['reason']=='other author reason'
 from core.audit_integrity import verify
 from core.db import engine
@@ -60,19 +60,31 @@ for user in (sid,uid):sql('INSERT INTO controlled_audience_members(audience_id,u
 sql("INSERT INTO print_files(id,filename) VALUES(1,'private.gcode')")
 body=dict(audience_id=1,printer_tag='Secure',retention_days=7,reason='secret-mark')
 destination=dict(name='SOC',kind='syslog',endpoint='syslog://soc.example:6514',enabled=True)
-# Destination first: marking must require acknowledgement and superadmin authority.
+# Destination first: an operator needs standing receiver trust, not superadmin membership.
 r=superadmin.put('/api/settings/siem/new',json=destination); assert r.status_code==200,r.text
 did=r.json()['id']
-assert member.put('/api/controlled-parts/files/1',json=body).json()['detail']['code']=='controlled_part_siem_acknowledgement_required'
-assert member.put('/api/controlled-parts/files/1',json={**body,'acknowledge_siem':True}).json()['detail']['code']=='controlled_part_superadmin_required'
+refusal=member.put('/api/controlled-parts/files/1',json=body)
+assert refusal.json()['detail']['code']=='controlled_part_siem_acknowledgement_required'
+assert refusal.json()['detail']['destination_id']==did
+assert 'SOC' in refusal.json()['detail']['message']
+assert member.put('/api/controlled-parts/files/1',json={**body,'acknowledge_siem':True}).status_code==422
 assert not sql('SELECT 1 FROM controlled_files')
-r=superadmin.put('/api/controlled-parts/files/1',json={**body,'acknowledge_siem':True}); assert r.status_code==200,r.text
-# Marks first: creating/enabling/repointing receivers also requires acknowledgement.
+sql('DELETE FROM controlled_audience_members WHERE user_id=:uid',uid=sid)
+ack='/api/settings/siem/'+did+'/acknowledge'
+assert superadmin.post(ack).status_code==403
+headers={'X-ODIN-Controlled-Ack':'true'}
+assert member.post(ack,headers=headers).status_code==403
+assert superadmin.post(ack,headers={**headers,'Sec-Fetch-Site':'cross-site'}).status_code==403
+assert superadmin.post(ack,headers={**headers,'Origin':'https://foreign.example'}).status_code==403
+assert not sql("SELECT 1 FROM system_config WHERE key LIKE 'controlled:siem_ack:%'")
+r=superadmin.post(ack,headers=headers); assert r.status_code==200,r.text
+assert r.json()['user_id']==sid and r.json()['acknowledged_at']
+r=member.put('/api/controlled-parts/files/1',json=body); assert r.status_code==200,r.text
+# Marks first: save disabled, acknowledge, then enable; existing standing trust survives toggles.
 r=superadmin.put('/api/settings/siem/new',json=destination); assert r.status_code==403,r.text
 r=superadmin.put('/api/settings/siem/'+did,json={**destination,'enabled':False}); assert r.status_code==200,r.text
-r=superadmin.put('/api/settings/siem/'+did,json=destination); assert r.status_code==403,r.text
-r=superadmin.put('/api/settings/siem/'+did,json={**destination,'acknowledge_controlled':True}); assert r.status_code==200,r.text
-assert len(sql("SELECT id FROM audit_logs WHERE action='controlled_part.siem_acknowledged'"))==2
+r=superadmin.put('/api/settings/siem/'+did,json=destination); assert r.status_code==200,r.text
+assert len(sql("SELECT id FROM audit_logs WHERE action='controlled_part.siem_acknowledged'"))==1
 # Even a superadmin outside the audience can export only by explicit POST ack.
 sql('DELETE FROM controlled_audience_members WHERE user_id=:uid',uid=sid)
 query='?date_from=2000-01-01&date_to=2099-01-01'
@@ -180,7 +192,7 @@ def test_controlled_erasure_receipt_rejects_policy_rewrites():
     before = dict(actor_user_id=8, actor_username='other', actor_auth_kind='session_jwt',
                   ip_address=None, action='controlled_part.changed', entity_type='file',
                   entity_id=1, details=json.dumps(original))
-    erased = {'before': {'changed_by': None, 'reason': '[deleted]', 'audience_id': 3},
+    erased = {'before': {'changed_by': None, 'reason': '[erased]', 'audience_id': 3},
               'after': original['after']}
     assert redaction(before, {**before, 'details': json.dumps(erased)})
     erased['before']['audience_id'] = 99

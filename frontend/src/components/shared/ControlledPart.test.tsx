@@ -23,15 +23,8 @@ test('operator submits a reason, audience, printer group and retention', async (
   expect(await screen.findByText('Marking saved')).toBeTruthy()
 })
 test('named refusal stays visible', async () => { state.get.mockRejectedValue(new Error('Controlled part access refused')); mount(); expect(await screen.findByRole('alert')).toHaveTextContent('Controlled part access refused') })
-test('superadmin can explicitly acknowledge enabled SIEM destinations when marking', async () => {
+test('marking does not offer SIEM acknowledgement', async () => {
   state.role = 'admin'
   mount(); fireEvent.click(await screen.findByText('Change marking')); await screen.findByText('Restricted')
-  const ack = screen.getByLabelText(/I acknowledge that enabled SIEM/)
-  expect(ack).not.toBeChecked()
-  fireEvent.click(ack)
-  fireEvent.change(screen.getByLabelText('Controlled audience'), { target: { value: '1' } })
-  fireEvent.change(screen.getByLabelText('Allowed printer group tag'), { target: { value: 'Secure' } })
-  fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Restriction' } })
-  fireEvent.click(screen.getByText('Save marking'))
-  await waitFor(() => expect(state.set).toHaveBeenCalledWith('files', 5, expect.objectContaining({ acknowledge_siem: true })))
+  expect(screen.queryByLabelText(/I acknowledge that enabled SIEM/)).toBeNull()
 })

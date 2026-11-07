@@ -40,6 +40,10 @@ function Controls() {
   const save = useMutation({ mutationFn: () => auditIntegrity.save(editing, form), onSuccess: () => {
     setForm(empty); setEditing('new'); setMessage('Destination saved.'); cache.invalidateQueries({ queryKey: ['siem'] })
   } })
+  const acknowledge = useMutation({ mutationFn: auditIntegrity.acknowledge, onSuccess: () => {
+    setMessage('Destination acknowledged. You can now enable delivery or mark controlled work.')
+    cache.invalidateQueries({ queryKey: ['siem'] })
+  } })
   const remove = useMutation({ mutationFn: auditIntegrity.remove, onSuccess: () => cache.invalidateQueries({ queryKey: ['siem'] }) })
   function edit(d: SiemDestination) {
     setEditing(d.id); setForm({ name: d.name, kind: d.kind, endpoint: d.endpoint, enabled: !!d.enabled, tls: !!d.tls, ca_bundle: d.ca_bundle })
@@ -81,11 +85,17 @@ function Controls() {
     </div>
     <p className="text-sm">The download includes JSON Lines, the detached signature, public key and signed manifest in one ZIP.</p>
     <h3 className="font-medium">SIEM destinations</h3>
+    <p>Save a destination, acknowledge it as part of your trusted boundary, then enable it. Changing its endpoint, transport, credentials or CA clears the acknowledgement.</p>
     {list.isPending && <p>Loading destinations…</p>}
     {list.data?.length === 0 && <p>No destinations configured. Streaming is disabled until you add and enable one.</p>}
     {list.data?.map(d => <div key={d.id} className="border rounded p-3 space-y-2">
       <p>{d.name} · {d.enabled ? 'Enabled' : 'Disabled'} · {d.pending} pending</p>
       <p>Last success: {d.last_success || 'Never'} · Last error: {d.last_error || 'None'}</p>
+      {d.controlled_acknowledgement
+        ? <p>Controlled audit access acknowledged by user {d.controlled_acknowledgement.user_id} at {d.controlled_acknowledgement.acknowledged_at}.</p>
+        : <><p>Controlled audit access requires acknowledgement.</p><button disabled={acknowledge.isPending} onClick={() => {
+          if (window.confirm(`Acknowledge ${d.name} (${d.endpoint}) as inside your trusted boundary? It may receive controlled audit details outside your audience.`)) acknowledge.mutate(d.id)
+        }}>Acknowledge {d.name}</button></>}
       <button onClick={() => edit(d)}>Edit {d.name}</button>{' '}
       <button disabled={remove.isPending} onClick={() => {
         if (window.confirm('Delete this destination and discard its pending deliveries?')) remove.mutate(d.id)
@@ -103,11 +113,10 @@ function Controls() {
       {(form.kind === 'webhook' || form.tls) && <label className="block">Private CA bundle (optional PEM)<textarea value={form.ca_bundle || ''} onChange={e => setForm({ ...form, ca_bundle: e.target.value || null })} /></label>}
       <p className="text-sm">A custom CA bundle replaces the default trust store for both HTTPS and syslog TLS.</p>
       <label className="block"><input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Enable delivery of new audit events</label>
-      <label className="block"><input type="checkbox" checked={!!form.acknowledge_controlled} onChange={e => setForm({ ...form, acknowledge_controlled: e.target.checked })} /> I acknowledge this SIEM destination is inside our trusted boundary and may receive controlled audit details outside my audience.</label>
       <button type="submit" className="btn btn-primary" disabled={save.isPending}>Save destination</button>{' '}
       {editing !== 'new' && <button type="button" onClick={() => { setEditing('new'); setForm(empty) }}>Cancel edit</button>}
     </form>
     {message && <p role="status">{message}</p>}
-    {[list.error, verify.error, save.error, remove.error, accept.error, initialize.error].filter(Boolean).map((e, i) => <p role="alert" key={i}>{(e as Error).message}</p>)}
+    {[list.error, verify.error, save.error, acknowledge.error, remove.error, accept.error, initialize.error].filter(Boolean).map((e, i) => <p role="alert" key={i}>{(e as Error).message}</p>)}
   </section>
 }

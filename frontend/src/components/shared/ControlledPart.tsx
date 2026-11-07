@@ -48,7 +48,6 @@ function ControlledPartEditor({ kind, id }: { kind: 'files' | 'jobs'; id: number
       <label>Timelapse retention (days) <input required type="number" min={1} max={3650} value={form.retention_days} onChange={e => setForm({ ...form, retention_days: Number(e.target.value) })} /></label>
       <label>Reason <textarea required maxLength={500} value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} /></label>
       <p className="text-sm">You must belong to the controlled audience. Linked file and job restrictions also apply. Active work cannot be reclassified.</p>
-      {user?.role === 'admin' && user.group_id == null && <label><input type="checkbox" checked={!!form.acknowledge_siem} onChange={e => setForm({ ...form, acknowledge_siem: e.target.checked })} /> I acknowledge that enabled SIEM destinations may receive controlled audit details outside my audience and are inside our trusted boundary.</label>}
       <button disabled={save.isPending || !form.reason.trim() || !form.audience_id}>Save marking</button>
       <button type="button" disabled={save.isPending} onClick={() => setEditing(false)}>Cancel</button>
     </form>}

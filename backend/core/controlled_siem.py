@@ -1,6 +1,5 @@
 """SIEM stays inside the customer's trusted boundary; canonical rows are not redacted."""
 from sqlalchemy import text
-from core.controlled_parts import refuse
 
 
 def lock_policy(db):
@@ -12,24 +11,69 @@ def lock_policy(db):
     db.execute(text("UPDATE system_config SET value=value WHERE key='controlled:siem_policy_lock'"))
 
 
-def marks_exist(db):
-    # Bypass request caches after taking the shared controlled/config writer lock.
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed table names, no interpolated SQL or input
-    return db.execute(text('SELECT 1 FROM controlled_files UNION ALL SELECT 1 FROM controlled_jobs LIMIT 1')).first() is not None
+def restrictions_exist(db):
+    from core.controlled_cache import request_cache
+    from core.controlled_parts import any_read_restrictions
+    # Recheck after the policy lock; middleware may have cached the old state.
+    cache = request_cache(db)
+    if cache is not None:
+        cache.pop('_controlled_any', None)
+        cache.pop('_controlled_history', None)
+    return any_read_restrictions(db)
 
 
-def acknowledge_siem(db, actor, acknowledged):
-    if acknowledged is not True:
-        refuse(db, 'controlled_part_siem_acknowledgement_required', 'system', None)
-    if not actor or actor.get('role') != 'admin' or actor.get('group_id') is not None:
-        refuse(db, 'controlled_part_superadmin_required', 'system', None)
+def target(destination):
+    """Bind trust to the receiver and transport, including credentials/CA changes."""
+    import hashlib
+    import json
+    values = [destination[key] for key in ('endpoint', 'kind', 'tls', 'ca_bundle', 'secret')]
+    return hashlib.sha256(json.dumps(values, separators=(',', ':')).encode()).hexdigest()
 
 
-def first_mark(db, actor, acknowledged):
-    if marks_exist(db):
+def acknowledgement(db, destination):
+    import json
+    from core.system_config_values import config_text
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed config lookup with a bound destination key
+    value = db.execute(text('SELECT value FROM system_config WHERE key=:key'),
+                       {'key': 'controlled:siem_ack:' + destination['id']}).scalar()
+    try:
+        saved = json.loads(config_text(value))
+        if isinstance(saved, dict) and saved.get('target') == target(destination):
+            return {'user_id': saved['user_id'], 'acknowledged_at': saved['acknowledged_at']}
+    except (ValueError, TypeError, KeyError):
+        pass
+    return None
+
+
+def clear_acknowledgement(db, destination_id):
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed config deletion with a bound destination key
+    db.execute(text('DELETE FROM system_config WHERE key=:key'),
+               {'key': 'controlled:siem_ack:' + destination_id})
+
+
+def store_acknowledgement(db, destination, actor):
+    import json
+    from datetime import datetime, timezone
+    from core.system_config_values import write_config_text
+    saved = {'user_id': actor['id'], 'acknowledged_at': datetime.now(timezone.utc).isoformat()}
+    write_config_text(db, 'controlled:siem_ack:' + destination['id'],
+                      json.dumps({**saved, 'target': target(destination)}))
+    return saved
+
+
+def require_acknowledged(db, destination):
+    if acknowledgement(db, destination) is not None:
         return
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- constant enabled-destination lookup without input
-    if db.execute(text('SELECT 1 FROM audit_siem_destinations WHERE enabled=1 LIMIT 1')).first():
-        acknowledge_siem(db, actor, acknowledged)
-        return True
-    return False
+    from fastapi import HTTPException
+    from core.audit import audit_download
+    code = 'controlled_part_siem_acknowledgement_required'
+    audit_download(db, 'controlled_part.refused', 'system', None,
+                   {'reason': code, 'destination_id': destination['id']})
+    raise HTTPException(403, {'code': code, 'destination_id': destination['id'],
+                             'message': f"A superadmin must acknowledge SIEM destination {destination['name']}."})
+
+
+def first_mark(db):
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed enabled-destination lookup with no external input
+    for destination in db.execute(text('SELECT * FROM audit_siem_destinations WHERE enabled=1 ORDER BY id')).mappings():
+        require_acknowledged(db, destination)
