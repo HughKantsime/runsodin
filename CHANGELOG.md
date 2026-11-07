@@ -4,6 +4,16 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Camera WebRTC uses host candidates only: the browser, generated go2rtc configuration and shipped templates disable public STUN defaults, including in ITAR mode.
+- License-server reachability checks require an authenticated admin; anonymous health checks do not initiate that probe.
+
+### Fixed
+
+- Setup offline activation uploads the signed license as multipart form data to the existing license upload route, using the setup session token.
+- A frontend/backend route contract checks fetch and fetchAPI paths and HTTP methods, including parameterized URLs. Timeline print-job detail now has a matching, organization-scoped backend route; unused project and notification-preference callers of nonexistent routes were removed.
+
 ## [2.0.45] - 2026-11-06
 
 <!-- summary: Enterprise gets a tamper-evident audit log with SIEM streaming and part traceability with signed certificates; Education gets classes, training sign-off, program reports, roster sync and term retention; SSO and license connections always go to the checked address. -->

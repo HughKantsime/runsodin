@@ -89,6 +89,7 @@ def get_print_jobs(
     printer_id: Optional[int] = None,
     status: Optional[str] = None,
     limit: int = 50,
+    job_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
 ):
@@ -113,6 +114,9 @@ def get_print_jobs(
     if printer_id is not None:
         sql += " AND pj.printer_id = :printer_id"
         params["printer_id"] = printer_id
+    if job_id is not None:
+        sql += " AND pj.id = :job_id"
+        params["job_id"] = job_id
     if status is not None:
         sql += " AND pj.status = :status"
         params["status"] = status
@@ -329,3 +333,17 @@ def schedule_from_preset(
     db.commit()
     db.refresh(job)
     return {"id": job.id, "item_name": job.item_name, "status": job.status.value}
+
+
+@router.get("/print-jobs/{job_id}", tags=["Print Jobs"])
+def get_print_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
+):
+    """Timeline detail with the same ownership and display-name policy as history."""
+    jobs = get_print_jobs(printer_id=None, status=None, limit=1, job_id=job_id,
+                          db=db, current_user=current_user)
+    if not jobs:
+        raise HTTPException(status_code=404, detail="Print job not found")
+    return jobs[0]

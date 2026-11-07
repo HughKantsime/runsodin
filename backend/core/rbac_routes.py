@@ -284,6 +284,11 @@ ACTION_FALLBACKS: dict[tuple[str, str], str] = {
     ("PATCH", "/api/jobs/{job_id}"): "jobs.resubmit",
 }
 
+# Fixed-role reads with side effects, deliberately not delegable via the matrix.
+ROLE_ROUTES: dict[tuple[str, str], str] = {
+    ("GET", "/api/system/license-server-status"): "admin",
+}
+
 # Server read endpoints that exist only to feed one page.
 PAGE_ROUTES: dict[str, list[tuple[str, str]]] = {
     "timeline": [("GET", "/api/timeline")],

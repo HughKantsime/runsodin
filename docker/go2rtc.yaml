@@ -6,6 +6,8 @@ streams: {}
 
 # WebRTC and API settings
 webrtc:
+  # Override go2rtc's public STUN default; use host candidates only.
+  ice_servers: []
   listen: ":8555"
 
 api:

@@ -85,9 +85,8 @@ async def health_check():
 
 # v1.8.8: cached license-server reachability probe. We hit
 # `${license_server_url}/api/v1/health` (or root if 404) and cache the
-# outcome for 10 minutes. Surfaced via /system/health and the SystemTab
-# UI so operators see "license server unreachable, locally-cached
-# activation still active" instead of guessing.
+# outcome for 10 minutes. Only an authenticated admin may initiate this
+# outbound probe; public health checks never call it.
 _LICENSE_PROBE_TTL_SECONDS = 600
 _license_probe_cache = {"checked_at": 0.0, "reachable": None, "detail": ""}
 
@@ -143,13 +142,12 @@ async def _probe_license_server() -> dict:
 
 
 @router.get("/system/license-server-status", tags=["System"])
-async def license_server_status():
+async def license_server_status(current_user: dict = Depends(require_role("admin"))):
     """Cached probe of the configured license server.
 
     Returns reachability + a short detail string + when the probe was
-    last run. Polled every 10 minutes by the System Health UI; locally-
-    signed licenses keep working regardless, but operators want to know
-    when the upstream is down so an outage doesn't get blamed on ODIN.
+    last run. Admin only: requesting this endpoint may initiate outbound
+    traffic. Locally signed licenses keep working when the server is down.
     """
     return await _probe_license_server()
 
