@@ -10,7 +10,7 @@ These files ship with O.D.I.N. but are not part of its Licensed Work. They are l
 
 | Component | File | License | Source |
 |---|---|---|---|
-| Obico spaghetti-detection model (unmodified; SHA-256 `0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa`) | `backend/vision_models_default/obico_spaghetti.onnx` | AGPL-3.0 (text: `backend/vision_models_default/LICENSE-AGPL-3.0.txt`) | Obico, formerly The Spaghetti Detective: https://github.com/TheSpaghettiDetective/obico-server/tree/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/ml_api/model. Notice and source details: `backend/vision_models_default/NOTICE.txt` |
+| Obico spaghetti-detection model (unmodified; SHA-256 `0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa`) | `backend/vision_models_default/obico_spaghetti.onnx` | AGPL-3.0 (text: `backend/vision_models_default/LICENSE-AGPL-3.0.txt`) | Obico, formerly The Spaghetti Detective: https://github.com/TheSpaghettiDetective/obico-server/tree/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/ml_api/model. Notice and source details: `backend/vision_models_default/NOTICE.txt`; mirror: https://github.com/HughKantsime/runsodin/releases/tag/third-party/obico-model-1e7abb0b |
 | Bambu Lab HMS and print-error descriptions | `backend/data/bambu_hms/*.json` | Bambu Lab's text; see `NOTICE` | https://e.bambulab.com/query.php |
 
 ---

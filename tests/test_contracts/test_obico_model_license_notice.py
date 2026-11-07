@@ -30,6 +30,9 @@ def test_every_bundled_model_has_a_notice_naming_its_digest():
     assert "obico_spaghetti.onnx" in notice and MODEL_SHA256 in notice
     assert "AGPL-3.0" in notice and "LICENSE-AGPL-3.0.txt" in notice
     assert "github.com/TheSpaghettiDetective/obico-server" in notice
+    assert "obico-server/tree/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/ml_api/model" in notice
+    assert "e37bc5c0757c79c6da084f18fe82d56fbb11299ae5bf0b90cc96dd844e76d1e9" in notice  # matching Darknet weights
+    assert "github.com/HughKantsime/runsodin/releases/tag/third-party/obico-model-1e7abb0b" in notice  # our mirror
 
 
 def test_agpl_text_is_the_unmodified_fsf_text():

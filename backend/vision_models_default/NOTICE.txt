@@ -33,7 +33,8 @@ published this ONNX file next to the Darknet weights it was made from:
 https://github.com/TheSpaghettiDetective/obico-server/tree/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/ml_api/model
 
   Darknet weights  https://tsd-pub-static.s3.amazonaws.com/ml-models/model-weights-8be06cde4e.darknet
-                   (202,314,764 bytes; listed in model-weights.darknet.url)
+                   (202,314,764 bytes; listed in model-weights.darknet.url;
+                   SHA-256 e37bc5c0757c79c6da084f18fe82d56fbb11299ae5bf0b90cc96dd844e76d1e9)
   ONNX file        https://tsd-pub-static.s3.amazonaws.com/ml-models/model-weights-5a6b1be1fa.onnx
                    (this file; Obico now also serves it at
                    https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx)
@@ -46,5 +47,12 @@ newest ones. Obico produced the ONNX file from those Darknet weights; O.D.I.N.
 did not convert, retrain or otherwise modify it. Obico's model and training
 notes for that version are in docs/model_development.md at the same commit:
 https://github.com/TheSpaghettiDetective/obico-server/blob/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/docs/model_development.md
+
+Mirror
+------
+The O.D.I.N. publisher keeps an unmodified copy of all of these files (the
+Darknet weights, this ONNX file, model.cfg, names, model.meta, the URL files,
+the license text and a SHA256SUMS list) at:
+https://github.com/HughKantsime/runsodin/releases/tag/third-party/obico-model-1e7abb0b
 
 Questions about these sources: sublab3dp@gmail.com.
