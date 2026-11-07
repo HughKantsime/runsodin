@@ -42,10 +42,12 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   // No need to read/inject a Bearer token from localStorage.
   let response: Response
   try {
+    // headers goes last: requestOptions still carries the caller's raw headers,
+    // and spreading it after would drop the JSON Content-Type set above.
     response = await fetch(API_BASE + endpoint, {
-      headers,
       credentials: 'include',
       ...requestOptions,
+      headers,
     })
   } catch (networkError) {
     throw new Error('Network error. Check your connection and try again.')
