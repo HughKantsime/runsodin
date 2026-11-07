@@ -8,6 +8,10 @@ All notable changes to O.D.I.N. are documented here.
 
 - Enterprise controlled-part handling: reasoned CUI/ITAR/custom file and job markings, explicit named audiences independent of organizations, hard printer-tag constraints, protected names/previews/exports/cameras, acknowledged administrative downloads, and previewed timelapse retention through sealed media retirement. Printer status and controls remain available to nonmembers. Includes marking controls, GDPR handling, and additive migrations 054–055. See `docs/CONTROLLED_PARTS.md`.
 
+### Changed
+
+- The bundled Vigil spaghetti model is Obico's published model, licensed under AGPL-3.0. O.D.I.N. now ships its license text, copyright notice and source details next to the file, and the license, terms and third-party notices say it isn't covered by O.D.I.N.'s own license.
+
 ### Fixed
 
 - Controlled timelapse retention runs from each print’s completion or marking time, whichever is later; shortening grace and policy cycles cannot postpone existing purges. Deleted-job audiences retain immutable audit history without restricting reused job IDs. Log acknowledgements use POST and expiring stream tokens with bounded audit volume; failed MQTT protection checks now warn without exposing payloads.

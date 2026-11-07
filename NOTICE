@@ -11,3 +11,13 @@ These separately bundled data files are not covered by O.D.I.N.'s own license.
 Each file records the source URL, vendor version, fetch timestamp and payload
 SHA-256. They can be removed independently; O.D.I.N. then displays plain codes.
 See docs/bambu-hms.md for release refresh and removal instructions.
+
+Obico spaghetti-detection model
+
+backend/vision_models_default/obico_spaghetti.onnx is Obico's published
+failure-detection model (formerly The Spaghetti Detective), included
+unmodified. It is licensed under the GNU Affero General Public License,
+version 3, not under O.D.I.N.'s own license. The license text, copyright
+notice and corresponding-source details are in
+backend/vision_models_default/LICENSE-AGPL-3.0.txt and
+backend/vision_models_default/NOTICE.txt.

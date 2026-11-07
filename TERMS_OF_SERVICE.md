@@ -61,9 +61,11 @@ You may NOT:
 - Remove or alter any proprietary notices, labels, or marks
 - Use the Community Tier for commercial purposes
 
+These restrictions apply to O.D.I.N.'s own code. Third-party components that ship with the Software under their own licenses, listed in `THIRD_PARTY_NOTICES.md` (including the bundled Obico spaghetti-detection model, licensed under AGPL-3.0), are licensed to you under those licenses. Nothing in this Agreement restricts the rights those licenses give you.
+
 ### 3.6 BSL 1.1 Incorporation
 
-The Software is licensed under the Business Source License 1.1. The full text of the BSL 1.1 is included with the Software in the LICENSE file. In the event of a conflict between this Agreement and the BSL 1.1, the more restrictive provision applies. Per the BSL 1.1, each version of the Software will convert to the Apache License 2.0 on the earlier of (a) the Change Date specified in the LICENSE file or (b) four years after the first public release of that version.
+The Software is licensed under the Business Source License 1.1. The full text of the BSL 1.1 is included with the Software in the LICENSE file. In the event of a conflict between this Agreement and the BSL 1.1, the more restrictive provision applies. Neither this Agreement nor the BSL 1.1 applies to the separately licensed third-party components described in Section 3.5; those components are governed only by their own licenses. Per the BSL 1.1, each version of the Software will convert to the Apache License 2.0 on the earlier of (a) the Change Date specified in the LICENSE file or (b) four years after the first public release of that version.
 
 ---
 

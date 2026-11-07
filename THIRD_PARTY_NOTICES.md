@@ -2,7 +2,16 @@
 
 **O.D.I.N. (Orchestrated Dispatch & Inventory Network)**
 
-This file lists third-party software packages used by O.D.I.N. and their respective licenses. All listed licenses have been confirmed compatible with the Business Source License 1.1 (BSL 1.1) under which O.D.I.N. is distributed.
+This file lists third-party software packages used by O.D.I.N. and their respective licenses. The packages in the dependency tables are used under their own licenses alongside O.D.I.N.'s Business Source License 1.1 (BSL 1.1).
+
+## Separately licensed bundled components (not covered by the BSL)
+
+These files ship with O.D.I.N. but are not part of its Licensed Work. They are licensed to you only under their own licenses, and nothing in O.D.I.N.'s BSL, Terms of Service or license keys restricts the rights those licenses give you.
+
+| Component | File | License | Source |
+|---|---|---|---|
+| Obico spaghetti-detection model (unmodified; SHA-256 `0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa`) | `backend/vision_models_default/obico_spaghetti.onnx` | AGPL-3.0 (text: `backend/vision_models_default/LICENSE-AGPL-3.0.txt`) | Obico, formerly The Spaghetti Detective: https://github.com/TheSpaghettiDetective/obico-server/tree/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/ml_api/model. Notice and source details: `backend/vision_models_default/NOTICE.txt`; mirror: https://github.com/HughKantsime/runsodin/releases/tag/third-party/obico-model-1e7abb0b |
+| Bambu Lab HMS and print-error descriptions | `backend/data/bambu_hms/*.json` | Bambu Lab's text; see `NOTICE` | https://e.bambulab.com/query.php |
 
 ---
 
@@ -76,8 +85,8 @@ This file lists third-party software packages used by O.D.I.N. and their respect
 
 ## License Compatibility
 
-All third-party licenses listed above (MIT, BSD-3-Clause, Apache-2.0, ISC, MPL-2.0, LGPL-3.0, EPL-2.0) are compatible with O.D.I.N.'s BSL 1.1 license. Copyleft obligations (LGPL-3.0 for fpdf2, MPL-2.0 for pywebpush) are satisfied through dynamic linking and unmodified use of those libraries.
+The dependency licenses in the tables above (MIT, BSD-3-Clause, Apache-2.0, ISC, MPL-2.0, LGPL-3.0, EPL-2.0) allow use alongside O.D.I.N.'s BSL 1.1 license. This statement does not cover the separately licensed bundled components listed at the top of this file, such as the AGPL-3.0 Obico model, which keep their own licenses and are not part of O.D.I.N.'s Licensed Work. Copyleft obligations (LGPL-3.0 for fpdf2, MPL-2.0 for pywebpush) are satisfied through dynamic linking and unmodified use of those libraries.
 
 ---
 
-*Last updated: February 16, 2026*
+*Last updated: November 7, 2026*
