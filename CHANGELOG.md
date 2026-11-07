@@ -4,6 +4,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.46] - 2026-11-07
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Enterprise gets controlled-part handling for CUI and ITAR files and jobs; Vigil spaghetti detection works on a fresh install; camera views use no public STUN server; legal documents name JLLS Holdings LLC, d/b/a SubLab 3DP. -->
+
 ### Security
 
 - Camera WebRTC uses host candidates only: the browser, generated go2rtc configuration and shipped templates disable public STUN defaults, including in ITAR mode.
