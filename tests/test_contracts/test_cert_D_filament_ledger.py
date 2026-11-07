@@ -384,14 +384,23 @@ def _controlled_mark_tables(sites):
     # change_mark writes `'controlled_' + resource_type`; every backend call passes a literal 'files' or
     # 'jobs' positionally, so the table is controlled_files / controlled_jobs, never a filament table.
     function = ast.parse(job_census.function_source(path, "change_mark")).body[0]
-    stores = [n for n in ast.walk(function) if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign))
-              and any(isinstance(t, ast.Name) and t.id == "table"
-                      for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))]
-    assigned = len(stores) == 1 and isinstance(stores[0], ast.Assign) and ast.unparse(stores[0].value) == "'controlled_' + resource_type"
+    # Every binding of `table` (assignment, tuple, for, with, walrus, ...) is a Name in Store context.
+    bindings = [n for n in ast.walk(function) if isinstance(n, ast.Name) and n.id == "table" and isinstance(n.ctx, ast.Store)]
+    stores = [n for n in ast.walk(function) if isinstance(n, ast.Assign) and len(n.targets) == 1
+              and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "table"]
+    assigned = (len(bindings) == 1 and len(stores) == 1 and stores[0].targets[0] is bindings[0]
+                and ast.unparse(stores[0].value) == "'controlled_' + resource_type")
     arguments, keyword_or_dynamic = set(), False
     for source in job_census.backend_sources().values():
-        for node in ast.walk(ast.parse(source)):
-            if isinstance(node, ast.Call) and ast.unparse(node.func).split(".")[-1] == "change_mark":
+        tree = ast.parse(source)
+        calls = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and ast.unparse(node.func).split(".")[-1] == "change_mark"}
+        for node in ast.walk(tree):
+            # Any other reference (alias, callback, import-as) could reach change_mark unseen: refuse it.
+            named = (isinstance(node, ast.Name) and node.id == "change_mark") or (isinstance(node, ast.Attribute) and node.attr == "change_mark")
+            imported = isinstance(node, ast.alias) and node.name.split(".")[-1] == "change_mark"
+            keyword_or_dynamic |= (named and id(node) not in calls) or imported
+            if isinstance(node, ast.Call) and id(node.func) in calls:
                 literal = len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
                 keyword_or_dynamic |= not literal or any(k.arg in (None, "resource_type") for k in node.keywords)
                 if literal:
