@@ -5,8 +5,8 @@ Every deducer -- operator /complete, the Moonraker monitor, archive accounting
 through the ledger; automatic deductions are once per physical print / job
 attempt, claimed atomically and only when something is actually deducted.
 """
+import ast
 import json
-from pathlib import Path
 import re
 import threading
 import types
@@ -381,13 +381,25 @@ def _never_filament(path, resolve_parameter=None):
 
 def _controlled_mark_tables(sites):
     path = "backend/modules/organizations/routes_controlled_parts.py"
-    # change_mark writes `'controlled_' + resource_type`, and its only callers pass 'files' and 'jobs':
-    # controlled_files / controlled_jobs, never a filament table.
-    source = (Path(__file__).resolve().parents[2] / path).read_text(encoding="utf-8")
-    tables = {"controlled_" + arg.strip("'") for arg in job_census.call_arguments(path, "change_mark", 1)}
-    return (all(job_census.dynamic_parts(site.detail)[0] == "table" for site in sites)
-            and "    table = 'controlled_' + resource_type\n" in source
-            and tables == {"controlled_files", "controlled_jobs"} and not tables & FILAMENT_TABLES)
+    # change_mark writes `'controlled_' + resource_type`; every backend call passes a literal 'files' or
+    # 'jobs' positionally, so the table is controlled_files / controlled_jobs, never a filament table.
+    function = ast.parse(job_census.function_source(path, "change_mark")).body[0]
+    stores = [n for n in ast.walk(function) if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign))
+              and any(isinstance(t, ast.Name) and t.id == "table"
+                      for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))]
+    assigned = len(stores) == 1 and isinstance(stores[0], ast.Assign) and ast.unparse(stores[0].value) == "'controlled_' + resource_type"
+    arguments, keyword_or_dynamic = set(), False
+    for source in job_census.backend_sources().values():
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Call) and ast.unparse(node.func).split(".")[-1] == "change_mark":
+                literal = len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
+                keyword_or_dynamic |= not literal or any(k.arg in (None, "resource_type") for k in node.keywords)
+                if literal:
+                    arguments.add(node.args[1].value)
+    tables = {"controlled_" + value for value in arguments}
+    return (all(job_census.dynamic_parts(site.detail)[0] == "table" for site in sites) and assigned
+            and not keyword_or_dynamic and tables == {"controlled_files", "controlled_jobs"}
+            and not tables & FILAMENT_TABLES)
 
 
 def _exact(*details):
