@@ -6,6 +6,7 @@ through the ledger; automatic deductions are once per physical print / job
 attempt, claimed atomically and only when something is actually deducted.
 """
 import json
+from pathlib import Path
 import re
 import threading
 import types
@@ -378,6 +379,17 @@ def _never_filament(path, resolve_parameter=None):
     return lambda sites: not (_tables_at(sites, path, resolve_parameter) & FILAMENT_TABLES)
 
 
+def _controlled_mark_tables(sites):
+    path = "backend/modules/organizations/routes_controlled_parts.py"
+    # change_mark writes `'controlled_' + resource_type`, and its only callers pass 'files' and 'jobs':
+    # controlled_files / controlled_jobs, never a filament table.
+    source = (Path(__file__).resolve().parents[2] / path).read_text(encoding="utf-8")
+    tables = {"controlled_" + arg.strip("'") for arg in job_census.call_arguments(path, "change_mark", 1)}
+    return (all(job_census.dynamic_parts(site.detail)[0] == "table" for site in sites)
+            and "    table = 'controlled_' + resource_type\n" in source
+            and tables == {"controlled_files", "controlled_jobs"} and not tables & FILAMENT_TABLES)
+
+
 def _exact(*details):
     return lambda sites: sorted(site.detail for site in sites) == sorted(details)
 
@@ -450,6 +462,8 @@ SHARED_DYNAMIC = {
     # Integration (migration 032, cert-fix-E): the module's TABLE constant is the deferral table.
     ("backend/modules/notifications/deferred_deliveries.py", "record_suppressed", "sql insert (dynamic table)"):
         (1, "quiet-hours deferred-delivery table", _never_filament("backend/modules/notifications/deferred_deliveries.py")),
+    ("backend/modules/organizations/routes_controlled_parts.py", "change_mark", "sql insert (dynamic table)"):
+        (1, "controlled-part marking tables (controlled_files / controlled_jobs)", _controlled_mark_tables),
 }
 ALLOWED = {
     "spools": {

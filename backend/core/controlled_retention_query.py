@@ -70,5 +70,5 @@ def pending_count(db, *, now=None):
             SELECT id FROM clocks WHERE step={length} GROUP BY id
             HAVING min(deadline)<=:now AND max(CASE WHEN purge_previewed_at IS NULL THEN 1 ELSE 0 END)=1
         ) due"""
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- query uses fixed retention fields, dialect-selected functions and source-owned policy fragments; the deadline is bound
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- query uses fixed retention fields, dialect-selected functions and source-owned policy fragments; the deadline is bound
     return db.execute(text(query), {'now': (now or datetime.now(timezone.utc)).timestamp()}).scalar_one()

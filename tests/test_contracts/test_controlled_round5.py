@@ -236,7 +236,7 @@ def test_mqtt_redaction_failure_is_rate_limited_and_closed(marked, monkeypatch, 
     sent = []
     monkeypatch.setattr(mqtt, '_get_client', lambda: SimpleNamespace(publish=lambda *a,**k:sent.append(a)))
     monkeypatch.setattr(mqtt, '_get_config', lambda: {'topic_prefix':'test'})
-    def fail(*a): raise RuntimeError('private failure contents')
+    def fail(*a, **kwargs): raise RuntimeError('private failure contents')
     monkeypatch.setattr(controlled_mqtt, 'redact_payload', fail)
     monkeypatch.setattr(controlled_warnings, '_last', {})
     for _ in range(10): mqtt._publish('test', {'job_name':'Secret'})

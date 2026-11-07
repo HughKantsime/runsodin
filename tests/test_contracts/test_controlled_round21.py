@@ -81,7 +81,7 @@ from sqlalchemy import event
 states=[]
 def after_commit(connection):
  from sqlalchemy import text
- # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- constant test observation; no external input
+ # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant test observation; no external input
  states.append(connection.execute(text('SELECT enabled FROM audit_siem_destinations')).scalar())
 event.listen(engine,'commit',after_commit)
 r=c.put(path,json={**rotated,'acknowledge_controlled':True},headers=headers)
@@ -92,7 +92,7 @@ from core.db import SessionLocal
 from core.controlled_siem import acknowledgement, target
 from sqlalchemy import text
 with SessionLocal() as db:
- # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- constant fixture read without external input
+ # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture read without external input
  row=db.execute(text('SELECT * FROM audit_siem_destinations')).mappings().one()
  assert acknowledgement(db,row)['user_id']==sid
  stored=json.loads(sql('SELECT value FROM system_config WHERE key=:k',k='controlled:siem_ack:'+did)[0][0])

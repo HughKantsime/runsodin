@@ -36,10 +36,11 @@ def event_allowed(principal, message, *, db=None):
     return not (unknown and any_marks(db)) and all(allowed(db, kind, identifier, principal) for kind, identifier in refs)
 
 
-def external_payload(db, payload):
+def external_payload(db, payload, *, job_id=None):
     if not any_read_restrictions(db):
         return payload
-    refs, unknown = references(db, payload)
+    # Alert job identity is policy context; it must not become a wire field.
+    refs, unknown = references(db, {**payload, 'job_id': job_id} if job_id is not None else payload)
     if (unknown and any_marks(db)) or any(policies(db, kind, identifier) for kind, identifier in refs):
         # Only numeric identity and bounded event status survive. Free-form
         # metadata, URLs, filenames, reasons and nested payloads never leave.

@@ -28,9 +28,9 @@ with SessionLocal() as db:
  log_audit(db,'job.updated','job',1,{'name':'secret'}); db.commit()
  redact_deleted_job_history(db,1)
  # Exercise the deletion snapshot directly: direct job marks are otherwise deletion-protected.
- # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed fixture deletion without external input
+ # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed fixture deletion without external input
  db.execute(text('DELETE FROM controlled_jobs WHERE job_id=1'))
- # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed fixture deletion without external input
+ # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed fixture deletion without external input
  db.execute(text('DELETE FROM jobs WHERE id=1')); db.commit()
 if HISTORY=='released_file':
  assert member.put('/api/controlled-parts/files/1',json={**body,'controlled':False}).status_code==200

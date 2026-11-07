@@ -28,7 +28,7 @@ TABLES = (
 def execute(connection, statement, **parameters):
     # All callers below supply fixture SQL or a TABLES allowlisted snapshot;
     # generated IDs and values are always bound separately.
-    return connection.execute(text(statement), parameters)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- only local fixture SQL and TABLES allowlisted identifiers; values use bound parameters
+    return connection.execute(text(statement), parameters)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only local fixture SQL and TABLES allowlisted identifiers; values use bound parameters
 
 
 def snapshot(engine):

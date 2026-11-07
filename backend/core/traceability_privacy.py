@@ -8,7 +8,7 @@ def export_personal(db, user_id, exporter=None):
         return []
     from core.controlled_parts import job_visibility
     visibility, params = job_visibility(exporter, 'j')
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- job_visibility uses source-owned SQL with the fixed j alias; user and audience IDs are bound
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- job_visibility uses source-owned SQL with the fixed j alias; user and audience IDs are bound
     return [dict(r._mapping) for r in db.execute(text('''SELECT r.job_id,r.attempt,r.snapshot,r.captured_at,r.inspection_result,
         CASE WHEN r.inspected_by=:uid THEN r.inspection_notes ELSE NULL END AS inspection_notes,r.inspected_at,r.delivered_at FROM traceability_records r
         JOIN jobs j ON j.id=r.job_id WHERE (r.inspected_by=:uid OR r.delivered_by=:uid

@@ -26,7 +26,7 @@ def erased_audience_details(details, user_id):
 
 
 def erase_mark_history(db, user_id):
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed action filter, no user input in SQL
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed action filter, no user input in SQL
     rows = db.execute(text("SELECT id,actor_user_id,action,details FROM audit_logs WHERE action IN ('controlled_part.changed','controlled_audience.saved','controlled_audience.deleted')"))
     for row in rows:
         try:

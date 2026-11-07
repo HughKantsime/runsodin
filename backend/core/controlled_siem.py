@@ -5,9 +5,9 @@ from sqlalchemy import text
 def lock_policy(db):
     # Keep this lock before job/config locks. Using the audit-chain lock here
     # would invert ordinary job writers' job -> audit ordering on PostgreSQL.
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed internal mutex key/value, no external input
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed internal mutex key/value, no external input
     db.execute(text("INSERT INTO system_config(key,value) VALUES('controlled:siem_policy_lock','0') ON CONFLICT(key) DO NOTHING"))
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed internal mutex key, no external input
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed internal mutex key, no external input
     db.execute(text("UPDATE system_config SET value=value WHERE key='controlled:siem_policy_lock'"))
 
 
@@ -33,7 +33,7 @@ def target(destination):
 def acknowledgement(db, destination):
     import json
     from core.system_config_values import config_text
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed config lookup with a bound destination key
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed config lookup with a bound destination key
     value = db.execute(text('SELECT value FROM system_config WHERE key=:key'),
                        {'key': 'controlled:siem_ack:' + destination['id']}).scalar()
     try:
@@ -46,7 +46,7 @@ def acknowledgement(db, destination):
 
 
 def clear_acknowledgement(db, destination_id):
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed config deletion with a bound destination key
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed config deletion with a bound destination key
     db.execute(text('DELETE FROM system_config WHERE key=:key'),
                {'key': 'controlled:siem_ack:' + destination_id})
 
@@ -76,6 +76,6 @@ def require_acknowledged(db, destination):
 
 
 def first_mark(db):
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed enabled-destination lookup with no external input
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed enabled-destination lookup with no external input
     for destination in db.execute(text('SELECT * FROM audit_siem_destinations WHERE enabled=1 ORDER BY id')).mappings():
         require_acknowledged(db, destination)

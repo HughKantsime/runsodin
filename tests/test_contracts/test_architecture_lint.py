@@ -16,6 +16,7 @@ See also: docs/adr/001-modular-architecture.md
 
 import sys
 from pathlib import Path
+from tests._frozen_bundles import is_frozen_source
 
 import pytest
 
@@ -234,9 +235,7 @@ class TestCoreHasNoRoutes:
                 continue
             # Frozen domain source copies run only inside the isolated restore child.
             # Their package integrity is independently pinned; they are not core runtime routes.
-            if (py_file.is_relative_to(BACKEND_DIR / "core/schema/preserved034/bundle/modules")
-                    or any(py_file.is_relative_to(BACKEND_DIR / f"core/schema/preserved{version}/overlay")
-                           for version in ("035", "036", "037", "038", "039"))):
+            if is_frozen_source(py_file):
                 continue
             try:
                 content = py_file.read_text(encoding="utf-8")

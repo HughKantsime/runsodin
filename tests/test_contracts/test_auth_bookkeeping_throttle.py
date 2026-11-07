@@ -20,6 +20,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from tests._frozen_bundles import is_frozen_source
 
 import pytest
 from sqlalchemy import create_engine, event, text
@@ -211,10 +212,7 @@ def test_only_the_retention_cleanup_compares_bookkeeping_times():
     comparisons = set()
     pattern = re.compile(r"last_(seen|used)_at\s*(<|>|<=|>=)\s*[:?]|[<>]=?\s*\w*\.?last_(seen|used)_at")
     for file in list((_BACKEND / "core").rglob("*.py")) + list((_BACKEND / "modules").rglob("*.py")):
-        if any(part in ("preserved027", "preserved029", "preserved034") for part in file.parts):
-            continue
-        if any(file.is_relative_to(_BACKEND / f"core/schema/preserved{version}/overlay")
-               for version in ("035", "036", "037", "038", "039")):
+        if is_frozen_source(file):
             continue
         for line in file.read_text(errors="ignore").splitlines():
             if pattern.search(line) and not line.strip().startswith("#"):

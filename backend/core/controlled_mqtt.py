@@ -8,7 +8,7 @@ def invalidate():
     _states.clear()
 
 
-def redact_payload(engine, payload):
+def redact_payload(engine, payload, *, job_id=None):
     from core.controlled_parts import any_read_restrictions
     from core.controlled_events import external_payload
     now = time.monotonic()
@@ -22,7 +22,7 @@ def redact_payload(engine, payload):
     with engine.connect() as db:
         db.info.update(_controlled_request=True, _controlled_any=True)
         try:
-            return external_payload(db, payload)
+            return external_payload(db, payload, job_id=job_id)
         finally:
             db.info.pop('_controlled_request', None)
             db.info.pop('_controlled_any', None)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextvars
 import os
+from types import SimpleNamespace
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -200,6 +201,7 @@ def test_get_current_user_marks_token_principals(monkeypatch, tmp_path):
     monkeypatch.setenv("API_KEY", "synthetic-global-key-" + "k" * 24)
 
     class Req:
+        state = SimpleNamespace()
         cookies = {}
         headers = {"X-API-Key": os.environ["API_KEY"]}
         url = type("U", (), {"path": "/api/x"})()

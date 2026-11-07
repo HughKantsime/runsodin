@@ -7,15 +7,16 @@ import threading
 import time
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 
 @pytest.fixture
 def hub(tmp_path, monkeypatch):
-    from core import ws_hub
+    from core import db, ws_hub
+    from core.schema import bootstrap_database
     engine = create_engine('sqlite:///' + str(tmp_path / 'events.db'))
-    with engine.begin() as conn:
-        conn.execute(text('CREATE TABLE ws_events(id INTEGER PRIMARY KEY, data TEXT, created_at REAL)'))
+    bootstrap_database(engine)
+    monkeypatch.setattr(db, 'engine', engine)
     monkeypatch.setattr(ws_hub, 'engine', engine)
     monkeypatch.setattr(ws_hub, '_last_cleanup', 0)
     yield ws_hub, engine
@@ -24,7 +25,8 @@ def hub(tmp_path, monkeypatch):
 
 def seed(engine, count, stamp=None):
     with engine.begin() as conn:
-        conn.execute(text('INSERT INTO ws_events(data,created_at) VALUES(:data,:stamp)'),
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed fixture insert with bound payload and timestamp
+        conn.execute(text("INSERT INTO ws_events(event_type,data,created_at) VALUES('test',:data,:stamp)"),
                      [{'data':json.dumps({'type':'test','data':{}}), 'stamp':time.time() if stamp is None else stamp}] * count)
 
 
@@ -109,11 +111,17 @@ def test_idle_cleanup_does_not_require_clients(hub, monkeypatch):
     asyncio.run(run())
 
 
-def test_audience_database_lookups_run_off_event_loop(monkeypatch):
+def test_audience_database_lookups_run_off_event_loop(hub, monkeypatch):
     from core.app_websocket import ConnectionManager
     manager = ConnectionManager()
     loop_thread = threading.get_ident()
     checked = []
+    policy_reads = []
+    _, engine = hub
+    def record_policy_read(conn, cursor, statement, *args):
+        if 'controlled_' in statement:
+            policy_reads.append(threading.get_ident())
+    event.listen(engine, 'before_cursor_execute', record_policy_read)
     def scope(message):
         checked.append(threading.get_ident())
         return 1, False
@@ -126,8 +134,12 @@ def test_audience_database_lookups_run_off_event_loop(monkeypatch):
     manager.active = [(Socket(), {'id':1,'group_id':1})]
     monkeypatch.setattr(manager, '_printer_scope', scope)
     monkeypatch.setattr(manager, '_education_principal_current', current)
-    assert asyncio.run(manager.broadcast({'data':{'printer_id':1,'education_internal':True}})) == 1
+    try:
+        assert asyncio.run(manager.broadcast({'data':{'printer_id':1,'education_internal':True}})) == 1
+    finally:
+        event.remove(engine, 'before_cursor_execute', record_policy_read)
     assert len(checked) == 2 and all(identifier != loop_thread for identifier in checked)
+    assert policy_reads and all(identifier != loop_thread for identifier in policy_reads)
 
 
 @pytest.mark.parametrize('count', [-1, True, '4', None, 65, 10**100, 1.5])

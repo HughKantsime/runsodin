@@ -12,10 +12,10 @@ def test_native_restore_fixture_has_real_marks_audience_clock_and_tombstone(revi
     assert set(data) == set(TABLES)
     assert all(data.values()), 'Every controlled archive collection must contain fixture data'
     with engine.connect() as db:
-        tombstone = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed fixture query with bound deleted job ID
+        tombstone = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed fixture query with bound deleted job ID
             'SELECT audience_id,retention_initial_days,retention_changes,audit_max_id '
             'FROM controlled_job_tombstones WHERE job_id=:job'), {'job': deleted_job}).one()
         assert tombstone[:3] == (audience, 7, '[]')
         assert tombstone.audit_max_id > 0
-        assert db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed fixture query with bound deleted job ID
+        assert db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed fixture query with bound deleted job ID
             'SELECT count(*) FROM jobs WHERE id=:job'), {'job': deleted_job}).scalar_one() == 0

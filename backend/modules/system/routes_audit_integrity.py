@@ -89,7 +89,7 @@ def acknowledged_signed_export(date_from: date, date_to: date, bundle: bool = Fa
 
 @router.get('/settings/siem', dependencies=[Depends(feature_gate('siem_stream'))])
 def destinations(current_user: dict = Depends(require_superadmin(scope='read')), db: Session = Depends(get_db)):
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- constant destination/status projection without external input; secrets are removed before returning
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant destination/status projection without external input; secrets are removed before returning
     rows = db.execute(text('''SELECT d.id,d.name,d.kind,d.endpoint,d.enabled,d.tls,d.ca_bundle,d.secret,d.last_error,d.last_success,
         CASE WHEN d.secret IS NULL THEN 0 ELSE 1 END AS has_secret,
         (SELECT count(*) FROM audit_siem_outbox o WHERE o.destination_id=d.id) AS pending
@@ -135,7 +135,7 @@ def save_destination(destination_id: str, body: Destination,
         require_acknowledged(db, values)
     from license_manager import get_license
     license = get_license()
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed singleton update with a bound verified-license deadline, after acknowledgement validation
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed singleton update with a bound verified-license deadline, after acknowledgement validation
     db.execute(text('UPDATE audit_chain_state SET siem_until=:until WHERE id=1'),
                {'until': license.expiry_deadline.timestamp() if license.expiry_deadline else 0})
     if prior and target(prior) != target(values):
@@ -159,7 +159,7 @@ def acknowledge_destination(destination_id: str, current_user: dict = Depends(re
                             db: Session = Depends(get_db)):
     from core.controlled_siem import lock_policy, store_acknowledgement
     lock_policy(db)
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed destination lookup; destination id is bound
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed destination lookup; destination id is bound
     destination = db.execute(text('SELECT * FROM audit_siem_destinations WHERE id=:id'),
                              {'id': destination_id}).mappings().first()
     if destination is None:

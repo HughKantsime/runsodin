@@ -229,7 +229,7 @@ def _get_client():
             return None
 
 
-def _publish(topic_suffix: str, payload: dict):
+def _publish(topic_suffix: str, payload: dict, *, job_id: int = None):
     """Publish a message to the external broker."""
     # Event republishing is an Enterprise entitlement. The broker settings stay
     # configurable on every tier because MQTT smart-plug commands
@@ -250,7 +250,7 @@ def _publish(topic_suffix: str, payload: dict):
 
     try:
         from core.controlled_mqtt import redact_payload
-        payload = redact_payload(engine, payload)
+        payload = redact_payload(engine, payload, job_id=job_id)
     except Exception as error:
         from core.controlled_warnings import warn_failure
         warn_failure('MQTT republish', error)
@@ -328,9 +328,8 @@ def republish_alert(alert_type: str, severity: str, title: str, message: str,
         "message": message,
         "printer_id": printer_id,
         "printer_name": printer_name,
-        "job_id": job_id,
         "timestamp": time.time(),
-    })
+    }, job_id=job_id)
 
 
 def republish_fleet(online: int, total: int, printing: int, idle: int):

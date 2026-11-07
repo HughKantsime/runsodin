@@ -24,16 +24,11 @@ import ast
 
 import pytest
 from pathlib import Path
+from tests._frozen_bundles import is_frozen_source
 
 BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 DEPENDENCIES = BACKEND_DIR / "core" / "dependencies.py"
 AUDIT_IMPL = BACKEND_DIR / "core" / "audit.py"
-
-
-PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle", BACKEND_DIR / "core/schema/preserved034/bundle") + tuple(
-    BACKEND_DIR / f"core/schema/preserved{version}/overlay"
-    for version in ("035", "036", "037", "038", "039", "040", "043", "044", "045", "046", "053")
-)
 
 
 def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:
@@ -44,7 +39,7 @@ def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:
         if py == DEPENDENCIES:
             continue
         # Hash-pinned frozen sources used only to stage historical restores; not live code.
-        if any(bundle in py.parents for bundle in PRESERVED_BUNDLES):
+        if is_frozen_source(py):
             continue
         try:
             source = py.read_text()
@@ -406,7 +401,7 @@ def _telemetry_audit_transaction_is_atomic(sources):
 def _telemetry_sources():
     return {str(path.relative_to(BACKEND_DIR)): path.read_text()
             for path in BACKEND_DIR.rglob("*.py")
-            if not any(bundle in path.parents for bundle in PRESERVED_BUNDLES)
+            if not is_frozen_source(path)
             and "observe_slots" in path.read_text()}
 
 
@@ -453,7 +448,7 @@ class TestEveryCallSiteCommitsAfter:
                     and fn_name == "write_currency"):
                 caller_paths = []
                 for candidate in BACKEND_DIR.rglob("*.py"):
-                    if any(bundle in candidate.parents for bundle in PRESERVED_BUNDLES):
+                    if is_frozen_source(candidate):
                         continue
                     candidate_source = candidate.read_text()
                     candidate_tree = ast.parse(candidate_source)

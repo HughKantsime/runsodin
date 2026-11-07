@@ -5,7 +5,7 @@ from core.system_config_values import config_text, write_config_text
 
 
 def personal_acknowledgements(db, user_id):
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- fixed exact config prefix and ordering without external input; user identity is compared after JSON decoding
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed exact config prefix and ordering without external input; user identity is compared after JSON decoding
     rows = db.execute(text("SELECT key,value FROM system_config WHERE substr(key,1,20)='controlled:siem_ack:' ORDER BY key"))
     for key, value in rows:
         try:
