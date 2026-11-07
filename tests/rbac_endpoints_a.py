@@ -136,6 +136,7 @@ ENDPOINTS = [
     # 9. Print Jobs (MQTT Tracking)
     # =========================================================================
     ("GET", "/api/print-jobs", _api_read(), None, "MQTT print history"),
+    ("GET", "/api/print-jobs/{id}", _api_read(), None, "MQTT print detail"),
     ("GET", "/api/print-jobs/stats", _api_read(), None, "Print job stats"),
     ("GET", "/api/print-jobs/unlinked", _api_read(), None, "Unlinked prints"),
 

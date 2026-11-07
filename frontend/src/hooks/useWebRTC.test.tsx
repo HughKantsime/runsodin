@@ -140,3 +140,8 @@ test('late native MJPEG metadata cannot switch a replacement camera',async()=>{
  pending.resolve({ok:true,json:async()=>({transport:'mjpeg'})});await flush()
  expect(screen.getByTestId('fallback')).toHaveTextContent('false');expect(peers).toHaveLength(1)
 })
+
+test('default peer uses only host candidates without STUN or TURN', async () => {
+ render(<Harness/>);await flush()
+ expect(RTCPeerConnection).toHaveBeenCalledWith({iceServers: []})
+})

@@ -220,7 +220,9 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
         # own service it never is, and each writer (api, monitors) would advertise its own
         # address: only ODIN_HOST_IP / system_config host_ip is used then.
         lan_ip = _get_lan_ip()
-    webrtc_config = {"listen": "0.0.0.0:8555"}
+    # An absent ice_servers key enables go2rtc's built-in public Google STUN.
+    # Explicitly disable it in every mode, including ITAR.
+    webrtc_config = {"listen": "0.0.0.0:8555", "ice_servers": []}
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
     from core.remote_access import add_tailnet_candidate

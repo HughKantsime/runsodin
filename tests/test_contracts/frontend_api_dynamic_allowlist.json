@@ -1,0 +1,200 @@
+[
+  {
+    "file": "api/client.ts",
+    "expression": "API_BASE + endpoint",
+    "options": "{\n      headers,\n      credentials: 'include',\n      ...requestOptions,\n    }",
+    "reason": "Transport for fetchAPI: concrete callers are checked by this census; URL and method are supplied by the caller.",
+    "routes": []
+  },
+  {
+    "file": "api/client.ts",
+    "expression": "`${API_BASE}${endpoint}`",
+    "options": "{ credentials: 'include' }",
+    "reason": "Blob transport accepts paths from downloadBlob callers rather than a fixed route.",
+    "routes": []
+  },
+  {
+    "file": "api/educationClasses.ts",
+    "expression": "`${base}/${classId}/assignments${existing ? `/${existing.id}` : ''}`",
+    "options": "body(existing ? { ...data, revision: existing.revision } : data, existing ? 'PUT' : 'POST')",
+    "reason": "Existing assignment selects PUT and its ID together; a new assignment selects POST without an ID.",
+    "routes": [
+      [
+        "PUT",
+        "/api/education/classes/{param}/assignments/{param}"
+      ],
+      [
+        "POST",
+        "/api/education/classes/{param}/assignments"
+      ]
+    ]
+  },
+  {
+    "file": "api/jobs.ts",
+    "expression": "'/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')",
+    "options": "",
+    "reason": "Repeated condition correlates ? and & branches; all variants address this route with optional query parameters.",
+    "routes": [
+      [
+        "GET",
+        "/api/jobs"
+      ]
+    ]
+  },
+  {
+    "file": "api/models.ts",
+    "expression": "'/models-with-pricing' + (category ? '?category=' + category : '') + (orgId != null ? (category ? '&' : '?') + 'org_id=' + orgId : '')",
+    "options": "",
+    "reason": "Repeated condition correlates ? and & branches; all variants address this route with optional query parameters.",
+    "routes": [
+      [
+        "GET",
+        "/api/models-with-pricing"
+      ]
+    ]
+  },
+  {
+    "file": "api/materialPurchases.ts",
+    "expression": "base+endpoint",
+    "options": "{method:'POST',body:JSON.stringify(value)}",
+    "reason": "Local post helper: all seven literal suffixes at its call sites are enumerated.",
+    "routes": [
+      [
+        "POST",
+        "/api/consumables/purchases/materials"
+      ],
+      [
+        "POST",
+        "/api/consumables/purchases/adopt"
+      ],
+      [
+        "POST",
+        "/api/consumables/purchases/mappings"
+      ],
+      [
+        "POST",
+        "/api/consumables/purchases/preview"
+      ],
+      [
+        "POST",
+        "/api/consumables/purchases/lines"
+      ],
+      [
+        "POST",
+        "/api/consumables/purchases/receipts"
+      ],
+      [
+        "POST",
+        "/api/consumables/purchases/email/preview"
+      ]
+    ]
+  },
+  {
+    "file": "api/operations.ts",
+    "expression": "base+path",
+    "options": "{method:'PUT',body:JSON.stringify(data)}",
+    "reason": "Local put helper: kit, event, packing and capacity call sites supply these suffixes.",
+    "routes": [
+      [
+        "PUT",
+        "/api/products/production/operations/kit"
+      ],
+      [
+        "PUT",
+        "/api/products/production/operations/events"
+      ],
+      [
+        "PUT",
+        "/api/products/production/operations/events/{param}/packing/{param}"
+      ],
+      [
+        "PUT",
+        "/api/products/production/operations/capacity"
+      ]
+    ]
+  },
+  {
+    "file": "api/printers.ts",
+    "expression": "`/printers/${printerId}/plug/${action}`",
+    "options": "{ method: 'POST', headers: { 'X-Power-Request-Nonce': nonce } }",
+    "reason": "plugPowerOn, plugPowerOff and plugPowerToggle supply these three actions.",
+    "routes": [
+      [
+        "POST",
+        "/api/printers/{param}/plug/on"
+      ],
+      [
+        "POST",
+        "/api/printers/{param}/plug/off"
+      ],
+      [
+        "POST",
+        "/api/printers/{param}/plug/toggle"
+      ]
+    ]
+  },
+  {
+    "file": "components/printers/EmergencyStop.tsx",
+    "expression": "`/printers/${printerId}/${action}`",
+    "options": "{ method: 'POST' }",
+    "reason": "The three printer command buttons supply resume, pause and stop.",
+    "routes": [
+      [
+        "POST",
+        "/api/printers/{param}/resume"
+      ],
+      [
+        "POST",
+        "/api/printers/{param}/pause"
+      ],
+      [
+        "POST",
+        "/api/printers/{param}/stop"
+      ]
+    ]
+  },
+  {
+    "file": "components/vision/maintenanceMedia.ts",
+    "expression": "'/api/vision/frames/' + path",
+    "options": "{ credentials: 'include', signal: lease.controller.signal }",
+    "reason": "Validated frame path contains printer ID and filename, with optional training segment.",
+    "routes": [
+      [
+        "GET",
+        "/api/vision/frames/{param}/{param}"
+      ],
+      [
+        "GET",
+        "/api/vision/frames/{param}/training/{param}"
+      ]
+    ]
+  },
+  {
+    "file": "pages/admin/Branding.tsx",
+    "expression": "`${API_BASE}/branding/${endpoint}`",
+    "options": "{\n        method: 'POST',\n        headers: getAuthHeaders(null),\n        credentials: 'include',\n        body: formData\n      }",
+    "reason": "The two upload controls supply favicon or logo.",
+    "routes": [
+      [
+        "POST",
+        "/api/branding/favicon"
+      ],
+      [
+        "POST",
+        "/api/branding/logo"
+      ]
+    ]
+  },
+  {
+    "file": "pages/auth/Setup.tsx",
+    "expression": "'/api/setup/status'",
+    "options": "{ ...apiOptions(token) }",
+    "reason": "apiOptions adds authentication headers and credentials only; fetch defaults to GET.",
+    "routes": [
+      [
+        "GET",
+        "/api/setup/status"
+      ]
+    ]
+  }
+]

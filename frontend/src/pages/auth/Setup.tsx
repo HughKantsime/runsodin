@@ -459,13 +459,14 @@ export default function Setup() {
     if (!offlineFile) { setTierError('Pick a signed-license JSON file'); return }
     setTierError(''); setTierLoading(true)
     try {
-      const body = await offlineFile.text()
-      const resp = await fetch('/api/license/activate/offline', {
+      const body = new FormData()
+      body.append('file', offlineFile)
+      const resp = await fetch('/api/license/upload', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        credentials: 'include',
         body,
       })
       const data = await resp.json()

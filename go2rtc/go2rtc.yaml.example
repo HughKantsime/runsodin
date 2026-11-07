@@ -1,6 +1,8 @@
 api:
   listen: 127.0.0.1:1984
 webrtc:
+  # Override go2rtc's public STUN default; use host candidates only.
+  ice_servers: []
   listen: 0.0.0.0:8555
   candidates:
     - YOUR_HOST_IP:8555    # Replace with your server's LAN IP

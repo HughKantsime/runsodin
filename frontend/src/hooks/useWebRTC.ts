@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
+// Host candidates only: viewing a camera must not contact public STUN/TURN.
+const ICE_SERVERS: RTCIceServer[] = []
 const MAX_BACKOFF_MS = 30000
 const BASE_DELAY_MS = 2000
 

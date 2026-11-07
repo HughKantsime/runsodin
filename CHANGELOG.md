@@ -4,6 +4,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Camera WebRTC uses host candidates only: the browser, generated go2rtc configuration and shipped templates disable public STUN defaults, including in ITAR mode.
+- License-server reachability checks require an authenticated admin; anonymous health checks do not initiate that probe.
+
 ### Added
 
 - Enterprise controlled-part handling: reasoned CUI/ITAR/custom file and job markings, explicit named audiences independent of organizations, hard printer-tag constraints, protected names/previews/exports/cameras, acknowledged administrative downloads, and previewed timelapse retention through sealed media retirement. Printer status and controls remain available to nonmembers. Includes marking controls, GDPR handling, and additive migrations 054–055. See `docs/CONTROLLED_PARTS.md`.
@@ -16,6 +21,8 @@ All notable changes to O.D.I.N. are documented here.
 
 - Controlled timelapse retention runs from each print’s completion or marking time, whichever is later; shortening grace and policy cycles cannot postpone existing purges. Deleted-job audiences retain immutable audit history without restricting reused job IDs. Log acknowledgements use POST and expiring stream tokens with bounded audit volume; failed MQTT protection checks now warn without exposing payloads.
 - Controlled names remain protected on idle printers after completion, in GDPR exports, scheduling conflicts, stored alerts, order SKUs and invoice PDFs, and retained audit details after job deletion. Log viewing now requires explicit privileged acknowledgement when controlled marks exist. Audience switches preserve the retention clock; cross-process MQTT policy refresh and nested response identity mappings are corrected.
+- Setup offline activation uploads the signed license as multipart form data to the existing license upload route, using the setup session token.
+- A frontend/backend route contract checks fetch and fetchAPI paths and HTTP methods, including parameterized URLs. Timeline print-job detail now has a matching, organization-scoped backend route; unused project and notification-preference callers of nonexistent routes were removed.
 
 ## [2.0.45] - 2026-11-06
 

@@ -74,7 +74,6 @@ export const projects = {
   update: (id: number, data: ProjectUpdate): Promise<Project> => fetchAPI(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI(`/projects/${id}`, { method: 'DELETE' }),
   assignArchives: (id: number, archiveIds: number[]): Promise<unknown> => fetchAPI(`/projects/${id}/archives`, { method: 'POST', body: JSON.stringify({ archive_ids: archiveIds }) }),
-  removeArchive: (projectId: number, archiveId: number): Promise<void> => fetchAPI(`/projects/${projectId}/archives/${archiveId}`, { method: 'DELETE' }),
   exportZip: (id: number, name: string): Promise<void> =>
     downloadBlob(`/projects/${id}/export`, `project_${name.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 50)}.zip`),
   importZip: (file: File): Promise<ProjectImportResult> => {
