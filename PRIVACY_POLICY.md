@@ -5,7 +5,7 @@
 **Effective Date:** February 14, 2026
 **Last Updated:** November 6, 2026
 
-**JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Company," "we," "us," or "our")
+**JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Sublab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
 **Contact:** sublab3dp@gmail.com
 
@@ -236,7 +236,7 @@ When O.D.I.N. is used in educational settings (K-12 schools) under the Education
 - Enable print quotas to manage student usage
 - Review the Software's data retention settings
 
-Term cleanup and graduation erasure delete students' uploaded files and personal identifiers but keep the school's numbered records; `docs/education/term-retention.md` lists exactly what is removed, what is kept, and what cleanup does not reach.
+When administrators run term cleanup, ODIN deletes eligible uploaded print files and attributable media according to the school's selected retention policy. Completed graduation erasure disables eligible student accounts and removes or replaces supported account identifiers, leaving numbered school records. Personal information may remain in filenames, titles, notes, review comments and other retained text. Cleanup does not reach backups, downloaded or exported copies, printer storage, camera detection frames or timelapses ODIN cannot attribute to a submission. See [term retention](docs/education/term-retention.md) for policy choices, retained records, exclusions and handling of blocked or incomplete cleanup.
 
 By default, O.D.I.N. runs on the school's own infrastructure and stores student data only in that deployment's database and file storage; it sends no telemetry or usage data to Sublab 3DP or any third party (Section 2.6); and administrators can export a user's data, anonymize user records and set data retention periods (Section 4.3). These are product behaviors, not a FERPA, COPPA or other compliance certification: self-hosting alone does not make a deployment compliant. Whether a deployment meets those obligations depends on how the school configures, operates and governs it, and remains the school's responsibility.
 

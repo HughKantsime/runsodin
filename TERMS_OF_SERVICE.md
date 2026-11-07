@@ -5,7 +5,7 @@
 **Effective Date:** February 14, 2026
 **Last Updated:** November 6, 2026
 
-**JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Company," "we," "us," or "our")
+**JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Sublab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
 **Contact:** sublab3dp@gmail.com
 
