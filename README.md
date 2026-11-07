@@ -17,14 +17,14 @@
 
 ---
 
-Self-hosted print farm management that combines multi-protocol printer support, AI failure detection, and business operations in a single container. No cloud dependency. No per-printer fees. Your data stays on your network.
+Self-hosted print farm management that combines multi-protocol printer support, AI failure detection, and business operations in a single container. No cloud dependency. No per-printer fees. Files, camera processing and records are hosted on your server; enabled integrations may transmit selected data.
 
 ## Key Features
 
-- **Multi-Protocol Fleet** — Klipper/Moonraker, PrusaLink, Bambu MQTT (X1C, P1S, A1, H2D), and Elegoo SDCP from one dashboard
-- **Vigil AI Failure Detection** — ONNX-based spaghetti/detachment/first-layer detection with auto-pause
+- **Multi-Protocol Fleet** — Klipper printers running Moonraker, PrusaLink, Bambu MQTT (X1C, P1S, A1, H2D), Elegoo SDCP, and Anycubic LAN mode (monitoring only) from one dashboard
+- **Vigil AI Failure Detection** — ONNX-based spaghetti detection is bundled; first-layer and detachment detection need an uploaded, activated model, and empty-plate has a built-in image check that is off by default and runs only while the printer is idle. Auto-pause is off by default
 - **Smart Job Scheduling** — Color-match scoring, time-window matching, drag-and-drop queue
-- **Mid-Print Controls** — Skip objects, adjust speed (25%–200%), and clear HMS errors during active prints
+- **Mid-Print Controls** — Skip objects, adjust speed (Silent, Standard, Sport or Ludicrous), and clear HMS errors during active prints (Bambu printers only)
 - **Print Archive** — Auto-captures every completed print with metadata, thumbnails, and searchable history
 - **OBS Streaming Overlay** — Auth-free `/overlay/:printerId` page for live streaming with camera, progress, and temps
 - **Order-to-Ship Workflow** — Products, BOM, orders, invoicing, cost tracking, and shipping in one system
@@ -72,18 +72,14 @@ Bambu P1P, P1S, A1 and A1 Mini built-in cameras are auto-detected when printer c
 
 ![Dark-mode O.D.I.N. camera page showing a live A1 camera feed with Control Room and TV Mode controls](docs/screenshots/cameras.png)
 
-## Comparison
+## How it differs
 
-| | **O.D.I.N.** | SimplyPrint | 3DPrinterOS | Obico |
-|---|---|---|---|---|
-| **Annual cost (20 printers)** | **$150 flat** | $960-1,440 | $2,280+ | $960-1,440 |
-| **Pricing model** | Flat license | Per-printer SaaS | Per-printer SaaS | Per-printer SaaS |
-| **Self-hosted** | Yes | No | No | Partial |
-| **Printer protocols** | 4 (Bambu, Klipper, Prusa, Elegoo) | 2 | Many (via agent) | OctoPrint only |
-| **AI failure detection** | Included | Add-on ($) | No | Core product |
-| **Business ops (orders/BOM/invoicing)** | Yes | No | No | No |
-| **Air-gap / offline** | Yes | No | No | No |
-| **MFA + SSO** | TOTP + Microsoft Entra ID | Yes | Yes | No |
+- **Self-hosted.** You run O.D.I.N. on your own server (Docker). Files, camera processing and records are hosted on your server; enabled integrations may transmit selected data. It sends no telemetry and has no update checker. The server contacts outside services for integrations an admin sets up and for license actions (activate, unactivate, reactivate, trial request), which can also be done offline: the server stays offline and another internet-connected device uses the license portal. A cached license status check also pings the license server (`/system/license-server-status`; from 2.0.46 it requires admin login). Once users subscribe, the ODIN server sends browser push notifications to the push providers, and opening a WebRTC camera view in a browser currently contacts Google's STUN server (MJPEG views do not).
+- **Five printer families.** Bambu Lab (local MQTT), Klipper printers running Moonraker, Prusa (PrusaLink), Elegoo (SDCP) and Anycubic (LAN mode). Job sending works for Bambu, Moonraker and PrusaLink printers; Elegoo printers get monitoring plus pause, resume and stop, and Anycubic printers are monitoring only. A Kobra S1 or Kobra 3 set up as Moonraker is refused for job sending.
+- **Flat pricing.** Community is free (5 printers, 1 user). Pro is $15 per month or $150 per year with unlimited printers and users, orders, analytics and single sign-on. Education is quoted per site; Enterprise is custom.
+- **Failure detection included.** Vigil AI works from camera images on FDM printers. Its bundled spaghetti model is [Obico](https://www.obico.io/)'s published model, licensed under AGPL-3.0 (see [NOTICE.txt](backend/vision_models_default/NOTICE.txt) and the [source mirror](https://github.com/HughKantsime/runsodin/releases/tag/third-party/obico-model-1e7abb0b)); first-layer and detachment detection need an uploaded, activated model, and empty-plate has a built-in image check that is off by default and runs only while the printer is idle.
+
+For how O.D.I.N. compares with hosted print-farm services, see [runsodin.com/compare](https://runsodin.com/compare).
 
 ## Stack
 
@@ -140,7 +136,7 @@ O.D.I.N. is licensed under the [Business Source License 1.1](LICENSE). Source-av
 - **Commercial use** requires a paid license (Pro, Education, or Enterprise)
 - **On 2029-02-07** the license converts to Apache 2.0
 
-License keys are verified locally with Ed25519 signatures. No phone home, no cloud dependency.
+License keys are verified locally with Ed25519 signatures. ODIN sends no telemetry and has no update checker. Optional online license actions (activate, unactivate, reactivate, trial request) contact the license portal and can also be done offline: the server stays offline and another internet-connected device uses the portal. No cloud dependency.
 
 ---
 
