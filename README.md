@@ -72,18 +72,14 @@ Bambu P1P, P1S, A1 and A1 Mini built-in cameras are auto-detected when printer c
 
 ![Dark-mode O.D.I.N. camera page showing a live A1 camera feed with Control Room and TV Mode controls](docs/screenshots/cameras.png)
 
-## Comparison
+## How it differs
 
-| | **O.D.I.N.** | SimplyPrint | 3DPrinterOS | Obico |
-|---|---|---|---|---|
-| **Annual cost (20 printers)** | **$150 flat** | $960-1,440 | $2,280+ | $960-1,440 |
-| **Pricing model** | Flat license | Per-printer SaaS | Per-printer SaaS | Per-printer SaaS |
-| **Self-hosted** | Yes | No | No | Partial |
-| **Printer protocols** | 4 (Bambu, Klipper, Prusa, Elegoo) | 2 | Many (via agent) | OctoPrint only |
-| **AI failure detection** | Included | Add-on ($) | No | Core product |
-| **Business ops (orders/BOM/invoicing)** | Yes | No | No | No |
-| **Air-gap / offline** | Yes | No | No | No |
-| **MFA + SSO** | TOTP + Microsoft Entra ID | Yes | Yes | No |
+- **Self-hosted.** You run O.D.I.N. on your own server (Docker). Your files, camera feeds and records stay with you. It sends no telemetry and has no update checker; it contacts outside services only for integrations an admin sets up and for license activation or a trial request, which can also be done offline.
+- **Four printer protocols.** Bambu Lab (local MQTT), Klipper printers running Moonraker, Prusa (PrusaLink) and Elegoo (SDCP). Job sending works for Bambu, Moonraker and PrusaLink printers; Elegoo printers get monitoring plus pause, resume, stop and speed control, and Anycubic printers in LAN mode are monitoring only.
+- **Flat pricing.** Community is free (5 printers, 1 user). Pro is $15 per month or $150 per year with unlimited printers and users, orders, analytics and single sign-on. Education is quoted per site; Enterprise is custom.
+- **Failure detection included.** Vigil AI works from camera images on FDM printers. Its bundled spaghetti model is [Obico](https://www.obico.io/)'s published model (AGPL-3.0); first-layer, detachment and empty-plate detection need an uploaded model.
+
+For how O.D.I.N. compares with hosted print-farm services, see [runsodin.com/compare](https://runsodin.com/compare).
 
 ## Stack
 
