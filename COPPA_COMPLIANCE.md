@@ -1,7 +1,7 @@
 # COPPA Compliance Statement — O.D.I.N.
 
 **Product:** O.D.I.N. (Orchestrated Dispatch & Inventory Network)
-**Vendor:** Sublab 3DP
+**Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Version:** 1.3.27
 **Date:** February 2026
 **Contact:** sublab3dp@gmail.com

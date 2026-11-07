@@ -5,7 +5,7 @@
 **Effective Date:** February 14, 2026
 **Last Updated:** November 6, 2026
 
-**Sublab 3DP** ("Company," "we," "us," or "our")
+**JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
 **Contact:** sublab3dp@gmail.com
 
@@ -189,7 +189,7 @@ Priority email support with best-effort response within 1 business day. Includes
 
 ### 9.1 Ownership
 
-The Software, including all code, documentation, designs, and trademarks (O.D.I.N., Vigil AI, Sublab 3DP), is and remains the property of Shane Smith / Sublab 3DP. This Agreement grants a license to use the Software; it does not transfer ownership.
+The Software, including all code, documentation, designs, and trademarks (O.D.I.N., Vigil AI, Sublab 3DP), is and remains the property of JLLS Holdings LLC, d/b/a SubLab 3DP. This Agreement grants a license to use the Software; it does not transfer ownership.
 
 ### 9.2 Your Data
 
@@ -338,7 +338,7 @@ Neither party shall be liable for delays or failures in performance resulting fr
 
 ## 16. Contact Information
 
-**Sublab 3DP**
+**JLLS Holdings LLC, d/b/a SubLab 3DP**
 Shane Smith, Principal
 Email: sublab3dp@gmail.com
 

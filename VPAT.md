@@ -4,7 +4,7 @@
 
 **Product:** O.D.I.N. (Orchestrated Dispatch & Inventory Network)
 **Version:** 1.3.27
-**Vendor:** Sublab 3DP
+**Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Contact:** sublab3dp@gmail.com
 **Date:** February 2026
 **Report Format:** VPAT 2.5 (Revised Section 508 Edition)
@@ -133,7 +133,7 @@ This report covers conformance with:
 
 For accessibility questions, issues, or requests for information in alternative formats:
 
-**Sublab 3DP**
+**JLLS Holdings LLC, d/b/a SubLab 3DP**
 Email: sublab3dp@gmail.com
 
 We welcome feedback on the accessibility of O.D.I.N. and are committed to improving the experience for all users.

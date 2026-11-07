@@ -3,9 +3,9 @@
 **O.D.I.N. (Orchestrated Dispatch & Inventory Network)**
 
 **Effective Date:** February 14, 2026
-**Last Updated:** February 14, 2026
+**Last Updated:** November 7, 2026
 
-**Sublab 3DP** ("Company," "we," "us," or "our")
+**JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
 **Contact:** sublab3dp@gmail.com
 
@@ -208,7 +208,7 @@ If any provision of this disclaimer is found to be unenforceable or invalid, the
 
 For questions about Vigil AI safety, to report a safety concern, or to provide feedback on detection accuracy:
 
-**Sublab 3DP**
+**JLLS Holdings LLC, d/b/a SubLab 3DP**
 Shane Smith, Principal
 Email: sublab3dp@gmail.com
 

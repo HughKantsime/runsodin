@@ -16,6 +16,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Changed
 
 - The bundled Vigil spaghetti model is Obico's published model, licensed under AGPL-3.0. O.D.I.N. now ships its license text, copyright notice and source details next to the file, and the license, terms and third-party notices say it isn't covered by O.D.I.N.'s own license.
+- The licensor and contracting party in LICENSE, TERMS_OF_SERVICE.md, PRIVACY_POLICY.md and VIGIL_AI_DISCLAIMER.md is now JLLS Holdings LLC, d/b/a SubLab 3DP. The COPPA, FERPA and VPAT statements name it as the vendor. PRIVACY_POLICY.md now points schools to docs/education/term-retention.md for what term cleanup and graduation erasure remove and keep.
 
 ### Fixed
 
