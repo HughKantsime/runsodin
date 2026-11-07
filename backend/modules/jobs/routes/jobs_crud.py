@@ -313,9 +313,10 @@ def list_jobs(
     """List jobs with optional filters."""
     query = db.query(Job).filter(text("NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"))
 
-    from core.controlled_parts import job_visibility
-    controlled, controlled_params = job_visibility(current_user)
-    query = query.filter(text(controlled)).params(**controlled_params)
+    from core.controlled_parts import any_controlled_data, job_visibility
+    if any_controlled_data(db):
+        controlled, controlled_params = job_visibility(current_user)
+        query = query.filter(text(controlled)).params(**controlled_params)
     if status:
         query = query.filter(Job.status == status)
     if printer_id:

@@ -134,19 +134,26 @@ def test_mqtt_other_process_mark_refresh(database, monkeypatch, tier_license):
 
 @pytest.mark.parametrize('status,kind,method', [(200,'text/html','GET'),(204,None,'GET'),(200,'application/json','HEAD'),(302,'application/json','GET'),(403,'application/json','GET')])
 def test_middleware_skips_credentials_for_non_json_responses(monkeypatch,status,kind,method):
-    from core.middleware.controlled_response import controlled_response
-    from starlette.requests import Request
-    from starlette.responses import Response
+    from core.middleware.controlled_response import ControlledResponseMiddleware
     import core.dependencies
     calls = []
     async def resolve(*a):
         calls.append(True)
         return None
     monkeypatch.setattr(core.dependencies, '_resolve_current_user', resolve)
-    response = Response(b'', status_code=status, media_type=kind)
-    async def next_response(request): return response
-    request = Request({'type':'http','method':method,'path':'/','headers':[]})
-    assert asyncio.run(controlled_response(request,next_response)) is response
+    messages = [
+        {'type':'http.response.start', 'status':status,
+         'headers': [(b'content-type', kind.encode())] if kind else []},
+        {'type':'http.response.body', 'body':b''},
+    ]
+    sent = []
+    async def downstream(scope, receive, send):
+        for message in messages:
+            await send(message)
+    async def send(message): sent.append(message)
+    scope = {'type':'http','method':method,'path':'/','headers':[]}
+    asyncio.run(ControlledResponseMiddleware(downstream)(scope, None, send))
+    assert len(sent) == len(messages) and all(a is b for a, b in zip(sent, messages))
     assert calls == []
 
 

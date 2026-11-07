@@ -24,6 +24,9 @@ def authorize_request(db, request, actor):
 
 
 def authorize_references(db, actor, body):
+    from core.controlled_parts import any_controlled_data
+    if not any_controlled_data(db):
+        return
     if isinstance(body, list):
         for value in body:
             authorize_references(db, actor, value)

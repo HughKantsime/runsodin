@@ -17,8 +17,8 @@ def restrictions_exist(db):
     # Recheck after the policy lock; middleware may have cached the old state.
     cache = request_cache(db)
     if cache is not None:
-        cache.pop('_controlled_any', None)
-        cache.pop('_controlled_history', None)
+        for key in ('_controlled_present', '_controlled_any', '_controlled_history'):
+            cache.pop(key, None)
     return any_read_restrictions(db)
 
 

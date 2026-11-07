@@ -29,6 +29,8 @@ JOB_FILES = selected_file_sql(':id')
 def policies(db, kind, identifier):
     if identifier is None:
         return []
+    if not any_controlled_data(db):
+        return []
     # This must precede media-link lookup: unmarked print-job lists stay O(1).
     if not any_marks(db):
         history = tombstone_job_ids(db)
@@ -202,12 +204,34 @@ def audit_visibility(actor, db):
             "WHERE id=audit_logs.entity_id)) AND NOT (" + files + ")))))"), values
 
 
+def any_controlled_data(db):
+    """Cheap request-local admission gate; even unreferenced history keeps checks on.
+
+    Non-request callers deliberately recheck on each call. In particular, alert
+    delivery must not inherit an earlier request's snapshot after its commit.
+    """
+    from core.controlled_cache import request_cache
+    cache = request_cache(db)
+    if cache is not None and cache.get('_controlled_any'):
+        return True
+    if cache is not None and '_controlled_present' in cache:
+        return cache['_controlled_present']
+    result = db.execute(text('SELECT 1 FROM controlled_files UNION ALL '
+                             'SELECT 1 FROM controlled_jobs UNION ALL '
+                             'SELECT 1 FROM controlled_job_tombstones LIMIT 1')).first() is not None
+    if cache is not None:
+        cache['_controlled_present'] = result
+    return result
+
+
 def any_marks(db):
     """One request-local existence query; never cache membership grants."""
     from core.controlled_cache import request_cache
     cache = request_cache(db)
     if cache is not None and '_controlled_any' in cache:
         return cache['_controlled_any']
+    if cache is not None and cache.get('_controlled_present') is False:
+        return False
     result = db.execute(text('SELECT 1 FROM controlled_files UNION ALL SELECT 1 FROM controlled_jobs LIMIT 1')).first() is not None
     if cache is not None:
         cache['_controlled_any'] = result
@@ -222,6 +246,8 @@ def model_visibility(actor):
 
 def any_read_restrictions(db):
     """Historical redaction and export gates stay active after live marks are gone."""
+    if not any_controlled_data(db):
+        return False
     if any_marks(db):
         return True
     from core.controlled_cache import request_cache

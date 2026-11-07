@@ -126,7 +126,11 @@ def change_mark(db, resource_type, identifier, body, actor):
     log_audit(db, 'controlled_part.changed', kind, identifier,
               {'before': dict(before) if before else None, 'after': body.model_dump(), 'retention_extended': bool(before and body.retention_days > before['retention_days'])})
     db.commit()
-    db.info.pop('_controlled_any', None)
+    from core.controlled_cache import request_cache
+    cache = request_cache(db)
+    if cache is not None:
+        for key in ('_controlled_present', '_controlled_any', '_controlled_history', '_controlled_tombstones'):
+            cache.pop(key, None)
     from core.controlled_mqtt import invalidate
     invalidate()
     return {'controlled': body.controlled}

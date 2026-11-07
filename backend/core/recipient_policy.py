@@ -20,9 +20,13 @@ def resolve_alert_scope(db, *, printer_id=None, job_id=None, spool_id=None):
     if len(tenants) > 1:
         raise ValueError('Conflicting alert resource owners')
     users = db.execute(text('SELECT id,role,group_id FROM users WHERE is_active IS TRUE')).mappings()
-    from core.controlled_parts import allowed
+    from core.controlled_parts import allowed, any_controlled_data
+    # This resolver also runs in independent post-commit delivery transactions.
+    # Check once per recipient batch, never once per user or across deliveries.
+    controlled = any_controlled_data(db)
     eligible = {u['id'] for u in users if all(check_org_access(dict(u), owner) for owner in owners)
-                and allowed(db, 'job', job_id, dict(u)) and allowed(db, 'printer', printer_id, dict(u))}
+                and (not controlled or (allowed(db, 'job', job_id, dict(u))
+                                        and allowed(db, 'printer', printer_id, dict(u))))}
     return eligible, next(iter(tenants), None)
 
 

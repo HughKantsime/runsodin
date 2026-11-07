@@ -135,7 +135,7 @@ def test_unmarked_print_job_lists_have_constant_statement_count(database):
             assert policies(database, 'print_job', identifier) == []
     finally:
         event.remove(database.get_bind(), 'before_cursor_execute', record)
-    assert len(queries) == 2
+    assert len(queries) == 1  # one request-local files/jobs/tombstones probe
     assert not any('SELECT scheduled_job_id FROM print_jobs' in q for q in queries)
 
 

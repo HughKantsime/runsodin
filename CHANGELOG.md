@@ -24,6 +24,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Installs with no controlled parts no longer pay for controlled-part checks: one lookup per request instead of one per alert recipient, and unrestricted responses are no longer copied. Every file, job and retained-history restriction still applies once controlled data exists.
 - Controlled timelapse retention runs from each print’s completion or marking time, whichever is later; shortening grace and policy cycles cannot postpone existing purges. Deleted-job audiences retain immutable audit history without restricting reused job IDs. Log acknowledgements use POST and expiring stream tokens with bounded audit volume; failed MQTT protection checks now warn without exposing payloads.
 - Controlled names remain protected on idle printers after completion, in GDPR exports, scheduling conflicts, stored alerts, order SKUs and invoice PDFs, and retained audit details after job deletion. Log viewing now requires explicit privileged acknowledgement when controlled marks exist. Audience switches preserve the retention clock; cross-process MQTT policy refresh and nested response identity mappings are corrected.
 - Setup offline activation uploads the signed license as multipart form data to the existing license upload route, using the setup session token.

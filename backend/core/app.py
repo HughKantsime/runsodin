@@ -520,8 +520,8 @@ def create_app() -> FastAPI:
     # Middleware (order matters: added in reverse call order for ASGI stack)
     _setup_middleware(app)
     _register_http_middleware(app)
-    from core.middleware.controlled_response import controlled_response
-    app.middleware("http")(controlled_response)
+    from core.middleware.controlled_response import ControlledResponseMiddleware
+    app.add_middleware(ControlledResponseMiddleware)
     from core.middleware.audit_actor import AuditActorMiddleware
     app.add_middleware(AuditActorMiddleware)
     from core.remote_access import TrustedProxySchemeMiddleware

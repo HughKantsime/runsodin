@@ -104,7 +104,7 @@ def test_deleted_controlled_audit_alone_does_not_keep_read_restrictions(database
                 assert policies(database, kind, 1) == []
     finally:
         event.remove(database.get_bind(), 'before_cursor_execute', record)
-    assert len(queries) == 2
+    assert len(queries) == 3  # presence, live marks, relevant tombstone IDs
     assert database.execute(text("SELECT count(*) FROM audit_logs WHERE action='controlled_part.job_deleted'")).scalar_one() == 1
 
 

@@ -158,7 +158,7 @@ def test_history_fast_path_only_for_relevant_audits_and_request_cached(marked, l
             assert any_read_restrictions(marked) is (late_job_id == 1)
     finally:
         event.remove(marked.get_bind(), 'before_cursor_execute', record)
-    assert len(queries) == 2
+    assert len(queries) == 3  # presence, live marks, relevant retained history
 
 
 def test_deletion_boundary_and_policy_rollback_with_job(marked):
