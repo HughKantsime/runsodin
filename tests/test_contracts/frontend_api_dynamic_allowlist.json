@@ -196,5 +196,93 @@
         "/api/setup/status"
       ]
     ]
+  },
+  {
+    "file": "api/controlledDownload.ts",
+    "expression": "`${url}?acknowledge_controlled=true`",
+    "options": "{ ...init, method: 'POST', headers }",
+    "reason": "Generic controlled-restore transport; its only callers (BackupRestore.tsx, api/system.ts) pass these routes. New callers must add their route here. The retry adds only the acknowledgement query.",
+    "routes": [
+      [
+        "POST",
+        "/api/backups/restore"
+      ],
+      [
+        "POST",
+        "/api/backups/{param}/stage"
+      ]
+    ]
+  },
+  {
+    "file": "api/controlledDownload.ts",
+    "expression": "acknowledgeURL",
+    "options": "{ method: 'POST', credentials: 'include', headers: { 'X-ODIN-Controlled-Ack': 'true' } }",
+    "reason": "Generic controlled-download transport; its only callers (api/system.ts, AuditIntegritySettings.tsx) pass these routes. New callers must add their route here. The acknowledgement URL is the download path plus /acknowledge.",
+    "routes": [
+      [
+        "POST",
+        "/api/backups/{param}/acknowledge"
+      ],
+      [
+        "POST",
+        "/api/admin/support-bundle/acknowledge"
+      ],
+      [
+        "POST",
+        "/api/export/audit-logs/jsonl/acknowledge"
+      ]
+    ]
+  },
+  {
+    "file": "api/controlledDownload.ts",
+    "expression": "url",
+    "options": "init",
+    "reason": "Generic controlled-restore transport; its only callers (BackupRestore.tsx, api/system.ts) pass these routes. New callers must add their route here.",
+    "routes": [
+      [
+        "POST",
+        "/api/backups/restore"
+      ],
+      [
+        "POST",
+        "/api/backups/{param}/stage"
+      ]
+    ]
+  },
+  {
+    "file": "api/controlledDownload.ts",
+    "expression": "url",
+    "options": "{ credentials: 'include' }",
+    "reason": "Generic controlled-download transport; its only callers (api/system.ts, AuditIntegritySettings.tsx) pass these routes. New callers must add their route here.",
+    "routes": [
+      [
+        "GET",
+        "/api/backups/{param}"
+      ],
+      [
+        "GET",
+        "/api/admin/support-bundle"
+      ],
+      [
+        "GET",
+        "/api/export/audit-logs/jsonl"
+      ]
+    ]
+  },
+  {
+    "file": "components/shared/ControlledAudience.tsx",
+    "expression": "`/controlled-parts/audiences${id ? `/${id}` : ''}`",
+    "options": "{\n    method: id ? 'PUT' : 'POST', body: JSON.stringify({ name, user_ids: members }),\n  }",
+    "reason": "Existing audience selects PUT and its ID together; a new audience selects POST without an ID.",
+    "routes": [
+      [
+        "PUT",
+        "/api/controlled-parts/audiences/{param}"
+      ],
+      [
+        "POST",
+        "/api/controlled-parts/audiences"
+      ]
+    ]
   }
 ]

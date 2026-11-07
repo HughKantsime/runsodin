@@ -53,7 +53,7 @@ def test_candidate_addition_and_unconfigured_compatibility(monkeypatch):
     monkeypatch.setattr(go2rtc_access, 'go2rtc_api_credentials', lambda: ('fixture', 'fixture'))
     monkeypatch.setattr(settings, 'odin_tailnet_ip', '')
     old = route_utils.go2rtc_config_for([], '192.168.1.10')['webrtc']
-    assert old == {'listen': '0.0.0.0:8555', 'candidates': ['192.168.1.10:8555']}
+    assert old == {'listen': '0.0.0.0:8555', 'ice_servers': [], 'candidates': ['192.168.1.10:8555']}
     monkeypatch.setattr(settings, 'odin_tailnet_ip', '100.101.102.103')
     new = route_utils.go2rtc_config_for([], '192.168.1.10')['webrtc']
     assert new == {**old, 'candidates': ['192.168.1.10:8555', '100.101.102.103:8555']}
