@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- The bundled Vigil spaghetti model is Obico's published model, licensed under AGPL-3.0. O.D.I.N. now ships its license text, copyright notice and source details next to the file, and the license, terms and third-party notices say it isn't covered by O.D.I.N.'s own license.
+
 ## [2.0.45] - 2026-11-06
 
 <!-- summary: Enterprise gets a tamper-evident audit log with SIEM streaming and part traceability with signed certificates; Education gets classes, training sign-off, program reports, roster sync and term retention; SSO and license connections always go to the checked address. -->

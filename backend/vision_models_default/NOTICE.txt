@@ -1,0 +1,50 @@
+Separately licensed component: Obico spaghetti-detection model
+================================================================
+
+File:     obico_spaghetti.onnx
+SHA-256:  0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa
+Size:     202,223,918 bytes
+
+This file is the failure-detection model published by Obico (formerly
+The Spaghetti Detective), https://www.obico.io/. It is included in O.D.I.N.
+unmodified: the bytes are identical to the ONNX file Obico publishes for its
+self-hosted server, as pinned by the SHA-256 above.
+
+Copyright (C) The Spaghetti Detective / Obico and contributors.
+
+License: GNU Affero General Public License, version 3 (AGPL-3.0).
+The full license text is in LICENSE-AGPL-3.0.txt in this directory.
+Obico's founder has stated that the model is licensed the same as the
+obico-server project, which is AGPL-3.0:
+https://github.com/TheSpaghettiDetective/obico-server/issues/838
+
+This model is NOT part of the O.D.I.N. "Licensed Work" and is not covered by
+O.D.I.N.'s Business Source License 1.1 or by the O.D.I.N. Terms of Service.
+You receive it under the AGPL-3.0 only, and nothing in O.D.I.N.'s license,
+terms or license keys restricts the rights the AGPL-3.0 gives you for it.
+O.D.I.N. loads it as a data file through ONNX Runtime and runs without it;
+you can delete it or replace it with another model.
+
+Corresponding source
+--------------------
+The matching sources are in the obico-server project at commit
+1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634 (2023-05-14), the commit that
+published this ONNX file next to the Darknet weights it was made from:
+https://github.com/TheSpaghettiDetective/obico-server/tree/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/ml_api/model
+
+  Darknet weights  https://tsd-pub-static.s3.amazonaws.com/ml-models/model-weights-8be06cde4e.darknet
+                   (202,314,764 bytes; listed in model-weights.darknet.url)
+  ONNX file        https://tsd-pub-static.s3.amazonaws.com/ml-models/model-weights-5a6b1be1fa.onnx
+                   (this file; Obico now also serves it at
+                   https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx)
+  model.cfg        network definition at that commit (copy: obico-model.cfg)
+  names            class names (copy: obico-model.names)
+
+Later obico-server commits replaced the Darknet weights (2025-12-18) without
+regenerating this ONNX file, so use the files at the commit above, not the
+newest ones. Obico produced the ONNX file from those Darknet weights; O.D.I.N.
+did not convert, retrain or otherwise modify it. Obico's model and training
+notes for that version are in docs/model_development.md at the same commit:
+https://github.com/TheSpaghettiDetective/obico-server/blob/1e7abb0bdf1c185b38a913d8bdbdbc3daa3df634/docs/model_development.md
+
+Questions about these sources: sublab3dp@gmail.com.

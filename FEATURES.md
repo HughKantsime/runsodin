@@ -195,7 +195,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 3.1 Detection Engine
 - Supervised daemon (`modules/vision/monitor.py`, run as `python3 -m modules.vision.monitor`) managed by supervisord
-- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty (spaghetti model bundled; the other three run with your uploaded ONNX model)
+- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty (spaghetti model bundled: Obico's published model, licensed separately under AGPL-3.0, see `backend/vision_models_default/NOTICE.txt`; the other three run with your uploaded ONNX model)
 - Per-printer monitoring threads that capture frames from go2rtc camera streams
 - Confidence filtering with configurable thresholds per detection type
 - Non-maximum suppression (NMS) for deduplication
