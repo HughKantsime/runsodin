@@ -247,8 +247,9 @@ class VisionInferenceEngine:
         return list(observation.detections)
 
     def _preprocess(self, frame: np.ndarray, input_size: int) -> np.ndarray:
-        """Resize, normalize, transpose to NCHW float32 batch."""
+        """Resize BGR camera frames, convert to RGB, normalize to NCHW float32."""
         img = cv2.resize(frame, (input_size, input_size))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = img.astype(np.float32) / 255.0
         img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
         return np.expand_dims(img, axis=0)   # add batch dim
