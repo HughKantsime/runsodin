@@ -171,7 +171,11 @@ def dispatch_alert(
             plan = StagedAlert(len(in_app_users), False, AlertType(alert_type), AlertSeverity(severity),
                                title, message, printer_id, job_id, spool_id, resource_org_id,
                                False, tuple(_push_users), tuple(_email_users), tuple(in_app_users))
-            with Session(bind=engine) as mobile_db:
+            # Session keys its connections by the concrete Engine. The live
+            # proxy misses that key on every query, opening another connection
+            # while the recipient cursor still holds a SQLite read lock.
+            from core.db import concrete_engine
+            with Session(bind=concrete_engine(engine)) as mobile_db:
                 deliver_mobile(mobile_db, plan)
             # Webhooks (system-wide, not per-user)
             try:

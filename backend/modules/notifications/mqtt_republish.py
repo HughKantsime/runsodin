@@ -468,9 +468,10 @@ def _on_alert_dispatched(event) -> None:
     # Alert MQTT is external delivery; in-app events remain live during quiet hours.
     try:
         from sqlalchemy.orm import Session
+        from core.db import concrete_engine
         from modules.notifications.recipient_policy import resolve_alert_scope
         from modules.notifications.quiet_hours import should_suppress_notification
-        with Session(engine) as db:
+        with Session(bind=concrete_engine(engine)) as db:
             _, org_id = resolve_alert_scope(db, printer_id=data.get("printer_id"),
                                            job_id=data.get("job_id"), spool_id=data.get("spool_id"))
         if should_suppress_notification(org_id=org_id):
