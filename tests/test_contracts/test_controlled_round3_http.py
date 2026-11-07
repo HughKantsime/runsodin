@@ -1,10 +1,11 @@
 """Real app response projection for order items and distinct nested identities."""
 import pytest
-from tests.test_contracts.test_cert_G_harness import run_probe
+from tests.test_contracts._controlled_http_probe import run_probe
 
 
+@pytest.mark.parametrize('frontend_dist', [False, True], ids=['no-dist', 'with-dist'])
 @pytest.mark.parametrize('surface', ['order', 'components', 'timelapse'])
-def test_response_resource_identity(tmp_path, surface):
+def test_response_resource_identity(tmp_path, surface, frontend_dist):
     result=run_probe('controlled-round3-'+surface,r'''
 install_license('enterprise', features=['controlled_parts'])
 uid=seed_user('member','operator');seed_user('super','admin')
@@ -37,13 +38,16 @@ assert r.json()['components'][0]['model_name']=='[controlled]',r.text
     'timelapse': r'''
 # Exercise the actual middleware on the historical timelapse wire shape. The
 # normal list SQL can filter this row first; replayed projections still need it.
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 from core.dependencies import get_current_user
-@app.get('/api/round3/timelapses')
+probe_router = APIRouter()
+@probe_router.get('/api/round3/timelapses')
 def projection(actor=Depends(get_current_user)):
  return [{'id':70,'print_job_id':1,'job_name':'Secret job'}]
+# Probes must precede the production SPA catch-all.
+app.router.routes[0:0] = probe_router.routes
 r=outsider.get('/api/round3/timelapses');assert r.status_code==200,r.text
 assert r.json()[0]['job_name']=='[controlled]',r.text
 r=member.get('/api/round3/timelapses');assert r.json()[0]['job_name']=='Secret job',r.text
-'''}[surface] + "\nOUT['checked']=True\n",tmp_path)
+'''}[surface] + "\nOUT['checked']=True\n",tmp_path, frontend_dist=frontend_dist)
     assert result['checked'] and result['_net_attempts']==[]

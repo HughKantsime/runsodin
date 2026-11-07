@@ -1,3 +1,4 @@
+import { controlledDownload } from '../../api/controlledDownload'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../../LicenseContext'
@@ -67,7 +68,16 @@ function Controls() {
     <div className="flex gap-3 flex-wrap items-end">
       <label>Export from<input aria-label="Export from" type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
       <label>Export through<input aria-label="Export through" type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
-      {from && to && from <= to && <a href={`/api/export/audit-logs/jsonl?date_from=${from}&date_to=${to}&bundle=true`} className="btn btn-secondary">Download signed JSON Lines</a>}
+      {from && to && from <= to && <a href={`/api/export/audit-logs/jsonl?date_from=${from}&date_to=${to}&bundle=true`} className="btn btn-secondary" onClick={async e => {
+        e.preventDefault()
+        try {
+          const response = await controlledDownload(e.currentTarget.href, 'signed audit export')
+          if (!response.ok) throw new Error('Signed audit export failed')
+          const url = URL.createObjectURL(await response.blob())
+          const link = document.createElement('a'); link.href = url; link.download = 'audit-export.zip'; link.click()
+          setTimeout(() => URL.revokeObjectURL(url), 1000)
+        } catch (error) { setMessage((error as Error).message) }
+      }}>Download signed JSON Lines</a>}
     </div>
     <p className="text-sm">The download includes JSON Lines, the detached signature, public key and signed manifest in one ZIP.</p>
     <h3 className="font-medium">SIEM destinations</h3>
@@ -93,6 +103,7 @@ function Controls() {
       {(form.kind === 'webhook' || form.tls) && <label className="block">Private CA bundle (optional PEM)<textarea value={form.ca_bundle || ''} onChange={e => setForm({ ...form, ca_bundle: e.target.value || null })} /></label>}
       <p className="text-sm">A custom CA bundle replaces the default trust store for both HTTPS and syslog TLS.</p>
       <label className="block"><input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Enable delivery of new audit events</label>
+      <label className="block"><input type="checkbox" checked={!!form.acknowledge_controlled} onChange={e => setForm({ ...form, acknowledge_controlled: e.target.checked })} /> I acknowledge this SIEM destination is inside our trusted boundary and may receive controlled audit details outside my audience.</label>
       <button type="submit" className="btn btn-primary" disabled={save.isPending}>Save destination</button>{' '}
       {editing !== 'new' && <button type="button" onClick={() => { setEditing('new'); setForm(empty) }}>Cancel edit</button>}
     </form>

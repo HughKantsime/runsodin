@@ -17,11 +17,6 @@ def get_installation_id() -> str:
     return install_id
 
 
-def get_device_keypair():
-    """Use the canonical device-key policy exposed by the license facade."""
-    return manager.get_device_keypair()
-
-
 def sign_license_challenge(action: str, key: str, installation_id: str, nonce: str) -> str:
     """Sign a license-operation challenge with this device's private key.
 

@@ -35,6 +35,7 @@ def preview(actor: dict = Depends(require_role('operator')), db: Session = Depen
         ('jobs', 'job_id', 'job', 'jobs', 'charged_to_org_id'),
     ):
         query = f'SELECT c.{key},r.{org} FROM controlled_{resource} c JOIN {table} r ON r.id=c.{key} WHERE c.purge_previewed_at IS NULL'
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- resource, key, table and owner column come only from the closed files/jobs tuple
         marks[resource] = [r[0] for r in db.execute(text(query))
                            if check_org_access(actor, r[1]) and allowed(db, kind, r[0], actor)]
     from core.controlled_parts import member

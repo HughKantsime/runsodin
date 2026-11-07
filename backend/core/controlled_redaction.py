@@ -54,6 +54,7 @@ def denied_ids(db, actor):
                      "UNION SELECT 'preset',id FROM print_presets WHERE model_id IN (SELECT id FROM models_denied) "
                      ' UNION ' + ' UNION '.join(media_queries))
     result = {kind: set() for kind in ('job', 'file', 'model', 'product', 'preset', 'print_job', 'archive', 'timelapse')}
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- query combines fixed resource tables and selected_file_sql fragments; the actor ID is bound
     for kind, identifier in db.execute(text(query), {'uid': uid}):
         result[kind].add(identifier)
     result['print_file'] = result['file']

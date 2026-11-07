@@ -466,7 +466,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     from modules.organizations.education_term_privacy import export_term_data
     export = {
         "term_retention": export_term_data(db, user_id),
-        "traceability": export_personal(db, user_id),
+        "traceability": export_personal(db, user_id, current_user),
         "training": export_training_data(db, user_id),
         "education_program_reports": export_program_records(db, user_id),
         "education_roster": export_roster(db, user_id),

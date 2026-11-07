@@ -31,7 +31,8 @@ def test_raw_probe_exemptions_are_reviewed_and_not_extended_silently():
     expected = {
         'attempt_start_plan_education_native.py', 'attempt_start_plan_generic_native.py',
         'attempt_start_prerequisite_native.py', 'capture_graph_native.py',
-        'certd_fixes_native.py', 'chargeback_dates_native.py', 'economic_creator_native.py',
+        'certd_fixes_native.py', 'chargeback_dates_native.py', 'controlled_restore_native.py',
+        'economic_creator_native.py',
         'education_job_birth_native.py', 'education_classes_fixtures.py', 'frame_namespace_native.py',
         'post027_restore_native.py', 'power_terminal_delivery_native.py',
         'recent_terminal_native.py', 'report_usage_native.py', 'runtime_probe.py',

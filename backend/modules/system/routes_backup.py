@@ -87,7 +87,7 @@ async def restore_backup(
     from core.controlled_exports import acknowledge_export
     if acknowledge_controlled:
         require_controlled_ack(request)
-    acknowledge_export(db, current_user, acknowledge_controlled, 'restore')
+    acknowledge_export(db, current_user, acknowledge_controlled, 'restore', record=False)
     expected_suffix = ".dump" if sql.is_postgres else ".db"
     if not file.filename or not file.filename.lower().endswith(expected_suffix):
         raise HTTPException(
@@ -135,6 +135,7 @@ async def restore_backup(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         temporary.unlink(missing_ok=True)
+    acknowledge_export(db, current_user, acknowledge_controlled, 'restore')
     return {
         "status": "staged",
         "message": "Restore validated and staged. Restart ODIN to apply it offline.",
@@ -288,8 +289,8 @@ def _safe_backup_path(filename: str) -> Path:
 
 def _download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db), acknowledge_controlled: bool = False, bundle: bool = False):
     from core.controlled_exports import acknowledge_export
-    acknowledge_export(db, current_user, acknowledge_controlled, "backup")
     path = _safe_backup_path(filename)
+    acknowledge_export(db, current_user, acknowledge_controlled, "backup")
     audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
     if bundle:
         from modules.system.audit_backup import download_bundle
@@ -325,7 +326,7 @@ def stage_existing_backup(
     from core.controlled_exports import acknowledge_export
     if acknowledge_controlled:
         require_controlled_ack(request)
-    acknowledge_export(db, current_user, acknowledge_controlled, 'restore_stage')
+    acknowledge_export(db, current_user, acknowledge_controlled, 'restore_stage', record=False)
     if not sql.is_postgres:
         raise HTTPException(status_code=501, detail="Staging a listed backup is available for PostgreSQL")
     path = _safe_backup_path(filename)
@@ -347,6 +348,7 @@ def stage_existing_backup(
         path.with_suffix(".json").unlink(missing_ok=True)
     log_audit(db, "restore_staged_from_list", "system", details={"filename": path.name, "candidate_sha256": result.get("candidate_sha256")})
     db.commit()
+    acknowledge_export(db, current_user, acknowledge_controlled, 'restore_stage')
     return {
         "status": "staged",
         "message": "Restore validated and staged. Restart ODIN to apply it offline.",
@@ -355,7 +357,7 @@ def stage_existing_backup(
     }
 
 
-@router.get("/backups/{filename}", dependencies=[Depends(require_interactive_session())])
+@router.get("/backups/{filename}", tags=["System"], dependencies=[Depends(require_interactive_session())])
 def download_backup(filename: str, bundle: bool = False, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     return _download_backup(filename, current_user, db, False, bundle=bundle)
 

@@ -74,3 +74,24 @@ Deleting file-controlled jobs, including bulk deletion, organization deletion an
 SQLite offline restore preserves the maximum of the live high-water value at apply time, the backup high-water value, and retained job references. This also applies to pre-055 backups, so IDs issued after a backup cannot be reissued after restoring it. A failure while carrying the ID floor rolls back the database swap. PostgreSQL offline restore captures the jobs sequence immediately before replacing data and keeps the larger live/restored sequence value after pg_restore, including during rollback; an unused sequence retains its initial allocation semantics.
 
 The demo seeder uses `core.job_identity.insert_job`. Native parity probes intentionally retain raw job inserts for isolated PostgreSQL fixture graphs (native sequences or fixed relationship IDs), historical restore fixtures, or minimal pre-055 media schemas without an allocator table. Each probe documents its exception locally; `ops/database_parity/runtime_probe.py` is the PostgreSQL-only runtime/monitor fixture exception documented here. These probes are not SQLite production creation paths.
+
+## Controlled audit exports and SIEM trust
+
+Signed JSONL exports and SIEM delivery retain canonical audit rows, including controlled
+names and reasons; redaction would invalidate per-row hash verification. SIEM receivers
+are part of the customer's trusted boundary, unlike generic webhooks and MQTT, which
+continue to use generic controlled-work copy.
+
+With live marks, a superadmin must explicitly acknowledge each enabled SIEM destination
+save (`acknowledge_controlled: true`). Creating the first live mark while any destination
+is enabled requires a superadmin who belongs to that audience and sets
+`acknowledge_siem: true`. The acknowledgement and configuration/mark commit together;
+the `controlled_part.siem_acknowledged` event records which direction was accepted.
+Ordinary operators must ask their superadmin to establish the first mark in this case.
+
+Signed JSONL GET exports require acknowledgement when marks exist. The UI retries only
+after confirmation through `POST /api/export/audit-logs/jsonl/acknowledge`, preserving
+the date and bundle parameters, with an interactive superadmin and
+`X-ODIN-Controlled-Ack: true` under the same-origin check. The download records a
+`controlled_part.privileged_export` event with kind `audit_jsonl`. Protect downloaded
+copies and SIEM storage according to the controlled audience's handling requirements.

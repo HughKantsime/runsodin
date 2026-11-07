@@ -273,3 +273,24 @@ are retained permanently, independently of buckets and the routine cap; installa
 with many accepted restores can exceed 210 total entries. Each entry is independently
 sealed. A signed current head binds a digest of the compacted history; saving
 signs only the new compact receipt and current head, not the entire history.
+
+## Controlled audit exports and SIEM trust
+
+Signed JSONL exports and SIEM delivery retain canonical audit rows, including controlled
+names and reasons; redaction would invalidate per-row hash verification. SIEM receivers
+are part of the customer's trusted boundary, unlike generic webhooks and MQTT, which
+continue to use generic controlled-work copy.
+
+With live marks, a superadmin must explicitly acknowledge each enabled SIEM destination
+save (`acknowledge_controlled: true`). Creating the first live mark while any destination
+is enabled requires a superadmin who belongs to that audience and sets
+`acknowledge_siem: true`. The acknowledgement and configuration/mark commit together;
+the `controlled_part.siem_acknowledged` event records which direction was accepted.
+Ordinary operators must ask their superadmin to establish the first mark in this case.
+
+Signed JSONL GET exports require acknowledgement when marks exist. The UI retries only
+after confirmation through `POST /api/export/audit-logs/jsonl/acknowledge`, preserving
+the date and bundle parameters, with an interactive superadmin and
+`X-ODIN-Controlled-Ack: true` under the same-origin check. The download records a
+`controlled_part.privileged_export` event with kind `audit_jsonl`. Protect downloaded
+copies and SIEM storage according to the controlled audience's handling requirements.

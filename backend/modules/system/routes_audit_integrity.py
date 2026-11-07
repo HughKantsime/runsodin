@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from core.db import get_db
 from core.audit import log_audit
+from core.controlled_csrf import require_controlled_ack
 from core.rbac import require_superadmin, require_interactive_session
 from license_manager import feature_gate
 
@@ -21,6 +22,7 @@ class Destination(BaseModel):
     endpoint: str = Field(max_length=2000)
     secret: str | None = Field(default=None, min_length=32, max_length=512)
     enabled: bool = False
+    acknowledge_controlled: bool = False
     tls: bool = True
     ca_bundle: str | None = Field(default=None, max_length=65536)
 
@@ -62,6 +64,19 @@ def verify_audit(current_user: dict = Depends(require_superadmin(scope='read')),
 @router.get('/export/audit-logs/jsonl', dependencies=[Depends(feature_gate('audit_integrity')), Depends(feature_gate('audit_export'))])
 def signed_export(date_from: date, date_to: date, bundle: bool = False, current_user: dict = Depends(require_superadmin(scope='read')),
                   db: Session = Depends(get_db)):
+    from core.controlled_exports import acknowledge_export
+    acknowledge_export(db, current_user, False, 'audit_jsonl')
+    from modules.system.audit_signed_export import export
+    return export(db, date_from, date_to, bundle)
+
+
+@router.post('/export/audit-logs/jsonl/acknowledge', dependencies=[
+    Depends(feature_gate('audit_integrity')), Depends(feature_gate('audit_export')),
+    Depends(require_interactive_session()), Depends(require_controlled_ack)])
+def acknowledged_signed_export(date_from: date, date_to: date, bundle: bool = False,
+                               current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    from core.controlled_exports import acknowledge_export
+    acknowledge_export(db, current_user, True, 'audit_jsonl')
     from modules.system.audit_signed_export import export
     return export(db, date_from, date_to, bundle)
 
@@ -78,6 +93,8 @@ def destinations(current_user: dict = Depends(require_superadmin(scope='read')),
 @router.put('/settings/siem/{destination_id}', dependencies=[Depends(feature_gate('siem_stream')), Depends(require_interactive_session())])
 def save_destination(destination_id: str, body: Destination,
                      current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    from core.controlled_siem import lock_policy
+    lock_policy(db)
     # Serialize config/backlog changes with the append trigger's destination snapshot.
     from core.audit_integrity import lock_chain
     lock_chain(db.connection())
@@ -102,6 +119,12 @@ def save_destination(destination_id: str, body: Destination,
     if prior and (prior['endpoint'], prior['kind'], prior['tls']) != (body.endpoint, body.kind, int(body.tls)):
         if db.execute(text('SELECT 1 FROM audit_siem_outbox WHERE destination_id=:id LIMIT 1'), values).first():
             raise HTTPException(409, 'Drain pending deliveries or delete this destination before changing its endpoint')
+    if body.enabled:
+        from core.controlled_siem import marks_exist, acknowledge_siem
+        if marks_exist(db):
+            acknowledge_siem(db, current_user, body.acknowledge_controlled)
+            log_audit(db, 'controlled_part.siem_acknowledged', 'system', None,
+                      {'direction': 'destination_enabled', 'destination_id': destination_id, 'acknowledged': True})
     db.execute(text('''INSERT INTO audit_siem_destinations(id,name,kind,endpoint,secret,enabled,tls,ca_bundle)
         VALUES(:id,:name,:kind,:endpoint,:secret,:enabled,:tls,:ca_bundle) ON CONFLICT(id) DO UPDATE SET
         name=excluded.name,kind=excluded.kind,endpoint=excluded.endpoint,secret=excluded.secret,

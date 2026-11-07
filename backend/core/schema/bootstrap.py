@@ -21,6 +21,7 @@ from core.schema.migrator import (
     acquire_schema_writer_lock,
 )
 
+
 RAW_REQUIRED_TABLES = frozenset(
     {
         "traceability_records", "traceability_policies",
@@ -109,13 +110,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "users",
         "webhooks",
         "ws_events",
-        "controlled_audiences",
-        "controlled_audience_members",
-        "controlled_files",
-        "controlled_jobs",
-        "controlled_job_tombstones",
-        "job_id_high_water",
-        "controlled_retention_clocks",
+        "controlled_audiences", "controlled_audience_members", "controlled_files", "controlled_jobs", "controlled_job_tombstones", "job_id_high_water", "controlled_retention_clocks",
     }
 )
 
@@ -128,12 +123,8 @@ RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 
 RAW_REQUIRED_COLUMNS = {
     "traceability_records": frozenset("job_id attempt snapshot snapshot_sha256 captured_at inspection_result inspection_notes inspected_by inspected_at delivered_by delivered_at".split()),
     "traceability_policies": frozenset("owner_id org_id target_kind target_key required".split()),
-    "job_id_high_water": frozenset({"singleton", "high_water"}),
-    "controlled_job_tombstones": frozenset({"job_id", "audience_id", "label", "printer_tag", "retention_days", "marked_at", "created_at", "audit_max_id", "rule_index", "purge_previewed_at", "retention_initial_days", "retention_changes"}),
-    "controlled_retention_clocks": frozenset({"resource_type", "resource_id", "marked_at", "initial_days", "changes", "released_at"}),
-    "controlled_audiences": frozenset({"id", "name", "created_by"}),
-    "controlled_audience_members": frozenset({"audience_id", "user_id"}),
-    "controlled_files": frozenset({"file_id", "label", "audience_id", "printer_tag", "retention_days", "reason", "changed_by", "marked_at", "purge_previewed_at"}),
+    "job_id_high_water": frozenset({"singleton", "high_water"}), "controlled_job_tombstones": frozenset({"job_id", "audience_id", "label", "printer_tag", "retention_days", "marked_at", "created_at", "audit_max_id", "rule_index", "purge_previewed_at", "retention_initial_days", "retention_changes"}), "controlled_retention_clocks": frozenset({"resource_type", "resource_id", "marked_at", "initial_days", "changes", "released_at"}),
+    "controlled_audiences": frozenset({"id", "name", "created_by"}), "controlled_audience_members": frozenset({"audience_id", "user_id"}), "controlled_files": frozenset({"file_id", "label", "audience_id", "printer_tag", "retention_days", "reason", "changed_by", "marked_at", "purge_previewed_at"}),
     "controlled_jobs": frozenset({"job_id", "label", "audience_id", "printer_tag", "retention_days", "reason", "changed_by", "marked_at", "purge_previewed_at"}),
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
     "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
@@ -243,6 +234,7 @@ POST_EDUCATION_SQL_MIGRATIONS = frozenset(
     {"modules/organizations/migrations/003_google_classroom.sql"}
 )
 
+
 for _economic_table in ('orders', 'order_items', 'jobs'):
     RAW_REQUIRED_COLUMNS[_economic_table] = RAW_REQUIRED_COLUMNS.get(_economic_table, frozenset()) | frozenset({'economic_uid'})
 for _source_table in ('spools', 'print_jobs'):
@@ -278,6 +270,7 @@ RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
 RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
 RAW_REQUIRED_COLUMNS['cost_source_lifetimes'] = frozenset({'birth_nonce','resource_kind','resource_id','state','identity_uid','owner_scope','owner_key','job_uid','order_uid','item_uid','attempt_uid'})
 
+
 def import_all_models() -> None:
     import core.models  # noqa: F401
     import core.dispatch_claim_schema  # noqa: F401
@@ -296,6 +289,7 @@ def import_all_models() -> None:
     import modules.system.models  # noqa: F401
     import modules.vision.models  # noqa: F401
 
+
 def configure_orm() -> None:
     """Daemon startup: map every model before any worker thread touches the ORM.
 
@@ -306,6 +300,7 @@ def configure_orm() -> None:
     import_all_models()
     from sqlalchemy.orm import configure_mappers
     configure_mappers()
+
 
 def migration_files(backend_root: Path) -> list[tuple[str, Path]]:
     files: list[tuple[str, Path]] = []
@@ -323,6 +318,7 @@ def migration_files(backend_root: Path) -> list[tuple[str, Path]]:
                 files.append((migration_id, path))
     return files
 
+
 def post_education_migration_files(backend_root: Path) -> list[tuple[str, Path]]:
     files: list[tuple[str, Path]] = []
     for migration_id in sorted(POST_EDUCATION_SQL_MIGRATIONS):
@@ -332,15 +328,18 @@ def post_education_migration_files(backend_root: Path) -> list[tuple[str, Path]]
         files.append((migration_id, path))
     return files
 
+
 def _orm_manifest() -> dict[str, list[str]]:
     return {
         table.name: sorted(column.name for column in table.columns)
         for table in sorted(Base.metadata.tables.values(), key=lambda item: item.name)
     }
 
+
 def _orm_checksum() -> str:
     payload = json.dumps(_orm_manifest(), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 
 CURRENT_ORM_BASELINE = "tray_identity_046_20261028"
 
@@ -349,7 +348,6 @@ CURRENT_ORM_BASELINE = "tray_identity_046_20261028"
 # invariants belong in the application layer). Historical PostgreSQL archives are
 # staged by core/schema/preserved029 and then upgraded through this list.
 # Procedure: docs/SCHEMA_MIGRATIONS.md.
-
 POST027_MIGRATIONS = (
     ("python:032-quiet-hours-deferred-deliveries", "core.schema.migrations.032_quiet_hours_deferred_deliveries"),
     ("python:033-timelapse-capture-tenancy", "core.schema.migrations.033_timelapse_capture_tenancy"),
@@ -377,6 +375,7 @@ POST027_MIGRATIONS = (
     ("python:055-controlled-history", "core.schema.migrations.055_controlled_history"),
 )
 
+
 def _recognized_orm_checksums() -> frozenset[str]:
     """Explicit build manifests, never inferred from the database being upgraded."""
     from core.schema.migrator import MigrationError
@@ -390,6 +389,7 @@ def _recognized_orm_checksums() -> frozenset[str]:
             raise MigrationError("Pinned ORM baseline catalog checksum mismatch")
         checksums.add(checksum)
     return frozenset(checksums)
+
 
 def _validate_orm_baseline(connection) -> None:
     """Refuse unknown build/history before any schema-mutating bootstrap phase."""
@@ -408,6 +408,7 @@ def _validate_orm_baseline(connection) -> None:
     if row and (str(row[0]) not in recognized or str(row[1]) != connection.dialect.name):
         raise MigrationError("Migration history mismatch: orm-baseline:1")
 
+
 def _record_orm_baseline(connection) -> bool:
     _validate_orm_baseline(connection)
     row = connection.execute(
@@ -424,6 +425,7 @@ def _record_orm_baseline(connection) -> bool:
         )
     )
     return True
+
 
 def validate_schema(connection, *, _contract=None) -> dict[str, int]:
     from core.schema.pre026_restore_contract import check_contract,inventory_for
@@ -467,6 +469,7 @@ def validate_schema(connection, *, _contract=None) -> dict[str, int]:
         import_module('core.schema.migrations.055_controlled_history').validate(connection)
     return {"tables": len(actual_tables), "required_tables": len(required_tables)}
 
+
 def _normalize_check_definition(value: str, dialect_name: str) -> str:
     normalized = " ".join(str(value or "").split())
     if dialect_name != "postgresql":
@@ -475,6 +478,7 @@ def _normalize_check_definition(value: str, dialect_name: str) -> str:
         r"::character varying::text\b", "::character varying", normalized
     )
     return re.sub(r"(ARRAY\[[^]]*\])::text\[\]", r"\1", normalized)
+
 
 def schema_manifest(connection) -> dict[str, object]:
     inspector = inspect(connection)
@@ -518,11 +522,13 @@ def schema_manifest(connection) -> dict[str, object]:
         }
     return manifest
 
+
 def schema_fingerprint(connection) -> str:
     payload = json.dumps(
         schema_manifest(connection), sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 
 def _validate_adoptable_legacy_core(connection) -> None:
     """Reject malformed lookalike schemas before creating a migration ledger."""
@@ -536,6 +542,7 @@ def _validate_adoptable_legacy_core(connection) -> None:
         raise RuntimeError(
             "Schema validation missing columns on users: " + ", ".join(missing)
         )
+
 
 def _bootstrap_database_contract(
     engine: Engine,
@@ -685,6 +692,7 @@ def _bootstrap_database_contract(
         "schema_fingerprint": fingerprint,
         **validation,
     }
+
 
 def bootstrap_database(engine: Engine, backend_root: Path | None = None) -> dict[str, object]:
     """Ordinary startup always uses the current schema contract."""

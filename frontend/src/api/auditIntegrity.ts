@@ -5,7 +5,7 @@ export type SiemDestination = {
   enabled: boolean | number; tls: boolean | number; has_secret: number; ca_bundle: string | null;
   pending: number; last_error: string | null; last_success: string | null;
 }
-export type DestinationInput = { name: string; kind: 'webhook' | 'syslog'; endpoint: string; enabled: boolean; tls: boolean; secret?: string; ca_bundle?: string | null }
+export type DestinationInput = { name: string; kind: 'webhook' | 'syslog'; endpoint: string; enabled: boolean; tls: boolean; secret?: string; ca_bundle?: string | null; acknowledge_controlled?: boolean }
 export const auditIntegrity = {
   verify: () => fetchAPI<{ ok: boolean; first_break: number | null; reason?: string; status?: string; rows?: number; breaks?: { reason: string; row_id: number | null; fingerprint: string; known: boolean }[] }>('/audit-logs/verify'),
   initializeKeyring: (reason: string) => fetchAPI('/audit-logs/initialize-keyring', { method: 'POST', body: JSON.stringify({ reason }) }),

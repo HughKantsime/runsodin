@@ -3,13 +3,17 @@ from sqlalchemy import inspect, text
 from core.identity_scrub import scrub_json_text, scrub_text
 
 
-def export_personal(db, user_id):
+def export_personal(db, user_id, exporter=None):
     if not inspect(db.connection()).has_table('traceability_records'):
         return []
+    from core.controlled_parts import job_visibility
+    visibility, params = job_visibility(exporter, 'j')
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text -- job_visibility uses source-owned SQL with the fixed j alias; user and audience IDs are bound
     return [dict(r._mapping) for r in db.execute(text('''SELECT r.job_id,r.attempt,r.snapshot,r.captured_at,r.inspection_result,
         CASE WHEN r.inspected_by=:uid THEN r.inspection_notes ELSE NULL END AS inspection_notes,r.inspected_at,r.delivered_at FROM traceability_records r
-        JOIN jobs j ON j.id=r.job_id WHERE r.inspected_by=:uid OR r.delivered_by=:uid
-        OR j.submitted_by=:uid OR j.charged_to_user_id=:uid ORDER BY r.job_id,r.attempt'''), {'uid':user_id})]
+        JOIN jobs j ON j.id=r.job_id WHERE (r.inspected_by=:uid OR r.delivered_by=:uid
+        OR j.submitted_by=:uid OR j.charged_to_user_id=:uid) AND (''' + visibility +
+        ') ORDER BY r.job_id,r.attempt'), {**params, 'uid':user_id})]
 
 
 def erase_personal(db, user_id, identifiers):

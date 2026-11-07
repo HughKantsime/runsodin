@@ -20,3 +20,10 @@ test('acknowledgement preserves the audit-key bundle query', async () => {
   await controlledDownload('/api/backups/owned.db?bundle=true', 'backup')
   expect(fetch).toHaveBeenLastCalledWith('/api/backups/owned.db/acknowledge?bundle=true', expect.objectContaining({ method: 'POST' }))
 })
+test('signed audit export acknowledges with date bounds and bundle intact', async () => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(refusal()).mockResolvedValueOnce(new Response('signed'))
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  await controlledDownload('/api/export/audit-logs/jsonl?date_from=2026-11-01&date_to=2026-11-06&bundle=true', 'signed audit export')
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('unredacted controlled details'))
+  expect(fetch).toHaveBeenLastCalledWith('/api/export/audit-logs/jsonl/acknowledge?date_from=2026-11-01&date_to=2026-11-06&bundle=true', expect.objectContaining({ method: 'POST' }))
+})

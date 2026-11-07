@@ -19,6 +19,7 @@ RESOURCES = {'files': ('print_files', 'file_id', 'org_id', 'file'),
 class MarkRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     controlled: bool = True
+    acknowledge_siem: bool = False
     label: str = Field(default='CUI', min_length=1, max_length=80)
     audience_id: int = Field(gt=0)
     printer_tag: str = Field(min_length=1, max_length=100)
@@ -67,6 +68,9 @@ def get_mark(resource_type: Literal['files', 'jobs'], identifier: int,
 
 def change_mark(db, resource_type, identifier, body, actor):
     licensed(db, resource_type, identifier)
+    # Serialize first-mark admission with SIEM configuration on both providers.
+    from core.controlled_siem import lock_policy
+    lock_policy(db)
     _, key, kind = resource(db, resource_type, identifier, actor)
     # Even platform admins must join the audience before marking or releasing.
     if body.controlled and not member(db, actor, body.audience_id):
@@ -100,6 +104,11 @@ def change_mark(db, resource_type, identifier, body, actor):
     table = 'controlled_' + resource_type
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table, key and owner column come from closed file/job mappings; marking values and identities are bound
     before = db.execute(text(f'SELECT * FROM {table} WHERE {key}=:id'), {'id': identifier}).mappings().first()
+    if body.controlled:
+        from core.controlled_siem import first_mark
+        if first_mark(db, actor, body.acknowledge_siem):
+            log_audit(db, 'controlled_part.siem_acknowledged', 'system', None,
+                      {'direction': 'first_mark', 'acknowledged': True})
     # Audience switches never grant extra time, including repeated A -> B -> A.
     from core.controlled_policy_clock import update_clock
     marked_at = update_clock(db, resource_type, identifier, before, body)
@@ -113,7 +122,7 @@ def change_mark(db, resource_type, identifier, body, actor):
             ON CONFLICT ({key}) DO UPDATE SET label=excluded.label,audience_id=excluded.audience_id,
             printer_tag=excluded.printer_tag,retention_days=excluded.retention_days,
             reason=excluded.reason,changed_by=excluded.changed_by,marked_at=excluded.marked_at,purge_previewed_at=:previewed_at'''),
-                   {**body.model_dump(exclude={'controlled'}), 'id': identifier, 'actor': actor['id'], 'marked_at': marked_at, 'previewed_at': previewed_at})
+                   {**body.model_dump(exclude={'controlled', 'acknowledge_siem'}), 'id': identifier, 'actor': actor['id'], 'marked_at': marked_at, 'previewed_at': previewed_at})
     else:
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table, key and owner column come from closed file/job mappings; marking values and identities are bound
         db.execute(text(f'DELETE FROM {table} WHERE {key}=:id'), {'id': identifier})

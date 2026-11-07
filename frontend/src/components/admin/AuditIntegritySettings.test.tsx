@@ -124,3 +124,16 @@ test('missing-key initialization sends a reason and refreshes verification', asy
   expect(JSON.parse(String(call[1]?.body))).toEqual({ reason: 'Original keys cannot be recovered' })
   expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/verify'))).toHaveLength(2)
 })
+test('SIEM acknowledgement is explicit and submitted with the destination', async () => {
+  mount(); await screen.findByText(/No destinations/)
+  const ack = screen.getByLabelText(/I acknowledge this SIEM destination/)
+  expect(ack).not.toBeChecked()
+  fireEvent.click(ack)
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'SOC' } })
+  fireEvent.change(screen.getByLabelText('Transport'), { target: { value: 'syslog' } })
+  fireEvent.change(screen.getByLabelText('Endpoint'), { target: { value: 'syslog://soc.example:6514' } })
+  fireEvent.click(screen.getByText('Save destination'))
+  await screen.findByText('Destination saved.')
+  const call = vi.mocked(fetch).mock.calls.find(([, o]) => o?.method === 'PUT')!
+  expect(JSON.parse(String(call[1]?.body)).acknowledge_controlled).toBe(true)
+})

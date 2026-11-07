@@ -394,6 +394,10 @@ def test_database_parity_runner_is_exact_repeatable_and_emits_html() -> None:
     ).read_text(encoding="utf-8")
     assert "relationship_graph_fingerprint" in restore_drill
     assert "database-parity-evidence:" in restore_drill
+    assert "from controlled_restore_native import run as controlled_restore" in restore_drill
+    assert restore_drill.index("    controlled_restore()") < restore_drill.index('    evidence = {')
+    shell = (ROOT / "ops/database_parity/run_restore_drill.sh").read_text()
+    assert 'controlled_restore_native.py:/tmp/controlled_restore_native.py:ro' in shell
 
 
 def test_organization_creation_binds_native_boolean() -> None:

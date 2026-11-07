@@ -1,8 +1,10 @@
 """Real middleware, replay, audit list/CSV and management credential boundaries."""
-from tests.test_contracts.test_cert_G_harness import run_probe
+import pytest
+from tests.test_contracts._controlled_http_probe import run_probe
 
 
-def test_response_middleware_replays_and_audit_exports(tmp_path):
+@pytest.mark.parametrize('frontend_dist', [False, True], ids=['no-dist', 'with-dist'])
+def test_response_middleware_replays_and_audit_exports(tmp_path, frontend_dist):
     result=run_probe('controlled-round2-http',r'''
 install_license('enterprise', features=['controlled_parts','audit_export'])
 uid=seed_user('member','operator')
@@ -30,15 +32,18 @@ assert tenant.post('/api/controlled-parts/audiences',json={'name':'no','user_ids
 assert member.get('/api/controlled-parts/audiences/1').status_code==403
 assert superadmin.get('/api/controlled-parts/audiences/1').status_code==200
 # The real response middleware receives known resource IDs, without a route-local redactor.
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 from core.dependencies import get_current_user
-@app.post('/api/jobs/round2-projection')
+probe_router = APIRouter()
+@probe_router.post('/api/jobs/round2-projection')
 def projection(actor=Depends(get_current_user)):
  return {'jobs':[{'id':1,'item_name':'same-name','notes':'private-note'}, {'id':2,'item_name':'same-name','notes':'private-note'}]}
-@app.get('/api/round2-empty')
+@probe_router.get('/api/round2-empty')
 def empty(actor=Depends(get_current_user)):
  from starlette.responses import Response
  return Response(b'',media_type='application/json')
+# Probes must precede the production SPA catch-all.
+app.router.routes[0:0] = probe_router.routes
 headers={'Idempotency-Key':'controlled-replay-regression'}
 r=member.post('/api/jobs/round2-projection',json={},headers=headers)
 assert r.status_code==200 and r.json()['jobs'][0]['item_name']=='same-name',r.text
@@ -63,5 +68,5 @@ for path in ['/api/controlled-parts/audiences','/api/controlled-parts/audiences/
 assert superadmin.delete('/api/controlled-parts/audiences/1').status_code==403
 assert superadmin.post('/api/controlled-parts/retention/acknowledge',json={'jobs':[1]},headers={'X-ODIN-Controlled-Ack':'true'}).status_code==403
 OUT['checked']=True
-''',tmp_path)
+''',tmp_path, frontend_dist=frontend_dist)
     assert result['checked'] and result['_net_attempts']==[]

@@ -18,6 +18,14 @@ export function classicSource(file, source) {
     .replaceAll('hmsFaults(printer.hms_errors).length > 0', 'printer.hms_errors && printer.hms_errors.length > 0')
     .replaceAll('hmsFaults(p.hms_errors).length > 0', 'p.hms_errors?.length > 0')
     .replaceAll('hmsFaults(printer.hms_errors)[0]?.code', 'printer.hms_errors?.[0]?.code')
+  // E3 intentionally adds controlled handling in both themes. Reverse only
+  // these exact edits; ControlledPart/controlledDownload behavior has its own tests.
+  if (file.endsWith('/BackupRestore.tsx')) s = s
+    .replace("import { controlledRestore } from '../../api/controlledDownload'\n", '')
+    .replace("await controlledRestore('/api/backups/restore', {", "await fetch('/api/backups/restore', {")
+  if (file.endsWith('/TimelineJobDetail.tsx')) s = s
+    .replace("import ControlledPart from '../shared/ControlledPart'\n", '')
+    .replace('      <ControlledPart kind="jobs" id={job.id} />\n', '')
   if (file.endsWith('index.css')) return s.replace("@import './foundry-pages.css';\n", '')
   s = s.replace(/^import (Table|PageState|FoundryPage|PrinterNumber) from '[^']+'\n/gm, '')
   s = s.replace(/<PageState kind="(?:loading|error|empty)"/g, '<div').replace(/<\/PageState>/g, '</div>')
