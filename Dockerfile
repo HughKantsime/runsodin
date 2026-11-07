@@ -137,6 +137,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source
 COPY backend/ ./backend/
+# The bundled Obico model (AGPL-3.0) must ship with its license text, notice and source files.
+RUN for f in NOTICE.txt LICENSE-AGPL-3.0.txt obico-model.cfg obico-model.names; do \
+        test -s "/app/backend/vision_models_default/$f" || { echo "missing AGPL notice file: $f" >&2; exit 1; }; \
+    done
 COPY VERSION /app/VERSION
 COPY ops/demo/demo_publisher.py /app/ops/demo/demo_publisher.py
 COPY ops/edu_sandbox/tcp_proxy.py /app/ops/edu_sandbox/tcp_proxy.py

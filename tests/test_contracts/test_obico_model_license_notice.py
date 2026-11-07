@@ -51,13 +51,41 @@ def test_license_terms_and_notices_carve_the_model_out_of_the_bsl():
     assert "obico_spaghetti.onnx" in (ROOT / "NOTICE").read_text(encoding="utf-8")
 
 
+def _dockerfile_instructions():
+    lines = [line.strip() for line in (ROOT / "Dockerfile").read_text(encoding="utf-8").splitlines()]
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def _ignored(path, rules):
+    """Docker excludes a path when a rule matches it or any of its parent directories."""
+    parts = path.split("/")
+    candidates = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    for rule in rules:
+        pattern = rule.lstrip("/").rstrip("/")
+        for candidate in candidates:
+            if fnmatch.fnmatch(candidate, pattern) or (pattern.startswith("**/") and any(
+                    fnmatch.fnmatch("/".join(candidate.split("/")[k:]), pattern[3:]) for k in range(len(candidate.split("/"))))):
+                return True
+    return False
+
+
 def test_image_build_keeps_the_notice_files():
-    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY backend/ ./backend/" in dockerfile
-    ignored = [line.strip() for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
-               if line.strip() and not line.startswith("#")]
-    for name in SHIPPED:
+    instructions = _dockerfile_instructions()
+    assert "COPY backend/ ./backend/" in instructions
+    # The image build itself refuses to finish without the notice files (checked inside the image).
+    guard = [i for i, line in enumerate(instructions) if line.startswith("RUN for f in NOTICE.txt LICENSE-AGPL-3.0.txt")]
+    assert len(guard) == 1 and guard[0] > instructions.index("COPY backend/ ./backend/")
+    rules = [line.strip() for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.startswith("#") and not line.startswith("!")]
+    for name in SHIPPED + ("obico_spaghetti.onnx",):
         path = f"backend/vision_models_default/{name}"
         assert (ROOT / path).is_file(), path
-        assert not any(fnmatch.fnmatch(path, rule) or fnmatch.fnmatch(name, rule) or path.startswith(rule.rstrip("/") + "/")
-                       for rule in ignored), (path, "excluded from the image by .dockerignore")
+        assert not _ignored(path, rules), (path, "excluded from the image by .dockerignore")
+        assert name in instructions[guard[0]] or name == "obico_spaghetti.onnx"
+
+
+def test_ignore_matcher_catches_directory_rules():
+    assert _ignored("backend/vision_models_default/NOTICE.txt", ["**/vision_models_default"])
+    assert _ignored("backend/vision_models_default/NOTICE.txt", ["backend/"])
+    assert _ignored("backend/vision_models_default/NOTICE.txt", ["*.txt"])
+    assert not _ignored("backend/vision_models_default/NOTICE.txt", ["*.md", "frontend/"])
