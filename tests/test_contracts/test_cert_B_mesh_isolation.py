@@ -65,20 +65,33 @@ def test_isolated_extraction_returns_plain_data(tmp_path):
     assert max(mesh["vertices"]) == 10.0 and mesh["triangles"][:3] == [0, 2, 1]
 
 
-def test_diamond_is_refused_with_bounded_memory_and_no_leftovers(tmp_path):
+def test_diamond_is_refused_with_bounded_memory_and_no_leftovers(tmp_path, monkeypatch):
+    import traceback
     from modules.models_library import mesh_isolation
-    before_threads = set(threading.enumerate())
+    # Record threads whose start() runs with mesh_isolation on the stack. Threads
+    # other code starts concurrently in this process (timers, monitors) are not
+    # this module's leftovers and must not fail the check.
+    started_here = []
+    real_start = threading.Thread.start
+
+    def recording_start(self, *args, **kwargs):
+        if any(frame.filename == mesh_isolation.__file__ for frame in traceback.extract_stack()):
+            started_here.append(self)
+        return real_start(self, *args, **kwargs)
+
+    monkeypatch.setattr(threading.Thread, "start", recording_start)
     before_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     assert _isolated(diamond(tmp_path / "d.3mf")) is None
+    monkeypatch.setattr(threading.Thread, "start", real_start)
     after_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     child_peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     scale = 1 if os.uname().sysname == "Darwin" else 1024  # ru_maxrss: bytes on macOS, KiB on Linux
     assert (after_rss - before_rss) * scale < 200 * 2**20  # the parent never held the geometry
     assert child_peak * scale < 1.5 * 2**30
     # The dedicated executor intentionally retains bounded idle worker threads.
-    # Refuse any new unowned thread, rather than depending on prior pool warmup.
-    added_threads = set(threading.enumerate()) - before_threads
-    assert added_threads <= mesh_isolation.EXECUTOR._threads
+    # Refuse any thread this call started outside that pool, rather than
+    # depending on prior pool warmup.
+    assert set(started_here) <= mesh_isolation.EXECUTOR._threads
     assert len(mesh_isolation.EXECUTOR._threads) <= mesh_isolation.MAX_WORKERS + mesh_isolation.MAX_WAITERS
 
 
