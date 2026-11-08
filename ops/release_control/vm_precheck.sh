@@ -16,4 +16,4 @@ export RELEASE_CONTROL_RUN_ID="${RELEASE_CONTROL_RUN_ID:-vm-$(date -u +%Y%m%dT%H
 # SSH shells must not inject make flags or alternate Python module resolution.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES PYTHONPATH PYTHONHOME
 printf 'VM precheck %s; umask %s; all ten components\n' "$RELEASE_CONTROL_RUN_ID" "$(umask)"
-exec make trusted-validation-gate PYTHON="$python"
+exec "$python" -m ops.release_control.host_lock --precheck make trusted-validation-gate PYTHON="$python"

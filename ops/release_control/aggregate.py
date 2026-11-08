@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from .host_lock import validation_lock
 from .policy import load_inventory
 from .report import render
 from .run_gate import execute, sha256, utc_now, validate_result
@@ -50,6 +51,11 @@ def _junit(results: list[dict[str, object]], path: Path) -> None:
 
 
 def main() -> int:
+    with validation_lock():
+        return run_aggregate()
+
+
+def run_aggregate() -> int:
     inventory = load_inventory()
     run_id = os.getenv("RELEASE_CONTROL_RUN_ID") or datetime.now(timezone.utc).strftime("local-%Y%m%dT%H%M%SZ")
     if not RUN_ID_RE.fullmatch(run_id):
@@ -93,16 +99,18 @@ def main() -> int:
     native_rel = str(native.relative_to(ROOT))
     started = time.monotonic()
 
+    result_paths: dict[str, Path] = {}
+
     def run_component(component: dict[str, object]) -> dict[str, object]:
         component_id = str(component["id"])
         output_dir = components_dir / component_id
-        output_dir.mkdir()
-        allowlist = tuple(str(item) for item in component["environment_allowlist"])
-        overrides = {key: value for key, value in env_values.items() if key in allowlist and value}
-        patterns = [str(item).format(native=native_rel) for item in component["expected_artifacts"]]
         component_started = utc_now()
         component_clock = time.monotonic()
         try:
+            output_dir.mkdir()
+            allowlist = tuple(str(item) for item in component["environment_allowlist"])
+            overrides = {key: value for key, value in env_values.items() if key in allowlist and value}
+            patterns = [str(item).format(native=native_rel) for item in component["expected_artifacts"]]
             result = execute(
                 gate_id=component_id.lower(), command=[str(item) for item in component["command"]],
                 output=output_dir / "result.json", timeout=int(component["timeout_seconds"]),
@@ -113,37 +121,38 @@ def main() -> int:
                 isolate_process_group=True,
             )
             validate_result(result)
+            # Native artifacts retain detailed counts; a command without JUnit
+            # still represents one attempted release gate.
+            if result["counts"]["tests"] == 0:
+                passed = result["status"] == "pass"
+                result["counts"] = {
+                    "tests": 1, "passed": int(passed), "failures": int(not passed),
+                    "errors": 0, "skipped": 0, "xfailed": 0,
+                }
+            validate_result(result)
+            result_path = output_dir / "result.json"
+            result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            result_paths[component_id.lower()] = result_path
         except Exception as exc:
-            # A runner error is an actual failed attempt, not a reason to skip
-            # this group's remaining components. Never expose exception secrets.
+            # Include setup, validation and evidence writes in the boundary.
+            # Recovery does no I/O here: even a permanently unwritable component
+            # directory must not stop this worker or any later phase.
             finding = f"component runner raised {type(exc).__name__}"
-            log_path = output_dir / "result.log"
-            log_path.write_text(finding + "\n", encoding="utf-8")
             result = {
                 "schema_version": 1, "gate_id": component_id.lower(), "status": "fail",
                 "command": [str(item) for item in component["command"]],
-                "working_directory": str((ROOT / str(component["working_directory"])).resolve()),
+                "working_directory": str(ROOT),
                 "started_at": component_started, "ended_at": utc_now(),
                 "duration_seconds": round(time.monotonic() - component_clock, 3),
                 "exit_code": None, "timed_out": False,
-                "counts": {"tests": 0, "passed": 0, "failures": 0,
+                "counts": {"tests": 1, "passed": 0, "failures": 1,
                            "errors": 0, "skipped": 0, "xfailed": 0},
                 "tool_versions": {"python": sys.version.split()[0]},
-                "log": {"path": str(log_path), "sha256": sha256(log_path), "sanitized": True},
+                # Filled with the real JUnit hash after every component finishes.
+                "log": {"path": str(run_dir / "junit.xml"), "sha256": "0" * 64, "sanitized": True},
                 "artifacts": [], "findings": [finding],
             }
-        # A component command is one release gate even when it does not emit a
-        # top-level JUnit file; its native artifacts retain the detailed counts.
-        if result["counts"]["tests"] == 0:
-            passed = result["status"] == "pass"
-            result["counts"] = {
-                "tests": 1, "passed": 1 if passed else 0, "failures": 0 if passed else 1,
-                "errors": 0, "skipped": 0, "xfailed": 0,
-            }
-        validate_result(result)
-        (output_dir / "result.json").write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        print(f"{component_id}: {result['status']} ({result['duration_seconds']}s)", flush=True)
         return result
 
     by_id = {component["id"]: component for component in inventory["components"]}
@@ -156,14 +165,26 @@ def main() -> int:
             futures = [pool.submit(run_group, group) for group in phase]
             for future in futures:
                 results.extend(future.result())
-    # Completion order must not affect JUnit, findings, artifacts or console output.
+    # Durable evidence stays in inventory order; progress prints at completion.
     order = {component_id.lower(): index for index, component_id in enumerate(by_id)}
     results.sort(key=lambda item: order[str(item["gate_id"])])
-    for item in results:
-        print(f"{str(item['gate_id']).upper()}: {item['status']} ({item['duration_seconds']}s)", flush=True)
-
     final_junit = run_dir / "junit.xml"
     _junit(results, final_junit)
+    for item in results:
+        gate_id = str(item["gate_id"])
+        if gate_id in result_paths:
+            continue
+        item["log"]["sha256"] = sha256(final_junit)
+        # A separate path avoids the broken per-component directory/file. If
+        # storage is wholly unavailable, retain its failure in aggregate/JUnit
+        # and never advertise an unwritten artifact. All gates already ran.
+        recovery = components_dir / f"{gate_id}-failed.json"
+        try:
+            recovery.write_text(json.dumps(item, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            result_paths[gate_id] = recovery
+        except Exception as exc:
+            item["findings"].append(f"failed result persistence raised {type(exc).__name__}")
+    print(f"Aggregate wall time: {time.monotonic() - started:.3f}s", flush=True)
     findings = [f"{item['gate_id']}: {finding}" for item in results for finding in item["findings"]]
     failed = any(item["status"] != "pass" for item in results) or bool(findings)
     final: dict[str, object] = {
@@ -171,16 +192,16 @@ def main() -> int:
         "command": ["make", "trusted-validation-gate"], "working_directory": str(ROOT),
         "started_at": min(str(item["started_at"]) for item in results),
         "ended_at": max(str(item["ended_at"]) for item in results),
-        "duration_seconds": round(time.monotonic() - started, 3),
+        "duration_seconds": round(sum(float(item["duration_seconds"]) for item in results), 3),
         "exit_code": 1 if failed else 0, "timed_out": any(item["timed_out"] for item in results),
         "counts": {"tests": 10, "passed": 10 - len([item for item in results if item["status"] != "pass"]),
                    "failures": len([item for item in results if item["status"] != "pass"]),
                    "errors": 0, "skipped": 0, "xfailed": 0},
         "tool_versions": {"python": sys.version.split()[0]},
         "log": {"path": str(final_junit), "sha256": sha256(final_junit), "sanitized": True},
-        "artifacts": [{"path": str(components_dir / str(item["id"]) / "result.json"),
-                       "sha256": sha256(components_dir / str(item["id"]) / "result.json")}
-                      for item in inventory["components"]],
+        "artifacts": [{"path": str(result_paths[str(item["gate_id"])]),
+                       "sha256": sha256(result_paths[str(item["gate_id"])])}
+                      for item in results if str(item["gate_id"]) in result_paths],
         "findings": findings,
     }
     validate_result(final)

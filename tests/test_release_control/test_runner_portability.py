@@ -54,13 +54,14 @@ ODIN_CI = ['self-hosted', 'odin-ci']
 
 @pytest.mark.parametrize('workflow,labels', [
     ('trusted-validation', ODIN_CI),
-    ('promote', ODIN_CI),
-    ('publish-image', ODIN_CI),
-    ('promote-production', ODIN_CI),
+    ('promote', MAC),
+    ('publish-image', MAC),
+    ('promote-production', MAC),
     ('rollback-2.0-production', MAC),
 ])
 def test_each_release_workflow_runs_on_its_named_host(workflow, labels):
-    """Slice 1 moves publish/promote; rollback remains on its existing host."""
+    """Only validation moved: arm64 under QEMU never went healthy on the VM, and eligibility
+    authenticates validation's evidence, so it stays off the host that ran candidate code."""
     parsed = yaml.safe_load((ROOT / '.github/workflows' / f'{workflow}.yml').read_text())
     assert [job['runs-on'] for job in parsed['jobs'].values()] == [labels]
 
@@ -76,7 +77,7 @@ def test_actionlint_knows_every_host_label():
     ('promote-production', '/actions/artifacts/${validation_artifact_id}/zip'),
 ])
 def test_evidence_crosses_hosts_only_as_an_uploaded_artifact(workflow, artifact):
-    """Co-location must not bypass authenticated artifact download and verification."""
+    """A job on the Mac can't see odin-ci's disk, so nothing may read validation's local directory."""
     source = (ROOT / '.github/workflows' / f'{workflow}.yml').read_text()
     assert artifact in source
     assert 'verify-download' in source

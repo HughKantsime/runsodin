@@ -41,13 +41,18 @@ def load_inventory() -> dict[str, object]:
         raise ValueError("execution phases must schedule every component exactly once")
     if len(phases) < 3 or phases[-1] != [["CV06"]] or phases[-2] != [["CV10"]]:
         raise ValueError("CV10 and CV06 require separate final serial phases")
+    if [["CV03"]] not in phases:
+        raise ValueError("CV03 requires its own phase: scanners must not race checkout writers")
     for phase in phases:
         for group in phase:
             if "CV02" in group and any(
-                set(other) & {"CV01", "CV03", "CV04", "CV05", "CV07"}
+                set(other) & {"CV01", "CV04", "CV05", "CV07"}
                 for other in phase if other is not group
             ):
                 raise ValueError("CV02 fixture writes cannot overlap source readers/builders")
+        builders = [{"CV01", "CV04", "CV05", "CV07"} & set(group) for group in phase]
+        if sum(bool(group) for group in builders) > 1:
+            raise ValueError("Docker lifecycle and temporary build-context writers require one worker")
     for item in components:
         required = (
             "command", "working_directory", "environment_allowlist", "timeout_seconds",

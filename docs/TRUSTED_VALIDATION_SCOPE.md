@@ -1,8 +1,8 @@
 # Trusted validation scope
 
 `make trusted-validation-gate` runs the ten components in
-`ops/release_control/inventory.json` in audited phases, reporting in CV01–CV10
-order. This page says what each one
+`ops/release_control/inventory.json` in audited phases. Durable evidence stays in CV01–CV10
+order; console status prints as each component finishes. This page says what each one
 proves and what it does not. A behaviour missing from every "proves" column has
 no trusted-validation evidence. It is not covered by a stage this page forgot.
 
@@ -187,22 +187,64 @@ approach are retained, but that schedule is unsafe: contract tests such as
 `frontend/src/test-fixtures/*.json`, and `Dockerfile` copies `frontend/` from the
 same checkout. Distinct Docker tags alone do not isolate build inputs.
 
-The committed inventory now describes these barriers (each bracket is a serial
-worker; workers on the same row run concurrently):
+Review round 1 keeps CV02 at t=0 (after common aggregate setup), overlapping only
+CV08/CV09. CV03 gets its own phase rather than a snapshot: this preserves the
+existing scanner scope, Git history and npm tree fingerprint without inventing
+snapshot/materialized-LFS semantics. No other component writes while it scans.
+The Docker worker remains serial because CV05 writes temporary secrets into the
+build context and all four components build from the checkout.
 
-| Phase | Workers | Reason |
-|---|---|---|
-| 1 | [CV01, CV04, CV05, CV07] alongside [CV03] | Finish Docker builds and security source scans before contracts rewrite build inputs; retain serial Docker lifecycle/cleanup. |
-| 2 | [CV02] alongside [CV08, CV09] | Contracts own their fixture/receipt writes; the other worker uses separate output paths, processes, temporary directories and caches. |
-| 3 | [CV10] | Fixed stress database, port and absolute `/tmp` files require exclusive use. |
-| 4 | [CV06] | api_load needs an idle validation host; frontend builds and standalone security outputs also remain exclusive. |
+| Phase | Workers (brackets are serial) | Wall-time model | Planning input |
+|---|---|---|---|
+| 1 | [CV02] alongside [CV08, CV09] | max(d02, d08 + d09) = **4,166 s / 69.4 min** | CV02 measured on odin-ci; CV08/CV09 each use their 1,800 s inventory timeout as an unmeasured upper estimate (sum 3,600 s). |
+| 2 | [CV03] | d03 = **2,700 s / 45 min** | Inventory timeout; no separate measured duration in the source docs. |
+| 3 | [CV01, CV04, CV05, CV07] | d01 + d04 + d05 + d07 = **12,600 s / 210 min** | Inventory timeouts: 2,700 + 2,700 + 3,600 + 3,600 s. |
+| 4 | [CV10] | d10 = **1,200 s / 20 min** | Inventory timeout; fixed port/database and absolute /tmp paths need exclusivity. |
+| 5 | [CV06] | d06 = **5,400 s / 90 min** | Inventory timeout; api_load needs the host idle. |
 
-A failed command, timeout or runner exception records a failing component and
-continues to every remaining component, including the rest of that worker.
+These are a critical-path model with conservative placeholders, **not measured
+expected runtime** for phases 2–5. The model holds component durations constant;
+CPU/I/O contention with CV08/CV09 may increase CV02 beyond its prior 4,166 s
+measurement and must be measured on the VM. At those inputs total wall time is 26,066 s
+(434.4 min), versus a serial sum of 29,666 s: CV08/CV09 fit entirely behind CV02,
+saving their combined duration (up to 3,600 s at the placeholders). Using CV02's
+5,700 s timeout instead gives a 27,600 s / 460 min aggregate timeout envelope;
+that exceeds the unchanged 360-minute workflow cap. The old schedule's worst-case
+envelope also exceeded that cap. No timeout is increased here. Replace the
+placeholders with the next complete run's durations before forecasting a release.
+The spec's approximately 85 minutes for CV01–CV05 implies roughly 934 seconds for
+CV01+CV03+CV04+CV05 after subtracting CV02, but does not provide per-component
+measurements or durations for CV06/CV07/CV10.
+
+This is the shortest phase model under the verified checkout/idle-host constraints:
+CV02 and the Docker worker cannot overlap; CV03/CV10/CV06 are exclusive; CV08/CV09
+fit within the longest individual component. Reordering exclusive phases cannot
+reduce their sum. CV02 now starts immediately and exposes its verdict earlier.
+Concurrent CV02/image builds are **not implemented**: `test_cert_C_commerce.py`
+and `test_cert_C_models.py` use `REPO / 'frontend/src/test-fixtures/…'` directly;
+other certification captures use `ROOT / 'artifacts/application-certification'`.
+`RELEASE_CONTROL_COMPONENT_DIR`, `ODIN_CANDIDATE_ARTIFACT_ROOT` and
+`ODIN_DATABASE_PARITY_ARTIFACT_ROOT` redirect reports, not those source writes or
+Docker's `.` context. `CERT_H_WORK` covers only selected live-environment tests.
+Moving those hard-coded producers/consumers or introducing separately materialized
+source/build checkouts needs another isolation audit. No existing env/dir switch
+safely removes the collision. The measured CV02 lower bound alone rules out a
+50-minute full verdict; this slice does not claim that acceptance target.
+
+A failed command, timeout, or component setup/validation/result-write exception
+records a failing component and continues to every remaining component, including
+the rest of that worker. If its normal directory/file cannot be written, failed
+results use `components/cvNN-failed.json`, with the real aggregate JUnit as their
+sanitized log. If even recovery persistence fails, the aggregate retains the
+failure and advertises no nonexistent artifact. Storage failure cannot make a
+passing gate. A total disk failure can prevent final evidence publication, but
+component attempts have already completed.
 The aggregate fails if any component fails, even without a finding string.
-JSON artifacts, JUnit cases, findings and console status lines use inventory
-order, independent of completion order. Aggregate duration measures wall time.
-Schema version, component IDs, evidence rules and all timeouts are unchanged.
+JSON artifacts, JUnit cases and findings use inventory order. Console status lines
+print and flush at component completion. `duration_seconds` retains its original
+sum-of-component-durations meaning. Wall time is logged separately because the
+unchanged schema forbids additional properties. Schema version, component IDs,
+evidence rules and all timeouts are unchanged.
 
 ### Resource audit by Make target
 
@@ -216,9 +258,9 @@ Environment overrides are per subprocess, never writes to the parent environment
 
 | Component / target | Docker, ports and other mutable resources | Output / isolation decision |
 |---|---|---|
-| CV01 `release-control-local-gate` | `local_gate.py` runs acceptance tests then `installer_smoke.py`; `odin-install-smoke:<unique-run-id>` and run-owned container/network/volume, reserved loopback ports, temporary install/data directories and ownership-checked cleanup. | `native/release-control-local`, including `installer/*`. Tests use temporary fixtures. Docker build stays in phase 1. |
-| CV02 `test-contracts-structured` | `structured_targets.contracts` runs eight `contract_batches` workers, each with unique basetemp/JUnit/log and disabled pytest cache. Owned test DBs, HTTP/broker/PostgreSQL fixtures remain process/test scoped; the existing exact live-environment inventory is unchanged. Certification families stay together. **Writes frontend source fixtures and application-certification receipts in the checkout.** | `native/contracts` and `batches/*`; certification captures under `artifacts/application-certification`. Cannot overlap any image build or CV06 frontend build. No other phase-2 worker reads or writes these paths. |
-| CV03 `security-structured` | Operational tests, gitleaks, pip-audit, npm-audit policy, bandit, semgrep, hadolint. No image build/container. Scanners read source/lockfiles; npm audit does not install or rewrite dependencies. Scanner caches stay in the private HOME. | `native/security`, with distinct subgate files and homes. The npm exception policy can hash the entire frontend tree, so CV03 finishes before CV02 fixture writers start. CV06's standalone scanner output runs later. |
+| CV01 `release-control-local-gate` | `local_gate.py` runs acceptance tests then `installer_smoke.py`; `odin-install-smoke:<unique-run-id>` and run-owned container/network/volume, reserved loopback ports, temporary install/data directories and ownership-checked cleanup. | `native/release-control-local`, including `installer/*`. Tests use temporary fixtures. Docker build stays in phase 3. |
+| CV02 `test-contracts-structured` | `structured_targets.contracts` runs eight `contract_batches` workers, each with unique basetemp/JUnit/log and disabled pytest cache. Owned test DBs, HTTP/broker/PostgreSQL fixtures remain process/test scoped; the existing exact live-environment inventory is unchanged. Certification families stay together. **Writes frontend source fixtures and application-certification receipts in the checkout.** | `native/contracts` and `batches/*`; certification captures under `artifacts/application-certification`. Cannot overlap any image build or CV06 frontend build. CV08/CV09 share phase 1 but do not access these captures (verification below). |
+| CV03 `security-structured` | Operational tests, gitleaks, pip-audit, npm-audit policy, bandit, semgrep, hadolint. No image build/container. Scanners read source/lockfiles; npm audit does not install or rewrite dependencies. Scanner caches stay in the private HOME. | `native/security`, with distinct subgate files and homes. The npm exception policy can hash the entire frontend tree. CV03 runs alone after CV02 finishes and before the Docker worker starts; CV06's standalone scanner output runs later. |
 | CV04 `test-candidate` | `release_gate.runner`: `odin-candidate:candidate-<run-id>`; names prefixed `odin-candidate-`, owned network/volume; Docker-assigned loopback HTTP port. Playwright contexts/profiles temporary; no browser install. | `native/candidate/<id>`, including Playwright output. Serial with other image builders; never concurrent with fixture producers. |
 | CV05 `test-database-parity` | `database_parity.runner`: `odin-dbparity:parity-<run-id>`; `odin-pg-*` and `odin-sqlite-parity-*` resources, PostgreSQL 16, isolated data volumes and container topology. Random `.odin-db-parity*` secret files in checkout, with cleanup. | `native/database-parity/<id>`. Serial Docker phase also avoids another build traversing these temporary files. |
 | CV06 `test-edu-readiness` | Full existing EDU chain, including frontend/dist builds, browser servers, tmp DBs, hardware tests, api_load, accessibility and standalone security. `api_load` thresholds and repetition timeouts unchanged. | `native/edu-readiness`; legacy standalone security output remains exclusive. Runs last and alone, not concurrently with CV10 or CV02. |
@@ -233,15 +275,53 @@ resources are not subprocess descendants: existing ownership cleanup remains
 responsible for them. A force-killed Docker gate may leave resources behind;
 inspect and clean owned residue using existing cleanup tooling before trusting
 latency measurements or starting another run. No blanket Docker prune is added.
-One aggregate at a time per host/checkout is an operational prerequisite; these
-phases do not coordinate independent SSH sessions or other workloads. The VM
-must be idle during CV06. Port bind/release races with unrelated processes remain
-possible and must fail normally, never be treated as skips.
+`host_lock.validation_lock` takes an exclusive, nonblocking `flock` on
+`/tmp/odin-trusted-validation.lock` for every aggregate, including the runner's
+`make trusted-validation-gate` path. It is independent of checkout, HOME and run
+ID, and is never unlinked while releasing it. VM precheck holds the same lock
+around make and passes its validated file descriptor into the aggregate, so there
+is no unlock/relock gap. An unrelated or invalid inherited descriptor fails.
+Precheck checks for any `Runner.Worker` after acquiring the lock and refuses to
+start if present; an unreadable process list also refuses. Run as the runner's
+account; a lock owned by another account fails closed.
 
-This is a conservative parallel schedule. It overlaps security with the serial Docker worker, then replay/telemetry
-with contracts. No 50-minute wall-time claim is made;
-CV02 alone was measured above that target. Further overlap would require isolated
-source/build contexts or changing the fixture writers, and needs a new audit.
+The lock serializes aggregates and prechecks, not arbitrary host activity. A
+runner job dispatched **after** the precheck starts may run its bootstrap before
+its aggregate refuses the occupied lock. Do not dispatch jobs during a precheck;
+stop and rerun a precheck affected by that activity before trusting CV06 latency.
+Unrelated stress harnesses and port bind/release races remain outside the lock.
+
+### Verified review findings and remaining risks
+
+- **Finding 12 (MW20): false positive.** At f8ccce3c publication bootstrap has both
+  `mkdir -m 700 "$root"` and, on the next line, `mkdir -m 700 "$root/auth"`.
+  The searched string exists. Part C's revert restores the original Mac MW20 test
+  for Docker discovery before PATH export; both directory creations remain.
+- **Finding 13: verified paths.** `structured_targets.telemetry_contracts` invokes
+  only `tests/test_telemetry/`. `hardware_certification.runner` invokes
+  `tests/hardware/test_read_only_certification.py` and `tests/hardware_certification`;
+  its run/staging paths derive from `ODIN_HARDWARE_ARTIFACT_ROOT`. Those source trees
+  do not reference `frontend/src/test-fixtures` or `artifacts/application-certification`.
+  The read-only certification test uses `tests/hardware/fixtures`; telemetry uses
+  in-process backend modules and temporary state. Telemetry's
+  `test_h2d_external_spool_validity` imports `offline_store`/`review_db` via
+  `test_printer_offline_behavior` → `test_api_token_delegation_behavior` →
+  `test_education_review_workflow`; that fixture creates `tmp_path / 'review.db'`,
+  not a shared receipt or wire capture. They do not import the contract capture
+  producers. `aggregate.playwright_browsers_path()` resolves the real cache
+  before calling `execute`; `run_gate.command_environment()` then isolates HOME.
+- **Finding 7:** the VM arm64/QEMU publication risk is removed from this slice by
+  reverting Part C. The Mac builds arm64 natively and uses host Rosetta for amd64;
+  the original two architecture probes remain mandatory. A platform.machine()
+  preflight alone still does not prove a later image build/health probe will pass.
+- **Finding 11:** the small process-group PID-reuse race after `communicate()` in
+  `run_gate.execute` remains; no process lifecycle redesign in this fix.
+- **Finding 14:** isolated HOME can hide user-installed Docker CLI plugins, and
+  `PYTEST_ADDOPTS` remains replaced by the private pytest cache setting. Provision
+  required plugins at a system-discoverable location and keep component-specific
+  pytest options in the explicit command. This risk also applies to CV components.
+- Component reuse is deferred beyond slice 1 pending its own threat review. No
+  prior candidate evidence is reused or accepted by these changes.
 
 ## Running the full VM precheck
 
@@ -258,7 +338,7 @@ CI=true, DOCKER_HOST=unix:///var/run/docker.sock, and prepends the checkout's
 `.venv-contracts/bin` to PATH. It invokes the same `trusted-validation-gate`
 aggregate with `.venv-contracts/bin/python`. PLAYWRIGHT_BROWSERS_PATH is retained
 when explicitly set, otherwise resolved to `${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright`
-before HOME isolation. Every CV status prints in order and the command propagates
+before HOME isolation. Every CV status prints as it finishes and the command propagates
 the aggregate failure exit. No runner service, workflow dispatch or token is
 needed for this local validation entrypoint. It does not transfer the checkout,
 install dependencies, reuse evidence, or create promotion authorization.
@@ -275,55 +355,27 @@ semgrep, hadolint, shellcheck and the Python security tools in the requirements.
 A precheck on dirty source validates that source, not a committed SHA; use a clean
 candidate when comparing it to a Trusted Validation run.
 
-## odin-ci publish/promote prerequisites
+For a long SSH run, use `tmux` on the VM, attach to the session and invoke the
+precheck there. An SSH disconnect then leaves the session alive. A killed session
+or gate can still leave Docker resources; inspect owned residue before retrying.
+No signal cleanup claim is made for daemon-owned containers.
 
-All three workflows use `[self-hosted, odin-ci]`. Only host selection/bootstrap
-and the publication architecture preflight change. Environments and required
-approvals, manual dispatch/identity checks, least-privilege permissions, immutable
-helper retrieval, evidence downloads, digests, both architecture probes, receipt
-formats, rollback tags and registry-auth cleanup remain unchanged. Eligibility
-still downloads and authenticates uploaded evidence even on the same host.
+## Publication and promotion stay on the Mac
 
-- Linux x86_64 runner with Python 3.11 on PATH (including `jsonschema` and its
-  dependencies for helper imports), `gh`, git/git-lfs, bash and standard Unix
-  tools (`curl`, `jq`, `find`, `cmp`, `awk`, `sed`, `tar`, `df`). Actions must be
-  able to create fresh private directories in RUNNER_TEMP and the workspace.
-- Docker socket access at `/var/run/docker.sock` for the runner user. Docker
-  Engine 29.x, Compose v2 for validation, and a discoverable buildx CLI plugin.
-  The existing pinned setup-buildx action configures the per-run builder;
-  preflight checks the host plugin before installing that builder. Ensure the
-  plugin remains discoverable when DOCKER_CONFIG points at a fresh auth folder
-  (install it system-wide, not solely under the user's `.docker/cli-plugins`).
-- **Working linux/arm64 execution**, via host-provisioned binfmt/QEMU, plus native
-  amd64. Publication still builds both platforms and boots each exact manifest;
-  production's disposable checker still boots both. The prior VM arm64 health
-  failure is unresolved host risk. A small pinned Python arm64 preflight cannot
-  establish full-image health; the existing full-image checks remain mandatory.
-  No privileged binfmt installation or automatic provider fallback is added.
-- GHCR access for `ghcr.io/hughkantsime/odin`. The existing per-job `GITHUB_TOKEN`
-  supplies packages:write to publication/production and actions:read/contents:read
-  for prerequisite evidence. The repository must have package access. Login is
-  `docker login --password-stdin` with isolated DOCKER_CONFIG and existing logout
-  cleanup; no persistent personal login is required. `gh` uses that job token.
-- Network/DNS/CA access to GitHub APIs, Actions artifacts, GHCR, Git LFS objects,
-  base-image registries and build dependency registries. **Cosign is not used by
-  these workflows**; no signing tool/key requirement is introduced. Digest and
-  receipt verification is performed by the existing Python helpers/buildx.
-- Disk: reserve space on **both** the workspace/RUNNER_TEMP filesystem and Docker's
-  data-root for two architecture builds, BuildKit cache, pulled probe images,
-  checkout/LFS assets, volumes and evidence. A planning floor is 50 GiB free in
-  Docker storage plus 20 GiB on the workspace filesystem, with more for retained
-  caches; these are capacity estimates, not a measured peak or a gate threshold.
-  Inspect `df -h` and `docker system df` before the first release. Cleanup stays
-  scoped to owned resources; do not prune another run's data.
-- One trusted runner job at a time, no overlapping manual aggregate/stress run,
-  and the existing root-owned runner job-started hook installed and enforced as
-  described in `ops/ci/README.md`. Co-locating candidate execution and publication
-  removes the prior cross-host trust boundary: keep this host restricted to the
-  owner's approved dispatches, with no ambient deployment credentials. Workflow
-  isolation and authenticated evidence still apply; they are not a VM reset.
+`publish-image.yml`, `promote.yml` and `promote-production.yml` are restored
+byte-for-byte to c28586ee. All use `[self-hosted, mac-mini-runner, m4]`, with their
+original bootstrap and architecture preflight, permissions, environments and
+approval requirements. Only Trusted Validation runs on odin-ci.
 
-The workflow files must land on main before dispatching that release chain.
-This checkout change alone does not provision the host, prove the historic CV02
-failure reproduces under SSH, or demonstrate a successful multi-architecture
-publish/promote. Those remain live acceptance checks on odin-ci.
+Eligibility authenticates validation's evidence and must stay off the host that
+ran candidate code. Docker access lets candidate code affect later host tools,
+images and caches; downloading signed-in GitHub artifacts on the same host does
+not restore that trust boundary. Evidence crosses hosts as uploaded artifacts.
+The M4 Mac builds arm64 natively and executes amd64 under its host Rosetta setup;
+arm64 under QEMU on odin-ci never went healthy. No VM publish prerequisites or
+provider fallback are added. A separate clean publish runner is a future decision.
+
+Focused local tests verify scheduling, failure continuation, progress, duration
+semantics, locks and restored workflow policy. They do not prove a full run's wall
+time, reproduce the historical CV02 failing-tests comparison on odin-ci, or prove
+a live release. Those remain live acceptance checks; no such jobs were run here.
