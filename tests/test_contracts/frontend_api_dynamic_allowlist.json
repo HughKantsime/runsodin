@@ -2,7 +2,7 @@
   {
     "file": "api/client.ts",
     "expression": "API_BASE + endpoint",
-    "options": "{\n      headers,\n      credentials: 'include',\n      ...requestOptions,\n    }",
+    "options": "{\n      credentials: 'include',\n      ...requestOptions,\n      headers,\n    }",
     "reason": "Transport for fetchAPI: concrete callers are checked by this census; URL and method are supplied by the caller.",
     "routes": []
   },
