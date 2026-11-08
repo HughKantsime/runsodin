@@ -113,10 +113,16 @@ def pending(db, cid, request, state):
     if not state or len(state) > 64 or not hmac.compare_digest(request.cookies.get(COOKIE, ''), oidc_state_binding(state)):
         provider.refuse('roster_browser_binding_invalid', 403)
     connection = store.load(db, cid)
-    payload = store.consume(db, state, cid, 'oauth')
-    db.commit()  # One-time even on provider failure.
+    payload = store.peek(db, state, cid, 'oauth')
     if payload['revision'] != connection['revision']:
         provider.refuse('roster_configuration_changed')
+    if payload.get('connect'):
+        user = db.execute(text("SELECT 1 FROM users WHERE id=:a AND group_id=:o AND role='admin' AND is_active IS TRUE"),
+                          {'a': payload['actor_id'], 'o': connection['org_id']}).first()
+        if not user:
+            provider.refuse('roster_admin_required', 403)
+        from core.license_lock import authorize_user
+        authorize_user(db, payload['actor_id'])
     return connection, payload
 
 
@@ -169,11 +175,16 @@ async def callback(connection_id: str, request: Request, state: str = '', code: 
             provider.refuse('roster_admin_required', 403)
         from core.license_lock import authorize_user
         authorize_user(db, payload['actor_id'], issuance=True)
+        store.consume(db, state, connection_id, 'oauth')
         db.execute(text('UPDATE education_roster_connections SET tokens_encrypted=:t,connected_by=:a WHERE id=:id'),
             {'id': connection_id, 't': store.pack({'refresh_token': tokens['refresh_token']}), 'a': payload['actor_id']})
         store.audit(db, 'connected', connection['org_id'], resource=connection_id, user_id=payload['actor_id'])
         db.commit()
         return RedirectResponse('/settings?tab=integrations', status_code=302)
+    user = imported_user(db, connection, subject)
+    from core.license_lock import authorize_user
+    authorize_user(db, user['id'], issuance=True)
+    store.consume(db, state, connection_id, 'oauth')
     return finish(db, request, connection, subject)
 
 
@@ -191,6 +202,19 @@ async def launch(connection_id: str, request: Request, db: Session = Depends(get
     connection = store.load(db, connection_id, lock=True)
     if connection['revision'] != payload['revision']:
         provider.refuse('roster_configuration_changed')
+    # Resolve any imported ODIN principal before state consumption/context writes.
+    # A first launch by an unimported provider identity only discovers verified
+    # course metadata for admin preview; it stores no credentials or ODIN session.
+    try:
+        user = imported_user(db, connection, claims['sub'])
+    except OdinError as error:
+        if error.extra.get('reason') != 'roster_import_required':
+            raise
+        user = None
+    from core.license_lock import authorize_user
+    if user is not None:
+        authorize_user(db, user['id'], issuance=True)
+    store.consume(db, fields['state'][0], connection_id, 'oauth')
     contexts = connection['tokens'].get('contexts', {})
     if len(contexts) >= 100 and context['id'] not in contexts:
         provider.refuse('roster_context_limit', 422)
@@ -198,17 +222,11 @@ async def launch(connection_id: str, request: Request, db: Session = Depends(get
     db.execute(text('UPDATE education_roster_connections SET tokens_encrypted=:t WHERE id=:id'),
         {'t': store.pack({'contexts': contexts}), 'id': connection_id})
     store.audit(db, 'canvas_context', connection['org_id'], resource=connection_id)
-    db.commit()
-    # A valid first launch makes its course available for admin preview; it never auto-provisions.
-    try:
-        return finish(db, request, connection, claims['sub'])
-    except OdinError as error:
-        if error.extra.get('reason') != 'roster_import_required':
-            raise
-        db.rollback()
+    if user is None:
         store.audit(db, 'signin_refused', connection['org_id'], resource=connection_id, reason='roster_import_required')
         db.commit()
         return RedirectResponse('/?error=roster_import_required', status_code=302)
+    return finish(db, request, connection, claims['sub'])
 
 
 @router.post('/{connection_id}/exchange')
@@ -219,14 +237,14 @@ async def exchange(connection_id: str, body: dict, request: Request, db: Session
     if not isinstance(code, str) or not 32 <= len(code) <= 64:
         provider.refuse('roster_receipt_invalid', 403)
     connection = store.load(db, connection_id, lock=True)
-    payload = store.consume(db, code, connection_id, 'exchange')
-    db.commit()
+    payload = store.peek(db, code, connection_id, 'exchange')
     if (not hmac.compare_digest(payload['binding'], request.cookies.get(COOKIE, ''))
         or payload['revision'] != connection['revision']):
         provider.refuse('roster_browser_binding_invalid', 403)
     user = imported_user(db, connection, payload['subject'])
     from core.license_lock import authorize_user
     authorize_user(db, user['id'], issuance=True)
+    store.consume(db, code, connection_id, 'exchange')
     # Delegate session/MFA issuance to the established OIDC exchange, with a new
     # internal one-time code. The external receipt carries no pre-issued session.
     from core.auth import create_access_token

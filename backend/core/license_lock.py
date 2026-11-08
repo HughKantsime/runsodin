@@ -166,11 +166,17 @@ def _evidence(db, info, previous):
     if info.verification_state in {'verified_current', 'verified_expired'}:
         new = dict(schema_version=1, signed_envelope=info.signed_envelope, sha256=info.verified_digest,
                    binding_digest=info.binding_digest, accepted_at=now.isoformat(), time_anchor=now.isoformat(),
+                   verification_state=info.verification_state,
                    uncertainty_started_at=None, uncertainty_deadline=None)
-        if not evidence or any(new[k] != evidence.get(k) for k in ('sha256', 'binding_digest', 'time_anchor')) or evidence.get('uncertainty_started_at'):
+        try:
+            elapsed = (now - instant(evidence['time_anchor'])).total_seconds()
+            checkpoint_due = elapsed < 0 or elapsed >= 300
+        except (TypeError, KeyError, ValueError):
+            checkpoint_due = True
+        if not evidence or checkpoint_due or any(new[k] != evidence.get(k) for k in ('sha256', 'binding_digest', 'verification_state')) or evidence.get('uncertainty_started_at'):
             _write(db, EVIDENCE_KEY, new)
         return _entitlement(info), None
-    if info.verification_state in {'community_initial', 'community_selected'} and isinstance(evidence, dict) and evidence.get('community_selected'):
+    if info.verification_state == 'community_selected' or (info.verification_state == 'community_initial' and isinstance(evidence, dict) and evidence.get('community_selected')):
         return dict(_entitlement(info), state='community_selected', enforce=False, reason='community_downgrade_decision_pending'), None
     if info.verification_state == 'community_initial' and not evidence:
         return _entitlement(info), None
@@ -398,8 +404,35 @@ def require_user(policy, user_id, purpose='access'):
 def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):
     if not enabled():
         return
-    policy = _snapshot(reconcile(db)) if issuance else snapshot(db, request=request)
+    try:
+        policy = issuance_snapshot(db) if issuance else snapshot(db, request=request)
+    except HTTPException:
+        raise
+    except Exception:
+        raise LicenseLockError('license_policy_unavailable', status=503) from None
     require_user(policy, user_id, purpose)
+
+
+def issuance_snapshot(db):
+    """Stable issuances share the policy row on PostgreSQL; only changes reconcile.
+
+    SQLite still needs its writer reservation for atomic session issuance, but
+    does not rewrite the policy/evidence on each login or MFA step.
+    """
+    policy = snapshot(db)
+    if db.get_bind().dialect.name == 'postgresql':
+        db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        raw = db.execute(text('SELECT value FROM system_config WHERE key=:key FOR SHARE'),
+                         {'key': POLICY_KEY}).scalar()
+    else:
+        conn = db.connection().connection.driver_connection
+        if not conn.in_transaction:
+            db.execute(text('BEGIN IMMEDIATE'))
+        raw = db.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': POLICY_KEY}).scalar()
+    p = _decode(raw) if raw else None
+    if _valid_policy(p) and p['revision'] == policy.revision:
+        return policy
+    return _snapshot(reconcile(db))
 
 
 def replace_selection(db, *, printers, users, expected_revision, actor, recovery_user_id=None):
@@ -422,8 +455,22 @@ def status_view(p):
                 reconciliation='rollout_disabled' if not enabled() else 'B2_B3_pending')
 
 
-def selection_status(db):
-    return status_view(reconcile(db))
+def selection_status(db, *, read_only=False):
+    if not read_only:
+        return status_view(reconcile(db))
+    p = _read(db, POLICY_KEY)
+    if not _valid_policy(p):
+        from license_manager import get_license
+        printers, users, eligible = _members(db)
+        entitlement = _entitlement(get_license(persist_clock=False))
+        recovery = eligible[0] if eligible else None
+        p = dict(schema_version=2, revision=0, membership_generation=0,
+                 entitlement=entitlement, recovery_user_id=recovery,
+                 printers=_fill([], printers, entitlement['max_printers']),
+                 users=_fill([], users, entitlement['max_users'], recovery),
+                 exempt_attempts={}, usage={'printers': len(printers), 'users': len(users)},
+                 warning='license_policy_pending')
+    return status_view(p)
 
 
 def request_purpose(request):
@@ -453,6 +500,46 @@ def mark_community_selected(db, actor):
     _write(db, EVIDENCE_KEY, {'schema_version': 1, 'community_selected': True})
 
 
+def remove_installed_license(db, actor, action, *, details=None):
+    """Journal intent durably, then quarantine and commit policy/audit together.
+
+    A failed transaction restores the active file. A process crash after rename
+    leaves the journal so an absent artifact is recognized as intentional.
+    """
+    import license_manager as lm
+    from core.audit import log_audit
+    journal = 'license_lock_removal_intent'
+    original = lm._find_license_file()
+    quarantined = None
+    try:
+        if enabled():
+            _lock(db)
+            _write(db, journal, {'community_selected': True})
+            db.commit()
+        mark_community_selected(db, actor)
+        quarantined = lm.quarantine_installed_license()
+        log_audit(db, action, 'system', details=details or {'quarantined': os.path.basename(quarantined or '')})
+        if enabled():
+            db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+        db.commit()
+        lm._cached_license = None
+        return quarantined
+    except Exception as exc:
+        db.rollback()
+        if quarantined and original:
+            os.replace(quarantined, original)
+        lm._cached_license = None
+        if enabled():
+            try:
+                db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+                db.commit()
+            except Exception:
+                db.rollback()
+        if isinstance(exc, LicenseLockError):
+            raise
+        raise LicenseLockError('license_policy_unavailable', status=503) from None
+
+
 def install_membership_hooks():
     """Serialize every SQLAlchemy user/printer membership mutation, including imports.
 
@@ -461,19 +548,20 @@ def install_membership_hooks():
     """
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
-    from core.credential_write_guard import _WRITE, _table_name, _set_columns, _COMMENT
     if event.contains(Engine, 'before_cursor_execute', _before_membership):
         return
     event.listen(Engine, 'before_cursor_execute', _before_membership)
     event.listen(Engine, 'after_cursor_execute', _after_membership)
     event.listen(Engine, 'commit', _check_recovery_commit)
     event.listen(Engine, 'rollback', _clear_membership)
+    from sqlalchemy.pool import Pool
+    event.listen(Pool, 'checkin', _clear_membership_pool)
 
 
 def _before_membership(conn, cursor, statement, parameters, context, executemany):
     if not enabled() or conn.info.get('license_hook'):
         return
-    from core.credential_write_guard import _WRITE, _table_name, _set_columns, _COMMENT
+    from core.sql_write_shape import WRITE as _WRITE, table_name as _table_name, set_columns as _set_columns, COMMENT as _COMMENT
     match = _WRITE.search(_COMMENT.sub(' ', statement))
     if not match or _table_name(match.group(2)) not in {'users', 'printers'}:
         return
@@ -485,7 +573,7 @@ def _before_membership(conn, cursor, statement, parameters, context, executemany
             'id', 'is_active', 'serial_number', 'ip_address', 'api_type', 'api_host', 'api_key',
             'access_code', 'hostname', 'machine_type', 'camera_url', 'camera_enabled',
             'plug_type', 'plug_host', 'plug_entity_id', 'plug_auth_token', 'org_id', 'shared'}
-        if cols and not cols & relevant:
+        if cols and '*' not in cols and not cols & relevant:
             return
         if not cols and table != 'users':
             return
@@ -501,7 +589,7 @@ def _before_membership(conn, cursor, statement, parameters, context, executemany
             rows = conn.execute(text('SELECT id,role,group_id,is_active,password_hash FROM users')).mappings()
             conn.info['license_had_recovery'] = any(eligible_local(row) for row in rows)
         conn.info['license_membership_write'] = True
-        context._license_membership_changed = not match.group(1).upper().startswith('UPDATE') or bool(cols)
+        context._license_membership_changed = True
     finally:
         conn.info['license_hook'] = False
 
@@ -525,6 +613,7 @@ def _after_membership(conn, cursor, statement, parameters, context, executemany)
 
 def _check_recovery_commit(conn):
     if not enabled() or not conn.info.get('license_membership_write'):
+        _clear_membership(conn)
         return
     if conn.info.get('license_had_recovery'):
         rows = conn.execute(text('SELECT id,role,group_id,is_active,password_hash FROM users')).mappings()
@@ -536,6 +625,11 @@ def _check_recovery_commit(conn):
 def _clear_membership(conn):
     for key in ('license_had_recovery', 'license_membership_write', 'license_hook'):
         conn.info.pop(key, None)
+
+
+def _clear_membership_pool(dbapi_connection, connection_record):
+    for key in ('license_had_recovery', 'license_membership_write', 'license_hook'):
+        connection_record.info.pop(key, None)
 
 
 install_membership_hooks()

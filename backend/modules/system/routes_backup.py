@@ -292,10 +292,18 @@ def _download_backup(filename: str, current_user: dict = Depends(require_superad
     path = _safe_backup_path(filename)
     acknowledge_export(db, current_user, acknowledge_controlled, "backup")
     audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
+    from modules.system.backup_api_export import prepare_export
+    from starlette.background import BackgroundTask
+    exported, temporary = prepare_export(path)
     if bundle:
         from modules.system.audit_backup import download_bundle
-        return download_bundle(path)
-    return FileResponse(path=path, filename=path.name, media_type="application/octet-stream")
+        try:
+            return download_bundle(path, database_export=exported)
+        finally:
+            if temporary:
+                temporary.unlink(missing_ok=True)
+    return FileResponse(path=exported, filename=path.name, media_type="application/octet-stream",
+                        background=BackgroundTask(temporary.unlink, missing_ok=True) if temporary else None)
 
 
 @router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"], dependencies=[Depends(require_interactive_session())])

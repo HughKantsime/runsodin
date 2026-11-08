@@ -137,7 +137,7 @@ def test_retention_emits_one_summary_for_multiple_pages_and_empty_run(engine):
         assert db.execute(text("SELECT count(*) FROM audit_logs WHERE action='audit.retention'")).scalar_one() == 2
 
 
-def test_native_backup_companion_and_download_preserve_both_files(engine, client, monkeypatch):
+def test_native_backup_companion_and_download_preserve_both_files(engine, client, monkeypatch, tmp_path):
     import io
     import zipfile
     from modules.system.backup_service import create_online_backup
@@ -156,7 +156,17 @@ def test_native_backup_companion_and_download_preserve_both_files(engine, client
     response = http.get('/backups/'+backup.name+'?bundle=true')
     assert response.status_code == 200
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        assert archive.read(backup.name) == backup.read_bytes()
+        # Privacy export rebuilds SQLite pages; logical contents and audit
+        # material are preserved, and the companion names the exported digest.
+        import hashlib
+        import sqlite3
+        exported = tmp_path / 'exported.db'
+        data = archive.read(backup.name)
+        exported.write_bytes(data)
+        with sqlite3.connect(exported) as redacted, sqlite3.connect(backup) as original:
+            assert list(redacted.iterdump()) == list(original.iterdump())
+        assert json.loads(archive.read('audit-keys/manifest.json'))['database_sha256'] == hashlib.sha256(data).hexdigest()
+        assert metadata['sha256'] == hashlib.sha256(backup.read_bytes()).hexdigest()
         assert archive.read('audit-keys/.audit-hmac-keys.json') == (directory()/'.audit-hmac-keys.json').read_bytes()
 
 

@@ -266,18 +266,32 @@ def _register_http_middleware(app: FastAPI) -> None:
 
     @app.middleware("http")
     async def license_principal_gate(request: Request, call_next):
-        from core.license_lock import enabled, LicenseLockError
-        if enabled():
-            from core.dependencies import _resolve_current_user
+        from core.license_lock import enabled
+        path = request.scope.get('path', '')
+        api_path = path[7:] if path.startswith('/api/v1/') else path[4:] if path.startswith('/api/') else path
+        public = (request.method == 'OPTIONS' or _is_public_browser_request(request)
+                  or api_path == '/license' and request.method in {'GET', 'HEAD'}
+                  or api_path.startswith(('/auth/', '/health', '/setup', '/static/'))
+                  or path.startswith(('/static/', '/assets/'))
+                  or api_path == '/branding' and request.method == 'GET')
+        if enabled() and not public:
+            from core.dependencies import resolve_current_user_sync
             from core.db import SessionLocal
+            from starlette.concurrency import run_in_threadpool
             authorization = request.headers.get('authorization', '')
             scheme, _, bearer = authorization.partition(' ')
-            try:
+            def resolve():
                 with SessionLocal() as policy_db:
-                    await _resolve_current_user(request, bearer if scheme.lower() == 'bearer' else None, policy_db)
+                    return resolve_current_user_sync(request, bearer if scheme.lower() == 'bearer' else None,
+                                                     policy_db, side_effects=False)
+            try:
+                request.state.resolved_license_principal = await run_in_threadpool(resolve)
             except HTTPException as exc:
                 from fastapi.responses import JSONResponse
                 return JSONResponse(status_code=exc.status_code, content={'detail': exc.detail}, headers=exc.headers)
+            except Exception:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=503, content={'detail': 'Service temporarily unavailable'})
         return await call_next(request)
 
     # security_headers must be the OUTERMOST middleware so it runs on every
@@ -628,18 +642,28 @@ def create_app() -> FastAPI:
             await ws.close(code=4001, reason="Authentication required")
             return
 
-        from core.license_lock import enabled as license_lock_enabled
-        if license_lock_enabled() and not await asyncio.to_thread(ws_manager.principal_allowed, principal):
-            await ws.close(code=4403, reason="license_user_locked")
+        from core.license_lock import enabled as license_lock_enabled, LicenseLockError
+        try:
+            allowed = not license_lock_enabled() or await asyncio.to_thread(ws_manager.principal_allowed, principal)
+        except LicenseLockError:
+            from starlette.responses import JSONResponse
+            if 'websocket.http.response' in ws.scope.get('extensions', {}):
+                await ws.send_denial_response(JSONResponse(status_code=503, content={'detail': 'License policy temporarily unavailable'}))
+            else:
+                await ws.accept()
+                await ws.close(code=1013, reason='license_policy_unavailable')
+            return
+        if not allowed:
+            # Accept before closing so browsers receive the documented close
+            # code, rather than an opaque failed HTTP handshake (1006).
+            await ws.accept()
+            await ws.close(code=4403, reason='license_user_locked')
             return
         await ws_manager.connect(ws, principal)
-        try:
+        async def receive_messages():
             while True:
                 try:
-                    if license_lock_enabled() and not await asyncio.to_thread(ws_manager.principal_allowed, principal, cached=True):
-                        await ws.close(code=4403, reason="license_user_locked")
-                        break
-                    data = await asyncio.wait_for(ws.receive_text(), timeout=1 if license_lock_enabled() else 30)
+                    data = await asyncio.wait_for(ws.receive_text(), timeout=30)
                     if data == "ping":
                         await ws.send_text("pong")
                     else:
@@ -650,15 +674,36 @@ def create_app() -> FastAPI:
                         if request == {"type": "subscribe", "channels": ["events"]}:
                             await ws.send_json({"type": "subscribed", "channels": ["events"]})
                 except asyncio.TimeoutError:
-                    try:
-                        await ws.send_json({"type": "ping"})
-                    except Exception:
-                        break
+                    await ws.send_json({"type": "ping"})
+
+        async def check_license():
+            while True:
+                await asyncio.sleep(1)
+                if not license_lock_enabled():
+                    continue
+                try:
+                    allowed = await asyncio.to_thread(ws_manager.principal_allowed, principal, cached=True)
+                except LicenseLockError:
+                    # Temporary infrastructure failures are retryable, never a
+                    # user-lock decision. Keep already admitted clients alive.
+                    continue
+                if not allowed:
+                    await ws.close(code=4403, reason='license_user_locked')
+                    return
+
+        tasks = [asyncio.create_task(receive_messages()), asyncio.create_task(check_license())]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
         except WebSocketDisconnect:
             pass
         except Exception:
             pass
         finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             ws_manager.disconnect(ws)
 
     @app.websocket("/api/v1/ws")

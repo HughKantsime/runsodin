@@ -130,11 +130,23 @@ saved and status continues warning. Signature, schema and current binding are
 rechecked before saved evidence is used. An unreliable elapsed-time anchor ends
 the lease. These are dormant rollout semantics, not approval of the open policy.
 
-Forward jumps over 24 hours beyond trusted wall-plus-monotonic time are now
-quarantined before advancing either checkpoint. Repeated bad samples do not
-establish trust. A cold boot after more than 24 hours of unexplained downtime is
-also uncertain. Correct the host clock first. If legitimate long downtime or
-old invalid checkpoints require resetting trust, use the local-superadmin/host
-recovery procedure above with all processes stopped and both copies backed up.
-Continuous monotonic passage through the signed deadline still proves expiry.
+Only forward jumps observed within a running process (wall time advancing over
+24 hours faster than suspend-aware elapsed time) are quarantined. A five-second
+window of agreeing wall/elapsed deltas clears a forward-jump quarantine. Cold
+boots and normal suspend/sleep intervals are not clock errors, regardless of
+downtime length. Linux CLOCK_BOOTTIME and macOS mach_continuous_time include
+suspend. Older restored checkpoint copies do not quarantine a current clock;
+checkpoints in the future and wall rollback still require clock correction.
+Continuous elapsed passage through the signed deadline still proves expiry.
 An otherwise plausible first-seen host clock remains an offline trust limitation.
+
+Public license status never reconciles policy or persists clock checkpoints.
+Selection reads do not rewrite private evidence. Verified evidence checkpoints
+are throttled to five minutes; issuing sessions with unchanged policy does not
+rewrite evidence or the policy row (PostgreSQL issuances share a read lock).
+
+HTTP SQLite backup downloads redact all `license_lock_*` keys and
+`license_active_selection` from a temporary copy; on-host backups are unchanged.
+Native PostgreSQL backups containing those keys are refused for HTTP download
+and require on-host recovery. The native archive is inspected with `pg_restore`;
+an unavailable inspector produces a temporary error, never an unchecked download.

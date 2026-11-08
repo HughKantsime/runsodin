@@ -20,6 +20,28 @@ KEY = "license_time_high_water"
 FILENAME = ".odin-license-time.json"
 SKEW = timedelta(hours=24)
 INTERVAL = 300
+RECOVERY_WINDOW = 5
+
+
+def elapsed_time():
+    """Elapsed host time including suspend, without consulting the wall clock."""
+    if hasattr(time, 'CLOCK_BOOTTIME'):
+        return time.clock_gettime(time.CLOCK_BOOTTIME)
+    if os.uname().sysname == 'Darwin':
+        return _darwin_elapsed()
+    return time.monotonic()
+
+
+def _darwin_elapsed():
+    import ctypes
+    class Timebase(ctypes.Structure):
+        _fields_ = [('numer', ctypes.c_uint32), ('denom', ctypes.c_uint32)]
+    lib = ctypes.CDLL(None)
+    lib.mach_continuous_time.restype = ctypes.c_uint64
+    scale = Timebase()
+    lib.mach_timebase_info(ctypes.byref(scale))
+    return lib.mach_continuous_time() * scale.numer / scale.denom / 1e9
+
 
 
 def instant(value):
@@ -129,7 +151,8 @@ class LicenseClock:
     def __init__(self, store, wall=None, monotonic=None):
         self.store = store
         self.wall = wall or (lambda: datetime.now(timezone.utc))
-        self.monotonic = monotonic or time.monotonic
+        self.monotonic = monotonic or elapsed_time
+        self.recovery_sample = None
         self.high_water = store.read()
         self.anchor = None
         self.tick = None
@@ -137,11 +160,7 @@ class LicenseClock:
         self.lock = threading.RLock()
 
     def sample(self, *, persist=False, issued_at=""):
-        """Return (trusted effective time, uncertain), without accepting bad samples.
-
-        The reference never moves on a rejected wall sample. Repeating an advanced
-        clock therefore cannot make it trusted, even across process restarts.
-        """
+        """Detect running-process drift; downtime is not evidence of tampering."""
         with self.lock:
             wall, tick = self.wall(), self.monotonic()
             reference = self.anchor or self.high_water or wall
@@ -153,25 +172,40 @@ class LicenseClock:
                     reference = self.anchor + timedelta(seconds=tick - self.tick)
                 due = self.checkpoint is None or tick - self.checkpoint >= INTERVAL
                 restored = self.store.read() if persist and due else self.high_water
+                # A stale DB/file copy is normal after restore. Only a checkpoint
+                # ahead of the current wall clock is suspect.
                 if restored is not None:
-                    if restored - reference > SKEW:
-                        self.reason_code = "future_checkpoint"
                     reference = max(reference, restored)
-                if wall - reference > SKEW:
+                    if restored - wall > SKEW:
+                        self.reason_code = "future_checkpoint"
+                if self.anchor is not None and wall - reference > SKEW:
                     self.reason_code = "forward_jump"
                 elif reference - wall > SKEW:
-                    self.reason_code = "rollback"
+                    self.reason_code = self.reason_code or "rollback"
                 issued = instant(issued_at) if issued_at not in ("", None) else None
                 if issued is not None and issued - wall > SKEW:
                     self.reason_code = "before_issue_time"
-                if getattr(self.store, "conflicting_checkpoints", False):
-                    self.reason_code = "conflicting_checkpoints"
+                if self.reason_code == "forward_jump":
+                    previous = self.recovery_sample
+                    if previous is not None:
+                        old_wall, old_tick = previous
+                        elapsed = tick - old_tick
+                        agrees = abs((wall - old_wall).total_seconds() - elapsed) <= 2
+                        if agrees and elapsed >= RECOVERY_WINDOW:
+                            self.reason_code = None
+                        elif not agrees:
+                            self.recovery_sample = (wall, tick)
+                    else:
+                        self.recovery_sample = (wall, tick)
+                else:
+                    self.recovery_sample = None
                 if self.reason_code:
                     return reference, True
                 now = max(reference, wall)
             except (ValueError, OverflowError, TypeError):
                 self.reason_code = "invalid_clock_arithmetic"
                 return reference, True
+            self.recovery_sample = None
             self.anchor, self.tick, self.high_water = now, tick, now
             if persist and due:
                 self.store.write(now)
@@ -185,5 +219,5 @@ class LicenseClock:
             return ("License clock differs by more than 24 hours from trusted elapsed time, "
                     "a checkpoint or signed issue time, or has invalid arithmetic. "
                     "Correct the server clock. Local password login remains available; "
-                    "see the license clock recovery instructions for long downtime or an accidental advance.")
+                    "running-process forward jumps recover after five seconds of stable elapsed time.")
         return None

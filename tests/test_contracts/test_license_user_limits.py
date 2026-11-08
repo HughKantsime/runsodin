@@ -87,7 +87,7 @@ def test_null_education_limit_reaches_public_api(signed_license, monkeypatch):
     from modules.system import routes_health
 
     _, info = signed_license(max_users=None)
-    monkeypatch.setattr(routes_health, "get_license", lambda: info)
+    monkeypatch.setattr(routes_health, "get_license", lambda **kwargs: info)
     app = FastAPI()
     app.add_api_route("/license", routes_health.get_license_info)
     response = TestClient(app).get("/license")
@@ -152,7 +152,7 @@ def test_signed_printer_and_user_caps_and_public_json(signed_license, monkeypatc
             with pytest.raises(HTTPException) as exc:
                 check(expected)
             assert exc.value.status_code == 403
-    monkeypatch.setattr(routes_health, "get_license", lambda: info)
+    monkeypatch.setattr(routes_health, "get_license", lambda **kwargs: info)
     app = FastAPI()
     app.add_api_route("/license", routes_health.get_license_info)
     response = TestClient(app).get("/license")

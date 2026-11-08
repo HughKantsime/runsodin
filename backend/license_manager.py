@@ -587,7 +587,7 @@ _cache_failures = 0
 _cache_file_identity = None
 
 
-def get_license() -> LicenseInfo:
+def get_license(*, persist_clock=True) -> LicenseInfo:
     """Bounded local cache: metadata <=1s, content <=30s, errors 1/5/15/30s."""
     global _cached_license, _cached_mtime, _cached_identity
     global _cache_checked, _cache_verified, _cache_retry, _cache_failures, _cache_file_identity
@@ -596,7 +596,7 @@ def get_license() -> LicenseInfo:
         cached = _cached_license
         sample = license_clock().sample(issued_at=cached.issued_at) if cached is not None else (license_clock().wall(), False)
         deadline = bool(cached and cached.valid and cached.expiry_deadline and sample[0] >= cached.expiry_deadline)
-        clock_changed = bool(cached and (sample[1] != (cached.time_confidence == "uncertain")))
+        clock_changed = bool(cached and cached.time_confidence != "unavailable" and (sample[1] != (cached.time_confidence == "uncertain")))
         from core.license_lock import enabled
         if enabled() and cached is not None and tick - _cache_checked < 1 and not deadline and not clock_changed:
             return cached
@@ -623,7 +623,8 @@ def get_license() -> LicenseInfo:
                     from sqlalchemy import text
                     try:
                         with current_engine().connect() as connection:
-                            stored = connection.execute(text("SELECT value FROM system_config WHERE key='license_lock_evidence'")).scalar()
+                            intent = connection.execute(text("SELECT value FROM system_config WHERE key='license_lock_removal_intent'")).scalar()
+                            stored = intent or connection.execute(text("SELECT value FROM system_config WHERE key='license_lock_evidence'")).scalar()
                         evidence = json.loads(stored) if isinstance(stored, str) else stored
                     except Exception:
                         evidence = None
@@ -642,7 +643,7 @@ def get_license() -> LicenseInfo:
                     _cache_failures += 1
             else:
                 _cache_failures = 0
-                license_clock().sample(persist=True, issued_at=_cached_license.issued_at)
+                license_clock().sample(persist=persist_clock, issued_at=_cached_license.issued_at)
         except (OSError, ValueError, TypeError):
             _cached_license = LicenseInfo()
             _cached_license.verification_state = "verification_unavailable"

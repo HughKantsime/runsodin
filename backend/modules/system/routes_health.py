@@ -207,16 +207,12 @@ def readiness_check(db: Session = Depends(get_db)):
 # ============== License ==============
 
 @router.get("/license", tags=["License"])
-def get_license_info(db: Session = Depends(get_db)):
+def get_license_info():
     """Get current license status. No auth required so frontend can check tier."""
-    license_info = get_license()
+    license_info = get_license(persist_clock=False)
     result = license_info.to_public_dict()
-    from core.license_lock import enabled, snapshot
+    from core.license_lock import enabled
     result['fleet_lock_rollout_enabled'] = enabled()
-    if enabled():
-        policy = snapshot(db)
-        result['verification_warning'] = policy.warning
-        result['verification_state'] = policy.entitlement.get('state', result['verification_state'])
     return result
 
 
@@ -257,18 +253,9 @@ def remove_license(
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Remove the license file (revert to Community tier). Admin only."""
-    import os as _os
-    from license_manager import LICENSE_DIR, LICENSE_FILENAME
-    license_path = _os.path.join(LICENSE_DIR, LICENSE_FILENAME)
-    if _os.path.exists(license_path):
-        _os.remove(license_path)
-    import license_manager
-    from core.license_lock import mark_community_selected
-    mark_community_selected(db, current_user["id"])
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-    log_audit(db, "license.removed", "system", details="License removed, reverted to community tier")
-    db.commit()
+    from core.license_lock import remove_installed_license
+    remove_installed_license(db, current_user['id'], 'license.removed',
+                             details='License removed, reverted to community tier')
     return {"status": "removed", "tier": "community"}
 
 
@@ -583,18 +570,9 @@ async def unactivate_license(
         detail = resp.json().get("error", "Unactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
-    # Remove local license file and clear the cache
-    from license_manager import LICENSE_DIR, LICENSE_FILENAME
-    import license_manager
-    if os.path.exists(license_path := os.path.join(LICENSE_DIR, LICENSE_FILENAME)):
-        os.remove(license_path)
-    from core.license_lock import mark_community_selected
-    mark_community_selected(db, current_user["id"])
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-
-    log_audit(db, "license.unactivated", "system", details={"key": license_key[:4] + "..."})
-    db.commit()
+    from core.license_lock import remove_installed_license
+    remove_installed_license(db, current_user['id'], 'license.unactivated',
+                             details={'key': license_key[:4] + '...'})
     return {"status": "unactivated", "tier": "community"}
 
 
@@ -688,14 +666,8 @@ def get_unactivation_request(
         "signature": sign_license_challenge("unactivate", current_license.key, installation_id, nonce),
     }
     content = json.dumps(payload, indent=2)
-    try:  # hands the seat over: this install stops using the license now (as online /unactivate)
-        quarantined = quarantine_installed_license()
-        from core.license_lock import mark_community_selected
-        mark_community_selected(db, current_user["id"])
-    except OSError:
-        raise HTTPException(status_code=503, detail="License could not be removed; no unactivation request was issued")
-    log_audit(db, "license.offline_unactivation_requested", "system", details={"quarantined": os.path.basename(quarantined or "")})
-    db.commit()
+    from core.license_lock import remove_installed_license
+    remove_installed_license(db, current_user['id'], 'license.offline_unactivation_requested')
     return _Response(
         content=content,
         media_type="application/json",
@@ -718,8 +690,7 @@ class LicenseSelectionInput(BaseModel):
 @router.get('/license/selection', tags=['License'], dependencies=[Depends(require_interactive_session())])
 def get_license_selection(current_user: dict = Depends(require_superadmin(scope='read')), db: Session = Depends(get_db)):
     from core.license_lock import selection_status
-    result = selection_status(db)
-    db.commit()
+    result = selection_status(db, read_only=True)
     return result
 
 

@@ -222,7 +222,7 @@ def test_malformed_but_signed_expired_payload_is_not_lapse(signed_license, field
     assert not info.valid and info.verified_digest is None
 
 
-def test_forward_jump_never_poisoned_anchor(clock_env):
+def test_forward_jump_does_not_poison_anchor_before_recovery(clock_env):
     wall, tick, store, new, _ = clock_env
     clock = new(); clock.sample(persist=True)
     wall[0] += timedelta(days=365)
@@ -230,9 +230,8 @@ def test_forward_jump_never_poisoned_anchor(clock_env):
         tick[0] += 1
         assert clock.sample(persist=True)[1]
     assert store.read() == BASE
+    # A restart has no evidence that this is a running-process jump.
     clock = new()
-    assert clock.sample(persist=True)[1]
-    wall[0] = BASE
     assert not clock.sample(persist=True)[1]
 
 
@@ -479,8 +478,8 @@ def test_real_ws_admission_and_idle_revocation(policy_db, monkeypatch, url):
         assert closed.value.code == 4403
         assert time.monotonic() - start < 5
     with pytest.raises(WebSocketDisconnect) as closed:
-        with client.websocket_connect(url + '?token=' + credential):
-            pass
+        with client.websocket_connect(url + '?token=' + credential) as ws:
+            ws.receive_text()
     assert closed.value.code == 4403
 
 

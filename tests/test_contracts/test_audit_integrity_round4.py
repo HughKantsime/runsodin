@@ -119,7 +119,7 @@ def test_backup_bundle_download_audit_names_bundle(engine, monkeypatch):
     from modules.system import routes_backup, audit_backup
     backup = Path(engine.url.database)
     monkeypatch.setattr(routes_backup, '_safe_backup_path', lambda _: backup)
-    monkeypatch.setattr(audit_backup, 'download_bundle', lambda _: 'owned-response')
+    monkeypatch.setattr(audit_backup, 'download_bundle', lambda _, **kwargs: 'owned-response')
     with Session(engine) as db:
         assert routes_backup.download_backup('owned', bundle=True, current_user={}, db=db) == 'owned-response'
         record = json.loads(db.execute(text("SELECT details FROM audit_logs WHERE action='backup.downloaded'")).scalar_one())

@@ -24,6 +24,7 @@ def owned_import(tmp_path, monkeypatch):
     monkeypatch.setattr(routes,'save_license_file',lm.save_license_file)
     audit=Mock()
     monkeypatch.setattr(routes,'log_audit',audit)
+    monkeypatch.setattr('core.audit.log_audit', audit)
     db=Mock()
     payload=json.dumps({'tier':'education','licensee':'Owned synthetic school','expires_at':'2099-01-01','features':['education_workflows']}).encode()
     signed=base64.urlsafe_b64encode(payload).decode()+'.'+base64.urlsafe_b64encode(key.sign(payload)).decode()

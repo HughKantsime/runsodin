@@ -32,8 +32,11 @@ def test_roster_provider_seat_change(setup, client, tier_license, monkeypatch, c
     policy.reconcile(db); db.commit()
     base = f"/api/auth/classroom/{connection['id']}"
     if boundary == 'callback': tier_license('education', max_users=1)
+    tokens_before = db.execute(text('SELECT tokens_encrypted FROM education_roster_connections WHERE id=:id'), {'id': connection['id']}).scalar()
     if provider == 'google':
-        response = client.get(callback_url(client, connection), follow_redirects=False)
+        url = callback_url(client, connection)
+        receipts_before = db.execute(text('SELECT COUNT(*) FROM education_roster_receipts')).scalar()
+        response = client.get(url, follow_redirects=False)
     else:
         target = 'https://odin.example.test' + base + '/launch'
         response = client.post(base + '/login', data={'iss': canvas_config['issuer'], 'login_hint': 'hint', 'target_link_uri': target}, follow_redirects=False)
@@ -43,14 +46,18 @@ def test_roster_provider_seat_change(setup, client, tier_license, monkeypatch, c
         encoded = jwt.encode(payload, platform_config['private_key'], algorithm='RS256', headers={'kid': platform_config['key_id']})
         async def owned_keys(*args, **kwargs): return {'keys': [providers.public_jwk(platform_config)]}, None
         monkeypatch.setattr(providers, 'request_json', owned_keys)
+        receipts_before = db.execute(text('SELECT COUNT(*) FROM education_roster_receipts')).scalar()
         response = client.post(base + '/launch', data={'state': params['state'][0], 'id_token': encoded}, follow_redirects=False)
     if boundary == 'exchange':
         assert response.status_code == 302, response.text
         code = parse_qs(urlsplit(response.headers['location']).fragment)['roster_code'][0]
         tier_license('education', max_users=1)
         response = client.post(base + '/exchange', json={'code': code})
-        assert client.post(base + '/exchange', json={'code': code}).status_code == 409
+        assert client.post(base + '/exchange', json={'code': code}).status_code == 403  # refusal preserves receipt
     assert response.status_code == 403, response.text
+    if boundary == 'callback':
+        assert db.execute(text('SELECT COUNT(*) FROM education_roster_receipts')).scalar() == receipts_before
+        assert db.execute(text('SELECT tokens_encrypted FROM education_roster_connections WHERE id=:id'), {'id': connection['id']}).scalar() == tokens_before
     assert response.json()['detail']['code'] == 'license_user_locked'
     assert 'set-cookie' not in response.headers
     assert db.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar() == 0

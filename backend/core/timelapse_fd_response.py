@@ -38,14 +38,23 @@ class AdmittedFDResponse(Response):
         fd,self.fd=self.fd,None
         if fd is not None:os.close(fd)
     async def __call__(self,scope,receive,send):
+        started = asyncio.Event()
         async def send_bounded(message):
             remaining=self.deadline-time.monotonic()
             if remaining<=0:raise TimeoutError('Media lease expired')
             await asyncio.wait_for(send(message),min(30,remaining))
         async def deliver():
             if self.authorize is not None:
-                await asyncio.to_thread(self.authorize)
+                from core.license_lock import LicenseLockError
+                from starlette.responses import JSONResponse
+                try:
+                    await asyncio.to_thread(self.authorize)
+                except LicenseLockError as exc:
+                    await JSONResponse(status_code=exc.status_code, content={'detail': exc.detail},
+                                       headers=exc.headers)(scope, receive, send_bounded)
+                    return
             await send_bounded({'type':'http.response.start','status':self.status_code,'headers':self.raw_headers})
+            started.set()
             position=self.start;left=max(0,self.end-self.start+1)
             while left and not self.head:
                 now=os.fstat(self.fd)
@@ -61,6 +70,7 @@ class AdmittedFDResponse(Response):
             while True:
                 if (await receive())['type']=='http.disconnect':return
         async def revalidate():
+            await started.wait()
             while True:
                 await asyncio.sleep(1)
                 await asyncio.to_thread(self.authorize)

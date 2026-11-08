@@ -144,6 +144,16 @@ def subject_digest(connection_id, subject):
     return hmac.new(key, message, hashlib.sha256).hexdigest()
 
 
+def peek(db, token, cid, kind):
+    """Validate a one-time receipt without burning it before authorization."""
+    row = db.execute(text('SELECT payload_encrypted,actor_id FROM education_roster_receipts '
+        'WHERE id=:id AND connection_id=:c AND kind=:k AND expires_at>=:now'),
+        {'id': digest(token), 'c': cid, 'k': kind, 'now': int(time.time())}).first()
+    if not row:
+        refuse('roster_receipt_invalid', 409)
+    return unpack(row.payload_encrypted)
+
+
 def consume(db, token, cid, kind, actor_id=None):
     row = db.execute(text('DELETE FROM education_roster_receipts WHERE id=:id AND connection_id=:c '
         'AND kind=:k AND expires_at>=:now RETURNING payload_encrypted,actor_id'),

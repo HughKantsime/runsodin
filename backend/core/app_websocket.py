@@ -42,8 +42,11 @@ class ConnectionManager:
         try:
             policy = self.policy_snapshot(cached=cached)
             return policy is None or user_allowed(policy, principal.get('id'))
-        except Exception:
-            return False
+        except Exception as exc:
+            from core.license_lock import LicenseLockError
+            if isinstance(exc, LicenseLockError):
+                raise
+            raise LicenseLockError('license_policy_unavailable', status=503) from None
 
     @staticmethod
     def _can_receive(principal: dict, user_ids: set[int] | None, org_id: int | None, shared: bool) -> bool:
@@ -121,7 +124,10 @@ class ConnectionManager:
         try:
             policy = await asyncio.to_thread(self.policy_snapshot)
         except Exception:
-            return 0
+            # Existing sockets already passed admission. A transient policy DB
+            # outage must not discard the event batch; retain the last decision.
+            policy = self._policy
+            log.warning('WebSocket license policy temporarily unavailable; using last snapshot')
         for (ws, principal), controlled_message in zip(audience, messages):
             if policy is not None and not user_allowed(policy, principal.get('id')):
                 try:

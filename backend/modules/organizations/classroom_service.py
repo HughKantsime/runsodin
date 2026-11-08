@@ -217,6 +217,8 @@ async def complete_connection(
     code: str,
     principal: dict,
 ) -> dict:
+    from core.license_lock import authorize_user
+    authorize_user(db, principal['id'], issuance=True)
     pending = db.execute(
         text("SELECT * FROM classroom_oauth_states WHERE state=:state"), {"state": state}
     ).fetchone()
@@ -262,6 +264,9 @@ async def complete_connection(
     domains = {part.strip().lower() for part in (connection.allowed_domains or "").split(",") if part.strip()}
     if domains and email.rsplit("@", 1)[-1] not in domains:
         raise ClassroomError("classroom_domain_invalid", "Google account is outside the configured Workspace domain", 403)
+    # The provider round trip committed the one-time state transaction. Recheck
+    # the current policy before persisting any returned credentials.
+    authorize_user(db, principal['id'], issuance=True)
     expires_at = (_utcnow() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))).isoformat()
     db.execute(
         text(

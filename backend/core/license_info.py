@@ -125,7 +125,6 @@ class LicenseInfo:
         tier_def = TIERS.get(self.tier, TIERS["community"])
         return {
             "verification_state": self.verification_state,
-            "reason_code": self.reason_code,
             "time_confidence": self.time_confidence,
             "valid": self.valid,
             "tier": self.tier,

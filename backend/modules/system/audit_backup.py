@@ -76,7 +76,7 @@ def move_material(source, target):
         os.replace(companion(source), companion(target))
 
 
-def download_bundle(backup):
+def download_bundle(backup, *, database_export=None):
     from fastapi import HTTPException
     from starlette.background import BackgroundTask
     from starlette.responses import FileResponse
@@ -94,10 +94,14 @@ def download_bundle(backup):
             manifest = json.loads(keys.read('manifest.json'))
             if manifest['database_sha256'] != digest.hexdigest():
                 raise HTTPException(409, 'Audit-key companion does not match this database backup')
-            output.write(backup, backup.name)
+            exported = database_export or backup
+            if exported != backup:
+                with exported.open('rb') as stream:
+                    manifest['database_sha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
+            output.write(exported, backup.name)
             for name in (*NAMES, 'manifest.json'):
                 if name in keys.namelist():
-                    output.writestr('audit-keys/'+name, keys.read(name))
+                    output.writestr('audit-keys/'+name, json.dumps(manifest) if name == 'manifest.json' else keys.read(name))
         return FileResponse(temporary, filename=backup.name+'.zip', media_type='application/zip',
                             background=BackgroundTask(Path(temporary).unlink, missing_ok=True))
     except BaseException:

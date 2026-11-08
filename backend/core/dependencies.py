@@ -375,10 +375,11 @@ def resolve_legacy_api_key(api_key: str, db: Session, request=None) -> Optional[
     return _principal(admin, "legacy_global_api_key", db, request)
 
 
-async def _resolve_current_user(
+def resolve_current_user_sync(
     request: Request,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
+    *, side_effects=True,
 ):
     """Resolve the current user from session cookie, JWT Bearer token, or API key.
 
@@ -388,7 +389,8 @@ async def _resolve_current_user(
       2. X-API-Key header — global key (perimeter auth) or per-user scoped token
     """
     from core.audit_actor import clear_actor, bind_verified_actor
-    clear_actor(db)
+    if side_effects:
+        clear_actor(db)
     # Try 0: httpOnly session cookie (browser-based auth)
     session_token = request.cookies.get("session")
     if session_token:
@@ -424,7 +426,8 @@ async def _resolve_current_user(
                             ).fetchone()
                             principal = None if token_predates_account(payload, user) else _principal(user, "session_jwt", db, request)
                             if principal:
-                                bind_verified_actor(db, principal)
+                                if side_effects:
+                                    bind_verified_actor(db, principal)
                                 return principal
             except LicenseLockError:
                 raise
@@ -466,7 +469,8 @@ async def _resolve_current_user(
                 return None
             principal = _principal(user, "bearer_jwt", db, request)
             if principal:
-                bind_verified_actor(db, principal)
+                if side_effects:
+                    bind_verified_actor(db, principal)
                 return principal
 
     # Try 2: X-API-Key header — check global key first, then scoped user tokens
@@ -475,8 +479,10 @@ async def _resolve_current_user(
         # 2a: Global API key (legacy, constant-time comparison)
         principal = resolve_legacy_api_key(api_key, db, request)
         if principal:
-            bind_verified_actor(db, principal)
-            mark_noninteractive_principal()
+            if side_effects:
+                bind_verified_actor(db, principal)
+            if side_effects:
+                mark_noninteractive_principal()
             return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
@@ -492,11 +498,28 @@ async def _resolve_current_user(
             # read/write scope (see core.rbac).
             from core.rbac import enforce_route_token_scope
             enforce_route_token_scope(request, principal)
-            bind_verified_actor(db, principal)
-            mark_noninteractive_principal()
+            if side_effects:
+                bind_verified_actor(db, principal)
+            if side_effects:
+                mark_noninteractive_principal()
             return principal
 
     return None
+
+
+async def _resolve_current_user(request, token, db):
+    if hasattr(request.state, 'resolved_license_principal'):
+        principal = request.state.resolved_license_principal
+        from core.audit_actor import clear_actor, bind_verified_actor
+        clear_actor(db)
+        if principal:
+            from core.rbac import enforce_route_token_scope
+            enforce_route_token_scope(request, principal)
+            bind_verified_actor(db, principal)
+            if principal.get('_auth_kind') in {'user_api_token', 'legacy_global_api_key'}:
+                mark_noninteractive_principal()
+        return principal
+    return resolve_current_user_sync(request, token, db)
 
 
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
