@@ -10,9 +10,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- A signed-in browser is no longer sent to the login page when part of a request fails. Before, any error while handling a request with a valid session cookie was reported as "not signed in", and the app logged out. Failures now return their real error; a failed session or user lookup returns 503, never a sign-in.
-- Alerts recorded by older versions (severity "error" or "success", and upper-case types such as SPOOL_LOW) load in the alert list. A record that still cannot be shown is skipped and its id logged, instead of failing the whole page.
-- The home floor view asks only for each active printer's current pause or error, instead of paging through every alert every 30 seconds.
+- Signed-in users are no longer sent to the login page when a server error occurs while a page loads. Before, an unexpected error behind a valid session was reported as "not signed in", and the app logged out.
+- A failure to update your session's last-active time no longer interrupts an otherwise valid sign-in.
+- If O.D.I.N. temporarily cannot check your session or account, it reports that the service is unavailable, instead of treating you as signed out or letting the request through unverified.
+- Alerts recorded by older versions load in the alert list: older "error" alerts show as critical, "success" alerts as info, upper-case types such as SPOOL_LOW are recognised, and audit-integrity alerts are listed. A record that still cannot be shown is skipped and its id logged, instead of failing the whole page.
+- The home floor view now fetches only the latest undismissed pause or error alert for each active printer, in one request every 30 seconds, instead of paging through every alert.
 
 ## [2.0.48] - 2026-11-08
 
