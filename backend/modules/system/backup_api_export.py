@@ -97,9 +97,7 @@ def _response(source, bundle):
     try:
         if bundle:
             from modules.system.audit_backup import download_bundle
-            response = download_bundle(source, database_export=exported)
-            return ExportResponse(response.path, temporary=Path(response.path),
-                                  filename=source.name + '.zip', media_type='application/zip')
+            return download_bundle(source, database_export=exported)
         response = ExportResponse(exported, filename=source.name, media_type='application/octet-stream',
                                   temporary=temporary)
         temporary = None  # response owns cleanup

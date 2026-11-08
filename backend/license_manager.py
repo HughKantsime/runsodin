@@ -316,7 +316,7 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
         payload = json.loads(payload_bytes.decode("utf-8"))
 
         # Check required fields
-        for field in ["tier", "expires_at"]:
+        for field in ["tier", "licensee", "expires_at"]:
             if field not in payload:
                 info.error = f"License missing required field: {field}"
                 return info

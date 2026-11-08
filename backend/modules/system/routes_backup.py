@@ -9,7 +9,7 @@ from core.controlled_csrf import require_controlled_ack
 from core.rbac import require_action
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -293,7 +293,7 @@ def _download_backup(filename: str, current_user: dict = Depends(require_superad
     acknowledge_export(db, current_user, acknowledge_controlled, "backup")
     from modules.system.backup_api_export import download_response
     response = download_response(path, bundle)
-    if response.status_code == 202:
+    if isinstance(response, JSONResponse) and response.status_code == 202:
         return response
     try:
         # Refused/pending exports are not downloaded. Only record a fully

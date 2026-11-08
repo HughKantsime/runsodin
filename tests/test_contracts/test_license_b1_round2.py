@@ -1,6 +1,7 @@
 """Second-pass regressions, including a frozen Slice A compatibility oracle."""
 import asyncio
 import base64
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -23,18 +24,31 @@ from tests.test_contracts.test_roster_auth import client, google_double, callbac
 from tests.test_contracts.test_roster_sync import setup, imported
 
 
+SLICE_A_VERIFIER = Path(__file__).parents[1] / 'fixtures/license_slice_a_verifier.py'
+
+
+def test_slice_a_oracle_is_exact_historical_source():
+    # Byte-for-byte `git show 01c0bca5:backend/license_manager.py`. Keep the
+    # historical verifier AND its helpers, not imports from the B1 verifier.
+    # Vendoring permits the same oracle in shallow CI checkouts without Git.
+    assert hashlib.sha256(SLICE_A_VERIFIER.read_bytes()).hexdigest() == (
+        '2905d2dcd1fcc424db5a7c221a3e7a06070e0234d486d3075edd7583ab925091'
+    )
+
+
 @pytest.fixture
 def verification_pair(monkeypatch, clock_env):
     import license_manager as lm
-    path = Path(__file__).parents[1] / 'fixtures/license_slice_a_verifier.py'
-    spec = importlib.util.spec_from_file_location('slice_a_oracle', path)
+    spec = importlib.util.spec_from_file_location('slice_a_oracle', SLICE_A_VERIFIER)
     old = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(old)
     for flag in ('ODIN_LICENSE_FLEET_LOCK_ENABLED', 'ODIN_LICENSE_PAID_LAPSE_ENABLED', 'ODIN_REQUIRE_LICENSE_BINDING'):
         monkeypatch.delenv(flag, raising=False)
     key = Ed25519PrivateKey.generate()
-    monkeypatch.setattr(lm, 'ODIN_PUBLIC_KEY', key.public_key().public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode())
+    public_key = key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    monkeypatch.setattr(lm, 'ODIN_PUBLIC_KEY', public_key)
+    monkeypatch.setattr(old, 'ODIN_PUBLIC_KEY', public_key)
     # Separate fresh clocks, same deterministic time and evidence.
     monkeypatch.setattr(lm, 'license_clock', clock_env[3])
     monkeypatch.setattr(old, 'license_clock', clock_env[3])
@@ -57,7 +71,15 @@ SHAPES = [
     {'issued_at': None}, {'issued_at': ''},
     {'schema_version': 8}, {'max_users': True}, {'max_printers': -1},
     {'features': {}}, {'issued_at': '2100-01-01'},
+    {'licensee': ''}, {'licensee': 42}, {'licensee': []},
+    {'tier': None}, {'tier': []}, {'features': [1]},
+    {'expires_at': None}, {'expires_at': 'invalid'}, {'issued_at': 'invalid'},
+    {'installation_id': 'another-install'}, {'device_pubkey': 'invalid'},
 ]
+
+COMPATIBILITY_FIELDS = (
+    'valid', 'expired', 'tier', 'licensee', 'features', 'max_users', 'max_printers', 'error',
+)
 
 
 @pytest.mark.parametrize('shape', SHAPES, ids=[f'legacy-shape-{i}' for i in range(len(SHAPES))])
@@ -65,7 +87,9 @@ SHAPES = [
 @pytest.mark.parametrize('expiry', ['2099-01-01', '2000-01-01', '2026-11-08T00:00:00Z'])
 def test_flags_off_match_slice_a(verification_pair, shape, tier, expiry):
     old, current = verification_pair({'tier': tier, 'licensee': 'Test School', 'expires_at': expiry, **shape})
-    for field in ('valid', 'expired', 'tier', 'features', 'max_users', 'max_printers'):
+    # Expected acceptance/refusal comes only from executing Slice A on the
+    # SAME signed bytes. Equality catches widening as well as narrowing.
+    for field in COMPATIBILITY_FIELDS:
         assert getattr(current, field) == getattr(old, field), field
 
 
@@ -77,18 +101,19 @@ def test_historical_repository_test_license_shape(verification_pair):
     payload = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
     for expiry in ('2099-01-01', '2000-01-01'):
         old, current = verification_pair(dict(payload, expires_at=expiry))
-        assert old.valid == (expiry == '2099-01-01')
-        for field in ('valid', 'expired', 'tier', 'features'):
+        for field in COMPATIBILITY_FIELDS:
             assert getattr(current, field) == getattr(old, field)
 
 
-@pytest.mark.parametrize('expiry', ['2099-01-01', '2000-01-01'])
-def test_absent_licensee_is_explicit_compatibility_extension(verification_pair, expiry):
-    # Slice A's required-field list contradicted its later .get fallback.
-    # Shane explicitly requests absence be allowed, so compare to empty licensee.
-    _, current = verification_pair({'tier': 'pro', 'expires_at': expiry})
-    old, _ = verification_pair({'tier': 'pro', 'licensee': '', 'expires_at': expiry})
-    for field in ('valid', 'expired', 'tier', 'features'):
+@pytest.mark.parametrize('missing_field', ['tier', 'licensee', 'expires_at'])
+@pytest.mark.parametrize('tier', ['community', 'pro', 'education', 'enterprise', 'unknown'])
+@pytest.mark.parametrize('expiry', ['2099-01-01', '2000-01-01', '2026-11-08T00:00:00Z'])
+def test_missing_required_fields_match_slice_a(verification_pair, missing_field, tier, expiry):
+    payload = {'tier': tier, 'licensee': 'Test School', 'expires_at': expiry}
+    del payload[missing_field]
+    old, current = verification_pair(payload)
+    assert old.valid is False
+    for field in COMPATIBILITY_FIELDS:
         assert getattr(current, field) == getattr(old, field)
 
 

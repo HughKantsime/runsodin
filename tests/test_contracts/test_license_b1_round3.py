@@ -324,10 +324,11 @@ def make_companion(source):
 
 
 @pytest.mark.parametrize('bundle', [False, True])
-def test_audit_failure_deletes_prepared_export(tmp_path, monkeypatch, bundle):
+@pytest.mark.parametrize('enabled', [False, True])
+def test_audit_failure_deletes_prepared_export(tmp_path, monkeypatch, bundle, enabled):
     from modules.system import routes_backup as routes
     from core import controlled_exports
-    monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', 'true')
+    monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', str(enabled).lower())
     source = source_file(tmp_path)
     if bundle:
         make_companion(source)
@@ -342,4 +343,41 @@ def test_audit_failure_deletes_prepared_export(tmp_path, monkeypatch, bundle):
     monkeypatch.setattr(routes, 'audit_download', fail_audit)
     with pytest.raises(RuntimeError, match='audit failed'):
         routes._download_backup(source.name, {}, object(), bundle=bundle)
-    assert not Path(response.path).exists() and source.exists()
+    assert source.exists()
+    if enabled or bundle:
+        assert not Path(response.path).exists()
+
+
+@pytest.mark.parametrize('bundle', [False, True])
+@pytest.mark.parametrize('enabled', [False, True])
+@pytest.mark.parametrize('acknowledged', [False, True])
+def test_every_successful_download_keeps_audit_fields(tmp_path, monkeypatch, jobs, bundle, enabled, acknowledged):
+    from modules.system import routes_backup as routes
+    from core import controlled_exports
+    monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', str(enabled).lower())
+    source = source_file(tmp_path)
+    if bundle:
+        make_companion(source)
+    monkeypatch.setattr(routes, '_safe_backup_path', lambda _: source)
+    monkeypatch.setattr(controlled_exports, 'acknowledge_export', lambda *a: None)
+    audits = []
+    monkeypatch.setattr(routes, 'audit_download', lambda *a, **kw: audits.append((a, kw)))
+    download = routes.acknowledge_download_backup if acknowledged else routes.download_backup
+    db = object()
+    response = download(source.name, bundle=bundle, current_user={}, db=db)
+    if enabled:
+        assert response.status_code == 202
+        assert audits == []
+        jobs[2](0)
+        response = download(source.name, bundle=bundle, current_user={}, db=db)
+    try:
+        assert response.status_code == 200
+        assert response.filename == source.name + ('.zip' if bundle else '')
+        assert audits == [((db, 'backup.downloaded', 'system'), {
+            'details': {'filename': source.name, 'bundle': bundle},
+        })]
+    finally:
+        response.discard()
+    assert source.exists()
+    if enabled or bundle:
+        assert not Path(response.path).exists()
