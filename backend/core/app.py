@@ -277,14 +277,12 @@ def _register_http_middleware(app: FastAPI) -> None:
                   or api_path.startswith(('/auth/', '/health/', '/setup/', '/static/'))
                   or path.startswith(('/static/', '/assets/'))
                   or api_path == '/branding' and request.method == 'GET')
-        # Media query tokens, OBS credentials and API keys have route-specific
-        # semantics. Their existing resolvers enforce policy after authentication.
+        # Defer only when credentials are exclusively route-specific carriers.
+        # An added query token/API key must never bypass a session/bearer lock.
         authorization = request.headers.get('authorization', '')
         scheme, _, bearer = authorization.partition(' ')
         understood = (request.cookies.get('session') or
                       scheme.lower() == 'bearer' and bearer.strip())
-        if request.query_params.get('token') or request.headers.get('x-api-key'):
-            understood = False
         if understood and not public:
             from core.dependencies import resolve_current_user_sync
             from core.db import SessionLocal
@@ -687,34 +685,13 @@ def create_app() -> FastAPI:
                 except asyncio.TimeoutError:
                     await ws.send_json({"type": "ping"})
 
-        async def check_license():
-            while True:
-                await asyncio.sleep(1)
-                if not license_lock_enabled():
-                    continue
-                try:
-                    allowed = await asyncio.to_thread(ws_manager.principal_allowed, principal)
-                except LicenseLockError:
-                    # Temporary infrastructure failures are retryable, never a
-                    # user-lock decision. Keep already admitted clients alive.
-                    continue
-                if not allowed:
-                    await ws.close(code=4403, reason='license_user_locked')
-                    return
-
-        tasks = [asyncio.create_task(receive_messages()), asyncio.create_task(check_license())]
         try:
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                task.result()
+            await receive_messages()
         except WebSocketDisconnect:
             pass
         except Exception:
             pass
         finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
             ws_manager.disconnect(ws)
 
     @app.websocket("/api/v1/ws")

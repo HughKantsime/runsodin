@@ -218,9 +218,8 @@ def test_gate_defers_to_real_carrier_authority(policy_db, monkeypatch, carrier, 
     _register_http_middleware(app)
     query = {} if carrier == 'api_key' else {'token': credential if carrier == 'obs' else token('admin')}
     headers = {'X-API-Key': 'owned-global-key'} if carrier == 'api_key' else {}
-    # An unrelated invalid browser cookie must not preempt route-specific auth.
+    # Only route-specific credentials are present; the perimeter defers them.
     http = TestClient(app)
-    http.cookies.set('session', 'invalid')
     response = http.get('/api/v1/owned-carrier', params=query, headers=headers)
     assert response.status_code == (403 if locked else 200), response.text
     if locked:

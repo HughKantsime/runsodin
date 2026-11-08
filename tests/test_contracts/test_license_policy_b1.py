@@ -432,6 +432,7 @@ def test_ws_batch_revokes_only_locked_recipient(policy_db):
     async def run():
         await manager.connect(selected, {'id': 3, 'role': 'admin', 'group_id': None})
         await manager.connect(locked, {'id': 1, 'role': 'viewer', 'group_id': 1})
+        await manager.heartbeat_cycle()
         return await manager.broadcast({'type': 'license.policy_changed', 'data': {}})
     assert asyncio.run(run()) == 1
     assert locked.closed == 4403 and selected.closed is None

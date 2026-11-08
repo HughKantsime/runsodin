@@ -300,8 +300,7 @@ def _download_backup(filename: str, current_user: dict = Depends(require_superad
         # prepared artifact, before any successful response bytes are sent.
         audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
     except BaseException:
-        if response.background:
-            Path(response.path).unlink(missing_ok=True)
+        response.discard()
         raise
     return response
 

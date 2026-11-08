@@ -302,7 +302,7 @@ def test_idle_websocket_keeps_thirty_second_ping_cadence(policy_db, monkeypatch,
         if fault:
             def unavailable(*args, **kwargs):
                 raise policy.LicenseLockError('license_policy_unavailable', status=503)
-            monkeypatch.setattr(ws_manager, 'principal_allowed', unavailable)
+            monkeypatch.setattr(ws_manager, 'policy_snapshot', unavailable)
         time.sleep(2.2)
         ws.send_text('ping')
         assert ws.receive_text() == 'pong'  # no unsolicited 1-second pings

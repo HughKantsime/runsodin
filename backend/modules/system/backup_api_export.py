@@ -61,22 +61,47 @@ def prepare_export(source):
 # copy, VACUUM, pg_restore or ZIP build runs synchronously on the request path.
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from starlette.responses import FileResponse
+from starlette.background import BackgroundTask
 
+_MAX_LIVE_JOBS = 8
+_MAX_READY_JOBS = 8
+_JOB_TTL = 15 * 60
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='backup-export')
 _jobs = {}
-_jobs_lock = threading.Lock()
+_live_jobs = set()
+# A completed Future invokes add_done_callback immediately in the caller.
+_jobs_lock = threading.RLock()
+
+
+class ExportResponse(FileResponse):
+    """Own temporary artifacts even if a download fails or is cancelled."""
+
+    def __init__(self, path, *, temporary=None, **kwargs):
+        self.temporary = temporary
+        super().__init__(path, background=BackgroundTask(self.discard) if temporary else None, **kwargs)
+
+    def discard(self):
+        if self.temporary:
+            self.temporary.unlink(missing_ok=True)
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.discard()
 
 
 def _response(source, bundle):
-    from starlette.responses import FileResponse
-    from starlette.background import BackgroundTask
     exported, temporary = prepare_export(source)
     try:
         if bundle:
             from modules.system.audit_backup import download_bundle
-            return download_bundle(source, database_export=exported)
-        response = FileResponse(exported, filename=source.name, media_type='application/octet-stream',
-                                background=BackgroundTask(temporary.unlink, missing_ok=True) if temporary else None)
+            response = download_bundle(source, database_export=exported)
+            return ExportResponse(response.path, temporary=Path(response.path),
+                                  filename=source.name + '.zip', media_type='application/zip')
+        response = ExportResponse(exported, filename=source.name, media_type='application/octet-stream',
+                                  temporary=temporary)
         temporary = None  # response owns cleanup
         return response
     finally:
@@ -86,9 +111,30 @@ def _response(source, bundle):
 
 def _discard(future):
     if not future.cancelled() and future.exception() is None:
-        response = future.result()
-        if response.background:
-            Path(response.path).unlink(missing_ok=True)
+        future.result().discard()
+
+
+def _expire(key, job):
+    with _jobs_lock:
+        if _jobs.get(key, (None,))[0] is not job:
+            return
+        del _jobs[key]
+        # Running jobs still occupy the live cap until their worker exits.
+        # Their eventual artifacts must be removed even without another poll.
+        if not job.cancel():
+            job.add_done_callback(_discard)
+
+
+def _completed(job):
+    with _jobs_lock:
+        _live_jobs.discard(job)
+        # Completed artifacts never block admission. Bound retained files too:
+        # evict the oldest ready entries instead of refusing a new export.
+        ready = [key for key, (future, _) in _jobs.items() if future.done()]
+        for key in ready[:-_MAX_READY_JOBS]:
+            future, timer = _jobs.pop(key)
+            timer.cancel()
+            _discard(future)
 
 
 def download_response(source, bundle=False):
@@ -107,19 +153,14 @@ def download_response(source, bundle=False):
                 timer.cancel()
                 return job.result()
         else:
-            if len(_jobs) >= 8:
+            if sum(not future.done() for future in _live_jobs) >= _MAX_LIVE_JOBS:
                 raise HTTPException(503, 'Backup export queue busy; retry later', headers={'Retry-After': '2'})
             job = _executor.submit(_response, source, bundle)
-            # Remove abandoned artifacts even if the client never polls again.
-            def expire():
-                with _jobs_lock:
-                    if _jobs.get(key, (None,))[0] is not job:
-                        return
-                    del _jobs[key]
-                if not job.cancel():
-                    job.add_done_callback(_discard)
-            timer = threading.Timer(900, expire)
+            _live_jobs.add(job)
+            # Expiry runs independently of polling, including queued/running jobs.
+            timer = threading.Timer(_JOB_TTL, _expire, args=(key, job))
             timer.daemon = True
             _jobs[key] = (job, timer)
+            job.add_done_callback(_completed)
             timer.start()
     return JSONResponse({'status': 'preparing'}, status_code=202, headers={'Retry-After': '2'})

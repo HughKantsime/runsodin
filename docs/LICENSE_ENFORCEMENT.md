@@ -115,6 +115,7 @@ recovery sessions and explicit Community-downgrade enforcement are hard disabled
 pending their decisions. Until Shane decides the restricted-session policy, a
 signed zero-seat license keeps the designated active local recovery superadmin
 authorized, including login and license replacement. Other users remain locked.
+Full access for that recovery principal is deliberate until Shane decides restricted recovery.
 This temporary safety exception does not allocate a seat or enable restricted
 recovery sessions.
 
@@ -150,6 +151,9 @@ Public license status never reconciles policy or persists clock checkpoints.
 Selection reads do not rewrite private evidence. Verified evidence checkpoints
 are throttled to five minutes; issuing sessions with unchanged policy does not
 rewrite evidence or the policy row (PostgreSQL issuances share a read lock).
+WebSocket admission checks fresh policy. One manager heartbeat shares a
+revision-checked snapshot across all sockets each second; broadcasts reuse
+those decisions and temporary policy outages retain each admitted decision.
 
 With fleet locking off, every backup format uses the previous download behavior,
 without privacy inspection or a database copy. With locking enabled, SQLite
@@ -162,7 +166,13 @@ Other historical formats pass through unchanged; scrubbing makes no claim about
 formats it cannot interpret. Preparation (including SQLite rebuilds and bundle
 creation) runs in a bounded background queue. The download endpoint returns 202
 with Retry-After while preparing; the UI polls using the same authorization and
-controlled-data acknowledgement. Abandoned exports expire after 15 minutes.
+controlled-data acknowledgement. At most eight live jobs (two running workers)
+are admitted; completed jobs do not consume that cap. Up to eight prepared
+artifacts wait for polling, with older ready artifacts evicted and deleted.
+Unpolled jobs expire after 15 minutes without needing another request; queued
+work is cancelled and running work deletes its result when it finishes.
+Temporary files are deleted after download completion, failure or cancellation,
+and on expiry or eviction.
 `backup.downloaded` is recorded only after preparation succeeds, before sending
 the artifact; pending and refused exports never produce that event.
 
