@@ -4,6 +4,17 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.49] - 2026-11-08
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Fixes being sent back to the login page while signed in, caused by older alert records the alert list could not read. -->
+
+### Fixed
+
+- A signed-in browser is no longer sent to the login page when part of a request fails. Before, any error while handling a request with a valid session cookie was reported as "not signed in", and the app logged out. Failures now return their real error; a failed session or user lookup returns 503, never a sign-in.
+- Alerts recorded by older versions (severity "error" or "success", and upper-case types such as SPOOL_LOW) load in the alert list. A record that still cannot be shown is skipped and its id logged, instead of failing the whole page.
+- The home floor view asks only for each active printer's current pause or error, instead of paging through every alert every 30 seconds.
+
 ## [2.0.48] - 2026-11-08
 
 <!-- summary: Adds offline clock-rollback checks, enforces printer and user limits on every creation path, applies the license to SSO, CSV exports and organizations, and makes the cost calculator free in Community. -->
