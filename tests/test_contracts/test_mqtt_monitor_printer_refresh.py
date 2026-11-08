@@ -217,3 +217,26 @@ def test_moonraker_reload_failure_keeps_moonraker_monitors_while_bambu_reconcile
     assert before[40].disconnected and 40 not in daemon.monitors
     assert daemon.monitors[41] is old_k and not old_k.disconnected
     assert [p['id'] for p in daemon._all_moonraker] == [41]
+
+
+def test_raising_printer_survives_the_following_reconnect_cycle(daemon, monkeypatch, caplog):
+    from modules.printers.monitors import mqtt_monitor as module
+    start_with(daemon, [])
+
+    class Exploding(FakeMonitor):
+        def connect(self):
+            raise RuntimeError('secret-access-code-in-message')
+    flaky = {'ok': False}
+    monkeypatch.setattr(module, 'PrinterMonitor',
+                        lambda **kw: Exploding(**kw) if kw['printer_id'] == 50 else FakeMonitor(ok=flaky['ok'], **kw))
+    monkeypatch.setattr(module, 'MoonrakerMonitor', lambda **kw: Exploding(**kw))
+    monkeypatch.setattr(daemon, '_persist_offline', lambda _pid: None, raising=False)
+    monkeypatch.setattr(module, 'time', SimpleNamespace(time=lambda: 0, sleep=lambda _: None))
+    daemon.load_printers = lambda: [bambu(50), bambu(51)]
+    daemon.load_moonraker_printers = lambda: [{'id': 52, 'name': 'K', 'host': 'h', 'port': 80}]
+    with caplog.at_level('DEBUG', logger='mqtt_monitor'):
+        daemon._check_new_printers()
+        flaky['ok'] = True
+        daemon._check_reconnect()
+    assert 51 in daemon.monitors and 50 not in daemon.monitors and 52 not in daemon.monitors
+    assert 'secret-access-code-in-message' not in caplog.text
