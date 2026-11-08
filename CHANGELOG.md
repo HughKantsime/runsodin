@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.48] - 2026-11-08
 
-<!-- summary: Licensing closes its loopholes: winding the clock back no longer revives a trial, printer and user limits apply everywhere, SSO, CSV export and organizations follow the license, and the cost calculator is now free in Community. -->
+<!-- summary: Adds offline clock-rollback checks, enforces printer and user limits on every creation path, applies the license to SSO, CSV exports and organizations, and makes the cost calculator free in Community. -->
 
 ### Changed
 
@@ -14,14 +14,19 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Security
 
-- A server clock wound back more than 24 hours behind the license's signed issue time, or behind the latest time ODIN has recorded, now counts as expired, with a clear message and documented recovery. Normal clock drift, restarts and long power-offs are unaffected.
-- Printer and user limits are checked in one place for every way of adding them, including the setup wizard and the Google Classroom importer.
-- SSO sign-in follows the license after expiry (the local admin login stays available for recovery), CSV exports need the CSV export feature, organization management needs user groups, and editing a scheduled report needs email delivery.
-- The license expiry instant is applied the same way everywhere, and the app refreshes its license state at expiry, when the window regains focus and after a feature is refused, keeping the last known state through a brief network error.
+- A server clock wound back more than 24 hours behind the license's signed issue time, or behind the latest time ODIN has recorded (checkpointed every 5 minutes), now counts as expired, with a clear message and documented recovery. Normal clock drift, restarts and long power-offs are unaffected. A signed license whose issue date is present but malformed is now rejected; a missing or empty issue date is still accepted.
+- Printer and user limits are checked in one place for every way of adding them, including the setup wizard and the Google Classroom importer. Printers and users that already exist are not affected.
+- SSO sign-in follows the license after expiry (the local admin login stays available for recovery), CSV exports need the CSV export feature, organization management needs user groups, and editing a scheduled report needs email delivery; pausing, viewing and deleting existing schedules still work.
+- The license expiry instant is applied the same way everywhere, and the app refreshes its license state at expiry, when the window regains focus and after a feature is refused. A brief network error keeps the last known state until that license's expiry.
 
 ### Fixed
 
-- Image builds retry their downloads (go2rtc, SQLite, the PostgreSQL signing key), so a temporary GitHub outage no longer stops a release.
+- Image builds retry transient download failures (go2rtc, SQLite, the PostgreSQL signing key) for up to 10 minutes.
+
+### Release tooling
+
+- Trusted Validation runs its ten components in collision-checked phases and reports every component's result in one run.
+- `make release-vm-precheck` runs the same ten components on the validation host with the runner's environment, sharing a host lock with Trusted Validation (which waits for a running precheck).
 
 ## [2.0.47] - 2026-11-08
 
