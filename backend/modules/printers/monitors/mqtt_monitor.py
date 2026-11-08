@@ -64,7 +64,7 @@ class MQTTMonitorDaemon:
                 SELECT id, name, model, api_host, api_key
                 FROM printers
                 WHERE api_host IS NOT NULL AND api_key IS NOT NULL AND api_key != ''
-                  AND COALESCE(api_type, 'bambu') = 'bambu'
+                  AND LOWER(COALESCE(api_type, 'bambu')) = 'bambu'
                   AND is_active IS NOT FALSE
             '''))
 
@@ -237,56 +237,62 @@ class MQTTMonitorDaemon:
 
         self.stop()
 
-    def _reconcile(self, kind, previous, load, keys, factory):
-        """Align one monitor family with the printers table; return the new list.
-
-        Removed or deactivated printers are disconnected, printers whose
-        connection settings changed are reconnected with the new values, and new
-        printers are connected. A failed read keeps the current monitors.
-        """
-        try:
-            current = load()
-        except Exception as e:
-            log.warning(f"{kind} printer reload failed; keeping current monitors: {type(e).__name__}")
-            return previous
-        identity = lambda p: tuple(p.get(k) for k in keys)
-        after = {p['id']: p for p in current}
-        for old in previous:
-            new = after.get(old['id'])
-            if new is not None and identity(new) == identity(old):
-                continue
-            monitor = self.monitors.pop(old['id'], None)
-            if monitor is None:
-                continue
-            reason = "connection settings changed" if new is not None else "removed or inactive"
-            log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
-            try:
-                monitor.disconnect()
-            except Exception as e:
-                log.debug(f"Error disconnecting {kind} monitor: {e}")
-        for pid, p in after.items():
-            if pid in self.monitors:
-                continue
-            log.info(f"[{p['name']}] Connecting {kind} monitor...")
-            monitor = factory(p)
-            if monitor.connect():
-                self.monitors[pid] = monitor
-                log.info(f"[{p['name']}] Connected")
-        return current
+    def _families(self):
+        families = [("Bambu", '_all_printers', self.load_printers, ('ip', 'serial', 'access_code'),
+                     lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
+                                              serial=p['serial'], access_code=p['access_code']))]
+        if MOONRAKER_AVAILABLE:
+            families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port'),
+                             lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
+                                                        host=p['host'], port=p['port'])))
+        return families
 
     def _check_new_printers(self):
-        """Reconcile monitors with the printers table (added, removed, edited)."""
-        self._all_printers = self._reconcile(
-            "Bambu", getattr(self, '_all_printers', []), self.load_printers,
-            ('ip', 'serial', 'access_code'),
-            lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
-                                     serial=p['serial'], access_code=p['access_code']))
-        if MOONRAKER_AVAILABLE:
-            self._all_moonraker = self._reconcile(
-                "Moonraker", getattr(self, '_all_moonraker', []), self.load_moonraker_printers,
-                ('host', 'port'),
-                lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
-                                           host=p['host'], port=p['port']))
+        """Align monitors with the printers table: added, removed, deactivated, edited.
+
+        All removals (both families) run before any connection, so a printer id
+        that moved between families is never disconnected after it reconnects.
+        A failed read keeps that family's monitors; a failed connect is retried
+        on the next pass.
+        """
+        loaded = []
+        for kind, attr, load, keys, factory in self._families():
+            previous = getattr(self, attr, [])
+            try:
+                current = load()
+            except Exception as e:
+                log.warning(f"{kind} printer reload failed; keeping current monitors: {type(e).__name__}")
+                continue
+            loaded.append((kind, attr, previous, current, keys, factory))
+        for kind, _attr, previous, current, keys, _factory in loaded:
+            identity = lambda p: tuple(p.get(k) for k in keys)
+            after = {p['id']: p for p in current}
+            for old in previous:
+                new = after.get(old['id'])
+                if new is not None and identity(new) == identity(old):
+                    continue
+                monitor = self.monitors.pop(old['id'], None)
+                if monitor is None:
+                    continue
+                reason = "connection settings changed" if new is not None else "removed or inactive"
+                log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
+                try:
+                    monitor.disconnect()
+                except Exception as e:
+                    log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
+        for kind, attr, _previous, current, _keys, factory in loaded:
+            setattr(self, attr, current)
+            for p in current:
+                if p['id'] in self.monitors:
+                    continue
+                log.info(f"[{p['name']}] Connecting {kind} monitor...")
+                try:
+                    monitor = factory(p)
+                    if monitor.connect():
+                        self.monitors[p['id']] = monitor
+                        log.info(f"[{p['name']}] Connected")
+                except Exception as e:
+                    log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
 
     def _persist_offline(self, printer_id):
         try:

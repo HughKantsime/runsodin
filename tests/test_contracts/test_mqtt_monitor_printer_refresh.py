@@ -129,7 +129,7 @@ def test_bambu_loader_skips_inactive_and_non_bambu_rows_but_keeps_legacy_null_ty
     key = Fernet.generate_key().decode()
     monkeypatch.setenv('ENCRYPTION_KEY', key)
     secret = Fernet(key.encode()).encrypt(b'SER|12345678').decode()
-    rows = [(501, 'bambu', 1), (502, 'bambu', 0), (503, 'moonraker', 1), (504, None, 1), (505, 'anycubic_lan', 1)]
+    rows = [(501, 'bambu', 1), (502, 'bambu', 0), (503, 'moonraker', 1), (504, None, 1), (505, 'anycubic_lan', 1), (506, 'Bambu', 1)]
     for pid, api_type, active in rows:
         review_db.execute(text(
             "INSERT INTO printers(id,name,api_type,api_host,api_key,org_id,slot_count,is_active,tags,timelapse_enabled,shared) "
@@ -139,7 +139,7 @@ def test_bambu_loader_skips_inactive_and_non_bambu_rows_but_keeps_legacy_null_ty
     monkeypatch.setattr(module, 'engine', review_db.get_bind())
     d = module.MQTTMonitorDaemon.__new__(module.MQTTMonitorDaemon)
     loaded = {p['id'] for p in d.load_printers()} & {pid for pid, _, _ in rows}
-    assert loaded == {501, 504}
+    assert loaded == {501, 504, 506}
 
 
 def test_fleet_live_status_skips_inactive_printers(token_client, review_db, monkeypatch):  # noqa: F811
@@ -157,3 +157,63 @@ def test_fleet_live_status_skips_inactive_printers(token_client, review_db, monk
     response = client.get('/printers/live-status', headers=issue(['read:printers']))
     assert response.status_code == 200, response.text
     assert 601 in fetched and 602 not in fetched
+
+
+def test_id_moving_from_moonraker_to_bambu_keeps_the_new_bambu_monitor(daemon):
+    # Moonraker printer failed its first connection, then the row became Bambu.
+    daemon._all_printers = []
+    daemon._all_moonraker = [{'id': 20, 'name': 'X', 'host': 'h', 'port': 80}]
+    daemon.load_printers = lambda: [bambu(20)]
+    daemon.load_moonraker_printers = lambda: []
+    daemon._check_new_printers()
+    assert daemon.monitors[20].kwargs.get('serial') == 'S20' and not daemon.monitors[20].disconnected
+
+
+def test_id_moving_from_bambu_to_moonraker_replaces_the_monitor(daemon):
+    before = start_with(daemon, [bambu(21)])
+    daemon.load_printers = lambda: []
+    daemon.load_moonraker_printers = lambda: [{'id': 21, 'name': 'X', 'host': 'h', 'port': 7125}]
+    daemon._check_new_printers()
+    assert before[21].disconnected
+    assert daemon.monitors[21].kwargs['port'] == 7125 and not daemon.monitors[21].disconnected
+
+
+def test_changed_serial_reconnects(daemon):
+    before = start_with(daemon, [bambu(22)])
+    daemon.load_printers = lambda: [dict(bambu(22), serial='NEW')]
+    daemon._check_new_printers()
+    assert before[22].disconnected and daemon.monitors[22].kwargs['serial'] == 'NEW'
+
+
+def test_connect_exception_is_contained_and_other_printers_still_connect(daemon, monkeypatch, caplog):
+    from modules.printers.monitors import mqtt_monitor as module
+    start_with(daemon, [])
+
+    class Exploding(FakeMonitor):
+        def connect(self):
+            raise RuntimeError('secret-access-code-in-message')
+    monkeypatch.setattr(module, 'PrinterMonitor',
+                        lambda **kw: Exploding(**kw) if kw['printer_id'] == 30 else FakeMonitor(**kw))
+    daemon.load_printers = lambda: [bambu(30), bambu(31)]
+    daemon.load_moonraker_printers = lambda: [{'id': 32, 'name': 'K', 'host': 'h', 'port': 80}]
+    with caplog.at_level('DEBUG', logger='mqtt_monitor'):
+        daemon._check_new_printers()
+    assert 30 not in daemon.monitors and 31 in daemon.monitors and 32 in daemon.monitors
+    assert [p['id'] for p in daemon._all_printers] == [30, 31]
+    assert 'secret-access-code-in-message' not in caplog.text
+
+
+def test_moonraker_reload_failure_keeps_moonraker_monitors_while_bambu_reconciles(daemon):
+    old_k = FakeMonitor(name='K')
+    before = start_with(daemon, [bambu(40)])
+    daemon.monitors[41] = old_k
+    daemon._all_moonraker = [{'id': 41, 'name': 'K', 'host': 'h', 'port': 80}]
+
+    def boom():
+        raise OSError('db')
+    daemon.load_moonraker_printers = boom
+    daemon.load_printers = lambda: []
+    daemon._check_new_printers()
+    assert before[40].disconnected and 40 not in daemon.monitors
+    assert daemon.monitors[41] is old_k and not old_k.disconnected
+    assert [p['id'] for p in daemon._all_moonraker] == [41]
