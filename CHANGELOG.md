@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.49] - 2026-11-08
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: Fixes being sent back to the login page while signed in, caused by older alert records the alert list could not read. -->
 
 ### Fixed
