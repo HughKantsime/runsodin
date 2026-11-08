@@ -199,7 +199,8 @@ def _validate_json_status(path: Path, allowed: set[str]) -> None:
         raise ValueError(f"expected JSON object: {path}")
     status = str(payload.get("status", ""))
     if status not in allowed:
-        raise ValueError(f"unexpected status {status!r} in {path}")
+        # The value itself is not echoed: findings reach the CI job log.
+        raise ValueError(f"unexpected status value (not one of {sorted(allowed)}) in {path}")
 
 
 def _artifacts(patterns: list[str], cwd: Path, not_before: float) -> tuple[list[Path], list[str]]:

@@ -78,7 +78,14 @@ def test_aggregate_reports_every_real_result(tmp_path, monkeypatch, capsys, fail
         assert call["timeout"] == component["timeout_seconds"]
         assert call["json_status"] == component["json_status"]
         assert call["isolate_process_group"] is True
-    progress = capsys.readouterr().out.splitlines()
+    output = capsys.readouterr().out.splitlines()
+    # Failed components add indented detail lines after their status line.
+    details = [line for line in output if line.startswith("  ")]
+    progress = [line for line in output if not line.startswith("  ")]
+    assert len(details) >= len(failed_ids)
+    for gate in failed_ids:
+        status_at = output.index(next(line for line in output if line.startswith(f"{gate.upper()}: fail")))
+        assert output[status_at + 1].startswith("  finding: ")
     assert sorted(line.split(':')[0] for line in progress[:10]) == [
         c["id"] for c in inventory["components"]
     ]
@@ -254,3 +261,125 @@ def test_progress_is_printed_before_later_components_start(tmp_path, monkeypatch
 
     monkeypatch.setattr(aggregate, "execute", run)
     assert aggregate.main() == 0
+
+
+
+def test_failure_summary_names_failing_tests_from_the_sanitized_log(tmp_path):
+    log = tmp_path / "result.log"
+    lines = ["....F", "=== short test summary info ===",
+             "FAILED tests/test_a.py::test_one - AssertionError: boom",
+             "ERROR tests/test_b.py::test_two - RuntimeError",
+             "FAILED_NOT_A_SUMMARY_LINE", "  FAILED indented is ignored",
+             "FAILED tests/test_long.py::test_x - " + "y" * 5000]
+    lines += [f"FAILED tests/test_many.py::test_{n}" for n in range(aggregate.FAILURE_SUMMARY_LIMIT)]
+    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = {"status": "fail", "findings": ["command exited 1"],
+              "log": {"path": str(log), "sanitized": True}}
+    summary = aggregate.failure_summary(result)
+    assert summary[0] == "  finding: command exited 1"
+    assert summary[1] == "  FAILED tests/test_a.py::test_one - AssertionError: boom"
+    assert summary[2] == "  ERROR tests/test_b.py::test_two - RuntimeError"
+    assert len(summary[3]) == 2 + aggregate.FAILURE_LINE_CHARS
+    assert len(summary) == 1 + aggregate.FAILURE_SUMMARY_LIMIT + 1
+    assert summary[-1] == "  ... 3 more FAILED/ERROR lines"
+    assert not any("NOT_A_SUMMARY" in line or "indented" in line for line in summary)
+
+
+def test_failure_summary_is_empty_on_pass_and_never_reads_an_unsanitized_log(tmp_path):
+    log = tmp_path / "result.log"
+    log.write_text("FAILED tests/test_a.py::test_one\n", encoding="utf-8")
+    assert aggregate.failure_summary({"status": "pass", "findings": [], "log": {"path": str(log), "sanitized": True}}) == []
+    unsanitized = {"status": "fail", "findings": ["x"], "log": {"path": str(log), "sanitized": False}}
+    assert aggregate.failure_summary(unsanitized) == ["  finding: x"]
+    missing = {"status": "fail", "findings": [], "log": {"path": str(tmp_path / "gone.log"), "sanitized": True}}
+    assert aggregate.failure_summary(missing) == []
+
+
+def test_failure_summary_reads_only_the_log_tail(tmp_path):
+    log = tmp_path / "result.log"
+    with log.open("w", encoding="utf-8") as handle:
+        handle.write("FAILED tests/early.py::test_far_from_the_end\n")
+        handle.write("." * (aggregate.FAILURE_LOG_TAIL_BYTES + 10) + "\n")
+        handle.write("FAILED tests/late.py::test_in_the_summary\n")
+    summary = aggregate.failure_summary({"status": "fail", "findings": [], "log": {"path": str(log), "sanitized": True}})
+    assert summary == ["  FAILED tests/late.py::test_in_the_summary"]
+
+
+def test_failure_summary_never_raises():
+    class Exploding:
+        def __iter__(self):
+            raise RuntimeError("boom")
+    summary = aggregate.failure_summary({"status": "fail", "findings": Exploding(), "log": None})
+    assert summary == ["  (failure summary unavailable: RuntimeError)"]
+
+
+def test_failure_summary_redacts_a_secret_decoded_by_status_validation(tmp_path, monkeypatch):
+    secret = "s3cr3t-value-for-test-only"
+    monkeypatch.setenv("ODIN_TEST_API_TOKEN", secret)
+    escaped = "".join(f"\\u{ord(c):04x}" for c in secret)  # JSON escapes evade the artifact sanitizer
+    script = tmp_path / "write_status.py"
+    script.write_text(
+        "import pathlib\n"
+        f"pathlib.Path('status.json').write_text('{{\"status\": \"{escaped}\"}}')\n",
+        encoding="utf-8",
+    )
+    result = execute(
+        gate_id="probe", command=[sys.executable, str(script)], output=tmp_path / "out" / "result.json",
+        timeout=60, expected_artifacts=["status.json"], json_status=["status.json=pass"], cwd=tmp_path,
+    )
+    assert result["status"] == "fail"
+    summary = "\n".join(aggregate.failure_summary(result))
+    assert "unexpected status value" in summary
+    assert secret not in summary
+    assert secret not in json.dumps(result["findings"])
+
+
+def test_emit_writes_each_component_block_atomically(monkeypatch):
+    class SlowStream:
+        def __init__(self):
+            self.chunks = []
+        def write(self, text):
+            for char in text:  # worst case: the stream yields between characters
+                self.chunks.append(char)
+                threading.Event().wait(0.0001)
+        def flush(self):
+            pass
+    stream = SlowStream()
+    monkeypatch.setattr(aggregate.sys, "stdout", stream)
+    blocks = [f"CV{n:02d}: fail (1s)\n  finding: detail {n}" for n in range(8)]
+    threads = [threading.Thread(target=aggregate._emit, args=(block,)) for block in blocks]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    written = "".join(stream.chunks)
+    assert sorted(written.split("\n")[:-1]) == sorted(line for block in blocks for line in block.split("\n"))
+    for block in blocks:
+        assert block + "\n" in written
+
+
+@pytest.mark.parametrize("aligned", [True, False])
+def test_failure_summary_ignores_a_line_cut_by_the_tail(tmp_path, aligned):
+    log = tmp_path / "result.log"
+    tail_bytes = aggregate.FAILURE_LOG_TAIL_BYTES
+    cut_line = "FAILED fabricated suffix\n"  # the tail starts exactly here
+    rest = "FAILED tests/real.py::test_real\n"
+    filler = "." * (tail_bytes - len(cut_line) - len(rest) - 1) + "\n"
+    head = "real log line\n" if aligned else "real log line whose suffix is "
+    log.write_text(head + cut_line + filler + rest, encoding="utf-8")
+    assert log.stat().st_size - tail_bytes == len(head)
+    summary = aggregate.failure_summary({"status": "fail", "findings": [], "log": {"path": str(log), "sanitized": True}})
+    if aligned:  # the tail began on a real line boundary, so that line is genuine
+        assert summary == ["  FAILED fabricated suffix", "  FAILED tests/real.py::test_real"]
+    else:
+        assert summary == ["  FAILED tests/real.py::test_real"]
+
+def test_failure_summary_sanitizes_findings_before_truncating(monkeypatch):
+    secret = "direct-finding-secret-value"
+    monkeypatch.setenv("ODIN_TEST_API_TOKEN", secret)
+    straddling = "p" * (aggregate.FAILURE_LINE_CHARS - 10) + secret  # truncation first would leave a fragment
+    summary = aggregate.failure_summary({"status": "fail", "findings": [f"value {secret}", straddling], "log": None})
+    joined = "\n".join(summary)
+    assert secret not in joined
+    assert secret[:10] not in joined
+    assert summary[0] == "  finding: value [REDACTED]"
