@@ -122,3 +122,14 @@ it('explains a Canvas launch awaiting its first reviewed roster import', async (
   expect(await screen.findByRole('alert')).toHaveTextContent('Ask your school administrator to import it')
   expect(request).not.toHaveBeenCalled()
 })
+
+
+it('explains license refusal on the login page with a local login recovery link', async () => {
+  start('/login?error=sso_license_required')
+  expect(await screen.findByRole('alert')).toHaveTextContent('SSO needs an active license; use the local admin login.')
+  expect(screen.getByRole('link')).toHaveAttribute('href', '/login')
+  expect(location.pathname).toBe('/login')
+  expect(location.search).toBe('')
+  expect(request).not.toHaveBeenCalled()
+  expect(oidcNavigation.finish).not.toHaveBeenCalled()
+})

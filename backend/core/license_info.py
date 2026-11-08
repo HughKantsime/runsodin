@@ -56,7 +56,7 @@ class LicenseInfo:
             return self.tier in {"education", "enterprise"} and self.has_feature("education_workflows")
         if feature == "education_workflows":
             return self.tier in {"education", "enterprise"} and feature in self.features
-        return feature in self.features or feature in tier_features
+        return feature in TIERS["community"]["features"] or feature in self.features or feature in tier_features
 
     def effective_features(self) -> list[str]:
         """Return the deterministic feature set enforced by ``has_feature``."""
@@ -64,7 +64,7 @@ class LicenseInfo:
         if not self.valid:
             return sorted(set(TIERS["community"]["features"]))
         tier_features = set(TIERS.get(self.tier, TIERS["community"])["features"])
-        features = tier_features | set(self.features)
+        features = set(TIERS["community"]["features"]) | tier_features | set(self.features)
         if not self.has_feature("education_workflows"):
             features.discard("education_workflows")
             features.discard("training_signoff")

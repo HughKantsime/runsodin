@@ -293,3 +293,27 @@ def test_program_includes_unassigned_history_but_class_term_do_not(program):
     result = reports.build_report(db, _principal(2), filters(cost_center_id=7))
     assert len(result['classes']) == 1 and result['classes'][0]['title'] == 'Unassigned'
     assert result['classes'][0]['jobs'] == result['programs'][0]['jobs'] == 1
+
+
+@pytest.mark.parametrize('format,status', [('csv', 403), ('json', 200), ('pdf', 200)])
+def test_csv_entitlement_is_checked_only_at_csv_route(client, monkeypatch, format, status):
+    from core.license_info import LicenseInfo
+    original = LicenseInfo.has_feature
+    monkeypatch.setattr(LicenseInfo, 'has_feature',
+                        lambda self, feature: False if feature == 'csv_export' else original(self, feature))
+    http, _, db, _ = client
+    response = http.get('/api/education/program-reports', params={
+        **filters().model_dump(mode='json', exclude_none=True), 'format': format})
+    assert response.status_code == status, response.text
+    if format == 'csv':
+        assert response.headers['X-ODIN-License-Feature'] == 'csv_export'
+        assert db.execute(text("SELECT count(*) FROM education_audit_events WHERE action='program.export'")).scalar_one() == 0
+
+
+def test_shared_csv_renderer_does_not_require_license(program, tier_license):
+    from modules.organizations.education_program_rendering import csv_report
+    db, _, _ = program
+    result = reports.build_report(db, _principal(2), filters())
+    tier_license(None)
+    rendered = csv_report(result)
+    assert b'Program' in rendered

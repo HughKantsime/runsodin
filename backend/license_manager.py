@@ -182,6 +182,21 @@ def _license_expiry_deadline(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+_clock = None
+_clock_directory = None
+
+
+def license_clock():
+    global _clock, _clock_directory
+    if _clock is None or _clock_directory != LICENSE_DIR:
+        from core.license_clock import LicenseClock, TimeStore
+        from core.db import current_engine
+        _clock = LicenseClock(TimeStore(LICENSE_DIR, current_engine),
+                              wall=lambda: datetime.now(timezone.utc))
+        _clock_directory = LICENSE_DIR
+    return _clock
+
+
 def load_license() -> LicenseInfo:
     """Load and validate the installed license file."""
     path = _find_license_file()
@@ -338,10 +353,12 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
 
         # Check expiry
         expires = _license_expiry_deadline(payload["expires_at"])
-        if expires < datetime.now(timezone.utc):
+        now, rollback = license_clock().sample()
+        clock_error = license_clock().error(payload.get("issued_at", ""), sample=(now, rollback))
+        if clock_error or now >= expires:
             info.valid = False
             info.expired = True
-            info.error = f"License expired on {payload['expires_at']}"
+            info.error = clock_error or f"License expired on {payload['expires_at']}"
             # Still set tier info so UI can show "expired Pro" vs "no license"
             info.tier = payload["tier"]
             info.licensee = payload.get("licensee", "")
@@ -537,14 +554,22 @@ def get_license() -> LicenseInfo:
             identity.append(None)
     identity = tuple(identity)
 
+    clock_sample = license_clock().sample(persist=True)
+    clock_changed = (
+        _cached_license is not None and (
+            bool(license_clock().error(_cached_license.issued_at, sample=clock_sample))
+            or bool(_cached_license.error and _cached_license.error.startswith("License clock"))
+        )
+    )
+
     # A valid license that reaches its expiry instant while cached is re-read
     # (and so reverts to Community) without waiting for a file change or restart.
     expired_in_cache = (
         _cached_license is not None and _cached_license.valid
         and _cached_license.expiry_deadline is not None
-        and datetime.now(timezone.utc) >= _cached_license.expiry_deadline
+        and clock_sample[0] >= _cached_license.expiry_deadline
     )
-    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache or identity != _cached_identity:
+    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache or clock_changed or identity != _cached_identity:
         _cached_license = load_license()
         _cached_mtime = current_mtime
         _cached_identity = identity
@@ -566,7 +591,8 @@ def require_feature(feature: str):
         requirement = " or ".join(eligible) if eligible else "a license with this entitlement"
         raise HTTPException(
             status_code=403,
-            detail=f"Feature '{feature}' requires {requirement}. Current tier: {tier}"
+            detail=f"Feature '{feature}' requires {requirement}. Current tier: {tier}",
+            headers={"X-ODIN-License-Feature": feature},
         )
 
 

@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("pro_license")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text

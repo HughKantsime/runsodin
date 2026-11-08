@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("education_license")
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session

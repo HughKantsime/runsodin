@@ -1,4 +1,5 @@
 import { clearSensitiveBrowserState } from '../permissions'
+import { notifyLicenseRefusal } from './licenseEvents'
 
 const API_BASE = '/api'
 
@@ -61,6 +62,7 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   }
   if (response.status === 403) {
     const err = await response.json().catch(() => ({}))
+    notifyLicenseRefusal(response, err.detail)
     throw apiError(err, 'You do not have permission to perform this action.', response.status)
   }
   if (response.status === 404) {
@@ -91,7 +93,8 @@ export const downloadBlob = async (endpoint: string, filename: string): Promise<
   const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw apiError(err, 'Export failed')
+    notifyLicenseRefusal(res, err.detail)
+    throw apiError(err, 'Export failed', res.status)
   }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

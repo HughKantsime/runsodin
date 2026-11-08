@@ -177,11 +177,9 @@ def apply(db, principal, connection_id, token, confirmations=()):
         resolution = resolved[subject]
         uid = resolution['user_id']
         if uid is None:
-            from license_manager import check_user_limit
-            check_user_limit(db.execute(text('SELECT COUNT(*) FROM users')).scalar())
-            uid = execute_insert_returning_id(db,
-                "INSERT INTO users(username,email,password_hash,role,is_active,group_id) VALUES(:name,:email,'','viewer',TRUE,:o)",
-                {'name': 'classroom-' + uuid.uuid4().hex, 'email': member['email'], 'o': org})
+            from modules.organizations.user_creation import create_user_record
+            uid = create_user_record(db, username='classroom-' + uuid.uuid4().hex,
+                email=member['email'], password_hash='', role='viewer', group_id=org)
             resolution['user_id'] = uid
         retain_membership(db, uid, org)
         statement = (

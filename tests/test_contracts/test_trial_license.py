@@ -318,7 +318,7 @@ R["product_get"] = a.get(f"/api/products/{p}").status_code
 R["maint_list"] = [x["id"] for x in a.get("/api/maintenance/tasks").json()]
 R["invoice"] = a.get(f"/api/orders/{o}/invoice.pdf").status_code
 ex = a.get("/api/export/jobs")
-R["export_jobs"] = (ex.status_code, ex.headers.get("content-type", ""))
+R["export_jobs"] = (ex.status_code, ex.headers.get("content-type", ""), ex.headers.get("X-ODIN-License-Feature"))
 R["gdpr_export"] = a.get(f"/api/users/{sql('SELECT id FROM users WHERE username=:u', u='trial-admin')[0][0]}/export").status_code
 R["order_delete"] = a.delete(f"/api/orders/{o2}").status_code
 R["notices"] = body(a.get("/api/system/notices"))
@@ -340,11 +340,12 @@ def test_at_expiry_pro_writes_return_403(expired):
     assert "requires Pro" in r["detail_403"]["detail"]
 
 
-def test_at_expiry_reads_exports_and_deletes_still_work_and_no_data_is_deleted(expired):
+def test_at_expiry_reads_and_deletes_remain_but_csv_is_refused(expired):
     r = expired["after"]
     assert r["order_get"] == 200 and len(r["orders_list"]) == 2
     assert r["product_get"] == 200 and len(r["maint_list"]) == 1
-    assert r["invoice"] == 200 and r["export_jobs"][0] == 200 and "csv" in r["export_jobs"][1]
+    assert r["invoice"] == 200
+    assert r["export_jobs"][0] == 403 and r["export_jobs"][2] == "csv_export"
     assert r["gdpr_export"] == 200
     assert r["order_delete"] == 204
     assert r["counts"] == {"orders": 1, "products": 1, "tasks": 1}

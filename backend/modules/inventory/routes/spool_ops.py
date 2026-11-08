@@ -1,4 +1,5 @@
 """Spool label/QR generation, CSV export, lookup, scan-assign, and bulk operations."""
+from license_manager import require_feature
 from core.base import slot_filament_value
 
 from modules.inventory.slot_assignments import assign_slot, lock_slot_graph
@@ -33,6 +34,7 @@ def export_spools_csv(
     db: Session = Depends(get_db),
 ):
     """Export all spools as CSV."""
+    require_feature("csv_export")
     import csv as csv_mod
     import io as io_mod
 

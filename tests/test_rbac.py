@@ -207,6 +207,15 @@ INTERACTIVE_ADMIN_OPERATIONS = {
 # The live container (no signed license can be installed in an image) runs Community;
 # tests/test_contracts/test_rbac_licensed_matrix.py runs the same table on Enterprise.
 LICENSE_GATED = {
+    **{("GET", path): "csv_export" for path in (
+        "/api/export/jobs", "/api/export/models", "/api/export/spools",
+        "/api/export/filament-usage", "/api/spools/export", "/api/archives/log/export")},
+    **{route: "user_groups" for route in (
+        ("GET", "/api/orgs"), ("POST", "/api/orgs"), ("PATCH", "/api/orgs/{org_id}"),
+        ("DELETE", "/api/orgs/{org_id}"), ("POST", "/api/orgs/{org_id}/members"),
+        ("POST", "/api/orgs/{org_id}/printers"),
+        ("GET", "/api/orgs/{org_id}/settings"), ("PUT", "/api/orgs/{org_id}/settings"))},
+    ("PATCH", "/api/report-schedules/{schedule_id}"): "email_notifications",
     ("GET", "/api/audit-logs/verify"): "audit_integrity",
     ("POST", "/api/audit-logs/initialize-keyring"): "audit_integrity",
     ("POST", "/api/audit-logs/accept-restore-baseline"): "audit_integrity",
@@ -252,7 +261,7 @@ LICENSE_GATED = {
 # Lowest tier carrying each feature (license_manager.TIERS); Enterprise carries every one.
 _TIER_ORDER = ("community", "pro", "education", "enterprise")
 FEATURE_MIN_TIER = {**{f: "pro" for f in ("analytics", "branding", "email_notifications", "maintenance", "orders", "products",
-                                         "permissions", "sso", "usage_reports", "webhooks")},
+                                         "permissions", "sso", "usage_reports", "webhooks", "csv_export")},
                     **{f: "education" for f in ("job_approval", "print_quotas", "user_groups", "term_retention")},
                     "audit_export": "enterprise", "audit_integrity": "enterprise", "siem_stream": "enterprise"}
 LICENSE_TIER = os.environ.get("RBAC_LICENSE_TIER", "community")

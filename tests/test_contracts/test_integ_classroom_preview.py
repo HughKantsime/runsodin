@@ -15,7 +15,7 @@ def _counts(db):
                  for table in ("users", "education_cost_center_grants", "classroom_course_mappings"))
 
 
-def test_preview_shows_roster_and_diff_and_changes_nothing(classroom_db, monkeypatch):  # noqa: F811
+def test_preview_shows_roster_and_diff_and_changes_nothing(classroom_db, monkeypatch, education_license):  # noqa: F811
     from modules.organizations import routes_classroom
     from modules.organizations.routes_classroom import (
         ClassroomImportInput, classroom_course_preview, import_classroom_course,

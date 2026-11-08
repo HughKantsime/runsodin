@@ -58,8 +58,11 @@ F["require_mfa"] = call("put", "/api/config/require-mfa", json={"require_mfa": F
 F["ip_allowlist"] = call("put", "/api/config/ip-allowlist", json={"enabled": False, "cidrs": ["10.0.0.0/8"]})
 F["organizations"] = call("post", "/api/orgs", json={"name": "CertG Org " + tier})
 F["gdpr_export"] = call("get", f"/api/users/{admin_id}/export")
-# Org-level branding is branding too (review MEDIUM 2); other org settings stay free.
+# All org operations require user_groups; branding additionally requires branding.
 org_row = sql("SELECT id FROM groups WHERE is_org IS TRUE ORDER BY id")
+if not org_row:
+    sql("INSERT INTO groups(name,is_org) VALUES('Retained organization',1)")
+    org_row = sql("SELECT id FROM groups WHERE is_org IS TRUE ORDER BY id")
 F["org_branding"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"branding_app_name": "CertG white label"})
 F["org_branding_logo"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"branding_logo_url": "/static/branding/x.png"})
 F["org_settings_free"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"quiet_hours_enabled": True})
@@ -257,12 +260,12 @@ def test_enterprise_includes_pro_and_education_features(tiers):
         assert ok(tiers["enterprise"]["features"][feature]), feature
 
 
-FREE_SECURITY = ["mfa", "require_mfa", "ip_allowlist", "organizations", "gdpr_export"]
+FREE_SECURITY = ["mfa", "require_mfa", "ip_allowlist", "gdpr_export"]
 
 
 @pytest.mark.parametrize("feature", FREE_SECURITY)
 def test_security_features_are_free_on_every_tier(tiers, feature):
-    """Decision 2026-10-14: MFA, IP allowlist, organizations and GDPR export are included in every tier."""
+    """Decision 2026-10-14: MFA, IP allowlist and GDPR export are included in every tier."""
     for t in TIERS:
         assert ok(tiers[t]["features"][feature]), (t, tiers[t]["features"][feature])
 
@@ -273,7 +276,6 @@ PRO_GATED = {
     "analytics": "analytics", "analytics_failures": "analytics", "analytics_time_accuracy": "analytics",
     "maintenance": "maintenance", "maintenance_seed": "maintenance",
     "branding": "branding", "branding_logo": "branding",
-    "org_branding": "branding", "org_branding_logo": "branding",
     "chargebacks": "analytics",
     # A scheduled report is an email: email_notifications gates every report type (review O6),
     # before the analytics check of the analytics-derived types.
@@ -306,7 +308,7 @@ def test_enterprise_gate_mqtt_event_republish(tiers):
     assert {t: tiers[t]["mqtt_republished"] for t in TIERS} == {"community": 0, "pro": 0, "education": 0, "enterprise": 2}
 
 
-@pytest.mark.parametrize("call_name", ["metrics", "org_settings_free", "org_branding_clear", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
+@pytest.mark.parametrize("call_name", ["metrics", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
                                        "branding_read", "stats"])
 def test_reads_stay_available_on_every_tier(tiers, call_name):
     for t in TIERS:
@@ -317,8 +319,8 @@ def test_pro_oidc_autoprovision_is_not_capped(tiers):
     assert tiers["pro"]["oidc_user_delta"] == 1 and tiers["pro"]["oidc_autocreate"] == {"created": True}
 
 
-def test_community_oidc_autoprovision_refusal_is_a_coded_identity_error(tiers):
-    assert tiers["community"]["oidc_autocreate"] == {"created": False, "error": "OIDCIdentityError", "status": None}
+def test_community_oidc_autoprovision_requires_sso(tiers):
+    assert tiers["community"]["oidc_autocreate"] == {"created": False, "error": "HTTPException", "status": 403}
 
 
 # ---------- downgrade / expiry keeps existing records ----------
@@ -412,3 +414,12 @@ def test_report_runner_skips_analytics_schedules_without_the_entitlement(tiers):
     for t in ("pro", "education", "enterprise"):
         assert tiers[t]["runner_sent"] == ["O.D.I.N. Report: due-fa", "O.D.I.N. Report: due-js"]
         assert tiers[t]["runner_log"] == []
+
+
+@pytest.mark.parametrize("feature", ["organizations", "org_branding", "org_branding_logo", "org_settings_free", "org_branding_clear"])
+def test_org_operations_require_education_or_enterprise(tiers, feature):
+    for tier in ("community", "pro"):
+        assert tiers[tier]["features"][feature]["status"] == 403
+        assert "user_groups" in tiers[tier]["features"][feature]["body"]["detail"]
+    for tier in ("education", "enterprise"):
+        assert ok(tiers[tier]["features"][feature])

@@ -210,3 +210,16 @@ def configured_recipe_key(printer_id, connection):
     from core.auth import SECRET_KEY
     from core.dispatch_identity import stable_configuration_key
     return stable_configuration_key(_get_printer_info(printer_id, connection=connection), SECRET_KEY.encode())
+
+
+def create_printer_record(db, **fields):
+    """Capacity check and insertion in the caller's transaction, for API/setup."""
+    from core.license_capacity import lock_capacity
+    from license_manager import check_printer_limit
+    from modules.printers.models import Printer
+    lock_capacity(db, "printers")
+    check_printer_limit(db.query(Printer).count())
+    printer = Printer(**fields)
+    db.add(printer)
+    db.flush()
+    return printer

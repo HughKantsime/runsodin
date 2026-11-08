@@ -191,7 +191,7 @@ class TestExpiredLicense:
         assert info.tier == "pro"  # Still shows original tier
         assert info.max_printers == 5  # Community limits
         assert info.max_users == 1
-        assert info.features == ["push_notifications"]  # Community features (browser push is in every tier)
+        assert set(info.features) == {"push_notifications", "cost_calculator"}  # Community features
 
     def test_timestamp_expiry_is_not_truncated_to_utc_date(self, tmp_path, keypair):
         priv, pub_pem = keypair
@@ -349,6 +349,7 @@ class TestValidLicense:
 
         assert data["features"] == sorted(
             (set(lm.TIERS["education"]["features"]) - {"education_workflows", "training_signoff"})
+            | set(lm.TIERS["community"]["features"])
             | {"custom_school_feature"}
         )
         assert "print_quotas" in data["features"]

@@ -66,7 +66,7 @@ describe('LicenseProvider effective feature contract', () => {
     expect(featuresFromLicense([]).has('class_sections')).toBe(false)
   })
 
-  it('clears stale entitlements when a refresh fails', async () => {
+  it('keeps the last known entitlements when a refresh fails without a known expiry', async () => {
     licenseAPI.get
       .mockResolvedValueOnce({
         tier: 'education', max_users: 500, max_printers: 20,
@@ -78,10 +78,11 @@ describe('LicenseProvider effective feature contract', () => {
     await waitFor(() => expect(screen.getByTestId('tier')).toHaveTextContent('education'))
     fireEvent.click(screen.getByRole('button', { name: 'Refresh license' }))
 
-    await waitFor(() => expect(screen.getByTestId('managed')).toHaveTextContent('false'))
-    expect(screen.getByTestId('tier')).toHaveTextContent('community')
-    expect(screen.getByTestId('quota')).toHaveTextContent('false')
-    expect(screen.getByTestId('max-users')).toHaveTextContent('1')
+    await waitFor(() => expect(screen.getByTestId('load-error')).toHaveTextContent('true'))
+    expect(screen.getByTestId('managed')).toHaveTextContent('true')
+    expect(screen.getByTestId('tier')).toHaveTextContent('education')
+    expect(screen.getByTestId('quota')).toHaveTextContent('true')
+    expect(screen.getByTestId('max-users')).toHaveTextContent('500')
     expect(screen.getByTestId('loading')).toHaveTextContent('false')
     expect(screen.getByTestId('load-error')).toHaveTextContent('true')
   })

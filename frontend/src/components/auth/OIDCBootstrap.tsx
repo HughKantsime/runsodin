@@ -17,7 +17,7 @@ function readCallback() {
   const connection = fragment.get('roster_connection') || ''
   const endpoint = roster && /^[0-9a-f-]{36}$/.test(connection) ? `/api/auth/classroom/${connection}/exchange` : '/api/auth/oidc/exchange'
   const codes = fragment.getAll(roster ? 'roster_code' : 'oidc_code')
-  return { pendingRoster: params.get('error') === 'roster_import_required', endpoint, code: !params.has('error') && codes.length === 1 &&
+  return { licenseRequired: params.get('error') === 'sso_license_required', pendingRoster: params.get('error') === 'roster_import_required', endpoint, code: !params.has('error') && codes.length === 1 &&
     (!roster || (/^[0-9a-f-]{36}$/.test(connection) && fragment.getAll('roster_connection').length === 1 && !fragment.has('oidc_code'))) ? codes[0].trim() : '' }
 }
 
@@ -67,7 +67,7 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
         <h1 className="mb-4" style={{ color: 'var(--brand-accent)' }}>O.D.I.N.</h1>
         {authority ? <LoginContinuation authority={authority}
           onComplete={() => oidcNavigation.finish()} onRestart={() => window.location.replace('/login')} /> : failed ? <PageState kind="error" role="alert">
-          <p>{callback.pendingRoster ? 'Your class roster has not been imported. Ask your school administrator to import it, then launch again.' : 'SSO sign-in could not be completed. Please try again or contact your administrator.'}</p>
+          <p>{callback.licenseRequired ? 'SSO needs an active license; use the local admin login.' : callback.pendingRoster ? 'Your class roster has not been imported. Ask your school administrator to import it, then launch again.' : 'SSO sign-in could not be completed. Please try again or contact your administrator.'}</p>
           <a href="/login" className="inline-block mt-4 underline"
             style={{ color: 'var(--brand-accent)' }}>Return to sign in</a>
         </PageState> : <div role="status">

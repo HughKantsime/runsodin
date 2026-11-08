@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.usefixtures("pro_license")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from slowapi import _rate_limit_exceeded_handler

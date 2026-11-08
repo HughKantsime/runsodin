@@ -102,11 +102,6 @@ def create_printer(
         if camera_url_has_credentials(camera_url):
             camera_url = crypto.encrypt(camera_url)
 
-    from license_manager import check_printer_limit
-
-    current_count = db.query(Printer).count()
-    check_printer_limit(current_count)
-
     existing = db.query(Printer).filter(Printer.name == printer.name).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Printer '{printer.name}' already exists")
@@ -117,7 +112,8 @@ def create_printer(
     if hasattr(printer, 'api_key') and printer.api_key:
         encrypted_api_key = crypto.encrypt(printer.api_key)
 
-    db_printer = Printer(
+    from modules.printers.services import create_printer_record
+    db_printer = create_printer_record(db,
         name=printer.name,
         model=printer.model,
         slot_count=printer.slot_count,
@@ -132,8 +128,6 @@ def create_printer(
         # Without a URL the model default applies (Bambu printers have a built-in camera).
         **({"camera_url": camera_url, "camera_enabled": True} if camera_url else {}),
     )
-    db.add(db_printer)
-    db.flush()
 
     for i in range(1, printer.slot_count + 1):
         slot_data = None

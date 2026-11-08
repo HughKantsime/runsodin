@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from core.remote_access import session_cookie_secure
 from fastapi import APIRouter, Depends, HTTPException, Request
-from license_manager import feature_gate
+from license_manager import feature_gate, require_feature
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -142,6 +142,7 @@ def _resolve_oidc_user(
     verified_email: bool = False,
 ) -> dict:
     """Resolve, bind, or create one exact issuer+subject identity."""
+    require_feature("sso")
     issuer = claims.get("iss")
     subject = claims.get("sub")
     email = (
@@ -286,14 +287,6 @@ def _resolve_oidc_user(
     if not valid_group:
         raise OIDCIdentityError("oidc_default_tenant_required")
 
-    # Auto-provisioning creates a user like POST /api/users does, so it is
-    # bound by the same license user cap (Community: 1 user).
-    from license_manager import check_user_limit
-    try:
-        check_user_limit(db.execute(text("SELECT COUNT(*) FROM users")).scalar())
-    except HTTPException as exc:
-        raise OIDCIdentityError("license_user_limit_reached") from exc
-
     username = email.split("@", 1)[0]
     base_username = username
     counter = 1
@@ -303,22 +296,13 @@ def _resolve_oidc_user(
         username = f"{base_username}{counter}"
         counter += 1
     try:
-        user_id = execute_insert_returning_id(
-            db,
-            "INSERT INTO users "
-            "(username, email, password_hash, role, oidc_subject, oidc_provider, "
-            "oidc_issuer, group_id, last_login) VALUES "
-            "(:username, :email, '', 'viewer', :subject, :provider, :issuer, :group_id, :now)",
-            {
-                "username": username,
-                "email": email,
-                "subject": subject,
-                "provider": provider,
-                "issuer": issuer,
-                "group_id": group_id,
-                "now": datetime.now(timezone.utc).isoformat(),
-            },
-        )
+        from modules.organizations.user_creation import create_user_record
+        user_id = create_user_record(db, username=username, email=email,
+            password_hash='', role='viewer', group_id=group_id,
+            oidc_subject=subject, oidc_provider=provider, oidc_issuer=issuer,
+            last_login=datetime.now(timezone.utc).isoformat())
+    except HTTPException as exc:
+        raise OIDCIdentityError("license_user_limit_reached") from exc
     except IntegrityError as exc:
         raise OIDCIdentityError("oidc_identity_ambiguous") from exc
     return {
@@ -346,7 +330,8 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT is_enabled, display_name FROM oidc_config LIMIT 1")).fetchone()
     if not row:
         return {"enabled": False}
-    return {"enabled": bool(row[0]), "display_name": row[1] or "Single Sign-On"}
+    from license_manager import get_license
+    return {"enabled": bool(row[0]) and get_license().has_feature("sso"), "display_name": row[1] or "Single Sign-On"}
 
 
 # ============== OIDC login flow ==============
@@ -357,6 +342,7 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
 @limiter.shared_limit("30/minute", scope="oidc-login")
 async def oidc_login(request: Request, db: Session = Depends(get_db)):
     """Initiate OIDC login flow. Redirects to identity provider."""
+    require_feature("sso")
     from modules.organizations.oidc_handler import create_handler_from_config
     row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled IS TRUE LIMIT 1")).fetchone()
     if not row:
@@ -379,6 +365,7 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
 async def _oidc_callback(request: Request, code: str = None, state: str = None,
                         error: str = None, error_description: str = None, db: Session = Depends(get_db)):
     """Handle OIDC callback from identity provider."""
+    require_feature("sso")
     from modules.organizations.oidc_handler import create_handler_from_config
     from fastapi.responses import RedirectResponse
 
@@ -444,8 +431,10 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
         db.rollback()
         return RedirectResponse(url=f"/?error={quote(e.code)}", status_code=302)
     except Exception as e:
-        log.error("OIDC callback failed")
         db.rollback()
+        if _is_sso_license_refusal(e):
+            raise
+        log.error("OIDC callback failed")
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
 
 
@@ -453,6 +442,7 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
 
 async def _oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db), *, audit_method: str = "oidc"):
     """Exchange a one-time OIDC auth code for a JWT access token."""
+    require_feature("sso")
     code = body.get("code", "")
     if not code or not isinstance(code, str):
         raise HTTPException(status_code=400, detail="code is required")
@@ -563,7 +553,7 @@ _OIDC_FAILURE_CODES = frozenset({
     'oidc_email_ambiguous', 'oidc_email_conflict', 'oidc_identity_ambiguous',
     'oidc_not_configured', 'oidc_role_configuration_invalid', 'server_error',
     'temporarily_unavailable', 'unauthorized_client', 'unsupported_response_type', 'user_inactive',
-    'user_not_found', 'userinfo_subject_mismatch',
+    'user_not_found', 'userinfo_subject_mismatch', 'sso_license_required',
 })
 _EXCHANGE_FAILURE_CODES = {
     "code is required": "missing_params",
@@ -577,14 +567,23 @@ _EXCHANGE_FAILURE_CODES = {
 from modules.organizations.sso_audit import failure as _audit_oidc_failure
 
 
+def _is_sso_license_refusal(exc):
+    return (isinstance(exc, HTTPException) and exc.status_code == 403
+            and (exc.headers or {}).get("X-ODIN-License-Feature") == "sso")
+
+
 @router.get("/auth/oidc/callback", tags=["Auth"])
 async def oidc_callback(request: Request, code: str = None, state: str = None,
                         error: str = None, error_description: str = None, db: Session = Depends(get_db)):
     try:
         response = await _oidc_callback(request, code, state, error, error_description, db)
-    except Exception:
-        _audit_oidc_failure(db, "auth_failed", request)
-        raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
+    except Exception as exc:
+        if _is_sso_license_refusal(exc):
+            from fastapi.responses import RedirectResponse
+            response = RedirectResponse("/login?error=sso_license_required", status_code=302)
+        else:
+            _audit_oidc_failure(db, "auth_failed", request)
+            raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
     reason = parse_qs(urlsplit(response.headers.get("location", "")).query).get("error", [None])[0]
     if reason is not None:
         _audit_oidc_failure(db, reason if reason in _OIDC_FAILURE_CODES else "auth_failed", request)

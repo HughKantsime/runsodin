@@ -439,6 +439,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Fleet overview
 
 ### 10.2 Cost Calculator
+- Included in Community and every paid tier, together with pricing configuration
 - Detailed per-model cost breakdown: material, labor, electricity, depreciation, packaging, overhead, failure buffer
 - Configurable manufacturing margin
 - Per-unit and bulk quantity pricing calculations
@@ -459,7 +460,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Built on failure logging data
 
 ### 10.6 CSV Exports
-- CSV exports: jobs, models, spools and filament usage (operator and above), audit logs (platform superadmin only)
+- CSV exports require `csv_export` (Pro, Education or Enterprise): jobs, models, spools and filament usage (operator and above); audit logs additionally require `audit_export` and platform superadmin authority
 - Jobs, models, spools and filament-usage CSVs in Settings → System → Data Export; audit-log CSV on the Audit Log page
 
 ### 10.7 Cost Chargebacks
@@ -752,14 +753,18 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 20. License System
 
 ### 20.1 License Tiers
-- Community (free, 5 printers, 1 user; browser push notifications included)
-- Pro (unlimited printers/users, all production features + usage reports)
+- Community (free, 5 printers, 1 user; browser push notifications, cost calculator and pricing configuration included)
+- Pro (Community features + unlimited printers/users, orders, analytics, CSV exports, SSO and usage reports)
 - Education (Pro features + job approval + user groups + quotas; unlimited printers and users)
-- Enterprise (Education features + audit-log CSV export and MQTT event republishing; unlimited printers and users). MFA, IP allowlist, organizations and GDPR export are included in every tier, including Community.
+- Enterprise (Education features + audit-log CSV export and MQTT event republishing; unlimited printers and users). MFA, IP allowlist and GDPR export are included in every tier, including Community. Organization management requires the Education/Enterprise `user_groups` entitlement.
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
 - Air-gap friendly — works without network after initial activation
+- Offline clock rollback detection: 24-hour skew tolerance, process monotonic time and durable file/database checkpoints; see [limits and recovery](docs/LICENSE_ENFORCEMENT.md)
+- Expiry refreshes frontend capabilities at the deadline, on window focus and after feature-denial responses
+- Printer/user creation services enforce capacity for API, setup, SSO and roster/CSV import entry points
+- SSO login, callback and exchange require a current entitlement; local password/MFA login remains available for recovery
 - Frontend gating via ProGate component + LicenseContext
 - License upload via Settings UI (admin-only)
 - Online activation/unactivation/reactivation via license portal

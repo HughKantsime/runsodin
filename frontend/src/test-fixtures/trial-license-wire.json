@@ -54,6 +54,7 @@
     "max_printers": 5,
     "max_users": 1,
     "features": [
+      "cost_calculator",
       "push_notifications"
     ],
     "managed_externally": false,
