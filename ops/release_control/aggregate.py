@@ -38,6 +38,33 @@ def hardware_python() -> str:
     return str(checkout_runtime) if checkout_runtime.is_file() else "python3.11"
 
 
+_FAILURE_LINE = re.compile(r"^(FAILED|ERROR) \S")
+FAILURE_SUMMARY_LIMIT = 20
+
+
+def failure_summary(result: dict[str, object]) -> list[str]:
+    """Findings and pytest FAILED/ERROR lines for a failed component.
+
+    Failed runs upload no evidence, so the job log is the only triage record.
+    Lines come from the component's already-sanitized log; nothing else is read.
+    """
+    if result.get("status") == "pass":
+        return []
+    lines = [f"  finding: {item}" for item in result.get("findings", [])][:FAILURE_SUMMARY_LIMIT]
+    log = result.get("log")
+    log_path = Path(str(log.get("path"))) if isinstance(log, dict) and log.get("sanitized") else None
+    if log_path is not None and log_path.name != "junit.xml":
+        try:
+            matches = [line.rstrip()[:300] for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                       if _FAILURE_LINE.match(line)]
+        except OSError:
+            matches = []
+        lines.extend(f"  {line}" for line in matches[:FAILURE_SUMMARY_LIMIT])
+        if len(matches) > FAILURE_SUMMARY_LIMIT:
+            lines.append(f"  ... {len(matches) - FAILURE_SUMMARY_LIMIT} more FAILED/ERROR lines")
+    return lines
+
+
 def _junit(results: list[dict[str, object]], path: Path) -> None:
     failures = sum(item["status"] != "pass" for item in results)
     suite = ET.Element("testsuite", name="trusted-validation", tests=str(len(results)),
@@ -152,7 +179,8 @@ def run_aggregate() -> int:
                 "log": {"path": str(run_dir / "junit.xml"), "sha256": "0" * 64, "sanitized": True},
                 "artifacts": [], "findings": [finding],
             }
-        print(f"{component_id}: {result['status']} ({result['duration_seconds']}s)", flush=True)
+        summary = "\n".join([f"{component_id}: {result['status']} ({result['duration_seconds']}s)", *failure_summary(result)])
+        print(summary, flush=True)
         return result
 
     by_id = {component["id"]: component for component in inventory["components"]}

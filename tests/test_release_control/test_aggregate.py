@@ -78,7 +78,14 @@ def test_aggregate_reports_every_real_result(tmp_path, monkeypatch, capsys, fail
         assert call["timeout"] == component["timeout_seconds"]
         assert call["json_status"] == component["json_status"]
         assert call["isolate_process_group"] is True
-    progress = capsys.readouterr().out.splitlines()
+    output = capsys.readouterr().out.splitlines()
+    # Failed components add indented detail lines after their status line.
+    details = [line for line in output if line.startswith("  ")]
+    progress = [line for line in output if not line.startswith("  ")]
+    assert len(details) >= len(failed_ids)
+    for gate in failed_ids:
+        status_at = output.index(next(line for line in output if line.startswith(f"{gate.upper()}: fail")))
+        assert output[status_at + 1].startswith("  finding: ")
     assert sorted(line.split(':')[0] for line in progress[:10]) == [
         c["id"] for c in inventory["components"]
     ]
@@ -254,3 +261,32 @@ def test_progress_is_printed_before_later_components_start(tmp_path, monkeypatch
 
     monkeypatch.setattr(aggregate, "execute", run)
     assert aggregate.main() == 0
+
+
+def test_failure_summary_names_failing_tests_from_the_sanitized_log(tmp_path):
+    log = tmp_path / "result.log"
+    lines = ["....F", "=== short test summary info ===",
+             "FAILED tests/test_a.py::test_one - AssertionError: boom",
+             "ERROR tests/test_b.py::test_two - RuntimeError",
+             "FAILED_NOT_A_SUMMARY_LINE", "  FAILED indented is ignored"]
+    lines += [f"FAILED tests/test_many.py::test_{n}" for n in range(aggregate.FAILURE_SUMMARY_LIMIT)]
+    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = {"status": "fail", "findings": ["command exited 1"],
+              "log": {"path": str(log), "sanitized": True}}
+    summary = aggregate.failure_summary(result)
+    assert summary[0] == "  finding: command exited 1"
+    assert summary[1] == "  FAILED tests/test_a.py::test_one - AssertionError: boom"
+    assert summary[2] == "  ERROR tests/test_b.py::test_two - RuntimeError"
+    assert len(summary) == 1 + aggregate.FAILURE_SUMMARY_LIMIT + 1
+    assert summary[-1] == "  ... 2 more FAILED/ERROR lines"
+    assert not any("NOT_A_SUMMARY" in line or "indented" in line for line in summary)
+
+
+def test_failure_summary_is_empty_on_pass_and_never_reads_an_unsanitized_log(tmp_path):
+    log = tmp_path / "result.log"
+    log.write_text("FAILED tests/test_a.py::test_one\n", encoding="utf-8")
+    assert aggregate.failure_summary({"status": "pass", "findings": [], "log": {"path": str(log), "sanitized": True}}) == []
+    unsanitized = {"status": "fail", "findings": ["x"], "log": {"path": str(log), "sanitized": False}}
+    assert aggregate.failure_summary(unsanitized) == ["  finding: x"]
+    missing = {"status": "fail", "findings": [], "log": {"path": str(tmp_path / "gone.log"), "sanitized": True}}
+    assert aggregate.failure_summary(missing) == []
