@@ -64,6 +64,8 @@ class MQTTMonitorDaemon:
                 SELECT id, name, model, api_host, api_key
                 FROM printers
                 WHERE api_host IS NOT NULL AND api_key IS NOT NULL AND api_key != ''
+                  AND COALESCE(api_type, 'bambu') = 'bambu'
+                  AND is_active IS NOT FALSE
             '''))
 
             printers = []
@@ -215,7 +217,7 @@ class MQTTMonitorDaemon:
                     self._check_reconnect()
                     self._last_reconnect_check = time.time()
 
-                # Every 60s, check for newly added printers
+                # Every 60s, bring the monitored set in line with the table
                 if time.time() - self._last_printer_reload >= 60:
                     self._check_new_printers()
                     self._last_printer_reload = time.time()
@@ -235,43 +237,56 @@ class MQTTMonitorDaemon:
 
         self.stop()
 
-    def _check_new_printers(self):
-        """Check for newly added printers and connect to them."""
+    def _reconcile(self, kind, previous, load, keys, factory):
+        """Align one monitor family with the printers table; return the new list.
+
+        Removed or deactivated printers are disconnected, printers whose
+        connection settings changed are reconnected with the new values, and new
+        printers are connected. A failed read keeps the current monitors.
+        """
         try:
-            current_printers = self.load_printers()
-            current_ids = {p['id'] for p in current_printers}
-            monitored_ids = set(self.monitors.keys())
-            new_ids = current_ids - monitored_ids
-            if not new_ids:
-                return
-            for p in current_printers:
-                if p['id'] in new_ids:
-                    log.info(f"New printer detected: {p['name']}, connecting...")
-                    monitor = PrinterMonitor(
-                        printer_id=p['id'],
-                        name=p['name'],
-                        ip=p['ip'],
-                        serial=p['serial'],
-                        access_code=p['access_code']
-                    )
-                    if monitor.connect():
-                        self.monitors[p['id']] = monitor
-                        log.info(f"[{p['name']}] Connected")
-            if MOONRAKER_AVAILABLE:
-                mk_printers = self.load_moonraker_printers()
-                for p in mk_printers:
-                    if p['id'] not in self.monitors:
-                        log.info(f"New Moonraker printer: {p['name']}")
-                        monitor = MoonrakerMonitor(
-                            printer_id=p['id'],
-                            name=p['name'],
-                            host=p['host'],
-                            port=p['port'],
-                        )
-                        if monitor.connect():
-                            self.monitors[p['id']] = monitor
+            current = load()
         except Exception as e:
-            log.warning(f"Error checking for new printers: {e}")
+            log.warning(f"{kind} printer reload failed; keeping current monitors: {type(e).__name__}")
+            return previous
+        identity = lambda p: tuple(p.get(k) for k in keys)
+        after = {p['id']: p for p in current}
+        for old in previous:
+            new = after.get(old['id'])
+            if new is not None and identity(new) == identity(old):
+                continue
+            monitor = self.monitors.pop(old['id'], None)
+            if monitor is None:
+                continue
+            reason = "connection settings changed" if new is not None else "removed or inactive"
+            log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
+            try:
+                monitor.disconnect()
+            except Exception as e:
+                log.debug(f"Error disconnecting {kind} monitor: {e}")
+        for pid, p in after.items():
+            if pid in self.monitors:
+                continue
+            log.info(f"[{p['name']}] Connecting {kind} monitor...")
+            monitor = factory(p)
+            if monitor.connect():
+                self.monitors[pid] = monitor
+                log.info(f"[{p['name']}] Connected")
+        return current
+
+    def _check_new_printers(self):
+        """Reconcile monitors with the printers table (added, removed, edited)."""
+        self._all_printers = self._reconcile(
+            "Bambu", getattr(self, '_all_printers', []), self.load_printers,
+            ('ip', 'serial', 'access_code'),
+            lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
+                                     serial=p['serial'], access_code=p['access_code']))
+        if MOONRAKER_AVAILABLE:
+            self._all_moonraker = self._reconcile(
+                "Moonraker", getattr(self, '_all_moonraker', []), self.load_moonraker_printers,
+                ('host', 'port'),
+                lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
+                                           host=p['host'], port=p['port']))
 
     def _persist_offline(self, printer_id):
         try:
