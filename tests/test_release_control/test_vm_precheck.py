@@ -99,6 +99,7 @@ def test_precheck_refuses_active_runner_before_starting_any_gate(lock_path, monk
 
 @pytest.mark.parametrize("precheck", [False, True])
 def test_another_process_cannot_start_aggregate_or_precheck(lock_path, monkeypatch, precheck):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "0")
     monkeypatch.setattr(host_lock, "runner_job_active", lambda: False)
     with host_lock.validation_lock():
         source = (
@@ -110,16 +111,20 @@ def test_another_process_cannot_start_aggregate_or_precheck(lock_path, monkeypat
             source += "\nwith host_lock.validation_lock(precheck=True): print('GATES STARTED')"
         else:
             source += "aggregate.main()"
-        result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, "-c", source], env=dict(os.environ),
+                                capture_output=True, text=True)
     assert result.returncode != 0
-    assert "lock is busy or unavailable" in result.stderr
+    expected = ("lock is busy or unavailable" if precheck else
+                "validation host lock wait timed out after 0 s")
+    assert expected in result.stderr
     assert "GATES STARTED" not in result.stdout
     # No stale sentinel: closing the owner releases flock without unlinking.
     with host_lock.validation_lock():
         assert lock_path.exists()
 
 
-def test_precheck_lock_is_inherited_through_make_by_aggregate(lock_path, tmp_path):
+def test_precheck_lock_is_inherited_through_make_by_aggregate(lock_path, tmp_path, monkeypatch):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "0")
     source = (
         "from pathlib import Path; from ops.release_control import aggregate, host_lock; "
         f"host_lock.LOCK_PATH=Path({str(lock_path)!r}); "
@@ -135,7 +140,7 @@ def test_precheck_lock_is_inherited_through_make_by_aggregate(lock_path, tmp_pat
         )
         assert result.returncode == 0, result.stderr
         # The child must not unlock the parent's shared open file description.
-        with pytest.raises(SystemExit, match="lock is busy"):
+        with pytest.raises(SystemExit, match="validation host lock wait timed out after 0 s"):
             with host_lock.validation_lock():
                 pytest.fail("parent's lock was released")
 
@@ -167,31 +172,131 @@ def test_inherited_lock_descriptor_cannot_bypass_different_lock_file(lock_path, 
                 pytest.fail("unrelated fd accepted")
 
 
-def test_runner_aggregate_waits_for_a_precheck_instead_of_failing(tmp_path, monkeypatch):
-    import threading
-    lock = tmp_path / "host.lock"
-    monkeypatch.setattr(host_lock, "LOCK_PATH", lock)
-    monkeypatch.setattr(host_lock, "LOCK_POLL_SECONDS", 0.05)
-    monkeypatch.delenv(host_lock.LOCK_FD_ENV, raising=False)
-    held = lock.open("w")
-    host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
-    threading.Timer(0.3, held.close).start()
-    with host_lock.validation_lock() as fd:
-        assert fd is not None
+@pytest.fixture
+def wait_clock(monkeypatch):
+    class Clock:
+        now = 100.0
+        on_sleep = None
+
+        def __init__(self):
+            self.sleeps = []
+            self.attempts = []
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+            if self.on_sleep is not None:
+                self.on_sleep()
+
+    clock = Clock()
+    flock = host_lock.fcntl.flock
+
+    def record_attempt(fd, operation):
+        if operation & host_lock.fcntl.LOCK_EX:
+            clock.attempts.append(clock.now)
+        return flock(fd, operation)
+
+    monkeypatch.setattr(host_lock.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(host_lock.time, "sleep", clock.sleep)
+    monkeypatch.setattr(host_lock.fcntl, "flock", record_attempt)
+    monkeypatch.setattr(host_lock, "LOCK_POLL_SECONDS", 10)
+    return clock
 
 
-def test_runner_lock_wait_times_out_and_precheck_never_waits(tmp_path, monkeypatch):
-    lock = tmp_path / "host.lock"
-    monkeypatch.setattr(host_lock, "LOCK_PATH", lock)
-    monkeypatch.setattr(host_lock, "LOCK_POLL_SECONDS", 0.05)
-    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "0")
-    monkeypatch.delenv(host_lock.LOCK_FD_ENV, raising=False)
-    with lock.open("w") as held:
+def test_runner_aggregate_waits_for_a_precheck_instead_of_failing(
+        lock_path, monkeypatch, wait_clock, capsys):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "25")
+    monkeypatch.setattr(host_lock, "runner_job_active", lambda: False)
+    with host_lock.validation_lock(precheck=True) as held:
+        wait_clock.attempts.clear()
+
+        def release_after_contention():
+            assert wait_clock.attempts == [100.0]
+            host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_UN)
+
+        wait_clock.on_sleep = release_after_contention
+        with host_lock.validation_lock() as fd:
+            assert wait_clock.attempts == [100.0, 110.0]
+            assert wait_clock.sleeps == [10]
+            assert wait_clock.now == 110.0
+            assert os.fstat(fd).st_ino == lock_path.stat().st_ino
+            # A separate open description must be blocked by the new owner.
+            with lock_path.open("r") as contender:
+                with pytest.raises(BlockingIOError):
+                    host_lock.fcntl.flock(
+                        contender, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
+    assert capsys.readouterr().out == (
+        "waiting for the validation host lock "
+        "(another validation or precheck holds the host lock)\n")
+    # Closing the new owner also releases its lock.
+    with host_lock.validation_lock():
+        pass
+
+
+@pytest.mark.parametrize("limit,attempts,sleeps", [
+    (1, [100.0], [1]),
+    (25, [100.0, 110.0, 120.0], [10, 10, 5]),
+])
+def test_runner_lock_positive_deadline_times_out(
+        lock_path, monkeypatch, wait_clock, capsys, limit, attempts, sleeps):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, str(limit))
+    with lock_path.open("w") as held:
         host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
-        with pytest.raises(SystemExit, match="busy or unavailable"):
+        wait_clock.attempts.clear()
+        with pytest.raises(SystemExit, match=f"validation host lock wait timed out after {limit} s"):
             with host_lock.validation_lock():
-                pass
-        monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "3600")
-        with pytest.raises(SystemExit, match="busy or unavailable"):
-            with host_lock.validation_lock(precheck=True):
-                pass
+                pytest.fail("contended lock acquired")
+    assert wait_clock.attempts == attempts
+    assert wait_clock.sleeps == sleeps
+    assert wait_clock.now == 100.0 + limit
+    assert capsys.readouterr().out.count("another validation or precheck holds the host lock") == 1
+
+
+@pytest.mark.parametrize("overshoot", [0, 3])
+def test_runner_never_acquires_at_or_after_deadline(
+        lock_path, monkeypatch, wait_clock, overshoot):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "1")
+    with lock_path.open("w") as held:
+        host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
+        wait_clock.attempts.clear()
+
+        def release_at_deadline():
+            wait_clock.now += overshoot
+            held.close()
+
+        wait_clock.on_sleep = release_at_deadline
+        with pytest.raises(SystemExit, match="validation host lock wait timed out after 1 s"):
+            with host_lock.validation_lock():
+                pytest.fail("lock acquired after its deadline")
+    assert wait_clock.attempts == [100.0]
+    assert wait_clock.sleeps == [1]
+
+
+@pytest.mark.parametrize("precheck,limit", [(False, "0"), (False, "-1"), (True, "3600")])
+def test_zero_wait_and_precheck_never_sleep(lock_path, monkeypatch, wait_clock, precheck, limit):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, limit)
+
+    def never_sleep(seconds):
+        pytest.fail("immediate refusal must not sleep")
+
+    monkeypatch.setattr(host_lock.time, "sleep", never_sleep)
+    with lock_path.open("w") as held:
+        host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
+        wait_clock.attempts.clear()
+        expected = ("busy or unavailable" if precheck else
+                    "validation host lock wait timed out after 0 s")
+        with pytest.raises(SystemExit, match=expected):
+            with host_lock.validation_lock(precheck=precheck):
+                pytest.fail("contended lock acquired")
+    assert wait_clock.attempts == [100.0]
+    assert wait_clock.now == 100.0
+
+
+def test_zero_wait_still_acquires_immediately(lock_path, monkeypatch, wait_clock):
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "0")
+    with host_lock.validation_lock():
+        assert wait_clock.attempts == [100.0]
+        assert wait_clock.sleeps == []

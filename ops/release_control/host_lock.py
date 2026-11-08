@@ -32,24 +32,32 @@ def runner_job_active() -> bool:
 
 
 def _wait_for_lock(fd: int) -> None:
-    """Trusted Validation waits for a manual precheck instead of failing on it."""
+    """Wait for another validation or precheck, with an immediate first attempt."""
     try:
         limit = int(os.environ.get(LOCK_WAIT_ENV, DEFAULT_LOCK_WAIT_SECONDS))
     except ValueError:
         limit = DEFAULT_LOCK_WAIT_SECONDS
-    deadline = time.monotonic() + max(0, limit)
+    limit = max(0, limit)
+    deadline = time.monotonic() + limit
     announced = False
     while True:
+        # The first attempt is unconditional, including for a zero wait budget.
+        # Every retry must happen before the deadline, even if sleep overshoots.
+        if announced and time.monotonic() >= deadline:
+            raise TimeoutError(f'validation host lock wait timed out after {limit} s')
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return
         except BlockingIOError:
-            if time.monotonic() >= deadline:
-                raise OSError('validation host lock wait timed out') from None
             if not announced:
-                print('waiting for the validation host lock (a precheck is running)', flush=True)
+                print('waiting for the validation host lock '
+                      '(another validation or precheck holds the host lock)', flush=True)
                 announced = True
-            time.sleep(LOCK_POLL_SECONDS)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f'validation host lock wait timed out after {limit} s') from None
+            time.sleep(min(LOCK_POLL_SECONDS, remaining))
 
 
 @contextmanager
@@ -73,6 +81,8 @@ def validation_lock(*, precheck: bool = False):
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             else:
                 _wait_for_lock(fd)
+        except TimeoutError as exc:
+            raise SystemExit(f'refused: {exc}') from None
         except (OSError, ValueError):
             raise SystemExit('refused: validation host lock is busy or unavailable') from None
         # Check after acquiring the lock: two prechecks cannot race this check.
