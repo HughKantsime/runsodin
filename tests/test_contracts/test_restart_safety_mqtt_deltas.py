@@ -123,6 +123,7 @@ def test_same_adapter_reconnect_requires_new_explicit_state(delta_monitor, monke
     requests = []
     monkeypatch.setattr(adapter, '_publish_nowait', lambda packet: requests.append(packet) or True)
     client = SimpleNamespace(subscribe=lambda *args: None)
+    adapter._client = client  # callbacks are only honored from the adapter's own client
     adapter._on_connect(client, None, None, 0)
     adapter._parse_status({'print': {'gcode_state': 'RUNNING'}})
     assert cached()['state'] == 'RUNNING'

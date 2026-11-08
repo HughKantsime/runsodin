@@ -549,10 +549,12 @@ def _bambu_command_legacy(printer, action: str) -> bool:
             client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
         )
         if adapter.connect():
-            success = _call_adapter_method(adapter, action)
-            _time.sleep(0.3)
-            adapter.disconnect()
-            return success
+            try:
+                success = _call_adapter_method(adapter, action)
+                _time.sleep(0.3)
+                return success
+            finally:
+                adapter.disconnect()
     except Exception as e:
         log.error(f"Bambu {action} failed for printer {printer.id}: {e}")
     return False
@@ -645,13 +647,15 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
             client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
         )
         if adapter.connect():
-            method = getattr(adapter, method_name, None)
-            if method is None:
-                return False
-            success = method(*args, **kwargs)
-            _time.sleep(0.3)
-            adapter.disconnect()
-            return success
+            try:
+                method = getattr(adapter, method_name, None)
+                if method is None:
+                    return False
+                success = method(*args, **kwargs)
+                _time.sleep(0.3)
+                return success
+            finally:
+                adapter.disconnect()
     except Exception as e:
         log.error(f"Bambu {method_name} failed for printer {printer.id}: {e}")
     return False

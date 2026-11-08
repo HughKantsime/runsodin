@@ -202,12 +202,44 @@ class BambuPrinter:
             while not self._connected and time.time() < timeout:
                 time.sleep(0.1)
             
-            return self._connected
+            if not self._connected:
+                self._abandon_client()
+                return False
+            return True
             
         except Exception as e:
             print("Printer connection could not be established")
+            self._abandon_client()
             self._status.state = PrinterState.OFFLINE
             return False
+
+    def _abandon_client(self):
+        """A failed connect must not leave paho's loop running.
+
+        loop_start() reconnects on its own. Without this, every timed-out
+        connect left a client retrying forever; enough of them fill a Bambu
+        printer's few MQTT/TLS slots and every later handshake stalls.
+        """
+        client, self._client = self._client, None
+        self._connected = False
+        if client is None:
+            return
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+        try:
+            client.loop_stop()
+        except Exception:
+            pass
+        # A reconnect can complete while loop_stop() joins; close what it made.
+        try:
+            sock = client.socket()
+            if sock is not None:
+                sock.close()
+        except Exception:
+            pass
+        self._connected = False
     
     def disconnect(self):
         """Disconnect from printer."""
@@ -488,6 +520,8 @@ class BambuPrinter:
     
     def _on_connect(self, client, userdata, flags, rc):
         """MQTT connect callback."""
+        if client is not self._client:
+            return  # an abandoned client's late CONNACK
         if rc == 0:
             self._connected = True
             if self.on_connection_change:

@@ -129,7 +129,13 @@ class PrinterMonitor:
             )
             if self._bambu.connect():
                 log.info(f"[{self.name}] Connected")
-                self._recover_orphaned_jobs()
+                try:
+                    self._recover_orphaned_jobs()
+                except Exception:
+                    # A connected session the caller discards must not keep running.
+                    self._bambu.disconnect()
+                    self._bambu = None
+                    raise
                 return True
             else:
                 log.error(f"[{self.name}] Connection failed")

@@ -123,11 +123,13 @@ def _fetch_live_status_legacy(printer_id, printer, serial, access_code) -> dict:
             on_status_update=on_status,
         )
         if bp.connect():
-            timeout = 5
-            start = time.time()
-            while not status_data and (time.time() - start) < timeout:
-                time.sleep(0.2)
-            bp.disconnect()
+            try:
+                timeout = 5
+                start = time.time()
+                while not status_data and (time.time() - start) < timeout:
+                    time.sleep(0.2)
+            finally:
+                bp.disconnect()
 
             if status_data:
                 return {
