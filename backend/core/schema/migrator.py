@@ -476,7 +476,14 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
     checksum = _checksum(source_path)
     dialect = connection.dialect.name
     prior = _recorded(connection, migration_id)
-    if prior and prior != (checksum, dialect):
+    # 2.0.46's 055 could only finish on SQLite when its MAX was an INTEGER;
+    # PostgreSQL uses its native sequence. Keep those exact ledger rows valid
+    # across the 2.0.47 reference-scan fix, without rewriting released history.
+    superseded_055 = (
+        migration_id == 'python:055-controlled-history'
+        and prior == ('5c11304c296f9ebc4a414a776a6438fd81cfdba2c0a119e20f93f95b114ff6e2', dialect)
+    )
+    if prior and prior != (checksum, dialect) and not superseded_055:
         raise MigrationError(f"Migration history mismatch: {migration_id}")
     context_token = _ACTIVE_PYTHON_MIGRATION.set(migration_id)
     def validate():

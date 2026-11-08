@@ -41,6 +41,10 @@ def largest_referenced_job_id(connection):
         for fk in inspector.get_foreign_keys(table):
             if fk['referred_table'] == 'jobs':
                 links.update(fk['constrained_columns'])
+        if table == 'print_jobs':
+            # Printer protocol identifier (TEXT), not an ODIN jobs.id link.
+            # scheduled_job_id is the ODIN reference, even when job_id is numeric.
+            links.discard('job_id')
         for column in sorted(links):
             queries.append(f'SELECT {quote(column)} AS id FROM {quote(table)}')
         if {'entity_type', 'entity_id'} <= columns:
@@ -48,8 +52,16 @@ def largest_referenced_job_id(connection):
         for kind in ('resource_type', 'resource_kind'):
             if {kind, 'resource_id'} <= columns:
                 queries.append(f"SELECT resource_id AS id FROM {quote(table)} WHERE {kind} IN ('job','jobs')")
+    # SQLite MAX sorts TEXT above INTEGER. Normalize before aggregating: only
+    # integer storage values and nonempty ASCII-digit text are job identifiers.
+    # GLOB alone stops at NUL, so explicitly reject embedded NULs as well.
+    identifier = 'id'
+    if connection.dialect.name == 'sqlite':
+        identifier = ("CASE WHEN typeof(id)='integer' THEN id "
+                      "WHEN typeof(id)='text' AND id<>'' AND id NOT GLOB '*[^0-9]*' "
+                      "AND instr(id,char(0))=0 THEN CAST(id AS INTEGER) END")
     return connection.exec_driver_sql(
-        'SELECT COALESCE(max(id),0) FROM (' + ' UNION ALL '.join(queries) + ')').scalar_one()
+        f'SELECT COALESCE(max({identifier}),0) FROM (' + ' UNION ALL '.join(queries) + ')').scalar_one()
 
 
 def initialize_job_ids(connection):
@@ -137,8 +149,10 @@ def validate(connection):
 
     if connection.dialect.name == 'sqlite':
         rows = connection.exec_driver_sql('SELECT singleton,high_water FROM job_id_high_water').all()
-        if len(rows) != 1 or rows[0][0] != 1 or rows[0][1] < 0:
-            raise MigrationError('Job identity high-water row missing or invalid')
+        if (len(rows) != 1 or rows[0][0] != 1
+                or type(rows[0][1]) is not int or rows[0][1] < 0):
+            raise MigrationError('Job identity high-water row missing or invalid: '
+                                 'expected singleton=1 and a nonnegative integer high_water')
         actual = dict(connection.exec_driver_sql(
             "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name LIKE 'jobs_high_water_%'").all())
         normalize = lambda sql: ''.join(sql.lower().split())
