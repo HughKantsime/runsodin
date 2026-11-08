@@ -6,19 +6,19 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.50] - 2026-11-08
 
-<!-- summary: On installs without organizations, an administrator can now clear a stuck printer dispatch instead of the printer staying blocked. -->
+<!-- summary: For printers without an organization, an administrator can now clear a stuck dispatch instead of the printer staying blocked. -->
 
 ### Fixed
 
-- On installs without organizations, a global administrator can now inspect, hold and release a stuck dispatch on a printer from its Dispatch Recovery panel. Before, recovery refused every printer without an organization, so one interrupted upload left that printer unable to receive any job from O.D.I.N. All existing release checks still apply: the job must be on hold, the printer must be idle with fresh status, nothing else may be sending to it, and the administrator confirms the four checks. A print that was started another way and linked to the job must finish first. Recovery for printers in an organization is unchanged.
+- For printers and jobs without an organization, a global administrator can now inspect, hold, reconcile and retain, or release a stuck dispatch from the printer's Dispatch Recovery panel. Before, recovery refused every printer without an organization, so an interrupted upload could leave that printer blocked from receiving further jobs from O.D.I.N. All existing release checks still apply: the job must be on hold, the printer must be idle with fresh status, nothing else may be sending to it, and the administrator confirms the four checks. A print that was started another way and linked to the job must finish first. Releasing the block leaves the job on hold and does not retry the print. Recovery for printers in an organization is unchanged.
 
 ### Database
 
-- Migration 056 adds a separate, append-only record of recovery decisions for printers without an organization. Existing tables and data are not changed, and backups from earlier versions still restore.
+- Migration 056 adds a separate, append-only record of recovery decisions for printers without an organization. Existing tables and data are not changed. Restore support is preserved for supported earlier backups, including 2.0.49.
 
 ### Release tooling
 
-- When a validation component fails, the job log now lists its failing tests (sanitized, at most 20 lines per component).
+- Failed validation components now show sanitized diagnostic findings and available failing-test summaries in the job log, capped at 20 findings and 20 test-summary lines, plus an overflow notice.
 - A file-preview test now checks for leftover threads in a separate process, so threads started by other tests no longer fail it.
 
 ## [2.0.49] - 2026-11-08
