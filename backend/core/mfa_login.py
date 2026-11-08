@@ -7,6 +7,8 @@ from core import auth
 
 
 def _locked_user(db,user_id):
+    from core.license_lock import enabled, _lock
+    if enabled(): _lock(db)
     dialect=db.get_bind().dialect.name
     if dialect=='sqlite':
         connection=db.connection().connection.driver_connection
@@ -41,6 +43,8 @@ def login_mfa_response(db,user_id,expected_password_hash=None):
         raise HTTPException(status_code=401,detail='Invalid authentication session')
     if expected_password_hash is not None and user.password_hash!=expected_password_hash:
         raise HTTPException(status_code=401,detail='Credentials changed. Restart sign-in.')
+    from core.license_lock import authorize_user
+    authorize_user(db, user_id, issuance=True)
     if user.mfa_enabled:
         token=auth.create_access_token({'sub':user.username,'role':user.role,'mfa_pending':True},
                                       expires_delta=timedelta(minutes=5))

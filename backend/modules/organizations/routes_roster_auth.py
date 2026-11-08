@@ -138,6 +138,8 @@ def imported_user(db, connection, subject):
 
 def finish(db, request, connection, subject):
     user = imported_user(db, connection, subject)
+    from core.license_lock import authorize_user
+    authorize_user(db, user['id'], issuance=True)
     binding = request.cookies[COOKIE]
     code = store.receipt(db, connection['id'], 'exchange', {
         'subject': subject, 'binding': binding, 'revision': connection['revision']}, actor_id=user['id'], ttl=120)
@@ -165,6 +167,8 @@ async def callback(connection_id: str, request: Request, state: str = '', code: 
             {'a': payload['actor_id'], 'o': connection['org_id']}).first()
         if not user:
             provider.refuse('roster_admin_required', 403)
+        from core.license_lock import authorize_user
+        authorize_user(db, payload['actor_id'], issuance=True)
         db.execute(text('UPDATE education_roster_connections SET tokens_encrypted=:t,connected_by=:a WHERE id=:id'),
             {'id': connection_id, 't': store.pack({'refresh_token': tokens['refresh_token']}), 'a': payload['actor_id']})
         store.audit(db, 'connected', connection['org_id'], resource=connection_id, user_id=payload['actor_id'])
@@ -221,6 +225,8 @@ async def exchange(connection_id: str, body: dict, request: Request, db: Session
         or payload['revision'] != connection['revision']):
         provider.refuse('roster_browser_binding_invalid', 403)
     user = imported_user(db, connection, payload['subject'])
+    from core.license_lock import authorize_user
+    authorize_user(db, user['id'], issuance=True)
     # Delegate session/MFA issuance to the established OIDC exchange, with a new
     # internal one-time code. The external receipt carries no pre-issued session.
     from core.auth import create_access_token

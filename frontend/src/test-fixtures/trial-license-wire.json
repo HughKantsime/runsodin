@@ -40,7 +40,11 @@
     "binding_present": false,
     "binding_matches_current": false,
     "license_sha256": "64c58cdd39955afd2e978b45a32b41d5f341c7b95aaf3a6b74ec889f3bba7473",
-    "device_bound": false
+    "device_bound": false,
+    "verification_state": "verified_current",
+    "reason_code": "current",
+    "time_confidence": "trusted",
+    "fleet_lock_rollout_enabled": false
   },
   "ended_license": {
     "valid": false,
@@ -61,7 +65,11 @@
     "binding_present": false,
     "binding_matches_current": false,
     "license_sha256": "30d9fba96786c2c9a0cec411fa17ecb383342ae1ae81ac8ccaeddd50ce03e304",
-    "device_bound": false
+    "device_bound": false,
+    "verification_state": "verified_expired",
+    "reason_code": "deadline_reached",
+    "time_confidence": "trusted",
+    "fleet_lock_rollout_enabled": false
   },
   "trial_ending_notice": {
     "kind": "license_trial_ending",

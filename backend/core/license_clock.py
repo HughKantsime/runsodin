@@ -13,6 +13,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+import math
 
 log = logging.getLogger(__name__)
 KEY = "license_time_high_water"
@@ -61,6 +62,7 @@ class TimeStore:
         except Exception:
             # Schema may not exist during first-run setup, or DB may be offline.
             log.debug("License clock database copy unavailable")
+        self.conflicting_checkpoints = bool(values and max(values) - min(values) > SKEW)
         return max(values) if values else None
 
     def write(self, value):
@@ -134,34 +136,54 @@ class LicenseClock:
         self.checkpoint = None
         self.lock = threading.RLock()
 
-    def sample(self, *, persist=False):
+    def sample(self, *, persist=False, issued_at=""):
+        """Return (trusted effective time, uncertain), without accepting bad samples.
+
+        The reference never moves on a rejected wall sample. Repeating an advanced
+        clock therefore cannot make it trusted, even across process restarts.
+        """
         with self.lock:
             wall, tick = self.wall(), self.monotonic()
-            elapsed_now = wall
-            if self.anchor:
-                elapsed = timedelta(seconds=max(0, tick - self.tick))
-                # Even a corrupt but parseable year-9999 checkpoint must produce
-                # a recoverable clock refusal, never an arithmetic crash.
-                room = datetime.max.replace(tzinfo=timezone.utc) - self.anchor
-                elapsed_now = self.anchor + min(elapsed, room)
-            due = self.checkpoint is None or tick - self.checkpoint >= INTERVAL
-            if persist and due:
-                restored = self.store.read()
+            reference = self.anchor or self.high_water or wall
+            self.reason_code = None
+            try:
+                if not math.isfinite(tick) or (self.tick is not None and tick < self.tick):
+                    raise ValueError("nonfinite_or_reversed_monotonic")
+                if self.anchor is not None:
+                    reference = self.anchor + timedelta(seconds=tick - self.tick)
+                due = self.checkpoint is None or tick - self.checkpoint >= INTERVAL
+                restored = self.store.read() if persist and due else self.high_water
                 if restored is not None:
-                    self.high_water = max(self.high_water or restored, restored)
-            now = max(wall, elapsed_now, self.high_water or wall)
-            rollback = now - wall > SKEW
+                    if restored - reference > SKEW:
+                        self.reason_code = "future_checkpoint"
+                    reference = max(reference, restored)
+                if wall - reference > SKEW:
+                    self.reason_code = "forward_jump"
+                elif reference - wall > SKEW:
+                    self.reason_code = "rollback"
+                issued = instant(issued_at) if issued_at not in ("", None) else None
+                if issued is not None and issued - wall > SKEW:
+                    self.reason_code = "before_issue_time"
+                if getattr(self.store, "conflicting_checkpoints", False):
+                    self.reason_code = "conflicting_checkpoints"
+                if self.reason_code:
+                    return reference, True
+                now = max(reference, wall)
+            except (ValueError, OverflowError, TypeError):
+                self.reason_code = "invalid_clock_arithmetic"
+                return reference, True
             self.anchor, self.tick, self.high_water = now, tick, now
             if persist and due:
                 self.store.write(now)
                 self.checkpoint = tick
-            return now, rollback
+            return now, False
 
     def error(self, issued_at="", *, sample=None):
-        now, rollback = sample or self.sample()
+        now, uncertain = sample or self.sample(issued_at=issued_at)
         issued = instant(issued_at) if issued_at not in ("", None) else None
-        if rollback or (issued is not None and issued - self.wall() > SKEW):
-            return ("License clock is more than 24 hours behind its recorded time or signed issue time. "
+        if uncertain or (issued is not None and issued - self.wall() > SKEW):
+            return ("License clock differs by more than 24 hours from trusted elapsed time, "
+                    "a checkpoint or signed issue time, or has invalid arithmetic. "
                     "Correct the server clock. Local password login remains available; "
-                    "see the license clock recovery instructions if the clock was advanced accidentally.")
+                    "see the license clock recovery instructions for long downtime or an accidental advance.")
         return None

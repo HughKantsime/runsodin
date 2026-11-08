@@ -207,10 +207,17 @@ def readiness_check(db: Session = Depends(get_db)):
 # ============== License ==============
 
 @router.get("/license", tags=["License"])
-def get_license_info():
+def get_license_info(db: Session = Depends(get_db)):
     """Get current license status. No auth required so frontend can check tier."""
     license_info = get_license()
-    return license_info.to_public_dict()
+    result = license_info.to_public_dict()
+    from core.license_lock import enabled, snapshot
+    result['fleet_lock_rollout_enabled'] = enabled()
+    if enabled():
+        policy = snapshot(db)
+        result['verification_warning'] = policy.warning
+        result['verification_state'] = policy.entitlement.get('state', result['verification_state'])
+    return result
 
 
 @router.post("/license/upload", tags=["License"])
@@ -229,6 +236,8 @@ async def upload_license(
         raise HTTPException(status_code=400, detail=license_info.error or "Invalid or expired license file")
     def audit_installation(_candidate):
         try:
+            from core.license_lock import enabled, reconcile
+            if enabled(): reconcile(db)
             log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
             db.commit()
         except Exception:
@@ -254,6 +263,8 @@ def remove_license(
     if _os.path.exists(license_path):
         _os.remove(license_path)
     import license_manager
+    from core.license_lock import mark_community_selected
+    mark_community_selected(db, current_user["id"])
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
     log_audit(db, "license.removed", "system", details="License removed, reverted to community tier")
@@ -324,6 +335,7 @@ async def activate_license(
     request: LicenseActivateRequest,
     current_user: dict = Depends(require_superadmin(scope="write")),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
+    db: Session = Depends(get_db),
 ):
     """Activate a license by key via the license server. Admin only."""
     license_server_url = settings.license_server_url
@@ -394,7 +406,13 @@ async def activate_license(
         candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
         if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
             raise HTTPException(status_code=502, detail="The portal did not return a valid device-v1 paid license. Your installed license is unchanged. Update the portal or contact support.")
-    license_info = install_portal_license(license_content)
+    def publish_activation(candidate):
+        from core.license_lock import enabled, reconcile
+        if enabled():
+            reconcile(db)
+            log_audit(db, 'license.activated', 'system', details={'tier': candidate.tier})
+            db.commit()
+    license_info = install_portal_license(license_content, after_install=publish_activation)
 
     return {
         "status": "activated", "tier": license_info.tier,
@@ -570,6 +588,8 @@ async def unactivate_license(
     import license_manager
     if os.path.exists(license_path := os.path.join(LICENSE_DIR, LICENSE_FILENAME)):
         os.remove(license_path)
+    from core.license_lock import mark_community_selected
+    mark_community_selected(db, current_user["id"])
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
 
@@ -624,6 +644,8 @@ async def reactivate_license(
         if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
             raise HTTPException(status_code=502, detail="The portal returned an invalid device-bound refresh. Your installed license is unchanged; contact support.")
     def audit_refresh(candidate):
+        from core.license_lock import enabled, reconcile
+        if enabled(): reconcile(db)
         log_audit(db, "license.reactivated", "system", details={"tier": candidate.tier, "licensee": candidate.licensee})
         db.commit()
     license_info = install_portal_license(license_content, after_install=audit_refresh)
@@ -668,6 +690,8 @@ def get_unactivation_request(
     content = json.dumps(payload, indent=2)
     try:  # hands the seat over: this install stops using the license now (as online /unactivate)
         quarantined = quarantine_installed_license()
+        from core.license_lock import mark_community_selected
+        mark_community_selected(db, current_user["id"])
     except OSError:
         raise HTTPException(status_code=503, detail="License could not be removed; no unactivation request was issued")
     log_audit(db, "license.offline_unactivation_requested", "system", details={"quarantined": os.path.basename(quarantined or "")})
@@ -677,3 +701,35 @@ def get_unactivation_request(
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="odin-unactivation-request.json"'},
     )
+
+
+# B1 selection control plane. No hardware reconciliation is enabled by this API.
+from pydantic import BaseModel, StrictInt
+from core.rbac import require_interactive_session
+
+
+class LicenseSelectionInput(BaseModel):
+    printers: list[StrictInt]
+    users: list[StrictInt]
+    expected_revision: StrictInt
+    recovery_user_id: StrictInt | None = None
+
+
+@router.get('/license/selection', tags=['License'], dependencies=[Depends(require_interactive_session())])
+def get_license_selection(current_user: dict = Depends(require_superadmin(scope='read')), db: Session = Depends(get_db)):
+    from core.license_lock import selection_status
+    result = selection_status(db)
+    db.commit()
+    return result
+
+
+@router.put('/license/selection', tags=['License'], dependencies=[Depends(require_interactive_session())])
+def put_license_selection(body: LicenseSelectionInput, current_user: dict = Depends(require_superadmin(scope='write')), db: Session = Depends(get_db)):
+    from core.license_lock import replace_selection, status_view
+    try:
+        result = replace_selection(db, **body.model_dump(), actor=current_user['id'])
+        db.commit()
+        return status_view(result)
+    except Exception:
+        db.rollback()
+        raise

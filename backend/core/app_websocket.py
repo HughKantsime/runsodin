@@ -1,6 +1,8 @@
 """WebSocket audience enforcement and bounded event delivery."""
 import asyncio
 import logging
+import threading
+import time
 from fastapi import WebSocket
 from sqlalchemy import text
 log = logging.getLogger("odin.api")
@@ -10,6 +12,9 @@ class ConnectionManager:
 
     def __init__(self):
         self.active: list[tuple[WebSocket, dict]] = []
+        self._policy_lock = threading.Lock()
+        self._policy_checked = 0.0
+        self._policy = None
 
     async def connect(self, ws: WebSocket, principal: dict):
         await ws.accept()
@@ -17,6 +22,28 @@ class ConnectionManager:
 
     def disconnect(self, ws: WebSocket):
         self.active = [(active_ws, principal) for active_ws, principal in self.active if active_ws is not ws]
+
+    def policy_snapshot(self, *, cached=False):
+        from core.license_lock import enabled, snapshot
+        if not enabled():
+            return None
+        from core.db import SessionLocal
+        with self._policy_lock:
+            tick = time.monotonic()
+            if cached and self._policy is not None and tick - self._policy_checked < 1:
+                return self._policy
+            with SessionLocal() as db:
+                self._policy = snapshot(db)
+            self._policy_checked = tick
+            return self._policy
+
+    def principal_allowed(self, principal, *, cached=False):
+        from core.license_lock import user_allowed
+        try:
+            policy = self.policy_snapshot(cached=cached)
+            return policy is None or user_allowed(policy, principal.get('id'))
+        except Exception:
+            return False
 
     @staticmethod
     def _can_receive(principal: dict, user_ids: set[int] | None, org_id: int | None, shared: bool) -> bool:
@@ -90,7 +117,20 @@ class ConnectionManager:
         audience = list(self.active)
         from core.controlled_events import audience_messages
         messages = await asyncio.to_thread(audience_messages, [p for _, p in audience], public_message)
+        from core.license_lock import user_allowed
+        try:
+            policy = await asyncio.to_thread(self.policy_snapshot)
+        except Exception:
+            return 0
         for (ws, principal), controlled_message in zip(audience, messages):
+            if policy is not None and not user_allowed(policy, principal.get('id')):
+                try:
+                    await asyncio.wait_for(ws.close(code=4403, reason='license_user_locked'), timeout=1)
+                except Exception:
+                    pass
+                finally:
+                    dead.append(ws)
+                continue
             if not self._can_receive(principal, user_ids, org_id, shared):
                 continue
             if not await asyncio.to_thread(self._education_principal_current, principal, message):

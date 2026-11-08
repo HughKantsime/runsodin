@@ -75,7 +75,7 @@ def capture_action_credential(request,db,credential,*,kind,carrier,purpose="reti
         configured=os.getenv('API_KEY','')
         if not configured or not hmac.compare_digest(credential,configured):_refuse('unknown_authority')
         row=db.execute(text("SELECT * FROM users WHERE role='admin' AND is_active IS TRUE ORDER BY id LIMIT 1")).first()
-        principal=_principal(row,kind)
+        principal=_principal(row,kind,db)
         if principal is None:_refuse('unknown_authority')
         evidence=ActionCredential(request,scope,kind,principal['id'],principal['username'],None,None,None,hashlib.sha256(configured.encode()).digest(),db.get_bind(),_PROOF)
     elif kind in ('session_jwt','bearer_jwt'):
@@ -101,7 +101,7 @@ def capture_action_credential(request,db,credential,*,kind,carrier,purpose="reti
         if row['expires_at'] is not None and (expiry is None or expiry<=datetime.now(timezone.utc)):_refuse('unknown_authority')
         scopes=parse_token_scopes(row['scopes'])
         user=db.execute(text('SELECT * FROM users WHERE id=:id'),{'id':row['user_id']}).first()
-        principal=_principal(user,kind,token_id=row['id'],token_scopes=scopes)
+        principal=_principal(user,kind,db,token_id=row['id'],token_scopes=scopes)
         if principal is None or scopes is None:_refuse('unknown_authority')
         evidence=ActionCredential(request,scope,kind,principal['id'],principal['username'],None,None,row['id'],hashlib.sha256(row['token_hash'].encode()).digest(),db.get_bind(),_PROOF)
     else:_refuse('unknown_authority')
@@ -209,10 +209,10 @@ def fresh_action_principal(db,evidence):
         if not configured or not hmac.compare_digest(hashlib.sha256(configured.encode()).digest(),evidence.fingerprint):_refuse('unknown_authority')
         first=db.execute(text("SELECT id FROM users WHERE role='admin' AND is_active IS TRUE ORDER BY id LIMIT 1")).scalar()
         if first!=evidence.user_id:_refuse('unknown_authority')
-        principal=_principal(row,evidence.kind)
+        principal=_principal(row,evidence.kind,db)
     elif evidence.kind in ('session_jwt','bearer_jwt'):
         if time.time()>=evidence.expiry or db.execute(text('SELECT 1 FROM token_blacklist WHERE jti=:jti'),{'jti':evidence.jti}).first():_refuse('unknown_authority')
-        principal=_principal(row,evidence.kind)
+        principal=_principal(row,evidence.kind,db)
         if principal is None or principal['username']!=evidence.subject:_refuse('unknown_authority')
     else:
         token=db.execute(text('SELECT user_id,token_hash,scopes,expires_at FROM api_tokens WHERE id=:id'),{'id':evidence.token_id}).mappings().first()
@@ -221,7 +221,7 @@ def fresh_action_principal(db,evidence):
         if token['expires_at'] is not None and (expiry is None or expiry<=datetime.now(timezone.utc)):_refuse('unknown_authority')
         scopes=parse_token_scopes(token['scopes'])
         if scopes is None:_refuse('unknown_authority')
-        principal=_principal(row,evidence.kind,token_id=evidence.token_id,token_scopes=scopes)
+        principal=_principal(row,evidence.kind,db,token_id=evidence.token_id,token_scopes=scopes)
     _purpose_floor(principal,evidence.purpose)
     if principal.get('group_id') is not None:
         from core.registry import registry

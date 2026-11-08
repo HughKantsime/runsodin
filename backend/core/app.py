@@ -8,7 +8,8 @@ import os
 import pathlib
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from core.license_lock import LicenseLockError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -229,10 +230,12 @@ def _register_http_middleware(app: FastAPI) -> None:
                 # SQLAlchemy sessions must be created, used and closed together
                 # off the event loop, including when validation raises.
                 with SessionLocal() as auth_db:
-                    return validate_perimeter_access_token(bearer.strip(), auth_db)
+                    return validate_perimeter_access_token(bearer.strip(), auth_db, request=request)
 
             try:
                 principal = await run_in_threadpool(validate_native_bearer)
+            except LicenseLockError as exc:
+                return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
             except Exception:
                 return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
             if principal is not None:
@@ -260,6 +263,22 @@ def _register_http_middleware(app: FastAPI) -> None:
             status_code=401,
             content={"detail": "Invalid or missing API key"},
         )
+
+    @app.middleware("http")
+    async def license_principal_gate(request: Request, call_next):
+        from core.license_lock import enabled, LicenseLockError
+        if enabled():
+            from core.dependencies import _resolve_current_user
+            from core.db import SessionLocal
+            authorization = request.headers.get('authorization', '')
+            scheme, _, bearer = authorization.partition(' ')
+            try:
+                with SessionLocal() as policy_db:
+                    await _resolve_current_user(request, bearer if scheme.lower() == 'bearer' else None, policy_db)
+            except HTTPException as exc:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=exc.status_code, content={'detail': exc.detail}, headers=exc.headers)
+        return await call_next(request)
 
     # security_headers must be the OUTERMOST middleware so it runs on every
     # response — including 401/403/503 short-circuits from authenticate_request
@@ -609,11 +628,18 @@ def create_app() -> FastAPI:
             await ws.close(code=4001, reason="Authentication required")
             return
 
+        from core.license_lock import enabled as license_lock_enabled
+        if license_lock_enabled() and not await asyncio.to_thread(ws_manager.principal_allowed, principal):
+            await ws.close(code=4403, reason="license_user_locked")
+            return
         await ws_manager.connect(ws, principal)
         try:
             while True:
                 try:
-                    data = await asyncio.wait_for(ws.receive_text(), timeout=30)
+                    if license_lock_enabled() and not await asyncio.to_thread(ws_manager.principal_allowed, principal, cached=True):
+                        await ws.close(code=4403, reason="license_user_locked")
+                        break
+                    data = await asyncio.wait_for(ws.receive_text(), timeout=1 if license_lock_enabled() else 30)
                     if data == "ping":
                         await ws.send_text("pong")
                     else:

@@ -25,6 +25,7 @@ from core.auth import decode_token, verify_password
 from core.api_token_policy import parse_token_scopes
 from core.audit import log_audit
 from core.db import get_db
+from core.license_lock import authorize_user, LicenseLockError, request_purpose
 
 log = logging.getLogger("odin.api")
 
@@ -166,6 +167,8 @@ install_credential_write_guard()
 def _principal(
     row,
     auth_kind: str,
+    db=None,
+    request=None,
     *,
     token_id: int | None = None,
     token_scopes: list[str] | None = None,
@@ -176,6 +179,8 @@ def _principal(
     principal = dict(row._mapping)
     if not bool(principal.get("is_active")):
         return None
+    if db is not None:
+        authorize_user(db, principal["id"], request=request, purpose=request_purpose(request))
     principal["_auth_kind"] = auth_kind
     if token_id is not None:
         principal["_token_id"] = token_id
@@ -184,7 +189,7 @@ def _principal(
     return principal
 
 
-def validate_access_token(token: str, db: Session) -> Optional[dict]:
+def validate_access_token(token: str, db: Session, request=None) -> Optional[dict]:
     """Validate a JWT as a full access token and return the user dict.
 
     Rejects:
@@ -230,10 +235,10 @@ def validate_access_token(token: str, db: Session) -> Optional[dict]:
     ).fetchone()
     if token_predates_account(payload, user):
         return None
-    return _principal(user, "bearer_jwt")
+    return _principal(user, "bearer_jwt", db, request)
 
 
-def validate_perimeter_access_token(token: str, db: Session) -> Optional[dict]:
+def validate_perimeter_access_token(token: str, db: Session, request=None) -> Optional[dict]:
     """Accept only the access JWT shape minted by core.auth.create_access_token.
 
     Login (including OIDC and biometric refresh) issues no type/purpose marker.
@@ -256,10 +261,10 @@ def validate_perimeter_access_token(token: str, db: Session) -> Optional[dict]:
             or not isinstance(payload["sub"], str) or not payload["sub"].strip()
             or payload["role"] not in ("admin", "operator", "viewer")):
         return None
-    return validate_access_token(token, db)
+    return validate_access_token(token, db, request=request)
 
 
-def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
+def resolve_user_api_token(api_key: str, db: Session, request=None) -> Optional[dict]:
     """Principal for a per-user scoped API token (odin_xxx), or None.
 
     Shared by the X-API-Key header path and carriers that cannot send
@@ -350,7 +355,7 @@ def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
         return None
     principal = _principal(
         user,
-        "user_api_token",
+        "user_api_token", db, request,
         token_id=int(candidate.id),
         token_scopes=scopes,
     )
@@ -359,7 +364,7 @@ def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
     return principal
 
 
-def resolve_legacy_api_key(api_key: str, db: Session) -> Optional[dict]:
+def resolve_legacy_api_key(api_key: str, db: Session, request=None) -> Optional[dict]:
     """Resolve the configured legacy key to its current active administrator."""
     configured_key = os.getenv("API_KEY", "")
     if not api_key or not configured_key or not hmac.compare_digest(api_key, configured_key):
@@ -367,7 +372,7 @@ def resolve_legacy_api_key(api_key: str, db: Session) -> Optional[dict]:
     admin = db.execute(
         text("SELECT * FROM users WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
     ).fetchone()
-    return _principal(admin, "legacy_global_api_key")
+    return _principal(admin, "legacy_global_api_key", db, request)
 
 
 async def _resolve_current_user(
@@ -417,10 +422,12 @@ async def _resolve_current_user(
                                 text("SELECT * FROM users WHERE username = :username"),
                                 {"username": token_data.username},
                             ).fetchone()
-                            principal = None if token_predates_account(payload, user) else _principal(user, "session_jwt")
+                            principal = None if token_predates_account(payload, user) else _principal(user, "session_jwt", db, request)
                             if principal:
                                 bind_verified_actor(db, principal)
                                 return principal
+            except LicenseLockError:
+                raise
             except Exception:
                 log.debug("Cookie auth failed", exc_info=True)
 
@@ -457,7 +464,7 @@ async def _resolve_current_user(
             ).fetchone()
             if token_predates_account(payload, user):
                 return None
-            principal = _principal(user, "bearer_jwt")
+            principal = _principal(user, "bearer_jwt", db, request)
             if principal:
                 bind_verified_actor(db, principal)
                 return principal
@@ -466,14 +473,14 @@ async def _resolve_current_user(
     api_key = request.headers.get("X-API-Key")
     if api_key and api_key != "undefined":
         # 2a: Global API key (legacy, constant-time comparison)
-        principal = resolve_legacy_api_key(api_key, db)
+        principal = resolve_legacy_api_key(api_key, db, request)
         if principal:
             bind_verified_actor(db, principal)
             mark_noninteractive_principal()
             return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
-        principal = resolve_user_api_token(api_key, db)
+        principal = resolve_user_api_token(api_key, db, request)
         from core.api_token_policy import is_camera_only
         if principal and is_camera_only(principal.get("_token_scopes")):
             # Overlay camera tokens authenticate only /overlay/{id}/camera, which

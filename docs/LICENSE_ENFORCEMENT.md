@@ -1,8 +1,9 @@
-# Offline license enforcement (slice A)
+# Offline license enforcement (slice A and disabled B1)
 
-Applies to gaps 1, 3, 4 and 6 in the license-enforcement spec. This change does
-not lock existing excess printers/users (slice B), revoke existing sessions, or
-change the trial portal policy (gap 5). No schema migration is required.
+Slice A applies to gaps 1, 3, 4 and 6 in the license-enforcement spec. With the
+B1 rollout flag left off, existing excess printers/users remain unlocked and
+sessions retain their existing behavior. The trial portal policy (gap 5) is
+unchanged. No schema migration is required.
 
 ## Clock and expiry
 
@@ -102,3 +103,38 @@ RBAC denials do not trigger a refresh. Requests coalesce, timers handle long
 licenses without overflow, and unmount removes timers/listeners. If browser
 time is ahead of server time, an already elapsed deadline retries at most once
 per minute; backend checks remain authoritative.
+
+
+## B1 policy control plane (disabled by default)
+
+`ODIN_LICENSE_FLEET_LOCK_ENABLED` defaults off. B1 does not enable install-wide
+seat or printer enforcement. B2 hardware admission/attempt tracking and B3
+stream revocation/UI are prerequisites to rollout. `ODIN_LICENSE_PAID_LAPSE_ENABLED`
+also defaults off; paid-expiry behavior requires Shane's decision. Restricted
+recovery sessions and explicit Community-downgrade enforcement are hard disabled
+pending their decisions. A zero-seat license grants no full-access recovery seat.
+
+The policy and private evidence use existing `system_config` keys
+`license_active_selection` (schema 2), `license_lock_evidence` (schema 1), and
+the monotonic `license_lock_revision` counter.
+The evidence contains the signed envelope and must stay out of public APIs,
+logs and audits. Selection GET/PUT requires an interactive platform superadmin;
+PUT atomically supplies both ordered lists and `expected_revision`. A concurrent
+edit returns 409 and requires a new read/edit. `recovery_user_id` enables an
+atomic handoff to another active local-password platform admin.
+
+A missing previously accepted artifact is uncertainty, never proof of lapse.
+The first failure starts one shared 24-hour deadline. Restart/retry cannot renew
+it. After the deadline, stale evidence cannot impose fleet locks; picks remain
+saved and status continues warning. Signature, schema and current binding are
+rechecked before saved evidence is used. An unreliable elapsed-time anchor ends
+the lease. These are dormant rollout semantics, not approval of the open policy.
+
+Forward jumps over 24 hours beyond trusted wall-plus-monotonic time are now
+quarantined before advancing either checkpoint. Repeated bad samples do not
+establish trust. A cold boot after more than 24 hours of unexplained downtime is
+also uncertain. Correct the host clock first. If legitimate long downtime or
+old invalid checkpoints require resetting trust, use the local-superadmin/host
+recovery procedure above with all processes stopped and both copies backed up.
+Continuous monotonic passage through the signed deadline still proves expiry.
+An otherwise plausible first-seen host clock remains an offline trust limitation.
