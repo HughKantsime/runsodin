@@ -390,7 +390,10 @@ def snapshot(db, *, request=None, cycle=None):
 
 
 def user_allowed(policy, user_id):
-    return not policy.enforcing or user_id in policy.users
+    return (not policy.enforcing or user_id in policy.users
+            # Interim recovery safety until Shane decides restricted sessions.
+            or policy.entitlement.get('max_users') == 0
+            and user_id is not None and user_id == policy.recovery_user_id)
 
 
 def require_user(policy, user_id, purpose='access'):

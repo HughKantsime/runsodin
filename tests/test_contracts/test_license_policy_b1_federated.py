@@ -53,10 +53,10 @@ def test_roster_provider_seat_change(setup, client, tier_license, monkeypatch, c
         code = parse_qs(urlsplit(response.headers['location']).fragment)['roster_code'][0]
         tier_license('education', max_users=1)
         response = client.post(base + '/exchange', json={'code': code})
-        assert client.post(base + '/exchange', json={'code': code}).status_code == 403  # refusal preserves receipt
+        assert client.post(base + '/exchange', json={'code': code}).status_code == 409  # refusal burns the one-time receipt
     assert response.status_code == 403, response.text
     if boundary == 'callback':
-        assert db.execute(text('SELECT COUNT(*) FROM education_roster_receipts')).scalar() == receipts_before
+        assert db.execute(text('SELECT COUNT(*) FROM education_roster_receipts')).scalar() == receipts_before - 1
         assert db.execute(text('SELECT tokens_encrypted FROM education_roster_connections WHERE id=:id'), {'id': connection['id']}).scalar() == tokens_before
     assert response.json()['detail']['code'] == 'license_user_locked'
     assert 'set-cookie' not in response.headers

@@ -267,14 +267,25 @@ def _register_http_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def license_principal_gate(request: Request, call_next):
         from core.license_lock import enabled
+        if not enabled():
+            return await call_next(request)
         path = request.scope.get('path', '')
         api_path = path[7:] if path.startswith('/api/v1/') else path[4:] if path.startswith('/api/') else path
         public = (request.method == 'OPTIONS' or _is_public_browser_request(request)
                   or api_path == '/license' and request.method in {'GET', 'HEAD'}
-                  or api_path.startswith(('/auth/', '/health', '/setup', '/static/'))
+                  or api_path in {'/health', '/setup'}
+                  or api_path.startswith(('/auth/', '/health/', '/setup/', '/static/'))
                   or path.startswith(('/static/', '/assets/'))
                   or api_path == '/branding' and request.method == 'GET')
-        if enabled() and not public:
+        # Media query tokens, OBS credentials and API keys have route-specific
+        # semantics. Their existing resolvers enforce policy after authentication.
+        authorization = request.headers.get('authorization', '')
+        scheme, _, bearer = authorization.partition(' ')
+        understood = (request.cookies.get('session') or
+                      scheme.lower() == 'bearer' and bearer.strip())
+        if request.query_params.get('token') or request.headers.get('x-api-key'):
+            understood = False
+        if understood and not public:
             from core.dependencies import resolve_current_user_sync
             from core.db import SessionLocal
             from starlette.concurrency import run_in_threadpool
@@ -682,7 +693,7 @@ def create_app() -> FastAPI:
                 if not license_lock_enabled():
                     continue
                 try:
-                    allowed = await asyncio.to_thread(ws_manager.principal_allowed, principal, cached=True)
+                    allowed = await asyncio.to_thread(ws_manager.principal_allowed, principal)
                 except LicenseLockError:
                     # Temporary infrastructure failures are retryable, never a
                     # user-lock decision. Keep already admitted clients alive.

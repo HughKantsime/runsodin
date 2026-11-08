@@ -316,7 +316,7 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
         payload = json.loads(payload_bytes.decode("utf-8"))
 
         # Check required fields
-        for field in ["tier", "licensee", "expires_at"]:
+        for field in ["tier", "expires_at"]:
             if field not in payload:
                 info.error = f"License missing required field: {field}"
                 return info
@@ -366,37 +366,50 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
             info.error = TRIAL_DEVICE_MISMATCH
             return info
 
-        # Validate the complete signed payload BEFORE classifying expiry.
-        if payload["tier"] not in TIERS or not isinstance(payload["licensee"], str):
-            raise ValueError("Unsupported tier or licensee")
-        if "schema_version" in payload and (type(payload["schema_version"]) is not int or payload["schema_version"] != 1):
-            raise ValueError("Unsupported license schema")
-        # Preserve the historical wire rule: only literal signed true marks a trial.
-        # Other values confer no trial privileges and cannot authorize trial lapse.
-        for field in ("max_printers", "max_users"):
-            cap = payload.get(field)
-            if cap is not None and (type(cap) is not int or cap < 0):
-                raise ValueError("Invalid license cap")
-        for field in ("key", "email", "installation_id"):
-            if field in payload and not isinstance(payload[field], str):
-                raise ValueError("Invalid license identity")
+        # Compatibility is the Slice A acceptance contract. Stronger B1 schema
+        # checks classify evidence only; they cannot revoke legacy entitlements.
         from core.license_clock import instant
         issued = payload.get("issued_at", "")
-        info.issue_deadline = instant(issued) if issued not in ("", None) else None
         expires = _license_expiry_deadline(payload["expires_at"])
-        if info.issue_deadline is not None and expires <= info.issue_deadline:
-            raise ValueError("Invalid license date interval")
+        sample = license_clock().sample()
+        clock_error = license_clock().error(issued, sample=sample)
+        expired = bool(clock_error) or sample[0] >= expires
         payload_features = payload.get("features")
-        if payload_features is not None and not (
+        features_valid = payload_features is None or (
             isinstance(payload_features, list)
             and all(isinstance(feature, str) for feature in payload_features)
-        ):
+        )
+        # Slice A classified expiry before checking the feature-list shape.
+        if not expired and not features_valid:
             info.error = "License contains an invalid feature list"
             return info
+        try:
+            info.issue_deadline = instant(issued) if issued not in ("", None) else None
+            evidence_valid = (
+                payload["tier"] in TIERS
+                and isinstance(payload.get("licensee", ""), (str, type(None)))
+                and ("schema_version" not in payload or
+                     type(payload["schema_version"]) is int and payload["schema_version"] == 1)
+                and all(payload.get(field) is None or
+                        type(payload[field]) is int and payload[field] >= 0
+                        for field in ("max_printers", "max_users"))
+                and all(payload.get(field) is None or isinstance(payload[field], str)
+                        for field in ("key", "email", "installation_id"))
+                and (info.issue_deadline is None or expires > info.issue_deadline)
+                and features_valid
+            )
+        except (ValueError, TypeError):
+            evidence_valid = False
 
         # Valid license
         tier = payload["tier"]
-        tier_def = TIERS.get(tier, TIERS["community"])
+        try:
+            tier_def = TIERS.get(tier, TIERS["community"])
+        except TypeError:
+            if not expired:
+                raise
+            # Slice A returned expired before indexing even an unhashable tier.
+            tier_def = TIERS["community"]
 
         info.valid = True
         info.tier = tier
@@ -420,25 +433,25 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
             # features, education_workflows included for Education/Enterprise.
             # An explicit list must still name education_workflows.
             info.features = list(tier_def["features"])
-        info.signed_tier, info.signed_trial = tier, is_trial
-        info.signed_max_printers, info.signed_max_users = info.max_printers, info.max_users
-        info.verified_digest = info.license_sha256
-        info.signed_envelope = raw
-        info.binding_result = "matched" if info.binding_present else "not_required"
-        info.binding_digest = hashlib.sha256(json.dumps(
-            [installation_id_reader(), device_pubkey_reader()], separators=(",", ":")
-        ).encode()).hexdigest()
-        sample = license_clock().sample(issued_at=issued)
-        clock_error = license_clock().error(issued, sample=sample)
         info.time_confidence = "uncertain" if clock_error else "trusted"
-        info.verification_state = "verified_current"
-        info.reason_code = "current"
+        if evidence_valid:
+            info.signed_tier, info.signed_trial = tier, is_trial
+            info.signed_max_printers, info.signed_max_users = info.max_printers, info.max_users
+            info.verified_digest = info.license_sha256
+            info.signed_envelope = raw
+            info.binding_result = "matched" if info.binding_present else "not_required"
+            info.binding_digest = hashlib.sha256(json.dumps(
+                [installation_id_reader(), device_pubkey_reader()], separators=(",", ":")
+            ).encode()).hexdigest()
+            info.verification_state = "verified_current"
+            info.reason_code = "current"
         if clock_error or sample[0] >= expires:
             info.valid = False
             # Compatibility: Slice A treats clock refusal as expired for feature gates.
             info.expired = True
-            info.verification_state = "verification_unavailable" if clock_error else "verified_expired"
-            info.reason_code = "clock_uncertain" if clock_error else "deadline_reached"
+            if evidence_valid:
+                info.verification_state = "verification_unavailable" if clock_error else "verified_expired"
+                info.reason_code = "clock_uncertain" if clock_error else "deadline_reached"
             info.error = clock_error or f"License expired on {payload['expires_at']}"
             info.max_printers = TIERS["community"]["max_printers"]
             info.max_users = TIERS["community"]["max_users"]

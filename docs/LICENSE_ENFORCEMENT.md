@@ -112,7 +112,11 @@ seat or printer enforcement. B2 hardware admission/attempt tracking and B3
 stream revocation/UI are prerequisites to rollout. `ODIN_LICENSE_PAID_LAPSE_ENABLED`
 also defaults off; paid-expiry behavior requires Shane's decision. Restricted
 recovery sessions and explicit Community-downgrade enforcement are hard disabled
-pending their decisions. A zero-seat license grants no full-access recovery seat.
+pending their decisions. Until Shane decides the restricted-session policy, a
+signed zero-seat license keeps the designated active local recovery superadmin
+authorized, including login and license replacement. Other users remain locked.
+This temporary safety exception does not allocate a seat or enable restricted
+recovery sessions.
 
 The policy and private evidence use existing `system_config` keys
 `license_active_selection` (schema 2), `license_lock_evidence` (schema 1), and
@@ -130,7 +134,9 @@ saved and status continues warning. Signature, schema and current binding are
 rechecked before saved evidence is used. An unreliable elapsed-time anchor ends
 the lease. These are dormant rollout semantics, not approval of the open policy.
 
-Only forward jumps observed within a running process (wall time advancing over
+The spec's **ODIN Dev decision (2026-11-08)** supersedes section 2's cold-boot gap
+rule: downtime and suspend alone never create clock uncertainty. Only forward
+jumps observed within a running process (wall time advancing over
 24 hours faster than suspend-aware elapsed time) are quarantined. A five-second
 window of agreeing wall/elapsed deltas clears a forward-jump quarantine. Cold
 boots and normal suspend/sleep intervals are not clock errors, regardless of
@@ -145,8 +151,23 @@ Selection reads do not rewrite private evidence. Verified evidence checkpoints
 are throttled to five minutes; issuing sessions with unchanged policy does not
 rewrite evidence or the policy row (PostgreSQL issuances share a read lock).
 
-HTTP SQLite backup downloads redact all `license_lock_*` keys and
-`license_active_selection` from a temporary copy; on-host backups are unchanged.
+With fleet locking off, every backup format uses the previous download behavior,
+without privacy inspection or a database copy. With locking enabled, SQLite
+backup downloads redact all `license_lock_*` keys and `license_active_selection`
+from a temporary copy; on-host backups are unchanged.
 Native PostgreSQL backups containing those keys are refused for HTTP download
 and require on-host recovery. The native archive is inspected with `pg_restore`;
 an unavailable inspector produces a temporary error, never an unchecked download.
+Other historical formats pass through unchanged; scrubbing makes no claim about
+formats it cannot interpret. Preparation (including SQLite rebuilds and bundle
+creation) runs in a bounded background queue. The download endpoint returns 202
+with Retry-After while preparing; the UI polls using the same authorization and
+controlled-data acknowledgement. Abandoned exports expire after 15 minutes.
+`backup.downloaded` is recorded only after preparation succeeds, before sending
+the artifact; pending and refused exports never produce that event.
+
+Payload compatibility remains the Slice A contract regardless of B1 evidence
+classification: missing/null optional identity fields and tier-default caps and
+features retain their historical meaning. Absent `licensee` is also accepted.
+Stronger schema checks may withhold B1 evidence, but cannot revoke a legacy
+entitlement. Expired payloads retain Slice A's Community feature fallback.

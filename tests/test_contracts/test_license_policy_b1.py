@@ -142,7 +142,8 @@ def test_zero_null_and_explicit_caps(policy_db, tier_license, cap):
     expected = 0 if cap == 0 else 5 if cap is None else 3
     assert len(p['users']) == expected
     if cap == 0:
-        assert not policy.user_allowed(policy.snapshot(policy_db), 3)
+        assert policy.user_allowed(policy.snapshot(policy_db), 3)
+        assert not policy.user_allowed(policy.snapshot(policy_db), 1)
         assert not p['restricted_recovery_enabled']
     else:
         assert p['recovery_user_id'] in p['users']

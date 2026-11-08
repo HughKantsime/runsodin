@@ -176,7 +176,7 @@ def test_policy_outage_is_503_and_broadcast_delivers(policy_db, monkeypatch):
     class Socket:
         async def send_json(self, message): self.message = message
     ws = Socket()
-    manager.active = [(ws, {'id': 3, 'role': 'admin', 'group_id': None})]
+    manager.active = [(ws, {'id': 3, 'role': 'admin', 'group_id': None, '_license_allowed': True})]
     from core import controlled_events
     monkeypatch.setattr(controlled_events, 'audience_messages', lambda principals, msg: [msg])
     assert asyncio.run(manager.broadcast({'type': 'test'})) == 1
@@ -224,7 +224,8 @@ def test_removal_has_durable_intent_before_touching_file(policy_db, monkeypatch)
     assert lm._find_license_file() is None
 
 
-def test_sqlite_api_export_scrubs_every_private_key(tmp_path):
+def test_sqlite_api_export_scrubs_every_private_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "true")
     import sqlite3
     from modules.system.backup_api_export import prepare_export
     source = tmp_path / 'backup.db'
@@ -324,6 +325,7 @@ def test_websocket_admission_outage_is_http_503(policy_db, monkeypatch):
 
 
 def test_postgres_archive_never_serves_private_table_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "true")
     from modules.system import backup_api_export as export
     from fastapi import HTTPException
     archive = tmp_path / 'backup.dump'; archive.write_bytes(b'PGDMP' + bytes(20))
@@ -343,7 +345,8 @@ def test_crash_journal_marks_missing_artifact_as_deliberate(policy_db):
     assert status(policy_db)['entitlement']['state'] == 'community_selected'
 
 
-def test_sqlite_api_export_scrubs_deleted_evidence(tmp_path):
+def test_sqlite_api_export_scrubs_deleted_evidence(tmp_path, monkeypatch):
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "true")
     import sqlite3
     from modules.system.backup_api_export import prepare_export
     source = tmp_path / 'backup.db'
@@ -361,7 +364,8 @@ def test_sqlite_api_export_scrubs_deleted_evidence(tmp_path):
         cleanup.unlink()
 
 
-def test_bundle_uses_redacted_database_and_matching_manifest(tmp_path):
+def test_bundle_uses_redacted_database_and_matching_manifest(tmp_path, monkeypatch):
+    monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', 'true')
     import hashlib
     import sqlite3
     import zipfile

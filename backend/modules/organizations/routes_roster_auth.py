@@ -113,7 +113,9 @@ def pending(db, cid, request, state):
     if not state or len(state) > 64 or not hmac.compare_digest(request.cookies.get(COOKIE, ''), oidc_state_binding(state)):
         provider.refuse('roster_browser_binding_invalid', 403)
     connection = store.load(db, cid)
-    payload = store.peek(db, state, cid, 'oauth')
+    payload = store.consume(db, state, cid, 'oauth')
+    # Burn once in a committed transaction before any provider I/O or refusal.
+    db.commit()
     if payload['revision'] != connection['revision']:
         provider.refuse('roster_configuration_changed')
     if payload.get('connect'):
@@ -121,8 +123,6 @@ def pending(db, cid, request, state):
                           {'a': payload['actor_id'], 'o': connection['org_id']}).first()
         if not user:
             provider.refuse('roster_admin_required', 403)
-        from core.license_lock import authorize_user
-        authorize_user(db, payload['actor_id'])
     return connection, payload
 
 
@@ -175,7 +175,6 @@ async def callback(connection_id: str, request: Request, state: str = '', code: 
             provider.refuse('roster_admin_required', 403)
         from core.license_lock import authorize_user
         authorize_user(db, payload['actor_id'], issuance=True)
-        store.consume(db, state, connection_id, 'oauth')
         db.execute(text('UPDATE education_roster_connections SET tokens_encrypted=:t,connected_by=:a WHERE id=:id'),
             {'id': connection_id, 't': store.pack({'refresh_token': tokens['refresh_token']}), 'a': payload['actor_id']})
         store.audit(db, 'connected', connection['org_id'], resource=connection_id, user_id=payload['actor_id'])
@@ -184,7 +183,6 @@ async def callback(connection_id: str, request: Request, state: str = '', code: 
     user = imported_user(db, connection, subject)
     from core.license_lock import authorize_user
     authorize_user(db, user['id'], issuance=True)
-    store.consume(db, state, connection_id, 'oauth')
     return finish(db, request, connection, subject)
 
 
@@ -202,7 +200,7 @@ async def launch(connection_id: str, request: Request, db: Session = Depends(get
     connection = store.load(db, connection_id, lock=True)
     if connection['revision'] != payload['revision']:
         provider.refuse('roster_configuration_changed')
-    # Resolve any imported ODIN principal before state consumption/context writes.
+    # Resolve any imported ODIN principal before context writes.
     # A first launch by an unimported provider identity only discovers verified
     # course metadata for admin preview; it stores no credentials or ODIN session.
     try:
@@ -214,7 +212,6 @@ async def launch(connection_id: str, request: Request, db: Session = Depends(get
     from core.license_lock import authorize_user
     if user is not None:
         authorize_user(db, user['id'], issuance=True)
-    store.consume(db, fields['state'][0], connection_id, 'oauth')
     contexts = connection['tokens'].get('contexts', {})
     if len(contexts) >= 100 and context['id'] not in contexts:
         provider.refuse('roster_context_limit', 422)
@@ -237,14 +234,15 @@ async def exchange(connection_id: str, body: dict, request: Request, db: Session
     if not isinstance(code, str) or not 32 <= len(code) <= 64:
         provider.refuse('roster_receipt_invalid', 403)
     connection = store.load(db, connection_id, lock=True)
-    payload = store.peek(db, code, connection_id, 'exchange')
+    payload = store.consume(db, code, connection_id, 'exchange')
+    db.commit()
+    connection = store.load(db, connection_id, lock=True)
     if (not hmac.compare_digest(payload['binding'], request.cookies.get(COOKIE, ''))
         or payload['revision'] != connection['revision']):
         provider.refuse('roster_browser_binding_invalid', 403)
     user = imported_user(db, connection, payload['subject'])
     from core.license_lock import authorize_user
     authorize_user(db, user['id'], issuance=True)
-    store.consume(db, code, connection_id, 'exchange')
     # Delegate session/MFA issuance to the established OIDC exchange, with a new
     # internal one-time code. The external receipt carries no pre-issued session.
     from core.auth import create_access_token

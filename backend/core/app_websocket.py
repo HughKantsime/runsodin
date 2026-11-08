@@ -18,6 +18,7 @@ class ConnectionManager:
 
     async def connect(self, ws: WebSocket, principal: dict):
         await ws.accept()
+        principal["_license_allowed"] = True  # caller completed fresh admission
         self.active.append((ws, principal))
 
     def disconnect(self, ws: WebSocket):
@@ -30,8 +31,6 @@ class ConnectionManager:
         from core.db import SessionLocal
         with self._policy_lock:
             tick = time.monotonic()
-            if cached and self._policy is not None and tick - self._policy_checked < 1:
-                return self._policy
             with SessionLocal() as db:
                 self._policy = snapshot(db)
             self._policy_checked = tick
@@ -41,7 +40,9 @@ class ConnectionManager:
         from core.license_lock import user_allowed
         try:
             policy = self.policy_snapshot(cached=cached)
-            return policy is None or user_allowed(policy, principal.get('id'))
+            allowed = policy is None or user_allowed(policy, principal.get('id'))
+            principal['_license_allowed'] = allowed
+            return allowed
         except Exception as exc:
             from core.license_lock import LicenseLockError
             if isinstance(exc, LicenseLockError):
@@ -121,17 +122,22 @@ class ConnectionManager:
         from core.controlled_events import audience_messages
         messages = await asyncio.to_thread(audience_messages, [p for _, p in audience], public_message)
         from core.license_lock import user_allowed
+        unavailable = False
         try:
             policy = await asyncio.to_thread(self.policy_snapshot)
         except Exception:
-            # Existing sockets already passed admission. A transient policy DB
-            # outage must not discard the event batch; retain the last decision.
-            policy = self._policy
-            log.warning('WebSocket license policy temporarily unavailable; using last snapshot')
+            unavailable = True
+            log.warning('WebSocket license policy temporarily unavailable; retaining individual decisions')
         for (ws, principal), controlled_message in zip(audience, messages):
-            if policy is not None and not user_allowed(policy, principal.get('id')):
+            if unavailable:
+                allowed = principal.get('_license_allowed')
+            else:
+                allowed = policy is None or user_allowed(policy, principal.get('id'))
+                principal['_license_allowed'] = allowed
+            if allowed is not True:
                 try:
-                    await asyncio.wait_for(ws.close(code=4403, reason='license_user_locked'), timeout=1)
+                    await asyncio.wait_for(ws.close(code=4403 if allowed is False else 1013,
+                                                    reason='license_user_locked' if allowed is False else 'license_policy_unavailable'), timeout=1)
                 except Exception:
                     pass
                 finally:

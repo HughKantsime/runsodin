@@ -179,8 +179,20 @@ def _principal(
     principal = dict(row._mapping)
     if not bool(principal.get("is_active")):
         return None
-    if db is not None:
-        authorize_user(db, principal["id"], request=request, purpose=request_purpose(request))
+    from core.license_lock import enabled
+    if enabled():
+        if db is None:
+            # A missing caller session cannot silently bypass policy.
+            from core.db import SessionLocal
+            try:
+                with SessionLocal() as policy_db:
+                    authorize_user(policy_db, principal["id"], request=request, purpose=request_purpose(request))
+            except LicenseLockError:
+                raise
+            except Exception:
+                raise LicenseLockError('license_policy_unavailable', status=503) from None
+        else:
+            authorize_user(db, principal["id"], request=request, purpose=request_purpose(request))
     principal["_auth_kind"] = auth_kind
     if token_id is not None:
         principal["_token_id"] = token_id
