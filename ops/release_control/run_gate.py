@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -59,6 +60,12 @@ def command_environment(
         environment["HOME"] = str(controlled_home)
         environment["XDG_CONFIG_HOME"] = str(controlled_home / ".config")
         environment["XDG_CACHE_HOME"] = str(controlled_home / ".cache")
+        temp = controlled_home / "tmp"
+        temp.mkdir(exist_ok=True)
+        environment.update({key: str(temp) for key in ("TMPDIR", "TMP", "TEMP")})
+        # Each nested command gets private caches, including pytest subprocesses.
+        environment["PYTEST_ADDOPTS"] = f"-o cache_dir={controlled_home / '.pytest_cache'}"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
     for key, value in (overrides or {}).items():
         if key not in allowed:
             raise ValueError(f"environment override is not allowlisted: {key}")
@@ -213,6 +220,7 @@ def execute(
     json_status: list[str] | None = None, redact: tuple[str, ...] = (),
     cwd: Path = ROOT, environment_allowlist: tuple[str, ...] = (),
     environment_overrides: dict[str, str] | None = None,
+    isolate_process_group: bool = False,
 ) -> dict[str, object]:
     output.parent.mkdir(parents=True, exist_ok=True)
     log_path = output.with_suffix(".log")
@@ -227,17 +235,43 @@ def execute(
     raw = ""
     try:
         with tempfile.TemporaryDirectory(prefix="odin-release-home-") as home:
-            completed = subprocess.run(
-                command, cwd=cwd, text=True, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, timeout=timeout, check=False,
-                env=command_environment(environment_allowlist, environment_overrides, Path(home)),
-            )
-        exit_code = completed.returncode
-        raw = completed.stdout or ""
+            if isolate_process_group:
+                # Only the aggregate's outer make gets a new session. Nested
+                # gates stay in it, so timeout/exit reaps the entire host tree
+                # before the next phase (especially CV06) can start.
+                process = subprocess.Popen(
+                    command, cwd=cwd, text=True, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, start_new_session=True,
+                    env=command_environment(environment_allowlist, environment_overrides, Path(home)),
+                )
+                try:
+                    raw, _ = process.communicate(timeout=timeout)
+                    exit_code = process.returncode
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                finally:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    remaining, _ = process.communicate()
+                    if timed_out:
+                        raw = remaining or ""
+            else:
+                completed = subprocess.run(
+                    command, cwd=cwd, text=True, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, timeout=timeout, check=False,
+                    env=command_environment(environment_allowlist, environment_overrides, Path(home)),
+                )
+                exit_code = completed.returncode
+                raw = completed.stdout or ""
     except subprocess.TimeoutExpired as exc:
         timed_out = True
         raw_value = exc.stdout or ""
         raw = raw_value.decode(errors="replace") if isinstance(raw_value, bytes) else raw_value
+    except OSError as exc:
+        # Startup failures also produce normal, sanitized gate evidence.
+        raw = f"command could not start: {type(exc).__name__}\n"
     sanitized, findings = sanitize(raw, redact)
     log_path.write_text(sanitized, encoding="utf-8")
     safe_command: list[str] = []

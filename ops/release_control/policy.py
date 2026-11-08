@@ -31,6 +31,16 @@ def load_inventory() -> dict[str, object]:
         raise ValueError("component inventory IDs/order are not exact")
     if data.get("base_environment_allowlist") != list(BASE_ENVIRONMENT_ALLOWLIST):
         raise ValueError("base environment allowlist is not exact")
+    phases = data.get("execution_phases")
+    if (not isinstance(phases, list) or not phases
+            or any(not isinstance(phase, list) or not phase for phase in phases)
+            or any(not isinstance(group, list) or not group for phase in phases for group in phase)):
+        raise ValueError("invalid component execution phases")
+    scheduled = [item for phase in phases for group in phase for item in group]
+    if sorted(scheduled) != EXPECTED_COMPONENTS:
+        raise ValueError("execution phases must schedule every component exactly once")
+    if phases[-1] != [["CV06"]] or phases[-2] != [["CV10"]]:
+        raise ValueError("CV10 and CV06 require separate final serial phases")
     for item in components:
         required = (
             "command", "working_directory", "environment_allowlist", "timeout_seconds",

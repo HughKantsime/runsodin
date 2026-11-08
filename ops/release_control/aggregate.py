@@ -1,4 +1,4 @@
-"""Run all ten trusted validation components in fixed order."""
+"""Run isolated component groups concurrently; publish in inventory order."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -89,45 +91,46 @@ def main() -> int:
         "ODIN_TELEMETRY_V2": "1",
     }
     native_rel = str(native.relative_to(ROOT))
-    first_failed_id: str | None = None
-    for component in inventory["components"]:
+    started = time.monotonic()
+
+    def run_component(component: dict[str, object]) -> dict[str, object]:
         component_id = str(component["id"])
         output_dir = components_dir / component_id
         output_dir.mkdir()
-        if first_failed_id is not None:
-            finding = f"not run: {first_failed_id} failed (fail-fast)"
-            timestamp = utc_now()
+        allowlist = tuple(str(item) for item in component["environment_allowlist"])
+        overrides = {key: value for key, value in env_values.items() if key in allowlist and value}
+        patterns = [str(item).format(native=native_rel) for item in component["expected_artifacts"]]
+        component_started = utc_now()
+        component_clock = time.monotonic()
+        try:
+            result = execute(
+                gate_id=component_id.lower(), command=[str(item) for item in component["command"]],
+                output=output_dir / "result.json", timeout=int(component["timeout_seconds"]),
+                expected_artifacts=patterns,
+                json_status=[str(item) for item in component["json_status"]],
+                cwd=(ROOT / str(component["working_directory"])).resolve(),
+                environment_allowlist=allowlist, environment_overrides=overrides,
+                isolate_process_group=True,
+            )
+        except Exception as exc:
+            # A runner error is an actual failed attempt, not a reason to skip
+            # this group's remaining components. Never expose exception secrets.
+            finding = f"component runner raised {type(exc).__name__}"
             log_path = output_dir / "result.log"
             log_path.write_text(finding + "\n", encoding="utf-8")
             result = {
                 "schema_version": 1, "gate_id": component_id.lower(), "status": "fail",
                 "command": [str(item) for item in component["command"]],
                 "working_directory": str((ROOT / str(component["working_directory"])).resolve()),
-                "started_at": timestamp, "ended_at": timestamp, "duration_seconds": 0,
+                "started_at": component_started, "ended_at": utc_now(),
+                "duration_seconds": round(time.monotonic() - component_clock, 3),
                 "exit_code": None, "timed_out": False,
-                "counts": {"tests": 1, "passed": 0, "failures": 1,
+                "counts": {"tests": 0, "passed": 0, "failures": 0,
                            "errors": 0, "skipped": 0, "xfailed": 0},
                 "tool_versions": {"python": sys.version.split()[0]},
                 "log": {"path": str(log_path), "sha256": sha256(log_path), "sanitized": True},
                 "artifacts": [], "findings": [finding],
             }
-            validate_result(result)
-            (output_dir / "result.json").write_text(
-                json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            )
-            results.append(result)
-            continue
-        allowlist = tuple(str(item) for item in component["environment_allowlist"])
-        overrides = {key: value for key, value in env_values.items() if key in allowlist and value}
-        patterns = [str(item).format(native=native_rel) for item in component["expected_artifacts"]]
-        result = execute(
-            gate_id=component_id.lower(), command=[str(item) for item in component["command"]],
-            output=output_dir / "result.json", timeout=int(component["timeout_seconds"]),
-            expected_artifacts=patterns,
-            json_status=[str(item) for item in component["json_status"]],
-            cwd=(ROOT / str(component["working_directory"])).resolve(),
-            environment_allowlist=allowlist, environment_overrides=overrides,
-        )
         # A component command is one release gate even when it does not emit a
         # top-level JUnit file; its native artifacts retain the detailed counts.
         if result["counts"]["tests"] == 0:
@@ -140,20 +143,34 @@ def main() -> int:
             (output_dir / "result.json").write_text(
                 json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
-        results.append(result)
-        if result["status"] != "pass":
-            first_failed_id = component_id
+        return result
+
+    by_id = {component["id"]: component for component in inventory["components"]}
+
+    def run_group(group: list[str]) -> list[dict[str, object]]:
+        return [run_component(by_id[component_id]) for component_id in group]
+
+    for phase in inventory["execution_phases"]:
+        with ThreadPoolExecutor(max_workers=len(phase)) as pool:
+            futures = [pool.submit(run_group, group) for group in phase]
+            for future in futures:
+                results.extend(future.result())
+    # Completion order must not affect JUnit, findings, artifacts or console output.
+    results.sort(key=lambda item: list(by_id).index(str(item["gate_id"]).upper()))
+    for item in results:
+        print(f"{str(item['gate_id']).upper()}: {item['status']} ({item['duration_seconds']}s)", flush=True)
 
     final_junit = run_dir / "junit.xml"
     _junit(results, final_junit)
     findings = [f"{item['gate_id']}: {finding}" for item in results for finding in item["findings"]]
+    failed = any(item["status"] != "pass" for item in results) or bool(findings)
     final: dict[str, object] = {
-        "schema_version": 1, "gate_id": "trusted_validation", "status": "pass" if not findings else "fail",
+        "schema_version": 1, "gate_id": "trusted_validation", "status": "fail" if failed else "pass",
         "command": ["make", "trusted-validation-gate"], "working_directory": str(ROOT),
         "started_at": min(str(item["started_at"]) for item in results),
         "ended_at": max(str(item["ended_at"]) for item in results),
-        "duration_seconds": round(sum(float(item["duration_seconds"]) for item in results), 3),
-        "exit_code": 0 if not findings else 1, "timed_out": any(item["timed_out"] for item in results),
+        "duration_seconds": round(time.monotonic() - started, 3),
+        "exit_code": 1 if failed else 0, "timed_out": any(item["timed_out"] for item in results),
         "counts": {"tests": 10, "passed": 10 - len([item for item in results if item["status"] != "pass"]),
                    "failures": len([item for item in results if item["status"] != "pass"]),
                    "errors": 0, "skipped": 0, "xfailed": 0},
