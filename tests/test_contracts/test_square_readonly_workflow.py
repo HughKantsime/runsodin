@@ -193,7 +193,7 @@ def test_product_deletion_prunes_mapping(shop):
 
 
 @pytest.mark.parametrize('route', ['groups', 'orgs'])
-def test_owner_deletion_removes_encrypted_connection(shop, route, monkeypatch):
+def test_owner_deletion_removes_encrypted_connection(shop, route, education_license):
     from core.models import SystemConfig
     from modules.orders import square_store
     from modules.organizations import routes, routes_users
@@ -201,7 +201,6 @@ def test_owner_deletion_removes_encrypted_connection(shop, route, monkeypatch):
     db.execute(text("INSERT INTO groups(id,name,is_org) VALUES(88,'Temporary owner',1)")); db.commit()
     with Session(db.get_bind()) as other:
         square_store.save(other, 88, {'version': 1, 'tenant': 88, 'token': 'fixture', 'environment': 'sandbox', 'merchant_id': 'M1', 'mappings': {}}, None); other.commit()
-    monkeypatch.setattr(routes_users, 'require_feature', lambda *a: None)
     app.include_router(routes.router); app.include_router(routes_users.router)
     user['group_id'] = None
     r = client.delete('/'+route+'/88')

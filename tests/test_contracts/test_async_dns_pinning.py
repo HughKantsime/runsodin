@@ -18,7 +18,7 @@ from modules.organizations.oidc_handler import OIDCHandler
 @pytest.mark.parametrize("caller", [
     "discovery", "exchange", "userinfo", "jwks", "classroom", "license_challenge",
 ])
-def test_async_callers_connect_only_to_validated_address(monkeypatch, caller):
+def test_async_callers_connect_only_to_validated_address(monkeypatch, caller, pro_license):
     """2.0.44 loses the pin in AsyncClient's DNS worker and connects to loopback.
 
     Capture the actual socket connect address without opening a network connection.

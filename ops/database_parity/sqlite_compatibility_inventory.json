@@ -569,6 +569,30 @@
       "source": "statement = statement.replace('VALUES (', 'VALUES (?, ', 1)"
     },
     {
+      "classification": "sqlite-provider-only",
+      "line": 99,
+      "path": "backend/core/license_clock.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+      "source": "timeout = connection.exec_driver_sql(\"PRAGMA busy_timeout\").scalar() if sqlite else None"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 104,
+      "path": "backend/core/license_clock.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+      "source": "connection.exec_driver_sql(\"PRAGMA busy_timeout=0\")"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 121,
+      "path": "backend/core/license_clock.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+      "source": "connection.exec_driver_sql(f\"PRAGMA busy_timeout={int(timeout)}\")"
+    },
+    {
       "classification": "dialect-neutral",
       "line": 58,
       "path": "backend/core/log_redaction.py",

@@ -7,7 +7,7 @@ from tests.test_contracts.test_education_oidc_identity import oidc_db, _seed_oid
 from tests.test_contracts.test_oidc_first_setup import setup_client
 
 
-def test_redirect_pin_ignores_host_and_forwarded_headers(oidc_db, monkeypatch):
+def test_redirect_pin_ignores_host_and_forwarded_headers(oidc_db, monkeypatch, pro_license):
     from modules.organizations import routes_oidc, oidc_handler
     _seed_oidc_config(oidc_db)
     captured = []
@@ -24,7 +24,7 @@ def test_redirect_pin_ignores_host_and_forwarded_headers(oidc_db, monkeypatch):
     assert captured == ['https://odin.example.test/api/auth/oidc/callback']
 
 
-def test_callback_stores_real_fernet_access_token_not_plaintext(oidc_db, monkeypatch):
+def test_callback_stores_real_fernet_access_token_not_plaintext(oidc_db, monkeypatch, pro_license):
     from modules.organizations import oidc_handler
     from core.crypto import decrypt
     _seed_oidc_config(oidc_db)

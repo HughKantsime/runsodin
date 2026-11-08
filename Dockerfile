@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
     && install -d -m 0755 /usr/share/postgresql-common/pgdg \
-    && curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --retry-max-time 600 --connect-timeout 30 https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --retry-max-time 600 --connect-timeout 30 --max-time 300 https://www.postgresql.org/media/keys/ACCC4CF8.asc \
        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     && echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" | sha256sum -c - \
     && . /etc/os-release \
@@ -40,7 +40,7 @@ RUN go2rtc_arch="$(dpkg --print-architecture)" \
          arm64) go2rtc_sha256=ebea4cf3a0bc3a12190ebba1f2c4b3c8cf4aac099fadb4cd50a669429b074f1c; go2rtc_elf_machine=b700 ;; \
          *)     echo "no go2rtc checksum for arch=${go2rtc_arch:-unset}" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --retry-max-time 600 --connect-timeout 30 "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${go2rtc_arch}" \
+    && curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --retry-max-time 600 --connect-timeout 30 --max-time 300 "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${go2rtc_arch}" \
     -o /usr/local/bin/go2rtc \
     && echo "${go2rtc_sha256}  /usr/local/bin/go2rtc" | sha256sum -c - \
     && test "$(od -An -tx1 -j18 -N2 /usr/local/bin/go2rtc | tr -d ' ')" = "${go2rtc_elf_machine}" \
@@ -72,7 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # The SHA-256 pins the download; the SHA3-256 is the sqlite3.c hash sqlite.org publishes for 3.51.3.
-RUN curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --retry-max-time 600 --connect-timeout 30 "https://sqlite.org/2026/sqlite-autoconf-3510300.tar.gz" -o /tmp/sqlite.tar.gz \
+RUN curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --retry-max-time 600 --connect-timeout 30 --max-time 300 "https://sqlite.org/2026/sqlite-autoconf-3510300.tar.gz" -o /tmp/sqlite.tar.gz \
     && echo "81f5be397049b0cae1b167f2225af7646fc0f82e4a9b3c48c9ea3a533e21d77a  /tmp/sqlite.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/sqlite.tar.gz --strip-components=1 \
     && python3 -c "import hashlib, sys; sys.exit(hashlib.sha3_256(open('sqlite3.c', 'rb').read()).hexdigest() != '32d5424f97e0a7fc5ed2f6335afbb58be4e0298bd7117a34e39d345ff13d859e')"

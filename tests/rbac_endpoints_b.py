@@ -1,6 +1,13 @@
 """Route expectations for the RBAC census and live matrix."""
 from rbac_expectations import _ONLINE_LICENSE, _pub, _setup_locked, _api_read, _op_write, _admin_only, _admin_read
 
+# These authentication flows are public, but still require an SSO entitlement.
+# Keep the callback separate: license refusals redirect to the login page.
+PUBLIC_LICENSE_GATED = {
+    ("GET", "/api/auth/oidc/login"): "sso",
+    ("POST", "/api/auth/oidc/exchange"): "sso",
+}
+
 ENDPOINTS = [
     ("GET",  "/api/permissions", _pub(), None, "Permissions (public)"),
     ("PUT",  "/api/permissions", _admin_only(), {"page_access": {}, "action_access": {}}, "Update permissions"),
@@ -96,7 +103,7 @@ ENDPOINTS = [
     ("POST",   "/api/auth/mfa/confirm",  _api_read(), {"token": "000000"}, "Confirm MFA setup"),
     ("POST",   "/api/auth/mfa/verify",   _pub(),      {"token": "000000"}, "Verify MFA (public second-factor)"),
     ("DELETE", "/api/auth/mfa",          _api_read(), None,                "Disable own MFA"),
-    # OIDC (no auth dependency — public)
+    # OIDC (no auth dependency; login/exchange are license-gated even without headers)
     ("GET",    "/api/auth/oidc/login",    _pub(), None,             "OIDC login redirect"),
     ("GET",    "/api/auth/oidc/callback", _pub(), None,             "OIDC callback"),
     ("POST",   "/api/auth/oidc/exchange", _pub(), {"code": "test"}, "OIDC token exchange"),

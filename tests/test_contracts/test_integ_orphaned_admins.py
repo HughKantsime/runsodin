@@ -29,7 +29,7 @@ def _superadmins(db):
     return sorted(r[0] for r in db.execute(text("SELECT username FROM users WHERE role='admin' AND group_id IS NULL")))
 
 
-def test_deleting_an_org_with_admins_is_refused_and_names_them(review_db):  # noqa: F811
+def test_deleting_an_org_with_admins_is_refused_and_names_them(review_db, education_license):  # noqa: F811
     from modules.organizations.routes import delete_org
     with Session(review_db.get_bind()) as db:
         _seed(db)
@@ -54,7 +54,7 @@ def test_deleting_a_group_with_admins_is_refused(review_db, monkeypatch):  # noq
         assert _superadmins(db) == ["root"]
 
 
-def test_deleting_an_org_without_admins_still_unlinks_members(review_db):  # noqa: F811
+def test_deleting_an_org_without_admins_still_unlinks_members(review_db, education_license):  # noqa: F811
     from modules.organizations.routes import delete_org
     with Session(review_db.get_bind()) as db:
         _seed(db, admin_role="operator")

@@ -71,7 +71,7 @@ def test_classroom_transport_failure_maps_to_generic_502(transport, error_type):
 
 
 @pytest.mark.parametrize("caller", ["discovery", "exchange", "userinfo", "jwks", "license"])
-def test_other_async_callers_preserve_oversize_error_behavior(monkeypatch, transport, caller):
+def test_other_async_callers_preserve_oversize_error_behavior(monkeypatch, transport, caller, pro_license):
     monkeypatch.setattr(oidc_handler, "_discovery_cache", OrderedDict())
     transport(lambda request: httpx.Response(200, content=b"x" * (4 * 1024 * 1024 + 1)))
     url = "https://upstream.test/oversize"

@@ -41,7 +41,7 @@ def test_user_deletion_without_the_table_is_unaffected(deletion_case):  # noqa: 
     assert client.delete("/users/31", headers=owner).status_code == 200
 
 
-def test_org_deletion_removes_the_orgs_deferred_deliveries(review_db, monkeypatch):  # noqa: F811
+def test_org_deletion_removes_the_orgs_deferred_deliveries(review_db, monkeypatch, education_license):  # noqa: F811
     from core.db import get_db
     from core.dependencies import get_current_user
     from modules.organizations import routes
