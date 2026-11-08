@@ -55,10 +55,11 @@ def largest_referenced_job_id(connection):
     # SQLite MAX sorts TEXT above INTEGER. Normalize before aggregating: only
     # integer storage values and nonempty ASCII-digit text are job identifiers.
     # GLOB alone stops at NUL, so explicitly reject embedded NULs as well.
+    # Over 18 digits CAST saturates at int64 max and would exhaust job ids.
     identifier = 'id'
     if connection.dialect.name == 'sqlite':
         identifier = ("CASE WHEN typeof(id)='integer' THEN id "
-                      "WHEN typeof(id)='text' AND id<>'' AND id NOT GLOB '*[^0-9]*' "
+                      "WHEN typeof(id)='text' AND id<>'' AND length(id)<=18 AND id NOT GLOB '*[^0-9]*' "
                       "AND instr(id,char(0))=0 THEN CAST(id AS INTEGER) END")
     return connection.exec_driver_sql(
         f'SELECT COALESCE(max({identifier}),0) FROM (' + ' UNION ALL '.join(queries) + ')').scalar_one()

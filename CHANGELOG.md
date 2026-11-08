@@ -4,7 +4,18 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.47] - 2026-11-08
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Fixes 2.0.46 failing to start on existing installs (database migration 055); includes everything in 2.0.46. -->
+
+### Fixed
+
+- Database migration 055 no longer stops existing SQLite installs from starting. It counted the printer's own job ID in `print_jobs.job_id` (stored as text) as an ODIN job reference; SQLite sorts text above numbers, so the job-identity check failed and ODIN restarted in a loop. Only real ODIN job references (integers, or all-digit text) count now, and a bad value is a clear migration error. Installs that already finished 2.0.46's version of this migration are unaffected.
+
 ## [2.0.46] - 2026-11-07
+
+**Withdrawn 2026-11-08:** fails to start on existing SQLite installs (migration 055). Use 2.0.47.
 
 <!-- summary: Enterprise gets controlled-part handling for CUI and ITAR files and jobs; Vigil spaghetti detection works on a fresh install; camera views use no public STUN server; legal documents name JLLS Holdings LLC, d/b/a SubLab 3DP. -->
 
