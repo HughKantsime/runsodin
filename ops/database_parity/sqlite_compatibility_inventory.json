@@ -274,7 +274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 291,
+      "line": 294,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
       "reason": "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
