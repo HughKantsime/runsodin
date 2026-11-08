@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from xml.etree import ElementTree as ET
 from .host_lock import validation_lock
 from .policy import load_inventory
 from .report import render
-from .run_gate import execute, sha256, utc_now, validate_result
+from .run_gate import execute, sanitize, sha256, utc_now, validate_result
 
 ROOT = Path(__file__).parents[2]
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,96}$")
@@ -40,29 +41,58 @@ def hardware_python() -> str:
 
 _FAILURE_LINE = re.compile(r"^(FAILED|ERROR) \S")
 FAILURE_SUMMARY_LIMIT = 20
+FAILURE_LINE_CHARS = 300
+FAILURE_LOG_TAIL_BYTES = 256 * 1024  # pytest prints its short summary at the end
+_OUTPUT_LOCK = threading.Lock()
+
+
+def _safe(text: str) -> str:
+    """Sanitize first (secrets may span the cut), then bound the length."""
+    sanitized, _ = sanitize(text)
+    return sanitized[:FAILURE_LINE_CHARS]
 
 
 def failure_summary(result: dict[str, object]) -> list[str]:
     """Findings and pytest FAILED/ERROR lines for a failed component.
 
     Failed runs upload no evidence, so the job log is the only triage record.
-    Lines come from the component's already-sanitized log; nothing else is read.
+    Every line is re-sanitized here: findings can carry decoded artifact
+    values that the log sanitizer never saw. Reads at most the log's last
+    FAILURE_LOG_TAIL_BYTES and never raises.
     """
     if result.get("status") == "pass":
         return []
-    lines = [f"  finding: {item}" for item in result.get("findings", [])][:FAILURE_SUMMARY_LIMIT]
-    log = result.get("log")
-    log_path = Path(str(log.get("path"))) if isinstance(log, dict) and log.get("sanitized") else None
-    if log_path is not None and log_path.name != "junit.xml":
-        try:
-            matches = [line.rstrip()[:300] for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-                       if _FAILURE_LINE.match(line)]
-        except OSError:
-            matches = []
-        lines.extend(f"  {line}" for line in matches[:FAILURE_SUMMARY_LIMIT])
-        if len(matches) > FAILURE_SUMMARY_LIMIT:
-            lines.append(f"  ... {len(matches) - FAILURE_SUMMARY_LIMIT} more FAILED/ERROR lines")
-    return lines
+    try:
+        findings = list(result.get("findings") or [])
+        lines = [f"  finding: {_safe(str(item))}" for item in findings[:FAILURE_SUMMARY_LIMIT]]
+        log = result.get("log")
+        log_path = Path(str(log.get("path"))) if isinstance(log, dict) and log.get("sanitized") else None
+        if log_path is not None and log_path.name != "junit.xml":
+            try:
+                with log_path.open("rb") as handle:
+                    size = handle.seek(0, os.SEEK_END)
+                    handle.seek(max(0, size - FAILURE_LOG_TAIL_BYTES))
+                    tail = handle.read(FAILURE_LOG_TAIL_BYTES).decode("utf-8", errors="replace")
+            except OSError:
+                tail = ""
+            matched = 0
+            for line in tail.splitlines():
+                if _FAILURE_LINE.match(line):
+                    matched += 1
+                    if matched <= FAILURE_SUMMARY_LIMIT:
+                        lines.append(f"  {_safe(line.rstrip())}")
+            if matched > FAILURE_SUMMARY_LIMIT:
+                lines.append(f"  ... {matched - FAILURE_SUMMARY_LIMIT} more FAILED/ERROR lines")
+        return lines
+    except Exception as exc:  # diagnostics must never stop aggregation
+        return [f"  (failure summary unavailable: {type(exc).__name__})"]
+
+
+def _emit(text: str) -> None:
+    """One locked write per component so parallel phases never interleave."""
+    with _OUTPUT_LOCK:
+        sys.stdout.write(text + "\n")
+        sys.stdout.flush()
 
 
 def _junit(results: list[dict[str, object]], path: Path) -> None:
@@ -180,7 +210,7 @@ def run_aggregate() -> int:
                 "artifacts": [], "findings": [finding],
             }
         summary = "\n".join([f"{component_id}: {result['status']} ({result['duration_seconds']}s)", *failure_summary(result)])
-        print(summary, flush=True)
+        _emit(summary)
         return result
 
     by_id = {component["id"]: component for component in inventory["components"]}

@@ -263,12 +263,14 @@ def test_progress_is_printed_before_later_components_start(tmp_path, monkeypatch
     assert aggregate.main() == 0
 
 
+
 def test_failure_summary_names_failing_tests_from_the_sanitized_log(tmp_path):
     log = tmp_path / "result.log"
     lines = ["....F", "=== short test summary info ===",
              "FAILED tests/test_a.py::test_one - AssertionError: boom",
              "ERROR tests/test_b.py::test_two - RuntimeError",
-             "FAILED_NOT_A_SUMMARY_LINE", "  FAILED indented is ignored"]
+             "FAILED_NOT_A_SUMMARY_LINE", "  FAILED indented is ignored",
+             "FAILED tests/test_long.py::test_x - " + "y" * 5000]
     lines += [f"FAILED tests/test_many.py::test_{n}" for n in range(aggregate.FAILURE_SUMMARY_LIMIT)]
     log.write_text("\n".join(lines) + "\n", encoding="utf-8")
     result = {"status": "fail", "findings": ["command exited 1"],
@@ -277,8 +279,9 @@ def test_failure_summary_names_failing_tests_from_the_sanitized_log(tmp_path):
     assert summary[0] == "  finding: command exited 1"
     assert summary[1] == "  FAILED tests/test_a.py::test_one - AssertionError: boom"
     assert summary[2] == "  ERROR tests/test_b.py::test_two - RuntimeError"
+    assert len(summary[3]) == 2 + aggregate.FAILURE_LINE_CHARS
     assert len(summary) == 1 + aggregate.FAILURE_SUMMARY_LIMIT + 1
-    assert summary[-1] == "  ... 2 more FAILED/ERROR lines"
+    assert summary[-1] == "  ... 3 more FAILED/ERROR lines"
     assert not any("NOT_A_SUMMARY" in line or "indented" in line for line in summary)
 
 
@@ -290,3 +293,66 @@ def test_failure_summary_is_empty_on_pass_and_never_reads_an_unsanitized_log(tmp
     assert aggregate.failure_summary(unsanitized) == ["  finding: x"]
     missing = {"status": "fail", "findings": [], "log": {"path": str(tmp_path / "gone.log"), "sanitized": True}}
     assert aggregate.failure_summary(missing) == []
+
+
+def test_failure_summary_reads_only_the_log_tail(tmp_path):
+    log = tmp_path / "result.log"
+    with log.open("w", encoding="utf-8") as handle:
+        handle.write("FAILED tests/early.py::test_far_from_the_end\n")
+        handle.write("." * (aggregate.FAILURE_LOG_TAIL_BYTES + 10) + "\n")
+        handle.write("FAILED tests/late.py::test_in_the_summary\n")
+    summary = aggregate.failure_summary({"status": "fail", "findings": [], "log": {"path": str(log), "sanitized": True}})
+    assert summary == ["  FAILED tests/late.py::test_in_the_summary"]
+
+
+def test_failure_summary_never_raises():
+    class Exploding:
+        def __iter__(self):
+            raise RuntimeError("boom")
+    summary = aggregate.failure_summary({"status": "fail", "findings": Exploding(), "log": None})
+    assert summary == ["  (failure summary unavailable: RuntimeError)"]
+
+
+def test_failure_summary_redacts_a_secret_decoded_by_status_validation(tmp_path, monkeypatch):
+    secret = "s3cr3t-value-for-test-only"
+    monkeypatch.setenv("ODIN_TEST_API_TOKEN", secret)
+    escaped = "".join(f"\\u{ord(c):04x}" for c in secret)  # JSON escapes evade the artifact sanitizer
+    script = tmp_path / "write_status.py"
+    script.write_text(
+        "import pathlib\n"
+        f"pathlib.Path('status.json').write_text('{{\"status\": \"{escaped}\"}}')\n",
+        encoding="utf-8",
+    )
+    result = execute(
+        gate_id="probe", command=[sys.executable, str(script)], output=tmp_path / "out" / "result.json",
+        timeout=60, expected_artifacts=["status.json"], json_status=["status.json=pass"], cwd=tmp_path,
+    )
+    assert result["status"] == "fail"
+    summary = "\n".join(aggregate.failure_summary(result))
+    assert "unexpected status value" in summary
+    assert secret not in summary
+    assert secret not in json.dumps(result["findings"])
+
+
+def test_emit_writes_each_component_block_atomically(monkeypatch):
+    class SlowStream:
+        def __init__(self):
+            self.chunks = []
+        def write(self, text):
+            for char in text:  # worst case: the stream yields between characters
+                self.chunks.append(char)
+                threading.Event().wait(0.0001)
+        def flush(self):
+            pass
+    stream = SlowStream()
+    monkeypatch.setattr(aggregate.sys, "stdout", stream)
+    blocks = [f"CV{n:02d}: fail (1s)\n  finding: detail {n}" for n in range(8)]
+    threads = [threading.Thread(target=aggregate._emit, args=(block,)) for block in blocks]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    written = "".join(stream.chunks)
+    assert sorted(written.split("\n")[:-1]) == sorted(line for block in blocks for line in block.split("\n"))
+    for block in blocks:
+        assert block + "\n" in written
