@@ -4,6 +4,26 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.48] - 2026-11-08
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Licensing closes its loopholes: winding the clock back no longer revives a trial, printer and user limits apply everywhere, SSO, CSV export and organizations follow the license, and the cost calculator is now free in Community. -->
+
+### Changed
+
+- The cost calculator and pricing configuration are part of Community (free); they no longer need Pro.
+
+### Security
+
+- A server clock wound back more than 24 hours behind the license's signed issue time, or behind the latest time ODIN has recorded, now counts as expired, with a clear message and documented recovery. Normal clock drift, restarts and long power-offs are unaffected.
+- Printer and user limits are checked in one place for every way of adding them, including the setup wizard and the Google Classroom importer.
+- SSO sign-in follows the license after expiry (the local admin login stays available for recovery), CSV exports need the CSV export feature, organization management needs user groups, and editing a scheduled report needs email delivery.
+- The license expiry instant is applied the same way everywhere, and the app refreshes its license state at expiry, when the window regains focus and after a feature is refused, keeping the last known state through a brief network error.
+
+### Fixed
+
+- Image builds retry their downloads (go2rtc, SQLite, the PostgreSQL signing key), so a temporary GitHub outage no longer stops a release.
+
 ## [2.0.47] - 2026-11-08
 
 <!-- summary: Fixes 2.0.46 failing to start on existing installs (database migration 055); includes everything in 2.0.46. -->
