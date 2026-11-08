@@ -22,11 +22,12 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - Image builds retry transient download failures (go2rtc, SQLite, the PostgreSQL signing key) for up to 10 minutes.
+- Printer monitoring follows printer changes without a restart: a deactivated or deleted printer is disconnected and no longer reconnected, and a changed address, serial number or access code reconnects with the new values. One printer failing to connect no longer affects the others. The fleet live-status view skips inactive printers.
 
 ### Release tooling
 
 - Trusted Validation runs its ten components in collision-checked phases and reports every component's result in one run.
-- `make release-vm-precheck` runs the same ten components on the validation host with the runner's environment, sharing a host lock with Trusted Validation (which waits for a running precheck).
+- `make release-vm-precheck` runs the same ten components on the validation host with the runner's environment, sharing a host lock with Trusted Validation (which waits for a running precheck). It installs the same validation dependencies as Trusted Validation (one shared script) and uses a private temporary directory.
 
 ## [2.0.47] - 2026-11-08
 
