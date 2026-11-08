@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.47] - 2026-11-08
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: Fixes 2.0.46 failing to start on existing installs (database migration 055); includes everything in 2.0.46. -->
 
 ### Fixed
