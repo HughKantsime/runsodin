@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.50] - 2026-11-08
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: On installs without organizations, an administrator can now clear a stuck printer dispatch instead of the printer staying blocked. -->
 
 ### Fixed
