@@ -217,7 +217,11 @@ release-control-local-gate: ## Validate local workflow, results, installer isola
 release-precheck: ## Before pushing a candidate: CV01, CV03 and CV02 locally (PRECHECK_FULL=1 adds CV04, CV05)
 	bash ops/release_control/precheck.sh
 
-trusted-validation-gate: ## Run the ten ordered trusted validation components
+.PHONY: release-vm-precheck
+release-vm-precheck: ## On odin-ci, run all ten components with the runner environment
+	bash ops/release_control/vm_precheck.sh
+
+trusted-validation-gate: ## Run ten trusted components in audited parallel groups
 	$(PYTHON) -m ops.release_control.aggregate
 
 test-practical-evidence: ## Run the exact 34-case practical evidence contract

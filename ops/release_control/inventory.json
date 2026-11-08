@@ -1,6 +1,13 @@
 {
   "schema_version": 1,
   "base_environment_allowlist": ["PATH","LANG","LC_ALL","LC_CTYPE","TMPDIR","TMP","TEMP","CI","HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","GITHUB_RUN_ID","GITHUB_RUN_ATTEMPT","GITHUB_SHA","GITHUB_REF","GITHUB_REF_NAME","GITHUB_ACTOR","GITHUB_ACTOR_ID","GITHUB_TRIGGERING_ACTOR","RUNNER_OS","RUNNER_ARCH","RUNNER_TRACKING_ID"],
+  "execution_phases": [
+    [["CV02"], ["CV08", "CV09"]],
+    [["CV03"]],
+    [["CV01", "CV04", "CV05", "CV07"]],
+    [["CV10"]],
+    [["CV06"]]
+  ],
   "components": [
     {"id":"CV01","name":"release-control-local","command":["make","release-control-local-gate","PYTHON=python3.11"],"working_directory":".","environment_allowlist":["PYTHON","RELEASE_CONTROL_RUN_ID","RELEASE_CONTROL_COMPONENT_DIR","DOCKER_HOST"],"timeout_seconds":2700,"expected_artifacts":["{native}/release-control-local/result.json","{native}/release-control-local/junit.xml","{native}/release-control-local/index.html","{native}/release-control-local/installer/*/manifest.json"],"json_status":["result.json=pass","manifest.json=pass"],"source":"new local control gate","result_kind":"release-control"},
     {"id":"CV02","name":"contracts","command":["make","test-contracts-structured","PYTHON=python3.11"],"working_directory":".","environment_allowlist":["PYTHON","RELEASE_CONTROL_RUN_ID","RELEASE_CONTROL_COMPONENT_DIR","DOCKER_HOST","PLAYWRIGHT_BROWSERS_PATH"],"timeout_seconds":5700,"expected_artifacts":["{native}/contracts/result.json","{native}/contracts/junit.xml","{native}/contracts/index.html"],"json_status":["result.json=pass"],"source":"contract-tests","result_kind":"structured"},
