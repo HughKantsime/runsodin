@@ -3,7 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from license_manager import feature_gate
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import text
+from sqlalchemy import String, cast, func, text
+from pydantic import ValidationError
 from typing import List, Optional
 import logging
 
@@ -111,6 +112,7 @@ async def list_alerts(
     include_dismissed: bool = False,
     limit: int = 25,
     offset: int = 0,
+    needs_you: bool = False,
     # Stacked auth (Phase 2 canonical read shape). Replaces the ad-hoc
     # `get_current_user + if not current_user` pattern — require_role
     # raises the auth error structurally.
@@ -141,11 +143,34 @@ async def list_alerts(
     elif not include_dismissed:
         query = query.filter(Alert.is_dismissed.is_not(True))
 
-    alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).offset(offset).limit(limit).all()
+    if needs_you:
+        # One current cause per printer, regardless of how much history a noisy
+        # printer has. No global limit that can hide another printer's pause.
+        from modules.printers.models import Printer
+        ranked = db.query(
+            Alert.id,
+            func.row_number().over(
+                partition_by=Alert.printer_id,
+                order_by=(Alert.created_at.desc(), Alert.id.desc()),
+            ).label("position"),
+        ).join(Printer, Printer.id == Alert.printer_id).filter(
+            Alert.user_id == current_user["id"],
+            Alert.is_dismissed.is_not(True),
+            func.lower(cast(Alert.alert_type, String)).in_(("print_paused", "printer_error")),
+            Printer.is_active.is_(True),
+        ).subquery()
+        query = query.join(ranked, ranked.c.id == Alert.id).filter(ranked.c.position == 1)
+        alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).all()
+    else:
+        alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).offset(offset).limit(limit).all()
 
     results = []
     for alert in alerts:
-        data = AlertResponse.model_validate(alert)
+        try:
+            data = AlertResponse.model_validate(alert)
+        except ValidationError:
+            log.warning("Skipping unrepresentable alert id=%s", alert.id)
+            continue
         if alert.printer:
             data.printer_name = alert.printer.nickname or alert.printer.name
         if alert.job:
@@ -154,7 +179,12 @@ async def list_alerts(
         if alert.spool and alert.spool.filament:
             data.spool_name = f"{alert.spool.filament.brand} {alert.spool.filament.name}"
         from core.controlled_redaction import redact_export
-        data = AlertResponse.model_validate(redact_export(db, current_user, data.model_dump(), resource_kind='alert'))
+        redacted = redact_export(db, current_user, data.model_dump(), resource_kind='alert')
+        try:
+            data = AlertResponse.model_validate(redacted)
+        except ValidationError:
+            log.warning("Skipping unrepresentable alert id=%s", alert.id)
+            continue
         results.append(data)
 
     return results

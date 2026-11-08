@@ -53,14 +53,8 @@ export function useFloorData() {
   const fleet = useFleet()
   const prints = useQuery({ queryKey: ['print-jobs', 'foundry-running'], queryFn: () => printJobs.list({ status: 'running', limit: 1000 }), refetchInterval: 30000 })
   const queue = useQuery({ queryKey: ['jobs', 'foundry'], queryFn: readQueue, enabled: canAccessPage('jobs') || canAccessPage('timeline'), refetchInterval: 30000 })
-  const notices = useQuery({ queryKey: ['alerts', 'foundry'], queryFn: async () => {
-    // Paginate: a large farm must not lose its paused printer behind the default alert limit.
-    const result = []
-    for (let offset = 0; ; offset += 100) {
-      const page = await alerts.list({ limit: 100, offset })
-      result.push(...page)
-      if (page.length < 100) return result
-    }
-  }, enabled: canAccessPage('alerts'), refetchInterval: 30000 })
+  // The server returns one pause/error per printer in a single request. A noisy
+  // printer's history cannot crowd another paused printer out of the response.
+  const notices = useQuery({ queryKey: ['alerts', 'foundry'], queryFn: () => alerts.list({ needs_you: true }), enabled: canAccessPage('alerts'), refetchInterval: 30000 })
   return { fleet, prints, queue, notices }
 }
