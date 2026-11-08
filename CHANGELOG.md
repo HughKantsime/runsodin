@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.48] - 2026-11-08
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: Licensing closes its loopholes: winding the clock back no longer revives a trial, printer and user limits apply everywhere, SSO, CSV export and organizations follow the license, and the cost calculator is now free in Community. -->
 
 ### Changed
