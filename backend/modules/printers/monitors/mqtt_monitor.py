@@ -64,6 +64,8 @@ class MQTTMonitorDaemon:
                 SELECT id, name, model, api_host, api_key
                 FROM printers
                 WHERE api_host IS NOT NULL AND api_key IS NOT NULL AND api_key != ''
+                  AND LOWER(COALESCE(api_type, 'bambu')) = 'bambu'
+                  AND is_active IS NOT FALSE
             '''))
 
             printers = []
@@ -215,7 +217,7 @@ class MQTTMonitorDaemon:
                     self._check_reconnect()
                     self._last_reconnect_check = time.time()
 
-                # Every 60s, check for newly added printers
+                # Every 60s, bring the monitored set in line with the table
                 if time.time() - self._last_printer_reload >= 60:
                     self._check_new_printers()
                     self._last_printer_reload = time.time()
@@ -235,43 +237,62 @@ class MQTTMonitorDaemon:
 
         self.stop()
 
+    def _families(self):
+        families = [("Bambu", '_all_printers', self.load_printers, ('ip', 'serial', 'access_code'),
+                     lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
+                                              serial=p['serial'], access_code=p['access_code']))]
+        if MOONRAKER_AVAILABLE:
+            families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port'),
+                             lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
+                                                        host=p['host'], port=p['port'])))
+        return families
+
     def _check_new_printers(self):
-        """Check for newly added printers and connect to them."""
-        try:
-            current_printers = self.load_printers()
-            current_ids = {p['id'] for p in current_printers}
-            monitored_ids = set(self.monitors.keys())
-            new_ids = current_ids - monitored_ids
-            if not new_ids:
-                return
-            for p in current_printers:
-                if p['id'] in new_ids:
-                    log.info(f"New printer detected: {p['name']}, connecting...")
-                    monitor = PrinterMonitor(
-                        printer_id=p['id'],
-                        name=p['name'],
-                        ip=p['ip'],
-                        serial=p['serial'],
-                        access_code=p['access_code']
-                    )
+        """Align monitors with the printers table: added, removed, deactivated, edited.
+
+        All removals (both families) run before any connection, so a printer id
+        that moved between families is never disconnected after it reconnects.
+        A failed read keeps that family's monitors; a failed connect is retried
+        on the next pass.
+        """
+        loaded = []
+        for kind, attr, load, keys, factory in self._families():
+            previous = getattr(self, attr, [])
+            try:
+                current = load()
+            except Exception as e:
+                log.warning(f"{kind} printer reload failed; keeping current monitors: {type(e).__name__}")
+                continue
+            loaded.append((kind, attr, previous, current, keys, factory))
+        for kind, _attr, previous, current, keys, _factory in loaded:
+            identity = lambda p: tuple(p.get(k) for k in keys)
+            after = {p['id']: p for p in current}
+            for old in previous:
+                new = after.get(old['id'])
+                if new is not None and identity(new) == identity(old):
+                    continue
+                monitor = self.monitors.pop(old['id'], None)
+                if monitor is None:
+                    continue
+                reason = "connection settings changed" if new is not None else "removed or inactive"
+                log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
+                try:
+                    monitor.disconnect()
+                except Exception as e:
+                    log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
+        for kind, attr, _previous, current, _keys, factory in loaded:
+            setattr(self, attr, current)
+            for p in current:
+                if p['id'] in self.monitors:
+                    continue
+                log.info(f"[{p['name']}] Connecting {kind} monitor...")
+                try:
+                    monitor = factory(p)
                     if monitor.connect():
                         self.monitors[p['id']] = monitor
                         log.info(f"[{p['name']}] Connected")
-            if MOONRAKER_AVAILABLE:
-                mk_printers = self.load_moonraker_printers()
-                for p in mk_printers:
-                    if p['id'] not in self.monitors:
-                        log.info(f"New Moonraker printer: {p['name']}")
-                        monitor = MoonrakerMonitor(
-                            printer_id=p['id'],
-                            name=p['name'],
-                            host=p['host'],
-                            port=p['port'],
-                        )
-                        if monitor.connect():
-                            self.monitors[p['id']] = monitor
-        except Exception as e:
-            log.warning(f"Error checking for new printers: {e}")
+                except Exception as e:
+                    log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
 
     def _persist_offline(self, printer_id):
         try:
@@ -283,67 +304,94 @@ class MQTTMonitorDaemon:
     def _check_reconnect(self):
         """Check for dead connections and attempt reconnection."""
         # Check Bambu printers
-        for p in self._all_printers:
-            pid = p['id']
-            monitor = self.monitors.get(pid)
+        for kind, printers, retry in (("Bambu", self._all_printers, self._reconnect_bambu),
+                                      ("Moonraker", self._all_moonraker, self._reconnect_moonraker)):
+            for p in list(printers):
+                # One printer's failure must never stop the daemon or the others.
+                try:
+                    retry(p)
+                except Exception as e:
+                    log.warning(f"[{p['name']}] {kind} reconnect failed; retry next check: {type(e).__name__}")
 
-            if monitor is None:
-                # Never connected - try again
-                log.info(f"[{p['name']}] Attempting initial connection...")
-                self._persist_offline(pid)
-                new_mon = PrinterMonitor(
-                    printer_id=p['id'],
-                    name=p['name'],
-                    ip=p['ip'],
-                    serial=p['serial'],
-                    access_code=p['access_code']
-                )
-                if new_mon.connect():
-                    self.monitors[pid] = new_mon
-                    log.info(f"[{p['name']}] Reconnected successfully")
-                continue
+    def _reconnect_bambu(self, p):
+        pid = p['id']
+        monitor = self.monitors.get(pid)
 
-            # Check if connection is dead
-            is_dead = getattr(monitor, "_transport_offline", False)
-            if hasattr(monitor, '_bambu') and monitor._bambu:
-                if not monitor._bambu._connected:
-                    is_dead = True
+        if monitor is None:
+            # Never connected - try again
+            log.info(f"[{p['name']}] Attempting initial connection...")
+            self._persist_offline(pid)
+            new_mon = PrinterMonitor(
+                printer_id=p['id'],
+                name=p['name'],
+                ip=p['ip'],
+                serial=p['serial'],
+                access_code=p['access_code']
+            )
+            if new_mon.connect():
+                self.monitors[pid] = new_mon
+                log.info(f"[{p['name']}] Reconnected successfully")
+            return
 
-            # Also check staleness - no heartbeat in 60s
-            if not is_dead and getattr(monitor, '_last_heartbeat', 0) > 0:
-                if time.time() - monitor._last_heartbeat > 120:
-                    is_dead = True
+        # Check if connection is dead
+        is_dead = getattr(monitor, "_transport_offline", False)
+        if hasattr(monitor, '_bambu') and monitor._bambu:
+            if not monitor._bambu._connected:
+                is_dead = True
 
-            if is_dead:
-                log.info(f"[{monitor.name}] Connection dead, reconnecting...")
+        # Also check staleness - no heartbeat in 60s
+        if not is_dead and getattr(monitor, '_last_heartbeat', 0) > 0:
+            if time.time() - monitor._last_heartbeat > 120:
+                is_dead = True
+
+        if is_dead:
+            log.info(f"[{monitor.name}] Connection dead, reconnecting...")
+            try:
+                monitor.disconnect()
+            except Exception as e:
+                log.debug(f"Error disconnecting stale monitor: {e}")
+            self._persist_offline(pid)
+            time.sleep(1)  # let old TLS socket fully tear down
+
+            new_mon = PrinterMonitor(
+                printer_id=p['id'],
+                name=p['name'],
+                ip=p['ip'],
+                serial=p['serial'],
+                access_code=p['access_code']
+            )
+            if new_mon.connect():
+                self.monitors[pid] = new_mon
+                log.info(f"[{monitor.name}] Reconnected successfully")
+            else:
+                log.warning(f"[{monitor.name}] Reconnection failed, will retry in 30s")
+                del self.monitors[pid]
+
+    def _reconnect_moonraker(self, p):
+        pid = p['id']
+        monitor = self.monitors.get(pid)
+
+        if monitor is None:
+            log.info(f"[{p['name']}] Attempting Moonraker connection...")
+            new_mon = MoonrakerMonitor(
+                printer_id=p['id'],
+                name=p['name'],
+                host=p['host'],
+                port=p['port'],
+            )
+            if new_mon.connect():
+                self.monitors[pid] = new_mon
+                log.info(f"[{p['name']}] Moonraker reconnected")
+            return
+
+        # Check staleness for Moonraker
+        if hasattr(monitor, '_last_heartbeat') and monitor._last_heartbeat > 0:
+            if time.time() - monitor._last_heartbeat > 120:
+                log.info(f"[{monitor.name}] Moonraker stale, reconnecting...")
                 try:
                     monitor.disconnect()
                 except Exception as e:
-                    log.debug(f"Error disconnecting stale monitor: {e}")
-                self._persist_offline(pid)
-                time.sleep(1)  # let old TLS socket fully tear down
-
-                new_mon = PrinterMonitor(
-                    printer_id=p['id'],
-                    name=p['name'],
-                    ip=p['ip'],
-                    serial=p['serial'],
-                    access_code=p['access_code']
-                )
-                if new_mon.connect():
-                    self.monitors[pid] = new_mon
-                    log.info(f"[{monitor.name}] Reconnected successfully")
-                else:
-                    log.warning(f"[{monitor.name}] Reconnection failed, will retry in 30s")
-                    del self.monitors[pid]
-
-        # Check Moonraker printers
-        for p in self._all_moonraker:
-            pid = p['id']
-            monitor = self.monitors.get(pid)
-
-            if monitor is None:
-                log.info(f"[{p['name']}] Attempting Moonraker connection...")
+                    log.debug(f"Error disconnecting stale Moonraker monitor: {e}")
                 new_mon = MoonrakerMonitor(
                     printer_id=p['id'],
                     name=p['name'],
@@ -352,29 +400,10 @@ class MQTTMonitorDaemon:
                 )
                 if new_mon.connect():
                     self.monitors[pid] = new_mon
-                    log.info(f"[{p['name']}] Moonraker reconnected")
-                continue
-
-            # Check staleness for Moonraker
-            if hasattr(monitor, '_last_heartbeat') and monitor._last_heartbeat > 0:
-                if time.time() - monitor._last_heartbeat > 120:
-                    log.info(f"[{monitor.name}] Moonraker stale, reconnecting...")
-                    try:
-                        monitor.disconnect()
-                    except Exception as e:
-                        log.debug(f"Error disconnecting stale Moonraker monitor: {e}")
-                    new_mon = MoonrakerMonitor(
-                        printer_id=p['id'],
-                        name=p['name'],
-                        host=p['host'],
-                        port=p['port'],
-                    )
-                    if new_mon.connect():
-                        self.monitors[pid] = new_mon
-                        log.info(f"[{monitor.name}] Moonraker reconnected")
-                    else:
-                        log.warning(f"[{monitor.name}] Moonraker reconnection failed")
-                        del self.monitors[pid]
+                    log.info(f"[{monitor.name}] Moonraker reconnected")
+                else:
+                    log.warning(f"[{monitor.name}] Moonraker reconnection failed")
+                    del self.monitors[pid]
 
     def stop(self):
         """Stop all monitors."""

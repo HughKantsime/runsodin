@@ -198,6 +198,9 @@ def get_all_printers_live_status_early(
     query = db.query(Printer).filter(
         Printer.api_host.isnot(None),
         or_(Printer.api_key.isnot(None), Printer.api_type == "anycubic_lan"),
+        # Fleet-wide polling skips inactive printers; a single printer's live
+        # status stays available on request.
+        Printer.is_active.isnot(False),
     )
     scope = get_org_scope(current_user)
     if should_filter_org(current_user, scope):
