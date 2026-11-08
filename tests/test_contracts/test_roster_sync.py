@@ -145,6 +145,25 @@ def test_rollback_partial_user_creation(setup, monkeypatch):
     assert db.execute(text('SELECT COUNT(*) FROM education_roster_receipts')).scalar() == 1
 
 
+def test_roster_import_capacity_refusal_rolls_back_and_can_retry(setup, tier_license):
+    from fastapi import HTTPException
+    db, principal, _ = setup
+    connection = enable(setup)
+    plan = sync.preview(db, principal, connection, sample())
+    before = db.execute(text('SELECT COUNT(*) FROM users')).scalar()
+    tier_license('education', max_users=before + 1)
+    with pytest.raises(HTTPException) as refused:
+        sync.apply(db, principal, connection['id'], plan['preview_token'])
+    assert refused.value.status_code == 403
+    db.rollback()
+    assert db.execute(text('SELECT COUNT(*) FROM users')).scalar() == before
+    assert db.execute(text('SELECT COUNT(*) FROM education_classes')).scalar() == 0
+    tier_license('education', max_users=before + 2)
+    result = sync.apply(db, principal, connection['id'], plan['preview_token'])
+    assert result['class_id']
+    assert db.execute(text('SELECT COUNT(*) FROM users')).scalar() == before + 2
+
+
 def test_export_erasure_removes_identity_cache_and_keeps_connection(setup):
     from modules.organizations.education_roster_privacy import export_roster, erase_roster
     db, principal, _ = setup

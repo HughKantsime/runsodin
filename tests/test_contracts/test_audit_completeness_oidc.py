@@ -148,3 +148,51 @@ def test_failure_audit_failure_refuses_without_token(client,review_db):
     finally:event.remove(review_db.get_bind(),'before_cursor_execute',listener)
     assert response.status_code==503
     assert 'access_token' not in response.json() and 'session' not in response.cookies
+
+
+@pytest.mark.parametrize('stage', ['entry', 'identity'])
+def test_expired_sso_callback_redirects_and_audits(client, review_db, callback, monkeypatch, tier_license, stage):
+    from modules.organizations import routes_oidc
+    import license_manager as lm
+    clock = lm.license_clock()
+    deadline = clock.wall() + timedelta(seconds=10)
+    tier_license('pro', expires_at=deadline.isoformat())
+    def expire():
+        monkeypatch.setattr(clock, 'wall', lambda: deadline + timedelta(seconds=1))
+    if stage == 'entry':
+        expire()
+    else:
+        original = routes_oidc._resolve_oidc_user
+        def expire_then_resolve(*args, **kwargs):
+            expire()
+            return original(*args, **kwargs)
+        monkeypatch.setattr(routes_oidc, '_resolve_oidc_user', expire_then_resolve)
+    response = client.get('/auth/oidc/callback', params=callback, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers['location'] == '/login?error=sso_license_required'
+    assert_row(review_db, 'auth.login_failed', 'user', None,
+               {'method': 'oidc', 'reason': 'sso_license_required', 'username': None}, actor=False)
+    assert review_db.execute(text('SELECT count(*) FROM oidc_auth_codes')).scalar_one() == 0
+
+
+@pytest.mark.parametrize('stage,status', [('factory', 503), ('transport', 302)])
+@pytest.mark.parametrize('exception_status', [400, 403, 503])
+def test_other_callback_http_exceptions_keep_previous_handling(client, review_db, callback, monkeypatch, stage, status, exception_status):
+    from fastapi import HTTPException
+    from modules.organizations import oidc_handler
+    def refuse(*args):
+        raise HTTPException(exception_status, 'private provider details')
+    async def refuse_async(*args):
+        refuse()
+    if stage == 'factory':
+        monkeypatch.setattr(oidc_handler, 'create_handler_from_config', refuse)
+    else:
+        monkeypatch.setattr(_CallbackHandler, 'exchange_code', refuse_async)
+    response = client.get('/auth/oidc/callback', params=callback, follow_redirects=False)
+    assert response.status_code == status
+    if status == 302:
+        assert response.headers['location'] == '/?error=auth_failed'
+    else:
+        assert response.json()['detail'] == 'Login temporarily unavailable. Try again later.'
+    assert_row(review_db, 'auth.login_failed', 'user', None,
+               {'method': 'oidc', 'reason': 'auth_failed', 'username': None}, actor=False)

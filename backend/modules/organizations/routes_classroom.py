@@ -8,7 +8,7 @@ from modules.organizations.education_membership import retain_membership
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
@@ -326,12 +326,13 @@ def _validate_or_create_users(db: Session, org_id: int, desired: dict[str, dict]
                 raise ClassroomError("classroom_identity_conflict", "Roster email is bound to a different login identity", 409)
             user_id = int(user.id)
         else:
-            user_id = execute_insert_returning_id(
-                db,
-                "INSERT INTO users (username, email, password_hash, role, is_active, group_id) "
-                "VALUES (:username, :email, '', 'viewer', 1, :org_id)",
-                {"username": _username_for(db, email), "email": email, "org_id": org_id},
-            )
+            from modules.organizations.user_creation import create_user_record
+            try:
+                user_id = create_user_record(db, username=_username_for(db, email),
+                    email=email, password_hash='', role='viewer', group_id=org_id)
+            except HTTPException as exc:
+                # Use the importer's existing rollback + pending-command cleanup.
+                raise ClassroomError("license_user_limit_reached", str(exc.detail), exc.status_code) from exc
         resolved[email] = user_id
     return resolved
 

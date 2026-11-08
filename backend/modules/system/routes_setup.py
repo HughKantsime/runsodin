@@ -197,15 +197,12 @@ def setup_create_admin(request: SetupAdminRequest, http_request: Request, db: Se
         db.rollback()
         raise HTTPException(status_code=403, detail="Setup already claimed — an admin account exists. Log in to continue.")
     try:
-        db.execute(text("""
-            INSERT INTO users (username, email, password_hash, role)
-            VALUES (:username, :email, :password_hash, :role)
-        """), {
-            "username": request.username, "email": request.email,
-            "password_hash": password_hash_val, "role": "admin"
-        })
-        user_id = db.execute(text("SELECT id FROM users WHERE username = :u"),
-                             {"u": request.username}).scalar_one()
+        from modules.organizations.services import create_user_record
+        user_id = create_user_record(db, username=request.username, email=request.email,
+            password_hash=password_hash_val, role='admin')
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         log.error(f"Failed to create admin user during setup: {e}")
@@ -441,13 +438,12 @@ def setup_create_printer(
     if request.api_key:
         encrypted_api_key = crypto.encrypt(request.api_key)
 
-    db_printer = Printer(
+    from modules.printers.services import create_printer_record
+    db_printer = create_printer_record(db,
         name=request.name, model=request.model, slot_count=request.slot_count,
         is_active=request.is_active, api_type=request.api_type,
         api_host=request.api_host, api_key=encrypted_api_key,
     )
-    db.add(db_printer)
-    db.flush()
 
     for i in range(1, request.slot_count + 1):
         slot = FilamentSlot(printer_id=db_printer.id, slot_number=i, filament_type=FilamentType(slot_filament_value(FilamentType.EMPTY)))

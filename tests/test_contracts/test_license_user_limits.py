@@ -104,9 +104,6 @@ def test_school_can_create_second_user_and_provision_oidc(signed_license, tmp_pa
     from modules.organizations.routes_oidc import _resolve_oidc_user
 
     lm, _ = signed_license(max_users=None)
-    # Other license tests reload the module; bind the real enforcement function
-    # from this fixture's module rather than an earlier cached import.
-    monkeypatch.setattr(routes_users, "check_user_limit", lm.check_user_limit)
     engine = create_engine(f"sqlite:///{tmp_path / 'users.db'}")
     bootstrap_database(engine, Path(__file__).resolve().parents[2] / "backend")
     try:
@@ -206,7 +203,6 @@ def test_real_creation_http_at_10000_uses_only_count_adapter(signed_license, tmp
     from modules.organizations import routes_users
 
     lm, _ = signed_license(tier="pro", max_printers=cap, max_users=cap)
-    monkeypatch.setattr(routes_users, "check_user_limit", lm.check_user_limit)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     bootstrap_database(engine, Path(__file__).resolve().parents[2] / "backend")
     app = FastAPI()

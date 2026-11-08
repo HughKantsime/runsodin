@@ -1,6 +1,8 @@
 """Actual callback/code exchange/local MFA lifecycle; provider transport is owned substitute."""
 from urllib.parse import urlparse, parse_qs
 import pytest
+
+pytestmark = pytest.mark.usefixtures("pro_license")
 import pyotp
 from cryptography.fernet import Fernet
 from fastapi import FastAPI

@@ -44,7 +44,7 @@ def test_mfa_storage_failure_does_not_release_full_session(mfa_client,review_db,
 
 
 @pytest.fixture
-def oidc_client(review_db):
+def oidc_client(pro_license, review_db):
     from core.db import get_db
     from modules.organizations import routes_oidc
     app=FastAPI()

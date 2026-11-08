@@ -10,7 +10,7 @@ from modules.organizations.education_classes_service import actor
 from modules.organizations.education_program_policy import options
 from core.db import get_db
 from core.rbac import require_action
-from license_manager import feature_gate
+from license_manager import feature_gate, require_feature
 from modules.organizations.education_access import require_education_principal
 from modules.organizations.routes_education_classes import private_response
 from modules.organizations.education_program_schemas import ReportFilters, ProgramMark, InstructorHours
@@ -48,6 +48,8 @@ def report(filters: ReportFilters = Depends(report_filters), format: Literal['js
             "WHERE org_id=:o AND user_id=:u AND role='manager' AND state='active'"),
             {'o': org, 'u': principal['id']}).first():
             raise HTTPException(403, 'School manager authority required for downloads')
+    if format == 'csv':
+        require_feature("csv_export")
     result = build_report(db, principal, filters)
     data = csv_report(result) if format == 'csv' else pdf_report(result) if format == 'pdf' else result
     if format == 'json':

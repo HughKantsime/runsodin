@@ -1,4 +1,5 @@
 """O.D.I.N. — Print Archive CRUD, Tags, AMS Preview, Reprint, and File Preview."""
+from license_manager import require_feature
 
 from core.rbac import should_filter_org
 
@@ -328,6 +329,7 @@ def export_archive_log(
     db: Session = Depends(get_db),
 ):
     """Export print log as CSV."""
+    require_feature("csv_export")
     conditions = []
     params = {}
     _build_archive_query(conditions, params, printer_id, status, search,

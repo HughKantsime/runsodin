@@ -152,6 +152,7 @@ async def list_report_schedules(current_user: dict = Depends(require_superadmin(
 @router.post("/report-schedules", dependencies=[Depends(feature_gate("email_notifications"))])
 async def create_report_schedule(body: dict, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Create a new scheduled report. Superadmin only."""
+    require_feature("email_notifications")
     body = _validated_schedule_fields(body)
     name = body["name"]
     report_type = body.get("report_type", "")
@@ -211,11 +212,14 @@ async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(
 @router.patch("/report-schedules/{schedule_id}")
 async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Update a scheduled report. Superadmin only."""
+    body = _validated_schedule_fields(body, partial=True)
+    # Disabling retained delivery stays possible after expiry; edits/enabling do not.
+    if body != {"is_active": False}:
+        require_feature("email_notifications")
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    body = _validated_schedule_fields(body, partial=True)
     effective_type = body.get('report_type', row._mapping['report_type'])
     if effective_type == 'program_report':
         filters = body.get('filters', json.loads(row._mapping['filters'] or '{}'))
@@ -247,6 +251,7 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
 @router.post("/report-schedules/{schedule_id}/run", dependencies=[Depends(feature_gate("email_notifications"))])
 async def run_report_now(schedule_id: int, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Immediately generate and email a scheduled report. Superadmin only."""
+    require_feature("email_notifications")
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")

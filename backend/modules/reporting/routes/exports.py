@@ -19,7 +19,7 @@ from core.audit import audit_download, export_filters
 from core.db import get_db
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.models import AuditLog
-from license_manager import feature_gate
+from license_manager import feature_gate, require_feature
 from modules.jobs.models import Job
 from modules.inventory.models import Spool, SpoolUsage
 from modules.models_library.models import Model
@@ -53,6 +53,7 @@ def export_jobs_csv(
     db: Session = Depends(get_db)
 ):
     """Export jobs as CSV."""
+    require_feature("csv_export")
     org = get_org_scope(current_user)
     query = db.query(Job)
     if should_filter_org(current_user, org):
@@ -104,6 +105,7 @@ def export_jobs_csv(
 @router.get("/export/spools")
 def export_spools_csv(current_user: dict = Depends(require_role("operator", scope="read:spools")), db: Session = Depends(get_db)):
     """Export spools as CSV."""
+    require_feature("csv_export")
     org = get_org_scope(current_user)
     sq = db.query(Spool)
     if should_filter_org(current_user, org):
@@ -151,6 +153,7 @@ def export_spools_csv(current_user: dict = Depends(require_role("operator", scop
 @router.get("/export/filament-usage")
 def export_filament_usage_csv(current_user: dict = Depends(require_role("operator", scope="read:spools")), db: Session = Depends(get_db)):
     """Export filament usage history as CSV."""
+    require_feature("csv_export")
     org = get_org_scope(current_user)
     uq = db.query(SpoolUsage)
     if should_filter_org(current_user, org):
@@ -190,6 +193,7 @@ def export_filament_usage_csv(current_user: dict = Depends(require_role("operato
 @router.get("/export/models")
 def export_models_csv(current_user: dict = Depends(require_role("operator", scope="read:models")), db: Session = Depends(get_db)):
     """Export models as CSV."""
+    require_feature("csv_export")
     org = get_org_scope(current_user)
     mq = db.query(Model)
     if should_filter_org(current_user, org):
@@ -249,6 +253,7 @@ def export_audit_logs_csv(
     db: Session = Depends(get_db)
 ):
     """Export audit logs as CSV. Superadmin only — audit logs span all tenants."""
+    require_feature("csv_export")
     query = _audit_filters(_audit_projection(db), actor=current_user, entity_type=entity_type, action=action,
                           date_from=date_from, date_to=date_to, q=q)
     logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(5001).all()

@@ -266,3 +266,9 @@ def generate_program_report_email(db, filters):
     """Existing report runner uses the same Education aggregation as HTTP."""
     from modules.organizations.education_program_schedules import generate_email
     return generate_email(db, filters)
+
+
+def create_user_record(db, **fields):
+    """Sanctioned cross-module entry point for capacity-checked user creation."""
+    from modules.organizations.user_creation import create_user_record as create
+    return create(db, **fields)

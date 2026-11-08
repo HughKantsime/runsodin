@@ -173,6 +173,8 @@ class OIDCHandler:
         Generate authorization URL for redirect.
         Returns (url, state) tuple.
         """
+        from license_manager import require_feature
+        require_feature("sso")
         config = await self._get_oidc_config()
         auth_endpoint = config["authorization_endpoint"]
         
@@ -218,6 +220,8 @@ class OIDCHandler:
         Exchange authorization code for tokens.
         Returns dict with access_token, id_token, etc.
         """
+        from license_manager import require_feature
+        require_feature("sso")
         config = await self._get_oidc_config()
         token_endpoint = config["token_endpoint"]
         
@@ -237,6 +241,8 @@ class OIDCHandler:
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """Fetch allowlisted standard identity claims from discovery userinfo."""
+        from license_manager import require_feature
+        require_feature("sso")
         config = await self._get_oidc_config()
         userinfo_url = config.get("userinfo_endpoint")
         if not isinstance(userinfo_url, str) or not userinfo_url:
@@ -267,6 +273,8 @@ class OIDCHandler:
         """
         import jwt as _jwt
 
+        from license_manager import require_feature
+        require_feature("sso")
         config = await self._get_oidc_config()
         jwks_uri = config.get("jwks_uri")
         if not jwks_uri:

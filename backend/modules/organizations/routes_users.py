@@ -26,7 +26,8 @@ from modules.organizations.education_policy import (
 from core.auth_helpers import _validate_password
 from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate, UserRole
 from core.models import SystemConfig
-from license_manager import require_feature, check_user_limit
+from license_manager import require_feature
+from modules.organizations.user_creation import create_user_record
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -127,9 +128,6 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
             raise HTTPException(status_code=403, detail="Cannot create users in a different group")
         user.group_id = admin_gid  # default to admin's group
 
-    current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
-    check_user_limit(current_count)
-
     import secrets as _secrets
     password = user.password
     if user.send_welcome_email and user.email:
@@ -147,12 +145,12 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
         try:db.rollback()
         except Exception:pass
     try:
-        db.execute(text("""
-            INSERT INTO users (username, email, password_hash, role, group_id)
-            VALUES (:username, :email, :password_hash, :role, :group_id)
-        """), {"username": user.username, "email": user.email, "password_hash": password_hash,
-               "role": user.role, "group_id": user.group_id})
+        create_user_record(db, username=user.username, email=user.email,
+            password_hash=password_hash, role=user.role, group_id=user.group_id)
         db.flush()
+    except HTTPException:
+        rollback()
+        raise
     except IntegrityError:
         rollback()
         raise HTTPException(status_code=400, detail="Username or email already exists") from None
@@ -464,7 +462,6 @@ async def import_users_csv(
     email_re = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
     existing = {r[0] for r in db.execute(text("SELECT username FROM users")).fetchall()}
-    current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
 
     created = 0
     skipped = 0
@@ -504,23 +501,20 @@ async def import_users_csv(
             skipped += 1
             continue
 
-        try:
-            check_user_limit(current_count)
-        except HTTPException:
-            errors.append({"row": row_num, "reason": "License user limit reached"})
-            break
-
         # Org-scoped admin: assign imported users to their group
         import_group_id = current_user.get("group_id") if not _is_superadmin(current_user) else None
 
         password_hash_val = hash_password(password)
         try:
-            db.execute(text("INSERT INTO users (username, email, password_hash, role, group_id) VALUES (:username, :email, :password_hash, :role, :group_id)"),
-                       {"username": username, "email": email, "password_hash": password_hash_val, "role": role, "group_id": import_group_id})
+            create_user_record(db, username=username, email=email,
+                password_hash=password_hash_val, role=role, group_id=import_group_id)
             db.commit()
             existing.add(username)
-            current_count += 1
             created += 1
+        except HTTPException:
+            db.rollback()
+            errors.append({"row": row_num, "reason": "License user limit reached"})
+            break
         except Exception:
             db.rollback()
             skipped += 1

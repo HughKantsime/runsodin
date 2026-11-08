@@ -71,6 +71,7 @@ def _get_org_settings(db, org_id: int) -> dict:
 @router.get("/orgs", tags=["Organizations"])
 async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """List all organizations. Org-scoped admins see only their own org."""
+    require_feature("user_groups")
     user_group = current_user.get("group_id")
     if user_group:
         rows = db.execute(text(
@@ -98,6 +99,7 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
 @router.post("/orgs", tags=["Organizations"])
 async def create_org(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Create a new organization. Superadmin only."""
+    require_feature("user_groups")
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Organization name is required")
@@ -125,6 +127,7 @@ async def create_org(body: dict, current_user: dict = Depends(require_superadmin
 @router.patch("/orgs/{org_id}", tags=["Organizations"])
 async def update_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an organization. Org-scoped admins can only update their own org."""
+    require_feature("user_groups")
     if current_user.get("group_id") and current_user["group_id"] != org_id:
         raise HTTPException(status_code=404, detail="Organization not found")
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
@@ -146,6 +149,7 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
 @router.delete("/orgs/{org_id}", tags=["Organizations"])
 async def delete_org(org_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Delete an organization. Superadmin only."""
+    require_feature("user_groups")
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -207,6 +211,7 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     let a malicious org admin pull users from other orgs into theirs
     and strip superadmin of system-wide privilege.
     """
+    require_feature("user_groups")
     caller_org = current_user.get("group_id")
     is_superadmin = (current_user.get("role") == "admin" and caller_org is None)
 
@@ -258,6 +263,7 @@ class AssignPrinterRequest(PydanticBaseModel):
 @router.post("/orgs/{org_id}/printers", tags=["Organizations"])
 async def assign_printer_to_org(org_id: int, body: AssignPrinterRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Assign a printer to an organization. Superadmin only."""
+    require_feature("user_groups")
     printer_id = body.printer_id
     assert_printer_tenant_change_or_delete_allowed(db, printer_id)
     db.execute(text("UPDATE printers SET id=id WHERE id=:pid"), {"pid": printer_id})
@@ -278,6 +284,7 @@ async def assign_printer_to_org(org_id: int, body: AssignPrinterRequest, current
 @router.get("/orgs/{org_id}/settings", tags=["Organizations"])
 async def get_org_settings(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Get org-level settings. Org-scoped admins can only view their own org."""
+    require_feature("user_groups")
     if current_user.get("group_id") and current_user["group_id"] != org_id:
         raise HTTPException(status_code=404, detail="Organization not found")
     org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
@@ -289,6 +296,7 @@ async def get_org_settings(org_id: int, current_user: dict = Depends(require_rol
 @router.put("/orgs/{org_id}/settings", tags=["Organizations"])
 async def update_org_settings(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update org-level settings. Org-scoped admins can only update their own org."""
+    require_feature("user_groups")
     if current_user.get("group_id") and current_user["group_id"] != org_id:
         raise HTTPException(status_code=404, detail="Organization not found")
     org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
