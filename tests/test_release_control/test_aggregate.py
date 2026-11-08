@@ -356,3 +356,30 @@ def test_emit_writes_each_component_block_atomically(monkeypatch):
     assert sorted(written.split("\n")[:-1]) == sorted(line for block in blocks for line in block.split("\n"))
     for block in blocks:
         assert block + "\n" in written
+
+
+@pytest.mark.parametrize("aligned", [True, False])
+def test_failure_summary_ignores_a_line_cut_by_the_tail(tmp_path, aligned):
+    log = tmp_path / "result.log"
+    tail_bytes = aggregate.FAILURE_LOG_TAIL_BYTES
+    cut_line = "FAILED fabricated suffix\n"  # the tail starts exactly here
+    rest = "FAILED tests/real.py::test_real\n"
+    filler = "." * (tail_bytes - len(cut_line) - len(rest) - 1) + "\n"
+    head = "real log line\n" if aligned else "real log line whose suffix is "
+    log.write_text(head + cut_line + filler + rest, encoding="utf-8")
+    assert log.stat().st_size - tail_bytes == len(head)
+    summary = aggregate.failure_summary({"status": "fail", "findings": [], "log": {"path": str(log), "sanitized": True}})
+    if aligned:  # the tail began on a real line boundary, so that line is genuine
+        assert summary == ["  FAILED fabricated suffix", "  FAILED tests/real.py::test_real"]
+    else:
+        assert summary == ["  FAILED tests/real.py::test_real"]
+
+def test_failure_summary_sanitizes_findings_before_truncating(monkeypatch):
+    secret = "direct-finding-secret-value"
+    monkeypatch.setenv("ODIN_TEST_API_TOKEN", secret)
+    straddling = "p" * (aggregate.FAILURE_LINE_CHARS - 10) + secret  # truncation first would leave a fragment
+    summary = aggregate.failure_summary({"status": "fail", "findings": [f"value {secret}", straddling], "log": None})
+    joined = "\n".join(summary)
+    assert secret not in joined
+    assert secret[:10] not in joined
+    assert summary[0] == "  finding: value [REDACTED]"

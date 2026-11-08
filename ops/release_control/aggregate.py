@@ -71,8 +71,14 @@ def failure_summary(result: dict[str, object]) -> list[str]:
             try:
                 with log_path.open("rb") as handle:
                     size = handle.seek(0, os.SEEK_END)
-                    handle.seek(max(0, size - FAILURE_LOG_TAIL_BYTES))
-                    tail = handle.read(FAILURE_LOG_TAIL_BYTES).decode("utf-8", errors="replace")
+                    start = max(0, size - FAILURE_LOG_TAIL_BYTES)
+                    handle.seek(max(0, start - 1))
+                    at_line_start = start == 0 or handle.read(1) == b"\n"
+                    data = handle.read(FAILURE_LOG_TAIL_BYTES)
+                if not at_line_start:  # the cut fell inside a line: drop that fragment
+                    newline = data.find(b"\n")
+                    data = b"" if newline < 0 else data[newline + 1:]
+                tail = data.decode("utf-8", errors="replace")
             except OSError:
                 tail = ""
             matched = 0
