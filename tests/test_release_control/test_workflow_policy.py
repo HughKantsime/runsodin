@@ -157,25 +157,24 @@ def test_validation_pins_linux_runner_and_fail_closed_path_tools():
     assert 'Docker buildx plugin is required' in bootstrap
 
 
-@pytest.mark.parametrize('name,paths', [
-    ('promote', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh')),
-    ('publish-image', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
-    ('promote-production', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
-    ('rollback-2.0-production', ('/Users/ollama/homebrew/bin/docker',)),
-])
-def test_mutation_workflows_stay_on_the_mac(name, paths):
-    """Only Trusted Validation runs on odin-ci. Publishing can't (arm64 under QEMU never goes healthy), and
-    eligibility authenticates validation's evidence, so it stays off the host that just ran candidate code."""
+@pytest.mark.parametrize('name', ['promote', 'publish-image', 'promote-production'])
+def test_publish_and_promote_use_linux_path_tools(name):
     source = (ROOT / '.github/workflows' / f'{name}.yml').read_text()
     workflow = yaml.safe_load(source)
     assert workflow['permissions'] == {}
     assert len(workflow['jobs']) == 1
     job = next(iter(workflow['jobs'].values()))
-    assert job['runs-on'] == ['self-hosted', 'mac-mini-runner', 'm4']
-    assert 'odin-ci' not in source
+    assert job['runs-on'] == ['self-hosted', 'odin-ci']
     bootstrap = job['steps'][0]['run']
-    for path in paths:
-        assert path in bootstrap
+    for tool in ('python3.11', 'gh'):
+        assert f'command -v {tool} >/dev/null' in bootstrap
+    assert 'test "$(uname -s)" = Linux' in bootstrap
+    assert 'test "$(uname -m)" = x86_64' in bootstrap
+    if name != 'promote':
+        assert 'docker_host=unix:///var/run/docker.sock' in bootstrap
+        assert 'docker buildx version' in bootstrap
+    for forbidden in ('/Users/', '/opt/homebrew', 'Colima', 'Rosetta', 'mac-mini-runner'):
+        assert forbidden not in source
     assert 'HughKantsime' in bootstrap and '201174638' in bootstrap
     assert 'TRIGGERING_ACTOR' in bootstrap and 'RUN_ATTEMPT' in bootstrap
     for step in job['steps']:
@@ -183,19 +182,19 @@ def test_mutation_workflows_stay_on_the_mac(name, paths):
             assert len(step['uses'].rsplit('@', 1)[-1]) == 40
 
 
-def test_mac_publication_requires_rosetta_amd64_emulation_not_qemu():
+def test_linux_publication_requires_arm64_execution_and_both_manifest_probes():
     source = (ROOT / '.github/workflows/publish-image.yml').read_text()
     steps = yaml.safe_load(source)['jobs']['publish']['steps']
     by_name = {step['name']: step for step in steps}
     assert 'docker buildx build --push --platform linux/amd64,linux/arm64 --provenance=false' in source
-    emulation = by_name['Require host amd64 emulation']['run']
+    emulation = by_name['Require host arm64 execution']['run']
     assert 'set -euo pipefail' in emulation
-    assert 'docker run --rm --platform linux/amd64' in emulation
+    assert 'docker run --rm --platform linux/arm64' in emulation
     assert 'python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf' in emulation
     assert 'platform.machine()' in emulation
-    assert 'test "$machine" = x86_64' in emulation
+    assert 'test "$machine" = aarch64' in emulation
     names = [step['name'] for step in steps]
-    assert names.index('Require host amd64 emulation') < names.index('Set up Docker Buildx')
+    assert names.index('Require host arm64 execution') < names.index('Set up Docker Buildx')
     for forbidden in ('setup-qemu', 'apt-get', '--privileged', 'tonistiigi/binfmt', 'Require arm64 emulation'):
         assert forbidden not in source
     manifest = by_name['Exercise exact amd64 and arm64 manifests']['run']

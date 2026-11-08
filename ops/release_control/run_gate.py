@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -64,7 +65,7 @@ def command_environment(
         temp.mkdir(exist_ok=True)
         environment.update({key: str(temp) for key in ("TMPDIR", "TMP", "TEMP")})
         # Each nested command gets private caches, including pytest subprocesses.
-        environment["PYTEST_ADDOPTS"] = f"-o cache_dir={controlled_home / '.pytest_cache'}"
+        environment["PYTEST_ADDOPTS"] = "-o " + shlex.quote(f"cache_dir={controlled_home / '.pytest_cache'}")
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
     for key, value in (overrides or {}).items():
         if key not in allowed:
@@ -237,7 +238,7 @@ def execute(
         with tempfile.TemporaryDirectory(prefix="odin-release-home-") as home:
             if isolate_process_group:
                 # Only the aggregate's outer make gets a new session. Nested
-                # gates stay in it, so timeout/exit reaps the entire host tree
+                # gates stay in it, so timeout/exit reaps that process group
                 # before the next phase (especially CV06) can start.
                 process = subprocess.Popen(
                     command, cwd=cwd, text=True, stdout=subprocess.PIPE,

@@ -2,7 +2,8 @@
   "schema_version": 1,
   "base_environment_allowlist": ["PATH","LANG","LC_ALL","LC_CTYPE","TMPDIR","TMP","TEMP","CI","HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","GITHUB_RUN_ID","GITHUB_RUN_ATTEMPT","GITHUB_SHA","GITHUB_REF","GITHUB_REF_NAME","GITHUB_ACTOR","GITHUB_ACTOR_ID","GITHUB_TRIGGERING_ACTOR","RUNNER_OS","RUNNER_ARCH","RUNNER_TRACKING_ID"],
   "execution_phases": [
-    [["CV01", "CV03", "CV04", "CV05", "CV07", "CV08", "CV09"], ["CV02"]],
+    [["CV01", "CV04", "CV05", "CV07"], ["CV03"]],
+    [["CV02"], ["CV08", "CV09"]],
     [["CV10"]],
     [["CV06"]]
   ],

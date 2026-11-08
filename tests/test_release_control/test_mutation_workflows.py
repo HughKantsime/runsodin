@@ -523,7 +523,7 @@ def test_MW16_workflows_are_manual_serial_and_least_privilege():
         assert "push:" not in source and "pull_request:" not in source and "workflow_dispatch:" in source
         assert payload["permissions"] == {}
         assert payload["concurrency"] == {"group": "odin-release-mutation", "cancel-in-progress": False}
-        assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
+        assert "runs-on: [self-hosted, odin-ci]" in source
     assert publication["jobs"]["publish"]["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
     assert production["jobs"]["promote"]["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
     assert production["jobs"]["promote"]["environment"] == "production"
@@ -590,23 +590,23 @@ def test_MW19_failure_receipts_and_fresh_authorization_are_wired():
     assert names.index("Check exact published digest on disposable instance") < names.index("Create durable rollback tag") < names.index("Move latest to exact published digest")
 
 
-def test_MW20_publication_bootstrap_finds_runner_docker_before_path_export():
+def test_MW20_publication_checks_path_tools_before_creating_auth_root():
     _, publication = _workflow("publish-image.yml")
     steps = {step["name"]: step for step in publication["jobs"]["publish"]["steps"]}
     bootstrap = steps["Establish isolated publication root"]["run"]
-    docker_check = "test -x /Users/ollama/homebrew/bin/docker"
-    path_export = "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\""
-    assert docker_check in bootstrap
-    assert path_export in bootstrap
-    assert bootstrap.index(docker_check) < bootstrap.index(path_export)
+    for tool in ("python3.11", "gh", "docker"):
+        check = f"command -v {tool} >/dev/null"
+        assert check in bootstrap
+        assert bootstrap.index(check) < bootstrap.index('mkdir -m 700 "$root/auth"')
+    assert "GITHUB_PATH" not in bootstrap
 
 
 def test_MW21_mutation_bootstraps_preserve_daemon_with_isolated_credentials():
     for name in ("publish-image.yml", "promote-production.yml"):
         _, workflow = _workflow(name)
         bootstrap = next(iter(workflow["jobs"].values()))["steps"][0]["run"]
-        resolve = "context inspect --format '{{ .Endpoints.docker.Host }}'"
-        verify = 'DOCKER_HOST="$docker_host" "$docker_bin" version >/dev/null'
+        resolve = "docker_host=unix:///var/run/docker.sock"
+        verify = 'DOCKER_HOST="$docker_host" docker version >/dev/null'
         export_host = 'echo "DOCKER_HOST=$docker_host"'
         isolate_auth = 'echo "DOCKER_CONFIG=$root/auth"'
         assert resolve in bootstrap

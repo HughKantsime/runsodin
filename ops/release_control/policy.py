@@ -37,10 +37,17 @@ def load_inventory() -> dict[str, object]:
             or any(not isinstance(group, list) or not group for phase in phases for group in phase)):
         raise ValueError("invalid component execution phases")
     scheduled = [item for phase in phases for group in phase for item in group]
-    if sorted(scheduled) != EXPECTED_COMPONENTS:
+    if any(not isinstance(item, str) for item in scheduled) or sorted(scheduled) != EXPECTED_COMPONENTS:
         raise ValueError("execution phases must schedule every component exactly once")
-    if phases[-1] != [["CV06"]] or phases[-2] != [["CV10"]]:
+    if len(phases) < 3 or phases[-1] != [["CV06"]] or phases[-2] != [["CV10"]]:
         raise ValueError("CV10 and CV06 require separate final serial phases")
+    for phase in phases:
+        for group in phase:
+            if "CV02" in group and any(
+                set(other) & {"CV01", "CV03", "CV04", "CV05", "CV07"}
+                for other in phase if other is not group
+            ):
+                raise ValueError("CV02 fixture writes cannot overlap source readers/builders")
     for item in components:
         required = (
             "command", "working_directory", "environment_allowlist", "timeout_seconds",

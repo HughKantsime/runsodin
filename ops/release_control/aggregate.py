@@ -50,6 +50,7 @@ def _junit(results: list[dict[str, object]], path: Path) -> None:
 
 
 def main() -> int:
+    inventory = load_inventory()
     run_id = os.getenv("RELEASE_CONTROL_RUN_ID") or datetime.now(timezone.utc).strftime("local-%Y%m%dT%H%M%SZ")
     if not RUN_ID_RE.fullmatch(run_id):
         raise SystemExit("invalid RELEASE_CONTROL_RUN_ID")
@@ -59,7 +60,6 @@ def main() -> int:
     components_dir = run_dir / "components"
     native.mkdir()
     components_dir.mkdir()
-    inventory = load_inventory()
     results: list[dict[str, object]] = []
     commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True).strip()
     evidence_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + commit
@@ -112,6 +112,7 @@ def main() -> int:
                 environment_allowlist=allowlist, environment_overrides=overrides,
                 isolate_process_group=True,
             )
+            validate_result(result)
         except Exception as exc:
             # A runner error is an actual failed attempt, not a reason to skip
             # this group's remaining components. Never expose exception secrets.
@@ -139,10 +140,10 @@ def main() -> int:
                 "tests": 1, "passed": 1 if passed else 0, "failures": 0 if passed else 1,
                 "errors": 0, "skipped": 0, "xfailed": 0,
             }
-            validate_result(result)
-            (output_dir / "result.json").write_text(
-                json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            )
+        validate_result(result)
+        (output_dir / "result.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         return result
 
     by_id = {component["id"]: component for component in inventory["components"]}
@@ -156,7 +157,8 @@ def main() -> int:
             for future in futures:
                 results.extend(future.result())
     # Completion order must not affect JUnit, findings, artifacts or console output.
-    results.sort(key=lambda item: list(by_id).index(str(item["gate_id"]).upper()))
+    order = {component_id.lower(): index for index, component_id in enumerate(by_id)}
+    results.sort(key=lambda item: order[str(item["gate_id"])])
     for item in results:
         print(f"{str(item['gate_id']).upper()}: {item['status']} ({item['duration_seconds']}s)", flush=True)
 
