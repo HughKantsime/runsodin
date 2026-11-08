@@ -6,6 +6,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -14,11 +15,18 @@ from ops.release_control import aggregate, host_lock
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.fixture
+def private_home():
+    # Unlike pytest's /tmp base, these ancestors meet the protected-JSON policy.
+    with tempfile.TemporaryDirectory(prefix='.precheck-test-', dir=ROOT) as directory:
+        yield Path(directory)
+
+
 @pytest.mark.parametrize("status,browser,blocked", [
     (0, None, None), (1, "/runner/browsers", None),
-    (0, None, "runner"), (0, None, "aggregate"),
+    (0, None, "runner"), (0, None, "aggregate"), (17, None, "bootstrap"),
 ])
-def test_vm_precheck_matches_runner_and_propagates_failure(tmp_path, status, browser, blocked):
+def test_vm_precheck_matches_runner_and_propagates_failure(tmp_path, private_home, status, browser, blocked):
     repo = tmp_path / "checkout"
     script = repo / "ops/release_control/vm_precheck.sh"
     script.parent.mkdir(parents=True)
@@ -26,11 +34,14 @@ def test_vm_precheck_matches_runner_and_propagates_failure(tmp_path, status, bro
     lock_source = (ROOT / "ops/release_control/host_lock.py").read_text().replace(
         "'/tmp/odin-trusted-validation.lock'", repr(str(tmp_path / "host.lock")))
     (script.parent / "host_lock.py").write_text(lock_source)
+    (script.parent / "bootstrap_validation_deps.sh").write_text(
+        "#!/bin/sh\nset -e\ntest -n \"$ODIN_VALIDATION_LOCK_FD\"\necho bootstrap-ran > bootstrap.txt\nexit \"$TEST_BOOTSTRAP_STATUS\"\n")
     venv = repo / ".venv-contracts/bin"
     venv.mkdir(parents=True)
     (venv / "python").symlink_to(sys.executable)
     tools = tmp_path / "tools"
     tools.mkdir()
+    (tools / "python3.11").symlink_to(sys.executable)
     (tools / "uname").write_text("#!/bin/sh\necho Linux\n")
     (tools / "uname").chmod(0o755)
     (tools / "ps").write_text("#!/bin/sh\n" + (
@@ -38,14 +49,21 @@ def test_vm_precheck_matches_runner_and_propagates_failure(tmp_path, status, bro
     (tools / "ps").chmod(0o755)
     make = tools / "make"
     make.write_text(f"#!{sys.executable}\n" + """import json, os, sys
-print(json.dumps({'argv': sys.argv[1:], 'mask': oct(os.umask(0)),
+from pathlib import Path
+import tempfile
+root = Path(os.environ['TMPDIR'])
+with tempfile.TemporaryDirectory() as child:
+    assert Path(child).parent == root
+print(json.dumps({'tmp_mode': root.stat().st_mode & 0o777, 'argv': sys.argv[1:], 'mask': oct(os.umask(0)),
                   'env': dict(os.environ)}))
 print('CV01: pass')
 print('CV10: fail' if int(os.environ['TEST_STATUS']) else 'CV10: pass')
 sys.exit(int(os.environ['TEST_STATUS']))
 """)
     make.chmod(0o755)
-    env = {"PATH": f"{tools}:/usr/bin:/bin", "HOME": str(tmp_path),
+    env = {"PATH": f"{tools}:/usr/bin:/bin", "HOME": str(private_home),
+           "RELEASE_CONTROL_RUN_ID": "fixture-run",
+           "TEST_BOOTSTRAP_STATUS": "17" if blocked == "bootstrap" else "0",
            "TEST_STATUS": str(status), "DOCKER_HOST": "unix:///wrong.sock",
            "MAKEFLAGS": "-n", "PYTHONPATH": "/wrong"}
     if browser:
@@ -54,7 +72,14 @@ sys.exit(int(os.environ['TEST_STATUS']))
         if blocked == "aggregate":
             host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
         result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    assert not (private_home / '.cache/odin-precheck/fixture-run/tmp').exists()
+    if blocked == "bootstrap":
+        assert result.returncode == 17
+        assert (repo / 'bootstrap.txt').exists()
+        assert "CV01:" not in result.stdout
+        return
     if blocked:
+        assert not (repo / 'bootstrap.txt').exists()
         assert result.returncode != 0
         assert "refused:" in result.stderr
         assert "CV01:" not in result.stdout
@@ -63,11 +88,15 @@ sys.exit(int(os.environ['TEST_STATUS']))
     payload = json.loads(result.stdout.splitlines()[1])
     assert payload["argv"] == ["trusted-validation-gate", f"PYTHON={venv}/python"]
     assert payload["mask"] == "0o22"
+    assert payload["tmp_mode"] == 0o700
+    assert (repo / 'bootstrap.txt').exists()
     child = payload["env"]
     assert child["PATH"].startswith(str(venv) + ":")
     assert child["DOCKER_HOST"] == "unix:///var/run/docker.sock"
-    assert child["PLAYWRIGHT_BROWSERS_PATH"] == (browser or f"{tmp_path}/.cache/ms-playwright")
+    assert child["PLAYWRIGHT_BROWSERS_PATH"] == (browser or f"{private_home}/.cache/ms-playwright")
     assert child["CI"] == "true"
+    for name in ("TMPDIR", "TMP", "TEMP"):
+        assert child[name] == str(private_home / '.cache/odin-precheck/fixture-run/tmp')
     assert "MAKEFLAGS" not in child and "PYTHONPATH" not in child
     assert "CV01: pass" in result.stdout
     assert host_lock.LOCK_FD_ENV in child

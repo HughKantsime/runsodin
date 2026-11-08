@@ -8,11 +8,10 @@ from tests.test_contracts.test_api_token_delegation_behavior import token_client
 
 
 @pytest.fixture
-def policy_client(token_client,review_db,monkeypatch):
+def policy_client(token_client,review_db,monkeypatch,pro_license):
     from modules.organizations import routes_users
     client,_=token_client;client.app.include_router(routes_users.router)
     review_db.get_bind().hide_parameters=True
-    monkeypatch.setattr(routes_users,'check_user_limit',lambda _:None)
     monkeypatch.setattr(routes_users,'_send_odin_email',lambda *args:pytest.fail('Unexpected external mail entry'))
     return client
 

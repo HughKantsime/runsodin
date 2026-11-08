@@ -445,6 +445,7 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
                 "ADMIN_USERNAME": "candidate-admin@example.invalid",
                 "ADMIN_PASSWORD": secrets_for_run.admin_password,
                 "ODIN_CANDIDATE_BASE_URL": base_url,
+                "ODIN_CANDIDATE_CONTAINER": resources.container,
                 "ODIN_CANDIDATE_API_KEY": secrets_for_run.api_key,
                 "ODIN_CANDIDATE_ADMIN_PASSWORD": secrets_for_run.admin_password,
                 "ODIN_CANDIDATE_OPERATOR_PASSWORD": secrets_for_run.operator_password,

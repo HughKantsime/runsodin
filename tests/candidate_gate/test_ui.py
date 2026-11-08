@@ -537,7 +537,7 @@ def test_compiled_camera_detail_load_retry_and_fullscreen_failure(role_page_fact
 
 
 @pytest.mark.parametrize('mobile',[False,True])
-def test_archive_history_recovery_and_real_csv_download(role_page_factory,mobile):
+def test_archive_history_recovery_and_real_csv_download(licensed_candidate,role_page_factory,mobile):
     import re
     page=role_page_factory('admin',mobile=mobile)
     state={'unavailable':True}

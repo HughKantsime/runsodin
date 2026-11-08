@@ -139,7 +139,7 @@ def test_capture_wire_fixture_for_spools_ui(inventory_client):
 
 # ---------------------------------------------------------- F06-6.5-02
 
-def test_csv_export_exact_columns(inventory_client):
+def test_csv_export_exact_columns(inventory_client, pro_license):
     sid = _create(inventory_client, lot_number='CERT-LOT', pa_profile='K0.03')
     reader = csv.DictReader(io.StringIO(inventory_client.get('/api/spools/export').text))
     assert reader.fieldnames == ['ID', 'Brand', 'Name', 'Material', 'Color', 'Initial Weight (g)', 'Remaining Weight (g)',

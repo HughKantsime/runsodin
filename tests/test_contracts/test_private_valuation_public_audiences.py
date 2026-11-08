@@ -11,7 +11,7 @@ from tests.test_contracts.test_education_review_workflow import review_db
 
 
 @pytest.mark.parametrize('endpoint',['/archives/101','/archives','/archives/log','/archives/log/export','/jobs/101','/jobs'])
-def test_general_audience_has_no_private_snapshot_extension(reprint_client,review_db,endpoint):
+def test_general_audience_has_no_private_snapshot_extension(reprint_client,review_db,endpoint, pro_license):
     client,identity,_=reprint_client
     identity.update(role='admin',group_id=1)
     payload=json.dumps({'version':1,'unit_valuation':{'price_decimal':'91827.3645','private_basis_marker':'owned-private-extension'}})

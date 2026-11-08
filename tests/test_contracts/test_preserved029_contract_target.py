@@ -22,13 +22,18 @@ TARGETS = (
 )
 
 
-def test_qualified_source_contract_tests_pass_against_preserved029_bundle(tmp_path):
+def test_qualified_source_contract_tests_pass_against_preserved029_bundle(tmp_path, monkeypatch):
+    # Reproduce the aggregate environment, including in direct developer runs.
+    monkeypatch.setenv("PYTEST_ADDOPTS", f"-o cache_dir={tmp_path / 'outer-cache'}")
     bundle, _ = check_package()
     env = {key: value for key, value in os.environ.items() if not key.startswith(("PYTHON", "ODIN_", "DATABASE_"))}
+    # The nested run disables cacheprovider, which registers the cache_dir option.
+    # Inheriting run_gate.py's override produces a PytestConfigWarning.
+    env.pop("PYTEST_ADDOPTS", None)
     env.update(PYTHONPATH=os.pathsep.join([str(bundle), str(ROOT)]), PYTHONDONTWRITEBYTECODE="1",
                JWT_SECRET_KEY="test-key-for-contract-tests-only", COOKIE_SECURE="false")
     # --noconftest: the contract conftest registers live-only providers and inserts backend/.
-    command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--noconftest", "-rs",
+    command = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", "--noconftest", "-rs",
                "--rootdir", str(ROOT), "--basetemp", str(tmp_path / "t"), *(str(ROOT / target) for target, _ in TARGETS)]
     result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=600)
     tail = result.stdout[-4000:] + result.stderr[-2000:]

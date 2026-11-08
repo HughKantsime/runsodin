@@ -521,7 +521,8 @@ def test_PW05_workflow_uses_established_trusted_linux_boundary():
     assert "command -v npm >/dev/null" in identity
     assert "command -v mosquitto >/dev/null" in identity
     assert "Required tool missing from PATH:" in identity
-    assert "PLAYWRIGHT_SKIP_BROWSER_GC=1 .venv-contracts/bin/python -m playwright install chromium" in _workflow()
+    assert "bash ops/release_control/bootstrap_validation_deps.sh" in _workflow()
+    assert "PLAYWRIGHT_SKIP_BROWSER_GC=1 .venv-contracts/bin/python -m playwright install chromium" in (Path(__file__).parents[2] / "ops/release_control/bootstrap_validation_deps.sh").read_text()
     assert job["steps"][1]["uses"] == "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
     assert job["steps"][1]["with"]["persist-credentials"] == "false"
     assert job["steps"][-1]["uses"] == "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"

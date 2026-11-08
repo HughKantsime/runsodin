@@ -292,6 +292,7 @@ docker run --rm \
     --mount "type=bind,src=${maintenance_password_file},dst=/run/secrets/postgres_maintenance_password,readonly" \
     --mount "type=bind,src=${runtime_secret_file},dst=/run/secrets/runtime,readonly" \
     --mount "type=bind,src=${PWD}/ops/database_parity/runtime_probe.py,dst=/workspace/runtime_probe.py,readonly" \
+    --mount "type=bind,src=${PWD}/ops/release_gate/license_fixture.py,dst=/workspace/license_fixture.py,readonly" \
     "${image}" \
     -c 'set -a; source /run/secrets/runtime; set +a; exec python3 /workspace/runtime_probe.py' \
     2>&1 | tee "${runtime_diagnostic_file}"
@@ -337,6 +338,7 @@ restored_runtime="$(docker run --rm \
     --mount "type=bind,src=${app_password_file},dst=/run/secrets/postgres_app_password,readonly" \
     --mount "type=bind,src=${runtime_secret_file},dst=/run/secrets/runtime,readonly" \
     --mount "type=bind,src=${PWD}/ops/database_parity/runtime_probe.py,dst=/workspace/runtime_probe.py,readonly" \
+    --mount "type=bind,src=${PWD}/ops/release_gate/license_fixture.py,dst=/workspace/license_fixture.py,readonly" \
     "${image}" \
     -c 'set -a; source /run/secrets/runtime; set +a; exec python3 /workspace/runtime_probe.py' \
     2>&1 | tee "${runtime_diagnostic_file}")"

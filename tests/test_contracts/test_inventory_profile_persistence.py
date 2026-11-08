@@ -5,7 +5,7 @@ from PIL import Image
 from tests.test_contracts.test_inventory_claim_acceptance import inventory_client
 from tests.test_contracts.test_education_review_workflow import review_db
 
-def test_profile_create_patch_clear_and_csv_use_actual_stored_values(inventory_client):
+def test_profile_create_patch_clear_and_csv_use_actual_stored_values(inventory_client, pro_license):
     created=inventory_client.post('/api/spools',json={'filament_id':990,'pa_profile':'K0.042','low_stock_threshold_g':0,'initial_weight_g':0})
     assert created.status_code==200
     sid=created.json()['id']

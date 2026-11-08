@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from core.db import engine
 from core.db_utils import get_db
 from main import app
+from license_fixture import signed_tier
 from scripts.seed_release_gate import (
     ADMIN_EMAIL,
     OPERATOR_EMAIL,
@@ -453,30 +454,34 @@ def exercise_cross_domain_workflow(
     users = items(client.get("/api/users", headers=admin))
     viewer_id = next(item["id"] for item in users if item["username"] == VIEWER_EMAIL)
 
-    first_org = client.post(
-        "/api/orgs",
-        json={"name": "ODIN Parity Classroom", "description": "synthetic"},
-        headers=admin,
-    )
-    second_org = client.post(
-        "/api/orgs",
-        json={"name": "ODIN Parity Hidden Classroom", "description": "synthetic"},
-        headers=admin,
-    )
-    assert first_org.status_code == 200, first_org.text
-    assert second_org.status_code == 200, second_org.text
-    first_org_id = int(first_org.json()["id"])
-    second_org_id = int(second_org.json()["id"])
-    assert client.post(
-        f"/api/orgs/{first_org_id}/members",
-        json={"user_id": viewer_id},
-        headers=admin,
-    ).status_code == 200
-    assert client.post(
-        f"/api/orgs/{first_org_id}/printers",
-        json={"printer_id": ids["printer"]},
-        headers=admin,
-    ).status_code == 200
+    # Slice A gates org CRUD by user_groups. Exercise the real org/scope
+    # workflow under a signed Education fixture on both database engines.
+    # Return to Community before the explicit feature-refusal probes below.
+    with signed_tier('education'):
+        first_org = client.post(
+            "/api/orgs",
+            json={"name": "ODIN Parity Classroom", "description": "synthetic"},
+            headers=admin,
+        )
+        second_org = client.post(
+            "/api/orgs",
+            json={"name": "ODIN Parity Hidden Classroom", "description": "synthetic"},
+            headers=admin,
+        )
+        assert first_org.status_code == 200, first_org.text
+        assert second_org.status_code == 200, second_org.text
+        first_org_id = int(first_org.json()["id"])
+        second_org_id = int(second_org.json()["id"])
+        assert client.post(
+            f"/api/orgs/{first_org_id}/members",
+            json={"user_id": viewer_id},
+            headers=admin,
+        ).status_code == 200
+        assert client.post(
+            f"/api/orgs/{first_org_id}/printers",
+            json={"printer_id": ids["printer"]},
+            headers=admin,
+        ).status_code == 200
 
     visible_project = client.post(
         "/api/projects",

@@ -233,6 +233,7 @@ def test_authenticated_request_after_tombstone(request, tmp_path, dialect):
         env.update(DATABASE_URL=url._replace(password=None).render_as_string(hide_password=False),
                    DATABASE_PASSWORD_FILE=str(secret))
     result = run_probe('controlled-pg-tombstone', r'''
+install_license('pro')
 sql("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(1,'outsider',:password,'admin',:active)",
     password=hash_password(PASSWORD), active=True)
 c = login('outsider')

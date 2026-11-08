@@ -21,7 +21,7 @@ from tests.test_contracts.test_controlled_round8 import (
 from tests.test_contracts.test_controlled_round12 import members
 
 
-def test_terminal_audit_after_controlled_job_deletion(clock_db):
+def test_terminal_audit_after_controlled_job_deletion(clock_db, pro_license):
     from modules.reporting.routes.exports import list_audit_logs, export_audit_logs_csv
     db = clock_db
     members(db)

@@ -84,11 +84,15 @@ def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():
         "ref": "${{ inputs.target_sha }}", "fetch-depth": 0,
         "lfs": True, "persist-credentials": False,
     }
-    assert "npm --prefix frontend ci" in source
-    assert "python3.11 -m venv .hardware-cert-venv" in source
-    assert "python3.11 -m venv .venv-stress" in source
-    assert "python3.11 -m venv .venv-contracts" in source
-    assert ".venv-contracts/bin/pip install --disable-pip-version-check -r tests/requirements-contracts.txt" in source
+    assert "bash ops/release_control/bootstrap_validation_deps.sh" in source
+    bootstrap = (ROOT / 'ops/release_control/bootstrap_validation_deps.sh').read_text()
+    assert "npm --prefix frontend ci" in bootstrap
+    for declaration in (
+        'bootstrap_venv .hardware-cert-venv backend/requirements.txt ops/hardware_certification/requirements.txt',
+        'bootstrap_venv .venv-stress backend/requirements.txt',
+        'bootstrap_venv .venv-contracts tests/requirements-contracts.txt backend/requirements.txt',
+    ):
+        assert declaration in bootstrap
     inventory = load_inventory()
     for component in inventory["components"]:
         assert component["working_directory"] == "."
@@ -214,8 +218,9 @@ def test_mac_publication_requires_rosetta_amd64_emulation_not_qemu():
 def test_linux_bootstrap_uses_owned_python_and_browser_dependencies():
     source = workflow_text()
     assert '"$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"' in source
-    assert '.venv-contracts/bin/python -m playwright install chromium' in source
-    assert 'npx --no-install playwright install chromium' in source
+    bootstrap = (ROOT / 'ops/release_control/bootstrap_validation_deps.sh').read_text()
+    assert '.venv-contracts/bin/python -m playwright install chromium' in bootstrap
+    assert 'npx --no-install playwright install chromium' in bootstrap
     assert 'pip-audit==' not in source and 'bandit==' not in source
     requirements = (ROOT / 'tests/requirements-contracts.txt').read_text().splitlines()
     assert 'pip-audit==2.10.0' in requirements

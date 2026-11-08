@@ -348,6 +348,8 @@ def _run_sqlite_exact_image(
                 "--mount",
                 f"type=bind,src={secret_file},dst=/run/secrets/runtime_probe,readonly",
                 "--mount",
+                f"type=bind,src={ROOT / 'ops/release_gate/license_fixture.py'},dst=/workspace/license_fixture.py,readonly",
+                "--mount",
                 (
                     "type=bind,src="
                     f"{ROOT / 'ops/database_parity/runtime_probe.py'},"

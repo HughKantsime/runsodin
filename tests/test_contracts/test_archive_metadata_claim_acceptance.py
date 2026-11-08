@@ -25,7 +25,7 @@ def test_tags_are_trimmed_deduplicated_and_persisted(reprint_client,review_db):
     assert review_db.execute(text('SELECT tags FROM print_archives WHERE id=101')).scalar_one()=='Alpha, Beta'
 
 
-def test_filtered_archive_csv_preserves_quotes_duration_and_tag(reprint_client,review_db):
+def test_filtered_archive_csv_preserves_quotes_duration_and_tag(reprint_client,review_db, pro_license):
     client,_,_=reprint_client
     review_db.execute(text('UPDATE print_archives SET print_name=:name,tags=:tags,actual_duration_seconds=123 WHERE id=101'),{'name':'Synthetic, "quoted"','tags':'Alpha, Beta'});review_db.commit()
     response=client.get('/archives/log/export',params={'status':'completed','tag':'Alpha','search':'quoted'})
