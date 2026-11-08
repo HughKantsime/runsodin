@@ -7,6 +7,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,6 +15,10 @@ from pathlib import Path
 # unlink it on exit: replacing the inode would allow two simultaneous locks.
 LOCK_PATH = Path('/tmp/odin-trusted-validation.lock')
 LOCK_FD_ENV = 'ODIN_VALIDATION_LOCK_FD'
+LOCK_WAIT_ENV = 'ODIN_VALIDATION_LOCK_WAIT_SECONDS'
+# A precheck runs one aggregate (~2 h); Trusted Validation's job timeout is 360 min.
+DEFAULT_LOCK_WAIT_SECONDS = 3 * 3600
+LOCK_POLL_SECONDS = 10
 
 
 def runner_job_active() -> bool:
@@ -24,6 +29,27 @@ def runner_job_active() -> bool:
         return True
     return any(re.match(r'^(?:\S*/)?Runner\.Worker(?:\s|$)', line.strip())
                for line in listing.splitlines())
+
+
+def _wait_for_lock(fd: int) -> None:
+    """Trusted Validation waits for a manual precheck instead of failing on it."""
+    try:
+        limit = int(os.environ.get(LOCK_WAIT_ENV, DEFAULT_LOCK_WAIT_SECONDS))
+    except ValueError:
+        limit = DEFAULT_LOCK_WAIT_SECONDS
+    deadline = time.monotonic() + max(0, limit)
+    announced = False
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise OSError('validation host lock wait timed out') from None
+            if not announced:
+                print('waiting for the validation host lock (a precheck is running)', flush=True)
+                announced = True
+            time.sleep(LOCK_POLL_SECONDS)
 
 
 @contextmanager
@@ -43,7 +69,10 @@ def validation_lock(*, precheck: bool = False):
                     or (info.st_dev, info.st_ino) != (path_info.st_dev, path_info.st_ino)
                     or stat.S_ISLNK(path_info.st_mode)):
                 raise ValueError('invalid validation lock')
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if precheck:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                _wait_for_lock(fd)
         except (OSError, ValueError):
             raise SystemExit('refused: validation host lock is busy or unavailable') from None
         # Check after acquiring the lock: two prechecks cannot race this check.

@@ -165,3 +165,33 @@ def test_inherited_lock_descriptor_cannot_bypass_different_lock_file(lock_path, 
         with pytest.raises(SystemExit, match="lock is busy or unavailable"):
             with host_lock.validation_lock():
                 pytest.fail("unrelated fd accepted")
+
+
+def test_runner_aggregate_waits_for_a_precheck_instead_of_failing(tmp_path, monkeypatch):
+    import threading
+    lock = tmp_path / "host.lock"
+    monkeypatch.setattr(host_lock, "LOCK_PATH", lock)
+    monkeypatch.setattr(host_lock, "LOCK_POLL_SECONDS", 0.05)
+    monkeypatch.delenv(host_lock.LOCK_FD_ENV, raising=False)
+    held = lock.open("w")
+    host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
+    threading.Timer(0.3, held.close).start()
+    with host_lock.validation_lock() as fd:
+        assert fd is not None
+
+
+def test_runner_lock_wait_times_out_and_precheck_never_waits(tmp_path, monkeypatch):
+    lock = tmp_path / "host.lock"
+    monkeypatch.setattr(host_lock, "LOCK_PATH", lock)
+    monkeypatch.setattr(host_lock, "LOCK_POLL_SECONDS", 0.05)
+    monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "0")
+    monkeypatch.delenv(host_lock.LOCK_FD_ENV, raising=False)
+    with lock.open("w") as held:
+        host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
+        with pytest.raises(SystemExit, match="busy or unavailable"):
+            with host_lock.validation_lock():
+                pass
+        monkeypatch.setenv(host_lock.LOCK_WAIT_ENV, "3600")
+        with pytest.raises(SystemExit, match="busy or unavailable"):
+            with host_lock.validation_lock(precheck=True):
+                pass
