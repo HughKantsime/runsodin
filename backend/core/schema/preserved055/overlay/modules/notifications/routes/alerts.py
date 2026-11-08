@@ -1,0 +1,559 @@
+"""O.D.I.N. — Alerts, Alert Preferences, and SMTP Configuration."""
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from license_manager import feature_gate
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import String, cast, func, text
+from pydantic import ValidationError
+from typing import List, Optional
+import logging
+
+import core.crypto as crypto
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_superadmin, require_interactive_session, require_action
+from core.responses import build_next_actions, next_action
+from core.base import AlertType
+from core.models import SystemConfig
+from modules.notifications.models import Alert, AlertPreference
+from modules.inventory.models import Spool
+from modules.notifications.schemas import (
+    AlertResponse, AlertSummary,
+    AlertPreferenceResponse, AlertPreferencesUpdate,
+    SmtpConfigBase, SmtpConfigResponse,
+)
+
+log = logging.getLogger("odin.api")
+
+router = APIRouter(tags=["Alerts"])
+
+
+# ============== Alerts ==============
+
+@router.get("/alerts/digest-status", tags=["Alerts"])
+def get_digest_status(
+    current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
+):
+    """Return the most recent quiet-hours digest delivery outcome for the
+    current user (per-user) and their org (org-level webhook).
+
+    v1.8.8: surfaces the `delivery_status` column added in migration 004
+    so operators can see at a glance whether last night's digest actually
+    landed instead of having to scrape report_runner logs.
+
+    Response shape:
+      {
+        "user_digest": {
+          "window_ended_at": "2026-04-14T07:00:00",
+          "status": "sent" | "failed:email:SMTPError,..." | "pending" | null,
+          "claimed": true | false
+        } | null,
+        "org_digest": { same shape, keyed on the user's org } | null
+      }
+    """
+    user_id = current_user.get("id")
+    org_id = current_user.get("group_id")
+
+    # Most recent per-user row (might be None if no digest in recent history).
+    user_row = None
+    try:
+        user_row = db.execute(text(
+            "SELECT window_ended_at, delivery_status, sent_at "
+            "FROM quiet_hours_digest_sends "
+            "WHERE user_id = :uid "
+            "ORDER BY window_ended_at DESC LIMIT 1"
+        ), {"uid": user_id}).fetchone()
+    except Exception as e:
+        # Table doesn't exist yet (migration 002/004 hasn't applied).
+        # Treat as "no digest data yet" rather than 500.
+        log.debug(f"digest-status user query failed: {e}")
+
+    user_digest = None
+    if user_row:
+        user_digest = {
+            "window_ended_at": user_row[0],
+            "status": user_row[1] or "pending",
+            "sent_at": user_row[2],
+            "claimed": True,
+        }
+
+    # Most recent org-level row.
+    org_digest = None
+    if org_id is not None:
+        try:
+            org_row = db.execute(text(
+                "SELECT window_ended_at, delivery_status, sent_at "
+                "FROM quiet_hours_org_digest_sends "
+                "WHERE org_id = :oid "
+                "ORDER BY window_ended_at DESC LIMIT 1"
+            ), {"oid": org_id}).fetchone()
+            if org_row:
+                org_digest = {
+                    "window_ended_at": org_row[0],
+                    "status": org_row[1] or "pending",
+                    "sent_at": org_row[2],
+                    "claimed": True,
+                }
+        except Exception as e:
+            log.debug(f"digest-status org query failed: {e}")
+
+    return {"user_digest": user_digest, "org_digest": org_digest}
+
+
+@router.get("/alerts", response_model=List[AlertResponse])
+async def list_alerts(
+    severity: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    is_read: Optional[bool] = None,
+    is_dismissed: Optional[bool] = None,
+    include_dismissed: bool = False,
+    limit: int = 25,
+    offset: int = 0,
+    needs_you: bool = False,
+    # Stacked auth (Phase 2 canonical read shape). Replaces the ad-hoc
+    # `get_current_user + if not current_user` pattern — require_role
+    # raises the auth error structurally.
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
+):
+    """List alerts for the current user."""
+
+    query = db.query(Alert).options(
+        selectinload(Alert.printer),
+        selectinload(Alert.job),
+        selectinload(Alert.spool).selectinload(Spool.filament),
+    ).filter(Alert.user_id == current_user["id"])
+
+    if severity:
+        query = query.filter(Alert.severity == severity)
+    if alert_type:
+        query = query.filter(Alert.alert_type == alert_type)
+    if is_read is not None:
+        query = query.filter(Alert.is_read == is_read)
+    # Dismissed alerts are hidden by default (filtered before paging, so a page
+    # is always `limit` visible alerts); include_dismissed=true keeps them.
+    if is_dismissed is not None:
+        query = query.filter(Alert.is_dismissed.is_(True) if is_dismissed else Alert.is_dismissed.is_not(True))
+    elif not include_dismissed:
+        query = query.filter(Alert.is_dismissed.is_not(True))
+
+    if needs_you:
+        # One current cause per printer, regardless of how much history a noisy
+        # printer has. No global limit that can hide another printer's pause.
+        from modules.printers.models import Printer
+        ranked = db.query(
+            Alert.id,
+            func.row_number().over(
+                partition_by=Alert.printer_id,
+                order_by=(Alert.created_at.desc(), Alert.id.desc()),
+            ).label("position"),
+        ).join(Printer, Printer.id == Alert.printer_id).filter(
+            Alert.user_id == current_user["id"],
+            Alert.is_dismissed.is_not(True),
+            func.lower(cast(Alert.alert_type, String)).in_(("print_paused", "printer_error")),
+            Printer.is_active.is_(True),
+        ).subquery()
+        query = query.join(ranked, ranked.c.id == Alert.id).filter(ranked.c.position == 1)
+        alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).all()
+    else:
+        alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).offset(offset).limit(limit).all()
+
+    results = []
+    for alert in alerts:
+        try:
+            data = AlertResponse.model_validate(alert)
+        except ValidationError:
+            log.warning("Skipping unrepresentable alert id=%s", alert.id)
+            continue
+        if alert.printer:
+            data.printer_name = alert.printer.nickname or alert.printer.name
+        if alert.job:
+            from modules.notifications.alert_copy import human_name, job_names
+            data.job_name = human_name(*job_names(db, alert.job_id))
+        if alert.spool and alert.spool.filament:
+            data.spool_name = f"{alert.spool.filament.brand} {alert.spool.filament.name}"
+        from core.controlled_redaction import redact_export
+        redacted = redact_export(db, current_user, data.model_dump(), resource_kind='alert')
+        try:
+            data = AlertResponse.model_validate(redacted)
+        except ValidationError:
+            log.warning("Skipping unrepresentable alert id=%s", alert.id)
+            continue
+        results.append(data)
+
+    return results
+
+
+@router.get("/alerts/unread-count")
+async def get_unread_count(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get unread alert count for bell badge."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    count = db.query(Alert).filter(
+        Alert.user_id == current_user["id"],
+        Alert.is_read == False,
+        Alert.is_dismissed.is_not(True),
+    ).count()
+    return {"unread_count": count}
+
+
+@router.get("/alerts/summary", response_model=AlertSummary)
+async def get_alert_summary(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get aggregated alert counts for dashboard widget."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    uid = current_user["id"]
+    base = db.query(Alert).filter(
+        Alert.user_id == uid,
+        Alert.is_dismissed.is_not(True),
+        Alert.is_read == False
+    )
+
+    failed = base.filter(Alert.alert_type == AlertType.PRINT_FAILED).count()
+    spool = base.filter(Alert.alert_type == AlertType.SPOOL_LOW).count()
+    maint = base.filter(Alert.alert_type == AlertType.MAINTENANCE_OVERDUE).count()
+
+    return AlertSummary(
+        print_failed=failed,
+        spool_low=spool,
+        maintenance_overdue=maint,
+        total=failed + spool + maint
+    )
+
+
+@router.patch("/alerts/{alert_id}/read")
+async def mark_alert_read(
+    alert_id: int,
+    request: Request,
+    # Stacked auth (Phase 2 canonical) — viewer floor for JWT, agent:write
+    # for scoped tokens. See routes_controls.py::pause_printer for rationale.
+    current_user: dict = Depends(require_action("alerts.read")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Mark a single alert as read.
+
+    Agent-surface (v1.9.0 Phase 2): honors X-Dry-Run, emits next_actions.
+    """
+    alert = db.query(Alert).filter(
+        Alert.id == alert_id,
+        Alert.user_id == current_user["id"],
+    ).first()
+    if not alert:
+        raise OdinError(
+            ErrorCode.alert_not_found,
+            f"Alert {alert_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "mark_alert_read",
+                "alert_id": alert_id,
+                "from_is_read": alert.is_read,
+                "to_is_read": True,
+            },
+            next_actions=[
+                next_action(
+                    "list_alerts",
+                    {"unread_only": True},
+                    "verify unread count decreased",
+                ),
+            ],
+            notes="Would update alerts.is_read; no other side effects.",
+        )
+
+    alert.is_read = True
+    db.commit()
+    return {
+        "status": "ok",
+        "alert_id": alert_id,
+        "is_read": True,
+        "next_actions": build_next_actions(
+            next_action(
+                "list_alerts",
+                {"unread_only": True},
+                "confirm unread count",
+            ),
+        ),
+    }
+
+
+@router.post("/alerts/mark-all-read")
+async def mark_all_read(
+    current_user: dict = Depends(require_action("alerts.read")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db)
+):
+    """Mark all alerts as read for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    db.query(Alert).filter(
+        Alert.user_id == current_user["id"],
+        Alert.is_read == False
+    ).update({"is_read": True})
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.patch("/alerts/{alert_id}/dismiss")
+async def dismiss_alert(
+    alert_id: int,
+    request: Request,
+    # Stacked auth (Phase 2 canonical).
+    current_user: dict = Depends(require_action("alerts.read")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Dismiss an alert (hide from dashboard widget).
+
+    Also marks read — dismissing implies reading. Agent-surface v1.9.0.
+    """
+    alert = db.query(Alert).filter(
+        Alert.id == alert_id,
+        Alert.user_id == current_user["id"],
+    ).first()
+    if not alert:
+        raise OdinError(
+            ErrorCode.alert_not_found,
+            f"Alert {alert_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "dismiss_alert",
+                "alert_id": alert_id,
+                "from_is_dismissed": alert.is_dismissed,
+                "to_is_dismissed": True,
+                "also_marks_read": True,
+            },
+            next_actions=[
+                next_action(
+                    "list_alerts",
+                    {},
+                    "verify alert no longer surfaces",
+                ),
+            ],
+            notes="Would update alerts.is_dismissed+is_read; no other side effects.",
+        )
+
+    alert.is_dismissed = True
+    alert.is_read = True
+    db.commit()
+    return {
+        "status": "ok",
+        "alert_id": alert_id,
+        "is_dismissed": True,
+        "is_read": True,
+        "next_actions": build_next_actions(
+            next_action(
+                "list_alerts",
+                {},
+                "confirm alert dismissed",
+            ),
+        ),
+    }
+
+
+@router.delete("/alerts/{alert_id}")
+async def delete_alert(
+    alert_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Delete only an alert owned by the current operator or administrator."""
+    deleted = db.query(Alert).filter(
+        Alert.id == alert_id,
+        Alert.user_id == current_user["id"],
+    ).delete(synchronize_session=False)
+    if not deleted:
+        raise OdinError(ErrorCode.alert_not_found, f"Alert {alert_id} not found", status=404)
+    db.commit()
+    return {"status": "ok", "alert_id": alert_id}
+
+
+# ============== Alert Preferences ==============
+
+@router.get("/alert-preferences", response_model=List[AlertPreferenceResponse])
+async def get_alert_preferences(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user's alert preferences."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    prefs = db.query(AlertPreference).filter(
+        AlertPreference.user_id == current_user["id"]
+    ).all()
+
+    if not prefs:
+        from modules.notifications.alert_dispatcher import seed_alert_preferences
+        seed_alert_preferences(db, current_user["id"])
+        prefs = db.query(AlertPreference).filter(
+            AlertPreference.user_id == current_user["id"]
+        ).all()
+
+    existing_types = {pref.alert_type for pref in prefs}
+    for default_id, alert_type in ((-1, AlertType.PRINT_PAUSED), (-2, AlertType.PRINT_CANCELLED)):
+        if alert_type not in existing_types:
+            # Negative IDs identify response-only defaults; PUT upserts by alert type.
+            prefs.append(AlertPreferenceResponse(
+                id=default_id, user_id=current_user["id"], alert_type=alert_type,
+                in_app=True, browser_push=True, email=False, threshold_value=None,
+            ))
+    return prefs
+
+
+@router.put("/alert-preferences")
+async def update_alert_preferences(
+    data: AlertPreferencesUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk update alert preferences for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    uid = current_user["id"]
+    for pref_data in data.preferences:
+        existing = db.query(AlertPreference).filter(
+            AlertPreference.user_id == uid,
+            AlertPreference.alert_type == pref_data.alert_type
+        ).first()
+
+        if existing:
+            existing.in_app = pref_data.in_app
+            existing.browser_push = pref_data.browser_push
+            existing.email = pref_data.email
+            existing.threshold_value = pref_data.threshold_value
+        else:
+            db.add(AlertPreference(
+                user_id=uid,
+                alert_type=pref_data.alert_type,
+                in_app=pref_data.in_app,
+                browser_push=pref_data.browser_push,
+                email=pref_data.email,
+                threshold_value=pref_data.threshold_value
+            ))
+
+    db.commit()
+    return {"status": "ok", "message": "Preferences updated"}
+
+
+# ============== SMTP Config (Superadmin Only) ==============
+# One mail transport and one reset-link URL serve every organization, so only
+# the install's superadmin may read or change them (an org-scoped admin could
+# otherwise redirect every tenant's password-reset mail).
+
+@router.get("/smtp-config")
+async def get_smtp_config(
+    current_user: dict = Depends(require_superadmin()),
+    db: Session = Depends(get_db)
+):
+    """Get SMTP configuration (superadmin only, password masked)."""
+    from core.application_url import configured_base_url
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    base_url = configured_base_url(db)
+    if not config:
+        return SmtpConfigResponse(base_url=base_url)
+    smtp = config.value
+    return SmtpConfigResponse(
+        enabled=smtp.get("enabled", False),
+        host=smtp.get("host", ""),
+        port=smtp.get("port", 587),
+        username=smtp.get("username", ""),
+        password_set=bool(smtp.get("password")),
+        from_address=smtp.get("from_address", ""),
+        use_tls=smtp.get("use_tls", True),
+        base_url=base_url,
+    )
+
+
+# Email notifications are a Pro feature (license_manager.TIERS "email_notifications"):
+# saving SMTP settings and sending a test needs Pro; reading them stays available.
+@router.put("/smtp-config", dependencies=[Depends(require_interactive_session()), Depends(feature_gate("email_notifications"))])
+async def update_smtp_config(
+    data: SmtpConfigBase,
+    current_user: dict = Depends(require_superadmin()),
+    db: Session = Depends(get_db)
+):
+    """Update SMTP configuration (superadmin only, interactive session only)."""
+    from core.application_url import validate_base_url
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    smtp_data = data.dict()
+    base_url = smtp_data.pop("base_url", None)
+    if base_url is not None:
+        base_url = base_url.strip()
+        if base_url:
+            try:
+                base_url = validate_base_url(base_url)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Application URL must be an https URL such as https://odin.example.com "
+                           "(http only for localhost or a private-network address; no credentials, "
+                           "query or fragment).",
+                ) from None
+        stored = db.query(SystemConfig).filter(SystemConfig.key == "base_url").first()
+        if stored:
+            stored.value = base_url
+        else:
+            db.add(SystemConfig(key="base_url", value=base_url))
+
+    if not smtp_data.get("password") and config and config.value.get("password"):
+        smtp_data["password"] = config.value["password"]
+
+    # Encrypt password if a new plaintext value was provided
+    if smtp_data.get("password") and not crypto.is_encrypted(smtp_data["password"]):
+        smtp_data["password"] = crypto.encrypt(smtp_data["password"])
+
+    if config:
+        config.value = smtp_data
+    else:
+        db.add(SystemConfig(key="smtp_config", value=smtp_data))
+
+    log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host"),
+                                                           "base_url_changed": base_url is not None})
+    db.commit()
+    return {"status": "ok", "message": "SMTP configuration updated"}
+
+
+@router.post("/alerts/test-email", dependencies=[Depends(feature_gate("email_notifications"))])
+async def send_test_email(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Send a test email to the current user (admin only)."""
+    from modules.notifications.alert_dispatcher import _get_smtp_config, _deliver_email
+
+    smtp = _get_smtp_config(db)
+    if not smtp:
+        raise HTTPException(status_code=400, detail="SMTP not configured or not enabled")
+    if not current_user.get("email"):
+        raise HTTPException(status_code=400, detail="Your account has no email address")
+
+    _deliver_email(
+        db, current_user["id"],
+        "Test Alert \u2014 O.D.I.N.",
+        "This is a test notification. If you received this, SMTP is configured correctly.",
+        "info"
+    )
+    return {"status": "ok", "message": f"Test email queued to {current_user['email']}"}

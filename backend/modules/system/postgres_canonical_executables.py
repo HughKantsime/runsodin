@@ -55,7 +55,8 @@ def canonical_functions(*, _contract=None):
             functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     if _contract is None:
         recovery=importlib.import_module('core.schema.migrations.038_dispatch_recovery')
-        for name,source in recovery.pg_functions().items():
+        global_recovery=importlib.import_module('core.schema.migrations.056_dispatch_recovery_global')
+        for name,source in (recovery.pg_functions() | global_recovery.pg_functions()).items():
             if name in functions:raise BackupValidationError('Canonical function registry collision')
             functions[name]=(source,None,False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
         measured=importlib.import_module('core.schema.migrations.039_measured_filament')
@@ -138,6 +139,10 @@ def canonical_triggers(*, _contract=None):
         for key,definition in recovery.pg_triggers().items():
             if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
             triggers[key]=(definition,'odin_recovery_immutable','public','O')
+        global_recovery=importlib.import_module('core.schema.migrations.056_dispatch_recovery_global')
+        for key,definition in global_recovery.pg_triggers().items():
+            if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
+            triggers[key]=(definition,'odin_global_recovery_immutable','public','O')
         measured=importlib.import_module('core.schema.migrations.039_measured_filament')
         for key,definition in measured.pg_triggers().items():
             if key in triggers:raise BackupValidationError('Canonical trigger registry collision')

@@ -1,0 +1,697 @@
+"""O.D.I.N. — Analytics, Stats, and Usage Reports."""
+
+from core.spoolman_settings import get_spoolman_url
+from core.rbac import should_filter_org, require_page
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, text
+from typing import Optional
+from datetime import datetime, timedelta, timezone
+import logging
+import httpx
+
+from core.db import get_db
+from core.db_compat import as_utc_datetime
+from core.rbac import require_role, get_org_scope, check_org_access
+from core.config import settings
+from core.base import JobStatus
+from modules.printers.models import Printer
+from modules.models_library.models import Model
+from modules.jobs.models import Job
+from modules.reporting.education_usage import build_education_usage_report
+from modules.reporting.analytics_window import _ended_in_range, _job_in_window, _job_price, _job_revenue, _span_hours  # noqa: F401
+from license_manager import feature_gate, require_feature
+
+log = logging.getLogger("odin.api")
+
+router = APIRouter(tags=["Analytics"])
+
+
+# ============== Stats ==============
+
+@router.get("/stats")
+async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics")), days: int = Query(default=30, ge=1, le=365)):
+    """Get dashboard statistics."""
+    org = get_org_scope(current_user)
+
+    # Printer queries — org-scoped users see their org's printers + shared + unscoped
+    printer_query = db.query(Printer)
+    active_printer_query = db.query(Printer).filter(Printer.is_active.is_(True))
+    if should_filter_org(current_user, org):
+        printer_org_filter = (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
+        printer_query = printer_query.filter(printer_org_filter)
+        active_printer_query = active_printer_query.filter(printer_org_filter)
+    total_printers = printer_query.count()
+    active_printers = active_printer_query.count()
+
+    # Job queries — org-scoped users see jobs charged to their org + unscoped
+    from core.controlled_parts import job_visibility
+    controlled, controlled_params = job_visibility(current_user)
+    job_query = db.query(Job).filter(text(controlled)).params(**controlled_params)
+    if should_filter_org(current_user, org):
+        job_org_filter = (Job.charged_to_org_id == org) | (Job.charged_to_org_id == None)
+        job_query = job_query.filter(job_org_filter)
+
+    pending_jobs = job_query.filter(Job.status == JobStatus.PENDING).count()
+    scheduled_jobs = job_query.filter(Job.status == JobStatus.SCHEDULED).count()
+    printing_jobs = job_query.filter(Job.status == JobStatus.PRINTING).count()
+    completed_today = job_query.filter(
+        Job.status == JobStatus.COMPLETED,
+        Job.actual_end >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
+    ).count()
+
+    # Include MQTT-tracked jobs
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
+    if should_filter_org(current_user, org):
+        mqtt_printing = db.execute(text(
+            "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
+            "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+        ), {"org": org}).scalar() or 0
+        mqtt_completed_today = db.execute(text(
+            "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
+            "WHERE pj.status = 'completed' AND pj.ended_at >= :today "
+            "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+        ), {"today": today_start, "org": org}).scalar() or 0
+    else:
+        mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
+        mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed' AND ended_at >= :today"), {"today": today_start}).scalar() or 0
+
+    printing_jobs += mqtt_printing
+    completed_today += mqtt_completed_today
+
+    # Model queries — org-scoped users see their org's models + unscoped
+    from core.controlled_parts import model_visibility
+    model_clause, model_params = model_visibility(current_user)
+    model_query = db.query(Model).filter(text(model_clause)).params(**model_params)
+    if should_filter_org(current_user, org):
+        model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
+    total_models = model_query.count()
+
+    # Check Spoolman connection
+    spoolman_connected = False
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
+        from fastapi.concurrency import run_in_threadpool
+        from core.spoolman_client import spoolman_healthy
+        spoolman_connected = await run_in_threadpool(spoolman_healthy, 3)  # validated, pinned (O1)
+
+    # --- Printer utilization stats for Utilization page ---
+    printer_stats = []
+    all_printers_q = db.query(Printer).filter(Printer.is_active.is_(True))
+    if should_filter_org(current_user, org):
+        all_printers_q = all_printers_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    all_printers = all_printers_q.all()
+    # Per-printer job counts honour the selected range: a job belongs to the
+    # window when it ended inside it (or, with no recorded end, was created in it).
+    range_start = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
+    in_range = or_(Job.actual_end >= range_start, and_(Job.actual_end.is_(None), Job.created_at >= range_start))
+    window_hours = days * 24
+    for p in all_printers:
+        # Count completed and failed jobs for this printer
+        completed_rows = job_query.filter(
+            Job.printer_id == p.id,
+            Job.status == JobStatus.COMPLETED,
+            in_range,
+        ).all()
+        failed_rows = job_query.filter(
+            Job.printer_id == p.id,
+            Job.status == JobStatus.FAILED,
+            in_range,
+        ).all()
+        completed_jobs = len(completed_rows)
+        failed_jobs = len(failed_rows)
+        # Also count MQTT-tracked jobs. ended_at is stored in mixed text formats
+        # by different monitors, so compare parsed UTC values, not strings.
+        mqtt_terminal = db.execute(
+            text("SELECT status, started_at, ended_at, scheduled_job_id FROM print_jobs "
+                 "WHERE printer_id = :pid AND status IN ('completed', 'failed')"),
+            {"pid": p.id}
+        ).fetchall()
+        # A printer-observed run linked to a scheduled job is that job's attempt and
+        # is already counted through the job row: count only unlinked runs.
+        mqtt_rows = [row for row in mqtt_terminal
+                     if row.scheduled_job_id is None and _ended_in_range(row.ended_at, range_start)]
+        completed_jobs += sum(row.status == 'completed' for row in mqtt_rows)
+        failed_jobs += sum(row.status == 'failed' for row in mqtt_rows)
+
+        # Print hours in the window: measured start→end when recorded, else the
+        # job's duration for completed jobs. Printer-observed runs linked to a
+        # scheduled job are already represented by that job's row.
+        window_print_hours = 0.0
+        for job in completed_rows + failed_rows:
+            measured = _span_hours(job.actual_start, job.actual_end)
+            if measured is not None:
+                window_print_hours += measured
+            elif job.status == JobStatus.COMPLETED and job.duration_hours:
+                window_print_hours += job.duration_hours
+        for row in mqtt_rows:
+            window_print_hours += _span_hours(row.started_at, row.ended_at) or 0
+
+        total_hours = round(window_print_hours, 1)
+        total_jobs = completed_jobs + failed_jobs
+        success_rate = round((completed_jobs / total_jobs * 100), 1) if total_jobs > 0 else 100.0
+        avg_job_hours = round(total_hours / completed_jobs, 1) if completed_jobs > 0 else 0
+
+        # Utilization: hours printed in the window / hours in the window.
+        utilization_pct = round(min(window_print_hours / window_hours * 100, 100), 1) if window_print_hours > 0 else 0
+
+        printer_stats.append({
+            "id": p.id,
+            "name": p.name,
+            "completed_jobs": completed_jobs,
+            "failed_jobs": failed_jobs,
+            "total_hours": total_hours,
+            "utilization_pct": utilization_pct,
+            "success_rate": success_rate,
+            "avg_job_hours": avg_job_hours,
+        })
+
+    return {
+        "printers": {
+            "total": total_printers,
+            "active": active_printers
+        },
+        "jobs": {
+            "pending": pending_jobs,
+            "scheduled": scheduled_jobs,
+            "printing": printing_jobs,
+            "completed_today": completed_today
+        },
+        "models": total_models,
+        "spoolman_connected": spoolman_connected,
+        "printer_stats": printer_stats
+    }
+
+
+# ============== Analytics ==============
+
+@router.get("/analytics", dependencies=[Depends(feature_gate("analytics"))])
+def get_analytics(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_page("analytics", scope="read:analytics")),
+    days: Optional[int] = Query(default=None, ge=1, le=365),
+):
+    """Get analytics data for dashboard.
+
+    ``days`` restricts revenue, cost, margin, completed/failed counts, print hours,
+    per-printer stats and the daily series to jobs that ended (or, with no recorded
+    end, were created) in the last ``days`` days. Without it, totals are lifetime
+    and the daily series covers 30 days. Pending/scheduled pipeline values are the
+    current queue and are never windowed.
+    """
+    org = get_org_scope(current_user)
+    now = datetime.now(timezone.utc)
+    range_start = (now - timedelta(days=days)).replace(tzinfo=None) if days else None
+
+    # Get all models with profitability data
+    from core.controlled_parts import model_visibility
+    model_clause, model_params = model_visibility(current_user)
+    model_query = db.query(Model).filter(text(model_clause)).params(**model_params)
+    if should_filter_org(current_user, org):
+        model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
+    models = model_query.all()
+
+    # Top models by value per hour
+    models_by_value = sorted(
+        [m for m in models if m.cost_per_item and m.build_time_hours],
+        key=lambda m: (m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
+        reverse=True
+    )[:10]
+
+    top_by_hour = [{
+        "id": m.id,
+        "name": m.name,
+        "value_per_hour": round((m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
+        "value_per_bed": round(m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1), 2),
+        "build_time_hours": m.build_time_hours,
+        "units_per_bed": m.units_per_bed or 1,
+    } for m in models_by_value]
+
+    # Worst performers
+    models_by_value_asc = sorted(
+        [m for m in models if m.cost_per_item and m.build_time_hours],
+        key=lambda m: (m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
+    )[:10]
+
+    worst_performers = [{
+        "id": m.id,
+        "name": m.name,
+        "value_per_hour": round((m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
+        "value_per_bed": round(m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1), 2),
+        "build_time_hours": m.build_time_hours,
+    } for m in models_by_value_asc]
+
+    # Jobs stats
+    from core.controlled_parts import job_visibility
+    controlled, controlled_params = job_visibility(current_user)
+    job_query = db.query(Job).filter(text(controlled)).params(**controlled_params)
+    if should_filter_org(current_user, org):
+        job_query = job_query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    tenant_jobs = job_query.all()
+    pending_jobs = [j for j in tenant_jobs if j.status in (JobStatus.PENDING, JobStatus.SCHEDULED)]
+    if range_start is not None:
+        all_jobs = [j for j in tenant_jobs if _job_in_window(j, range_start)]
+    else:
+        all_jobs = tenant_jobs
+    completed_jobs = [j for j in all_jobs if j.status == JobStatus.COMPLETED]
+    # Count completed job rows, independently of price/hour rankings. Both
+    # the jobs and model names have already passed their tenant predicates.
+    completed_counts = {}
+    for job in completed_jobs:
+        if job.model_id is not None:
+            completed_counts[job.model_id] = completed_counts.get(job.model_id, 0) + 1
+    top_by_jobs = sorted(
+        [{"id": model.id, "name": model.name, "job_count": completed_counts[model.id]}
+         for model in models if completed_counts.get(model.id, 0) > 0],
+        key=lambda item: (-item["job_count"], item["id"]),
+    )[:10]
+
+    # Revenue and costs from completed jobs (use job.suggested_price/estimated_cost when available)
+    total_revenue = 0
+    total_cost = 0
+    total_print_hours = 0
+    jobs_with_cost_data = 0
+    jobs_unpriced = jobs_uncosted = 0
+    jobs_with_unknown_quantity = sum(
+        job.quantity is None or job.quantity <= 0
+        for job in completed_jobs + pending_jobs
+    )
+
+    for job in completed_jobs:
+        # Legacy unknown quantities cannot be treated as one or valued reliably.
+        if job.quantity is None or job.quantity <= 0:
+            if job.duration_hours:
+                total_print_hours += job.duration_hours
+            continue
+        # Use job's stored cost data if available (model catalog fallback for older jobs).
+        # An unpriced / uncosted job makes the total unknown (None), never a fabricated 0.
+        if job.suggested_price is not None:
+            jobs_with_cost_data += 1
+        revenue = _job_revenue(db, job)
+        if revenue is None:
+            jobs_unpriced += 1
+        else:
+            total_revenue += revenue
+
+        if job.estimated_cost is not None:
+            total_cost += job.estimated_cost * job.quantity
+        else:
+            jobs_uncosted += 1
+
+        if job.duration_hours:
+            total_print_hours += job.duration_hours
+
+    if jobs_unpriced:
+        total_revenue = None
+    if jobs_uncosted:
+        total_cost = None
+    # Calculate margin
+    if total_revenue is None or total_cost is None:
+        total_margin = margin_percent = None
+    else:
+        total_margin = total_revenue - total_cost
+        margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
+
+    # Projected revenue from pending jobs (the current queue; never windowed)
+    projected_revenue = 0
+    projected_cost = 0
+    pending_unpriced = pending_uncosted = 0
+    for job in pending_jobs:
+        if job.quantity is None or job.quantity <= 0:
+            continue
+        revenue = _job_revenue(db, job)
+        if revenue is None:
+            pending_unpriced += 1
+        else:
+            projected_revenue += revenue
+
+        if job.estimated_cost is not None:
+            projected_cost += job.estimated_cost * job.quantity
+        else:
+            pending_uncosted += 1
+    if pending_unpriced:
+        projected_revenue = None
+    if pending_uncosted:
+        projected_cost = None
+
+    # Printer utilization
+    printer_q = db.query(Printer).filter(Printer.is_active.is_(True))
+    if should_filter_org(current_user, org):
+        printer_q = printer_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    printers = printer_q.all()
+    printer_stats = []
+    # Calculate time window for utilization (since first completed job, capped at the window)
+    max_available_hours = (days or 30) * 24
+    for printer in printers:
+        printer_jobs = [j for j in completed_jobs if j.printer_id == printer.id]
+        hours = sum(j.duration_hours or 0 for j in printer_jobs)
+        # Utilization = print hours / available hours (since printer's first job, max 30 days)
+        if printer_jobs:
+            earliest = min(j.created_at for j in printer_jobs if j.created_at)
+            if earliest.tzinfo is None:
+                earliest = earliest.replace(tzinfo=timezone.utc)
+            available_hours = min((now - earliest).total_seconds() / 3600, max_available_hours)
+            utilization_pct = round((hours / available_hours * 100), 1) if available_hours > 0 else 0
+        else:
+            available_hours = 0
+            utilization_pct = 0
+        # Average job duration
+        avg_hours = round(hours / len(printer_jobs), 1) if printer_jobs else 0
+        # Success rate
+        total_printer_jobs = [j for j in all_jobs if j.printer_id == printer.id]
+        failed = len([j for j in total_printer_jobs if j.status == JobStatus.FAILED])
+        total_attempted = len([j for j in total_printer_jobs if j.status in (JobStatus.COMPLETED, JobStatus.FAILED)])
+        success_rate = round(((total_attempted - failed) / total_attempted * 100), 1) if total_attempted > 0 else 100
+        printer_stats.append({
+            "id": printer.id,
+            "name": printer.name,
+            "completed_jobs": len(printer_jobs),
+            "total_hours": round(hours, 1),
+            "utilization_pct": utilization_pct,
+            "avg_job_hours": avg_hours,
+            "success_rate": success_rate,
+            "failed_jobs": failed,
+            "has_plug": bool(getattr(printer, 'plug_type', None)),
+        })
+
+    # Daily series over the window (default 30 days). Activity counts group by
+    # creation day; revenue and cost of completed jobs group by completion day,
+    # valued exactly like the summary totals (unknown quantities are not valued).
+    series_days = days or 30
+    series_start = (now - timedelta(days=series_days)).replace(tzinfo=None)
+    recent_jobs_q = job_query.filter(Job.created_at >= series_start)
+    if should_filter_org(current_user, org):
+        recent_jobs_q = recent_jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    recent_jobs = recent_jobs_q.all()
+
+    def _day(date_str):
+        return jobs_by_date.setdefault(date_str, {"created": 0, "completed": 0, "revenue": 0.0, "cost": 0.0})
+
+    jobs_by_date = {}
+    for job in recent_jobs:
+        if not job.created_at:
+            continue
+        row = _day(job.created_at.strftime("%Y-%m-%d"))
+        row["created"] += 1
+        if job.status == JobStatus.COMPLETED:
+            row["completed"] += 1
+    # A day whose completed jobs include one with no known price (or cost, or
+    # quantity) reports that series as None — unknown, never a fabricated 0.
+    for job in tenant_jobs:
+        if job.status != JobStatus.COMPLETED or not _job_in_window(job, series_start):
+            continue
+        ended = as_utc_datetime(job.actual_end if job.actual_end is not None else job.created_at)
+        row = _day(ended.strftime("%Y-%m-%d"))
+        if job.quantity is None or job.quantity <= 0:
+            continue  # unknown quantity: not valued (counted in summary.jobs_with_unknown_quantity)
+        known_quantity = True
+        revenue = _job_revenue(db, job)
+        if row["revenue"] is not None:
+            row["revenue"] = None if revenue is None else row["revenue"] + revenue
+        if row["cost"] is not None:
+            row["cost"] = (row["cost"] + job.estimated_cost * job.quantity
+                           if known_quantity and job.estimated_cost is not None else None)
+    for row in jobs_by_date.values():
+        for key in ("revenue", "cost"):
+            if row[key] is not None:
+                row[key] = round(row[key], 2)
+
+    # Average $/hour across all models
+    valid_models = [m for m in models if m.cost_per_item and m.build_time_hours]
+    if valid_models:
+        avg_value_per_hour = sum(
+            (m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours
+            for m in valid_models
+        ) / len(valid_models)
+    else:
+        avg_value_per_hour = 0
+
+    return {
+        "top_by_hour": top_by_hour,
+        "top_by_jobs": top_by_jobs,
+        "worst_performers": worst_performers,
+        "summary": {
+            "total_models": len(models),
+            "total_jobs": len(all_jobs),
+            "completed_jobs": len(completed_jobs),
+            "pending_jobs": len(pending_jobs),
+            "total_revenue": None if total_revenue is None else round(total_revenue, 2),
+            "total_cost": None if total_cost is None else round(total_cost, 2),
+            "total_margin": None if total_margin is None else round(total_margin, 2),
+            "margin_percent": None if margin_percent is None else round(margin_percent, 1),
+            "projected_revenue": None if projected_revenue is None else round(projected_revenue, 2),
+            "projected_cost": None if projected_cost is None else round(projected_cost, 2),
+            "jobs_unpriced": jobs_unpriced,
+            "jobs_uncosted": jobs_uncosted,
+            "pending_unpriced": pending_unpriced,
+            "pending_uncosted": pending_uncosted,
+            # pending_jobs / projected_* describe the current queue, not the selected window.
+            "pending_scope": "current_queue",
+            "total_print_hours": round(total_print_hours, 1),
+            "avg_value_per_hour": round(avg_value_per_hour, 2),
+            "jobs_with_cost_data": jobs_with_cost_data,
+            "jobs_with_unknown_quantity": jobs_with_unknown_quantity,
+        },
+        "printer_stats": printer_stats,
+        "jobs_by_date": jobs_by_date,
+    }
+
+
+# ============== Failure Analytics ==============
+
+@router.get("/analytics/failures", dependencies=[Depends(feature_gate("analytics"))])
+def get_failure_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_page("analytics", scope="read:analytics")),
+):
+    """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
+    org = get_org_scope(current_user)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # All completed + failed jobs in window
+    jobs_q = (
+        db.query(Job)
+        .filter(Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]), Job.created_at >= cutoff)
+    )
+    from core.controlled_parts import job_visibility
+    clause, params = job_visibility(current_user)
+    jobs_q = jobs_q.filter(text(clause)).params(**params)
+    if should_filter_org(current_user, org):
+        jobs_q = jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    jobs = jobs_q.all()
+
+    # --- By printer ---
+    by_printer = {}
+    for j in jobs:
+        if not j.printer_id or not j.printer or not (check_org_access(current_user, j.printer.org_id) or j.printer.shared):
+            continue
+        p = by_printer.setdefault(j.printer_id, {"name": j.printer.name if j.printer else str(j.printer_id), "completed": 0, "failed": 0, "fail_timestamps": []})
+        if j.status.value == "completed":
+            p["completed"] += 1
+        else:
+            p["failed"] += 1
+            if j.actual_end:
+                p["fail_timestamps"].append(j.actual_end)
+
+    printer_stats = []
+    for pid, p in by_printer.items():
+        total = p["completed"] + p["failed"]
+        success_rate = round(p["completed"] / total * 100, 1) if total else 0
+        # MTBF: average time between failures
+        mtbf_hours = None
+        if len(p["fail_timestamps"]) >= 2:
+            ts = sorted(p["fail_timestamps"])
+            gaps = [(ts[i+1] - ts[i]).total_seconds() / 3600 for i in range(len(ts)-1)]
+            mtbf_hours = round(sum(gaps) / len(gaps), 1)
+        printer_stats.append({
+            "name": p["name"],
+            "completed": p["completed"],
+            "failed": p["failed"],
+            "success_rate": success_rate,
+            "mtbf_hours": mtbf_hours,
+        })
+
+    # --- By model ---
+    by_model = {}
+    for j in jobs:
+        if j.model and not check_org_access(current_user, j.model.org_id):
+            continue
+        from core.controlled_parts import allowed
+        name = (j.model.name if j.model else j.item_name) if allowed(db, "job", j.id, current_user) else "Controlled work"
+        m = by_model.setdefault(name, {"completed": 0, "failed": 0})
+        if j.status.value == "completed":
+            m["completed"] += 1
+        else:
+            m["failed"] += 1
+
+    model_stats = [
+        {"name": k, "completed": v["completed"], "failed": v["failed"],
+         "success_rate": round(v["completed"] / (v["completed"] + v["failed"]) * 100, 1)}
+        for k, v in by_model.items() if v["completed"] + v["failed"] >= 2
+    ]
+    model_stats.sort(key=lambda x: x["success_rate"])
+
+    # --- By filament type ---
+    by_filament = {}
+    for j in jobs:
+        ft = j.filament_type.value if j.filament_type else "unknown"
+        f = by_filament.setdefault(ft, {"completed": 0, "failed": 0})
+        if j.status.value == "completed":
+            f["completed"] += 1
+        else:
+            f["failed"] += 1
+
+    filament_stats = [
+        {"type": k, "completed": v["completed"], "failed": v["failed"],
+         "failure_rate": round(v["failed"] / (v["completed"] + v["failed"]) * 100, 1)}
+        for k, v in by_filament.items() if v["completed"] + v["failed"] >= 1
+    ]
+
+    # --- Failure reasons ---
+    failed_jobs = [j for j in jobs if j.status.value == "failed"]
+    reason_counts = {}
+    for j in failed_jobs:
+        r = j.fail_reason or "unspecified"
+        reason_counts[r] = reason_counts.get(r, 0) + 1
+    top_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:10]
+
+    # --- HMS error frequency ---
+    if should_filter_org(current_user, org):
+        hms_rows = db.execute(
+            text(
+                "SELECT h.code, h.message, COUNT(*) as cnt FROM hms_error_history h "
+                "JOIN printers p ON h.printer_id = p.id "
+                "WHERE h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE) "
+                "GROUP BY h.code, h.message ORDER BY cnt DESC, h.code, h.message LIMIT 10"
+            ),
+            {"cutoff": cutoff.isoformat(), "org": org},
+        ).fetchall()
+    else:
+        hms_rows = db.execute(
+            text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code, message ORDER BY cnt DESC, code, message LIMIT 10"),
+            {"cutoff": cutoff.isoformat()},
+        ).fetchall()
+    hms_errors = [{"code": r[0], "message": r[1], "count": r[2]} for r in hms_rows]
+
+    total_completed = sum(1 for j in jobs if j.status.value == "completed")
+    total_failed = len(failed_jobs)
+
+    return {
+        "total_completed": total_completed,
+        "total_failed": total_failed,
+        "overall_success_rate": round(total_completed / (total_completed + total_failed) * 100, 1) if (total_completed + total_failed) else 0,
+        "by_printer": printer_stats,
+        "by_model": model_stats[:15],
+        "by_filament": filament_stats,
+        "top_failure_reasons": [{"reason": r, "count": c} for r, c in top_reasons],
+        "hms_errors": hms_errors,
+    }
+
+
+# ============== Time Accuracy Analytics ==============
+
+@router.get("/analytics/time-accuracy", dependencies=[Depends(feature_gate("analytics"))])
+def get_time_accuracy(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_page("analytics", scope="read:analytics")),
+):
+    """Estimated vs actual print time accuracy stats."""
+    org = get_org_scope(current_user)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    completed_q = (
+        db.query(Job)
+        .filter(
+            Job.status == JobStatus.COMPLETED,
+            Job.actual_start.isnot(None),
+            Job.actual_end.isnot(None),
+            Job.actual_end >= cutoff,
+        )
+    )
+    from core.controlled_parts import job_visibility
+    clause, params = job_visibility(current_user)
+    completed_q = completed_q.filter(text(clause)).params(**params)
+    if should_filter_org(current_user, org):
+        completed_q = completed_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    completed = completed_q.all()
+
+    per_printer = {}
+    per_model = {}
+    records = []
+    unknown_estimate = 0
+
+    # Use the currently retained schedule interval, not an immutable historical estimate.
+    # duration_hours can be overwritten by monitors and cannot prove an estimate.
+    for job in sorted(completed, key=lambda j: (as_utc_datetime(j.actual_end), j.id), reverse=True):
+        actual_sec = (as_utc_datetime(job.actual_end) - as_utc_datetime(job.actual_start)).total_seconds()
+        if actual_sec <= 0:
+            continue
+        actual_h = actual_sec / 3600
+        if job.scheduled_start is None or job.scheduled_end is None:
+            unknown_estimate += 1
+            continue
+        est_h = (as_utc_datetime(job.scheduled_end) - as_utc_datetime(job.scheduled_start)).total_seconds() / 3600
+        if est_h <= 0:
+            unknown_estimate += 1
+            continue
+        accuracy = min(est_h, actual_h) / max(est_h, actual_h) * 100
+
+        records.append({
+            "job_id": job.id,
+            "date": as_utc_datetime(job.actual_end).strftime("%Y-%m-%d"),
+            "estimated_hours": round(est_h, 2),
+            "actual_hours": round(actual_h, 2),
+            "accuracy_pct": round(accuracy, 1),
+        })
+
+        # Aggregate by printer
+        if job.printer_id and job.printer and (check_org_access(current_user, job.printer.org_id) or job.printer.shared):
+            p = per_printer.setdefault(job.printer_id, {"name": job.printer.name if job.printer else str(job.printer_id), "est": 0, "act": 0, "count": 0})
+            p["est"] += est_h
+            p["act"] += actual_h
+            p["count"] += 1
+
+        # Aggregate by model
+        if job.model_id and job.model and check_org_access(current_user, job.model.org_id):
+            m = per_model.setdefault(job.model_id, {"name": job.model.name if job.model else str(job.model_id), "est": 0, "act": 0, "count": 0})
+            m["est"] += est_h
+            m["act"] += actual_h
+            m["count"] += 1
+
+    def summarize(agg):
+        return [
+            {
+                "name": v["name"],
+                "estimated_hours": round(v["est"], 1),
+                "actual_hours": round(v["act"], 1),
+                "count": v["count"],
+                "accuracy_pct": round(min(v["est"], v["act"]) / max(v["est"], v["act"]) * 100, 1) if max(v["est"], v["act"]) > 0 else 0,
+            }
+            for v in agg.values()
+        ]
+
+    avg_accuracy = round(sum(r["accuracy_pct"] for r in records) / len(records), 1) if records else 0
+
+    return {
+        "total_jobs": len(records),
+        "avg_accuracy_pct": avg_accuracy,
+        "by_printer": summarize(per_printer),
+        "by_model": summarize(per_model),
+        "recent": records[:50],
+        "jobs_with_unknown_estimate": unknown_estimate,
+        "estimate_basis": "retained_schedule_interval",
+    }
+
+
+# ============== Education Usage Report ==============
+@router.get("/education/usage-report", tags=["Education"])
+def get_education_usage_report(
+    days: int = Query(default=30, ge=7, le=90),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_page("education_reports", scope="read:analytics")),
+):
+    """Education usage report — per-user job metrics and summary stats."""
+    require_feature("usage_reports")
+    return build_education_usage_report(days, db, current_user)
