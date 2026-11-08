@@ -72,7 +72,7 @@ sys.exit(int(os.environ['TEST_STATUS']))
         if blocked == "aggregate":
             host_lock.fcntl.flock(held, host_lock.fcntl.LOCK_EX | host_lock.fcntl.LOCK_NB)
         result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
-    assert not (private_home / '.cache/odin-precheck/fixture-run/tmp').exists()
+    assert not (private_home / '.cache/odin-precheck/fixture-run').exists()
     if blocked == "bootstrap":
         assert result.returncode == 17
         assert (repo / 'bootstrap.txt').exists()

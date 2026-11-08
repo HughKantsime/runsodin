@@ -38,7 +38,7 @@ root.mkdir(mode=0o700)
 print(root)
 PY
 )"
-cleanup() { rm -rf -- "${private_tmp:?}"; }
+cleanup() { rm -rf -- "${private_tmp:?}"; rmdir -- "$(dirname -- "${private_tmp:?}")" 2>/dev/null || true; }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
