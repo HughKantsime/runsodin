@@ -488,8 +488,15 @@ def _later_attempt(db, printer_id, row):
     """Any other attempt on this printer that began after this one (running or not).
 
     A different print cancels the completion ticket for good, even once it ends."""
-    return db.execute(text('SELECT 1 FROM print_jobs WHERE printer_id=:p AND id<>:id AND (id>:id OR started_at>:s) LIMIT 1'),
-                      {'p': printer_id, 'id': row['id'], 's': row['started_at']}).first() is not None
+    if db.execute(text('SELECT 1 FROM print_jobs WHERE printer_id=:p AND id>:id LIMIT 1'),
+                  {'p': printer_id, 'id': row['id']}).first() is not None:
+        return True
+    # Start times are compared parsed, not as text: SQLite rows hold more than one
+    # timestamp format. Older ids that started later are recent rows by nature.
+    mine = _utc(row['started_at'])
+    recent = db.execute(text('SELECT started_at FROM print_jobs WHERE printer_id=:p AND id<:id '
+                             'ORDER BY id DESC LIMIT 50'), {'p': printer_id, 'id': row['id']}).scalars()
+    return any(started is not None and _utc(started) > mine for started in recent)
 
 
 def _ended(db, printer_id, row, record):

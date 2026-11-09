@@ -593,3 +593,18 @@ def test_dispatch_power_rechecks_the_license_right_before_power_on(policy_db, mo
     monkeypatch.setattr(plug_power_acquisition, 'bounded_power_on', lambda *a, **k: pytest.fail('power-on sent'))
     result = smart_plug.prepare_bounded_dispatch_power(TEN, _time.monotonic() + 10)
     assert result.accepted is False and 'license selection' in result.error
+
+
+
+def test_later_attempt_compares_parsed_start_times(policy_db):
+    """SQLite rows hold more than one timestamp format; text order must not decide."""
+    older = _attempt(policy_db, NINE, started_ago=3600)
+    mine = _attempt(policy_db, NINE, started_ago=600)
+    stamp = (_utcnow() - timedelta(seconds=3600)).strftime('%Y-%m-%dT%H:%M:%S+00:00')
+    policy_db.execute(text('UPDATE print_jobs SET started_at=:t WHERE id=:id'), {'t': stamp, 'id': older['id']})
+    policy_db.commit()
+    row = policy._row(policy_db, mine['id'])
+    assert policy._later_attempt(policy_db, NINE, row) is False
+    newer = _attempt(policy_db, NINE, started_ago=60)
+    assert policy._later_attempt(policy_db, NINE, row) is True
+    assert newer['id'] > mine['id']
