@@ -4,6 +4,40 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.52] - 2026-11-09
+
+<!-- summary: Dispatch refusals now say why printer readiness could not be confirmed, and printer connection tests and AMS sync no longer leave Bambu connections open after an error. -->
+
+### Fixed
+
+- When a dispatch is refused because O.D.I.N. could not confirm the printer was ready, the message now names the reason, for example `not_ready_or_unreachable`, `no_reply_before_deadline`, `reply_after_deadline`, or `read_error:` followed by the error type. Before, it said only "Fresh printer readiness was not confirmed". The decision is unchanged: nothing is sent unless readiness is confirmed. Reasons come from a fixed list, and anything unrecognized is shown as `printer_not_ready`.
+- Testing a Bambu printer's connection (from the printer page or setup) and syncing filament slots (Bambu and Moonraker) now always close the printer connection, including when an error occurs. Before, an error could leave the connection open, and on a Bambu printer that holds one of its few connection slots.
+- Bambu: if O.D.I.N. connects to a printer but then fails while recovering that printer's interrupted jobs, it now closes that connection instead of leaving it running unused.
+- Bambu: when a final check refuses the start just before the print command (for example a filament slot or printer state that no longer matches, or a check that could not complete), the dispatch is now closed without sending anything and the printer can be retried, the same as with the older connection method. Before, this left the dispatch marked uncertain and the printer needed manual recovery, although no print command had been sent. Recovery is still required if a maintenance hold caused the refusal, if the check itself stopped with an unexpected error, or if the result of a print command is unknown.
+
+### Release tooling
+
+- The validation setup now refuses to install into an environment folder that is a symbolic link, and names the link's target. Before, a linked folder could make validation install into, and fail on, another workspace.
+
+## [2.0.51] - 2026-11-08
+
+<!-- summary: Adds a read-only status endpoint for Home Assistant, runs Bambu uploads one at a time, lets a printer be retried after an upload that failed before any print command (when safety checks and the claim release succeed), and refuses backups whose recovery history could be edited. -->
+
+### Added
+
+- A read-only fleet status endpoint for Home Assistant: `GET /api/v1/integrations/home-assistant/status`. It returns each printer's status, progress, layer, time remaining, job name, last error and whether it is online, plus fleet counts and queue length. It reads only O.D.I.N.'s database and never contacts a printer, so polling it does not use printer connections. For Home Assistant, use an API token with `read:printers` and `read:jobs` (or broad `read`). Job names and error text for controlled work are hidden from callers who cannot see it.
+- A Home Assistant custom integration (`integrations/home-assistant/`, installed manually for now) that reads this endpoint: one device per printer with status, progress, finish time, job, layers, online and problem sensors, an error event, fleet counts, and optional cameras through O.D.I.N.'s camera relay with a camera-only token. It has no controls.
+
+### Fixed
+
+- Bambu printers: an O.D.I.N. installation now runs one file upload at a time, so uploads to different printers no longer overlap on the same network. A second upload waits up to 15 minutes by default (`ODIN_FTPS_UPLOAD_WAIT_SECONDS`), and its dispatch shows "Waiting for another printer's upload to finish..." after two seconds. If the waiting limit is reached (two uploads per O.D.I.N. process by default, `ODIN_FTPS_UPLOAD_MAX_WAITERS`), or the upload slot can't be opened, the dispatch stops at once without sending anything, and it can be retried once the claim is released. `ODIN_FTPS_UPLOAD_SERIAL=0` turns this off.
+- A Bambu upload that fails no longer blocks the printer. Before, a failed or timed-out upload marked the dispatch as uncertain, and the printer needed manual recovery even though no print command had been sent. Now, when the upload fails before any print command, the dispatch is closed and the printer can be retried, provided the safety checks pass and the claim release is saved. Recovery is still required if a maintenance hold was set during the upload, the hold can't be read, an Education reservation can't be cancelled, the claim release can't be saved, the printer's target ownership changed, or the outcome is otherwise unknown. A failure after the print command was attempted still requires recovery, as before.
+- Backup validation now refuses a backup whose dispatch recovery history (migrations 038 and 056) is missing its protection against edits and deletes. Before, such a backup was accepted and would restore a history that could be changed.
+
+### Release tooling
+
+- The Education backup gate now runs every SQLite backup and restore test, not one file, and two of those tests were brought up to date with migration 056.
+
 ## [2.0.50] - 2026-11-08
 
 <!-- summary: For printers without an organization, an administrator can now clear a stuck dispatch instead of the printer staying blocked. -->

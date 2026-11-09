@@ -108,7 +108,7 @@ def test_bambu_ftps_upload(rebound, tcp_listener, monkeypatch, tmp_path):
     monkeypatch.setattr(ftp_upload, "FTPS_PORT", port)
     part = tmp_path / "part.3mf"
     part.write_bytes(b"synthetic")
-    assert ftp_upload.upload_file(REBOUND, "synthetic", str(part), timeout=1) is False
+    assert not ftp_upload.upload_file(REBOUND, "synthetic", str(part), timeout=1)
     assert rebound and hits == []
 
 

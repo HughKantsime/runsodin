@@ -503,9 +503,11 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             bambu = BambuPrinter(ip=request.api_host, serial=request.serial, access_code=request.access_code)
             if not bambu.connect():
                 return {"success": False, "error": "Failed to connect. Check IP, serial, and access code."}
-            time.sleep(2)
-            bambu_status = bambu.get_status()
-            bambu.disconnect()
+            try:
+                time.sleep(2)
+                bambu_status = bambu.get_status()
+            finally:
+                bambu.disconnect()  # never leave the test session holding a printer MQTT slot
             try:
                 from modules.printers.printer_models import normalize_model_name
                 detected_model = normalize_model_name("bambu", bambu_status.printer_type)

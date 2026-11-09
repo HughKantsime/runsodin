@@ -308,3 +308,11 @@ def test_data(admin_token):
             make_request(method, path, "jwt", admin_token)
         except Exception:
             pass
+
+
+@pytest.fixture(autouse=True)
+def _private_ftps_upload_lock(tmp_path_factory, monkeypatch):
+    """Tests never share or need /data for the Bambu FTPS upload slot."""
+    if not os.environ.get("ODIN_FTPS_UPLOAD_LOCK_PATH"):
+        monkeypatch.setenv("ODIN_FTPS_UPLOAD_LOCK_PATH",
+                           str(tmp_path_factory.mktemp("ftps-lock") / "bambu-ftps-upload.lock"))

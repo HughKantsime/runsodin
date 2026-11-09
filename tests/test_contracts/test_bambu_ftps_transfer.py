@@ -184,13 +184,13 @@ class ProtectedFTPServer:
 def upload(path, peer, source, monkeypatch):
     if path == "v2":
         monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
-        return ftp_upload.upload_file("127.0.0.1", SYNTHETIC_FTPS_ACCESS_CODE, str(source), "test.3mf", timeout=3)
+        return bool(ftp_upload.upload_file("127.0.0.1", SYNTHETIC_FTPS_ACCESS_CODE, str(source), "test.3mf", timeout=3))  # UploadResult is truthy only on success
     printer = bambu.BambuPrinter.__new__(bambu.BambuPrinter)
     printer.ip = "127.0.0.1"
     printer.access_code = SYNTHETIC_FTPS_ACCESS_CODE
     printer.serial = "synthetic-test-printer"
     monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
-    return printer.upload_file(str(source), "test.3mf")
+    return bool(printer.upload_file(str(source), "test.3mf"))
 
 
 @pytest.mark.parametrize("path", ["legacy", "v2"])

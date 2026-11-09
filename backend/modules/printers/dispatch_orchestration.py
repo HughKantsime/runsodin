@@ -21,6 +21,15 @@ class TargetOwnershipLost(RuntimeError):
     pass
 
 
+
+def _readiness_confirmed(creds, deadline, reasons):
+    """bounded_status_is_idle, with its refusal code copied into ``reasons``."""
+    from modules.printers import dispatch_acquisition
+    with dispatch_acquisition.capture_refusal_reason() as captured:
+        ok = dispatch_acquisition.bounded_status_is_idle(creds, deadline)
+    reasons.extend(captured[:1])
+    return ok
+
 def _require_target(handle):
     if not handle.held():
         raise TargetOwnershipLost('Configured target ownership could not be confirmed')
@@ -105,7 +114,6 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
     from core.auth import SECRET_KEY
     from core.db import engine
     from modules.printers import dispatch,smart_plug
-    from modules.printers.dispatch_acquisition import bounded_status_is_idle
     key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
     identity=build_identity(creds,key)
     if identity is None:
@@ -161,8 +169,9 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                         result=(False,power.error or 'Power preparation was not confirmed; no print command was sent')
                     elif not target_handle.held():
                         raise TargetOwnershipLost()
-                    elif not bounded_status_is_idle(creds,deadline):
-                        result=(False,'Fresh printer readiness was not confirmed; no print command was sent')
+                    elif not _readiness_confirmed(creds,deadline,readiness_reasons:=[]):
+                        reason = readiness_reasons[0] if readiness_reasons else 'unknown'
+                        result=(False,f'Fresh printer readiness was not confirmed ({reason}); no print command was sent')
                     elif time.monotonic()>=deadline:
                         result=(False,'Dispatch preparation deadline elapsed; no print command was sent')
                     elif not hmac.compare_digest(hash_regular_payload(source_path),staged.sha256):
@@ -222,6 +231,17 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 result=dispatch._run_admitted_dispatch(job,creds,staged.path,
                                     transport_filename,options,provider,reservation,
                                     **({"before_start":before_start} if before_start is not None else {}))
+                            # The upload itself failed, so no print command was sent. Checked
+                            # before any message suffix turns the marker into a plain str.
+                            no_command = (type(result[0]) is bool and not result[0]
+                                          and isinstance(result[1], dispatch.NoStartMessage))
+                            if no_command:
+                                # A maintenance hold set while the upload ran keeps the fence.
+                                from modules.printers.maintenance_gate import refusal as maintenance_refusal
+                                try:
+                                    no_command = not maintenance_refusal(engine, job['printer_id'])
+                                except Exception:
+                                    no_command = False
                             if derived:
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
                             _require_target(target_handle)
@@ -229,7 +249,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             # A hold arriving after admission retains inventory-maint's
                             # conservative fence; initial holds refuse before any claim.
                             gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
-                            clean_refusal = (not accepted and getattr(before_start, 'clean_no_start', False)
+                            clean_refusal = (not accepted and (getattr(before_start, 'clean_no_start', False) or no_command)
                                 and gate_code != 'printer_maintenance_hold')
                             from modules.printers.dispatch_background import audit_actor
                             actor = audit_actor()
