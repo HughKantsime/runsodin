@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.51] - 2026-11-08
 
-<!-- summary: Adds a read-only status endpoint for the new Home Assistant integration, and backup checks now refuse backups whose recovery history could be edited. -->
+<!-- summary: Adds a read-only status endpoint for Home Assistant, runs Bambu uploads one at a time so a failed upload no longer blocks the printer, and refuses backups whose recovery history could be edited. -->
 
 ### Added
 
@@ -15,6 +15,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Bambu printers: only one file upload runs at a time across O.D.I.N. Another upload waits up to 15 minutes, and the dispatch shows "Waiting for another printer's upload to finish". Two uploads on a weak Wi-Fi network no longer slow each other until one times out.
+- A Bambu upload that fails no longer blocks the printer. Before, a failed or timed-out upload marked the dispatch as uncertain, and the printer needed manual recovery, even though no print command had been sent. The printer is now free for a retry, unless a maintenance hold was set on it during the upload. A failure after the file arrived, such as a refused start command, still requires recovery as before.
 - Backup validation now refuses a backup whose dispatch recovery history (migrations 038 and 056) is missing its protection against edits and deletes. Before, such a backup was accepted and would restore a history that could be changed.
 
 ### Release tooling
