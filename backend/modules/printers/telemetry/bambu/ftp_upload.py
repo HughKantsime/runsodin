@@ -20,6 +20,7 @@ import logging
 import os
 import socket
 import ssl
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ class _ImplicitFTPS(ftplib.FTP_TLS):
 # One Bambu FTPS upload at a time across the install (specs/ftps-upload-serialization.md):
 # on 2026-11-08 an overlapping upload on a weak access point timed out mid-transfer.
 DEFAULT_WAIT_SECONDS = 900
+DEFAULT_MAX_WAITERS = 2  # of 8 dispatch workers; the rest stay free for other printers
 MAX_WAIT_SECONDS = 3600
 POLL_SECONDS = 0.5
 WAIT_NOTICE_SECONDS = 2.0
@@ -116,7 +118,9 @@ WAIT_NOTICE_SECONDS = 2.0
 @dataclass(frozen=True)
 class UploadResult:
     """Truthy only when the file arrived. ``phase`` names where a failure happened;
-    ``wait`` means the slot never came free and no connection was attempted."""
+    ``timeout``, ``busy`` and ``lock_unavailable`` mean no connection was attempted.
+    Returned (rather than a bare bool) so existing ``if not upload_file(...)``
+    callers and test doubles keep working while dispatch reads the details."""
     ok: bool
     phase: str
     waited_seconds: float = 0.0
@@ -159,25 +163,41 @@ def _lock_path() -> str:
     return os.path.join(os.getenv("ODIN_DATA_DIR", "/data"), "locks", "bambu-ftps-upload.lock")
 
 
+_waiters_lock = threading.Lock()
+_waiters = 0
+
+
+def _max_waiters() -> int:
+    try:
+        return max(0, int(os.getenv("ODIN_FTPS_UPLOAD_MAX_WAITERS", DEFAULT_MAX_WAITERS)))
+    except ValueError:
+        return DEFAULT_MAX_WAITERS
+
+
 @contextlib.contextmanager
 def upload_slot(on_wait=None, *, clock=time.monotonic, sleep=time.sleep):
-    """Hold the install-wide FTPS upload slot; yields seconds waited, or None on timeout.
+    """Hold the install-wide FTPS upload slot. Yields ``(state, waited_seconds)``.
 
-    flock on a private descriptor excludes other processes and other threads alike,
-    and the kernel releases it if the holder dies. If the lock file can't be opened
-    the upload proceeds unserialized (logged): the gate protects throughput, not safety.
+    ``state`` is ``"held"`` (upload may proceed), ``"timeout"`` (waited the full
+    limit), ``"busy"`` (too many uploads already waiting in this process, so a
+    dispatch worker is not tied up), or ``"lock_unavailable"`` (the lock file
+    could not be opened; only ``ODIN_FTPS_UPLOAD_SERIAL=0`` bypasses the slot).
+    flock on a private descriptor excludes other processes and other threads
+    alike, and the kernel releases it if the holder dies.
     """
+    global _waiters
     if not _serial_enabled():
-        yield 0.0
+        yield "held", 0.0
         return
     path = _lock_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     except OSError as exc:
-        logger.warning("bambu ftps upload lock unavailable error_type=%s; uploading unserialized", type(exc).__name__)
-        yield 0.0
+        logger.error("bambu ftps upload lock unavailable error_type=%s", type(exc).__name__)
+        yield "lock_unavailable", 0.0
         return
+    waiting = False
     try:
         started = clock()
         limit = _wait_limit()
@@ -185,11 +205,19 @@ def upload_slot(on_wait=None, *, clock=time.monotonic, sleep=time.sleep):
         while True:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
             except BlockingIOError:
+                if not waiting:
+                    with _waiters_lock:
+                        full = _waiters >= _max_waiters()
+                        if not full:
+                            _waiters += 1
+                    if full:
+                        yield "busy", 0.0
+                        return
+                    waiting = True
                 waited = clock() - started
                 if waited >= limit:
-                    yield None
+                    yield "timeout", waited
                     return
                 if on_wait is not None and not noticed and waited >= WAIT_NOTICE_SECONDS:
                     noticed = True
@@ -197,12 +225,27 @@ def upload_slot(on_wait=None, *, clock=time.monotonic, sleep=time.sleep):
                         on_wait()
                     except Exception:
                         logger.debug("ftps upload wait notice failed", exc_info=True)
-                sleep(POLL_SECONDS)
+                sleep(max(0.0, min(POLL_SECONDS, limit - waited)))
+                continue
+            waited = clock() - started
+            if waiting and waited > limit:
+                # Acquired only after the deadline: give the slot back unused.
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                yield "timeout", waited
+                return
+            break
+        if waiting:
+            with _waiters_lock:
+                _waiters -= 1
+            waiting = False
         try:
-            yield clock() - started
+            yield "held", waited
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
+        if waiting:
+            with _waiters_lock:
+                _waiters -= 1
         os.close(fd)
 
 
@@ -215,10 +258,10 @@ def upload_file(
 ) -> UploadResult:
     """Upload a local file to the printer's FTPS root via implicit TLS, inside the
     install-wide upload slot. The result is truthy on success; failures are logged."""
-    with upload_slot(_wait_notice.get()) as waited:
-        if waited is None:
-            logger.error("bambu ftps upload failed phase=wait error_type=SlotTimeout")
-            return UploadResult(False, "wait", _wait_limit())
+    with upload_slot(_wait_notice.get()) as (state, waited):
+        if state != "held":
+            logger.error("bambu ftps upload failed phase=%s error_type=Slot", state)
+            return UploadResult(False, state, waited)
         ok, phase = _upload_once(host, access_code, local_path, remote_filename, timeout)
         return UploadResult(ok, phase, waited)
 

@@ -80,10 +80,14 @@ class NoStartMessage(str):
 
 def _upload_failure_message(result) -> NoStartMessage:
     phase = getattr(result, "phase", None) or "transfer"
-    if phase == "wait":
+    nothing_sent = "no file and no print command were sent; you can retry"
+    if phase == "timeout":
         minutes = max(1, int(round(getattr(result, "waited_seconds", 0) / 60)))
-        return NoStartMessage(f"Another printer's upload was still running after {minutes} min; "
-                              "no file and no print command were sent; you can retry")
+        return NoStartMessage(f"Another printer's upload was still running after {minutes} min; {nothing_sent}")
+    if phase == "busy":
+        return NoStartMessage(f"Other printers' uploads are already waiting; {nothing_sent}")
+    if phase == "lock_unavailable":
+        return NoStartMessage(f"The upload slot could not be opened (check the data directory); {nothing_sent}")
     return NoStartMessage(f"FTPS upload failed during {phase}; no print command was sent; "
                           "check the printer's network and retry")
 

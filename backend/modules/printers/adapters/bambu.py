@@ -447,7 +447,7 @@ class BambuPrinter:
         }
         return self._publish(payload)
 
-    def upload_file(self, local_path: str, remote_filename: str = None) -> bool:
+    def upload_file(self, local_path: str, remote_filename: str = None) -> "UploadResult":
         """Upload a .3mf file to the printer via implicit FTPS (port 990).
 
         The printer must be reachable at self.ip. No MQTT connection is required.
@@ -458,11 +458,12 @@ class BambuPrinter:
             remote_filename: Name to store on the printer (default: basename of local_path).
 
         Returns:
-            True if the upload completed without error.
+            An UploadResult, truthy only if the upload completed without error.
         """
         from modules.printers.telemetry.bambu.ftp_upload import upload_file
 
-        return bool(upload_file(self.ip, self.access_code, local_path, remote_filename))
+        # A truthy UploadResult, so dispatch can tell where a failure happened.
+        return upload_file(self.ip, self.access_code, local_path, remote_filename)
 
     def start_print(
         self,

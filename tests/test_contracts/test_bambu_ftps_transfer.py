@@ -190,7 +190,7 @@ def upload(path, peer, source, monkeypatch):
     printer.access_code = SYNTHETIC_FTPS_ACCESS_CODE
     printer.serial = "synthetic-test-printer"
     monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
-    return printer.upload_file(str(source), "test.3mf")
+    return bool(printer.upload_file(str(source), "test.3mf"))
 
 
 @pytest.mark.parametrize("path", ["legacy", "v2"])

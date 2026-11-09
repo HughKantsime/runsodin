@@ -14,6 +14,7 @@ import pytest
 
 from modules.printers import dispatch
 from modules.printers.telemetry.bambu import ftp_upload
+from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401 (fixture)
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +92,7 @@ def test_other_process_holding_the_slot_times_out_without_connecting(monkeypatch
         with ftp_upload.wait_notice(lambda: notices.append(1)):
             monkeypatch.setattr(ftp_upload, "WAIT_NOTICE_SECONDS", 0.1)
             result = ftp_upload.upload_file("h", "c", "/inert", "f.3mf")
-        assert not result and result.phase == "wait" and calls == []
+        assert not result and result.phase == "timeout" and calls == []
         assert notices == [1]
     finally:
         holder.kill()
@@ -120,12 +121,51 @@ def test_slot_released_when_the_upload_raises(monkeypatch):
     assert ftp_upload.upload_file("h", "c", "/inert", "f.3mf")
 
 
-def test_unwritable_lock_location_uploads_unserialized(monkeypatch, tmp_path):
+def test_unopenable_lock_refuses_before_connecting(monkeypatch, tmp_path):
+    """Codex P2-3: a broken lock path never silently restores concurrent uploads."""
     blocker = tmp_path / "file"
     blocker.write_text("x")
     monkeypatch.setenv("ODIN_FTPS_UPLOAD_LOCK_PATH", str(blocker / "nested" / "lock"))
-    monkeypatch.setattr(ftp_upload, "_upload_once", lambda *a: (True, "done"))
+    calls = []
+    monkeypatch.setattr(ftp_upload, "_upload_once", lambda *a: calls.append(a) or (True, "done"))
+    result = ftp_upload.upload_file("h", "c", "/inert", "f.3mf")
+    assert not result and result.phase == "lock_unavailable" and calls == []
+    monkeypatch.setenv("ODIN_FTPS_UPLOAD_SERIAL", "0")  # the only bypass
     assert ftp_upload.upload_file("h", "c", "/inert", "f.3mf")
+
+
+def test_waiters_beyond_the_cap_refuse_immediately(monkeypatch):
+    """Codex P2-2: queued uploads cannot occupy every dispatch worker."""
+    monkeypatch.setenv("ODIN_FTPS_UPLOAD_MAX_WAITERS", "1")
+    spans, peak = _recording_upload(monkeypatch, hold=0.6)
+    started = time.monotonic()
+    results = _run_threads(3)
+    phases = sorted(r.phase for r in results)
+    assert phases == ["busy", "done", "done"] and peak[0] == 1
+    busy = [r for r in results if r.phase == "busy"][0]
+    assert busy.waited_seconds == 0.0 and time.monotonic() - started < 2.5
+
+
+def test_slot_acquired_after_the_deadline_is_not_used(monkeypatch):
+    """Codex P2-5: deterministic clock; the holder frees the slot just after the limit."""
+    import fcntl
+    monkeypatch.setenv("ODIN_FTPS_UPLOAD_WAIT_SECONDS", "0.6")
+    now = [0.0]
+    attempts = []
+    real_flock = fcntl.flock
+    def flock(fd, op):
+        if op & fcntl.LOCK_EX:
+            attempts.append(now[0])
+            if now[0] < 0.75:
+                raise BlockingIOError()
+        return real_flock(fd, op)
+    monkeypatch.setattr(ftp_upload.fcntl, "flock", flock)
+    sleeps = []
+    def sleep(seconds):
+        sleeps.append(seconds); now[0] += seconds
+    with ftp_upload.upload_slot(clock=lambda: now[0], sleep=sleep) as (state, waited):
+        assert state == "timeout"
+    assert all(s <= 0.5 for s in sleeps) and max(attempts) <= 0.6 + 1e-9
 
 
 @pytest.mark.parametrize("raw,expected", [("bad", 900.0), ("-5", 0.0), ("99999", 3600.0), ("nan", 900.0), ("12", 12.0)])
@@ -134,12 +174,14 @@ def test_wait_limit_is_bounded(monkeypatch, raw, expected):
     assert ftp_upload._wait_limit() == expected
 
 
-def test_legacy_adapter_keeps_its_bool_contract(monkeypatch):
+def test_legacy_adapter_passes_the_failure_phase_through(monkeypatch):
+    """Codex P2-4: legacy dispatch learns where the upload failed."""
     from modules.printers.adapters.bambu import BambuPrinter
     monkeypatch.setattr(ftp_upload, "_upload_once", lambda *a: (False, "connect"))
     printer = BambuPrinter.__new__(BambuPrinter)
     printer.ip, printer.access_code = "h", "c"
-    assert printer.upload_file("/inert", "f.3mf") is False
+    result = printer.upload_file("/inert", "f.3mf")
+    assert not result and result.phase == "connect"
 
 
 # Part B: an upload failure proves no command was sent.
@@ -154,13 +196,13 @@ def _bambu_doubles(monkeypatch, upload_result):
     monkeypatch.setattr(broker_policy, "resolve_bambu_broker_config", lambda *a, **k: NS(host="h", port=8883, use_tls=True))
     monkeypatch.setattr(session, "run_command", lambda *a, **k: commands.append(a) or True)
     monkeypatch.setattr(bambu, "BambuPrinter", lambda **k: NS(
-        upload_file=lambda *a: bool(upload_result), connect=lambda: commands.append("connect") or True,
+        upload_file=lambda *a: upload_result, connect=lambda: commands.append("connect") or True,
         start_print=lambda *a, **k: commands.append("start") or True, disconnect=lambda: None))
     return commands
 
 
 @pytest.mark.parametrize("protocol", ["v2", "legacy"])
-@pytest.mark.parametrize("phase", ["wait", "connect", "authentication", "protection", "transfer", "logout"])
+@pytest.mark.parametrize("phase", ["timeout", "busy", "lock_unavailable", "connect", "authentication", "protection", "transfer", "logout"])
 def test_upload_failure_returns_no_start_message_and_never_starts(monkeypatch, protocol, phase):
     commands = _bambu_doubles(monkeypatch, ftp_upload.UploadResult(False, phase, 900.0))
     method = dispatch._dispatch_bambu_v2 if protocol == "v2" else dispatch._dispatch_bambu_legacy
@@ -171,9 +213,12 @@ def test_upload_failure_returns_no_start_message_and_never_starts(monkeypatch, p
     assert "c" not in message.split() and "s" not in message.split()
 
 
-def test_wait_message_names_minutes():
-    message = dispatch._upload_failure_message(ftp_upload.UploadResult(False, "wait", 900.0))
-    assert "15 min" in message and "you can retry" in message
+def test_slot_messages_say_nothing_was_sent():
+    message = dispatch._upload_failure_message(ftp_upload.UploadResult(False, "timeout", 900.0))
+    assert "15 min" in message and "no file and no print command were sent" in message
+    for phase in ("busy", "lock_unavailable"):
+        assert "no file and no print command were sent" in dispatch._upload_failure_message(
+            ftp_upload.UploadResult(False, phase))
 
 
 def test_plain_bool_failure_from_a_double_is_still_no_start():
@@ -215,3 +260,65 @@ def test_orchestration_releases_claim_only_for_the_marker():
     suffix = source.index("'; AMS mapping derived from verified file source'")
     assert marker_check < suffix
     assert "getattr(before_start, 'clean_no_start', False) or no_command" in source
+
+
+# Behavioral: the real admission/claim path (Codex P2-6).
+
+@pytest.fixture
+def bambu_dispatch(review_db, tmp_path, monkeypatch):
+    from tests.test_contracts.test_dispatch_real_monitor_correlation import configure_dispatch
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
+    return engine
+
+
+def _claims(engine):
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        return conn.execute(text('SELECT job_id, state FROM printer_dispatch_claims')).all()
+
+
+def test_failed_upload_releases_the_claim_and_the_printer_can_retry(bambu_dispatch, monkeypatch):
+    calls = []
+    def adapter(job_id, path, name, creds, **options):
+        calls.append(name)
+        if len(calls) == 1:
+            return False, dispatch._upload_failure_message(ftp_upload.UploadResult(False, "transfer"))
+        return True, "Synthetic accepted"
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', adapter)
+    ok, message = dispatch.dispatch_job(59, 53)
+    assert not ok and "no print command was sent" in message
+    assert _claims(bambu_dispatch) == []
+    from sqlalchemy import text
+    with bambu_dispatch.begin() as conn:
+        conn.execute(text("UPDATE jobs SET status='scheduled' WHERE id=53"))
+    assert dispatch.dispatch_job(59, 53)[0] and len(calls) == 2
+
+
+def test_plain_failure_after_upload_still_fences(bambu_dispatch, monkeypatch):
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', lambda *a, **k: (False, "MQTT print command failed (file uploaded OK)"))
+    assert not dispatch.dispatch_job(59, 53)[0]
+    assert [state for _, state in _claims(bambu_dispatch)] == ['uncertain']
+
+
+def test_maintenance_hold_set_during_upload_keeps_the_fence(bambu_dispatch, monkeypatch):
+    from modules.printers import maintenance_gate
+    held = []
+    real = maintenance_gate.refusal
+    monkeypatch.setattr(maintenance_gate, 'refusal', lambda engine, pid: 'Synthetic hold' if held else real(engine, pid))
+    def adapter(*a, **k):
+        held.append(1)
+        return False, dispatch._upload_failure_message(ftp_upload.UploadResult(False, "connect"))
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', adapter)
+    assert not dispatch.dispatch_job(59, 53)[0]
+    assert [state for _, state in _claims(bambu_dispatch)] == ['uncertain']
+
+
+def test_failed_education_cancel_strips_the_marker(monkeypatch):
+    monkeypatch.setattr(dispatch, "_ws", lambda *a: None)
+    monkeypatch.setattr(dispatch, "_notify_start_outcome", lambda *a, **k: None)
+    monkeypatch.setattr(dispatch, "_cancel_education_reservation", lambda *a: False)
+    marker = dispatch._upload_failure_message(ftp_upload.UploadResult(False, "transfer"))
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *a, **k: (False, marker))
+    ok, message = dispatch._run_admitted_dispatch({"id": 1, "printer_id": 9, "item_name": "t"},
+        {"api_type": "bambu", "ip": "h"}, "", "", {}, object(), {"token": "r"}, before_start=NS(refusal=None))
+    assert ok is False and type(message) is str and "explicit reconciliation" in message

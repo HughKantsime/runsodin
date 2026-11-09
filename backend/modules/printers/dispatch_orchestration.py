@@ -212,6 +212,13 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             # before any message suffix turns the marker into a plain str.
                             no_command = (type(result[0]) is bool and not result[0]
                                           and isinstance(result[1], dispatch.NoStartMessage))
+                            if no_command:
+                                # A maintenance hold set while the upload ran keeps the fence.
+                                from modules.printers.maintenance_gate import refusal as maintenance_refusal
+                                try:
+                                    no_command = not maintenance_refusal(engine, job['printer_id'])
+                                except Exception:
+                                    no_command = False
                             if derived:
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
                             _require_target(target_handle)
