@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to ODIN",
+        "description": "Home Assistant reads printer status from ODIN only and never connects to the printers. Create an API token in ODIN (Settings > API Tokens) with the read:printers and read:jobs scopes (or read).",
+        "data": {
+          "url": "ODIN URL",
+          "api_key": "API token",
+          "camera_token": "Camera token (optional)"
+        },
+        "data_description": {
+          "url": "For example http://192.168.1.20:8000",
+          "camera_token": "A separate camera-only (read:cameras) token. Adds a camera entity per printer through ODIN's relay."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update the ODIN API token",
+        "description": "ODIN at {url} refused the saved API token. Enter a new token with the read:printers and read:jobs scopes.",
+        "data": {"api_key": "API token"}
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach ODIN at that URL.",
+      "invalid_auth": "ODIN refused this API token.",
+      "missing_scopes": "The token is valid but lacks the read:printers and read:jobs scopes.",
+      "unsupported": "This ODIN version does not provide the Home Assistant status endpoint. Update ODIN."
+    },
+    "abort": {
+      "already_configured": "This ODIN server is already configured.",
+      "reauth_successful": "The API token was updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ODIN options",
+        "data": {
+          "scan_interval": "Poll interval",
+          "camera_token": "Camera token (leave empty to remove cameras)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "printing": "Printing",
+          "paused": "Paused",
+          "error": "Error",
+          "offline": "Offline",
+          "idle": "Idle",
+          "unknown": "Unknown"
+        }
+      },
+      "progress": {"name": "Progress"},
+      "eta": {"name": "Finish time"},
+      "remaining_time": {"name": "Time remaining"},
+      "job_name": {"name": "Current job"},
+      "current_layer": {"name": "Current layer"},
+      "total_layers": {"name": "Total layers"},
+      "active_errors": {"name": "Active errors"},
+      "fleet_printing": {"name": "Printers printing"},
+      "fleet_paused": {"name": "Printers paused"},
+      "fleet_error": {"name": "Printers in error"},
+      "fleet_offline": {"name": "Printers offline"},
+      "queue_length": {"name": "Queue length"}
+    },
+    "binary_sensor": {
+      "online": {"name": "Online"},
+      "problem": {"name": "Needs attention"}
+    },
+    "event": {
+      "last_error": {
+        "name": "Error",
+        "state_attributes": {
+          "event_type": {"state": {"error": "Error"}}
+        }
+      }
+    },
+    "camera": {
+      "camera": {"name": "Camera"}
+    }
+  }
+}
