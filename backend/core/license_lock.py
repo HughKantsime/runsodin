@@ -331,7 +331,8 @@ def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recove
     elif resolved != old:
         resolved['change_reason'] = 'automatic_reconciliation'
     _prune_admissions(db)
-    resolved['exempt_attempts'] = _exemptions(db, old if valid else None, resolved, entitlement)
+    resolved['exempt_attempts'] = _exemptions(db, old if valid else None, resolved, entitlement,
+                                              reconstructed=not valid and bool(revision))
     if resolved != old or not valid:
         resolved['revision'] = _next_revision(db, revision)
         resolved['transition_id'] = str(uuid4())
@@ -385,20 +386,27 @@ def _db_now(db):
 
 
 def _running_rows(db, printer_id):
-    return db.execute(text("SELECT id,economic_birth_nonce,started_at,observed_received_at FROM print_jobs "
+    return db.execute(text("SELECT id,economic_birth_nonce,started_at FROM print_jobs "
                            "WHERE printer_id=:p AND status='running' ORDER BY started_at DESC,id DESC"),
                       {'p': printer_id}).mappings().all()
 
 
-def _fresh(db, printer_id, row, now):
-    """Fresh printing/paused telemetry for this row (the power-fence rule, DB clock)."""
+def _row(db, print_job_id):
+    return db.execute(text('SELECT id,economic_birth_nonce,started_at,status,ended_at FROM print_jobs WHERE id=:id'),
+                      {'id': print_job_id}).mappings().first()
+
+
+def _fresh(db, printer_id, now):
+    """Fresh printing/paused telemetry from the printer itself (DB clock).
+
+    print_jobs.observed_received_at is written once at the start, so it is not a
+    heartbeat; printers.last_seen is. Attempt matching is by the record's row being
+    the printer's only running row (monitors close superseded rows)."""
     printer = db.execute(text('SELECT gcode_state,last_seen FROM printers WHERE id=:p'), {'p': printer_id}).first()
-    if not printer or not printer[1] or not row['observed_received_at']:
+    if not printer or not printer[1]:
         return False
-    state = str(printer[0] or '').strip().upper()
-    return (state in LIVE_STATES
-            and 0 <= (now - _utc(printer[1])).total_seconds() <= FRESH_SECONDS
-            and 0 <= (now - _utc(row['observed_received_at'])).total_seconds() <= FRESH_SECONDS)
+    return (str(printer[0] or '').strip().upper() in LIVE_STATES
+            and 0 <= (now - _utc(printer[1])).total_seconds() <= FRESH_SECONDS)
 
 
 def _live_admission(db, printer_id):
@@ -418,85 +426,125 @@ def _live_admission(db, printer_id):
     return _attempt_key(claim[0]), entry.get('job_id'), bound
 
 
+def _receipt_binding(db, printer_id, claim_key):
+    """The row a retained receipt bound for this admission, even after its claim is gone."""
+    for token, bound in db.execute(text('SELECT claim_token,observed_print_job_id FROM dispatch_attempt_receipts '
+                                        'WHERE printer_id=:p ORDER BY created_at DESC LIMIT 50'), {'p': printer_id}):
+        if _attempt_key(token) == claim_key:
+            return bound
+    return None
+
+
 def _observed(row, cutoff, captured):
     return dict(kind='observed', print_job_id=row['id'], nonce=row['economic_birth_nonce'],
                 started_at=_utc(row['started_at']).isoformat(), captured_at=captured, cutoff=cutoff)
 
 
+def _pending(candidates, cutoff, captured, until):
+    return dict(kind='pending', candidates=[{'id': r['id'], 'nonce': r['economic_birth_nonce']} for r in candidates],
+                captured_at=captured, cutoff=cutoff, until=until)
+
+
+def _window(start):
+    from datetime import timedelta
+    return (_utc(start) + timedelta(seconds=PENDING_SECONDS)).isoformat()
+
+
 def _capture(db, printer_id, cutoff, now, captured):
     admission = _live_admission(db, printer_id)
-    rows = _running_rows(db, printer_id)
+    running = _running_rows(db, printer_id)
     if admission is not None:
         claim_key, job_id, bound = admission
-        row = next((r for r in rows if r['id'] == bound), None) if bound is not None else None
+        row = next((r for r in running if r['id'] == bound), None) if bound is not None else None
         if row is not None:
             return _observed(row, cutoff, captured)
         return dict(kind='admitted', claim_key=claim_key, job_id=job_id, captured_at=captured, cutoff=cutoff)
     cut = _utc(cutoff)
-    rows = [r for r in rows if _utc(r['started_at']) <= cut]  # a print started after cutoff gets nothing
-    if not rows:
+    eligible = [r for r in running if _utc(r['started_at']) <= cut]  # a print started after cutoff gets nothing
+    if not eligible:
         return None
-    if len(rows) == 1 and _fresh(db, printer_id, rows[0], now):
-        return _observed(rows[0], cutoff, captured)
-    until = (cut + __import__('datetime').timedelta(seconds=PENDING_SECONDS)).isoformat()
-    return dict(kind='pending', print_job_id=rows[0]['id'] if len(rows) == 1 else None,
-                captured_at=captured, cutoff=cutoff, until=until)
+    if len(running) == 1 and _fresh(db, printer_id, now):
+        return _observed(running[0], cutoff, captured)
+    return _pending(eligible, cutoff, captured, _window(cutoff))
+
+
+def _uncertain_closure(row):
+    # Reconnect bookkeeping closes stray rows as cancelled with no end time; that is
+    # not proof this physical attempt ended.
+    return row is not None and row['status'] == 'cancelled' and row['ended_at'] is None
 
 
 def _refresh(db, printer_id, record, now):
     """Resolve or retire one record; returns the record to keep, or None."""
     kind = record.get('kind')
-    rows = _running_rows(db, printer_id)
+    running = _running_rows(db, printer_id)
     if kind == 'admitted':
-        admission = _live_admission(db, printer_id)
-        if admission is None or admission[0] != record.get('claim_key'):
-            return None  # claim released or retired without a bound running attempt
-        if admission[2] is None:
-            return record  # still in flight: the start has not been observed yet
-        bound_row = next((r for r in rows if r['id'] == admission[2]), None)
-        return _observed(bound_row, record['cutoff'], record['captured_at']) if bound_row is not None else None
+        live = _live_admission(db, printer_id)
+        bound = (live[2] if live is not None and live[0] == record.get('claim_key')
+                 else _receipt_binding(db, printer_id, record.get('claim_key')))
+        if bound is None:
+            return record if live is not None and live[0] == record.get('claim_key') else None
+        row = _row(db, bound)
+        if row is not None and row['status'] == 'running':
+            return _observed(row, record['cutoff'], record['captured_at'])
+        if _uncertain_closure(row):
+            return _pending([], record['cutoff'], record['captured_at'], _window(now))
+        return None  # the dispatched attempt ended (or was never started)
     if kind == 'pending':
-        if (record.get('print_job_id') is not None and len(rows) == 1 and rows[0]['id'] == record['print_job_id']
-                and _utc(rows[0]['started_at']) <= _utc(record['cutoff']) and _fresh(db, printer_id, rows[0], now)):
-            return _observed(rows[0], record['cutoff'], record['captured_at'])
-        if record.get('print_job_id') is not None and not any(r['id'] == record['print_job_id'] for r in rows):
-            return None  # the uncertain attempt ended
-        return record if rows else None
+        live = [r for r in running
+                if any(c.get('id') == r['id'] and c.get('nonce') == r['economic_birth_nonce']
+                       for c in record.get('candidates') or [])]
+        if len(live) == 1 and len(running) == 1 and _fresh(db, printer_id, now):
+            return _observed(live[0], record['cutoff'], record['captured_at'])
+        if live:
+            return dict(record, candidates=[{'id': r['id'], 'nonce': r['economic_birth_nonce']} for r in live])
+        open_window = _utc(now) < _utc(record.get('until'))
+        return dict(record, candidates=[]) if open_window else None
     if kind == 'observed':
-        mine = next((r for r in rows if r['id'] == record.get('print_job_id')), None)
-        if mine is None or mine['economic_birth_nonce'] != record.get('nonce'):
-            return None  # terminal, missing or replaced
-        if any(r['id'] != mine['id'] and _utc(r['started_at']) > _utc(mine['started_at']) for r in rows):
+        row = _row(db, record.get('print_job_id'))
+        if row is None or row['economic_birth_nonce'] != record.get('nonce'):
+            return None  # missing or replaced
+        if row['status'] != 'running':
+            return _pending([], record['cutoff'], record['captured_at'], _window(now)) if _uncertain_closure(row) else None
+        if any(r['id'] != row['id'] and _utc(r['started_at']) > _utc(row['started_at']) for r in running):
             return None  # a different, later attempt started
         return record
     return None
 
 
-def _exemptions(db, old, resolved, entitlement):
+def _exemptions(db, old, resolved, entitlement, *, reconstructed=False):
     """Capture on unlocked->locked transitions; resolve and retire the rest."""
     if not entitlement.get('enforce'):
         return {}
     members = set(resolved['printers'])
     previous = (old or {}).get('exempt_attempts') or {}
     was_enforcing = bool(old and old.get('entitlement', {}).get('enforce'))
-    previously_member = set(old['printers']) if was_enforcing else None
-    active = [r[0] for r in db.execute(text('SELECT id FROM printers WHERE is_active IS TRUE ORDER BY id'))]
+    if old is None:
+        # A first policy: nothing was locked before. A reconstructed one (lost or
+        # corrupt row) is no evidence of a transition, so it captures nothing.
+        previously_unlocked = set() if reconstructed else None
+    else:
+        previously_unlocked = set(old['printers']) if was_enforcing else None
+    printers = {r[0] for r in db.execute(text('SELECT id FROM printers'))}
     from license_manager import license_clock
+    from core.license_clock import instant
     clock_now = license_clock().sample()[0]
     deadline = entitlement.get('deadline')
-    from core.license_clock import instant
-    cutoff_at = instant(deadline) if deadline and clock_now >= instant(deadline) else clock_now
+    # The deadline is the cutoff only for the expiry transition itself; any later
+    # change (a selection edit after expiry) cuts off at the time it happens.
+    expiry_now = not was_enforcing and deadline and clock_now >= instant(deadline)
+    cutoff_at = instant(deadline) if expiry_now else clock_now
     cutoff, captured = _utc(cutoff_at).isoformat(), _utc(clock_now).isoformat()
     now = _db_now(db)
     result = {}
-    for printer_id in active:
+    for printer_id in sorted(printers | {int(k) for k in previous}):
         if printer_id in members:
-            continue
+            continue  # relicensed or still selected: no exemption needed
         key = str(printer_id)
         if key in previous:
             kept = _refresh(db, printer_id, dict(previous[key]), now)
-        elif previously_member is None or printer_id in previously_member:
-            kept = _capture(db, printer_id, cutoff, now, captured)  # newly locked now
+        elif previously_unlocked is None or printer_id in previously_unlocked:
+            kept = _capture(db, printer_id, cutoff, now, captured)  # newly locked (incl. just deactivated)
         else:
             kept = None  # already locked before: a later attempt never gains an exemption
         if kept is not None:
@@ -534,7 +582,7 @@ def attempt_allowed(db, policy, printer_id, cap):
         rows = _running_rows(db, printer_id)
         mine = next((r for r in rows if r['id'] == record.get('print_job_id')), None)
         return (mine is not None and mine['economic_birth_nonce'] == record.get('nonce') and len(rows) == 1
-                and _fresh(db, printer_id, mine, _db_now(db)))
+                and _fresh(db, printer_id, _db_now(db)))
     except Exception:
         return False
 

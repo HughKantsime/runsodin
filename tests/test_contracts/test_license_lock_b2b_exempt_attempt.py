@@ -82,7 +82,8 @@ def test_stale_telemetry_is_pending_and_grants_only_bounded_monitoring(policy_db
     _telemetry(policy_db, NINE, seen_ago=600)
     _lock_nine(policy_db)
     record = _record(policy_db, NINE)
-    assert record['kind'] == 'pending' and record['print_job_id'] == row['id']
+    assert record['kind'] == 'pending'
+    assert [dict(c) for c in record['candidates']] == [{'id': row['id'], 'nonce': row['economic_birth_nonce']}]
     snap = policy.snapshot(policy_db)
     assert policy.printer_allowed(snap, NINE, 'M')
     assert not policy.attempt_allowed(policy_db, snap, NINE, 'C')
@@ -122,7 +123,7 @@ def test_two_running_rows_are_pending_without_a_row(policy_db):
     _telemetry(policy_db, NINE)
     _lock_nine(policy_db)
     record = _record(policy_db, NINE)
-    assert record['kind'] == 'pending' and record['print_job_id'] is None
+    assert record['kind'] == 'pending' and len(record['candidates']) == 2
 
 
 def test_idle_printer_is_fully_locked(policy_db):
@@ -283,3 +284,122 @@ def test_snapshot_cache_is_bounded_while_an_exemption_exists(policy_db, monkeypa
     real = time.monotonic
     monkeypatch.setattr(policy.time, 'monotonic', lambda: real() + policy.UNVERIFIED_CACHE_SECONDS + 1)
     assert not policy._cache_current(cached, p, now)
+
+
+# --- Review round 1 ------------------------------------------------------------
+
+def test_long_running_print_is_fresh_from_printer_telemetry(policy_db):
+    """observed_received_at is written once at start; it is not the heartbeat."""
+    row = _attempt(policy_db, NINE, started_ago=4 * 3600, received_ago=4 * 3600)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    record = _record(policy_db, NINE)
+    assert record['kind'] == 'observed' and record['print_job_id'] == row['id']
+    assert policy.attempt_allowed(policy_db, policy.snapshot(policy_db), NINE, 'C')
+
+
+def test_reconstructed_policy_captures_nothing(policy_db):
+    _attempt(policy_db, TEN)
+    _telemetry(policy_db, TEN)
+    policy_db.execute(text("UPDATE system_config SET value='\"corrupt\"' WHERE key=:k"), {'k': policy.POLICY_KEY})
+    policy_db.commit()
+    p = _reconcile(policy_db)
+    assert p['warning'] == 'license_policy_reconstructed'
+    assert str(TEN) not in p['exempt_attempts']
+
+
+def test_first_policy_captures_running_prints(policy_db):
+    """No policy row ever existed: nothing was locked before, so running prints are kept."""
+    row = _attempt(policy_db, TEN)
+    _telemetry(policy_db, TEN)
+    old = None
+    resolved = {'printers': [NINE]}
+    entitlement = dict(policy._read(policy_db, policy.POLICY_KEY)['entitlement'])
+    result = policy._exemptions(policy_db, old, resolved, entitlement, reconstructed=False)
+    assert result[str(TEN)]['print_job_id'] == row['id']
+    assert policy._exemptions(policy_db, old, resolved, entitlement, reconstructed=True) == {}
+
+
+def test_selection_change_after_expiry_cuts_off_at_the_change(policy_db, monkeypatch):
+    """The expiry deadline is the cutoff only for the expiry transition itself."""
+    row = _attempt(policy_db, NINE, started_ago=60)  # started after the (past) deadline
+    _telemetry(policy_db, NINE)
+    stored = policy._read(policy_db, policy.POLICY_KEY)
+    past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    entitlement = dict(stored['entitlement'], deadline=past)
+    old = dict(stored, entitlement=dict(entitlement))  # already enforcing after the expiry
+    import core.license_clock as lc
+    monkeypatch.setattr(lc, 'instant', lambda v: datetime.fromisoformat(v))
+    result = policy._exemptions(policy_db, old, {'printers': [TEN]}, entitlement)
+    assert result[str(NINE)]['print_job_id'] == row['id']
+    # The expiry transition itself (not enforcing before) cuts off at the deadline.
+    fresh_old = dict(stored, entitlement=dict(entitlement, enforce=False))
+    assert str(NINE) not in policy._exemptions(policy_db, fresh_old, {'printers': [TEN]}, entitlement)
+
+
+def test_pending_candidate_with_a_different_nonce_is_not_promoted(policy_db):
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    record = {'kind': 'pending', 'candidates': [{'id': row['id'], 'nonce': 'not-this-attempt'}],
+              'captured_at': 'x', 'cutoff': datetime.now(timezone.utc).isoformat(),
+              'until': (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}
+    kept = policy._refresh(policy_db, NINE, record, policy._db_now(policy_db))
+    assert kept['kind'] == 'pending' and kept['candidates'] == []
+
+
+def test_ambiguous_pending_resolves_when_one_candidate_remains(policy_db):
+    first = _attempt(policy_db, NINE, started_ago=900)
+    second = _attempt(policy_db, NINE, started_ago=600)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    assert len(_record(policy_db, NINE)['candidates']) == 2
+    policy_db.execute(text("UPDATE print_jobs SET status='completed', ended_at=:t WHERE id=:id"),
+                      {'t': _utcnow(), 'id': first['id']})
+    policy_db.commit()
+    _reconcile(policy_db)
+    record = _record(policy_db, NINE)
+    assert record['kind'] == 'observed' and record['print_job_id'] == second['id']
+
+
+def test_bookkeeping_cancel_is_not_terminal_proof(policy_db):
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    policy_db.execute(text("UPDATE print_jobs SET status='cancelled', ended_at=NULL, error_code='CLOSED_UNKNOWN' "
+                           "WHERE id=:id"), {'id': row['id']})
+    policy_db.commit()
+    _reconcile(policy_db)
+    record = _record(policy_db, NINE)
+    assert record['kind'] == 'pending' and list(record['candidates']) == []
+    snap = policy.snapshot(policy_db)
+    assert policy.printer_allowed(snap, NINE, 'M')  # bounded identity reconciliation only
+    assert not policy.attempt_allowed(policy_db, snap, NINE, 'C')
+
+
+def test_deactivating_a_printing_member_captures_its_print(policy_db):
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    policy_db.execute(text('UPDATE printers SET is_active=FALSE WHERE id=:p'), {'p': NINE})
+    policy_db.commit()
+    p = _reconcile(policy_db)
+    assert p['exempt_attempts'][str(NINE)]['print_job_id'] == row['id']
+    policy_db.execute(text('UPDATE printers SET is_active=TRUE WHERE id=:p'), {'p': NINE})
+    policy_db.commit()
+    p = _reconcile(policy_db)
+    # Reactivated while 10 holds the seat: the same attempt keeps its record.
+    assert NINE in p['printers'] or p['exempt_attempts'][str(NINE)]['print_job_id'] == row['id']
+
+
+def test_admitted_resolves_through_retained_receipt_after_claim_is_gone(policy_db):
+    token = 'v' * 32
+    _claim_and_admit(policy_db, NINE, token)
+    _lock_nine(policy_db)
+    assert _record(policy_db, NINE)['kind'] == 'admitted'
+    row = _attempt(policy_db, NINE, started_ago=5)
+    _telemetry(policy_db, NINE)
+    _bind_receipt(policy_db, NINE, token, row['id'])
+    policy_db.execute(text('DELETE FROM printer_dispatch_claims'))  # claim retired; receipt kept
+    policy_db.commit()
+    _reconcile(policy_db)
+    record = _record(policy_db, NINE)
+    assert record['kind'] == 'observed' and record['print_job_id'] == row['id']
