@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.52] - 2026-11-09
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: Dispatch refusals now say why printer readiness could not be confirmed, and printer connection tests and AMS sync no longer leave Bambu connections open after an error. -->
 
 ### Fixed
