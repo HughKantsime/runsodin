@@ -20,9 +20,13 @@ def signed_tier(tier):
 
     names = ('ODIN_LICENSE_FILE', 'ODIN_REQUIRE_LICENSE_BINDING', 'ODIN_LICENSE_READ_ONLY')
     environment = {name: os.environ.get(name) for name in names}
+    # Every piece of license_manager's cache, including the bounded-reload state, so the
+    # owned process returns exactly to its previous license (same cached object).
     attributes = {name: getattr(lm, name) for name in
                   ('ODIN_PUBLIC_KEY', 'LICENSE_DIR', '_cached_license', '_cached_mtime',
-                   '_cached_identity', '_clock', '_clock_directory')}
+                   '_cached_identity', '_clock', '_clock_directory', '_cache_checked',
+                   '_cache_verified', '_cache_retry', '_cache_failures', '_cache_file_identity')
+                  if hasattr(lm, name)}
     with tempfile.TemporaryDirectory(prefix='odin-validation-license-') as directory:
         try:
             for name in names:

@@ -496,7 +496,12 @@ def resolve_current_user_sync(
     return None
 
 
-async def _resolve_current_user(request, token, db):
+async def _resolve_current_user(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    # Same signature as before B1, so it still works directly as a FastAPI dependency.
     if hasattr(request.state, 'resolved_license_principal'):
         principal = request.state.resolved_license_principal
         from core.audit_actor import clear_actor, bind_verified_actor
