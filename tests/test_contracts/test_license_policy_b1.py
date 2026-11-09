@@ -255,10 +255,11 @@ def auth_client(policy_db, monkeypatch):
     from core.dependencies import get_current_user
     from modules.organizations import routes_auth, routes_mfa_enrollment, routes_oidc
     from modules.push.routes import biometric
-    from modules.system import routes_health
+    from modules.system import routes_health, routes_license_selection
     routes_auth.limiter._storage.reset()
     app = FastAPI()
-    for router in (routes_auth.router, routes_mfa_enrollment.router, routes_oidc.router, biometric.router, routes_health.router):
+    for router in (routes_auth.router, routes_mfa_enrollment.router, routes_oidc.router, biometric.router, routes_health.router,
+                   routes_license_selection.router):
         app.include_router(router, prefix='/api/v1')
         app.include_router(router, prefix='/api')
     @app.get('/api/v1/private')

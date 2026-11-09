@@ -274,7 +274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 294,
+      "line": 336,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
       "reason": "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
@@ -306,15 +306,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 71,
-      "path": "backend/core/credential_write_guard.py",
-      "pattern": "qmark-parameter",
-      "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
-      "source": "r\"\\b(INSERT\\s+(?:OR\\s+\\w+\\s+)?INTO|REPLACE\\s+INTO|UPDATE(?:\\s+OR\\s+\\w+)?|DELETE\\s+FROM|MERGE\\s+INTO)\\s+\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 166,
+      "line": 94,
       "path": "backend/core/credential_write_guard.py",
       "pattern": "qmark-parameter",
       "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
@@ -570,7 +562,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 99,
+      "line": 123,
       "path": "backend/core/license_clock.py",
       "pattern": "PRAGMA",
       "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
@@ -578,7 +570,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 104,
+      "line": 128,
       "path": "backend/core/license_clock.py",
       "pattern": "PRAGMA",
       "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
@@ -586,11 +578,43 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 121,
+      "line": 145,
       "path": "backend/core/license_clock.py",
       "pattern": "PRAGMA",
       "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
       "source": "connection.exec_driver_sql(f\"PRAGMA busy_timeout={int(timeout)}\")"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 954,
+      "path": "backend/core/license_lock.py",
+      "pattern": "PRAGMA",
+      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "source": "restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 955,
+      "path": "backend/core/license_lock.py",
+      "pattern": "PRAGMA",
+      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "source": "raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 964,
+      "path": "backend/core/license_lock.py",
+      "pattern": "PRAGMA",
+      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "source": "raw.execute(f'PRAGMA busy_timeout={int(restore)}')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 1018,
+      "path": "backend/core/license_lock.py",
+      "pattern": "qmark-parameter",
+      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "source": "row = executor.cursor().execute(statement.replace(':key', '?'), (POLICY_KEY,)).fetchone()"
     },
     {
       "classification": "dialect-neutral",
@@ -1295,6 +1319,14 @@
       "pattern": "PRAGMA",
       "reason": "SQLite catalog, shadowing and foreign-key checks are dialect guarded; PostgreSQL uses native schema and exact canonical guard validation.",
       "source": "if driver.execute('PRAGMA foreign_keys').fetchone()[0]!=1:raise MigrationError('Purchase foreign keys required')"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 7,
+      "path": "backend/core/sql_write_shape.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQL write-shape regular expressions (INSERT OR ..., quoted identifiers) inspect statement text for runtime guards; this helper performs no database operations.",
+      "source": "r\"\\b(INSERT\\s+(?:OR\\s+\\w+\\s+)?INTO|REPLACE\\s+INTO|UPDATE(?:\\s+OR\\s+\\w+)?|DELETE\\s+FROM|MERGE\\s+INTO)\\s+\""
     },
     {
       "classification": "dialect-neutral",
@@ -2666,6 +2698,22 @@
     },
     {
       "classification": "sqlite-provider-only",
+      "line": 11,
+      "path": "backend/modules/system/backup_api_export.py",
+      "pattern": "sqlite3",
+      "reason": "SQLite backup export scrubs license keys from a private file copy (secure_delete PRAGMA, DELETE, VACUUM) before download; PostgreSQL exports go through pg_dump/pg_restore.",
+      "source": "import sqlite3"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 50,
+      "path": "backend/modules/system/backup_api_export.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite backup export scrubs license keys from a private file copy (secure_delete PRAGMA, DELETE, VACUUM) before download; PostgreSQL exports go through pg_dump/pg_restore.",
+      "source": "db.execute('PRAGMA secure_delete=ON')"
+    },
+    {
+      "classification": "sqlite-provider-only",
       "line": 16,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "sqlite3",
@@ -2770,7 +2818,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 301,
+      "line": 302,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",

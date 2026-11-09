@@ -2,6 +2,7 @@
 
 Sub-router responsibilities:
   routes_health.py      — Health check, license management
+  routes_license_selection.py — License selection (B1 control plane)
   routes_config.py      — Config (Spoolman URL/blackout), Spoolman test, IP allowlist, retention policy, quiet hours, MQTT republish, metrics, HMS codes
   routes_setup.py       — Setup wizard (status, admin, test-printer, printer, complete, network)
   routes_backup.py      — Backup/restore (create, list, download, delete, restore)
@@ -34,6 +35,8 @@ from modules.system import (  # noqa: E402
 from modules.system import routes_audit_integrity
 router.include_router(routes_audit_integrity.router)
 router.include_router(routes_health.router)
+from modules.system import routes_license_selection  # noqa: E402
+router.include_router(routes_license_selection.router)
 router.include_router(routes_config.router)
 router.include_router(routes_setup.router)
 router.include_router(routes_backup.router)
