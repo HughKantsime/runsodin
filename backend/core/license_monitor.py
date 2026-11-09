@@ -27,6 +27,7 @@ UNREADABLE_EXIT_SECONDS = 5
 POLICY_READ_SECONDS = 1.5  # a read still running after this counts as unreadable
 POLICY_BUSY_TIMEOUT_MS = 1000
 POLICY_ABANDON_SECONDS = 10  # a read hung this long is left behind and a new one starts
+INVENTORY_READ_SECONDS = 3  # the retirement thread's inventory read: same bounded engine, own deadline
 
 
 def connection_fingerprint(*values):
@@ -126,10 +127,14 @@ class Retirement:
 
     def __init__(self, engine, label, log=None, exit=None, inventory=None):
         self.license = MonitorLicense(engine)
-        # Optional inventory source: () -> {printer_id: fingerprint}. When given, the
-        # removal/reconfiguration check also runs on its own thread, so a daemon whose
-        # main loop connects synchronously (Bambu) cannot delay it.
+        # Optional inventory source: (bind) -> {printer_id: fingerprint}, read on the
+        # license view's bounded engine (own connection, short busy/statement timeouts,
+        # INVENTORY_READ_SECONDS deadline). When given, the removal/reconfiguration check
+        # also runs on its own thread, so a daemon whose main loop connects synchronously
+        # (Bambu) or a busy shared pool cannot delay it.
         self._inventory = inventory
+        self._inventory_reader = None
+        self._inventory_started = 0.0
         self.label, self.log = label, log
         self._exit = exit or os._exit
         self._sessions = {}
@@ -189,10 +194,12 @@ class Retirement:
             self.retire(f'printer(s) {locked} no longer licensed for monitoring')
         return policy
 
-    def check_inventory(self, inventory):
+    def check_inventory(self, inventory, sessions=None):
         """inventory: {printer_id: fingerprint}. A session whose printer was removed,
-        deactivated or reconfigured ends the process."""
-        sessions = self.sessions()
+        deactivated or reconfigured ends the process. sessions: the sessions to judge,
+        captured before the inventory was read (a session registered after that read
+        is not in it and is left to the next pass)."""
+        sessions = self.sessions() if sessions is None else sessions
         gone = sorted(pid for pid in sessions if pid not in inventory)
         changed = sorted(pid for pid, fp in sessions.items() if pid in inventory and inventory[pid] != fp)
         if gone or changed:
@@ -219,12 +226,30 @@ class Retirement:
             else:
                 stop_event.wait(delay)
 
+    def _read_inventory(self):
+        """{printer_id: fingerprint} within INVENTORY_READ_SECONDS, else None (one read at a time)."""
+        if (self._inventory_reader is not None and self._inventory_reader.is_alive()
+                and time.monotonic() - self._inventory_started < POLICY_ABANDON_SECONDS):
+            return None
+        result = {}
+
+        def read():
+            try:
+                result['inventory'] = self._inventory(self.license._policy_engine())
+            except Exception:
+                pass
+        reader = threading.Thread(target=read, name=f'{self.label}-inventory-read', daemon=True)
+        self._inventory_reader, self._inventory_started = reader, time.monotonic()
+        reader.start()
+        reader.join(INVENTORY_READ_SECONDS)
+        return None if reader.is_alive() else result.get('inventory')
+
     def _inventory_run(self, stop_event):
         while stop_event is None or not stop_event.is_set():
-            try:
-                self.check_inventory(self._inventory())
-            except Exception:
-                pass  # an unreadable inventory is not a retirement condition; retry next pass
+            sessions = self.sessions()  # before the read: never judge a session it can't contain
+            inventory = self._read_inventory()
+            if inventory is not None:  # unreadable or late: not a retirement condition; retry
+                self.check_inventory(inventory, sessions)
             if stop_event is None:
                 threading.Event().wait(INVENTORY_SECONDS)
             else:

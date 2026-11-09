@@ -182,6 +182,51 @@ def test_inventory_exits_for_removed_or_reconfigured_sessions_only(policy_db):
     assert exits == [75, 75]
 
 
+def test_inventory_read_uses_its_own_bounded_engine_and_deadline(policy_db, monkeypatch):
+    """A busy shared pool or a stalled query cannot hold up removal/reconfiguration retirement."""
+    from sqlalchemy.pool import NullPool
+    import threading as _threading
+    binds = []
+
+    def source(bind):
+        binds.append(bind)
+        return {}
+    exits = []
+    retirement = Retirement(policy_db.get_bind(), 'test', exit=exits.append, inventory=source)
+    assert retirement._read_inventory() == {}
+    assert binds and binds[0] is not policy_db.get_bind() and isinstance(binds[0].pool, NullPool)
+    hung = _threading.Event()
+
+    def stalled(bind):
+        hung.wait(30)  # a stalled query or a pool wait
+        return {}
+    retirement._inventory = stalled
+    started = time.monotonic()
+    assert retirement._read_inventory() is None
+    assert time.monotonic() - started <= license_monitor.INVENTORY_READ_SECONDS + 0.5
+    assert retirement._read_inventory() is None  # the stalled read is not stacked
+    hung.set()
+
+
+def test_inventory_never_judges_a_session_registered_after_its_read(policy_db):
+    exits = []
+    retirement = None
+
+    import threading as _threading
+    stop = _threading.Event()
+
+    def source(bind):
+        retirement.add(TEN, 'ten')  # registered while this (older) inventory was being read
+        stop.set()  # one pass of the inventory thread
+        return {NINE: 'nine'}
+    retirement = Retirement(policy_db.get_bind(), 'test', exit=exits.append, inventory=source)
+    retirement.add(NINE, 'nine')
+    retirement._inventory_run(stop)
+    assert exits == []  # 10 was not a session when the read began
+    retirement.check_inventory({NINE: 'nine'})  # a later read that still lacks 10 does retire it
+    assert exits == [75]
+
+
 def test_rollout_off_keeps_the_legacy_daemon_behaviour(monkeypatch):
     monkeypatch.delenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', raising=False)
     stop = threading.Event()

@@ -51,15 +51,15 @@ class MQTTMonitorDaemon:
         self.monitors: Dict[int, PrinterMonitor] = {}
         self._running = False
 
-    def load_printers(self):
-        """Load Bambu printers from database."""
+    def load_printers(self, bind=None):
+        """Load Bambu printers from database (bind: an engine; default the shared one)."""
         # Get encryption key
         key = os.environ.get('ENCRYPTION_KEY')
         if not key:
             log.error("ENCRYPTION_KEY not set")
             return []
 
-        with engine.connect() as conn:
+        with (bind or engine).connect() as conn:
             result = conn.execute(text('''
                 SELECT id, name, model, api_host, api_key
                 FROM printers
@@ -115,9 +115,9 @@ class MQTTMonitorDaemon:
 
         return printers
 
-    def load_moonraker_printers(self):
-        """Load Moonraker-based printers from database."""
-        with engine.connect() as conn:
+    def load_moonraker_printers(self, bind=None):
+        """Load Moonraker-based printers from database (bind: an engine; default the shared one)."""
+        with (bind or engine).connect() as conn:
             result = conn.execute(text("""
                 SELECT id, name, api_host
                 FROM printers
@@ -308,18 +308,19 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
 
-    def _licensed_inventory(self):
+    def _licensed_inventory(self, bind=None):
         """{printer_id: (fingerprint, kind, attr, row, factory)}; raises if any family fails to load."""
         from core.license_monitor import connection_fingerprint
         inventory = {}
         for kind, attr, load, keys, factory in self._families():
-            for p in load():
+            for p in load(bind=bind):
                 fingerprint = connection_fingerprint(kind, *(p.get(k) for k in keys))
                 inventory[p['id']] = (fingerprint, kind, attr, p, factory)
         return inventory
 
-    def _session_fingerprints(self):
-        return {pid: entry[0] for pid, entry in self._licensed_inventory().items()}
+    def _session_fingerprints(self, bind):
+        """Retirement's inventory source: read on its bounded engine (own connection, short timeouts)."""
+        return {pid: entry[0] for pid, entry in self._licensed_inventory(bind).items()}
 
     def _licensed_pass(self):
         """License fleet lock enabled (B2c): the inventory pass, every 10 s.
