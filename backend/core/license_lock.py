@@ -692,8 +692,15 @@ def _check_recovery_commit(conn):
 
 
 def _clear_membership(conn):
+    # Runs on every rollback, including the one an invalidated connection fires
+    # while it closes (the Postgres dispatch target lock does exactly that).
+    # Reading .info there raises; an invalidated connection has nothing to clear.
+    try:
+        info = conn.info
+    except Exception:
+        return
     for key in ('license_had_recovery', 'license_membership_write', 'license_hook'):
-        conn.info.pop(key, None)
+        info.pop(key, None)
 
 
 def _clear_membership_pool(dbapi_connection, connection_record):

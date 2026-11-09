@@ -1003,3 +1003,19 @@ def test_legacy_zero_seat_policy_keeps_recovery_access_when_frozen(policy_db, ti
     p = status(policy_db)
     assert p['entitlement']['recovery_exception'] is True
     assert policy.user_allowed(policy.snapshot(policy_db), recovery)
+
+
+def test_rollback_hook_tolerates_an_invalidated_connection():
+    """The Postgres dispatch target lock invalidates, then closes: the rollback
+    event then sees a connection whose .info raises. Releasing must not fail."""
+    class Gone:
+        @property
+        def info(self):
+            raise RuntimeError("connection invalidated")
+    policy._clear_membership(Gone())  # no exception
+    from sqlalchemy import create_engine
+    engine = create_engine('sqlite://')
+    connection = engine.connect()
+    connection.execute(text('SELECT 1'))
+    connection.invalidate()
+    connection.close()

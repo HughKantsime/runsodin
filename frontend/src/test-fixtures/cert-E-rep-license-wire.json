@@ -2,6 +2,8 @@
   "scope": "Real Ed25519-signed ephemeral licenses (features=[] -> tier defaults) via public /license; digest omitted",
   "bodies": {
     "community": {
+      "verification_state": "verified_current",
+      "time_confidence": "trusted",
       "valid": true,
       "tier": "community",
       "tier_name": "Community",
@@ -17,11 +19,14 @@
         "push_notifications"
       ],
       "managed_externally": false,
+      "device_bound": false,
       "binding_present": false,
       "binding_matches_current": false,
-      "device_bound": false
+      "fleet_lock_rollout_enabled": false
     },
     "pro": {
+      "verification_state": "verified_current",
+      "time_confidence": "trusted",
       "valid": true,
       "tier": "pro",
       "tier_name": "Pro",
@@ -53,9 +58,10 @@
         "white_label"
       ],
       "managed_externally": false,
+      "device_bound": false,
       "binding_present": false,
       "binding_matches_current": false,
-      "device_bound": false
+      "fleet_lock_rollout_enabled": false
     }
   }
 }
