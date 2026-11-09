@@ -184,3 +184,32 @@ classification: missing/null optional identity fields and tier-default caps and
 features retain their historical meaning. Absent `licensee` is also accepted.
 Stronger schema checks may withhold B1 evidence, but cannot revoke a legacy
 entitlement. Expired payloads retain Slice A's Community feature fallback.
+
+## B2c monitor retirement (fleet locking on)
+
+Each printer monitor daemon (Bambu, Moonraker, PrusaLink, Elegoo, Anycubic)
+starts sessions only for printers the license lets it monitor: selected printers,
+plus a newly locked printer while its exempt attempt grants monitoring. It never
+stops a session in-process. A dedicated thread reads a fresh policy every 2 s on
+its own bounded connection (1 s lock wait); if a printer with a session
+(connected, connecting or retrying) is no longer allowed, or the policy stays
+unreadable for more than 5 s while sessions exist, the daemon logs one line and
+exits with code 75. Every 10 s an inventory pass does the same for a session whose
+printer was removed, deactivated or had its connection settings (protocol, host,
+port, serial, credential) changed, and starts new or newly allowed printers in
+place. supervisord (`autorestart=true`, `startsecs=0`) restarts the daemon, which
+starts only allowed printers; with an unreadable policy it starts nothing and
+retries. Exiting closes every socket and ends every thread, whatever it holds.
+Other printers on the same daemon reconnect after a few seconds, as after any
+restart, and the Bambu command channel is unavailable meanwhile. Commands already
+sent before the exit can still complete. With fleet locking off the daemons keep
+their previous behaviour and never read the policy.
+
+The smart-plug cooldown auto-off timer lives in the monitor process, so a restart
+loses it. With fleet locking on, the API process runs a backstop every 60 s: for a
+plug with auto-off whose printer's latest print completed at least the cooldown
+plus 2 minutes ago (and at most 30 minutes after that), and whose stored plug
+state is not off, it runs the timer's own off path once per print (license
+completion check, safe telemetry, plug identity; Tasmota through the power fence,
+which never repeats a command for the same print). Final energy readings remain
+process-local and a restart mid-print still loses them.

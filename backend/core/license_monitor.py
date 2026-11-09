@@ -1,176 +1,278 @@
-"""License view for printer-monitor processes (B2c).
+"""License retirement for printer-monitor processes (B2c).
 
-Each monitor process computes, every cycle, which of its own candidate printers
-it may watch: members of the license selection, plus a newly locked printer
-whose one exempt attempt still grants monitoring (license_lock.printer_allowed
-'M'). Rollout off: candidates pass unchanged with no policy query.
+Rollout on (ODIN_LICENSE_FLEET_LOCK_ENABLED): a monitor process starts a session
+only for a printer the license lets it monitor (a member, or a newly locked
+printer whose exempt attempt still grants 'M'). It never stops a session
+in-process. When a printer that has a session (connected, connecting or
+retrying) loses that permission, or is removed, deactivated or reconfigured,
+the process logs one line and exits with code 75; supervisord (autorestart,
+startsecs=0) starts it again and it starts only the allowed printers. Exiting
+closes every socket and ends every thread, whatever locks or transports they
+hold, so the bound does not depend on any monitor's cooperation.
+
+Rollout off: the legacy daemon behaviour (start the monitors once, then wait),
+with no policy query.
 """
+import hashlib
+import os
+import threading
 import time
 
 from core import license_lock
 
+RETIRE_EXIT_CODE = 75
 LICENSE_PASS_SECONDS = 2
-TEARDOWN_SECONDS = 5
+INVENTORY_SECONDS = 10
+UNREADABLE_EXIT_SECONDS = 5
+POLICY_READ_SECONDS = 1.5  # a read still running after this counts as unreadable
+POLICY_BUSY_TIMEOUT_MS = 1000
+POLICY_ABANDON_SECONDS = 10  # a read hung this long is left behind and a new one starts
+
+
+def connection_fingerprint(*values):
+    """Digest of a printer's connection settings: protocol, host and port, serial,
+    credential. Never telemetry, discovered fields or the display name."""
+    return hashlib.sha256(repr(values).encode()).hexdigest()
 
 
 class MonitorLicense:
-    """One per monitor process; not shared across threads."""
+    """Bounded, fresh policy reads for one monitor process.
+
+    Reads use their own connection on a dedicated engine (no pool wait; SQLite
+    busy timeout 1 s, PostgreSQL statement timeout 1 s) and run on a helper
+    thread, so a caller waits at most POLICY_READ_SECONDS. One read at a time:
+    while an earlier read is still running, the policy counts as unreadable (a read
+    hung for POLICY_ABANDON_SECONDS is abandoned, so a stuck call cannot block
+    every later read)."""
 
     def __init__(self, engine):
         self._engine = engine
-        self._seen = None
+        self._bounded = None
+        self._bounded_url = None
         self._exempt = False
+        self._reader = None
+        self._reader_started = 0.0
+        self._guard = threading.Lock()
+
+    def _policy_engine(self):
+        from sqlalchemy import event
+        from sqlalchemy.pool import NullPool
+        from core.database_config import create_database_engine
+        from core.db import concrete_engine
+        url = concrete_engine(self._engine).url
+        if self._bounded is None or self._bounded_url != url:
+            bounded = create_database_engine(url, role=os.getenv('ODIN_DB_ROLE', 'api'), poolclass=NullPool,
+                                             sqlite_busy_timeout_ms=POLICY_BUSY_TIMEOUT_MS)
+            if bounded.dialect.name == 'postgresql':
+                @event.listens_for(bounded, 'connect')
+                def _bound_statements(dbapi_connection, _record):
+                    cursor = dbapi_connection.cursor()
+                    try:
+                        cursor.execute(f'SET statement_timeout = {POLICY_BUSY_TIMEOUT_MS}')
+                    finally:
+                        cursor.close()
+                    dbapi_connection.commit()
+            self._bounded, self._bounded_url = bounded, url
+        return self._bounded
+
+    def _read(self):
+        from sqlalchemy.orm import Session
+        with Session(self._policy_engine()) as db:
+            # While an exemption exists, reconcile on every read (no process cache), so
+            # an attempt that ended stops granting monitoring within one pass.
+            return license_lock.snapshot(db, fresh=self._exempt)
+
+    def policy(self, timeout=POLICY_READ_SECONDS):
+        """A fresh snapshot, or None when it could not be read within timeout."""
+        result = {}
+
+        def read():
+            try:
+                result['policy'] = self._read()
+            except Exception:
+                pass
+        with self._guard:
+            if (self._reader is not None and self._reader.is_alive()
+                    and time.monotonic() - self._reader_started < POLICY_ABANDON_SECONDS):
+                return None
+            reader = threading.Thread(target=read, name='license-policy-read', daemon=True)
+            self._reader, self._reader_started = reader, time.monotonic()
+        reader.start()
+        reader.join(timeout)
+        policy = None if reader.is_alive() else result.get('policy')
+        if policy is not None:
+            self._exempt = bool(policy.exempt_attempts)
+        return policy
 
     def wanted(self, candidates):
-        """Subset of candidate printer ids this process may watch, or None if unknown.
+        """Subset of candidate printer ids this process may monitor; None if unreadable.
 
-        None means the policy could not be read: keep the current set rather than
-        tearing everything down on a transient database error."""
+        Rollout off: the candidates unchanged, with no policy query."""
         candidates = set(candidates)
         if not license_lock.enabled():
             return candidates
-        from sqlalchemy.orm import Session
-        from core.db import concrete_engine
-        try:
-            with Session(concrete_engine(self._engine)) as db:
-                # While an exemption exists, reconcile every pass (no 30 s cache) so a
-                # finished or replaced attempt stops being monitored within the bound.
-                policy = license_lock.snapshot(db, fresh=self._exempt)
-            self._seen = self._marker(policy)
-            self._exempt = bool(policy.exempt_attempts)
-            return {pid for pid in candidates if license_lock.printer_allowed(policy, pid, 'M')}
-        except Exception:
+        policy = self.policy()
+        if policy is None:
             return None
+        return {pid for pid in candidates if license_lock.printer_allowed(policy, pid, 'M')}
 
-    def changed(self):
-        """Cheap probe for the fast pass: did the stored policy (or a deadline) move?
 
-        A plain read with no lock and no reconcile; wanted() does the real check."""
-        if not license_lock.enabled():
-            return False
-        from core.db import concrete_engine
+class Retirement:
+    """Rollout on: the sessions of one monitor process and the checks that end it.
+
+    A session is registered before its first connect and stays registered for
+    the life of the process (connected, connecting or retrying). The license pass
+    runs on its own thread, independent of connect and reconnect work."""
+
+    def __init__(self, engine, label, log=None, exit=None):
+        self.license = MonitorLicense(engine)
+        self.label, self.log = label, log
+        self._exit = exit or os._exit
+        self._sessions = {}
+        self._lock = threading.Lock()
+        self._latest = None
+        self._unreadable_since = None
+        self._first_pass = threading.Event()
+        self.thread = None
+
+    def add(self, printer_id, fingerprint):
+        with self._lock:
+            self._sessions[printer_id] = fingerprint
+
+    def has(self, printer_id):
+        with self._lock:
+            return printer_id in self._sessions
+
+    def sessions(self):
+        with self._lock:
+            return dict(self._sessions)
+
+    def retire(self, reason):
+        """Log one line and end the process; supervisord restarts it with the allowed set.
+
+        os._exit skips signal handlers, atexit and thread joins that could block.
+        The line is written straight to stderr (no logging lock)."""
+        line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')} [WARNING] {self.label} monitor: {reason}; "
+                f"exiting with code {RETIRE_EXIT_CODE} so it restarts with the allowed printers\n")
         try:
-            with concrete_engine(self._engine).connect() as conn:
-                stored = license_lock.stored_snapshot(conn)
-        except Exception:
-            return False
-        if stored is None:
-            return self._seen is not None
-        if self._marker(stored) != self._seen:
-            return True
-        if stored.exempt_attempts or self._exempt:
-            return True  # exemptions resolve, expire or retire between revisions
-        deadline = stored.deadline
-        if deadline:
-            try:
-                from license_manager import license_clock
-                from core.license_clock import instant
-                return license_clock().sample()[0] >= instant(deadline) and not self._deadline_applied(stored)
-            except Exception:
-                return False
-        return False
-
-    @staticmethod
-    def _marker(policy):
-        return (policy.revision, tuple(sorted(policy.printers)),
-                tuple(sorted((k, v.get('kind')) for k, v in (policy.exempt_attempts or {}).items())))
-
-    @staticmethod
-    def _deadline_applied(stored):
-        return stored.entitlement.get('state') == 'verified_expired'
-
-
-def drain(stoppers, joiners, seconds=TEARDOWN_SECONDS):
-    """Stop and join every removal in parallel against one shared deadline.
-
-    stoppers[i]() and then joiners[i](remaining) run on their own daemon worker,
-    so a stop that blocks (a transport disconnect, a held lock) never delays the
-    others. Returns the indexes of removals not confirmed stopped in time; their
-    workers are abandoned. Callers must not start a replacement for those."""
-    import threading
-    deadline = time.monotonic() + seconds
-    done = [False] * len(stoppers)
-
-    def work(i):
-        try:
-            stoppers[i]()
+            os.write(2, line.encode())
         except Exception:
             pass
+        self._exit(RETIRE_EXIT_CODE)
+
+    def license_pass(self):
+        started = time.monotonic()
         try:
-            done[i] = joiners[i](max(0.0, deadline - time.monotonic())) is not False
+            policy = self.license.policy()
         except Exception:
-            done[i] = False
+            policy = None
+        sessions = self.sessions()
+        if policy is None:
+            self._latest = None
+            if not sessions:
+                self._unreadable_since = None  # fail closed: start nothing, retry; never exit for it
+                return None
+            if self._unreadable_since is None:
+                self._unreadable_since = started
+            elif time.monotonic() - self._unreadable_since > UNREADABLE_EXIT_SECONDS:
+                self.retire(f'license policy unreadable for more than {UNREADABLE_EXIT_SECONDS} s '
+                            f'with {len(sessions)} printer session(s)')
+            return None
+        self._unreadable_since = None
+        self._latest = (policy, started)
+        locked = sorted(pid for pid in sessions if not license_lock.printer_allowed(policy, pid, 'M'))
+        if locked:
+            self.retire(f'printer(s) {locked} no longer licensed for monitoring')
+        return policy
 
-    workers = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(len(stoppers))]
-    for worker in workers:
-        worker.start()
-    for worker in workers:
-        worker.join(max(0.0, deadline - time.monotonic()))
-    return [i for i, ok in enumerate(done) if not ok]
+    def check_inventory(self, inventory):
+        """inventory: {printer_id: fingerprint}. A session whose printer was removed,
+        deactivated or reconfigured ends the process."""
+        sessions = self.sessions()
+        gone = sorted(pid for pid in sessions if pid not in inventory)
+        changed = sorted(pid for pid, fp in sessions.items() if pid in inventory and inventory[pid] != fp)
+        if gone or changed:
+            self.retire(f'printer(s) {gone} removed or deactivated, {changed} reconfigured')
+
+    def current(self):
+        """The latest policy if it was read within the last two passes, else None."""
+        self._first_pass.wait(LICENSE_PASS_SECONDS + POLICY_READ_SECONDS)
+        latest = self._latest
+        if latest is None or time.monotonic() - latest[1] > 2 * LICENSE_PASS_SECONDS + POLICY_READ_SECONDS:
+            return None
+        return latest[0]
+
+    def _run(self, stop_event):
+        while stop_event is None or not stop_event.is_set():
+            started = time.monotonic()
+            try:
+                self.license_pass()
+            finally:
+                self._first_pass.set()
+            delay = max(0.0, LICENSE_PASS_SECONDS - (time.monotonic() - started))
+            if stop_event is None:
+                threading.Event().wait(delay)
+            else:
+                stop_event.wait(delay)
+
+    def start(self, stop_event=None):
+        self.thread = threading.Thread(target=self._run, args=(stop_event,),
+                                       name=f'{self.label}-license-retirement', daemon=True)
+        self.thread.start()
+        return self
 
 
-INVENTORY_SECONDS = 10
+def _stop_all(threads, seconds=5):
+    """Shutdown (SIGTERM) only: ask every session to stop without waiting on a hung one."""
+    threads = list(threads)
+
+    def stop():
+        for thread in threads:
+            try:
+                thread.stop()
+            except Exception:
+                pass
+    worker = threading.Thread(target=stop, daemon=True)
+    worker.start()
+    worker.join(seconds)
 
 
-def _joiner(thread):
-    def join(timeout):
-        thread.join(timeout=timeout)
-        return not thread.is_alive()
-    return join
+def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None, exit=None):
+    """Rollout on: the shared daemon loop (Moonraker, PrusaLink, Elegoo, Anycubic).
 
-
-def reconcile_threads(threads, wanted, factory, label, log=None, lingering=None):
-    """threads: {printer_id: (identity, thread)}. Stop removed, changed or dead
-    threads against one shared deadline, then start additions with factory(pid, *identity).
-
-    lingering: {printer_id: thread} still stopping from an earlier pass; no
-    replacement starts for a printer until its old thread has really ended."""
-    lingering = {} if lingering is None else lingering
-    removals = [(pid, thread) for pid, (identity, thread) in threads.items()
-                if wanted.get(pid) != identity or not thread.is_alive()]
-    late = drain([thread.stop for _, thread in removals], [_joiner(thread) for _, thread in removals])
-    if late and log is not None:
-        log.warning('%s monitor: %d thread(s) did not stop within %ss; replacements wait',
-                    label, len(late), TEARDOWN_SECONDS)
-    for pid, thread in removals:
-        del threads[pid]
-        lingering[pid] = thread
-    for pid in [p for p, t in lingering.items() if not t.is_alive()]:
-        del lingering[pid]
-    for pid, identity in wanted.items():
-        if pid not in threads and pid not in lingering:  # never two sessions for one printer
-            thread = factory(pid, *identity)
-            threads[pid] = (identity, thread)
-            thread.start()
-
-
-def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None):
-    """Per-process loop: inventory every 10 s, license pass every 2 s.
-
-    load_inventory() -> {printer_id: identity tuple}; a changed identity restarts
-    that printer's thread. A failed inventory read keeps the previous one; an
-    unreadable policy keeps the current permitted set."""
-    threads, lingering, view = {}, {}, MonitorLicense(engine)
-    inventory, permitted, next_inventory = {}, set(), 0.0
+    load_inventory() -> {printer_id: (fingerprint, args)}; factory(printer_id, *args)
+    returns a thread-like session (start, is_alive, stop). Every INVENTORY_SECONDS:
+    a session's printer removed, deactivated or reconfigured -> exit 75; a new or
+    newly allowed printer, or a session whose thread died, starts in-process."""
+    retirement = Retirement(engine, label, log, exit).start(stop_event)
+    threads = {}
     try:
         while not stop_event.is_set():
-            refresh = time.monotonic() >= next_inventory
-            if refresh:
-                try:
-                    inventory = load_inventory()
-                except Exception:
-                    if log is not None:
-                        log.warning('%s monitor: printer inventory could not be read; keeping the current set', label)
-                next_inventory = time.monotonic() + INVENTORY_SECONDS
-            if refresh or view.changed():
-                allowed = view.wanted(inventory)
-                if allowed is not None:
-                    permitted = allowed
-                reconcile_threads(threads, {p: i for p, i in inventory.items() if p in permitted},
-                                  factory, label, log, lingering)
-            stop_event.wait(LICENSE_PASS_SECONDS)
+            wait = INVENTORY_SECONDS
+            try:
+                inventory = load_inventory()
+            except Exception:
+                inventory = None
+                wait = LICENSE_PASS_SECONDS
+                if log is not None:
+                    log.warning('%s monitor: printer inventory could not be read; retrying', label)
+            if inventory is not None:
+                retirement.check_inventory({pid: entry[0] for pid, entry in inventory.items()})
+                pending = [pid for pid in inventory if pid not in threads or not threads[pid].is_alive()]
+                policy = retirement.current() if pending else None
+                if pending and policy is None:
+                    wait = LICENSE_PASS_SECONDS  # unreadable: start nothing, retry soon
+                for pid in pending if policy is not None else ():
+                    if not license_lock.printer_allowed(policy, pid, 'M'):
+                        continue
+                    fingerprint, args = inventory[pid]
+                    retirement.add(pid, fingerprint)  # a session from its first connect attempt
+                    thread = factory(pid, *args)
+                    threads[pid] = thread
+                    thread.start()
+            stop_event.wait(wait)
     finally:
-        reconcile_threads(threads, {}, factory, label, log, lingering)
+        _stop_all(threads.values())
     return threads
 
 
@@ -196,7 +298,7 @@ def run_legacy(start_all, stop_event, label, log=None):
 
 
 def run_monitor_process(engine, load_inventory, factory, start_all, label, stop_event, log=None):
-    """B2c loop when the license fleet lock is enabled; otherwise unchanged behaviour."""
+    """Restart retirement when the license fleet lock is enabled; otherwise unchanged behaviour."""
     if license_lock.enabled():
         from core.monitor_bootstrap import bootstrap_monitor_authority
         bootstrap_monitor_authority()  # start_all does this itself on the legacy path

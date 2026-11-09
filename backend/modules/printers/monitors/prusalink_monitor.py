@@ -75,9 +75,6 @@ class PrusaLinkMonitorThread(threading.Thread):
         with self._status_lock:
             self._retired = True
             self._running = False
-        # No further HTTP, including legacy fallback requests. A thread still in its poll
-        # sleep wakes, sees _running False and exits without touching the printer.
-        self.client.cancel()
 
     def run(self):
         log.info(f"[{self.name}] PrusaLink monitor started for {self.host}")
@@ -116,8 +113,6 @@ class PrusaLinkMonitorThread(threading.Thread):
         """Attempt auto-dispatch of next scheduled job after print completes."""
         try:
             time.sleep(5)
-            if self._retired:
-                return  # this monitor was retired (license lock, removal or edit) meanwhile
             import printer_dispatch
             printer_dispatch.attempt_dispatch(self.printer_id)
         except Exception as e:
@@ -352,6 +347,7 @@ class PrusaLinkMonitorThread(threading.Thread):
 # ------------------------------------------------------------------
 def _credentials(api_key_raw):
     """(username, password, api_key) from the stored, usually encrypted, credential."""
+    # Decrypt credentials if encrypted (same as Moonraker)
     username, password, api_key = "maker", "", ""
     if api_key_raw:
         try:
@@ -368,33 +364,60 @@ def _credentials(api_key_raw):
     return username, password, api_key
 
 
-def _inventory():
-    """{printer_id: (name, host, username, password, api_key)}; a changed identity restarts the thread."""
+def _rows():
     with engine.connect() as conn:
-        rows = conn.execute(
+        return conn.execute(
             text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active IS TRUE")
         ).mappings().fetchall()
-    return {row["id"]: (row["name"], row["api_host"], *_credentials(row["api_key"] or "")) for row in rows}
 
 
-def _thread(printer_id, name, host, username, password, api_key):
+def _inventory():
+    """{printer_id: (fingerprint, (name, host, username, password, api_key))} for license retirement (B2c)."""
+    from core.license_monitor import connection_fingerprint
+    inventory = {}
+    for row in _rows():
+        credentials = _credentials(row["api_key"] or "")
+        inventory[row["id"]] = (connection_fingerprint("prusalink", row["api_host"], *credentials),
+                                (row["name"], row["api_host"], *credentials))
+    return inventory
+
+
+def _session(printer_id, name, host, username, password, api_key):
     log.info(f"Starting PrusaLink monitor for {name} ({host})")
     return PrusaLinkMonitorThread(printer_id=printer_id, name=name, host=host,
                                   username=username, password=password, api_key=api_key)
 
 
 def start_prusalink_monitors():
-    """Start one thread per configured printer (no license or refresh loop; see main)."""
+    """
+    Load PrusaLink printers from DB and start monitor threads.
+    License fleet lock off; see __main__.
+    """
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
     threads = []
     try:
-        for printer_id, identity in _inventory().items():
-            t = _thread(printer_id, *identity)
+        for row in _rows():
+            printer_id = row["id"]
+            name = row["name"]
+            host = row["api_host"]
+            username, password, api_key = _credentials(row["api_key"] or "")
+
+            t = PrusaLinkMonitorThread(
+                printer_id=printer_id,
+                name=name,
+                host=host,
+                username=username,
+                password=password,
+                api_key=api_key,
+            )
             t.start()
             threads.append(t)
+            log.info(f"Started PrusaLink monitor for {name} ({host})")
+
     except Exception as e:
         log.error(f"Failed to start PrusaLink monitors: {e}")
+
     return threads
 
 
@@ -420,8 +443,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # License fleet lock enabled: inventory every 10 s and a license pass every 2 s
-    # (B2c). Otherwise the monitors start once, as before.
+    # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
+    # Otherwise the monitors start once (retried every 60 s while none exist), as before.
     from core.license_monitor import run_monitor_process
-    run_monitor_process(engine, _inventory, _thread, start_prusalink_monitors, 'PrusaLink', shutdown, log)
+    run_monitor_process(engine, _inventory, _session, start_prusalink_monitors, 'PrusaLink', shutdown, log)
     log.info("PrusaLink monitor daemon stopped.")

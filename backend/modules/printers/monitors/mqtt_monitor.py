@@ -162,10 +162,15 @@ class MQTTMonitorDaemon:
             self._command_server = None
             log.warning("Monitor command channel unavailable (%s)", type(exc).__name__)
         self._running = True
-        try:
-            printers = self._licensed(self.load_printers)()
-        except Exception:
-            printers = []  # license policy unreadable at start: the next pass retries
+        from core import license_lock
+        licensed = license_lock.enabled()
+        if licensed:
+            # Restart retirement (B2c): the license pass runs on its own thread,
+            # independent of the synchronous connects in this loop; the first
+            # inventory pass (_licensed_pass) starts the allowed printers.
+            from core.license_monitor import Retirement, INVENTORY_SECONDS
+            self._retirement = Retirement(engine, 'Bambu', log).start()
+        printers = [] if licensed else self.load_printers()
 
         if not printers:
             log.info("No printers found yet, waiting for printers to be added...")
@@ -187,7 +192,7 @@ class MQTTMonitorDaemon:
 
         # Start Moonraker monitors
         if MOONRAKER_AVAILABLE:
-            mk_printers = self.load_moonraker_printers()
+            mk_printers = [] if licensed else self.load_moonraker_printers()
             if mk_printers:
                 log.info(f"Starting {len(mk_printers)} Moonraker monitor(s)")
                 for p in mk_printers:
@@ -210,26 +215,23 @@ class MQTTMonitorDaemon:
         else:
             self._all_moonraker = []
         self._last_reconnect_check = time.time()
-        self._last_printer_reload = time.time()
+        self._last_printer_reload = 0.0 if licensed else time.time()
+        reload_every = INVENTORY_SECONDS if licensed else 60
+        refresh = self._licensed_pass if licensed else self._check_new_printers
 
         try:
             while self._running:
                 time.sleep(1)
-                # Every 60s, bring the monitored set in line with the table; a
-                # license change triggers the same pass within about 2 s (B2c).
-                license_changed = False
-                if time.time() - getattr(self, '_last_license_check', 0) >= 2:
-                    self._last_license_check = time.time()
-                    license_changed = hasattr(self, '_license') and self._license.changed()
-                if license_changed or time.time() - self._last_printer_reload >= 60:
-                    self._check_new_printers()
-                    self._last_printer_reload = time.time()
-
-                # Every 30s, check for dead connections and reconnect (after the license
-                # pass, so a printer that just left the selection is not retried)
+                # Every 30s, check for dead connections and reconnect
                 if time.time() - self._last_reconnect_check >= 30:
                     self._check_reconnect()
                     self._last_reconnect_check = time.time()
+
+                # Every 60s, bring the monitored set in line with the table
+                # (license fleet lock enabled: every 10 s, see _licensed_pass)
+                if time.time() - self._last_printer_reload >= reload_every:
+                    refresh()
+                    self._last_printer_reload = time.time()
 
                 # Every 5 min, rebuild the go2rtc config: camera hosts are
                 # written as validated IP literals, so a DNS change must reach
@@ -246,27 +248,12 @@ class MQTTMonitorDaemon:
 
         self.stop()
 
-    def _licensed(self, load):
-        """Loader filtered to the printers this process may monitor (B2c).
-
-        An unreadable policy raises, so _check_new_printers keeps the current set."""
-        def licensed():
-            printers = load()
-            if not hasattr(self, '_license'):
-                from core.license_monitor import MonitorLicense
-                self._license = MonitorLicense(engine)
-            allowed = self._license.wanted([p['id'] for p in printers])
-            if allowed is None:
-                raise RuntimeError('license policy unavailable')
-            return [p for p in printers if p['id'] in allowed]
-        return licensed
-
     def _families(self):
-        families = [("Bambu", '_all_printers', self._licensed(self.load_printers), ('ip', 'serial', 'access_code'),
+        families = [("Bambu", '_all_printers', self.load_printers, ('ip', 'serial', 'access_code'),
                      lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
                                               serial=p['serial'], access_code=p['access_code']))]
         if MOONRAKER_AVAILABLE:
-            families.append(("Moonraker", '_all_moonraker', self._licensed(self.load_moonraker_printers), ('host', 'port'),
+            families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port'),
                              lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
                                                         host=p['host'], port=p['port'])))
         return families
@@ -288,7 +275,6 @@ class MQTTMonitorDaemon:
                 log.warning(f"{kind} printer reload failed; keeping current monitors: {type(e).__name__}")
                 continue
             loaded.append((kind, attr, previous, current, keys, factory))
-        removals = []
         for kind, _attr, previous, current, keys, _factory in loaded:
             identity = lambda p: tuple(p.get(k) for k in keys)
             after = {p['id']: p for p in current}
@@ -299,14 +285,16 @@ class MQTTMonitorDaemon:
                 monitor = self.monitors.pop(old['id'], None)
                 if monitor is None:
                     continue
-                reason = "connection settings changed" if new is not None else "removed, inactive or not licensed"
+                reason = "connection settings changed" if new is not None else "removed or inactive"
                 log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
-                removals.append((kind, monitor, old['id']))
-        self._disconnect_all(removals)
+                try:
+                    monitor.disconnect()
+                except Exception as e:
+                    log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
         for kind, attr, _previous, current, _keys, factory in loaded:
             setattr(self, attr, current)
             for p in current:
-                if p['id'] in self.monitors or self._tearing_down_now(p['id']):
+                if p['id'] in self.monitors:
                     continue
                 log.info(f"[{p['name']}] Connecting {kind} monitor...")
                 try:
@@ -317,37 +305,44 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
 
-    def _disconnect_all(self, removals):
-        """Disconnect removed monitors.
+    def _licensed_pass(self):
+        """License fleet lock enabled (B2c): the inventory pass, every 10 s.
 
-        License fleet lock enabled (B2c): in parallel against one shared 5 s
-        deadline (paho joins have no timeout); a monitor whose disconnect has not
-        finished stays fenced in _tearing_down, and no replacement session for
-        that printer starts until it has. Otherwise: one by one, as before."""
-        if not removals:
-            return
+        Sessions are never stopped in-process. A printer with a session that was
+        removed, deactivated or reconfigured ends the process (exit 75; see
+        core.license_monitor), and so does losing the license, on the retirement
+        thread. A new or newly allowed printer becomes a session here: registered
+        before its first connect, then retried by _check_reconnect like any other.
+        """
         from core import license_lock
-
-        def disconnect(kind, monitor, _pid=None):
+        from core.license_monitor import connection_fingerprint
+        inventory = {}
+        for kind, attr, load, keys, factory in self._families():
             try:
-                monitor.disconnect()
+                current = load()
             except Exception as e:
-                log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
-        if not license_lock.enabled():
-            for removal in removals:
-                disconnect(*removal)
-            return
-        from threading import Thread
-        from core.license_monitor import drain, _joiner, TEARDOWN_SECONDS
-        threads = [Thread(target=disconnect, args=removal, daemon=True) for removal in removals]
-        late = drain([t.start for t in threads], [_joiner(t) for t in threads])
-        if not hasattr(self, '_tearing_down'):
-            self._tearing_down = {}
-        for i in late:
-            self._tearing_down[removals[i][2]] = threads[i]
-        if late:
-            log.warning(f"{len(late)} monitor(s) did not disconnect within {TEARDOWN_SECONDS}s; "
-                        f"replacements wait until they do")
+                log.warning(f"{kind} printer reload failed; retry next pass: {type(e).__name__}")
+                return
+            for p in current:
+                fingerprint = connection_fingerprint(kind, *(p.get(k) for k in keys))
+                inventory[p['id']] = (fingerprint, kind, attr, p, factory)
+        self._retirement.check_inventory({pid: entry[0] for pid, entry in inventory.items()})
+        pending = [pid for pid in inventory if not self._retirement.has(pid)]
+        policy = self._retirement.current() if pending else None
+        for pid in pending if policy is not None else ():
+            if not license_lock.printer_allowed(policy, pid, 'M'):
+                continue
+            fingerprint, kind, attr, p, factory = inventory[pid]
+            self._retirement.add(pid, fingerprint)
+            getattr(self, attr).append(p)  # _check_reconnect retries a failed connect
+            log.info(f"[{p['name']}] Connecting {kind} monitor...")
+            try:
+                monitor = factory(p)
+                if monitor.connect():
+                    self.monitors[pid] = monitor
+                    log.info(f"[{p['name']}] Connected")
+            except Exception as e:
+                log.warning(f"[{p['name']}] {kind} connect failed; retry next check: {type(e).__name__}")
 
     def _persist_offline(self, printer_id):
         try:
@@ -368,17 +363,8 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} reconnect failed; retry next check: {type(e).__name__}")
 
-    def _tearing_down_now(self, pid):
-        thread = getattr(self, '_tearing_down', {}).get(pid)
-        if thread is not None and not thread.is_alive():
-            self._tearing_down.pop(pid, None)
-            return False
-        return thread is not None
-
     def _reconnect_bambu(self, p):
         pid = p['id']
-        if self._tearing_down_now(pid):
-            return  # the old session is still disconnecting: never two sessions for one printer
         monitor = self.monitors.get(pid)
 
         if monitor is None:

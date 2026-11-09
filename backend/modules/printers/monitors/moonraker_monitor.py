@@ -103,46 +103,23 @@ class MoonrakerMonitor(MoonrakerJobTracking):
     
     # ==================== Lifecycle ====================
     
-    def connect(self, cancelled=None) -> bool:
-        """Connect to the printer and start polling thread.
-
-        cancelled(): checked under the status lock before un-retiring and between
-        stages, so a stop during connect is permanent (B2c)."""
-        cancelled = cancelled or (lambda: False)
-
-        def abandon():
-            with self._status_lock:
-                self._retired = True
-                self._running = False
-            self.printer.disconnect()
-            return False
-
+    def connect(self) -> bool:
+        """Connect to the printer and start polling thread."""
         with self._status_lock:
-            if cancelled():
-                return False
             self._retired = False
-        if not self.printer.connect():
-            return False
-        if cancelled():
-            return abandon()
-        # Auto-discover camera URL and save to DB
-        self._discover_and_save_camera()
-        if cancelled():
-            return abandon()
-        self._recover_after_reconnect()
-        with self._status_lock:
-            if cancelled():
-                cancel = True
-            else:
-                cancel = False
-                self._running = True
-                self._thread = threading.Thread(
-                    target=self._poll_loop,
-                    name=f"moonraker-{self.name}",
-                    daemon=True,
-                )
-                self._thread.start()
-        return abandon() if cancel else True
+        if self.printer.connect():
+            # Auto-discover camera URL and save to DB
+            self._discover_and_save_camera()
+            self._recover_after_reconnect()
+            self._running = True
+            self._thread = threading.Thread(
+                target=self._poll_loop,
+                name=f"moonraker-{self.name}",
+                daemon=True,
+            )
+            self._thread.start()
+            return True
+        return False
 
     def _discover_and_save_camera(self):
         """Save discovered webcam URL to DB via printer_events."""
@@ -199,15 +176,10 @@ class MoonrakerMonitor(MoonrakerJobTracking):
         
         while self._running:
             time.sleep(RECONNECT_INTERVAL)
-            if not self._running:
-                return  # stopped (e.g. license-locked) while waiting: no further I/O
             if not self._marked_offline:
                 self._persist_offline()
             try:
                 if self.printer.connect():
-                    if not self._running:
-                        self.printer.disconnect()  # stopped while reconnecting
-                        return
                     self._discover_and_save_camera()
                     log.info(f"[{self.name}] Reconnected")
                     # Recover job tracking state after reconnect
@@ -574,67 +546,65 @@ def _api_key(api_key_raw):
         return api_key_raw
 
 
-def _inventory():
-    """{printer_id: (name, host, port, api_key)}; a changed identity restarts the monitor."""
+def _rows():
     with engine.connect() as conn:
-        rows = conn.execute(
+        return conn.execute(
             text("SELECT id, name, api_host, api_key FROM printers "
             "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active IS TRUE")
         ).mappings().fetchall()
-    return {row["id"]: (row["name"], *_endpoint(row["api_host"]), _api_key(row["api_key"] or "")) for row in rows}
 
 
-class _MoonrakerHandle:
-    """Thread-like wrapper for the shared monitor loop (B2c).
+def _inventory():
+    """{printer_id: (fingerprint, (name, host, port, api_key))} for license retirement (B2c)."""
+    from core.license_monitor import connection_fingerprint
+    inventory = {}
+    for row in _rows():
+        host, port = _endpoint(row["api_host"])
+        api_key = _api_key(row["api_key"] or "")
+        inventory[row["id"]] = (connection_fingerprint("moonraker", host, port, api_key),
+                                (row["name"], host, port, api_key))
+    return inventory
 
-    Connects in the background so a slow printer never stalls the license pass;
-    a failed connect ends the handle, and the next inventory pass retries it."""
+
+class _MoonrakerSession(threading.Thread):
+    """License fleet lock enabled (B2c): one printer's session. Connects on its own
+    thread and retries a failed connect every RECONNECT_INTERVAL; once connected,
+    the monitor's poll loop handles reconnection. Never stopped in-process for a
+    license or configuration change: the daemon exits and restarts instead."""
 
     def __init__(self, printer_id, name, host, port, api_key):
+        super().__init__(name=f"moonraker-session-{name}", daemon=True)
         self.monitor = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
         self._stopped = threading.Event()
-        self._connector = threading.Thread(target=self._connect, name=f"moonraker-connect-{name}", daemon=True)
 
-    def _connect(self):
-        if not self.monitor.connect(cancelled=self._stopped.is_set):
-            if not self._stopped.is_set():
-                log.warning(f"Failed to connect Moonraker monitor for {self.monitor.name}")
-            return
-        log.info(f"Started Moonraker monitor for {self.monitor.name}")
-
-    def start(self):
-        self._connector.start()
+    def run(self):
+        while not self._stopped.is_set():
+            if self.monitor.connect():
+                log.info(f"Started Moonraker monitor for {self.monitor.name}")
+                poll = self.monitor._thread
+                if poll is not None:
+                    poll.join()
+                return
+            log.warning(f"Failed to connect Moonraker monitor for {self.monitor.name}; retrying in {RECONNECT_INTERVAL}s")
+            time.sleep(RECONNECT_INTERVAL)
 
     def stop(self):
-        self._stopped.set()  # before the lock: connect() sees it at its next check
-        with self.monitor._status_lock:
-            self.monitor._retired = True
-            self.monitor._running = False
-
-    def join(self, timeout=None):
-        deadline = time.monotonic() + (timeout or 0)
-        self._connector.join(timeout=max(0.0, deadline - time.monotonic()))
-        poll = self.monitor._thread
-        if poll is not None:
-            poll.join(timeout=max(0.0, deadline - time.monotonic()))
-        if not self.is_alive():
-            try:
-                self.monitor.printer.disconnect()
-            except Exception:
-                log.warning(f"[{self.monitor.name}] Disconnect failed")
-
-    def is_alive(self):
-        poll = self.monitor._thread
-        return self._connector.is_alive() or (poll is not None and poll.is_alive())
+        self._stopped.set()
+        self.monitor.disconnect()
 
 
 def start_moonraker_monitors():
-    """Load Moonraker printers from DB and connect them once (no license or refresh loop; see main)."""
+    """Load Moonraker printers from DB and start monitors (license fleet lock off; see __main__)."""
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
     monitors = []
     try:
-        for printer_id, (name, host, port, api_key) in _inventory().items():
+        for row in _rows():
+            printer_id = row["id"]
+            name = row["name"]
+            host, port = _endpoint(row["api_host"])
+            api_key = _api_key(row["api_key"] or "")
+
             m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
             if m.connect():
                 monitors.append(m)
@@ -671,8 +641,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # License fleet lock enabled: inventory every 10 s and a license pass every 2 s,
-    # failed connects retried (B2c). Otherwise the monitors start once, as before.
+    # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
+    # Otherwise the monitors start once (retried every 60 s while none exist), as before.
     from core.license_monitor import run_monitor_process
-    run_monitor_process(engine, _inventory, _MoonrakerHandle, start_moonraker_monitors, 'Moonraker', shutdown, log)
+    run_monitor_process(engine, _inventory, _MoonrakerSession, start_moonraker_monitors, 'Moonraker', shutdown, log)
     log.info("Moonraker monitor daemon stopped.")

@@ -316,8 +316,6 @@ class MoonrakerJobTracking:
         from modules.printers.monitors.moonraker_monitor import (log, time)
         try:
             time.sleep(5)
-            if self._retired:
-                return  # this monitor was retired (license lock, removal or edit) meanwhile
             from modules.printers import dispatch
             dispatch.attempt_dispatch(self.printer_id)
         except Exception as e:

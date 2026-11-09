@@ -1,19 +1,35 @@
-"""B2c: monitor processes watch only printers the license lets them monitor."""
+"""B2c: monitor processes retire a printer by restarting (exit 75), never in-process.
+
+Rollout on: a process starts sessions only for printers the license lets it monitor;
+a session's printer losing that permission, an unreadable policy for more than 5 s
+while sessions exist, or a session's printer removed, deactivated or reconfigured
+ends the process with exit 75 (supervisord restarts it). Rollout off: the legacy
+daemons, with no policy query.
+"""
+import os
+import socket
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 from core import license_lock as policy
 from core import license_monitor
-from core.license_monitor import MonitorLicense, drain
+from core.license_monitor import MonitorLicense, Retirement
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_license_policy_b1 import policy_db, pick  # noqa: F401
 from tests.test_contracts.test_license_lock_b2b_exempt_attempt import _attempt, _telemetry
 
 NINE, TEN = 9, 10
+ROOT = Path(__file__).resolve().parents[2]
+CHILD = Path(__file__).with_name('_license_monitor_child.py')
 
+
+# --- Policy view -------------------------------------------------------------------
 
 def test_wanted_is_members_plus_monitoring_exemptions(policy_db):
     view = MonitorLicense(policy_db.get_bind())
@@ -25,17 +41,6 @@ def test_wanted_is_members_plus_monitoring_exemptions(policy_db):
     assert view.wanted([NINE, TEN]) == {NINE, TEN}
 
 
-def test_changed_detects_a_selection_change_cheaply(policy_db):
-    view = MonitorLicense(policy_db.get_bind())
-    view.wanted([NINE, TEN])
-    assert view.changed() is False
-    pick(policy_db, users=[3], printers=[TEN])
-    assert view.changed() is True
-    policy._cache.clear()
-    assert view.wanted([NINE, TEN]) == {TEN}
-    assert view.changed() is False
-
-
 def test_rollout_off_passes_candidates_without_queries(policy_db, monkeypatch):
     monkeypatch.delenv('ODIN_LICENSE_FLEET_LOCK_ENABLED')
     engine = policy_db.get_bind()
@@ -43,194 +48,46 @@ def test_rollout_off_passes_candidates_without_queries(policy_db, monkeypatch):
     listener = lambda *a, **k: seen.append(a[2])
     event.listen(engine, 'before_cursor_execute', listener)
     try:
-        view = MonitorLicense(engine)
-        assert view.wanted([NINE, TEN]) == {NINE, TEN}
-        assert view.changed() is False
+        assert MonitorLicense(engine).wanted([NINE, TEN]) == {NINE, TEN}
     finally:
         event.remove(engine, 'before_cursor_execute', listener)
     assert seen == []
 
 
-def test_unreadable_policy_keeps_the_current_set(policy_db, monkeypatch):
+def test_unreadable_policy_is_none(policy_db, monkeypatch):
     view = MonitorLicense(policy_db.get_bind())
     monkeypatch.setattr(policy, 'snapshot', lambda db, **k: (_ for _ in ()).throw(RuntimeError('db down')))
     assert view.wanted([NINE, TEN]) is None
+    assert view.policy() is None
 
 
-class _Thread:
-    def __init__(self, pid, name='p', host='h', *, hang=False):
-        self.pid, self.hang = pid, hang
-        self.stopped = threading.Event()
-        self.started = False
+def test_policy_read_is_bounded_and_never_stacks(policy_db, monkeypatch):
+    release = threading.Event()
+    calls = []
 
-    def start(self):
-        self.started = True
-
-    def stop(self):
-        self.stopped.set()
-
-    def join(self, timeout=None):
-        if not self.hang:
-            return
-        time.sleep(timeout or 0)
-
-    def is_alive(self):
-        return self.started and (self.hang or not self.stopped.is_set())
-
-
-def test_drain_uses_one_shared_deadline_for_hung_clients():
-    hung = [_Thread(i, hang=True) for i in range(3)]
-    for t in hung:
-        t.start()
-    started = time.monotonic()
-    from core.license_monitor import _joiner
-    late = drain([t.stop for t in hung], [_joiner(t) for t in hung], seconds=0.5)
-    elapsed = time.monotonic() - started
-    assert all(t.stopped.is_set() for t in hung)  # every removal signalled before any join
-    assert len(late) == 3 and elapsed < 1.0  # not 3 x 0.5 s
-
-
-def test_anycubic_reconcile_stops_locked_and_starts_selected(policy_db):
-    from core.license_monitor import reconcile_threads
+    def hang(db, **k):
+        calls.append(1)
+        release.wait(10)
+        raise RuntimeError('late')
+    monkeypatch.setattr(policy, 'snapshot', hang)
     view = MonitorLicense(policy_db.get_bind())
-    inventory = {NINE: ('nine', 'h9'), TEN: ('ten', 'h10')}
-    threads = {}
-    allowed = view.wanted(inventory)
-    reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, _Thread, 'test')
-    assert set(threads) == {NINE}
-    nine = threads[NINE][1]
-    pick(policy_db, users=[3], printers=[TEN])
-    assert view.changed()
-    policy._cache.clear()
-    allowed = view.wanted(inventory)
     started = time.monotonic()
-    reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, _Thread, 'test')
-    assert time.monotonic() - started < license_monitor.TEARDOWN_SECONDS
-    assert nine.stopped.is_set() and set(threads) == {TEN} and threads[TEN][1].started
-
-
-# --- M2 Moonraker handle ------------------------------------------------------
-
-class _FakeMoonraker:
-    def __init__(self, connect_ok=True, connect_delay=0.0):
-        self.connect_ok, self.connect_delay = connect_ok, connect_delay
-        self._status_lock = threading.RLock()
-        self._retired = False
-        self._running = False
-        self._thread = None
-        self.name = 'mk'
-        self.disconnects = 0
-        self.printer = type('P', (), {'disconnect': lambda s: None})()
-
-    def connect(self, cancelled=None):
-        cancelled = cancelled or (lambda: False)
-        with self._status_lock:
-            if cancelled():
-                return False
-            self._retired = False  # as the real connect() does
-        time.sleep(self.connect_delay)
-        if not self.connect_ok:
-            return False
-        if cancelled():
-            self.disconnects += 1  # the real connect() abandons and disconnects
-            self._retired, self._running = True, False
-            return False
-        self._running = True
-        self._thread = threading.Thread(target=self._poll, daemon=True)
-        self._thread.start()
-        return True
-
-    def _poll(self):
-        while self._running:
-            time.sleep(0.01)
-
-    def disconnect(self):
-        self.disconnects += 1
-        self._running = False
-
-
-def _handle(monkeypatch, fake):
-    from modules.printers.monitors import moonraker_monitor
-    monkeypatch.setattr(moonraker_monitor, 'MoonrakerMonitor', lambda **k: fake)
-    return moonraker_monitor._MoonrakerHandle(1, 'mk', 'h', 80, '')
-
-
-def test_moonraker_handle_connects_in_background_and_stops(monkeypatch):
-    from core.license_monitor import _joiner
-    fake = _FakeMoonraker()
-    handle = _handle(monkeypatch, fake)
-    handle.start()
-    deadline = time.monotonic() + 2
-    while fake._thread is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert handle.is_alive()
-    handle.stop()
-    assert fake._retired and not fake._running
-    assert _joiner(handle)(1.0) is True and not handle.is_alive()
-
-
-def test_moonraker_handle_stopped_while_connecting_disconnects(monkeypatch):
-    fake = _FakeMoonraker(connect_delay=0.3)
-    handle = _handle(monkeypatch, fake)
-    handle.start()
-    handle.stop()
-    handle.join(2)
-    assert fake.disconnects == 1 and not handle.is_alive()
-
-
-def test_moonraker_failed_connect_ends_the_handle_for_a_retry(monkeypatch):
-    fake = _FakeMoonraker(connect_ok=False)
-    handle = _handle(monkeypatch, fake)
-    handle.start()
-    handle._connector.join(1)
-    assert not handle.is_alive()  # the next inventory pass restarts it
-
-
-
-# --- Review round 1 ---------------------------------------------------------------
-
-def test_drain_one_blocking_stop_does_not_delay_the_others():
-    from core.license_monitor import drain
-    stopped = []
-    def blocking():
-        time.sleep(2)
-    stoppers = [blocking, lambda: stopped.append(1), lambda: stopped.append(2)]
-    joiners = [lambda t: False, lambda t: True, lambda t: True]
-    started = time.monotonic()
-    late = drain(stoppers, joiners, seconds=0.5)
+    assert view.policy(timeout=0.3) is None
     assert time.monotonic() - started < 1.0
-    assert sorted(stopped) == [1, 2] and late == [0]
+    assert view.policy(timeout=0.3) is None and len(calls) == 1  # the hung read is not stacked
+    monkeypatch.setattr(license_monitor, 'POLICY_ABANDON_SECONDS', 0.5)
+    time.sleep(0.6)
+    assert view.policy(timeout=0.3) is None and len(calls) == 2  # a stuck read is abandoned
+    release.set()
 
 
-def test_no_replacement_while_the_old_thread_is_still_stopping():
-    from core.license_monitor import reconcile_threads
-    threads, lingering = {}, {}
-    reconcile_threads(threads, {NINE: ('a',)}, lambda pid, *i: _Thread(pid, hang=True), 'test', None, lingering)
-    old = threads[NINE][1]
-    import core.license_monitor as lm
-    original = lm.TEARDOWN_SECONDS
-    try:
-        lm.drain.__defaults__ = (0.2,)
-        reconcile_threads(threads, {NINE: ('b',)}, _Thread, 'test', None, lingering)  # identity changed
-    finally:
-        lm.drain.__defaults__ = (original,)
-    assert NINE not in threads and lingering[NINE] is old  # fenced: no second session
-    old.hang = False
-    old.stopped.set()
-    reconcile_threads(threads, {NINE: ('b',)}, _Thread, 'test', None, lingering)
-    assert NINE in threads and threads[NINE][0] == ('b',) and NINE not in lingering
-
-
-def test_changed_reports_exemptions_even_with_a_license_deadline(policy_db, monkeypatch):
-    from types import SimpleNamespace as NS
+def test_policy_reads_use_their_own_short_busy_timeout(policy_db):
     view = MonitorLicense(policy_db.get_bind())
-    view.wanted([NINE, TEN])
-    stored = policy.stored_snapshot(policy_db)
-    with_exempt = NS(revision=stored.revision, printers=stored.printers, entitlement={'deadline': '2099-01-01T00:00:00+00:00'},
-                     deadline='2099-01-01T00:00:00+00:00', exempt_attempts={'9': {'kind': 'pending'}})
-    view._seen = view._marker(with_exempt)
-    monkeypatch.setattr(policy, 'stored_snapshot', lambda conn: with_exempt)
-    assert view.changed() is True
+    assert view.policy() is not None
+    bounded = view._policy_engine()
+    assert bounded is not policy_db.get_bind()
+    with bounded.connect() as conn:
+        assert conn.exec_driver_sql('PRAGMA busy_timeout').scalar() == license_monitor.POLICY_BUSY_TIMEOUT_MS
 
 
 def test_monitor_reads_a_fresh_policy_while_an_exemption_exists(policy_db, monkeypatch):
@@ -248,179 +105,364 @@ def test_monitor_reads_a_fresh_policy_while_an_exemption_exists(policy_db, monke
     assert calls == [False, False, True]
 
 
+def test_fingerprint_is_connection_settings_only():
+    fp = license_monitor.connection_fingerprint
+    assert fp('moonraker', 'h', 80, 'k') == fp('moonraker', 'h', 80, 'k')
+    assert fp('moonraker', 'h', 80, 'k') != fp('moonraker', 'h', 81, 'k')
+    assert fp('moonraker', 'h', 80, 'k') != fp('moonraker', 'h', 80, 'other')
+
+
+def test_inventories_ignore_names_and_telemetry(policy_db, monkeypatch):
+    from modules.printers.monitors import moonraker_monitor
+    policy_db.execute(text("UPDATE printers SET api_type='moonraker', api_host='10.0.0.9:7125' WHERE id=9"))
+    policy_db.commit()
+    before = moonraker_monitor._inventory()[NINE][0]
+    policy_db.execute(text("UPDATE printers SET name='renamed', gcode_state='RUNNING', last_seen=CURRENT_TIMESTAMP, "
+                           "camera_url='rtsp://x' WHERE id=9"))
+    policy_db.commit()
+    assert moonraker_monitor._inventory()[NINE][0] == before
+    policy_db.execute(text("UPDATE printers SET api_host='10.0.0.9:7126' WHERE id=9"))
+    policy_db.commit()
+    assert moonraker_monitor._inventory()[NINE][0] != before
+
+
+# --- Retirement (in process; exit recorded instead of taken) ------------------------
+
+def _retirement(policy_db, exits):
+    def record(code):
+        exits.append(code)
+    return Retirement(policy_db.get_bind(), 'test', exit=record)
+
+
+def test_license_pass_exits_75_only_for_a_session_that_lost_monitoring(policy_db):
+    exits = []
+    retirement = _retirement(policy_db, exits)
+    retirement.add(NINE, 'fp')
+    assert retirement.license_pass() is not None and exits == []
+    pick(policy_db, users=[3], printers=[TEN])
+    retirement.license_pass()
+    assert exits == [75]
+
+
+def test_locked_printer_without_a_session_never_exits(policy_db):
+    exits = []
+    retirement = _retirement(policy_db, exits)
+    pick(policy_db, users=[3], printers=[TEN])
+    retirement.license_pass()
+    assert exits == []
+
+
+def test_unreadable_policy_exits_only_with_sessions_after_five_seconds(policy_db, monkeypatch):
+    exits = []
+    retirement = _retirement(policy_db, exits)
+    clock = [1000.0]
+    monkeypatch.setattr(license_monitor.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(retirement.license, 'policy', lambda: None)
+    for _ in range(10):
+        retirement.license_pass()
+        clock[0] += 2
+    assert exits == []  # no session: start nothing, never exit
+    retirement.add(NINE, 'fp')
+    for _ in range(3):  # 0, 2, 4 s unreadable
+        retirement.license_pass()
+        clock[0] += 2
+    assert exits == []
+    retirement.license_pass()  # 6 s
+    assert exits == [75]
+
+
+def test_inventory_exits_for_removed_or_reconfigured_sessions_only(policy_db):
+    exits = []
+    retirement = _retirement(policy_db, exits)
+    retirement.add(NINE, 'a')
+    retirement.check_inventory({NINE: 'a', TEN: 'new printer'})
+    assert exits == []
+    retirement.check_inventory({NINE: 'b'})
+    retirement.check_inventory({TEN: 'x'})
+    assert exits == [75, 75]
+
+
 def test_rollout_off_keeps_the_legacy_daemon_behaviour(monkeypatch):
-    from core import license_monitor as lm
     monkeypatch.delenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', raising=False)
     stop = threading.Event()
     started = []
+
     class M:
         def stop(self):
             started.append('stopped')
+
     def start_all():
         started.append('start')
         stop.set()
         return [M()]
-    monkeypatch.setattr(lm, 'monitor_loop', lambda *a, **k: pytest.fail('new loop used with rollout off'))
-    lm.run_monitor_process(None, None, None, start_all, 'X', stop)
+    monkeypatch.setattr(license_monitor, 'monitor_loop', lambda *a, **k: pytest.fail('new loop used with rollout off'))
+    monkeypatch.setattr(license_monitor, 'Retirement', lambda *a, **k: pytest.fail('retirement with rollout off'))
+    license_monitor.run_monitor_process(None, None, None, start_all, 'X', stop)
     assert started == ['start', 'stopped']
 
 
-# --- Real monitor classes ---------------------------------------------------------
+def test_rollout_on_uses_the_retirement_loop(policy_db, monkeypatch):
+    import core.monitor_bootstrap as bootstrap
+    monkeypatch.setattr(bootstrap, 'bootstrap_monitor_authority', lambda: None)
+    seen = []
+    monkeypatch.setattr(license_monitor, 'monitor_loop', lambda *a, **k: seen.append(a[3]))
+    license_monitor.run_monitor_process(policy_db.get_bind(), dict, None,
+                                        lambda: pytest.fail('legacy start used'), 'X', threading.Event())
+    assert seen == ['X']
 
-class _FakeMoonrakerPrinter:
-    def __init__(self, on_connect=None):
-        self.on_connect, self.disconnected = on_connect, 0
-    def connect(self):
-        if self.on_connect:
-            self.on_connect()
+
+# --- Separate processes ----------------------------------------------------------------
+
+class _Peer:
+    """TCP listener the child's sessions connect to; shows their sockets close on exit."""
+
+    def __init__(self):
+        self.server = socket.socket()
+        self.server.bind(('127.0.0.1', 0))
+        self.server.listen(16)
+        self.port = self.server.getsockname()[1]
+        self.conns = []
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                conn, _ = self.server.accept()
+            except OSError:
+                return
+            self.conns.append(conn)
+
+    def all_closed(self, seconds=3):
+        deadline = time.monotonic() + seconds
+        for conn in list(self.conns):
+            conn.settimeout(max(0.1, deadline - time.monotonic()))
+            try:
+                while conn.recv(64):
+                    pass
+            except (socket.timeout, OSError):
+                return False
         return True
-    def disconnect(self):
-        self.disconnected += 1
-    def get_webcam_urls(self):
-        return {}
+
+    def close(self):
+        self.server.close()
+        for conn in self.conns:
+            conn.close()
 
 
-def _real_moonraker(monkeypatch):
-    from modules.printers.monitors import moonraker_monitor
-    monitor = moonraker_monitor.MoonrakerMonitor(printer_id=1, name='mk', host='127.0.0.1', port=1, api_key='')
-    monkeypatch.setattr(monitor, '_recover_after_reconnect', lambda: None)
-    monkeypatch.setattr(monitor, '_discover_and_save_camera', lambda: None)
-    return monitor
+class _Child:
+    def __init__(self, tmp_path, db, mode, *, rollout=True, unreadable=False, tag='a'):
+        import license_manager
+        self.log, self.flag = tmp_path / f'{tag}.log', tmp_path / f'{tag}.flag'
+        self.out = open(tmp_path / f'{tag}.out', 'w')
+        if unreadable:
+            self.flag.write_text('x')
+        self.peer = _Peer()
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(ROOT / 'backend'), str(ROOT)]),
+                   DATABASE_URL=f'sqlite:///{db.get_bind().url.database}',
+                   LICENSE_DIR=license_manager.LICENSE_DIR, B2C_PUBLIC_KEY=license_manager.ODIN_PUBLIC_KEY,
+                   B2C_LOG=str(self.log), B2C_FLAG=str(self.flag), B2C_MODE=mode,
+                   B2C_PEER_PORT=str(self.peer.port))
+        if not rollout:
+            env.pop('ODIN_LICENSE_FLEET_LOCK_ENABLED', None)
+        self.proc = subprocess.Popen([sys.executable, str(CHILD)], env=env, cwd=str(ROOT / 'backend'),
+                                     stdout=self.out, stderr=subprocess.STDOUT)
 
+    def lines(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
 
-def test_moonraker_connect_cancelled_before_start_stays_retired(monkeypatch):
-    monitor = _real_moonraker(monkeypatch)
-    monitor.printer = _FakeMoonrakerPrinter()
-    monitor._retired = True
-    assert monitor.connect(cancelled=lambda: True) is False
-    assert monitor._retired is True and monitor._thread is None
+    def events(self):
+        return [line.split(' ', 1)[1] for line in self.lines()]
 
+    def output(self):
+        self.out.flush()
+        return Path(self.out.name).read_text()[-3000:]
 
-def test_moonraker_connect_cancelled_mid_connect_abandons(monkeypatch):
-    monitor = _real_moonraker(monkeypatch)
-    cancel = threading.Event()
-    monitor.printer = _FakeMoonrakerPrinter(on_connect=cancel.set)  # stop arrives during the transport connect
-    assert monitor.connect(cancelled=cancel.is_set) is False
-    assert monitor._retired is True and monitor._running is False
-    assert monitor.printer.disconnected == 1 and monitor._thread is None
-
-
-def test_elegoo_stop_during_connect_closes_the_late_socket():
-    from modules.printers.monitors.elegoo_monitor import ElegooMonitorThread
-    thread = ElegooMonitorThread(printer_id=1, name='el', host='127.0.0.1')
-    calls = []
-    class Client:
-        _connected = False
-        def connect(self):
-            thread.stop()  # stop lands while the socket is being opened
-            self._connected = True
-            calls.append('connect')
-            return True
-        def disconnect(self):
-            calls.append('disconnect')
-        def on_status(self, cb):
-            pass
-    thread.client = Client()
-    thread._running = True
-    thread._retired = False
-    thread.run()
-    assert calls[0] == 'disconnect' and calls[-1] == 'disconnect' and 'connect' in calls
-
-
-def test_prusalink_cancelled_client_makes_no_requests(monkeypatch):
-    from modules.printers.adapters import prusalink
-    client = prusalink.PrusaLinkPrinter(host='127.0.0.1')
-    monkeypatch.setattr(prusalink._http, 'get', lambda *a, **k: pytest.fail('HTTP after cancel'))
-    client.cancel()
-    assert client._get('/api/v1/status') is None
-    client.get_status()  # including the legacy fallback requests
-
-
-def test_bambu_teardown_fence_blocks_reconnect_until_disconnect_finishes(policy_db, monkeypatch):
-    from modules.printers.monitors import mqtt_monitor
-    import core.license_monitor as lm
-    release = threading.Event()
-    class Hung:
-        def disconnect(self):
-            release.wait(5)
-    mon = mqtt_monitor.MQTTMonitorDaemon.__new__(mqtt_monitor.MQTTMonitorDaemon)
-    monkeypatch.setattr(lm.drain, '__defaults__', (0.2,))
-    mon._disconnect_all([('Bambu', Hung(), NINE)])
-    assert mon._tearing_down_now(NINE) is True
-    mon.monitors = {}
-    mon._persist_offline = lambda pid: pytest.fail('OFFLINE written while fenced')
-    mon._reconnect_bambu({'id': NINE, 'name': 'n', 'ip': 'i', 'serial': 's', 'access_code': 'a'})
-    release.set()
-    for _ in range(50):
-        if not mon._tearing_down_now(NINE):
-            break
-        time.sleep(0.02)
-    assert mon._tearing_down_now(NINE) is False
-
-
-_CHILD = r"""
-import os, sys, threading, time
-from sqlalchemy import create_engine
-from core.license_monitor import monitor_loop
-log_path, stop_path, url = sys.argv[1], sys.argv[2], sys.argv[3]
-def note(line):
-    with open(log_path, 'a') as f:
-        f.write(f'{time.monotonic():.3f} {line}\n')
-class T:
-    def __init__(self, pid, name):
-        self.pid, self.alive, self.started = pid, False, False
-    def start(self):
-        self.alive = self.started = True
-        note(f'start {self.pid}')
-    def stop(self):
-        self.alive = False
-        note(f'stop {self.pid}')
-    def join(self, timeout=None):
-        pass
-    def is_alive(self):
-        return self.alive
-stop = threading.Event()
-def watch():
-    while not os.path.exists(stop_path):
-        time.sleep(0.05)
-    stop.set()
-threading.Thread(target=watch, daemon=True).start()
-monitor_loop(create_engine(url), lambda: {9: ('nine',), 10: ('ten',)}, T, 'child', stop)
-note('exit')
-"""
-
-
-def test_separate_process_monitor_stops_a_locked_printer_within_the_bound(policy_db, tmp_path):
-    import os
-    import subprocess
-    import sys
-    from pathlib import Path
-    log_path, stop_path = tmp_path / 'child.log', tmp_path / 'stop'
-    root = Path(__file__).resolve().parents[2]
-    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root / 'backend'), str(root)]))
-    child = subprocess.Popen([sys.executable, '-c', _CHILD, str(log_path), str(stop_path),
-                              str(policy_db.get_bind().url)], env=env, cwd=str(root / 'backend'))
-
-    def lines():
-        return log_path.read_text().splitlines() if log_path.exists() else []
-
-    def wait_for(text, seconds):
+    def wait_for(self, text, seconds):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            for line in lines():
-                if line.split(' ', 1)[1] == text:
-                    return float(line.split(' ', 1)[0])
+            if text in self.events():
+                return True
+            if self.proc.poll() is not None:
+                return False
             time.sleep(0.05)
-        return None
-    try:
-        assert wait_for('start 9', 20) is not None, lines()
-        assert all(not l.endswith('start 10') for l in lines())  # 10 is locked
-        changed_at = time.monotonic()
-        pick(policy_db, users=[3], printers=[TEN])
-        stopped = wait_for('stop 9', 10)
-        assert stopped is not None, lines()
-        assert wait_for('start 10', 10) is not None, lines()
-        assert stopped - changed_at <= license_monitor.TEARDOWN_SECONDS, (stopped - changed_at, lines())
-    finally:
-        stop_path.write_text('stop')
-        child.wait(timeout=20)
+        return False
+
+    def wait_exit(self, seconds):
+        """(exit code, seconds waited) or (None, seconds) if still running."""
+        started = time.monotonic()
+        deadline = started + seconds
+        while time.monotonic() < deadline:
+            code = self.proc.poll()
+            if code is not None:
+                return code, time.monotonic() - started
+            time.sleep(0.02)
+        return None, time.monotonic() - started
+
+    def close(self):
+        if self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait(10)
+        self.out.close()
+        self.peer.close()
+
+
+@pytest.fixture
+def child(tmp_path, policy_db):
+    children = []
+
+    def spawn(mode, **kwargs):
+        c = _Child(tmp_path, policy_db, mode, tag=f'c{len(children)}', **kwargs)
+        children.append(c)
+        return c
+    yield spawn
+    for c in children:
+        c.close()
+
+
+def _protocol(db, api_type, *printers):
+    for pid in printers:
+        db.execute(text("UPDATE printers SET api_type=:t, api_host=:h, api_key=NULL WHERE id=:p"),
+                   {'t': api_type, 'h': f'127.0.0.{pid}', 'p': pid})
+    db.commit()
+
+
+def _alive(c, seconds):
+    code, _ = c.wait_exit(seconds)
+    return code is None
+
+
+SHARED = {'moonraker_monitor': 'moonraker', 'prusalink_monitor': 'prusalink',
+          'elegoo_monitor': 'elegoo', 'anycubic_lan_monitor': 'anycubic_lan'}
+
+
+@pytest.mark.parametrize('module', sorted(SHARED))
+def test_shared_loop_exits_75_within_3s_when_a_blocked_session_is_locked(policy_db, child, module):
+    _protocol(policy_db, SHARED[module], NINE, TEN)
+    c = child(module)
+    assert c.wait_for('start 9', 30), c.output()
+    assert _alive(c, 1) and 'start 10' not in c.events()  # 10 is outside the selection
+    pick(policy_db, users=[3], printers=[TEN])  # drops 9, whose thread holds its lock forever
+    code, waited = c.wait_exit(3)
+    assert code == 75 and waited <= 3, (code, waited, c.output())
+    assert c.peer.all_closed()  # the kernel closed the blocked session's socket
+
+
+def test_shared_loop_restart_starts_only_allowed_and_handles_changes(policy_db, child, tier_license):
+    _protocol(policy_db, 'prusalink', NINE, TEN)
+    pick(policy_db, users=[3], printers=[TEN])
+    c = child('prusalink_monitor')
+    assert c.wait_for('start 10', 30), c.output()
+    assert _alive(c, 3) and 'start 9' not in c.events()  # restarted with 9 disallowed: not started
+    tier_license('enterprise', max_users=1, max_printers=2)
+    pick(policy_db, users=[3], printers=[TEN, NINE])  # newly allowed: starts in-process
+    assert c.wait_for('start 9', 15), c.output()
+    assert _alive(c, 2)
+    changed = time.monotonic()
+    policy_db.execute(text("UPDATE printers SET api_host='127.0.0.99' WHERE id=9"))  # reconfigured
+    policy_db.commit()
+    code, _ = c.wait_exit(15)
+    assert code == 75 and time.monotonic() - changed <= license_monitor.INVENTORY_SECONDS + 3, c.output()
+
+
+def test_shared_loop_unreadable_policy(policy_db, child, tmp_path):
+    _protocol(policy_db, 'elegoo', NINE, TEN)
+    idle = child('elegoo_monitor', unreadable=True)  # no session yet: fail closed, never exit
+    assert _alive(idle, 8) and not any(e.startswith('start') for e in idle.events()), idle.output()
+    idle.flag.unlink()
+    assert idle.wait_for('start 9', 15), idle.output()
+    idle.close()
+    busy = child('elegoo_monitor')
+    assert busy.wait_for('start 9', 30), busy.output()
+    busy.flag.write_text('x')
+    made_unreadable = time.monotonic()
+    code, _ = busy.wait_exit(15)
+    elapsed = time.monotonic() - made_unreadable
+    assert code == 75 and license_monitor.UNREADABLE_EXIT_SECONDS < elapsed <= 10, (elapsed, busy.output())
+
+
+def test_shared_loop_rollout_off_never_queries_or_exits(policy_db, child):
+    _protocol(policy_db, 'prusalink', NINE, TEN)
+    c = child('prusalink_monitor', rollout=False)
+    assert c.wait_for('start 9', 30) and c.wait_for('start 10', 5), c.output()  # legacy: no license filter
+    pick(policy_db, users=[3], printers=[TEN])
+    policy_db.execute(text("UPDATE printers SET api_host='127.0.0.99' WHERE id=9"))
+    policy_db.commit()
+    assert _alive(c, 6), c.output()
+    assert 'QUERY' not in c.events()
+
+
+# --- Bambu (mqtt_monitor daemon) ----------------------------------------------------------
+
+def _bambu(db, monkeypatch, *printers, hang=()):
+    from cryptography.fernet import Fernet
+    import core.crypto as crypto
+    if not os.environ.get('ENCRYPTION_KEY'):
+        monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    for pid in printers:
+        db.execute(text("UPDATE printers SET api_type='bambu', api_host=:h, api_key=:k WHERE id=:p"),
+                   {'h': 'hang' if pid in hang else f'127.0.0.{pid}', 'k': crypto.encrypt(f'SERIAL{pid}|code'),
+                    'p': pid})
+    db.commit()
+
+
+def test_bambu_exits_75_within_3s_even_while_a_connect_hangs(policy_db, child, tier_license, monkeypatch):
+    from core import license_lock
+    _bambu(policy_db, monkeypatch, NINE, TEN, hang=(TEN,))
+    policy_db.execute(text('UPDATE printers SET is_active=0 WHERE id=10'))
+    policy_db.commit()
+    tier_license('enterprise', max_users=1, max_printers=2)
+    license_lock.reconcile(policy_db)
+    policy_db.commit()
+    c = child('bambu')
+    assert c.wait_for('start 9', 30), c.output()
+    policy_db.execute(text('UPDATE printers SET is_active=1 WHERE id=10'))  # an added printer
+    policy_db.commit()
+    license_lock.reconcile(policy_db)
+    policy_db.commit()
+    assert c.wait_for('connect 10', 15), c.output()  # started in-process; its connect never returns
+    assert _alive(c, 3), c.output()
+    tier_license('enterprise', max_users=1, max_printers=1)
+    pick(policy_db, users=[3], printers=[TEN])  # 9's thread is blocked holding its lock
+    code, waited = c.wait_exit(3)
+    assert code == 75 and waited <= 3, (code, waited, c.output())
+    assert c.peer.all_closed()
+
+
+def test_bambu_restart_starts_only_allowed_and_exits_on_reconfiguration(policy_db, child, monkeypatch):
+    from core.crypto import encrypt
+    _bambu(policy_db, monkeypatch, NINE, TEN)
+    pick(policy_db, users=[3], printers=[TEN])
+    c = child('bambu')
+    assert c.wait_for('start 10', 30), c.output()
+    assert _alive(c, 3) and 'connect 9' not in c.events()
+    changed = time.monotonic()
+    policy_db.execute(text('UPDATE printers SET api_key=:k WHERE id=10'), {'k': encrypt('OTHER|code')})
+    policy_db.commit()
+    code, _ = c.wait_exit(15)
+    assert code == 75 and time.monotonic() - changed <= license_monitor.INVENTORY_SECONDS + 3, c.output()
+
+
+def test_bambu_unreadable_policy(policy_db, child, monkeypatch):
+    _bambu(policy_db, monkeypatch, NINE, TEN)
+    idle = child('bambu', unreadable=True)
+    assert _alive(idle, 8) and not any(e.startswith('connect') for e in idle.events()), idle.output()
+    idle.close()
+    busy = child('bambu')
+    assert busy.wait_for('start 9', 30), busy.output()
+    busy.flag.write_text('x')
+    made_unreadable = time.monotonic()
+    code, _ = busy.wait_exit(15)
+    elapsed = time.monotonic() - made_unreadable
+    assert code == 75 and license_monitor.UNREADABLE_EXIT_SECONDS < elapsed <= 10, (elapsed, busy.output())
+
+
+def test_bambu_rollout_off_never_queries_or_exits(policy_db, child, monkeypatch):
+    from core.crypto import encrypt
+    _bambu(policy_db, monkeypatch, NINE, TEN)
+    c = child('bambu', rollout=False)
+    assert c.wait_for('start 9', 30) and c.wait_for('start 10', 5), c.output()
+    pick(policy_db, users=[3], printers=[TEN])
+    policy_db.execute(text('UPDATE printers SET api_key=:k WHERE id=9'), {'k': encrypt('OTHER|code')})
+    policy_db.commit()
+    assert _alive(c, 6), c.output()
+    assert 'QUERY' not in c.events()

@@ -8,7 +8,6 @@ import time
 
 from sqlalchemy import column, func, table, text
 from core.db import live_engine as engine
-from core.license_monitor import monitor_loop
 from core.base import FilamentType
 from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
 from modules.printers.parsing.anycubic_lan import MODELS, filament_slots
@@ -111,10 +110,39 @@ def sync_slots(printer_id, boxes):
             conn.execute(text('UPDATE printers SET slot_count=:count WHERE id=:pid'), {'count': max(s['slot_number'] for s in slots), 'pid': printer_id})
 
 
-def _inventory():
+def _rows():
     with engine.connect() as conn:
-        rows = conn.execute(text("SELECT id,name,api_host FROM printers WHERE api_type='anycubic_lan' AND api_host IS NOT NULL AND is_active IS TRUE")).mappings().all()
-    return {r['id']: (r['name'], r['api_host']) for r in rows}
+        return conn.execute(text("SELECT id,name,api_host FROM printers WHERE api_type='anycubic_lan' AND api_host IS NOT NULL AND is_active IS TRUE")).mappings().all()
+
+
+def _inventory():
+    """{printer_id: (fingerprint, (name, host))} for license retirement (B2c)."""
+    from core.license_monitor import connection_fingerprint
+    return {r['id']: (connection_fingerprint('anycubic_lan', r['api_host']), (r['name'], r['api_host'])) for r in _rows()}
+
+
+def _legacy_loop(shutdown):
+    """License fleet lock off: refresh the printer set every 10 s, as before."""
+    threads = {}
+    try:
+        while not shutdown.is_set():
+            wanted = {r['id']: (r['name'], r['api_host']) for r in _rows()}
+            for pid, (identity, thread) in list(threads.items()):
+                if wanted.get(pid) != identity or not thread.is_alive():
+                    thread.stop()
+                    thread.join(timeout=25)
+                    del threads[pid]
+            for pid, identity in wanted.items():
+                if pid not in threads:
+                    thread = AnycubicLANMonitorThread(pid, *identity)
+                    threads[pid] = (identity, thread)
+                    thread.start()
+            shutdown.wait(10)
+    finally:
+        for _, thread in threads.values():
+            thread.stop()
+        for _, thread in threads.values():
+            thread.join(timeout=25)
 
 
 def main():
@@ -130,7 +158,13 @@ def main():
     shutdown = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: shutdown.set())
-    monitor_loop(engine, _inventory, AnycubicLANMonitorThread, 'Anycubic', shutdown, log)
+    from core import license_lock
+    if license_lock.enabled():
+        # Restart retirement (B2c, core.license_monitor).
+        from core.license_monitor import monitor_loop
+        monitor_loop(engine, _inventory, AnycubicLANMonitorThread, 'Anycubic', shutdown, log)
+    else:
+        _legacy_loop(shutdown)
 
 
 if __name__ == '__main__':

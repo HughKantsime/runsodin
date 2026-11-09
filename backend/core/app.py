@@ -517,6 +517,9 @@ def create_app() -> FastAPI:
         # Replays job alerts a crash or a failed dispatch left in the outbox (migration 034).
         from modules.notifications.alert_outbox import run_sweeper
         outbox_task = asyncio.create_task(run_sweeper())
+        # Smart-plug cooldown auto-off backstop for timers a monitor restart lost (B2c).
+        from modules.printers.cooldown_sweeper import run_sweeper as run_cooldown_sweeper
+        cooldown_task = asyncio.create_task(run_cooldown_sweeper())
         from modules.system.audit_integrity_job import run as audit_maintenance
         audit_task = asyncio.create_task(audit_maintenance())
         from modules.printers.dispatch_background import startup, drain
@@ -531,6 +534,7 @@ def create_app() -> FastAPI:
         broadcast_task.cancel()
         cleanup_task.cancel()
         outbox_task.cancel()
+        cooldown_task.cancel()
         audit_task.cancel()
         await asyncio.gather(audit_task, return_exceptions=True)
         app.state.branding_assets.close()
