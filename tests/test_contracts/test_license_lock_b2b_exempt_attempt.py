@@ -170,10 +170,14 @@ def test_terminal_status_retires_and_never_renews(policy_db):
                       {'t': _utcnow(), 'id': row['id']})
     policy_db.commit()
     p = _reconcile(policy_db)
-    assert str(NINE) not in p['exempt_attempts'] and p['revision'] > before
+    # The attempt ended: only its completion ticket remains (no M/C/V).
+    assert p['exempt_attempts'][str(NINE)]['kind'] == 'completion' and p['revision'] > before
+    snap = policy.snapshot(policy_db)
+    assert not policy.printer_allowed(snap, NINE, 'M')
+    assert not policy.attempt_allowed(policy_db, snap, NINE, 'V')
     _attempt(policy_db, NINE, started_ago=10)  # a later print on the locked printer
     _reconcile(policy_db)
-    assert _record(policy_db, NINE) is None
+    assert _record(policy_db, NINE) is None  # the ticket ends; the new print gets nothing
 
 
 def test_newer_attempt_retires_the_exemption(policy_db):
@@ -245,7 +249,7 @@ def test_admitted_start_is_captured_then_bound_then_retired(policy_db):
     policy_db.execute(text('DELETE FROM printer_dispatch_claims'))
     policy_db.commit()
     _reconcile(policy_db)
-    assert _record(policy_db, NINE) is None
+    assert _record(policy_db, NINE)['kind'] == 'completion'
 
 
 def test_admitted_start_released_unsent_is_retired(policy_db):
@@ -426,3 +430,108 @@ def test_retained_receipt_is_found_among_many_receipts(policy_db):
     _reconcile(policy_db)
     record = _record(policy_db, NINE)
     assert record['kind'] == 'observed' and record['print_job_id'] == row['id']
+
+
+# --- B2b-2: completion-only ticket ------------------------------------------------
+
+def _finish(db, row, ago=10):
+    db.execute(text("UPDATE print_jobs SET status='completed', ended_at=:t WHERE id=:id"),
+               {'t': _utcnow() - timedelta(seconds=ago), 'id': row['id']})
+    db.commit()
+
+
+def _plug(db, printer_id, auto_off):
+    db.execute(text("UPDATE printers SET plug_type='tasmota', plug_host='10.0.0.9', plug_auto_off=:a WHERE id=:p"),
+               {'a': auto_off, 'p': printer_id})
+    db.commit()
+
+
+def test_completion_ticket_allows_only_energy_and_configured_cooldown(policy_db):
+    engine = policy_db.get_bind()
+    _plug(policy_db, NINE, True)
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    assert policy.completion_allowed(engine, NINE, row['id'], 'energy')  # running exempt print
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')  # not ended yet
+    _finish(policy_db, row)
+    assert policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')  # before reconcile catches up
+    _reconcile(policy_db)
+    assert policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+    assert policy.completion_allowed(engine, NINE, row['id'], 'energy')
+    assert not policy.completion_allowed(engine, NINE, row['id'] + 1, 'energy')  # another attempt
+    assert not policy.completion_allowed(engine, NINE, None, 'cooldown_off')
+    with pytest.raises(ValueError):
+        policy.completion_allowed(engine, NINE, row['id'], 'power_on')
+
+
+def test_cooldown_needs_auto_off_configured_at_cutoff(policy_db):
+    engine = policy_db.get_bind()
+    _plug(policy_db, NINE, False)
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    _plug(policy_db, NINE, True)  # enabling auto-off after the cutoff adds nothing
+    _finish(policy_db, row)
+    _reconcile(policy_db)
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+    assert policy.completion_allowed(engine, NINE, row['id'], 'energy')
+
+
+def test_completion_ends_after_24_hours_or_when_another_print_starts(policy_db):
+    engine = policy_db.get_bind()
+    _plug(policy_db, NINE, True)
+    row = _attempt(policy_db, NINE, started_ago=30 * 3600)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    _finish(policy_db, row, ago=25 * 3600)
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+    assert _reconcile(policy_db)['exempt_attempts'] == {}
+
+
+def test_cooldown_refused_once_a_different_print_runs(policy_db):
+    engine = policy_db.get_bind()
+    _plug(policy_db, NINE, True)
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    _finish(policy_db, row)
+    _reconcile(policy_db)
+    _attempt(policy_db, NINE, started_ago=5)
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+
+
+def test_members_always_pass_and_rollout_off_is_a_no_op(policy_db, monkeypatch):
+    engine = policy_db.get_bind()
+    assert policy.completion_allowed(engine, NINE, None, 'cooldown_off')
+    monkeypatch.delenv('ODIN_LICENSE_FLEET_LOCK_ENABLED')
+    assert policy.completion_allowed(engine, TEN, None, 'cooldown_off')
+
+
+def test_power_fence_refuses_before_any_lock_for_a_locked_printer(policy_db, monkeypatch):
+    from types import SimpleNamespace as NS
+    from modules.printers import power_fence
+    monkeypatch.setattr(power_fence, '_snapshot', lambda *a, **k: (NS(target_key='t'), {}))
+    monkeypatch.setattr(power_fence, 'acquire_target_lock', lambda *a, **k: pytest.fail('target lock taken'))
+    module = NS(engine=policy_db.get_bind())
+    assert power_fence.run(module, TEN, 'manual_on') is None
+    assert power_fence.run(module, TEN, 'observed_on', physical_id=1) is None  # never auto-on
+    assert power_fence.run(module, TEN, 'cooldown_off', physical_id=1) is None  # no ticket
+
+
+def test_unfenced_auto_on_skips_a_locked_printer(policy_db, monkeypatch):
+    from modules.printers import smart_plug
+    monkeypatch.setattr(smart_plug, 'engine', policy_db.get_bind())
+    monkeypatch.setattr(smart_plug, 'get_plug_config', lambda pid, **k: {'type': 'homeassistant', 'auto_on': True})
+    monkeypatch.setattr(smart_plug, 'power_on', lambda pid, **k: pytest.fail('auto-on sent'))
+    smart_plug._unfenced_on_print_start(TEN)
+
+
+def test_energy_reads_refused_for_a_locked_printer(policy_db, monkeypatch):
+    from modules.printers import smart_plug
+    monkeypatch.setattr(smart_plug, 'engine', policy_db.get_bind())
+    monkeypatch.setattr(smart_plug, '_energy_counter', lambda pid: pytest.fail('plug read'))
+    smart_plug.record_energy_start(TEN, 123)
+    with smart_plug._energy_lock:
+        smart_plug._energy_starts[456] = (TEN, 1.0)
+    assert smart_plug.record_energy_for_print(TEN, 456) is None

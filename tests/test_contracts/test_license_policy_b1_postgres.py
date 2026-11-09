@@ -119,5 +119,5 @@ def test_postgres_exempt_attempt_capture_and_retire(native_pg, tier_license, mon
         assert policy.attempt_allowed(db, snap, 1, 'V') and not policy.printer_allowed(snap, 1, 'N')
         db.execute(text("UPDATE print_jobs SET status='completed', ended_at=now() WHERE printer_id=1"))
         db.commit()
-        assert '1' not in policy.reconcile(db)['exempt_attempts']
+        assert policy.reconcile(db)['exempt_attempts']['1']['kind'] == 'completion'
         db.commit()
