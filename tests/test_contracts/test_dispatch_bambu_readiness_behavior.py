@@ -93,9 +93,13 @@ def test_actual_owned_broker_fresh_report_through_spawned_worker(monkeypatch,mod
             ok = bounded_status_is_idle({'api_type':'bambu','ip':broker.host,'serial':'synthetic','access_code':''},time.monotonic()+3)
         assert ok is (mode=='idle')
         # A refusal through the real spawned worker names a reason; idle names none.
-        expected = {'idle': [], 'other_topic': ['no_reply_before_deadline'],
-                    'retained_only': ['no_reply_before_deadline']}.get(mode, ['not_ready_or_unreachable'])
-        assert reasons == expected
+        if mode in ('other_topic', 'retained_only'):
+            # No fresh report ever arrives, so the worker runs into the same deadline:
+            # its reply lands just before or just after the parent's deadline check
+            # depending on machine speed. Both are honest; the refusal is identical.
+            assert reasons in (['no_reply_before_deadline'], ['reply_after_deadline'])
+        else:
+            assert reasons == {'idle': []}.get(mode, ['not_ready_or_unreachable'])
     finally:
         # Stop the network loop before disconnecting: a disconnect lets paho's thread
         # exit and clear itself, racing loop_stop()'s join.
