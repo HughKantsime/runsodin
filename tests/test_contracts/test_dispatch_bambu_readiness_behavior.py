@@ -88,7 +88,14 @@ def test_actual_owned_broker_fresh_report_through_spawned_worker(monkeypatch,mod
             receipt=responder.publish('device/synthetic/report',b'{"print":{"command":"push_status","gcode_state":"IDLE","print_error":0}}',qos=1,retain=True)
             receipt.wait_for_publish(timeout=1)
             assert receipt.is_published()
-        assert bounded_status_is_idle({'api_type':'bambu','ip':broker.host,'serial':'synthetic','access_code':''},time.monotonic()+3) is (mode=='idle')
+        from modules.printers.dispatch_acquisition import capture_refusal_reason
+        with capture_refusal_reason() as reasons:
+            ok = bounded_status_is_idle({'api_type':'bambu','ip':broker.host,'serial':'synthetic','access_code':''},time.monotonic()+3)
+        assert ok is (mode=='idle')
+        # A refusal through the real spawned worker names a reason; idle names none.
+        expected = {'idle': [], 'other_topic': ['no_reply_before_deadline'],
+                    'retained_only': ['no_reply_before_deadline']}.get(mode, ['not_ready_or_unreachable'])
+        assert reasons == expected
     finally:
         # Stop the network loop before disconnecting: a disconnect lets paho's thread
         # exit and clear itself, racing loop_stop()'s join.

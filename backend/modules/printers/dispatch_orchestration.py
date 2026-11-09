@@ -21,6 +21,15 @@ class TargetOwnershipLost(RuntimeError):
     pass
 
 
+
+def _readiness_confirmed(creds, deadline, reasons):
+    """bounded_status_is_idle, with its refusal code copied into ``reasons``."""
+    from modules.printers import dispatch_acquisition
+    with dispatch_acquisition.capture_refusal_reason() as captured:
+        ok = dispatch_acquisition.bounded_status_is_idle(creds, deadline)
+    reasons.extend(captured[:1])
+    return ok
+
 def _require_target(handle):
     if not handle.held():
         raise TargetOwnershipLost('Configured target ownership could not be confirmed')
@@ -96,7 +105,6 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
     from core.auth import SECRET_KEY
     from core.db import engine
     from modules.printers import dispatch,smart_plug
-    from modules.printers.dispatch_acquisition import bounded_status_is_idle
     key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
     identity=build_identity(creds,key)
     if identity is None:
@@ -152,8 +160,9 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                         result=(False,power.error or 'Power preparation was not confirmed; no print command was sent')
                     elif not target_handle.held():
                         raise TargetOwnershipLost()
-                    elif not bounded_status_is_idle(creds,deadline):
-                        result=(False,'Fresh printer readiness was not confirmed; no print command was sent')
+                    elif not _readiness_confirmed(creds,deadline,readiness_reasons:=[]):
+                        reason = readiness_reasons[0] if readiness_reasons else 'unknown'
+                        result=(False,f'Fresh printer readiness was not confirmed ({reason}); no print command was sent')
                     elif time.monotonic()>=deadline:
                         result=(False,'Dispatch preparation deadline elapsed; no print command was sent')
                     elif not hmac.compare_digest(hash_regular_payload(source_path),staged.sha256):

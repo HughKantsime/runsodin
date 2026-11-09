@@ -219,6 +219,13 @@ class PrinterMonitor:
             return True
         except Exception as e:
             log.error(f"[{self.name}] V2 connection error: {e}")
+            # The caller discards this monitor; a started session must not keep
+            # holding one of the printer's MQTT slots (same as the legacy path).
+            adapter, self._v2_adapter = self._v2_adapter, None
+            try:
+                adapter.stop()
+            except Exception:
+                log.warning(f"[{self.name}] V2 session stop after a failed connect was not confirmed")
             return False
 
     def _recover_orphaned_jobs(self):
