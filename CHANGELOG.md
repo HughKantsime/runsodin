@@ -4,6 +4,24 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.51] - 2026-11-08
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: Adds a read-only status endpoint for the new Home Assistant integration, and backup checks now refuse backups whose recovery history could be edited. -->
+
+### Added
+
+- A read-only fleet status endpoint for Home Assistant: `GET /api/v1/integrations/home-assistant/status`. It returns each printer's status, progress, layer, time remaining, job name, last error and whether it is online, plus fleet counts and queue length. It reads only O.D.I.N.'s database and never contacts a printer, so polling it does not use printer connections. It requires an API token with `read:printers` and `read:jobs` (or broad `read`). Job names and error text for controlled work are hidden from callers who cannot see it.
+- A Home Assistant custom integration (`integrations/home-assistant/`, installed manually for now) that reads this endpoint: one device per printer with status, progress, finish time, job, layers, online and problem sensors, an error event, fleet counts, and optional cameras through O.D.I.N.'s camera relay with a camera-only token. It has no controls.
+
+### Fixed
+
+- Backup validation now refuses a backup whose dispatch recovery history (migrations 038 and 056) is missing its protection against edits and deletes. Before, such a backup was accepted and would restore a history that could be changed.
+
+### Release tooling
+
+- The Education backup gate now runs every SQLite backup and restore test, not one file, and two of those tests were brought up to date with migration 056.
+
 ## [2.0.50] - 2026-11-08
 
 <!-- summary: For printers without an organization, an administrator can now clear a stuck dispatch instead of the printer staying blocked. -->
