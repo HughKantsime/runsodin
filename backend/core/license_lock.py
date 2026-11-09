@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from types import MappingProxyType
 from uuid import uuid4
 
@@ -97,9 +98,10 @@ def _valid_policy(p):
             and type(p.get('membership_generation')) is int and p['membership_generation'] >= 0):
         return False
     e = p['entitlement']
-    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'lease_deadline'}
+    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'proven'}
             and e.get('state') in {'verified_current', 'verified_expired', 'community_initial', 'community_selected', 'verification_unavailable'}
             and type(e.get('enforce')) is bool
+            and type(e.get('proven', False)) is bool
             and all(e.get(k) is None or type(e[k]) is int and e[k] >= 0 for k in ('max_users', 'max_printers'))
             and (p.get('recovery_user_id') is None or type(p['recovery_user_id']) is int and p['recovery_user_id'] > 0)
             and isinstance(p.get('exempt_attempts'), dict))
@@ -155,9 +157,23 @@ def _entitlement(info):
                 deadline=info.expiry_deadline.isoformat() if info.expiry_deadline else None)
 
 
+def _frozen_members(previous, active, entitlement, cap_key, recovery=None):
+    """Membership while unverifiable: the last proven members that are still active.
+
+    Never adds a member except to refill a vacancy within caps proven by the saved
+    signed envelope; cached caps alone never change who is locked.
+    """
+    kept = [i for i in previous if i in set(active)]
+    if not entitlement.get('proven'):
+        if recovery is not None and recovery not in kept and len(kept) < len(previous):
+            kept.insert(0, recovery)  # the recovery admin takes a vacated seat only
+        return kept
+    return _fill(kept, active, entitlement.get(cap_key), recovery)
+
+
 def _evidence(db, info, previous):
     """Persist only verified envelopes; while unverifiable, freeze the last proven entitlement."""
-    from license_manager import verify_license_text, license_clock
+    from license_manager import license_clock
     from core.license_clock import instant
     now, _uncertain = license_clock().sample()
     try:
@@ -179,46 +195,49 @@ def _evidence(db, info, previous):
         return _entitlement(info), None
     if info.verification_state == 'community_selected' or (info.verification_state == 'community_initial' and isinstance(evidence, dict) and evidence.get('community_selected')):
         return dict(_entitlement(info), state='community_selected', enforce=False, reason='community_downgrade_decision_pending'), None
-    if info.verification_state == 'community_initial' and not evidence:
+    if info.verification_state == 'community_initial' and not evidence and not (previous or {}).get('enforce'):
         return _entitlement(info), None
     warning = 'license_verification_unavailable'
     # Shane 2026-11-08 ("stay locked", clarified "freeze last-good"): while the
-    # license cannot be verified, keep exactly the last proven entitlement, with
-    # no time limit. Uncertainty never locks more and never unlocks; only fresh
-    # verification or a known expiry changes the state.
+    # license cannot be verified, keep the last proven state with no time limit.
+    # Uncertainty never adds or removes locks; only fresh verification or a known
+    # expiry changes the state. _reconcile freezes membership for 'uncertainty_frozen'.
     if isinstance(evidence, dict) and evidence.get('schema_version') == 1 and (
             not evidence.get('uncertainty_started_at') or 'uncertainty_deadline' in evidence):
         evidence['uncertainty_started_at'] = evidence.get('uncertainty_started_at') or now.isoformat()
         evidence.pop('uncertainty_deadline', None)
         _write(db, EVIDENCE_KEY, evidence)
-    if not previous:
-        # Nothing was ever proven here: Slice A/Community semantics, as before.
-        return dict(_entitlement(info), state='verification_unavailable', enforce=False), warning
-    frozen = dict(previous, state='verification_unavailable', reason='uncertainty_frozen')
-    frozen.pop('lease_deadline', None)
-    # Raw cached caps are not evidence: the frozen caps come from the saved signed
-    # envelope, reverified against the current binding.
-    proven = None
+    proof = _saved_proof(evidence)
+    if proof is not None and proof.verification_state == 'verified_expired':
+        # Known expiry from the saved signed envelope on a trusted clock.
+        return dict(_entitlement(proof), proven=True), warning
+    proven_current = proof is not None and proof.verification_state == 'verified_current'
+    if previous and previous.get('state'):
+        frozen = dict(previous, state='verification_unavailable', reason='uncertainty_frozen', proven=proven_current)
+        frozen.pop('lease_deadline', None)
+        if proven_current:
+            # Caps come only from the reverified signed envelope, never the stored row.
+            if (previous.get('max_printers'), previous.get('max_users')) != (proof.signed_max_printers, proof.signed_max_users):
+                warning = 'license_policy_evidence_mismatch'
+            frozen.update(max_printers=proof.signed_max_printers, max_users=proof.signed_max_users)
+        return frozen, warning
+    if proven_current:
+        # Lost or corrupt policy row with usable evidence: rebuild from the proof.
+        return dict(_entitlement(proof), state='verification_unavailable', reason='policy_rebuilt_from_evidence', proven=True), warning
+    # Nothing was ever proven here: Slice A/Community semantics, as before.
+    return dict(_entitlement(info), state='verification_unavailable', enforce=False), warning
+
+
+def _saved_proof(evidence):
+    """The saved signed envelope, reverified now against the current binding, or None."""
+    from license_manager import verify_license_text
     raw = evidence.get('signed_envelope') if isinstance(evidence, dict) else None
-    if isinstance(raw, str) and hashlib.sha256(raw.encode()).hexdigest() == evidence.get('sha256'):
-        verified = verify_license_text(raw)
-        if (verified.verified_digest == evidence.get('sha256') and
-                verified.binding_digest == evidence.get('binding_digest')):
-            try:
-                accepted = instant(evidence['accepted_at'])
-                current = verified.expiry_deadline is None or accepted < verified.expiry_deadline
-                proven = ((verified.signed_max_printers, verified.signed_max_users)
-                          if current else (5, 1))
-            except (ValueError, TypeError, KeyError):
-                proven = None
-    if proven is None:
-        # No usable proof of what was granted: never unlock, but never trust the
-        # stored caps beyond the lapse allowance either.
-        proven = (5, 1)
-    if (previous.get('max_printers'), previous.get('max_users')) != proven:
-        warning = 'license_policy_evidence_mismatch'
-    frozen.update(max_printers=proven[0], max_users=proven[1])
-    return frozen, warning
+    if not isinstance(raw, str) or hashlib.sha256(raw.encode()).hexdigest() != evidence.get('sha256'):
+        return None
+    verified = verify_license_text(raw)
+    if verified.verified_digest != evidence.get('sha256') or verified.binding_digest != evidence.get('binding_digest'):
+        return None
+    return verified
 
 
 def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recovery_user_id=None):
@@ -251,6 +270,10 @@ def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recove
         recovery = recovery_user_id
     if recovery not in eligible:
         recovery = eligible[0] if eligible else None
+    frozen = entitlement.get('reason') == 'uncertainty_frozen'
+    if selection is not None and frozen and not entitlement.get('proven'):
+        # No proven caps to validate a new selection against; keep the frozen one.
+        raise LicenseLockError('license_verification_unavailable', status=409, revision=revision)
     picks = selection or {'printers': old['printers'], 'users': old['users']}
     if selection is not None:
         for name, active in [('printers', printers), ('users', users)]:
@@ -259,10 +282,15 @@ def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recove
                 raise LicenseLockError('license_selection_invalid', status=422, revision=revision)
         if entitlement.get('max_users') != 0 and recovery is not None and picks['users'] and recovery not in picks['users']:
             raise LicenseLockError('license_selection_invalid', status=422, revision=revision, reason='recovery_seat_required')
-    selection_caps = old['entitlement'] if entitlement['state'] == 'verification_unavailable' and old['entitlement'] else entitlement
+    if frozen and selection is None:
+        member_printers = _frozen_members(old['printers'], printers, entitlement, 'max_printers')
+        member_users = _frozen_members(old['users'], users, entitlement, 'max_users', recovery)
+    else:
+        member_printers = _fill(picks['printers'], printers, entitlement.get('max_printers'))
+        member_users = (_fill(picks['users'], users, entitlement.get('max_users'), recovery)
+                        if recovery is not None or entitlement.get('max_users') is None or not entitlement.get('enforce') else [])
     resolved = dict(old, entitlement=entitlement, recovery_user_id=recovery,
-                    printers=_fill(picks['printers'], printers, selection_caps.get('max_printers')),
-                    users=(_fill(picks['users'], users, selection_caps.get('max_users'), recovery) if recovery is not None or selection_caps.get('max_users') is None or not entitlement.get('enforce') else []),
+                    printers=member_printers, users=member_users,
                     usage={'printers': len(printers), 'users': len(users)}, warning=warning)
     if not valid and revision:
         resolved['warning'] = 'license_policy_reconstructed'
@@ -305,7 +333,7 @@ class PolicySnapshot:
 
     @property
     def deadline(self):
-        return self.entitlement.get('lease_deadline') or self.entitlement.get('deadline')
+        return self.entitlement.get('deadline')
 
     @property
     def evidence_generation(self):
@@ -325,6 +353,26 @@ def _snapshot(p):
                           frozenset(p['printers']), frozenset(p['users']), p['recovery_user_id'],
                           MappingProxyType(dict(p['entitlement'])), p.get('warning'), p['membership_generation'], p.get('transition_id'), p.get('effective_at'),
                           _freeze(p.get('exempt_attempts', {})))
+
+
+# While unverifiable, the license file's signature never changes, so a cached
+# snapshot would never re-check the saved envelope. Re-reconcile at the 30-second
+# retry cadence, and immediately once a known deadline passes.
+UNVERIFIED_CACHE_SECONDS = 30
+
+
+def _cache_current(cached, p, now):
+    from core.license_clock import instant
+    entitlement = p.get('entitlement') or {}
+    try:
+        if (entitlement.get('state') in ('verified_current', 'verification_unavailable')
+                and entitlement.get('deadline') and now >= instant(entitlement['deadline'])):
+            return False
+    except (TypeError, ValueError):
+        return False
+    if entitlement.get('state') == 'verification_unavailable':
+        return len(cached) > 3 and time.monotonic() - cached[3] < UNVERIFIED_CACHE_SECONDS
+    return True
 
 
 _DISABLED = PolicySnapshot(0, False, frozenset(), frozenset(), None, MappingProxyType({}), None, 0)
@@ -348,7 +396,8 @@ def snapshot(db, *, request=None, cycle=None):
         signature = (info.verification_state, info.verified_digest, info.binding_digest, paid_lapse_enabled())
         cache_key = str(db.get_bind().url)
         cached = _cache.get(cache_key)
-        fresh = (cached and _valid_policy(p) and cached[0] == p['revision'] and cached[1] == signature)
+        fresh = (cached and _valid_policy(p) and cached[0] == p['revision'] and cached[1] == signature
+                 and _cache_current(cached, p, now))
         if fresh:
             result = cached[2]
         else:
@@ -366,7 +415,7 @@ def snapshot(db, *, request=None, cycle=None):
                     p = reconcile(policy_db)
                     policy_db.commit()
             result = _snapshot(p)
-            _cache[cache_key] = (p['revision'], signature, result)
+            _cache[cache_key] = (p['revision'], signature, result, time.monotonic())
         if holder is not None:
             holder.license_policy = result
         return result

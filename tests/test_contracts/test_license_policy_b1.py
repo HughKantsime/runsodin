@@ -688,33 +688,95 @@ def test_support_bundle_excludes_signed_envelope_and_private_selection(policy_db
 
 
 def test_raw_cached_caps_are_not_evidence(policy_db, tier_license):
-    status(policy_db)
-    p = policy._read(policy_db, policy.POLICY_KEY)
-    p['entitlement']['max_users'] = 0
-    policy._write(policy_db, policy.POLICY_KEY, p); policy_db.commit()
-    tier_license(None)
-    p = status(policy_db)
-    # Frozen caps come from the reverified signed envelope, not the tampered row.
-    assert p['entitlement']['max_users'] != 0
-    assert p['entitlement']['reason'] == 'uncertainty_frozen'
-    assert p['warning'] == 'license_policy_evidence_mismatch'
+    """Tampered cached caps change neither the frozen caps nor who is locked (Codex P1-2)."""
+    before = status(policy_db)
+    assert before['users'] == [3]
+    for tampered in (50, 0):
+        p = policy._read(policy_db, policy.POLICY_KEY)
+        p['entitlement']['max_users'] = tampered
+        policy._write(policy_db, policy.POLICY_KEY, p); policy_db.commit()
+        tier_license(None)
+        policy._cache.clear()
+        p = status(policy_db)
+        assert p['entitlement']['max_users'] == 1 and p['entitlement']['reason'] == 'uncertainty_frozen'
+        assert p['warning'] == 'license_policy_evidence_mismatch' or tampered == 1
+        assert p['users'] == [3]
+        snap = policy.snapshot(policy_db)
+        assert policy.user_allowed(snap, 3) and not policy.user_allowed(snap, 4)
+        tier_license('enterprise', max_users=1, max_printers=1)
+        policy._cache.clear(); status(policy_db)
 
 
-def test_frozen_without_usable_evidence_never_unlocks_beyond_lapse_caps(policy_db, tier_license, clock_env, monkeypatch):
+def test_unusable_evidence_never_changes_locks(policy_db, tier_license, clock_env, monkeypatch):
+    """Missing/tampered evidence freezes membership exactly, in both directions (Codex P1-1)."""
     import license_manager as lm
     wall, tick, store, new, _ = clock_env
     clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
-    tier_license('enterprise', max_users=50, max_printers=50)
-    status(policy_db)
-    evidence = policy._read(policy_db, policy.EVIDENCE_KEY)
-    evidence['signed_envelope'] = 'tampered'
-    policy._write(policy_db, policy.EVIDENCE_KEY, evidence); policy_db.commit()
-    tier_license(None)
-    p = status(policy_db)
-    assert p['entitlement']['enforce']
-    assert (p['entitlement']['max_printers'], p['entitlement']['max_users']) == (5, 1)
-    assert p['warning'] == 'license_policy_evidence_mismatch'
+    for caps in ((50, 50), (0, 0)):
+        tier_license('enterprise', max_users=caps[1], max_printers=caps[0])
+        policy._cache.clear()
+        before = status(policy_db)
+        evidence = policy._read(policy_db, policy.EVIDENCE_KEY)
+        evidence['signed_envelope'] = 'tampered'
+        policy._write(policy_db, policy.EVIDENCE_KEY, evidence); policy_db.commit()
+        tier_license(None)
+        for _ in range(3):
+            policy._cache.clear()
+            p = status(policy_db)
+            assert p['entitlement']['reason'] == 'uncertainty_frozen' and not p['entitlement']['proven']
+            assert p['entitlement']['enforce'] == before['entitlement']['enforce']
+            assert (p['users'], p['printers']) == (before['users'], before['printers'])
+        policy._write(policy_db, policy.EVIDENCE_KEY, None); policy_db.commit()
 
+
+def test_known_expiry_applies_during_uncertainty_without_cache_clears(policy_db, tier_license, clock_env, monkeypatch):
+    """Saved signed evidence still lapses on a trusted clock; warm snapshots notice (Codex P1-3, P1-4)."""
+    import license_manager as lm
+    wall, tick, store, new, _ = clock_env
+    clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
+    tier_license('enterprise', max_users=50, max_printers=50, expires_at=(BASE + timedelta(seconds=60)).isoformat())
+    policy._cache.clear()
+    assert len(status(policy_db)['users']) > 1
+    tier_license(None)
+    assert policy.snapshot(policy_db).entitlement['reason'] == 'uncertainty_frozen'
+    evidence = policy._read(policy_db, policy.EVIDENCE_KEY)
+    evidence['accepted_at'] = (BASE + timedelta(days=3650)).isoformat()  # unsigned; must not matter
+    policy._write(policy_db, policy.EVIDENCE_KEY, evidence); policy_db.commit()
+    tick[0] += 120; wall[0] += timedelta(seconds=120)
+    snap = policy.snapshot(policy_db)  # no cache clear
+    assert snap.entitlement['state'] == 'verified_expired'
+    assert (snap.entitlement['max_printers'], snap.entitlement['max_users']) == (5, 1)
+    assert snap.enforcing and len(snap.users) == 1
+
+
+def test_lost_policy_row_rebuilds_from_usable_evidence(policy_db, tier_license):
+    """A missing policy row with valid saved evidence is not a new install (Codex P1-5)."""
+    tier_license(None)
+    policy._write(policy_db, policy.POLICY_KEY, None); policy_db.commit()
+    policy._cache.clear()
+    p = status(policy_db)
+    assert p['entitlement']['enforce'] and p['entitlement']['proven']
+    assert (p['entitlement']['max_printers'], p['entitlement']['max_users']) == (1, 1)
+    assert len(p['users']) == 1
+
+
+def test_lost_evidence_with_enforced_policy_is_not_a_new_install(policy_db, tier_license):
+    tier_license(None)
+    policy._write(policy_db, policy.EVIDENCE_KEY, None); policy_db.commit()
+    policy._cache.clear()
+    p = status(policy_db)
+    assert p['entitlement']['enforce'] and p['entitlement']['reason'] == 'uncertainty_frozen'
+    assert p['users'] == [3]
+
+
+def test_selection_refused_while_frozen_without_proof(policy_db, tier_license):
+    tier_license(None)
+    policy._write(policy_db, policy.EVIDENCE_KEY, None); policy_db.commit()
+    policy._cache.clear()
+    p = status(policy_db)
+    with pytest.raises(policy.LicenseLockError):
+        policy.replace_selection(policy_db, printers=p['printers'], users=[5], expected_revision=p['revision'], actor=3)
+    policy_db.rollback()
 
 def test_simultaneous_recovery_demotion_cannot_remove_both(policy_db):
     engine = policy_db.get_bind()
