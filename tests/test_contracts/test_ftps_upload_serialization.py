@@ -146,27 +146,60 @@ def test_waiters_beyond_the_cap_refuse_immediately(monkeypatch):
     assert busy.waited_seconds == 0.0 and time.monotonic() - started < 2.5
 
 
-def test_slot_acquired_after_the_deadline_is_not_used(monkeypatch):
-    """Codex P2-5: deterministic clock; the holder frees the slot just after the limit."""
+def test_slot_acquired_after_the_deadline_is_not_used(monkeypatch, lock_path):
+    """Codex P2-5: a scheduler delay carries the waiter past its deadline; the slot
+    it then acquires is given back unused and nothing is uploaded."""
     import fcntl
     monkeypatch.setenv("ODIN_FTPS_UPLOAD_WAIT_SECONDS", "0.6")
     now = [0.0]
-    attempts = []
     real_flock = fcntl.flock
+    acquired_late = []
     def flock(fd, op):
         if op & fcntl.LOCK_EX:
-            attempts.append(now[0])
             if now[0] < 0.75:
                 raise BlockingIOError()
+            acquired_late.append(now[0])
         return real_flock(fd, op)
     monkeypatch.setattr(ftp_upload.fcntl, "flock", flock)
-    sleeps = []
-    def sleep(seconds):
-        sleeps.append(seconds); now[0] += seconds
-    with ftp_upload.upload_slot(clock=lambda: now[0], sleep=sleep) as (state, waited):
-        assert state == "timeout"
-    assert all(s <= 0.5 for s in sleeps) and max(attempts) <= 0.6 + 1e-9
+    def delayed_sleep(seconds):
+        now[0] += seconds + 0.45  # the thread wakes well after it asked to
+    calls = []
+    monkeypatch.setattr(ftp_upload, "_upload_once", lambda *a: calls.append(a) or (True, "done"))
+    with ftp_upload.upload_slot(clock=lambda: now[0], sleep=delayed_sleep) as (state, waited):
+        assert state == "timeout" and waited > 0.6
+    assert acquired_late, "the test must reach a late acquisition"
+    assert calls == []
+    # Released: another descriptor can take it without waiting.
+    import os
+    fd = os.open(str(lock_path), os.O_RDWR)
+    try:
+        real_flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        real_flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
+
+def test_two_processes_upload_one_after_the_other(lock_path, tmp_path):
+    """Spec: two real processes both succeed and their transfers never overlap."""
+    import json
+    import os
+    script = (
+        "import json,sys,time\n"
+        "from modules.printers.telemetry.bambu import ftp_upload\n"
+        "def once(*a):\n"
+        "    start=time.time(); time.sleep(0.5); return True, 'done'\n"
+        "spans=[]\n"
+        "def once_recorded(*a):\n"
+        "    start=time.time(); r=once(*a); spans.append((start,time.time())); return r\n"
+        "ftp_upload._upload_once=once_recorded\n"
+        "r=ftp_upload.upload_file('h','c','/inert','f.3mf')\n"
+        "print(json.dumps({'ok':bool(r),'phase':r.phase,'spans':spans}))\n")
+    env = dict(os.environ, ODIN_FTPS_UPLOAD_LOCK_PATH=str(lock_path), PYTHONPATH="backend:.")
+    procs = [subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True, env=env) for _ in range(2)]
+    results = [json.loads(p.communicate(timeout=20)[0].strip().splitlines()[-1]) for p in procs]
+    assert all(r["ok"] and r["phase"] == "done" for r in results)
+    (a0, a1), (b0, b1) = results[0]["spans"][0], results[1]["spans"][0]
+    assert a1 <= b0 or b1 <= a0
 
 @pytest.mark.parametrize("raw,expected", [("bad", 900.0), ("-5", 0.0), ("99999", 3600.0), ("nan", 900.0), ("12", 12.0)])
 def test_wait_limit_is_bounded(monkeypatch, raw, expected):
@@ -322,3 +355,57 @@ def test_failed_education_cancel_strips_the_marker(monkeypatch):
     ok, message = dispatch._run_admitted_dispatch({"id": 1, "printer_id": 9, "item_name": "t"},
         {"api_type": "bambu", "ip": "h"}, "", "", {}, object(), {"token": "r"}, before_start=NS(refusal=None))
     assert ok is False and type(message) is str and "explicit reconciliation" in message
+
+
+def _real_bambu(monkeypatch, protocol, upload_result, *, disconnect_error=False):
+    """Real _dispatch_bambu (V2 or legacy) with only the network edges replaced."""
+    from modules.printers.telemetry import feature_flag
+    from modules.printers.adapters import bambu
+    from modules.printers.telemetry.bambu import session
+    uploads = []
+    monkeypatch.setattr(feature_flag, "is_v2_enabled", lambda: protocol == "v2")
+    def upload(*a):
+        uploads.append(a)
+        return upload_result
+    monkeypatch.setattr(ftp_upload, "upload_file", upload)
+    monkeypatch.setattr(session, "run_command", lambda *a, **k: pytest.fail("start_print reached"))
+    def disconnect():
+        if disconnect_error:
+            raise RuntimeError("synthetic cleanup failure")
+    monkeypatch.setattr(bambu, "BambuPrinter", lambda **k: NS(
+        upload_file=lambda *a: upload(*a), connect=lambda: pytest.fail("MQTT reached"),
+        start_print=lambda *a, **k: pytest.fail("start_print reached"), disconnect=disconnect))
+    return uploads
+
+
+@pytest.mark.parametrize("protocol", ["v2", "legacy"])
+def test_real_dispatcher_upload_failure_releases_and_retry_is_admitted(bambu_dispatch, monkeypatch, protocol):
+    uploads = _real_bambu(monkeypatch, protocol, ftp_upload.UploadResult(False, "transfer"))
+    ok, message = dispatch.dispatch_job(59, 53)
+    assert not ok and "no print command was sent" in message, message
+    assert _claims(bambu_dispatch) == []
+    from sqlalchemy import text
+    with bambu_dispatch.begin() as conn:
+        conn.execute(text("UPDATE jobs SET status='scheduled' WHERE id=53"))
+    dispatch.dispatch_job(59, 53)
+    assert len(uploads) == 2, "the retry must be admitted and reach the upload again"
+
+
+def test_real_legacy_cleanup_exception_keeps_the_fence(bambu_dispatch, monkeypatch):
+    _real_bambu(monkeypatch, "legacy", ftp_upload.UploadResult(False, "connect"), disconnect_error=True)
+    assert not dispatch.dispatch_job(59, 53)[0]
+    assert [state for _, state in _claims(bambu_dispatch)] == ["uncertain"]
+
+
+@pytest.mark.parametrize("protocol", ["v2", "legacy"])
+def test_real_dispatcher_maintenance_read_error_keeps_the_fence(bambu_dispatch, monkeypatch, protocol):
+    from modules.printers import maintenance_gate
+    uploads = _real_bambu(monkeypatch, protocol, ftp_upload.UploadResult(False, "transfer"))
+    real = maintenance_gate.refusal
+    def refusal(engine, pid):
+        if uploads:
+            raise RuntimeError("synthetic maintenance read failure")
+        return real(engine, pid)
+    monkeypatch.setattr(maintenance_gate, "refusal", refusal)
+    assert not dispatch.dispatch_job(59, 53)[0]
+    assert [state for _, state in _claims(bambu_dispatch)] == ["uncertain"]
