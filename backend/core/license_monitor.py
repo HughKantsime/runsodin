@@ -124,8 +124,12 @@ class Retirement:
     the life of the process (connected, connecting or retrying). The license pass
     runs on its own thread, independent of connect and reconnect work."""
 
-    def __init__(self, engine, label, log=None, exit=None):
+    def __init__(self, engine, label, log=None, exit=None, inventory=None):
         self.license = MonitorLicense(engine)
+        # Optional inventory source: () -> {printer_id: fingerprint}. When given, the
+        # removal/reconfiguration check also runs on its own thread, so a daemon whose
+        # main loop connects synchronously (Bambu) cannot delay it.
+        self._inventory = inventory
         self.label, self.log = label, log
         self._exit = exit or os._exit
         self._sessions = {}
@@ -215,10 +219,24 @@ class Retirement:
             else:
                 stop_event.wait(delay)
 
+    def _inventory_run(self, stop_event):
+        while stop_event is None or not stop_event.is_set():
+            try:
+                self.check_inventory(self._inventory())
+            except Exception:
+                pass  # an unreadable inventory is not a retirement condition; retry next pass
+            if stop_event is None:
+                threading.Event().wait(INVENTORY_SECONDS)
+            else:
+                stop_event.wait(INVENTORY_SECONDS)
+
     def start(self, stop_event=None):
         self.thread = threading.Thread(target=self._run, args=(stop_event,),
                                        name=f'{self.label}-license-retirement', daemon=True)
         self.thread.start()
+        if self._inventory is not None:
+            threading.Thread(target=self._inventory_run, args=(stop_event,),
+                             name=f'{self.label}-inventory-retirement', daemon=True).start()
         return self
 
 
@@ -242,8 +260,9 @@ def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None, e
 
     load_inventory() -> {printer_id: (fingerprint, args)}; factory(printer_id, *args)
     returns a thread-like session (start, is_alive, stop). Every INVENTORY_SECONDS:
-    a session's printer removed, deactivated or reconfigured -> exit 75; a new or
-    newly allowed printer, or a session whose thread died, starts in-process."""
+    a session's printer removed, deactivated or reconfigured -> exit 75; a session
+    whose thread died unexpectedly -> exit 75 (its transport may still be open, so it
+    is never replaced in-process); a new or newly allowed printer starts in-process."""
     retirement = Retirement(engine, label, log, exit).start(stop_event)
     threads = {}
     try:
@@ -258,7 +277,10 @@ def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None, e
                     log.warning('%s monitor: printer inventory could not be read; retrying', label)
             if inventory is not None:
                 retirement.check_inventory({pid: entry[0] for pid, entry in inventory.items()})
-                pending = [pid for pid in inventory if pid not in threads or not threads[pid].is_alive()]
+                dead = sorted(pid for pid, thread in threads.items() if not thread.is_alive())
+                if dead:
+                    retirement.retire(f'session thread(s) for printer(s) {dead} ended unexpectedly')
+                pending = [pid for pid in inventory if pid not in threads]
                 policy = retirement.current() if pending else None
                 if pending and policy is None:
                     wait = LICENSE_PASS_SECONDS  # unreadable: start nothing, retry soon

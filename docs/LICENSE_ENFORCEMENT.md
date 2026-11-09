@@ -205,11 +205,9 @@ restart, and the Bambu command channel is unavailable meanwhile. Commands alread
 sent before the exit can still complete. With fleet locking off the daemons keep
 their previous behaviour and never read the policy.
 
-The smart-plug cooldown auto-off timer lives in the monitor process, so a restart
-loses it. With fleet locking on, the API process runs a backstop every 60 s: for a
-plug with auto-off whose printer's latest print completed at least the cooldown
-plus 2 minutes ago (and at most 30 minutes after that), and whose stored plug
-state is not off, it runs the timer's own off path once per print (license
-completion check, safe telemetry, plug identity; Tasmota through the power fence,
-which never repeats a command for the same print). Final energy readings remain
-process-local and a restart mid-print still loses them.
+Smart-plug completion work (cooldown auto-off and the final energy reading) runs
+in the monitor process, so a restart loses work still pending, as after any ODIN
+restart: the plug stays on and the print's energy is unknown. A license
+retirement restarts the daemon, so it can lose that work for every printer on the
+same daemon. Durable completion actions (completion-time plug identity, shared
+command ownership with dispatch exclusion) are a separate roadmap item.

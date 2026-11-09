@@ -25,7 +25,7 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     ),
     "backend/core/license_lock.py": (
         "sqlite-provider-only",
-        "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+        "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
     ),
     "backend/core/sql_write_shape.py": (
         "dialect-neutral",

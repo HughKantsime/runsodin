@@ -589,7 +589,7 @@
       "line": 954,
       "path": "backend/core/license_lock.py",
       "pattern": "PRAGMA",
-      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "reason": "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
       "source": "restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]"
     },
     {
@@ -597,7 +597,7 @@
       "line": 955,
       "path": "backend/core/license_lock.py",
       "pattern": "PRAGMA",
-      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "reason": "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
       "source": "raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')"
     },
     {
@@ -605,7 +605,7 @@
       "line": 964,
       "path": "backend/core/license_lock.py",
       "pattern": "PRAGMA",
-      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "reason": "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
       "source": "raw.execute(f'PRAGMA busy_timeout={int(restore)}')"
     },
     {
@@ -613,7 +613,7 @@
       "line": 1018,
       "path": "backend/core/license_lock.py",
       "pattern": "qmark-parameter",
-      "reason": "License policy serialization is dialect guarded: SQLite takes BEGIN IMMEDIATE (writer lock) and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL uses SET LOCAL lock_timeout and row locks.",
+      "reason": "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
       "source": "row = executor.cursor().execute(statement.replace(':key', '?'), (POLICY_KEY,)).fetchone()"
     },
     {

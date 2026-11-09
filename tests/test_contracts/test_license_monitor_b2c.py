@@ -250,7 +250,7 @@ class _Peer:
 
 
 class _Child:
-    def __init__(self, tmp_path, db, mode, *, rollout=True, unreadable=False, tag='a'):
+    def __init__(self, tmp_path, db, mode, *, rollout=True, unreadable=False, tag='a', die=None):
         import license_manager
         self.log, self.flag = tmp_path / f'{tag}.log', tmp_path / f'{tag}.flag'
         self.out = open(tmp_path / f'{tag}.out', 'w')
@@ -261,7 +261,7 @@ class _Child:
                    DATABASE_URL=f'sqlite:///{db.get_bind().url.database}',
                    LICENSE_DIR=license_manager.LICENSE_DIR, B2C_PUBLIC_KEY=license_manager.ODIN_PUBLIC_KEY,
                    B2C_LOG=str(self.log), B2C_FLAG=str(self.flag), B2C_MODE=mode,
-                   B2C_PEER_PORT=str(self.peer.port))
+                   B2C_PEER_PORT=str(self.peer.port), B2C_DIE=str(die or ''))
         if not rollout:
             env.pop('ODIN_LICENSE_FLEET_LOCK_ENABLED', None)
         self.proc = subprocess.Popen([sys.executable, str(CHILD)], env=env, cwd=str(ROOT / 'backend'),
@@ -364,6 +364,17 @@ def test_shared_loop_restart_starts_only_allowed_and_handles_changes(policy_db, 
     assert code == 75 and time.monotonic() - changed <= license_monitor.INVENTORY_SECONDS + 3, c.output()
 
 
+def test_shared_loop_exits_75_when_a_session_thread_dies(policy_db, child):
+    """A dead session thread may leave its transport open, so it is never replaced in-process."""
+    _protocol(policy_db, 'elegoo', NINE, TEN)
+    c = child('elegoo_monitor', die=NINE)
+    assert c.wait_for('start 9', 30), c.output()
+    code, _ = c.wait_exit(license_monitor.INVENTORY_SECONDS + 5)
+    assert code == 75, c.output()
+    assert c.events().count('start 9') == 1  # never restarted in-process
+    assert c.peer.all_closed()
+
+
 def test_shared_loop_unreadable_policy(policy_db, child, tmp_path):
     _protocol(policy_db, 'elegoo', NINE, TEN)
     idle = child('elegoo_monitor', unreadable=True)  # no session yet: fail closed, never exit
@@ -426,6 +437,25 @@ def test_bambu_exits_75_within_3s_even_while_a_connect_hangs(policy_db, child, t
     code, waited = c.wait_exit(3)
     assert code == 75 and waited <= 3, (code, waited, c.output())
     assert c.peer.all_closed()
+
+
+def test_bambu_reconfiguration_exits_75_even_while_a_connect_hangs(policy_db, child, tier_license, monkeypatch):
+    """The removal/reconfiguration check runs on its own thread, not behind the connect loop."""
+    from core import license_lock
+    from core.crypto import encrypt
+    _bambu(policy_db, monkeypatch, NINE, TEN, hang=(TEN,))
+    tier_license('enterprise', max_users=1, max_printers=2)
+    license_lock.reconcile(policy_db)
+    policy_db.commit()
+    c = child('bambu')
+    assert c.wait_for('connect 10', 30), c.output()  # the main loop is now stuck in 10's connect
+    if 'connect 9' in c.events():
+        assert c.wait_for('start 9', 5), c.output()
+    policy_db.execute(text('UPDATE printers SET api_key=:k WHERE id=9'), {'k': encrypt('OTHER|code')})
+    policy_db.commit()
+    changed = time.monotonic()
+    code, _ = c.wait_exit(license_monitor.INVENTORY_SECONDS + 5)
+    assert code == 75 and time.monotonic() - changed <= license_monitor.INVENTORY_SECONDS + 3, c.output()
 
 
 def test_bambu_restart_starts_only_allowed_and_exits_on_reconfiguration(policy_db, child, monkeypatch):

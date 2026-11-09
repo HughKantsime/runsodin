@@ -169,7 +169,10 @@ class MQTTMonitorDaemon:
             # independent of the synchronous connects in this loop; the first
             # inventory pass (_licensed_pass) starts the allowed printers.
             from core.license_monitor import Retirement, INVENTORY_SECONDS
-            self._retirement = Retirement(engine, 'Bambu', log).start()
+            # The removal/reconfiguration check also runs on its own thread (inventory=),
+            # so a connect hung in this loop cannot delay it.
+            self._retirement = Retirement(engine, 'Bambu', log,
+                                          inventory=self._session_fingerprints).start()
         printers = [] if licensed else self.load_printers()
 
         if not printers:
@@ -305,6 +308,19 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
 
+    def _licensed_inventory(self):
+        """{printer_id: (fingerprint, kind, attr, row, factory)}; raises if any family fails to load."""
+        from core.license_monitor import connection_fingerprint
+        inventory = {}
+        for kind, attr, load, keys, factory in self._families():
+            for p in load():
+                fingerprint = connection_fingerprint(kind, *(p.get(k) for k in keys))
+                inventory[p['id']] = (fingerprint, kind, attr, p, factory)
+        return inventory
+
+    def _session_fingerprints(self):
+        return {pid: entry[0] for pid, entry in self._licensed_inventory().items()}
+
     def _licensed_pass(self):
         """License fleet lock enabled (B2c): the inventory pass, every 10 s.
 
@@ -315,17 +331,11 @@ class MQTTMonitorDaemon:
         before its first connect, then retried by _check_reconnect like any other.
         """
         from core import license_lock
-        from core.license_monitor import connection_fingerprint
-        inventory = {}
-        for kind, attr, load, keys, factory in self._families():
-            try:
-                current = load()
-            except Exception as e:
-                log.warning(f"{kind} printer reload failed; retry next pass: {type(e).__name__}")
-                return
-            for p in current:
-                fingerprint = connection_fingerprint(kind, *(p.get(k) for k in keys))
-                inventory[p['id']] = (fingerprint, kind, attr, p, factory)
+        try:
+            inventory = self._licensed_inventory()
+        except Exception as e:
+            log.warning(f"printer reload failed; retry next pass: {type(e).__name__}")
+            return
         self._retirement.check_inventory({pid: entry[0] for pid, entry in inventory.items()})
         pending = [pid for pid in inventory if not self._retirement.has(pid)]
         policy = self._retirement.current() if pending else None

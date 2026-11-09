@@ -4,7 +4,8 @@ printer sessions are fakes that block forever holding their lock and an open soc
 Environment: B2C_MODE (a monitor module name, or 'bambu' for MQTTMonitorDaemon),
 B2C_LOG (event log), B2C_FLAG (while it exists, policy reads hang: unreadable),
 B2C_PEER_PORT (the parent's TCP listener each session connects to),
-B2C_PUBLIC_KEY (the test license issuer), plus DATABASE_URL and LICENSE_DIR.
+B2C_PUBLIC_KEY (the test license issuer), B2C_DIE (optional printer id whose session
+thread ends right after it starts: an unexpected thread death), plus DATABASE_URL and LICENSE_DIR.
 """
 import importlib
 import os
@@ -14,6 +15,7 @@ import time
 
 LOG, FLAG, MODE = os.environ['B2C_LOG'], os.environ['B2C_FLAG'], os.environ['B2C_MODE']
 PEER = int(os.environ['B2C_PEER_PORT'])
+DIE = int(os.environ.get('B2C_DIE') or 0)
 
 
 def note(line):
@@ -54,6 +56,8 @@ class Session:
             self.sock = socket.create_connection(('127.0.0.1', PEER))
             self.sock.sendall(f'{self.pid}\n'.encode())
             note(f'start {self.pid}')
+            if self.pid == DIE:
+                return  # the thread ends; its socket stays open (only the process exit closes it)
             threading.Event().wait()
 
     def start(self):
