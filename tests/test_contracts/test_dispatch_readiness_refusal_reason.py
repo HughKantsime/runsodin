@@ -76,11 +76,27 @@ def test_cleanup_failure_refuses_and_names_it(monkeypatch):
 
 def test_orchestration_message_carries_the_reason(monkeypatch):
     def not_idle(creds, deadline):
-        acquisition._refusal_reasons.get().append("printer_not_idle")
+        acquisition._refusal_reasons.get().append("not_ready_or_unreachable")
         return False
     monkeypatch.setattr(acquisition, "bounded_status_is_idle", not_idle)
     reasons = []
-    assert orchestration._readiness_confirmed({}, 0, reasons) is False and reasons == ["printer_not_idle"]
+    assert orchestration._readiness_confirmed({}, 0, reasons) is False and reasons == ["not_ready_or_unreachable"]
     monkeypatch.setattr(acquisition, "bounded_status_is_idle", lambda *a: False)  # doubles without reasons
     reasons = []
     assert orchestration._readiness_confirmed({}, 0, reasons) is False and reasons == []
+
+
+@pytest.mark.parametrize("raw", ["secret-marker-1234", "read_error:" + "A" * 80, "exception:Bad Name", "", None, 7])
+def test_unknown_or_unbounded_reasons_are_replaced(raw):
+    assert acquisition._safe_reason(raw) == "printer_not_ready"
+
+
+def test_long_exception_type_names_are_not_echoed(monkeypatch):
+    class AnExceptionClassWithAVeryLongNameThatKeepsGoingAndGoingAndGoingForever(Exception):
+        pass
+    def boom():
+        raise AnExceptionClassWithAVeryLongNameThatKeepsGoingAndGoingAndGoingForever()
+    monkeypatch.setattr(acquisition, "_spawn_context", boom)
+    with acquisition.capture_refusal_reason() as reasons:
+        assert acquisition.bounded_status_is_idle({"api_type": "bambu", "ip": "h"}, time.monotonic() + 5) is False
+    assert reasons == ["printer_not_ready"]

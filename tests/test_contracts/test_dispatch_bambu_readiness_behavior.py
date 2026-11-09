@@ -94,7 +94,7 @@ def test_actual_owned_broker_fresh_report_through_spawned_worker(monkeypatch,mod
         assert ok is (mode=='idle')
         # A refusal through the real spawned worker names a reason; idle names none.
         expected = {'idle': [], 'other_topic': ['no_reply_before_deadline'],
-                    'retained_only': ['no_reply_before_deadline']}.get(mode, ['printer_not_idle'])
+                    'retained_only': ['no_reply_before_deadline']}.get(mode, ['not_ready_or_unreachable'])
         assert reasons == expected
     finally:
         # Stop the network loop before disconnecting: a disconnect lets paho's thread

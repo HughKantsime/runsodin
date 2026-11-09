@@ -9,10 +9,25 @@ import contextlib
 import contextvars
 import math
 import multiprocessing
+import re
 import threading
 import time
 
 _refusal_reasons = contextvars.ContextVar("dispatch_readiness_reasons", default=None)
+
+
+REASON_CODES = frozenset({
+    'not_ready_or_unreachable', 'printer_not_ready', 'no_reply_before_deadline',
+    'reply_after_deadline', 'reader_exit_unconfirmed', 'reader_cleanup_unconfirmed',
+    'deadline_elapsed', 'invalid_deadline', 'unsupported_printer'})
+_TYPED_REASON = re.compile(r'(?:read_error|exception):[A-Za-z_][A-Za-z0-9_]{0,40}')
+
+
+def _safe_reason(code):
+    """Only known codes and bounded exception type names reach operator messages."""
+    if isinstance(code, str) and (code in REASON_CODES or _TYPED_REASON.fullmatch(code)):
+        return code
+    return 'printer_not_ready'
 
 
 @contextlib.contextmanager
@@ -30,8 +45,9 @@ def _http_worker(sender, creds, deadline):
     try:
         from modules.printers.dispatch_readiness import fresh_http_status_is_idle
         result = fresh_http_status_is_idle(creds, deadline)
-        # A reason string is never accepted as readiness; only True is.
-        sender.send(True if result is True else "printer_not_idle")
+        # The reader returns False both for "not idle" and for read failures it caught,
+        # so the reason says both. A reason string is never accepted as readiness.
+        sender.send(True if result is True else "not_ready_or_unreachable")
     except Exception as exc:
         try:
             sender.send("read_error:" + type(exc).__name__)
@@ -44,7 +60,7 @@ def _http_worker(sender, creds, deadline):
 def _bambu_worker(sender, creds, deadline):
     try:
         from modules.printers.dispatch_bambu_readiness import fresh_bambu_status_is_idle
-        sender.send(True if fresh_bambu_status_is_idle(creds,deadline) is True else "printer_not_idle")
+        sender.send(True if fresh_bambu_status_is_idle(creds,deadline) is True else "not_ready_or_unreachable")
     except Exception as exc:
         try:sender.send("read_error:" + type(exc).__name__)
         except Exception:pass
@@ -126,7 +142,7 @@ def bounded_status_is_idle(creds: dict, deadline: float, *, _report=False):
     reasons = _refusal_reasons.get()
     def refuse(code):
         if reasons is not None and not reasons:
-            reasons.append(code)
+            reasons.append(_safe_reason(code))
         return False
     receiver = sender = process = None
     accepted = False
@@ -161,7 +177,7 @@ def bounded_status_is_idle(creds: dict, deadline: float, *, _report=False):
                 if valid and process.exitcode == 0 and not process.is_alive() and time.monotonic() < deadline:
                     accepted = result
                 elif not valid:
-                    refuse(result if isinstance(result, str) and len(result) <= 64 else 'printer_not_ready')
+                    refuse(result)
                 else:
                     refuse('reader_exit_unconfirmed')
             else:
