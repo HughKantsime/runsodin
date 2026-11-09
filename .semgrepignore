@@ -88,3 +88,5 @@ testsuite/
 
 # Frozen released 2.0.45 sources, manifest-pinned by preserved053/integrity.py.
 /backend/core/schema/preserved053/overlay/
+# Frozen released 2.0.49 sources, manifest-pinned by preserved055/integrity.py.
+/backend/core/schema/preserved055/overlay/

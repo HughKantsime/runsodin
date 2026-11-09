@@ -119,13 +119,15 @@ def test_recovery_read_roles_scopes_and_write_floor(recovery_client,review_db,ro
 
 def test_global_accessible_printer_needs_investigation_not_404(recovery_client,review_db):
     client,issue,calls = recovery_client
+    review_db.execute(text("UPDATE users SET role='operator',group_id=NULL WHERE id=3"))
+    review_db.execute(text('UPDATE printer_dispatch_claims SET owner_org_id=NULL WHERE printer_id=299'))
     review_db.execute(text('UPDATE printers SET org_id=NULL WHERE id=299'));review_db.commit()
     response = client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers']))
     assert response.status_code == 200
     assert response.json()['state'] == 'investigation_required'
     assert response.json()['refresh_required'] is False
     assert 'global printer' in response.json()['guidance']
-    assert 'organization' in response.json()['guidance']
+    assert 'global administrator' in response.json()['guidance']
     assert 'refresh' not in response.json()
     assert response.headers['cache-control'] == 'private, no-store'
     assert calls == []

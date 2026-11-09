@@ -39,7 +39,7 @@ def test_foreign_private_archive_detail_denied_despite_device_transition(private
 
 @pytest.mark.parametrize('state',['shared','reassigned','removed'])
 @pytest.mark.parametrize('endpoint',['/archives','/archives/log','/archives/log/export'])
-def test_foreign_private_archive_not_listed_or_exported(private_archive,state,endpoint):
+def test_foreign_private_archive_not_listed_or_exported(private_archive,state,endpoint, pro_license):
  client,db=private_archive;transition(db,state)
  response=client.get(endpoint)
  assert response.status_code==200
@@ -91,7 +91,7 @@ def test_archive_scoped_token_enforces_resource_and_action(private_archive,repri
 
 
 @pytest.mark.parametrize('user,role,org,expected',[(1,'viewer',1,200),(2,'viewer',1,200),(3,'admin',1,200),(4,'viewer',1,404),(5,'admin',2,404)])
-def test_education_archive_uses_real_submission_audience(private_archive,reprint_client,user,role,org,expected):
+def test_education_archive_uses_real_submission_audience(private_archive,reprint_client,user,role,org,expected, education_license):
  client,db=private_archive;_,identity,_=reprint_client
  db.execute(text("UPDATE education_upload_operations SET final_path='/opaque/upload-1.3mf' WHERE operation_id='upload-1'"))
  db.execute(text("UPDATE print_archives SET job_id=13,print_file_id=11,education_submission_id=14 WHERE id=101"));db.commit()

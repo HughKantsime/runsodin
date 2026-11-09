@@ -13,6 +13,7 @@ import type {
 export const alerts = {
   list: (params: AlertListParams = {}): Promise<Alert[]> => {
     const query = new URLSearchParams();
+    if (params.needs_you) query.set('needs_you', 'true');
     if (params.severity) query.set('severity', params.severity);
     if (params.alert_type) query.set('alert_type', params.alert_type);
     if (params.is_read !== undefined) query.set('is_read', String(params.is_read));

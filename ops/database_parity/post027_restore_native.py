@@ -157,6 +157,8 @@ def main():
         # 5. Current-schema backup -> restore round trip keeps data, including a 032 row.
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
+            c.execute(text("INSERT INTO dispatch_recovery_global_history(audit_id,actor_id,actor_identity,printer_id,job_id,attempt_handle,snapshot_handle,decision,reason_category,facts) VALUES(990001,3,'roundtrip056',5,226,:attempt,:snapshot,'release','verified_terminal_reconciled',:facts)"),
+                      {'attempt':'dr1.'+'a'*64, 'snapshot':'ds1.'+'b'*64, 'facts':'{"owner_org_id":null}'})
             c.execute(text("INSERT INTO " + DEFERRED + "(id,user_id,org_id,scope_key,channel,alert_type,severity,title,state) "
                            "VALUES('roundtrip032',3,1,'org:1','email','print_failed','critical','kept','pending')"))
             # Migration 033: a capture-tenancy row (with its ownership anchor) survives too.
@@ -231,6 +233,9 @@ def main():
             from ops.database_parity.education_roster_fixtures import verify as verify_roster
             verify_roster(c)
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
+        with engine.connect() as c:
+            assert c.execute(text("SELECT job_id,facts FROM dispatch_recovery_global_history WHERE actor_identity='roundtrip056'")).one() == (226, '{"owner_org_id":null}')
+        print('post027-native-current-backup-restore-roundtrip-056-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-051-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-048-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-049-pass', flush=True)

@@ -63,13 +63,13 @@ def test_drying_history_retains_multiple_conditions(inventory_client):
     assert {(x['duration_hours'],x['temp_c'],x['notes']) for x in history}=={(4,55,'synthetic first'),(6,60,'synthetic second')}
 
 
-def test_advertised_spool_export_path_downloads_csv(inventory_client):
+def test_advertised_spool_export_path_downloads_csv(inventory_client, pro_license):
     response=inventory_client.get('/api/spools/export')
     assert response.status_code==200
     assert response.headers['content-type'].startswith('text/csv')
 
 
-def test_spool_csv_contains_advertised_material_brand_and_pa(inventory_client):
+def test_spool_csv_contains_advertised_material_brand_and_pa(inventory_client, pro_license):
     import csv,io
     response=inventory_client.get('/api/spools/export')
     assert response.status_code==200

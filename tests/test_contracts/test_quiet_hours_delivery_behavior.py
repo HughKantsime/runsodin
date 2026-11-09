@@ -306,6 +306,11 @@ def test_global_and_tenant_webhooks_do_not_mix_content(deferral_table,review_db,
     deliveries=[]
     def capture(url,kind,alerts,name,end):deliveries.append((name,[a['title'] for a in alerts]));return True
     monkeypatch.setattr(runner,'_deliver_digest_webhook',capture)
+    # Retention runs against the wall clock; anchor it to this fixed window so the
+    # rows do not age out (they did once 30 days passed after END).
+    from modules.notifications import channels
+    real_purge=deferred_deliveries.purge
+    monkeypatch.setattr(channels,'purge_deferred',lambda executor,now=None:real_purge(executor,now=now or END))
     runner.process_quiet_hours_digest(review_db);runner.process_quiet_hours_digest(review_db)
     assert deliveries==[('Tenant',['Tenant secret']),('Global',['Global state'])]
     assert {r[0] for r in review_db.execute(text('SELECT scope_key FROM quiet_hours_digest_sends'))}=={'org:1','system'}

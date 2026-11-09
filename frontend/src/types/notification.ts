@@ -17,7 +17,8 @@ export type AlertType =
   | 'bed_cooled'
   | 'queue_added'
   | 'queue_skipped'
-  | 'queue_failed_start';
+  | 'queue_failed_start'
+  | 'audit_integrity';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
@@ -52,6 +53,8 @@ export interface UnreadCount {
 }
 
 export interface AlertListParams {
+  /** Latest undismissed pause/error per active printer; independent of history paging. */
+  needs_you?: boolean;
   severity?: AlertSeverity;
   alert_type?: AlertType;
   is_read?: boolean;

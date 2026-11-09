@@ -64,11 +64,9 @@ def test_all_account_mutations_require_admin_token_scope(reset_client,review_db,
 
 @pytest.mark.parametrize('credential',['interactive','admin_token'])
 @pytest.mark.parametrize('operation',['create','import','role','delete'])
-def test_authorized_account_mutations_remain_usable(reset_client,review_db,signed_license,credential,operation,monkeypatch):
-    from modules.organizations import routes_users
-    lm,_=signed_license(tier='pro',max_users=100,features=[])
-    # Earlier license tests replace sys.modules; bind this real signed enforcement.
-    monkeypatch.setattr(routes_users,'check_user_limit',lm.check_user_limit)
+def test_authorized_account_mutations_remain_usable(reset_client,review_db,signed_license,credential,operation):
+    signed_license(tier='pro',max_users=100,features=[])
+    # user_creation resolves license_manager.check_user_limit at call time.
     client,_,_=reset_client
     headers=admin_headers() if credential=='interactive' else scoped_headers(review_db,['admin'])
     response=mutate(client,headers,operation)

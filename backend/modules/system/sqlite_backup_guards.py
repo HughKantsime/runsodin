@@ -29,7 +29,7 @@ _LATE_TRIGGER_MODULES = (
     '021_economic_identity', '022_economic_source_lifetimes',
     '023_timelapse_retirement_membership', '024_audit_actor',
     '025_spool_purchase_evidence', '026_global_order_origins',
-    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation', '049_education_classes', '055_controlled_history',
+    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation', '049_education_classes', '055_controlled_history', '056_dispatch_recovery_global',
 )
 
 
@@ -61,7 +61,7 @@ def _canonical_sqlite_triggers():
                         definitions[name] = sql
             elif suffix.startswith('055_'):
                 definitions = module.job_id_triggers()
-            elif suffix.startswith(('037_', '038_', '039_', '040_', '049_')):
+            elif suffix.startswith(('037_', '038_', '039_', '040_', '049_', '056_')):
                 definitions = module.sqlite_triggers()
             elif suffix.startswith('022_'):
                 definitions = module._sqlite_triggers()

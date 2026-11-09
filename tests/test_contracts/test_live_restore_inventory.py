@@ -38,7 +38,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (34, 49)
+    assert (len(functions), len(triggers)) == (35, 51)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -46,6 +46,9 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:056-dispatch-recovery-global": {
+        "dispatch_recovery_global_history": frozenset("id created_at audit_id actor_id actor_identity printer_id job_id attempt_handle snapshot_handle decision reason_category facts".split()),
+    },
     AUDIT_MIGRATION_ID: {
         "audit_siem_gaps": frozenset("gap_id first_id last_id skipped closed".split()),
         "audit_redactions": frozenset("row_id record_id evidence".split()),
@@ -161,8 +164,9 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     import importlib
     retained=importlib.import_module('core.schema.migrations.037_education_memberships')
     recovery=importlib.import_module('core.schema.migrations.038_dispatch_recovery')
-    added_functions = {**retained.pg_functions(), **recovery.pg_functions()}
-    added_triggers = {**retained.pg_triggers(), **recovery.pg_triggers()}
+    global_recovery=importlib.import_module('core.schema.migrations.056_dispatch_recovery_global')
+    added_functions = {**retained.pg_functions(), **recovery.pg_functions(), **global_recovery.pg_functions()}
+    added_triggers = {**retained.pg_triggers(), **recovery.pg_triggers(), **global_recovery.pg_triggers()}
     functions=canonical_functions();triggers=canonical_triggers()
     measured=importlib.import_module('core.schema.migrations.039_measured_filament')
     added_functions.update(measured.pg_functions())

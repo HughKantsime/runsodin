@@ -1,10 +1,40 @@
 import json
 import sys
+import shlex
+import time
 from pathlib import Path
 
 import pytest
 
 from ops.release_control.run_gate import command_environment, execute, validate_result
+
+
+def test_component_cache_and_temp_are_private_even_with_spaces(tmp_path, monkeypatch):
+    home = tmp_path / "private home"
+    home.mkdir()
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--ignore=tests")
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "0")
+    environment = command_environment(controlled_home=home)
+    assert shlex.split(environment["PYTEST_ADDOPTS"]) == ["-o", f"cache_dir={home}/.pytest_cache"]
+    assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert {environment[key] for key in ("TMPDIR", "TMP", "TEMP")} == {str(home / "tmp")}
+    assert (home / "tmp").is_dir()
+
+
+@pytest.mark.parametrize("timeout", [False, True])
+def test_outer_component_reaps_descendants_before_next_phase(tmp_path, timeout):
+    marker = tmp_path / "leaked-child"
+    child = f"import time; from pathlib import Path; time.sleep(1.5); Path({str(marker)!r}).touch()"
+    parent = (f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}], "
+              "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+              + ("time.sleep(10)" if timeout else "pass"))
+    result = execute(gate_id="tree", command=[sys.executable, "-c", parent],
+                     output=tmp_path / "result.json", cwd=tmp_path, timeout=1,
+                     isolate_process_group=True)
+    assert result["timed_out"] is timeout
+    assert result["status"] == ("fail" if timeout else "pass")
+    time.sleep(1.6)
+    assert not marker.exists()
 
 
 def _junit_command(xml: str) -> list[str]:

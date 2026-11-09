@@ -86,7 +86,7 @@ def _admin_read():
 _ONLINE_LICENSE = {**_admin_only(), "admin": 400 if os.environ.get("RBAC_LICENSE_TIER", "community") == "community" else 502}
 
 from rbac_endpoints_a import ENDPOINTS as _ENDPOINTS_A
-from rbac_endpoints_b import ENDPOINTS as _ENDPOINTS_B
+from rbac_endpoints_b import ENDPOINTS as _ENDPOINTS_B, PUBLIC_LICENSE_GATED
 ENDPOINT_MATRIX = _ENDPOINTS_A + _ENDPOINTS_B + [
     ("GET", "/api/settings/remote-access", _admin_read(), None, "Remote access status"),
     ("GET", "/api/cameras/{printer_id}/snapshot", _api_read(), None, "Camera snapshot fallback"),
@@ -207,6 +207,7 @@ INTERACTIVE_ADMIN_OPERATIONS = {
 # The live container (no signed license can be installed in an image) runs Community;
 # tests/test_contracts/test_rbac_licensed_matrix.py runs the same table on Enterprise.
 LICENSE_GATED = {
+    **PUBLIC_LICENSE_GATED,
     **{("GET", path): "csv_export" for path in (
         "/api/export/jobs", "/api/export/models", "/api/export/spools",
         "/api/export/filament-usage", "/api/spools/export", "/api/archives/log/export")},
@@ -402,8 +403,8 @@ def _expectations(method, path, expected):
     feature = LICENSE_GATED.get((method, path))
     if feature and not _tier_has(feature):
         for role, status in expected.items():
-            if role != "no_headers" and status is not None:
-                expected[role] = 403  # the license gate refuses every authorized caller
+            if status is not None and (role != "no_headers" or (method, path) in PUBLIC_LICENSE_GATED):
+                expected[role] = 403  # public SSO flows also reach the gate without headers
     return expected
 
 

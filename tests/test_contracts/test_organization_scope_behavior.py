@@ -139,7 +139,7 @@ def test_unknown_orphan_archive_does_not_become_global(scope_client,review_db):
     assert response.json()['total']==1
 
 
-def test_alternate_export_and_printer_tags_hide_foreign(scope_client,review_db):
+def test_alternate_export_and_printer_tags_hide_foreign(scope_client,review_db, pro_license):
     import csv,io
     client,identity=scope_client;identity.update(group_id=None)
     review_db.execute(text("UPDATE printers SET tags='[\"foreign-only-tag\"]' WHERE id=102"));review_db.commit()

@@ -129,17 +129,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3.11 -m venv .hardware-cert-venv
-          .hardware-cert-venv/bin/pip install --disable-pip-version-check \
-            -r backend/requirements.txt -r ops/hardware_certification/requirements.txt
-          python3.11 -m venv .venv-stress
-          .venv-stress/bin/pip install --disable-pip-version-check -r backend/requirements.txt
-          python3.11 -m venv .venv-contracts
-          .venv-contracts/bin/pip install --disable-pip-version-check -r tests/requirements-contracts.txt
+          bash ops/release_control/bootstrap_validation_deps.sh
           printf '%s\n' "$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"
-          npm --prefix frontend ci
-          PLAYWRIGHT_SKIP_BROWSER_GC=1 .venv-contracts/bin/python -m playwright install chromium
-          (cd frontend && PLAYWRIGHT_SKIP_BROWSER_GC=1 npx --no-install playwright install chromium)
 
       - name: Verify candidate ref and run aggregate gate
         shell: bash

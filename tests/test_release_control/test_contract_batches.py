@@ -7,6 +7,10 @@ from ops.release_control.run_gate import parse_junit
 
 def _suite(directory: Path, files: dict[str, str]) -> Path:
     directory.mkdir()
+    # Pin pytest's rootdir to the suite. Without a config file pytest uses the common
+    # ancestor of the cwd (the checkout) and the suite, which is $HOME when TMPDIR is
+    # under $HOME (the VM precheck), and node ids would then carry a .cache/... prefix.
+    (directory / "pytest.ini").write_text("[pytest]\nmarkers =\n    live_environment: needs a live stack\n")
     for name, body in files.items():
         (directory / name).write_text(body)
     return directory

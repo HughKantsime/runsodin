@@ -140,7 +140,8 @@ class TestGetCurrentUserUsesCache:
         assert "UPDATE active_sessions" not in fn_src
         touch_count = fn_src.count("_touch_session_last_seen(db, jti)")
         gate_count = fn_src.count("_should_write_last_seen(jti)")
-        assert touch_count == gate_count and touch_count >= 2, (
+        # Cookie and bearer now share the same gated JWT resolution loop.
+        assert touch_count == gate_count and touch_count >= 1, (
             f"Expected every last_seen touch to be gated by "
             f"_should_write_last_seen. Found {touch_count} touches and "
             f"{gate_count} gates. If any write runs unconditionally, "

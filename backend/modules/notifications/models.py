@@ -15,6 +15,16 @@ from sqlalchemy.sql import func
 from core.base import Base, AlertType, AlertSeverity, _ENUM_VALUES
 
 
+class StoredAlertEnum(SQLEnum):
+    """Let the response schema normalize or skip legacy SQLite classifications."""
+
+    def _object_value_for_elem(self, elem):
+        try:
+            return super()._object_value_for_elem(elem)
+        except LookupError:
+            return elem
+
+
 class Alert(Base):
     """
     Individual alert/notification instance.
@@ -28,8 +38,8 @@ class Alert(Base):
     user_id = Column(Integer, nullable=False, index=True)  # References users table (raw SQL)
 
     # Alert classification
-    alert_type = Column(SQLEnum(AlertType, values_callable=_ENUM_VALUES), nullable=False)
-    severity = Column(SQLEnum(AlertSeverity, values_callable=_ENUM_VALUES), nullable=False)
+    alert_type = Column(StoredAlertEnum(AlertType, values_callable=_ENUM_VALUES), nullable=False)
+    severity = Column(StoredAlertEnum(AlertSeverity, values_callable=_ENUM_VALUES), nullable=False)
 
     # Content
     title = Column(String(200), nullable=False)

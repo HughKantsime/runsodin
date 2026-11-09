@@ -81,8 +81,8 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
     if evidence is None:
         # Absent and inaccessible claims must be indistinguishable, including
         # on the caller's own printer. Global ownership is already visible.
-        guidance = ('Recovery authority is unavailable for a global printer without an organization. '
-                    'Ask an administrator to investigate printer ownership. '
+        guidance = ('Recovery authority is unavailable to this caller for this global printer. '
+                    'Ask a global administrator to investigate printer and evidence ownership. '
                     if printer.org_id is None else
                     'No retained evidence is available to this caller. Ask an administrator to investigate '
                     'printer and evidence ownership; missing evidence is not permission to retry. ')

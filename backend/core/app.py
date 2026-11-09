@@ -22,7 +22,7 @@ _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.0.47"
+    __version__ = "2.0.50"
 
 
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
@@ -249,15 +249,18 @@ def _register_http_middleware(app: FastAPI) -> None:
             from core.auth import decode_token
             import jwt as _jwt
             from core.auth import SECRET_KEY, ALGORITHM
+            cookie_valid = False
             try:
                 token_data = decode_token(session_cookie)
                 if token_data:
                     # Reject mfa_pending and ws-only tokens at the perimeter
                     payload = _jwt.decode(session_cookie, SECRET_KEY, algorithms=[ALGORITHM])
                     if not payload.get("mfa_pending") and not payload.get("ws"):
-                        return await call_next(request)
+                        cookie_valid = True
             except Exception:
                 pass  # malformed / expired cookie → fall through to 401
+            if cookie_valid:
+                return await call_next(request)
 
         return JSONResponse(
             status_code=401,

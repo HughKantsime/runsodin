@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from importlib import import_module
 from fastapi import HTTPException
 from sqlalchemy import text, delete
-from core.rbac import check_org_access
+from core.rbac import check_org_access, is_scoped_token, token_scope_granted
 from core.registry import registry
 from core.dispatch_claim_schema import PrinterDispatchClaim
 from core.dispatch_target_guard import unresolved_target
@@ -31,13 +31,22 @@ def rows(db, sql, values):
 def capture(db, printer_id, actor, identity_loader=None):
     args = {'pid':printer_id}
     printers = rows(db, 'SELECT * FROM printers WHERE id=:pid', args)
-    if not printers or printers[0]['org_id'] is None or not check_org_access(actor, printers[0]['org_id']):
+    if not printers or not check_org_access(actor, printers[0]['org_id']):
         refuse('not_found',404)
     printer = printers[0]
+    global_printer = printer['org_id'] is None
+    if global_printer:
+        # Global recovery is a narrow exception, including on inspection. The
+        # usual action dependency bypasses policy for superadmins; this does not.
+        from core.rbac_policy import action_roles
+        if (actor.get('role') != 'admin' or actor.get('group_id') is not None
+                or 'admin' not in action_roles(db,'printers.dispatch_recovery')
+                or (is_scoped_token(actor) and not token_scope_granted(actor.get('_token_scopes',[]),'write:printers'))):
+            refuse('not_found',404)
     claims = rows(db,'SELECT * FROM printer_dispatch_claims WHERE printer_id=:pid',args)
     reservations = rows(db,'SELECT * FROM education_monitor_claims WHERE printer_id=:pid ORDER BY claim_id',args)
     claim = claims[0] if claims else None
-    if claim and (claim['owner_org_id'] is None or claim['owner_org_id'] != printer['org_id'] or not check_org_access(actor,claim['owner_org_id'])):
+    if claim and (claim['owner_org_id'] != printer['org_id'] or not check_org_access(actor,claim['owner_org_id'])):
         refuse('not_found',404)
     if not claim and not reservations:
         return None
@@ -45,7 +54,9 @@ def capture(db, printer_id, actor, identity_loader=None):
     job_id = anchor['job_id']
     jobs = rows(db,'SELECT * FROM jobs WHERE id=:id',{'id':job_id})
     job = jobs[0] if jobs else None
-    visible = bool(job and job['charged_to_org_id'] is not None and check_org_access(actor,job['charged_to_org_id']) and job['printer_id']==printer_id)
+    if global_printer and job and (job['charged_to_org_id'] is not None or job['printer_id'] != printer_id):
+        refuse('not_found',404)
+    visible = bool(job and (global_printer or job['charged_to_org_id'] is not None) and check_org_access(actor,job['charged_to_org_id']) and job['printer_id']==printer_id)
     submissions = rows(db,'SELECT * FROM education_submissions WHERE job_id=:id ORDER BY id',{'id':job_id})
     receipts = rows(db,'SELECT * FROM dispatch_attempt_receipts WHERE printer_id=:pid ORDER BY claim_token',args)
     target_ids = [printer_id]
@@ -275,9 +286,16 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
         audit = log_audit(db,'dispatch_recovery_'+action,'printer',printer_id,{'decision':action,'reason_category':request.reason_category})
         db.flush()
         audit_id = audit.id
-        history = import_module('core.schema.migrations.038_dispatch_recovery').history
+        global_chain = current['printer']['org_id'] is None
+        if global_chain:
+            history = import_module('core.schema.migrations.056_dispatch_recovery_global').history
+            org_values = {}
+            facts.update(owner_org_id=None, charged_org_id=None)
+        else:
+            history = import_module('core.schema.migrations.038_dispatch_recovery').history
+            org_values = dict(owner_org_id=current['printer']['org_id'], charged_org_id=job['charged_to_org_id'])
         result = db.execute(history.insert().values(audit_id=audit_id,actor_id=actor['id'],actor_identity=actor['username'],
-            owner_org_id=current['printer']['org_id'],charged_org_id=job['charged_to_org_id'],printer_id=printer_id,job_id=job['id'],
+            **org_values,printer_id=printer_id,job_id=job['id'],
             attempt_handle=current['attempt'],snapshot_handle=current['snapshot'],decision=action,reason_category=request.reason_category,
             facts=json.dumps(facts,sort_keys=True,default=str)))
         decision_id = result.inserted_primary_key[0]

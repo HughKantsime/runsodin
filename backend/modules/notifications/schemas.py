@@ -5,7 +5,7 @@ modules/notifications/schemas.py — Pydantic schemas for the notifications doma
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from core.base import AlertType, AlertSeverity
 
@@ -29,6 +29,7 @@ class AlertTypeEnum(str, Enum):
     QUEUE_ADDED = "queue_added"
     QUEUE_SKIPPED = "queue_skipped"
     QUEUE_FAILED_START = "queue_failed_start"
+    AUDIT_INTEGRITY = "audit_integrity"
 
 
 class AlertSeverityEnum(str, Enum):
@@ -41,6 +42,16 @@ class AlertSeverityEnum(str, Enum):
 
 class AlertResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("alert_type", "severity", mode="before")
+    @classmethod
+    def normalize_legacy_classification(cls, value, info):
+        if isinstance(value, str):
+            value = value.lower()
+            if info.field_name == "severity":
+                # Match the dispatcher and the UI's red critical / green info tones.
+                value = {"error": "critical", "success": "info"}.get(value, value)
+        return value
 
     id: int
     user_id: int

@@ -98,6 +98,25 @@ Migration refusals raised while validating a restore (for example a ledger check
   - An apply attempt that fails before the restore body runs deletes its own rollback dump.
 - **Historical-restore URLs never load credentials from elsewhere.** Non-credential libpq parameters such as `sslmode` pass. `password`, `sslpassword`, `passfile`, `service`, `sslkey`, `sslcert` and `application_name` are refused.
 
+## Global dispatch recovery (056)
+
+`python:056-dispatch-recovery-global` creates `dispatch_recovery_global_history`
+for decisions on wholly global printer/claim/job chains. It carries the 038
+decision, reason and handle constraints, omitting the two org columns; sanitized
+facts record `owner_org_id: null` and `charged_org_id: null`. Actor identity and
+audit references remain required. UPDATE/DELETE are blocked on SQLite and
+PostgreSQL, and PostgreSQL TRUNCATE is blocked. Like 038, history has no resource
+foreign keys or deletion cascades: it survives resource deletion as audit evidence.
+Org decisions continue using the unchanged 038 table. No existing rows are rewritten.
+
+The live ledger, canonical table/column and PostgreSQL executable inventories
+include 056. `preserved055` pins the released 2.0.49 sources at
+`90d901ba86df7fee4ecaf99f69d08f48cd835c21` as an overlay on `preserved053`.
+Exact migration-055 ledgers use its isolated restore child, followed by the live
+056 upgrade. Existing preserved packages and published ledger entries are unchanged.
+The native PostgreSQL round-trip fixture includes a global history row; running
+that proof remains a release check (this change's verification is targeted contracts).
+
 ## Releases
 
 - **Record the ledger before publishing.** `backend/core/schema/released_post027_ledgers.json` records the post-027 ids of every published release. Before publishing, run `python ops/release_control/record_post027_ledger.py` (it reads `VERSION`) and commit the entry into the release candidate. `publish-image.yml` refuses a `VERSION` that has no entry, or whose entry differs from the candidate's `POST027_MIGRATIONS`. The workflow cannot append the entry itself, because it has read-only contents and an immutable candidate SHA. Existing entries are never rewritten.

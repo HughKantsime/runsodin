@@ -15,7 +15,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -403,87 +403,64 @@ def resolve_current_user_sync(
     from core.audit_actor import clear_actor, bind_verified_actor
     if side_effects:
         clear_actor(db)
-    # Try 0: httpOnly session cookie (browser-based auth)
-    session_token = request.cookies.get("session")
-    if session_token:
-        token_data = decode_token(session_token)
-        if token_data:
-            import jwt as _jwt
-            try:
-                payload = _jwt.decode(
-                    session_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
-                )
-                if payload.get("ws"):
-                    pass  # ws-tokens are not valid for REST API access — fall through
-                elif payload.get("mfa_pending") or payload.get("mfa_setup_required"):
-                    pass  # limited-purpose tokens — fall through
-                else:
-                    jti = payload.get("jti")
-                    if jti:
-                        blacklisted = db.execute(
-                            text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
-                            {"jti": jti},
-                        ).fetchone()
-                        if blacklisted:
-                            pass  # fall through to next auth method
-                        else:
-                            # R6: only write last_seen_at if it's been >= 5 min
-                            # since our last write for this jti. Otherwise SQLite
-                            # serializes every authenticated read behind a writer.
-                            if _should_write_last_seen(jti):
-                                _touch_session_last_seen(db, jti)
-                            user = db.execute(
-                                text("SELECT * FROM users WHERE username = :username"),
-                                {"username": token_data.username},
-                            ).fetchone()
-                            principal = None if token_predates_account(payload, user) else _principal(user, "session_jwt", db, request)
-                            if principal:
-                                if side_effects:
-                                    bind_verified_actor(db, principal)
-                                return principal
-            except LicenseLockError:
-                raise
-            except Exception:
-                log.debug("Cookie auth failed", exc_info=True)
-
-    # Try 1: JWT Bearer token (primary auth)
-    if token:
-        token_data = decode_token(token)
-        if token_data:
-            import jwt as _jwt
-            payload = None
-            try:
-                payload = _jwt.decode(
-                    token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
-                )
-                # Reject ws-tokens, mfa_pending, and mfa_setup_required tokens from normal routes
-                if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
-                    return None
-                # Check token blacklist (revoked sessions)
-                jti = payload.get("jti")
-                if jti:
-                    blacklisted = db.execute(
-                        text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
-                        {"jti": jti},
-                    ).fetchone()
-                    if blacklisted:
+    # Try 0/1: cookie first, then bearer. Only malformed JWTs may fall through;
+    # failed mandatory database checks must never grant access or imply logout.
+    for candidate, auth_kind in ((request.cookies.get("session"), "session_jwt"),
+                                 (token, "bearer_jwt")):
+        if not candidate:
+            continue
+        token_data = decode_token(candidate)
+        if not token_data:
+            continue
+        import jwt as _jwt
+        try:
+            payload = _jwt.decode(
+                candidate, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
+            )
+        except _jwt.PyJWTError:
+            continue
+        if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
+            if auth_kind == "bearer_jwt":
+                return None
+            continue
+        jti = payload.get("jti")
+        if auth_kind == "session_jwt" and not jti:
+            continue
+        try:
+            if jti:
+                blacklisted = db.execute(
+                    text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
+                    {"jti": jti},
+                ).fetchone()
+                if blacklisted:
+                    if auth_kind == "bearer_jwt":
                         return None
-                    # R6: batched last_seen_at — write only if cache says it's stale.
-                    if _should_write_last_seen(jti):
-                        _touch_session_last_seen(db, jti)
-            except Exception:
-                log.debug("Failed to update session last_seen_at", exc_info=True)
+                    continue
+            # Bookkeeping is optional; rollback before any further auth query.
+            if jti and _should_write_last_seen(jti):
+                try:
+                    _touch_session_last_seen(db, jti)
+                except Exception:
+                    db.rollback()
+                    log.warning("Session last_seen update failed; continuing authentication")
             user = db.execute(
                 text("SELECT * FROM users WHERE username = :username"),
                 {"username": token_data.username},
             ).fetchone()
-            if token_predates_account(payload, user):
+        except Exception:
+            # Do not log SQL parameters, tokens or session identifiers.
+            log.warning("Authentication database lookup unavailable")
+            raise HTTPException(status_code=503, detail="Service temporarily unavailable") from None
+        if token_predates_account(payload, user):
+            if auth_kind == "bearer_jwt":
                 return None
-            principal = _principal(user, "bearer_jwt", db, request)
-            if principal:
-                if side_effects:
-                    bind_verified_actor(db, principal)
-                return principal
+            continue
+        # LicenseLockError from _principal propagates (outside the lookup try).
+        principal = _principal(user, auth_kind, db, request)
+        if principal:
+            if side_effects:
+                bind_verified_actor(db, principal)
+            return principal
 
     # Try 2: X-API-Key header — check global key first, then scoped user tokens
     api_key = request.headers.get("X-API-Key")

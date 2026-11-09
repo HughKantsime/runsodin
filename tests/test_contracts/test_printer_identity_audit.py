@@ -186,7 +186,7 @@ def test_anycubic_reconnect_model_change_is_atomic_and_not_repeated(offline_stor
 
 
 @pytest.mark.parametrize('fail',[False,True])
-def test_org_assignment_audits_only_change_in_same_transaction(offline_store,fail):
+def test_org_assignment_audits_only_change_in_same_transaction(offline_store,fail,education_license):
     from modules.organizations.routes import assign_printer_to_org, AssignPrinterRequest
     if fail:reject_audit(offline_store)
     async def assign():

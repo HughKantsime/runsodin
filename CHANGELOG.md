@@ -4,6 +4,60 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.50] - 2026-11-08
+
+<!-- summary: For printers without an organization, an administrator can now clear a stuck dispatch instead of the printer staying blocked. -->
+
+### Fixed
+
+- For printers and jobs without an organization, a global administrator can now inspect, hold, reconcile and retain, or release a stuck dispatch from the printer's Dispatch Recovery panel. Before, recovery refused every printer without an organization, so an interrupted upload could leave that printer blocked from receiving further jobs from O.D.I.N. All existing release checks still apply: the job must be on hold, the printer must be idle with fresh status, nothing else may be sending to it, and the administrator confirms the four checks. A print that was started another way and linked to the job must finish first. Releasing the block leaves the job on hold and does not retry the print. Recovery for printers in an organization is unchanged.
+
+### Database
+
+- Migration 056 adds a separate, append-only record of recovery decisions for printers without an organization. Existing tables and data are not changed. Restore support is preserved for supported earlier backups, including 2.0.49.
+
+### Release tooling
+
+- Failed validation components now show sanitized diagnostic findings and available failing-test summaries in the job log, capped at 20 findings and 20 test-summary lines, plus an overflow notice.
+- A file-preview test now checks for leftover threads in a separate process, so threads started by other tests no longer fail it.
+
+## [2.0.49] - 2026-11-08
+
+<!-- summary: Fixes being sent back to the login page while signed in, caused by older alert records the alert list could not read. -->
+
+### Fixed
+
+- Signed-in users are no longer sent to the login page when a server error occurs while a page loads. Before, an unexpected error behind a valid session was reported as "not signed in", and the app logged out.
+- A failure to update your session's last-active time no longer interrupts an otherwise valid sign-in.
+- If O.D.I.N. temporarily cannot check your session or account, it reports that the service is unavailable, instead of treating you as signed out or letting the request through unverified.
+- Alerts recorded by older versions load in the alert list: older "error" alerts show as critical, "success" alerts as info, upper-case types such as SPOOL_LOW are recognised, and audit-integrity alerts are listed. A record that still cannot be shown is skipped and its id logged, instead of failing the whole page.
+- The home floor view now fetches only the latest undismissed pause or error alert for each active printer, in one request every 30 seconds, instead of paging through every alert.
+
+## [2.0.48] - 2026-11-08
+
+<!-- summary: Adds offline clock-rollback checks, enforces printer and user limits on every creation path, applies the license to SSO, CSV exports and organizations, and makes the cost calculator free in Community. -->
+
+### Changed
+
+- The cost calculator and pricing configuration are part of Community (free); they no longer need Pro.
+
+### Security
+
+- A server clock wound back more than 24 hours behind the license's signed issue time, or behind the latest time ODIN has recorded (checkpointed every 5 minutes), now counts as expired, with a clear message and documented recovery. Normal clock drift, restarts and long power-offs are unaffected. A signed license whose issue date is present but malformed is now rejected; a missing or empty issue date is still accepted.
+- Printer and user limits are checked in one place for every way of adding them, including the setup wizard and the Google Classroom importer. Printers and users that already exist are not affected.
+- SSO sign-in follows the license after expiry (the local admin login stays available for recovery), CSV exports need the CSV export feature, organization management needs user groups, and editing a scheduled report needs email delivery; pausing, viewing and deleting existing schedules still work.
+- The license expiry instant is applied the same way everywhere, and the app refreshes its license state at expiry, when the window regains focus and after a feature is refused. A brief network error keeps the last known state until that license's expiry.
+
+### Fixed
+
+- Image builds retry transient download failures (go2rtc, SQLite, the PostgreSQL signing key) for up to 10 minutes.
+- Printer monitoring follows printer changes without a restart: a deactivated or deleted printer is disconnected and no longer reconnected, and a changed address, serial number or access code reconnects with the new values. One printer failing to connect no longer affects the others. The fleet live-status view skips inactive printers.
+
+### Release tooling
+
+- Trusted Validation runs its ten components in collision-checked phases and reports every component's result in one run.
+- `make release-vm-precheck` runs the same ten components on the validation host with the runner's environment, sharing a host lock with Trusted Validation (which waits for a running precheck). It installs the same validation dependencies as Trusted Validation (one shared script) and uses a private temporary directory.
+
 ## [2.0.47] - 2026-11-08
 
 <!-- summary: Fixes 2.0.46 failing to start on existing installs (database migration 055); includes everything in 2.0.46. -->

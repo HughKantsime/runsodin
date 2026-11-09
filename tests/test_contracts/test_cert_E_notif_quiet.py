@@ -31,7 +31,9 @@ def window(offset_minutes=0):
 
 
 @pytest.fixture
-def org_api(notif_env, monkeypatch):
+def org_api(notif_env, monkeypatch, signed_license):
+    # Org configuration needs Education; notif_env installs Pro for channels.
+    signed_license(tier='education', features=[])
     from core.db import get_db
     from core.dependencies import get_current_user
     from core.registry import registry

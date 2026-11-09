@@ -158,3 +158,11 @@ def operator() -> requests.Session:
 def viewer() -> requests.Session:
     with login("viewer") as session:
         yield session
+
+
+@pytest.fixture
+def licensed_candidate():
+    """Opt-in signed Pro backend; all other candidate tests retain Community."""
+    from ops.release_gate.license_fixture import candidate_pro_backend
+    with candidate_pro_backend(_required("ODIN_CANDIDATE_CONTAINER"), BASE_URL):
+        yield

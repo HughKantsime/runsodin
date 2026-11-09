@@ -274,7 +274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 291,
+      "line": 294,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
       "reason": "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
@@ -567,6 +567,30 @@
       "pattern": "qmark-parameter",
       "reason": "SQLite job IDs use a writer-locked high-water allocator shared by ORM and qmark creation paths; PostgreSQL retains native sequences.",
       "source": "statement = statement.replace('VALUES (', 'VALUES (?, ', 1)"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 99,
+      "path": "backend/core/license_clock.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+      "source": "timeout = connection.exec_driver_sql(\"PRAGMA busy_timeout\").scalar() if sqlite else None"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 104,
+      "path": "backend/core/license_clock.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+      "source": "connection.exec_driver_sql(\"PRAGMA busy_timeout=0\")"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 121,
+      "path": "backend/core/license_clock.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+      "source": "connection.exec_driver_sql(f\"PRAGMA busy_timeout={int(timeout)}\")"
     },
     {
       "classification": "dialect-neutral",
@@ -1194,7 +1218,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 267,
+      "line": 268,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1202,7 +1226,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 539,
+      "line": 540,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1210,7 +1234,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 565,
+      "line": 566,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1218,7 +1242,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 567,
+      "line": 568,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1226,7 +1250,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 577,
+      "line": 578,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1234,7 +1258,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 592,
+      "line": 593,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1242,7 +1266,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 594,
+      "line": 595,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",

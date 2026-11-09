@@ -1,4 +1,4 @@
-"""Actual account/mail outcome boundaries, private substituted transports."""
+"""Actual account/mail outcomes with the signed Pro policy_client and private mail."""
 import secrets
 from types import SimpleNamespace
 import pytest

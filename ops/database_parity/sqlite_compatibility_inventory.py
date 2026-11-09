@@ -19,6 +19,10 @@ AUDIT_MIGRATION = runpy.run_path(str(BACKEND / 'core/schema/audit_integrity_vers
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/license_clock.py": (
+        "sqlite-provider-only",
+        "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
+    ),
     "backend/core/schema/audit_siem_gaps.py": ("sqlite-provider-only", "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers."),
     "backend/core/audit_snapshot.py": ("sqlite-provider-only", "SQLite read-only snapshots use query_only and explicit BEGIN; PostgreSQL uses REPEATABLE READ READ ONLY."),
     "backend/core/audit_integrity.py": ("sqlite-provider-only", "SQLite registers a SHA-256 UDF; PostgreSQL uses native SHA-256 with the same length-prefixed UTF-8 encoding."),
@@ -485,6 +489,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved045/overlay",
     BACKEND / "core/schema/preserved046/overlay",
     BACKEND / "core/schema/preserved053/overlay",
+    BACKEND / "core/schema/preserved055/overlay",
 )
 
 
