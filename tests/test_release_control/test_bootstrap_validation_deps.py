@@ -122,6 +122,14 @@ def test_symlinked_environment_is_refused_before_any_install(bootstrap, tmp_path
     link.symlink_to(elsewhere, target_is_directory=True)
     result, calls = run()
     assert result.returncode == 3
-    assert f'{target} is a symlink' in result.stderr
+    assert f'{target} is a symlink ({elsewhere})' in result.stderr
     assert installs(calls) == [] and not any(Path(c[0]).name == 'npm' for c in calls)
     assert list(elsewhere.iterdir()) == []
+
+
+def test_dangling_link_is_refused(bootstrap, tmp_path_factory):
+    root, run = bootstrap
+    missing = tmp_path_factory.mktemp('gone') / 'removed-runner-venv'
+    (root / '.venv-contracts').symlink_to(missing, target_is_directory=True)
+    result, calls = run()
+    assert result.returncode == 3 and f'({missing})' in result.stderr and installs(calls) == []
