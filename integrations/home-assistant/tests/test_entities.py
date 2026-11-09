@@ -98,3 +98,68 @@ async def test_diagnostics_redact_credentials(hass, aioclient_mock, status):
     text = str(diag)
     assert "odin_key" not in text and "odin_cam" not in text
     assert diag["status"]["fleet"]["queue_length"] == 4
+
+
+async def test_camera_added_when_it_becomes_available(hass, aioclient_mock, status):
+    aioclient_mock.get(STATUS_URL, json=status)
+    await _setup(hass, {CONF_SCAN_INTERVAL: 20, "camera_token": "odin_cam"})
+    assert hass.states.async_entity_ids("camera") == ["camera.x1c_camera"]
+    status["printers"][1]["camera_available"] = True
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(STATUS_URL, json=status)
+    await _poll(hass)
+    assert sorted(hass.states.async_entity_ids("camera")) == ["camera.kobra_s1_camera", "camera.x1c_camera"]
+
+
+async def test_error_event_ignores_message_changes_and_untimed_errors(hass, aioclient_mock, status):
+    aioclient_mock.get(STATUS_URL, json=status)
+    await _setup(hass)
+    for error in ({"code": "OTHER", "message": "Reworded", "at": "2026-11-08T23:36:50Z"},
+                  {"code": "NO_TIME", "message": "x", "at": None}):
+        status["printers"][1]["last_error"] = error
+        aioclient_mock.clear_requests()
+        aioclient_mock.get(STATUS_URL, json=status)
+        await _poll(hass)
+        assert hass.states.get("event.kobra_s1_error").state == "unknown"
+
+
+async def test_reload_does_not_reannounce_the_current_error(hass, aioclient_mock, status):
+    aioclient_mock.get(STATUS_URL, json=status)
+    entry = await _setup(hass)
+    status["printers"][1]["last_error"] = {"code": "NEW", "message": "m", "at": "2026-11-09T01:05:00Z"}
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(STATUS_URL, json=status)
+    await _poll(hass)
+    fired = hass.states.get("event.kobra_s1_error").state
+    assert fired != "unknown"
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await _poll(hass)
+    assert hass.states.get("event.kobra_s1_error").state == fired
+
+
+async def test_options_flow_updates_interval_and_camera_token(hass, aioclient_mock, status):
+    aioclient_mock.get(STATUS_URL, json=status)
+    entry = await _setup(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_SCAN_INTERVAL: 45, "camera_token": "odin_cam"})
+    await hass.async_block_till_done()
+    assert entry.options == {CONF_SCAN_INTERVAL: 45, "camera_token": "odin_cam"}
+    assert hass.states.async_entity_ids("camera") == ["camera.x1c_camera"]
+
+
+async def test_reauth_replaces_the_key(hass, aioclient_mock, status):
+    aioclient_mock.get(STATUS_URL, json=status)
+    entry = await _setup(hass)
+    result = await entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: "odin_new"})
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_API_KEY] == "odin_new"
+
+
+def test_first_jpeg_parsing():
+    from custom_components.odin.camera import first_jpeg
+    assert first_jpeg(b"--frame\r\n\xff\xd8abc\xff\xd9rest") == b"\xff\xd8abc\xff\xd9"
+    assert first_jpeg(b"\xff\xd8partial") is None
+    assert first_jpeg(b"no image") is None

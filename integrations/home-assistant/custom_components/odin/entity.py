@@ -69,11 +69,18 @@ def track_printers(
     known: set[int] = set()
 
     def discover() -> None:
-        new = [pid for pid in ((coordinator.data or {}).get("printers_by_id") or {}) if pid not in known]
-        if not new:
-            return
-        known.update(new)
-        add_entities([entity for pid in new for entity in build(pid)])
+        entities = []
+        for pid in (coordinator.data or {}).get("printers_by_id") or {}:
+            if pid in known:
+                continue
+            built = list(build(pid))
+            # A printer whose builder made nothing (a camera not yet available)
+            # is reconsidered on the next update.
+            if built:
+                known.add(pid)
+                entities.extend(built)
+        if entities:
+            add_entities(entities)
 
     discover()
     return coordinator.async_add_listener(discover)

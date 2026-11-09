@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import OdinConfigEntry
 from .coordinator import OdinCoordinator
@@ -11,7 +11,7 @@ from .entity import OdinPrinterEntity, track_printers
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OdinConfigEntry,
-                            async_add_entities: AddConfigEntryEntitiesCallback) -> None:
+                            async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
     entry.async_on_unload(track_printers(
         coordinator, async_add_entities,

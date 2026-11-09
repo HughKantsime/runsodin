@@ -74,7 +74,8 @@ def test_status_payload_shape_and_values(ha_client):
     kobra = printers[12]
     assert kobra['api_type'] == 'anycubic_lan' and kobra['status'] == 'paused'
     assert kobra['progress'] is None and kobra['eta'] is None
-    assert kobra['last_error'] == {'code': 'PRINT_FAILED', 'message': 'Nozzle clog', 'at': '2026-11-08T23:36:50Z'}
+    assert kobra['last_error'] == {'code': 'PRINT_FAILED', 'message': 'Nozzle clog', 'at': '2026-11-08T23:36:50Z',
+                                   'unresolved': True}
     assert printers[72]['status'] == 'offline' and printers[72]['online'] is False
     assert body['fleet'] == {'printing': 1, 'paused': 1, 'error': 1, 'offline': 1, 'idle': 0,
                              'total': 4, 'queue_length': 3}  # 301, 302 and the seeded submitted job 13
@@ -152,3 +153,117 @@ def test_online_threshold_and_offline_state():
     assert not is_online('IDLE', None, now)
     assert not is_online('IDLE', now + timedelta(seconds=30), now)
     assert is_online('IDLE', (now - timedelta(seconds=5)).replace(tzinfo=None).isoformat(sep=' '), now)
+
+
+def _mark_controlled(review_db, job_id, member=False):
+    review_db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Secure')"))
+    if member:
+        review_db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,3)'))
+    review_db.execute(text("INSERT INTO controlled_jobs(job_id,audience_id,label,printer_tag,retention_days,marked_at,reason) "
+                           "VALUES(:job,1,'CUI','Secure',7,'2026-01-01T00:00:00+00:00','test')"), {'job': job_id})
+
+
+def test_controlled_job_hides_name_error_text_and_queue_entry(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,printer_id) VALUES "
+                           "(401,'secret-bracket','printing',1,9),(402,'secret-queued','pending',1,NULL)"))
+    review_db.execute(text("UPDATE print_jobs SET scheduled_job_id=401 WHERE printer_id=9"))
+    review_db.execute(text("UPDATE printers SET last_error_code='PRINT_FAILED', last_error_message='Print failed: secret-bracket', "
+                           "last_error_at=:at WHERE id IN (9,10)"), {'at': _stamp(30)})
+    _mark_controlled(review_db, 401)
+    review_db.execute(text("INSERT INTO controlled_jobs(job_id,audience_id,label,printer_tag,retention_days,marked_at,reason) "
+                                                    "VALUES(402,1,'CUI','Secure',7,'2026-01-01T00:00:00+00:00','test')"))
+    review_db.commit()
+    response = client.get(URL, headers=issue(['read']))
+    assert response.status_code == 200
+    assert 'secret' not in response.text
+    printers = {p['id']: p for p in response.json()['printers']}
+    assert printers[9]['job_name'] == 'Controlled work'
+    # Error text is hidden on every printer while any controlled work is hidden from the caller.
+    assert printers[9]['last_error']['message'] == printers[10]['last_error']['message'] == 'Details hidden (controlled work)'
+    assert printers[9]['last_error']['code'] == 'PRINT_FAILED'
+    assert response.json()['fleet']['queue_length'] == 3  # 402 is hidden
+
+
+def test_controlled_job_is_visible_to_an_audience_member(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,printer_id) VALUES (401,'member-bracket','printing',1,9)"))
+    review_db.execute(text("UPDATE print_jobs SET scheduled_job_id=401 WHERE printer_id=9"))
+    review_db.execute(text("UPDATE printers SET last_error_code='X', last_error_message='Print failed: member-bracket', last_error_at=:at WHERE id=9"),
+                      {'at': _stamp(30)})
+    _mark_controlled(review_db, 401, member=True)
+    review_db.commit()
+    printers = {p['id']: p for p in client.get(URL, headers=issue(['read'])).json()['printers']}
+    assert printers[9]['job_name'] != 'Controlled work'
+    assert printers[9]['last_error']['message'] == 'Print failed: member-bracket'
+
+
+def test_archived_education_submission_is_not_queued(ha_client, review_db):
+    client, issue = ha_client
+    before = client.get(URL, headers=issue(['read'])).json()['fleet']['queue_length']
+    review_db.execute(text("UPDATE education_submissions SET archived_at=CURRENT_TIMESTAMP WHERE job_id=13"))
+    review_db.commit()
+    archived = review_db.execute(text("SELECT count(*) FROM education_submissions WHERE job_id=13 AND archived_at IS NOT NULL")).scalar_one()
+    after = client.get(URL, headers=issue(['read'])).json()['fleet']['queue_length']
+    assert after == before - archived
+
+
+def test_error_resolves_once_a_later_print_starts(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text("UPDATE printers SET hms_errors='[]', last_error_code='PRINT_FAILED', last_error_message='m', "
+                           "last_error_at=:at WHERE id=10"), {'at': _stamp(7200)})
+    review_db.commit()
+    # print_jobs for printer 10 started an hour ago, after the error two hours ago.
+    printer = {p['id']: p for p in client.get(URL, headers=issue(['read'])).json()['printers']}[10]
+    assert printer['status'] == 'idle' and printer['last_error']['unresolved'] is False
+    review_db.execute(text("UPDATE printers SET last_error_at=:at WHERE id=10"), {'at': _stamp(60)})
+    review_db.commit()
+    printer = {p['id']: p for p in client.get(URL, headers=issue(['read'])).json()['printers']}[10]
+    assert printer['status'] == 'error' and printer['last_error']['unresolved'] is True
+
+
+def test_query_count_does_not_grow_with_the_fleet(ha_client, review_db):
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    from core.db import get_db
+    client, issue = ha_client
+
+    def request_scoped_database():
+        # Production requests carry the authorization request cache (core.controlled_cache).
+        with Session(review_db.get_bind()) as db:
+            db.info['_controlled_request'] = True
+            yield db
+    client.app.dependency_overrides[get_db] = request_scoped_database
+    headers = issue(['read'])
+    engine = review_db.get_bind()
+    statements = []
+    listener = lambda *args, **kwargs: statements.append(1)
+
+    def measure():
+        statements.clear()
+        event.listen(engine, 'before_cursor_execute', listener)
+        try:
+            assert client.get(URL, headers=headers).status_code == 200
+        finally:
+            event.remove(engine, 'before_cursor_execute', listener)
+        return len(statements)
+
+    measure()  # warm up: first use of the token records its use once
+    small = measure()
+    for pid in range(500, 540):
+        review_db.execute(text("INSERT INTO printers(id,name,api_type,is_active,org_id,gcode_state,last_seen) "
+                               "VALUES(:id,:name,'bambu',1,1,'RUNNING',:seen)"), {'id': pid, 'name': f'Fleet {pid}', 'seen': _stamp(5)})
+        review_db.execute(text("INSERT INTO print_jobs(printer_id,job_name,status,started_at,progress_percent) "
+                               "VALUES(:id,'fleet.gcode','running',:start,10)"), {'id': pid, 'start': _stamp(60)})
+    review_db.commit()
+    assert measure() == small
+
+
+@pytest.mark.parametrize('error_at,started,expected', [
+    (None, None, False), ('2026-11-08 10:00:00', None, True),
+    ('2026-11-08 10:00:00', '2026-11-08 09:00:00', True), ('2026-11-08 10:00:00', '2026-11-08 10:00:00', True),
+    ('2026-11-08 10:00:00', '2026-11-08 11:00:00', False),
+])
+def test_unresolved_error_rule(error_at, started, expected):
+    from modules.printers.routes_integrations import unresolved_error
+    assert unresolved_error(error_at, started) is expected

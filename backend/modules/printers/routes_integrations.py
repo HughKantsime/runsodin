@@ -15,7 +15,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.display_names import name_printers
+from core.display_names import display_names
 from core.hms_state import display_entries
 from core.rbac import get_org_scope, require_role, require_scope, should_filter_org
 from modules.printers.models import Printer
@@ -31,6 +31,7 @@ PAUSED_STATES = frozenset({"PAUSE", "PAUSED"})
 ERROR_STATES = frozenset({"FAILED", "ERROR"})
 QUEUED_JOB_STATES = ("pending", "submitted", "scheduled")
 STATUSES = ("printing", "paused", "error", "offline", "idle")
+HIDDEN_ERROR_MESSAGE = "Details hidden (controlled work)"
 
 
 def _utc(value):
@@ -68,12 +69,26 @@ def is_online(gcode_state, last_seen, now) -> bool:
     return 0 <= age < ONLINE_SECONDS
 
 
-def derive_status(gcode_state, online: bool, hms_count: int) -> str:
+def unresolved_error(last_error_at, latest_print_start) -> bool:
+    """A recorded error stays unresolved until a print starts after it.
+
+    ODIN keeps a printer's last error indefinitely; a later print (a retry, a
+    calibration, the next job) shows the printer was dealt with.
+    """
+    at = _utc(last_error_at)
+    if at is None:
+        return False
+    started = _utc(latest_print_start)
+    return started is None or started <= at
+
+
+def derive_status(gcode_state, online: bool, hms_count: int, error_unresolved: bool = False) -> str:
     """One status per printer, in this order: offline, printing, paused, error, idle.
 
     A printing or paused printer keeps that status even with an HMS warning
     (the integration exposes the error separately); a stopped printer with an
-    active HMS entry, or a FAILED/ERROR state, is 'error'.
+    active HMS entry, an unresolved recorded error, or a FAILED/ERROR state is
+    'error'.
     """
     state = (gcode_state or "").strip().upper()
     if not online:
@@ -82,7 +97,7 @@ def derive_status(gcode_state, online: bool, hms_count: int) -> str:
         return "printing"
     if state in PAUSED_STATES:
         return "paused"
-    if state in ERROR_STATES or hms_count > 0:
+    if state in ERROR_STATES or hms_count > 0 or error_unresolved:
         return "error"
     return "idle"
 
@@ -118,33 +133,51 @@ def home_assistant_status(
     if should_filter_org(current_user, scope):
         query = query.filter((Printer.org_id == scope) | (Printer.org_id.is_(None)) | (Printer.shared.is_(True)))
     printers = query.order_by(Printer.display_order, Printer.id).all()
-    # Display names with controlled-work redaction, exactly as the printer cards.
-    name_printers(db, printers, current_user)
 
-    running = {}
+    from core.controlled_parts import allowed, any_controlled_data
+    controlled = any_controlled_data(db)
+    running, latest_start = {}, {}
     if printers:
+        ids = {"ids": [p.id for p in printers]}
         rows = db.execute(
-            text("SELECT printer_id, progress_percent, current_layer, total_layers, remaining_minutes "
+            text("SELECT id, printer_id, progress_percent, current_layer, total_layers, remaining_minutes "
                  "FROM print_jobs WHERE status = 'running' AND printer_id IN :ids "
-                 "ORDER BY started_at DESC, id DESC").bindparams(bindparam("ids", expanding=True)),
-            {"ids": [p.id for p in printers]},
+                 "ORDER BY started_at DESC, id DESC").bindparams(bindparam("ids", expanding=True)), ids,
         ).mappings().all()
         for row in rows:
             running.setdefault(row["printer_id"], row)
+        latest_start = dict(db.execute(
+            text("SELECT printer_id, MAX(started_at) FROM print_jobs WHERE printer_id IN :ids "
+                 "GROUP BY printer_id").bindparams(bindparam("ids", expanding=True)), ids,
+        ).all())
+    # One batch of display names for exactly the rows reported above, with the
+    # same controlled-work rules as the printer cards (core.display_names).
+    names = display_names(db, "print_job", [row["id"] for row in running.values()], current_user)
+    hidden_details = controlled and _caller_has_hidden_work(db, current_user)
 
     items = []
     counts = {name: 0 for name in STATUSES}
     for printer in printers:
         online = is_online(printer.gcode_state, printer.last_seen, now)
         hms_count = active_hms_count(printer.hms_errors)
-        status = derive_status(printer.gcode_state, online, hms_count)
+        error_unresolved = unresolved_error(printer.last_error_at, latest_start.get(printer.id))
+        status = derive_status(printer.gcode_state, online, hms_count, error_unresolved)
         counts[status] += 1
         job = running.get(printer.id) if status in ("printing", "paused") else None
+        names_allowed = not controlled or allowed(db, "printer_names", printer.id, current_user)
+        job_name = None
+        if job:
+            job_name = names.get(job["id"]) if names_allowed else "Controlled work"
         remaining = _number(job["remaining_minutes"]) if job else None
         last_error = None
         if printer.last_error_code or printer.last_error_message:
-            last_error = {"code": printer.last_error_code, "message": printer.last_error_message,
-                          "at": _iso(printer.last_error_at)}
+            message = printer.last_error_message
+            # Monitors write job and file names into error text ("Print failed:
+            # <name>"); never pass that text to a caller who cannot see all work.
+            if message and (hidden_details or not names_allowed):
+                message = HIDDEN_ERROR_MESSAGE
+            last_error = {"code": printer.last_error_code, "message": message,
+                          "at": _iso(printer.last_error_at), "unresolved": error_unresolved}
         items.append({
             "id": printer.id,
             "name": printer.nickname or printer.name,
@@ -158,25 +191,44 @@ def home_assistant_status(
             "total_layers": _integer(job["total_layers"]) if job else None,
             "remaining_minutes": remaining,
             "eta": _iso(now + timedelta(minutes=remaining)) if remaining is not None and remaining >= 0 else None,
-            "job_name": printer.current_print_display_name if job else None,
+            "job_name": job_name,
             "active_errors": hms_count,
             "last_error": last_error,
             "last_seen": _iso(printer.last_seen),
             "camera_available": bool(printer.camera_enabled and get_camera_url(printer)),
         })
 
-    queue_query = "SELECT count(*) FROM jobs WHERE status IN :states"
-    params = {"states": list(QUEUED_JOB_STATES)}
-    if should_filter_org(current_user, scope):
-        queue_query += " AND (charged_to_org_id = :org OR charged_to_org_id IS NULL)"
-        params["org"] = scope
-    queue_length = db.execute(text(queue_query).bindparams(bindparam("states", expanding=True)), params).scalar_one()
+    queue_length = _queue_length(db, current_user, scope, controlled)
 
     from modules.system.health_version import backend_version
     return {
         "schema_version": SCHEMA_VERSION,
         "odin_version": backend_version(),
         "generated_at": _iso(now),
-        "fleet": {**counts, "total": len(items), "queue_length": int(queue_length or 0)},
+        "fleet": {**counts, "total": len(items), "queue_length": queue_length},
         "printers": items,
     }
+
+
+def _caller_has_hidden_work(db, actor) -> bool:
+    """True when any controlled job, file or print is hidden from this caller."""
+    from core.controlled_redaction import denied_ids
+    return any(denied_ids(db, actor).values())
+
+
+def _queue_length(db, actor, scope, controlled) -> int:
+    """Queued jobs the caller could list in GET /api/jobs (the same predicates)."""
+    clauses = ["jobs.status IN :states",
+               "NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"]
+    params = {"states": list(QUEUED_JOB_STATES)}
+    if controlled:
+        from core.controlled_parts import job_visibility
+        predicate, visibility_params = job_visibility(actor)
+        clauses.append("(" + predicate + ")")
+        params.update(visibility_params)
+    if should_filter_org(actor, scope):
+        clauses.append("(jobs.charged_to_org_id = :org OR jobs.charged_to_org_id IS NULL)")
+        params["org"] = scope
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
+    query = text("SELECT count(*) FROM jobs WHERE " + " AND ".join(clauses)).bindparams(bindparam("states", expanding=True))
+    return int(db.execute(query, params).scalar_one() or 0)

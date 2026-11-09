@@ -12,7 +12,7 @@ import aiohttp
 from homeassistant.components.camera import Camera
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_aiohttp_proxy_web, async_get_clientsession
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import OdinConfigEntry
 from .const import CONF_CAMERA_TOKEN
@@ -24,7 +24,7 @@ SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OdinConfigEntry,
-                            async_add_entities: AddConfigEntryEntitiesCallback) -> None:
+                            async_add_entities: AddEntitiesCallback) -> None:
     token = entry.options.get(CONF_CAMERA_TOKEN)
     if not token:
         return
