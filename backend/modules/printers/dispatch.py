@@ -199,7 +199,7 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
         printer.disconnect()
 
 
-def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None) -> tuple[bool, str]:
     """Dispatch to a Moonraker printer: HTTP multipart upload + REST start."""
     from modules.printers.adapters.moonraker import MoonrakerPrinter
 
@@ -214,6 +214,8 @@ def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, cre
     if not printer.upload_file(stored_path, remote_filename):
         return False, "Moonraker file upload failed — check host and API key"
 
+    if not _prepare_post_upload_gate(before_start) or not _post_upload_gate(before_start):
+        return False, _gate_refusal_message(before_start)
     _ws(job_id, "starting", "File uploaded, sending print command...")
     log.info(f"[dispatch] Moonraker start_print: {remote_filename}")
     if not _submit_print_command(printer.start_print, remote_filename):
@@ -221,7 +223,7 @@ def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, cre
     return True, "Print started"
 
 
-def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None) -> tuple[bool, str]:
     """Dispatch to a PrusaLink printer: multipart upload + auto-start."""
     from modules.printers.adapters.prusalink import PrusaLinkPrinter
 
@@ -233,6 +235,9 @@ def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, cre
         api_key=creds.get("api_key", ""),
     )
 
+    # PrusaLink uploads and starts in one request, so the gate runs before it.
+    if not _prepare_post_upload_gate(before_start) or not _post_upload_gate(before_start):
+        return False, _gate_refusal_message(before_start)
     _ws(job_id, "uploading", f"Uploading {remote_filename} to PrusaLink...")
     log.info(f"[dispatch] PrusaLink upload+start: {remote_filename} → {creds['ip']}")
     if not _submit_print_command(printer.upload_and_print, stored_path, remote_filename):
@@ -422,9 +427,11 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
         if api_type == "bambu":
             success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds, before_start=before_start, **print_options)
         elif api_type == "moonraker":
-            success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
+            success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds,
+                                                   **({"before_start": before_start} if before_start is not None else {}))
         else:
-            success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds)
+            success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds,
+                                                   **({"before_start": before_start} if before_start is not None else {}))
     except MaintenanceHold as exc:
         success, message = False, str(exc)
     except Exception:

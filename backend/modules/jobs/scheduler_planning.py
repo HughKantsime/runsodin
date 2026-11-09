@@ -55,6 +55,16 @@ class SchedulerPlanning:
         printers = [p for p in db.query(Printer).filter(Printer.is_active.is_(True)).all()
                     if raw_authorities.get(p.id) is not None and p.id not in claimed_printers
                     and not hold_reason(db, p.id) and not dispatch_unsupported_reason(p)]
+        from core import license_lock
+        if license_lock.enabled():
+            # New work goes only to printers in the license selection. Jobs pinned
+            # to a locked printer stay pending; they are never moved elsewhere.
+            try:
+                policy = license_lock.snapshot(db)
+            except Exception:
+                policy = None
+                result.errors.append('License policy could not be checked; no printers were scheduled')
+            printers = [p for p in printers if policy is not None and license_lock.printer_allowed(policy, p.id, 'N')]
         if not printers:
             # Stale cleanup may have made an atomic Education lifecycle
             # correction even when there is no printer available for new work.

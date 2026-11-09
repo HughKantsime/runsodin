@@ -1,7 +1,8 @@
 """Install-wide license policy. Dormant until ODIN_LICENSE_FLEET_LOCK_ENABLED.
 
-B1 owns evidence, selections and user authorization. Physical-attempt capture and
-hardware admission are B2; no hardware permission is inferred here.
+B1 owns evidence, selections and user authorization. B2a adds printer checks and
+the final print-start admission (admit_start). Physical-attempt capture (exempt
+prints on newly locked printers) is B2b; until then only members are allowed N.
 """
 from dataclasses import dataclass
 import hashlib
@@ -18,6 +19,10 @@ from sqlalchemy import text
 POLICY_KEY = 'license_active_selection'
 EVIDENCE_KEY = 'license_lock_evidence'
 REVISION_KEY = 'license_lock_revision'
+# Print starts admitted under the policy lock, keyed by a digest of the dispatch
+# claim token (never the token). B2b turns a live entry into the exempt attempt
+# when its printer leaves the selection.
+ADMITTED_KEY = 'license_admitted_attempts'
 
 
 def enabled():
@@ -37,8 +42,8 @@ COMMUNITY_DOWNGRADE_ENABLED = False
 
 
 class LicenseLockError(HTTPException):
-    def __init__(self, code, *, status=403, revision=0, resource_id=None, reason=None):
-        detail = dict(code=code, message=code.replace('_', ' '), resource_type='user',
+    def __init__(self, code, *, status=403, revision=0, resource_id=None, reason=None, resource_type='user'):
+        detail = dict(code=code, message=code.replace('_', ' '), resource_type=resource_type,
                       policy_revision=revision, reason=reason or code)
         if resource_id is not None:
             detail['resource_id'] = resource_id
@@ -468,6 +473,92 @@ def require_user(policy, user_id, purpose='access'):
     if not user_allowed(policy, user_id):
         raise LicenseLockError('license_user_locked', revision=policy.revision, resource_id=user_id,
                                reason=policy.entitlement.get('reason'))
+
+
+# R: stored reads. N: new hardware work (dispatch, probes, writes, power on).
+# M/C/V for an exempt attempt arrive with B2b; until then they are members-only.
+PRINTER_CAPABILITIES = frozenset({'R', 'N', 'M', 'C', 'V'})
+
+
+def printer_allowed(policy, printer_id, cap='N'):
+    if cap not in PRINTER_CAPABILITIES:
+        raise ValueError('unknown printer capability')
+    return not policy.enforcing or cap == 'R' or printer_id in policy.printers
+
+
+def require_printer(policy, printer_id, cap='N'):
+    if not printer_allowed(policy, printer_id, cap):
+        raise LicenseLockError('license_printer_locked', revision=policy.revision, resource_id=printer_id,
+                               resource_type='printer', reason=policy.entitlement.get('reason'))
+
+
+def printer_refusal(engine, printer_id, cap='N'):
+    """Early, non-authoritative check before any power, readiness or upload work.
+
+    Returns None or a LicenseLockError. admit_start remains the authority."""
+    if not enabled():
+        return None
+    from sqlalchemy.orm import Session
+    try:
+        with Session(engine) as db:
+            require_printer(snapshot(db), printer_id, cap)
+        return None
+    except LicenseLockError as exc:
+        return exc
+    except Exception:
+        return LicenseLockError('license_policy_unavailable', status=503, resource_id=printer_id, resource_type='printer')
+
+
+def refusal_message(exc, *, outcome=True):
+    """Operator text for a printer refusal; nothing was sent."""
+    detail = exc.detail if isinstance(getattr(exc, 'detail', None), dict) else {}
+    code = detail.get('code', 'license_policy_unavailable')
+    if code == 'license_printer_locked':
+        text = f'This printer is not in the active license selection ({detail.get("reason", code)})'
+    else:
+        text = 'The license policy could not be checked; retry shortly'
+    return text + ('; no command was sent' if outcome else '')
+
+
+def _attempt_key(claim_token):
+    return hashlib.sha256(('license-admission:' + claim_token).encode()).hexdigest()[:32]
+
+
+def admit_start(engine, *, printer_id, job_id, claim_token):
+    """Final license admission for one print command; None admits.
+
+    Runs immediately before the command, under the policy lock that selection
+    changes take, so either a change that locks this printer commits first and
+    this refuses, or this admission commits first and is recorded for B2b to
+    keep as the printer's exempt attempt. Fails closed: any error refuses.
+    Returns None (admitted) or a LicenseLockError (refused; nothing was sent).
+    """
+    if not enabled():
+        return None
+    from sqlalchemy.orm import Session
+    try:
+        with Session(engine) as db:
+            policy = _snapshot(_reconcile(db))
+            if not printer_allowed(policy, printer_id, 'N'):
+                db.commit()  # keep any reconciliation; the refusal itself writes nothing
+                return LicenseLockError('license_printer_locked', revision=policy.revision, resource_id=printer_id,
+                                        resource_type='printer', reason=policy.entitlement.get('reason'))
+            try:
+                entries = _read(db, ADMITTED_KEY)
+            except (ValueError, TypeError):
+                entries = None
+            live = {_attempt_key(row[0]) for row in db.execute(text('SELECT token FROM printer_dispatch_claims'))}
+            entries = {k: v for k, v in entries.items() if k in live} if isinstance(entries, dict) else {}
+            from license_manager import license_clock
+            entries[_attempt_key(claim_token)] = dict(printer_id=printer_id, job_id=job_id, revision=policy.revision,
+                                                      admitted_at=license_clock().sample()[0].isoformat())
+            _write(db, ADMITTED_KEY, entries)
+            db.commit()
+            return None
+    except LicenseLockError as exc:
+        return exc
+    except Exception:
+        return LicenseLockError('license_policy_unavailable', status=503, resource_id=printer_id, resource_type='printer')
 
 
 def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):

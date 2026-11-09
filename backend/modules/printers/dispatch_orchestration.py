@@ -35,6 +35,15 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
     if reason:
         report(job, reason)
         return False, reason
+    from core import license_lock
+    licensed = license_lock.printer_refusal(engine, job['printer_id'])
+    if licensed is not None:
+        # Same record as a maintenance refusal: timeline event and the job owner's alert.
+        from modules.printers.dispatch_ams_gate import GateRefusal
+        message = license_lock.refusal_message(licensed)
+        dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=GateRefusal(
+            licensed.detail.get('code', 'license_policy_unavailable'), message), message=message)
+        return False, message
     key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
     identity=build_identity(creds,key)
     if identity is None:
@@ -202,6 +211,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 before_start = create_capability_gate(job=job, creds=creds,
                                     staged_path=staged.path, plate_number=options.get('plate_num', 1),
                                     target_handle=target_handle, previous=before_start)
+                            # License admission is last: it runs after every other
+                            # check, immediately before the command (B2a; no-op while off).
+                            from modules.printers.license_start_gate import create_license_gate
+                            before_start = create_license_gate(engine, job=job, claim_token=claim.token,
+                                                               previous=before_start)
                             adapter_called=True
                             from modules.printers.maintenance_gate import command_context
                             with command_context(engine, job):

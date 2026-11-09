@@ -39,3 +39,47 @@ def test_postgres_selection_concurrency_vacancy_and_handoff(native_pg, tier_lice
         db.execute(text('DELETE FROM users WHERE id=:id'), {'id': winner['users'][0]})
         with pytest.raises(policy.LicenseLockError): db.commit()
         db.rollback()
+
+
+def test_postgres_print_admission_linearizes_with_selection(native_pg, tier_license, monkeypatch):
+    """B2a: a change holding the policy row lock is ordered before admission."""
+    import threading
+    import time
+    from core.schema import bootstrap_database
+    from core.auth import hash_password
+    from core import license_lock as policy
+    bootstrap_database(native_pg)
+    with native_pg.begin() as c:
+        c.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(1,'one',:h,'admin',TRUE)"),
+                  {'h': hash_password('SyntheticPass123!')})
+        c.execute(text("INSERT INTO printers(id,name,is_active) VALUES(1,'one',TRUE),(2,'two',TRUE)"))
+        for printer, token in ((1, 'p' * 32), (2, 'q' * 32)):
+            c.execute(text("INSERT INTO jobs(id,item_name,status,priority,hold,quantity,created_at,updated_at) "
+                           "VALUES(:p,'part','pending',3,FALSE,1,now(),now())"), {'p': printer})
+            c.execute(text("INSERT INTO printer_dispatch_claims(printer_id,job_id,physical_key,configuration_key,"
+                           "payload_sha256,token,state) VALUES(:p,:p,:k,:k,:k,:t,'adapter_entered')"),
+                      {'p': printer, 't': token, 'k': '0' * 64})
+    tier_license('enterprise', max_users=1, max_printers=1)
+    monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', 'true')
+    policy._cache.clear()
+    with Session(native_pg) as db:
+        initial = policy.reconcile(db); db.commit()
+    assert initial['printers'] == [1]
+    # Admission first: recorded, and kept when the printer is then locked.
+    assert policy.admit_start(native_pg, printer_id=1, job_id=1, claim_token='p' * 32) is None
+    with Session(native_pg) as db:
+        assert set(policy._read(db, policy.ADMITTED_KEY)) == {policy._attempt_key('p' * 32)}
+    # Selection change in flight: admission waits on the row lock, then refuses.
+    changer = Session(native_pg)
+    current = policy.selection_status(changer); changer.commit()
+    policy.replace_selection(changer, printers=[2], users=[1], expected_revision=current['revision'], actor=1)
+    result = {}
+    worker = threading.Thread(target=lambda: result.setdefault(
+        'r', policy.admit_start(native_pg, printer_id=1, job_id=1, claim_token='p' * 32)))
+    worker.start()
+    time.sleep(0.5)
+    assert worker.is_alive()
+    changer.commit(); changer.close()
+    worker.join(10)
+    assert result['r'] is not None and result['r'].detail['code'] == 'license_printer_locked'
+    assert policy.admit_start(native_pg, printer_id=2, job_id=2, claim_token='q' * 32) is None
