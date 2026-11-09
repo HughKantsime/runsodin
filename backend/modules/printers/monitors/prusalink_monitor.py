@@ -75,6 +75,9 @@ class PrusaLinkMonitorThread(threading.Thread):
         with self._status_lock:
             self._retired = True
             self._running = False
+        # No further HTTP, including legacy fallback requests. A thread still in its poll
+        # sleep wakes, sees _running False and exits without touching the printer.
+        self.client.cancel()
 
     def run(self):
         log.info(f"[{self.name}] PrusaLink monitor started for {self.host}")
@@ -113,6 +116,8 @@ class PrusaLinkMonitorThread(threading.Thread):
         """Attempt auto-dispatch of next scheduled job after print completes."""
         try:
             time.sleep(5)
+            if self._retired:
+                return  # this monitor was retired (license lock, removal or edit) meanwhile
             import printer_dispatch
             printer_dispatch.attempt_dispatch(self.printer_id)
         except Exception as e:
@@ -415,10 +420,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    from core.monitor_bootstrap import bootstrap_monitor_authority
-    bootstrap_monitor_authority()
-    # Inventory every 10 s and a license pass every 2 s: added, removed, edited
-    # and license-locked printers are picked up without a restart (B2c).
-    from core.license_monitor import monitor_loop
-    monitor_loop(engine, _inventory, _thread, 'PrusaLink', shutdown, log)
+    # License fleet lock enabled: inventory every 10 s and a license pass every 2 s
+    # (B2c). Otherwise the monitors start once, as before.
+    from core.license_monitor import run_monitor_process
+    run_monitor_process(engine, _inventory, _thread, start_prusalink_monitors, 'PrusaLink', shutdown, log)
     log.info("PrusaLink monitor daemon stopped.")

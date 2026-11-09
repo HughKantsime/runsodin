@@ -776,9 +776,13 @@ _DISABLED = PolicySnapshot(0, False, frozenset(), frozenset(), None, MappingProx
 _cache = {}
 
 
-def snapshot(db, *, request=None, cycle=None):
+def snapshot(db, *, request=None, cycle=None, fresh=False):
+    """fresh=True skips the process cache (monitor loops while an exemption exists,
+    so a retired attempt stops being monitored within the teardown bound)."""
     if not enabled():
         return _DISABLED
+    if fresh:
+        _cache.pop(str(db.get_bind().url), None)
     holder = request.state if request is not None else cycle
     if holder is not None and getattr(holder, 'license_policy', None) is not None:
         return holder.license_policy

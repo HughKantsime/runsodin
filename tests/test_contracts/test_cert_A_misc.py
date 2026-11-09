@@ -340,8 +340,10 @@ def test_live_engine_stays_out_of_engine_type_checks():
             # redact_payload (core.controlled_mqtt) uses .connect() and a dict key.
             # concrete_engine (core.db) only compares identity with the proxy (`is live_engine`).
             # monitor_loop and MonitorLicense (core.license_monitor) only keep it and
-            # unwrap it with concrete_engine() on every use.
+            # unwrap it with concrete_engine() on every use; run_monitor_process only passes
+            # it on to monitor_loop.
             assert call in {"bind_generic_observation", "retire_observed_terminal", "Session",
                             "dispatch_transaction", "observe_status", "redact_payload",
-                            "concrete_engine", "monitor_loop", "MonitorLicense"}, (name, call)
+                            "concrete_engine", "monitor_loop", "MonitorLicense",
+                            "run_monitor_process"}, (name, call)
 

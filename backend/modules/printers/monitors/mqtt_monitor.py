@@ -215,11 +215,6 @@ class MQTTMonitorDaemon:
         try:
             while self._running:
                 time.sleep(1)
-                # Every 30s, check for dead connections and reconnect
-                if time.time() - self._last_reconnect_check >= 30:
-                    self._check_reconnect()
-                    self._last_reconnect_check = time.time()
-
                 # Every 60s, bring the monitored set in line with the table; a
                 # license change triggers the same pass within about 2 s (B2c).
                 license_changed = False
@@ -229,6 +224,12 @@ class MQTTMonitorDaemon:
                 if license_changed or time.time() - self._last_printer_reload >= 60:
                     self._check_new_printers()
                     self._last_printer_reload = time.time()
+
+                # Every 30s, check for dead connections and reconnect (after the license
+                # pass, so a printer that just left the selection is not retried)
+                if time.time() - self._last_reconnect_check >= 30:
+                    self._check_reconnect()
+                    self._last_reconnect_check = time.time()
 
                 # Every 5 min, rebuild the go2rtc config: camera hosts are
                 # written as validated IP literals, so a DNS change must reach
@@ -300,12 +301,12 @@ class MQTTMonitorDaemon:
                     continue
                 reason = "connection settings changed" if new is not None else "removed, inactive or not licensed"
                 log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
-                removals.append((kind, monitor))
+                removals.append((kind, monitor, old['id']))
         self._disconnect_all(removals)
         for kind, attr, _previous, current, _keys, factory in loaded:
             setattr(self, attr, current)
             for p in current:
-                if p['id'] in self.monitors:
+                if p['id'] in self.monitors or self._tearing_down_now(p['id']):
                     continue
                 log.info(f"[{p['name']}] Connecting {kind} monitor...")
                 try:
@@ -316,26 +317,37 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
 
-    @staticmethod
-    def _disconnect_all(removals):
-        """Disconnect removed monitors in parallel against one shared 5 s deadline.
+    def _disconnect_all(self, removals):
+        """Disconnect removed monitors.
 
-        disconnect() retires the monitor first (late callbacks are ignored); a
-        transport that does not stop in time is abandoned on its daemon thread."""
+        License fleet lock enabled (B2c): in parallel against one shared 5 s
+        deadline (paho joins have no timeout); a monitor whose disconnect has not
+        finished stays fenced in _tearing_down, and no replacement session for
+        that printer starts until it has. Otherwise: one by one, as before."""
         if not removals:
             return
-        from threading import Thread
-        from core.license_monitor import drain, _joiner, TEARDOWN_SECONDS
+        from core import license_lock
 
-        def disconnect(kind, monitor):
+        def disconnect(kind, monitor, _pid=None):
             try:
                 monitor.disconnect()
             except Exception as e:
                 log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
+        if not license_lock.enabled():
+            for removal in removals:
+                disconnect(*removal)
+            return
+        from threading import Thread
+        from core.license_monitor import drain, _joiner, TEARDOWN_SECONDS
         threads = [Thread(target=disconnect, args=removal, daemon=True) for removal in removals]
         late = drain([t.start for t in threads], [_joiner(t) for t in threads])
+        if not hasattr(self, '_tearing_down'):
+            self._tearing_down = {}
+        for i in late:
+            self._tearing_down[removals[i][2]] = threads[i]
         if late:
-            log.warning(f"{len(late)} monitor(s) did not disconnect within {TEARDOWN_SECONDS}s; abandoned (retired)")
+            log.warning(f"{len(late)} monitor(s) did not disconnect within {TEARDOWN_SECONDS}s; "
+                        f"replacements wait until they do")
 
     def _persist_offline(self, printer_id):
         try:
@@ -356,8 +368,17 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} reconnect failed; retry next check: {type(e).__name__}")
 
+    def _tearing_down_now(self, pid):
+        thread = getattr(self, '_tearing_down', {}).get(pid)
+        if thread is not None and not thread.is_alive():
+            self._tearing_down.pop(pid, None)
+            return False
+        return thread is not None
+
     def _reconnect_bambu(self, p):
         pid = p['id']
+        if self._tearing_down_now(pid):
+            return  # the old session is still disconnecting: never two sessions for one printer
         monitor = self.monitors.get(pid)
 
         if monitor is None:

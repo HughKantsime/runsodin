@@ -121,9 +121,16 @@ class PrusaLinkPrinter:
         self.api_key = api_key
         self.base_url = f"http://{host}:{port}"
         self.timeout = 10
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Make every later request a no-op (a retired monitor's client, B2c)."""
+        self._cancelled = True
 
     def _get(self, path: str) -> Optional[Dict]:
         """Make authenticated GET request to PrusaLink."""
+        if self._cancelled:
+            return None
         url = f"{self.base_url}{path}"
         headers = {}
 

@@ -19,6 +19,7 @@ class MonitorLicense:
     def __init__(self, engine):
         self._engine = engine
         self._seen = None
+        self._exempt = False
 
     def wanted(self, candidates):
         """Subset of candidate printer ids this process may watch, or None if unknown.
@@ -32,8 +33,11 @@ class MonitorLicense:
         from core.db import concrete_engine
         try:
             with Session(concrete_engine(self._engine)) as db:
-                policy = license_lock.snapshot(db)
+                # While an exemption exists, reconcile every pass (no 30 s cache) so a
+                # finished or replaced attempt stops being monitored within the bound.
+                policy = license_lock.snapshot(db, fresh=self._exempt)
             self._seen = self._marker(policy)
+            self._exempt = bool(policy.exempt_attempts)
             return {pid for pid in candidates if license_lock.printer_allowed(policy, pid, 'M')}
         except Exception:
             return None
@@ -52,9 +56,10 @@ class MonitorLicense:
             return False
         if stored is None:
             return self._seen is not None
-        marker = self._marker(stored)
-        if marker != self._seen:
+        if self._marker(stored) != self._seen:
             return True
+        if stored.exempt_attempts or self._exempt:
+            return True  # exemptions resolve, expire or retire between revisions
         deadline = stored.deadline
         if deadline:
             try:
@@ -63,8 +68,7 @@ class MonitorLicense:
                 return license_clock().sample()[0] >= instant(deadline) and not self._deadline_applied(stored)
             except Exception:
                 return False
-        # Exempt records resolve or retire on their own schedule (30 s bound).
-        return bool(stored.exempt_attempts)
+        return False
 
     @staticmethod
     def _marker(policy):
@@ -77,25 +81,32 @@ class MonitorLicense:
 
 
 def drain(stoppers, joiners, seconds=TEARDOWN_SECONDS):
-    """Signal every removal first, then join them against one shared deadline.
+    """Stop and join every removal in parallel against one shared deadline.
 
-    stoppers/joiners: callables (no args / timeout). Returns the joiners that did
-    not finish in time; callers abandon them (they are already retired)."""
-    for stop in stoppers:
+    stoppers[i]() and then joiners[i](remaining) run on their own daemon worker,
+    so a stop that blocks (a transport disconnect, a held lock) never delays the
+    others. Returns the indexes of removals not confirmed stopped in time; their
+    workers are abandoned. Callers must not start a replacement for those."""
+    import threading
+    deadline = time.monotonic() + seconds
+    done = [False] * len(stoppers)
+
+    def work(i):
         try:
-            stop()
+            stoppers[i]()
         except Exception:
             pass
-    deadline = time.monotonic() + seconds
-    late = []
-    for join in joiners:
-        remaining = max(0.0, deadline - time.monotonic())
         try:
-            if join(remaining) is False:
-                late.append(join)
+            done[i] = joiners[i](max(0.0, deadline - time.monotonic())) is not False
         except Exception:
-            late.append(join)
-    return late
+            done[i] = False
+
+    workers = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(len(stoppers))]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(max(0.0, deadline - time.monotonic()))
+    return [i for i, ok in enumerate(done) if not ok]
 
 
 INVENTORY_SECONDS = 10
@@ -108,19 +119,26 @@ def _joiner(thread):
     return join
 
 
-def reconcile_threads(threads, wanted, factory, label, log=None):
+def reconcile_threads(threads, wanted, factory, label, log=None, lingering=None):
     """threads: {printer_id: (identity, thread)}. Stop removed, changed or dead
-    threads against one shared deadline, then start additions with factory(pid, *identity)."""
+    threads against one shared deadline, then start additions with factory(pid, *identity).
+
+    lingering: {printer_id: thread} still stopping from an earlier pass; no
+    replacement starts for a printer until its old thread has really ended."""
+    lingering = {} if lingering is None else lingering
     removals = [(pid, thread) for pid, (identity, thread) in threads.items()
                 if wanted.get(pid) != identity or not thread.is_alive()]
     late = drain([thread.stop for _, thread in removals], [_joiner(thread) for _, thread in removals])
     if late and log is not None:
-        log.warning('%s monitor: %d thread(s) did not stop within %ss; abandoned (retired)',
+        log.warning('%s monitor: %d thread(s) did not stop within %ss; replacements wait',
                     label, len(late), TEARDOWN_SECONDS)
-    for pid, _ in removals:
+    for pid, thread in removals:
         del threads[pid]
+        lingering[pid] = thread
+    for pid in [p for p, t in lingering.items() if not t.is_alive()]:
+        del lingering[pid]
     for pid, identity in wanted.items():
-        if pid not in threads:
+        if pid not in threads and pid not in lingering:  # never two sessions for one printer
             thread = factory(pid, *identity)
             threads[pid] = (identity, thread)
             thread.start()
@@ -132,7 +150,7 @@ def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None):
     load_inventory() -> {printer_id: identity tuple}; a changed identity restarts
     that printer's thread. A failed inventory read keeps the previous one; an
     unreadable policy keeps the current permitted set."""
-    threads, view = {}, MonitorLicense(engine)
+    threads, lingering, view = {}, {}, MonitorLicense(engine)
     inventory, permitted, next_inventory = {}, set(), 0.0
     try:
         while not stop_event.is_set():
@@ -149,8 +167,38 @@ def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None):
                 if allowed is not None:
                     permitted = allowed
                 reconcile_threads(threads, {p: i for p, i in inventory.items() if p in permitted},
-                                  factory, label, log)
+                                  factory, label, log, lingering)
             stop_event.wait(LICENSE_PASS_SECONDS)
     finally:
-        reconcile_threads(threads, {}, factory, label, log)
+        reconcile_threads(threads, {}, factory, label, log, lingering)
     return threads
+
+
+def run_legacy(start_all, stop_event, label, log=None):
+    """The pre-B2c daemon behaviour, kept while the rollout is off: start the
+    monitors once (retry every 60 s only while none started), then wait."""
+    started = []
+    while not stop_event.is_set():
+        started = start_all()
+        if started:
+            if log is not None:
+                log.info('Monitoring %d %s printer(s)', len(started), label)
+            stop_event.wait()
+            break
+        if log is not None:
+            log.info('No %s printers found in database; sleeping 60s', label)
+        stop_event.wait(60)
+    for monitor in started:
+        try:
+            monitor.stop()
+        except Exception:
+            pass
+
+
+def run_monitor_process(engine, load_inventory, factory, start_all, label, stop_event, log=None):
+    """B2c loop when the license fleet lock is enabled; otherwise unchanged behaviour."""
+    if license_lock.enabled():
+        from core.monitor_bootstrap import bootstrap_monitor_authority
+        bootstrap_monitor_authority()  # start_all does this itself on the legacy path
+        return monitor_loop(engine, load_inventory, factory, label, stop_event, log)
+    return run_legacy(start_all, stop_event, label, log)

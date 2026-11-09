@@ -84,35 +84,47 @@ class ElegooMonitorThread(threading.Thread):
         log.info(f"[{self.name}] Elegoo SDCP monitor started for {self.host}")
         camera_discovered = False
 
-        while self._running:
-            # Connect (or reconnect)
-            if not self.client._connected:
-                log.info(f"[{self.name}] Connecting to {self.host}...")
-                connected = self.client.connect()
-                if not connected:
-                    # A closed socket that cannot reconnect still has to honour the
-                    # 60s status timeout, otherwise a powered-off printer keeps its
-                    # last state forever.
-                    self._persist_offline_if_stale()
-                    log.warning(f"[{self.name}] Connection failed, retrying in {RECONNECT_INTERVAL}s")
-                    time.sleep(RECONNECT_INTERVAL)
-                    continue
-                # Auto-discover camera on first connect
-                if not camera_discovered:
-                    self._discover_and_save_camera()
-                    camera_discovered = True
+        try:
+            while self._running:
+                # Connect (or reconnect)
+                if not self.client._connected:
+                    log.info(f"[{self.name}] Connecting to {self.host}...")
+                    connected = self.client.connect()
+                    if not self._running:
+                        return  # stopped while connecting: the finally closes the new socket
+                    if not connected:
+                        # A closed socket that cannot reconnect still has to honour the
+                        # 60s status timeout, otherwise a powered-off printer keeps its
+                        # last state forever.
+                        self._persist_offline_if_stale()
+                        log.warning(f"[{self.name}] Connection failed, retrying in {RECONNECT_INTERVAL}s")
+                        time.sleep(RECONNECT_INTERVAL)
+                        continue
+                    # Auto-discover camera on first connect
+                    if not camera_discovered:
+                        self._discover_and_save_camera()
+                        camera_discovered = True
 
-            # WebSocket is event-driven — just sleep and check connection health
-            time.sleep(10)
+                # WebSocket is event-driven — just wait and check connection health.
+                # Stopped during the wait: exit without the staleness write.
+                time.sleep(10)
+                if not self._running:
+                    break
 
-            # Heartbeat: if no status update for 60s, try reconnecting
-            reconnect = self._persist_offline_if_stale()
-            if reconnect:
-                camera_discovered = False
-                self.client.disconnect()
-                time.sleep(2)
-
-        log.info(f"[{self.name}] Elegoo SDCP monitor stopped")
+                # Heartbeat: if no status update for 60s, try reconnecting
+                reconnect = self._persist_offline_if_stale()
+                if reconnect:
+                    camera_discovered = False
+                    self.client.disconnect()
+                    time.sleep(2)
+        finally:
+            if not self._running:
+                # A connect that finished after stop() must not leave a live session.
+                try:
+                    self.client.disconnect()
+                except Exception:
+                    log.warning(f"[{self.name}] Final disconnect failed")
+            log.info(f"[{self.name}] Elegoo SDCP monitor stopped")
 
     def _persist_offline_if_stale(self) -> bool:
         """Persist OFFLINE once no status frame arrived for 60s; True when stale."""
@@ -422,10 +434,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    from core.monitor_bootstrap import bootstrap_monitor_authority
-    bootstrap_monitor_authority()
-    # Inventory every 10 s and a license pass every 2 s: added, removed, edited
-    # and license-locked printers are picked up without a restart (B2c).
-    from core.license_monitor import monitor_loop
-    monitor_loop(engine, _inventory, _thread, 'Elegoo', shutdown, log)
+    # License fleet lock enabled: inventory every 10 s and a license pass every 2 s
+    # (B2c). Otherwise the monitors start once, as before.
+    from core.license_monitor import run_monitor_process
+    run_monitor_process(engine, _inventory, _thread, start_elegoo_monitors, 'Elegoo', shutdown, log)
     log.info("Elegoo monitor daemon stopped.")

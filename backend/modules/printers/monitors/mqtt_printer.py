@@ -808,6 +808,8 @@ class PrinterMonitor:
         try:
             # Brief settle delay so the printer is fully in IDLE before we upload
             time.sleep(5)
+            if self._connection_retired:
+                return  # this monitor was retired (license lock, removal or edit) meanwhile
             import printer_dispatch
             printer_dispatch.attempt_dispatch(self.printer_id)
         except Exception as e:
