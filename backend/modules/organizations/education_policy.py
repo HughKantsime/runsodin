@@ -414,8 +414,8 @@ def advance_schedule(
     if not job_training_allowed(db, job_id=job_id, printer_id=printer_id):
         return False
     from core import license_lock
-    if license_lock.enabled() and not license_lock.locked_printer_allowed(db, printer_id):
-        return False  # held to the caller's commit; the submission stays pending
+    if not license_lock.printer_allowed_now(db, printer_id):
+        return False  # the submission stays pending; the scheduler and final admission recheck
     context = scheduler_context(db, job_id=job_id)
     if (
         not context

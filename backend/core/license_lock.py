@@ -589,23 +589,26 @@ def _admission_session(engine):
     """Own short transaction with a bounded lock wait on both databases.
 
     PostgreSQL: _lock sets a 2 s lock_timeout. SQLite: the engine's busy timeout
-    is longer, so it is lowered for this connection and restored afterwards."""
+    is longer, so it is lowered on one explicitly held connection and restored on
+    that same connection before it returns to the pool."""
     from sqlalchemy.orm import Session
-    with Session(engine) as db:
+    with engine.connect() as conn:
+        raw = conn.connection.driver_connection if engine.dialect.name == 'sqlite' else None
         restore = None
-        if engine.dialect.name == 'sqlite':
-            raw = db.connection().connection.driver_connection
+        if raw is not None:
             restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]
             raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')
         try:
-            yield db
+            with Session(bind=conn) as db:
+                yield db
         finally:
-            if restore is not None:
+            if raw is not None:
                 try:
-                    db.rollback()
-                    db.connection().connection.driver_connection.execute(f'PRAGMA busy_timeout={int(restore)}')
+                    if conn.in_transaction():
+                        conn.rollback()
+                    raw.execute(f'PRAGMA busy_timeout={int(restore)}')
                 except Exception:
-                    db.invalidate()  # never return a connection with the shortened wait to the pool
+                    conn.invalidate()  # never pool a connection with the shortened wait
 
 
 def withdraw_admission(engine, claim_token):
@@ -625,31 +628,34 @@ def withdraw_admission(engine, claim_token):
         pass
 
 
-def locked_snapshot(executor):
-    """Fresh policy in the caller's transaction; the policy lock is held to its commit.
+def locked_snapshot(db):
+    """Fresh policy (deadline included) in the caller's Session transaction.
 
-    For writes that assign or reserve work on printers (scheduler, Education), so a
-    selection change cannot commit between this check and the caller's write.
-    Session or Connection only; returns None (fail closed) on any other executor or error."""
+    The policy lock is held to the caller's commit, so a selection change cannot
+    commit between this check and the caller's writes. Take it after any row locks
+    the caller needs and commit promptly: final admissions wait on it. Returns None
+    (fail closed) on error or on anything but a Session."""
     if not enabled():
         return _DISABLED
-    from sqlalchemy.engine import Connection
     from sqlalchemy.orm import Session
+    if not isinstance(db, Session):
+        return None
     try:
-        if isinstance(executor, Session):
-            return _snapshot(_reconcile(executor))
-        if isinstance(executor, Connection):
-            executor.execute(text('SELECT 1'))  # the caller owns the transaction, not this session
-            with Session(bind=executor) as db:
-                return _snapshot(_reconcile(db))
+        return _snapshot(_reconcile(db))
     except Exception:
-        pass
-    return None
+        return None
 
 
-def locked_printer_allowed(executor, printer_id):
-    policy = locked_snapshot(executor)
-    return policy is not None and printer_allowed(policy, printer_id, 'N')
+def printer_allowed_now(executor, printer_id):
+    """Early, non-authoritative N check for service callers (Education).
+
+    Reads the policy on its own connection and takes no lock, so it never changes
+    the caller's lock order. admit_start remains the authority."""
+    if not enabled():
+        return True
+    from sqlalchemy.orm import Session
+    bind = executor.get_bind() if isinstance(executor, Session) else executor
+    return printer_refusal(getattr(bind, 'engine', bind), printer_id) is None
 
 
 def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):

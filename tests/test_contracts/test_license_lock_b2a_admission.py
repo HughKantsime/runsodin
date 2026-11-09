@@ -414,23 +414,46 @@ def test_reconcile_prunes_admissions_for_released_claims(policy_db):
 
 def test_locked_snapshot_executors(policy_db):
     engine = policy_db.get_bind()
+    with Session(engine) as db:
+        snap = policy.locked_snapshot(db)
+        assert snap is not None and policy.printer_allowed(snap, SELECTED)
+        assert not policy.printer_allowed(snap, LOCKED)
+        db.rollback()
     with engine.connect() as conn:
-        assert policy.locked_printer_allowed(conn, SELECTED)
-        assert not policy.locked_printer_allowed(conn, LOCKED)
-        assert conn.in_transaction()  # the caller still owns its transaction and the lock
-        conn.rollback()
+        assert policy.locked_snapshot(conn) is None  # Session only; fail closed
     raw = engine.raw_connection()
     try:
-        assert policy.locked_snapshot(raw) is None  # unsupported executor fails closed
+        assert policy.locked_snapshot(raw) is None
+        assert policy.printer_allowed_now(raw, SELECTED) is False  # unknown executor fails closed
     finally:
         raw.close()
+    with engine.connect() as conn:
+        assert policy.printer_allowed_now(conn, SELECTED) and not policy.printer_allowed_now(conn, LOCKED)
+
+
+def test_sqlite_restore_targets_the_same_pooled_connection(policy_db):
+    engine = policy_db.get_bind()
+    with engine.connect() as c:
+        original = c.exec_driver_sql('PRAGMA busy_timeout').scalar()
+    other = engine.connect()  # keep a second pooled connection checked out
+    try:
+        _claim(policy_db, SELECTED, 'p' * 32)
+        assert policy.admit_start(engine, printer_id=SELECTED, job_id=1, claim_token='p' * 32) is None
+    finally:
+        other.close()
+    held = [engine.connect() for _ in range(3)]
+    try:
+        assert [c.exec_driver_sql('PRAGMA busy_timeout').scalar() for c in held] == [original] * 3
+    finally:
+        for c in held:
+            c.close()
 
 
 def test_locked_snapshot_holds_the_lock_until_caller_commits(policy_db):
     engine = policy_db.get_bind()
     current = status(policy_db)
     caller = Session(engine)
-    assert policy.locked_printer_allowed(caller, SELECTED)
+    assert policy.printer_allowed(policy.locked_snapshot(caller), SELECTED)
     done = {}
     def change():
         with Session(engine) as db:
@@ -458,9 +481,13 @@ def test_scheduler_rechecks_under_lock_before_assignment(policy_db, monkeypatch)
     _insert_job(policy_db, 'race part')
     policy_db.commit()
     job_id = policy_db.execute(text("SELECT id FROM jobs WHERE item_name='race part'")).scalar()
+    attempts = []
+    real_once = Scheduler._run_once
+    monkeypatch.setattr(scheduler_module.Scheduler, '_run_once',
+                        lambda self, db, start=None: attempts.append(1) or real_once(self, db, start))
     result = Scheduler(SchedulerConfig()).run(policy_db)
-    # ... but the fresh check under the lock refuses the write.
-    assert result.scheduled_count == 0
+    # ... but the fresh end-of-run check under the lock discards the run (and the retry).
+    assert len(attempts) == 2 and result.scheduled_count == 0 and result.success is False
     row = policy_db.execute(text('SELECT status,printer_id FROM jobs WHERE id=:id'), {'id': job_id}).mappings().one()
     assert row['status'] == 'pending' and row['printer_id'] is None
     assert any('license selection' in e for e in result.errors), result.errors

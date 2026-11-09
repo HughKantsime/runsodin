@@ -84,7 +84,7 @@ def reserve_dispatch(
     if not job_training_allowed(executor, job_id=job_id, printer_id=printer_id, lock=True):
         return None
     from core import license_lock
-    if license_lock.enabled() and not license_lock.locked_printer_allowed(executor, printer_id):
+    if not license_lock.printer_allowed_now(executor, printer_id):
         return None  # no reservation for a printer outside the license selection
     adapter = owner._ExecutionAdapter(executor)
     token = secrets.token_hex(16)

@@ -371,7 +371,6 @@ class Scheduler(SchedulerPlanning):
             "unknown_quantity": "Set the job quantity before scheduling. The job remains queued.",
             "no_fit": "No compatible printer has capacity within the scheduling horizon. Check job requirements and printer availability.",
             "no_active_printers": "No active printers are available. Check which printers are enabled; the job remains queued.",
-            "printer_license_locked": "The printer chosen for this job left the active license selection during scheduling. The job remains queued.",
             "policy_unavailable": "The Education scheduling policy is unavailable. Check server diagnostics before scheduling.",
             "policy_context_unavailable": "The Education approval context could not be validated. Review the submission before scheduling.",
             "policy_denied": "The current Education policy does not authorize scheduling. Review the submission approval.",

@@ -10,8 +10,24 @@ from modules.printers.models import Printer
 from modules.jobs.models import Job
 
 
+class LicenseSelectionChanged(RuntimeError):
+    """An assigned printer left the license selection before this run committed."""
+
+
 class SchedulerPlanning:
     def run(self, db: Session, start_date: Optional[datetime] = None) -> "SchedulerResult":
+        """Run once; if the license selection changed under the run, discard it and run again once."""
+        for attempt in range(2):
+            try:
+                return self._run_once(db, start_date)
+            except LicenseSelectionChanged:
+                db.rollback()
+        from modules.jobs.scheduler import SchedulerResult
+        result = SchedulerResult(success=False)
+        result.errors.append('The license selection changed during scheduling; nothing was scheduled. Run the scheduler again.')
+        return result
+
+    def _run_once(self, db: Session, start_date: Optional[datetime] = None) -> "SchedulerResult":
         """
         Run the scheduler on all pending jobs.
 
@@ -56,7 +72,6 @@ class SchedulerPlanning:
                     if raw_authorities.get(p.id) is not None and p.id not in claimed_printers
                     and not hold_reason(db, p.id) and not dispatch_unsupported_reason(p)]
         from core import license_lock
-        assignment_policy = None
         if license_lock.enabled():
             # New work goes only to printers in the license selection. Jobs pinned
             # to a locked printer stay pending; they are never moved elsewhere.
@@ -289,17 +304,6 @@ class SchedulerPlanning:
                 required_printer_id=approved_printer_id,
             )
             
-            if best_fit and license_lock.enabled():
-                # Recheck under the policy lock, held until this run commits, so a
-                # selection change cannot land between this check and the write.
-                if assignment_policy is None:
-                    assignment_policy = license_lock.locked_snapshot(db) or False
-                if not assignment_policy or not license_lock.printer_allowed(
-                        assignment_policy, best_fit['printer_id'], 'N'):
-                    result.skipped_count += 1
-                    skipped.append((job.id, "printer_license_locked"))
-                    result.errors.append(f'Could not schedule job {job.id}: printer is not in the license selection')
-                    continue
             if best_fit:
                 if education_context is not None:
                     advanced = education_policy.advance_schedule(
@@ -381,6 +385,14 @@ class SchedulerPlanning:
                 else:
                     result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")
         
+        if result.assignments and license_lock.enabled():
+            # Fresh check (deadline included) under the policy lock, taken after the
+            # job rows, the same order printer deletion uses, and held only to the
+            # commit below. A printer that left the selection discards the whole run.
+            final = license_lock.locked_snapshot(db)
+            if final is None or any(not license_lock.printer_allowed(final, a.printer_id, 'N')
+                                    for a in result.assignments):
+                raise LicenseSelectionChanged()
         # Reconcile in the same transaction as all generic state writes.
         reconcile_job_write(db, production_orders)
         return self._finish_run(db, result, len(pending_jobs), skipped)
