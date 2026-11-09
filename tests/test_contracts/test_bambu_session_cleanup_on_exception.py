@@ -63,3 +63,27 @@ def _disconnects_in_finally(function, name):
 def test_ams_sync_disconnects_in_finally(name):
     from modules.printers import routes_ams
     assert _disconnects_in_finally(routes_ams.sync_ams_state, name)
+
+
+@pytest.mark.parametrize("stop_raises", [False, True])
+def test_v2_monitor_stops_its_session_when_recovery_fails(monkeypatch, stop_raises):
+    """Codex: the discarded monitor must not keep a started V2 MQTT session."""
+    from modules.printers.monitors import mqtt_printer as module
+    from modules.printers.telemetry.bambu import adapter, broker_policy
+    events = []
+    class Adapter:
+        def __init__(self, config, emitter): pass
+        def start(self): events.append("start")
+        def stop(self):
+            events.append("stop")
+            if stop_raises:
+                raise RuntimeError("synthetic stop failure")
+    monkeypatch.setattr(adapter, "BambuTelemetryAdapter", Adapter)
+    monkeypatch.setattr(broker_policy, "resolve_bambu_broker_config",
+                        lambda *a, **kw: NS(host="127.0.0.1", port=1883, use_tls=False))
+    monitor = module.PrinterMonitor(199, "Synthetic", "127.0.0.1", "synthetic", "")
+    def recover():
+        raise RuntimeError("synthetic recovery failure")
+    monkeypatch.setattr(monitor, "_recover_orphaned_jobs", recover)
+    assert monitor._connect_v2() is False
+    assert events == ["start", "stop"] and monitor._v2_adapter is None
