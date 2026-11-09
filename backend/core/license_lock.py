@@ -331,6 +331,7 @@ def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recove
     elif resolved != old:
         resolved['change_reason'] = 'automatic_reconciliation'
     _prune_admissions(db)
+    resolved['exempt_attempts'] = _exemptions(db, old if valid else None, resolved, entitlement)
     if resolved != old or not valid:
         resolved['revision'] = _next_revision(db, revision)
         resolved['transition_id'] = str(uuid4())
@@ -357,6 +358,185 @@ def _prune_admissions(db):
     live = _live_admissions(db, entries)
     if live != entries:
         _write(db, ADMITTED_KEY, live)
+
+
+# --- B2b-1: the one exempt attempt per newly locked printer -----------------
+# Design sec. 5; plan specs/license-lock-b2-plan.md "B2b". An attempt is a
+# print_jobs row (id + immutable economic_birth_nonce), or a live B2a admission
+# whose start has not been bound to a row yet.
+
+PENDING_SECONDS = 60
+FRESH_SECONDS = 90
+LIVE_STATES = frozenset({'RUNNING', 'PRINTING', 'PAUSE', 'PAUSED'})
+
+
+def _utc(value):
+    from datetime import datetime, timezone
+    if value is None:
+        return None
+    stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    return stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp.astimezone(timezone.utc)
+
+
+def _db_now(db):
+    sql = ('SELECT clock_timestamp()' if db.get_bind().dialect.name == 'postgresql'
+           else "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')")
+    return _utc(db.execute(text(sql)).scalar())
+
+
+def _running_rows(db, printer_id):
+    return db.execute(text("SELECT id,economic_birth_nonce,started_at,observed_received_at FROM print_jobs "
+                           "WHERE printer_id=:p AND status='running' ORDER BY started_at DESC,id DESC"),
+                      {'p': printer_id}).mappings().all()
+
+
+def _fresh(db, printer_id, row, now):
+    """Fresh printing/paused telemetry for this row (the power-fence rule, DB clock)."""
+    printer = db.execute(text('SELECT gcode_state,last_seen FROM printers WHERE id=:p'), {'p': printer_id}).first()
+    if not printer or not printer[1] or not row['observed_received_at']:
+        return False
+    state = str(printer[0] or '').strip().upper()
+    return (state in LIVE_STATES
+            and 0 <= (now - _utc(printer[1])).total_seconds() <= FRESH_SECONDS
+            and 0 <= (now - _utc(row['observed_received_at'])).total_seconds() <= FRESH_SECONDS)
+
+
+def _live_admission(db, printer_id):
+    """(claim_key, job_id, bound print_job_id or None) for a live B2a admission, else None."""
+    claim = db.execute(text('SELECT token FROM printer_dispatch_claims WHERE printer_id=:p'), {'p': printer_id}).first()
+    if claim is None:
+        return None
+    try:
+        entries = _read(db, ADMITTED_KEY)
+    except (ValueError, TypeError):
+        entries = None
+    entry = entries.get(_attempt_key(claim[0])) if isinstance(entries, dict) else None
+    if not isinstance(entry, dict) or entry.get('printer_id') != printer_id:
+        return None
+    bound = db.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE claim_token=:t'),
+                       {'t': claim[0]}).scalar()
+    return _attempt_key(claim[0]), entry.get('job_id'), bound
+
+
+def _observed(row, cutoff, captured):
+    return dict(kind='observed', print_job_id=row['id'], nonce=row['economic_birth_nonce'],
+                started_at=_utc(row['started_at']).isoformat(), captured_at=captured, cutoff=cutoff)
+
+
+def _capture(db, printer_id, cutoff, now, captured):
+    admission = _live_admission(db, printer_id)
+    rows = _running_rows(db, printer_id)
+    if admission is not None:
+        claim_key, job_id, bound = admission
+        row = next((r for r in rows if r['id'] == bound), None) if bound is not None else None
+        if row is not None:
+            return _observed(row, cutoff, captured)
+        return dict(kind='admitted', claim_key=claim_key, job_id=job_id, captured_at=captured, cutoff=cutoff)
+    cut = _utc(cutoff)
+    rows = [r for r in rows if _utc(r['started_at']) <= cut]  # a print started after cutoff gets nothing
+    if not rows:
+        return None
+    if len(rows) == 1 and _fresh(db, printer_id, rows[0], now):
+        return _observed(rows[0], cutoff, captured)
+    until = (cut + __import__('datetime').timedelta(seconds=PENDING_SECONDS)).isoformat()
+    return dict(kind='pending', print_job_id=rows[0]['id'] if len(rows) == 1 else None,
+                captured_at=captured, cutoff=cutoff, until=until)
+
+
+def _refresh(db, printer_id, record, now):
+    """Resolve or retire one record; returns the record to keep, or None."""
+    kind = record.get('kind')
+    rows = _running_rows(db, printer_id)
+    if kind == 'admitted':
+        admission = _live_admission(db, printer_id)
+        if admission is None or admission[0] != record.get('claim_key'):
+            return None  # claim released or retired without a bound running attempt
+        if admission[2] is None:
+            return record  # still in flight: the start has not been observed yet
+        bound_row = next((r for r in rows if r['id'] == admission[2]), None)
+        return _observed(bound_row, record['cutoff'], record['captured_at']) if bound_row is not None else None
+    if kind == 'pending':
+        if (record.get('print_job_id') is not None and len(rows) == 1 and rows[0]['id'] == record['print_job_id']
+                and _utc(rows[0]['started_at']) <= _utc(record['cutoff']) and _fresh(db, printer_id, rows[0], now)):
+            return _observed(rows[0], record['cutoff'], record['captured_at'])
+        if record.get('print_job_id') is not None and not any(r['id'] == record['print_job_id'] for r in rows):
+            return None  # the uncertain attempt ended
+        return record if rows else None
+    if kind == 'observed':
+        mine = next((r for r in rows if r['id'] == record.get('print_job_id')), None)
+        if mine is None or mine['economic_birth_nonce'] != record.get('nonce'):
+            return None  # terminal, missing or replaced
+        if any(r['id'] != mine['id'] and _utc(r['started_at']) > _utc(mine['started_at']) for r in rows):
+            return None  # a different, later attempt started
+        return record
+    return None
+
+
+def _exemptions(db, old, resolved, entitlement):
+    """Capture on unlocked->locked transitions; resolve and retire the rest."""
+    if not entitlement.get('enforce'):
+        return {}
+    members = set(resolved['printers'])
+    previous = (old or {}).get('exempt_attempts') or {}
+    was_enforcing = bool(old and old.get('entitlement', {}).get('enforce'))
+    previously_member = set(old['printers']) if was_enforcing else None
+    active = [r[0] for r in db.execute(text('SELECT id FROM printers WHERE is_active IS TRUE ORDER BY id'))]
+    from license_manager import license_clock
+    clock_now = license_clock().sample()[0]
+    deadline = entitlement.get('deadline')
+    from core.license_clock import instant
+    cutoff_at = instant(deadline) if deadline and clock_now >= instant(deadline) else clock_now
+    cutoff, captured = _utc(cutoff_at).isoformat(), _utc(clock_now).isoformat()
+    now = _db_now(db)
+    result = {}
+    for printer_id in active:
+        if printer_id in members:
+            continue
+        key = str(printer_id)
+        if key in previous:
+            kept = _refresh(db, printer_id, dict(previous[key]), now)
+        elif previously_member is None or printer_id in previously_member:
+            kept = _capture(db, printer_id, cutoff, now, captured)  # newly locked now
+        else:
+            kept = None  # already locked before: a later attempt never gains an exemption
+        if kept is not None:
+            result[key] = kept
+    return result
+
+
+def exempt_attempt(policy, printer_id):
+    return (policy.exempt_attempts or {}).get(str(printer_id))
+
+
+def _pending_open(record):
+    from license_manager import license_clock
+    try:
+        return _utc(license_clock().sample()[0]) < _utc(record.get('until'))
+    except Exception:
+        return False
+
+
+def attempt_allowed(db, policy, printer_id, cap):
+    """C/V (and M) for the exempt attempt, re-read from the database.
+
+    Members pass. Otherwise C and V need the 'observed' record's own row: same id
+    and nonce, still running, with fresh printing/paused telemetry."""
+    if printer_allowed(policy, printer_id, cap):
+        return True
+    record = exempt_attempt(policy, printer_id)
+    if record is None or cap == 'N':
+        return False
+    if cap == 'M':
+        return record.get('kind') in {'observed', 'admitted'} or (record.get('kind') == 'pending' and _pending_open(record))
+    if cap not in {'C', 'V'} or record.get('kind') != 'observed':
+        return False
+    try:
+        rows = _running_rows(db, printer_id)
+        mine = next((r for r in rows if r['id'] == record.get('print_job_id')), None)
+        return (mine is not None and mine['economic_birth_nonce'] == record.get('nonce') and len(rows) == 1
+                and _fresh(db, printer_id, mine, _db_now(db)))
+    except Exception:
+        return False
 
 
 def reconcile(db, **kwargs):
@@ -424,7 +604,9 @@ def _cache_current(cached, p, now):
             return False
     except (TypeError, ValueError):
         return False
-    if entitlement.get('state') == 'verification_unavailable':
+    if entitlement.get('state') == 'verification_unavailable' or p.get('exempt_attempts'):
+        # Unverifiable: re-check the saved envelope. Exempt attempts: retire or
+        # resolve them (terminal prints, bound starts) within the same bound.
         return len(cached) > 3 and time.monotonic() - cached[3] < UNVERIFIED_CACHE_SECONDS
     return True
 
@@ -498,14 +680,22 @@ def require_user(policy, user_id, purpose='access'):
 
 
 # R: stored reads. N: new hardware work (dispatch, probes, writes, power on).
-# M/C/V for an exempt attempt arrive with B2b; until then they are members-only.
+# M: monitoring. C: pause/resume/stop. V: camera/capture. See printer_allowed.
 PRINTER_CAPABILITIES = frozenset({'R', 'N', 'M', 'C', 'V'})
 
 
 def printer_allowed(policy, printer_id, cap='N'):
+    """Pure check on the snapshot. N: members only. M: members or the exempt
+    attempt. C/V for an exempt attempt need attempt_allowed (database re-read)."""
     if cap not in PRINTER_CAPABILITIES:
         raise ValueError('unknown printer capability')
-    return not policy.enforcing or cap == 'R' or printer_id in policy.printers
+    if not policy.enforcing or cap == 'R' or printer_id in policy.printers:
+        return True
+    if cap != 'M':
+        return False
+    record = exempt_attempt(policy, printer_id)
+    return record is not None and (record.get('kind') in {'observed', 'admitted'}
+                                   or (record.get('kind') == 'pending' and _pending_open(record)))
 
 
 def require_printer(policy, printer_id, cap='N'):
