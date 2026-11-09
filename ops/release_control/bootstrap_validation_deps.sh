@@ -10,9 +10,18 @@ python3.11 -c 'import sys; sys.version_info[:2] == (3, 11) or sys.exit("Python 3
 fingerprint() {
   sha256sum ops/release_control/bootstrap_validation_deps.sh "$@" | sha256sum | cut -d ' ' -f 1
 }
+# A linked environment can point into another checkout (the Actions runner's
+# workspace on odin-ci, 2.0.48); installing would write there. Refuse instead.
+refuse_link() {
+  if [[ -L "$1" ]]; then
+    echo "bootstrap_validation_deps: $1 is a symlink ($(readlink "$1")); replace it with a real directory before validating" >&2
+    exit 3
+  fi
+}
 bootstrap_venv() {
   local venv="$1" stamp digest
   shift
+  refuse_link "$venv"
   stamp="$venv/.validation-deps.sha256"
   digest="$(fingerprint "$@")"
   if [[ ! -x "$venv/bin/python" || ! -x "$venv/bin/pip" || ! -f "$stamp" || "$(cat "$stamp")" != "$digest" ]]; then
@@ -24,6 +33,10 @@ bootstrap_venv() {
     printf '%s\n' "$digest" > "$stamp"
   fi
 }
+# Check every target before installing anything.
+for target in .hardware-cert-venv .venv-stress .venv-contracts frontend/node_modules; do
+  refuse_link "$target"
+done
 bootstrap_venv .hardware-cert-venv backend/requirements.txt ops/hardware_certification/requirements.txt
 bootstrap_venv .venv-stress backend/requirements.txt
 bootstrap_venv .venv-contracts tests/requirements-contracts.txt backend/requirements.txt

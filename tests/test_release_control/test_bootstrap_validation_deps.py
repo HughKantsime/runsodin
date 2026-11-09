@@ -110,3 +110,18 @@ def test_failed_install_leaves_no_success_stamp_and_retries(bootstrap):
     result, calls = run()
     assert result.returncode == 0, result.stderr
     assert installs(calls) == ['.hardware-cert-venv', '.venv-stress', '.venv-contracts']
+
+
+@pytest.mark.parametrize('target', ['.venv-contracts', '.venv-stress', '.hardware-cert-venv', 'frontend/node_modules'])
+def test_symlinked_environment_is_refused_before_any_install(bootstrap, tmp_path_factory, target):
+    """odin-ci 2.0.48: a linked venv pointed into the Actions runner workspace."""
+    root, run = bootstrap
+    elsewhere = tmp_path_factory.mktemp('runner-workspace')
+    link = root / target
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(elsewhere, target_is_directory=True)
+    result, calls = run()
+    assert result.returncode == 3
+    assert f'{target} is a symlink' in result.stderr
+    assert installs(calls) == [] and not any(Path(c[0]).name == 'npm' for c in calls)
+    assert list(elsewhere.iterdir()) == []
