@@ -988,3 +988,18 @@ def test_recovery_exception_is_kept_not_derived_while_frozen(policy_db, tier_lic
     policy._write(policy_db, policy.POLICY_KEY, row); policy_db.commit()
     policy._cache.clear()
     assert not policy.user_allowed(policy.snapshot(policy_db), recovery)
+
+
+def test_legacy_zero_seat_policy_keeps_recovery_access_when_frozen(policy_db, tier_license):
+    """Codex round 4 P1: a pre-flag zero-seat policy keeps recovery through uncertainty."""
+    tier_license('enterprise', max_users=0, max_printers=1)
+    policy._cache.clear()
+    p = status(policy_db)
+    recovery = p['recovery_user_id']
+    row = policy._read(policy_db, policy.POLICY_KEY)
+    row['entitlement'].pop('recovery_exception')
+    policy._write(policy_db, policy.POLICY_KEY, row); policy_db.commit()
+    _unprove(policy_db, tier_license)
+    p = status(policy_db)
+    assert p['entitlement']['recovery_exception'] is True
+    assert policy.user_allowed(policy.snapshot(policy_db), recovery)

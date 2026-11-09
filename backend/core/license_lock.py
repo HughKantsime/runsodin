@@ -236,7 +236,13 @@ def _evidence(db, info, previous):
         else:
             # Unproven: keep the last-good recovery authorization as recorded, never
             # re-derive it from cached caps.
-            frozen['recovery_exception'] = previous.get('recovery_exception') is True
+            if 'recovery_exception' in previous:
+                frozen['recovery_exception'] = previous['recovery_exception'] is True
+            else:
+                # Migration: policies saved before the flag existed were authorized by the
+                # rule they were saved under (a zero seat cap). Keep that last-good
+                # authorization once; the frozen row then carries the explicit flag.
+                frozen['recovery_exception'] = previous.get('max_users') == 0
         return frozen, warning
     if proven_current:
         # Lost or corrupt policy row with usable evidence: rebuild from the proof.
