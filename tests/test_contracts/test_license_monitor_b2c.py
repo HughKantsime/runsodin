@@ -241,6 +241,38 @@ def test_stuck_reads_are_capped_across_many_abandonment_intervals(policy_db, mon
     assert exits == [75]
 
 
+def test_stuck_read_budget_holds_under_concurrent_callers(monkeypatch):
+    import threading as _threading
+    monkeypatch.setattr(license_monitor, 'POLICY_ABANDON_SECONDS', 0)  # every caller may try
+    reads = license_monitor._Reads('b2c-concurrent-read')
+    release = _threading.Event()
+    callers = [_threading.Thread(target=reads.run, args=(lambda: release.wait(30), 0.01)) for _ in range(24)]
+    for caller in callers:
+        caller.start()
+    for caller in callers:
+        caller.join(5)
+    running = sum(1 for t in _threading.enumerate() if t.name == 'b2c-concurrent-read' and t.is_alive())
+    assert running <= license_monitor.MAX_STUCK_READS and reads.exhausted()
+    release.set()
+
+
+def test_an_abandoned_read_does_not_block_a_later_successful_one(monkeypatch):
+    """Single flight follows the latest read only: an old hung read never suppresses
+    reads after a newer one succeeded (which would look unreadable and retire)."""
+    import threading as _threading
+    clock = [100.0]
+    monkeypatch.setattr(license_monitor.time, 'monotonic', lambda: clock[0])
+    reads = license_monitor._Reads('b2c-recovery-read')
+    hung = _threading.Event()
+    assert reads.run(lambda: hung.wait(30), 0.01) is None  # t=100: hangs, abandoned later
+    clock[0] = 111.0
+    assert reads.run(lambda: 'policy', 1) == 'policy'  # replacement succeeds
+    for t in (113.0, 115.0, 117.0, 119.0):
+        clock[0] = t
+        assert reads.run(lambda: 'policy', 1) == 'policy'
+    hung.set()
+
+
 def test_inventory_never_judges_a_session_registered_after_its_read(policy_db):
     exits = []
     retirement = None

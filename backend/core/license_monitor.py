@@ -40,7 +40,8 @@ class _Reads:
 
     def __init__(self, name):
         self.name = name
-        self._alive = []
+        self._alive = []  # every started read still running (budget)
+        self._latest = None  # the most recent read (single flight)
         self._latest_started = 0.0
         self._guard = threading.Lock()
 
@@ -58,15 +59,19 @@ class _Reads:
             except Exception:
                 pass
         with self._guard:
+            latest = self._latest
+            if (latest is not None and latest.is_alive()
+                    and time.monotonic() - self._latest_started < POLICY_ABANDON_SECONDS):
+                return None  # one at a time: the latest read is still within its time
             self._alive = [t for t in self._alive if t.is_alive()]
-            if self._alive and time.monotonic() - self._latest_started < POLICY_ABANDON_SECONDS:
-                return None  # one at a time: the previous read is still within its time
             if len(self._alive) >= MAX_STUCK_READS:
                 return None
             reader = threading.Thread(target=read, name=self.name, daemon=True)
+            # Started under the guard, so a concurrent caller never prunes a reserved,
+            # not-yet-started read from the budget.
+            reader.start()
             self._alive.append(reader)
-            self._latest_started = time.monotonic()
-        reader.start()
+            self._latest, self._latest_started = reader, time.monotonic()
         reader.join(timeout)
         return None if reader.is_alive() else result.get('value')
 INVENTORY_READ_SECONDS = 3  # the retirement thread's inventory read: same bounded engine, own deadline
