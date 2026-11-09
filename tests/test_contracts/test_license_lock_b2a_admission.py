@@ -424,7 +424,8 @@ def test_locked_snapshot_executors(policy_db):
     raw = engine.raw_connection()
     try:
         assert policy.locked_snapshot(raw) is None
-        assert policy.printer_allowed_now(raw, SELECTED) is False  # unknown executor fails closed
+        # DBAPI executors (monitor transactions) are read with a plain cursor query.
+        assert policy.printer_allowed_now(raw, SELECTED) and not policy.printer_allowed_now(raw, LOCKED)
     finally:
         raw.close()
     with engine.connect() as conn:
@@ -539,3 +540,65 @@ def test_scheduler_control_assigns_selected_printer(policy_db, monkeypatch):
     _insert_job(policy_db, 'race part')
     policy_db.commit()
     assert Scheduler(SchedulerConfig()).run(policy_db).scheduled_count == 1
+
+
+# --- Review round 3 fixes --------------------------------------------------
+
+def test_early_check_never_blocks_on_the_callers_writer_lock(policy_db):
+    engine = policy_db.get_bind()
+    caller = Session(engine)
+    caller.execute(text('BEGIN IMMEDIATE'))
+    caller.execute(text("INSERT INTO system_config (key,value) VALUES ('b2a-probe','1')"))
+    policy._cache.clear()  # cold cache: a reconciling check would need the writer lock
+    try:
+        started = time.monotonic()
+        assert policy.printer_allowed_now(caller, SELECTED) is True
+        assert policy.printer_allowed_now(caller, LOCKED) is False
+        assert time.monotonic() - started < 0.5
+    finally:
+        caller.rollback(); caller.close()
+
+
+def test_discarded_run_undoes_nested_writes(policy_db, monkeypatch):
+    """Education transitions use savepoints; a discarded run must undo them too."""
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    import modules.jobs.scheduler as scheduler_module
+    import modules.jobs.scheduler_planning as planning
+    stale = policy.snapshot(policy_db)
+    pick(policy_db, users=[3], printers=[LOCKED])
+    monkeypatch.setattr(policy, 'snapshot', lambda db, **k: stale)
+    monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', _only_printer(Scheduler._find_best_fit, SELECTED))
+    real_prepare = planning.prepare_job_write
+    def nested_first(db, ids):
+        # Stands in for an Education savepoint transition that is the run's FIRST
+        # write (Education-only runs take no generic row locks before it).
+        with db.begin_nested():
+            db.execute(text("INSERT INTO system_config (key,value) VALUES ('b2a-nested-'||abs(random()),'1')"))
+        return real_prepare(db, ids)
+    monkeypatch.setattr(planning, 'prepare_job_write', nested_first)
+    _insert_job(policy_db, 'nested part')
+    policy_db.commit()
+    result = Scheduler(SchedulerConfig()).run(policy_db)
+    assert result.scheduled_count == 0
+    leftover = policy_db.execute(text("SELECT count(*) FROM system_config WHERE key LIKE 'b2a-nested-%'")).scalar()
+    assert leftover == 0
+
+
+def test_license_recheck_runs_after_alert_row_locks(policy_db, monkeypatch):
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    import modules.jobs.scheduler as scheduler_module
+    from modules.notifications import alert_dispatcher
+    order = []
+    real_locked = policy.locked_snapshot
+    monkeypatch.setattr(policy, 'locked_snapshot', lambda db: order.append('license') or real_locked(db))
+    monkeypatch.setattr(alert_dispatcher, 'lock_queue_alert', lambda *a, **k: order.append('alert') or False)
+    original = _only_printer(Scheduler._find_best_fit, SELECTED)
+    def fit(self, job, *a, **k):
+        return None if job.item_name == 'skip part' else original(self, job, *a, **k)
+    monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', fit)
+    _insert_job(policy_db, 'fit part')
+    _insert_job(policy_db, 'skip part')
+    policy_db.commit()
+    result = Scheduler(SchedulerConfig()).run(policy_db)
+    assert result.scheduled_count == 1
+    assert 'alert' in order and order[-1] == 'license' and order.index('license') > order.index('alert')

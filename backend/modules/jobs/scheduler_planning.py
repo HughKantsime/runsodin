@@ -41,6 +41,14 @@ class SchedulerPlanning:
         from modules.jobs.scheduler import (SchedulerResult, PrinterState, SlotAssignment,
             _printer_authority, evaluate_submission_compatibility)
         result = SchedulerResult(success=True)
+        from core import license_lock
+        if license_lock.enabled() and db.get_bind().dialect.name == 'sqlite':
+            # One real outer transaction, so Education savepoints released during the
+            # run stay undoable if the final license check discards it. (pysqlite
+            # otherwise commits a released savepoint opened outside a transaction.)
+            raw = db.connection().connection.driver_connection
+            if not raw.in_transaction:
+                db.execute(text('BEGIN IMMEDIATE'))
 
         # Default start to now, rounded up to next slot
         if start_date is None:
@@ -385,15 +393,17 @@ class SchedulerPlanning:
                 else:
                     result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")
         
-        if result.assignments and license_lock.enabled():
-            # Fresh check (deadline included) under the policy lock, taken after the
-            # job rows, the same order printer deletion uses, and held only to the
-            # commit below. A printer that left the selection discards the whole run.
+        def license_recheck():
+            # Fresh check (deadline included) under the policy lock, taken last: after
+            # the assignment and skipped-job alert row locks, the order printer
+            # deletion uses (job rows, then policy). Held only to the commit.
+            # A printer that left the selection discards the whole run.
             final = license_lock.locked_snapshot(db)
             if final is None or any(not license_lock.printer_allowed(final, a.printer_id, 'N')
                                     for a in result.assignments):
                 raise LicenseSelectionChanged()
         # Reconcile in the same transaction as all generic state writes.
         reconcile_job_write(db, production_orders)
-        return self._finish_run(db, result, len(pending_jobs), skipped)
+        return self._finish_run(db, result, len(pending_jobs), skipped,
+                                before_commit=license_recheck if result.assignments and license_lock.enabled() else None)
 

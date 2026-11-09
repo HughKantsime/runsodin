@@ -649,13 +649,27 @@ def locked_snapshot(db):
 def printer_allowed_now(executor, printer_id):
     """Early, non-authoritative N check for service callers (Education).
 
-    Reads the policy on its own connection and takes no lock, so it never changes
-    the caller's lock order. admit_start remains the authority."""
+    A plain read of the stored policy on the caller's own executor: no reconcile,
+    no lock, no second connection, so it never blocks on or reorders the caller's
+    locks. An unreadable policy does not refuse here; admit_start (fresh, locked,
+    fail-closed) and the scheduler's final check remain the authority."""
     if not enabled():
         return True
-    from sqlalchemy.orm import Session
-    bind = executor.get_bind() if isinstance(executor, Session) else executor
-    return printer_refusal(getattr(bind, 'engine', bind), printer_id) is None
+    statement = 'SELECT value FROM system_config WHERE key=:key'
+    try:
+        from sqlalchemy.engine import Connection
+        from sqlalchemy.orm import Session
+        if isinstance(executor, (Session, Connection)):
+            raw = executor.execute(text(statement), {'key': POLICY_KEY}).scalar()
+        else:
+            row = executor.cursor().execute(statement.replace(':key', '?'), (POLICY_KEY,)).fetchone()
+            raw = row[0] if row else None
+        p = _decode(raw) if raw is not None else None
+    except Exception:
+        return True
+    if not _valid_policy(p):
+        return True
+    return printer_allowed(_snapshot(p), printer_id, 'N')
 
 
 def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):
