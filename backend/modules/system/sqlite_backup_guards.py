@@ -216,6 +216,10 @@ def _required_sqlite_guards(columns, allowed, present=()):
         require('education_assessment_revisions', 'id submission_id org_id revision reviewed_by old_grade new_grade old_feedback new_feedback old_learning_status new_learning_status created_at')
     if 'education_audit_events' in columns:
         required_tables.add('education_audit_events')
+    # Recovery decisions are append-only; a backup without their guards would restore editable history.
+    for table in ('dispatch_recovery_history', 'dispatch_recovery_global_history'):
+        if table in columns:
+            required_tables.add(table)
     if any(t in columns for t in ('terminal_filament_measurements', 'filament_cost_events')):
         births()
         require('terminal_filament_measurements', 'observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams snapshot_json reported_value reconciliation_reason created_at')
