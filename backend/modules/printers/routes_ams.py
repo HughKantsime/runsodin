@@ -261,8 +261,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         mk = MoonrakerPrinter(host=host, port=port, api_key=api_key)
         if not mk.connect():
             raise HTTPException(status_code=503, detail="Failed to connect to Moonraker")
-        mk_status = mk.get_status()
-        mk.disconnect()
+        try:
+            mk_status = mk.get_status()
+        finally:
+            mk.disconnect()
         if not mk_status.filament_slots:
             return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                     "slots_synced": 0, "slots": [], "mismatches": [],
@@ -374,12 +376,15 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 raise HTTPException(status_code=503, detail="Failed to connect to printer")
             # Poll for AMS data — printers take 5-10s to send first MQTT report
             bambu_status = None
-            for _ in range(20):
-                time.sleep(1)
-                bambu_status = bambu.get_status()
-                if bambu_status.ams_slots:
-                    break
-            bambu.disconnect()
+            try:
+                for _ in range(20):
+                    time.sleep(1)
+                    bambu_status = bambu.get_status()
+                    if bambu_status.ams_slots:
+                        break
+            finally:
+                # An exception mid-poll must not leave an MQTT session holding a printer slot.
+                bambu.disconnect()
             if not bambu_status or not bambu_status.ams_slots:
                 return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                         "slots_synced": 0, "slots": [], "mismatches": [],
