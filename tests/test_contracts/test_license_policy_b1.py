@@ -868,3 +868,81 @@ def test_http_recovery_handoff_is_one_atomic_seat(auth_client, policy_db):
     assert result.json()['users'] == [5] and result.json()['recovery_user_id'] == 5
     assert auth_client.get('/api/v1/license/selection', headers=old_headers).status_code == 403
     assert auth_client.get('/api/v1/license/selection', headers={'Authorization': 'Bearer ' + token('foreign')}).status_code == 200
+
+
+def _unprove(db, tier_license):
+    """Make the saved evidence unusable, then make the license unverifiable."""
+    evidence = policy._read(db, policy.EVIDENCE_KEY)
+    evidence['signed_envelope'] = 'tampered'
+    policy._write(db, policy.EVIDENCE_KEY, evidence); db.commit()
+    tier_license(None)
+    policy._cache.clear()
+
+
+def test_frozen_without_recovery_admin_adds_no_seat(policy_db, tier_license, monkeypatch):
+    """Codex round 2 P1-1: frozen refill keeps the no-recovery guard."""
+    monkeypatch.delenv('ODIN_LICENSE_FLEET_LOCK_ENABLED')  # guard off to build the state
+    policy_db.execute(text("UPDATE users SET password_hash='sso-placeholder'")); policy_db.commit()
+    monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', 'true')
+    policy._cache.clear()
+    assert status(policy_db)['users'] == []
+    tier_license(None); policy._cache.clear()
+    p = status(policy_db)
+    assert p['entitlement']['reason'] == 'uncertainty_frozen' and p['users'] == []
+    assert not policy.user_allowed(policy.snapshot(policy_db), 1)
+
+
+def test_legacy_lease_field_keeps_last_good_locks(policy_db, tier_license):
+    """Codex round 2 P1-2: an old policy with lease_deadline is not discarded."""
+    p = policy._read(policy_db, policy.POLICY_KEY)
+    p['entitlement']['lease_deadline'] = BASE.isoformat()
+    policy._write(policy_db, policy.POLICY_KEY, p); policy_db.commit()
+    _unprove(policy_db, tier_license)
+    p = status(policy_db)
+    assert p['entitlement']['enforce'] and p['users'] == [3]
+    assert 'lease_deadline' not in p['entitlement']
+
+
+def test_recovery_demotion_while_frozen_hands_the_seat_to_the_successor(policy_db, tier_license):
+    """Codex round 2 P1-3."""
+    assert status(policy_db)['users'] == [3]
+    _unprove(policy_db, tier_license)
+    policy_db.execute(text("UPDATE users SET role='viewer' WHERE id=3")); policy_db.commit()
+    policy._cache.clear()
+    p = status(policy_db)
+    assert p['recovery_user_id'] == 5 and p['users'] == [5]
+    snap = policy.snapshot(policy_db)
+    assert policy.user_allowed(snap, 5) and not policy.user_allowed(snap, 3)
+
+
+def test_cached_zero_cap_does_not_open_recovery_exception_without_proof(policy_db, tier_license):
+    """Codex round 2 P1-4."""
+    _unprove(policy_db, tier_license)
+    status(policy_db)
+    p = policy._read(policy_db, policy.POLICY_KEY)
+    p['entitlement']['max_users'] = 0
+    p['recovery_user_id'] = 5
+    policy._write(policy_db, policy.POLICY_KEY, p); policy_db.commit()
+    policy._cache.clear()
+    snap = policy.snapshot(policy_db)
+    assert 3 in snap.users and not policy.user_allowed(snap, 5)
+
+
+def test_frozen_lapsed_policy_snapshots_are_throttled(policy_db, tier_license, clock_env, monkeypatch):
+    """Codex round 2 P2-5: a deadline already past when cached does not force every snapshot."""
+    import license_manager as lm
+    wall, tick, store, new, _ = clock_env
+    clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
+    tier_license('enterprise', max_users=1, max_printers=1, expires_at=(BASE + timedelta(seconds=30)).isoformat())
+    policy._cache.clear(); status(policy_db)
+    tick[0] += 60; wall[0] += timedelta(seconds=60)
+    policy._cache.clear(); status(policy_db)
+    tier_license(None)
+    calls = []
+    real = policy._saved_proof
+    monkeypatch.setattr(policy, '_saved_proof', lambda e: calls.append(1) or real(e))
+    policy.snapshot(policy_db)
+    first = len(calls)
+    for _ in range(5):
+        policy.snapshot(policy_db)
+    assert len(calls) == first

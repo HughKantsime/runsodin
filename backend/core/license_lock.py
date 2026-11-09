@@ -98,7 +98,7 @@ def _valid_policy(p):
             and type(p.get('membership_generation')) is int and p['membership_generation'] >= 0):
         return False
     e = p['entitlement']
-    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'proven'}
+    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'proven', 'lease_deadline'}
             and e.get('state') in {'verified_current', 'verified_expired', 'community_initial', 'community_selected', 'verification_unavailable'}
             and type(e.get('enforce')) is bool
             and type(e.get('proven', False)) is bool
@@ -157,13 +157,21 @@ def _entitlement(info):
                 deadline=info.expiry_deadline.isoformat() if info.expiry_deadline else None)
 
 
-def _frozen_members(previous, active, entitlement, cap_key, recovery=None):
+def _frozen_members(previous, active, entitlement, cap_key, recovery=None, old_recovery=None, users=False):
     """Membership while unverifiable: the last proven members that are still active.
 
-    Never adds a member except to refill a vacancy within caps proven by the saved
-    signed envelope; cached caps alone never change who is locked.
+    Never adds a member except to fill a vacancy: within caps proven by the saved
+    signed envelope, or (unproven) only by the recovery admin taking a vacated seat.
+    Cached caps alone never change who is locked.
     """
-    kept = [i for i in previous if i in set(active)]
+    active_set = set(active)
+    kept = [i for i in previous if i in active_set]
+    if users and old_recovery is not None and old_recovery != recovery and old_recovery in kept:
+        # Lost recovery eligibility frees that seat for the successor.
+        kept.remove(old_recovery)
+    if users and recovery is None and entitlement.get('enforce') and entitlement.get(cap_key) is not None:
+        # Same guard as verified reconciliation: no seat refills without a recovery admin.
+        return kept
     if not entitlement.get('proven'):
         if recovery is not None and recovery not in kept and len(kept) < len(previous):
             kept.insert(0, recovery)  # the recovery admin takes a vacated seat only
@@ -284,7 +292,8 @@ def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recove
             raise LicenseLockError('license_selection_invalid', status=422, revision=revision, reason='recovery_seat_required')
     if frozen and selection is None:
         member_printers = _frozen_members(old['printers'], printers, entitlement, 'max_printers')
-        member_users = _frozen_members(old['users'], users, entitlement, 'max_users', recovery)
+        member_users = _frozen_members(old['users'], users, entitlement, 'max_users', recovery,
+                                       old.get('recovery_user_id'), users=True)
     else:
         member_printers = _fill(picks['printers'], printers, entitlement.get('max_printers'))
         member_users = (_fill(picks['users'], users, entitlement.get('max_users'), recovery)
@@ -365,8 +374,11 @@ def _cache_current(cached, p, now):
     from core.license_clock import instant
     entitlement = p.get('entitlement') or {}
     try:
-        if (entitlement.get('state') in ('verified_current', 'verification_unavailable')
-                and entitlement.get('deadline') and now >= instant(entitlement['deadline'])):
+        # Re-reconcile once when a deadline is crossed after this entry was cached;
+        # a deadline already past when cached (a frozen lapsed policy) is throttled below.
+        cached_at = cached[4] if len(cached) > 4 else None
+        if (entitlement.get('deadline') and now >= instant(entitlement['deadline'])
+                and (cached_at is None or cached_at < instant(entitlement['deadline']))):
             return False
     except (TypeError, ValueError):
         return False
@@ -415,7 +427,7 @@ def snapshot(db, *, request=None, cycle=None):
                     p = reconcile(policy_db)
                     policy_db.commit()
             result = _snapshot(p)
-            _cache[cache_key] = (p['revision'], signature, result, time.monotonic())
+            _cache[cache_key] = (p['revision'], signature, result, time.monotonic(), now)
         if holder is not None:
             holder.license_policy = result
         return result
@@ -430,7 +442,9 @@ def user_allowed(policy, user_id):
             # Deliberate full-access recovery exception, including at zero seats.
             # Keep until Shane decides restricted recovery sessions (review item 1).
             or policy.entitlement.get('max_users') == 0
-            and user_id is not None and user_id == policy.recovery_user_id)
+            and user_id is not None and user_id == policy.recovery_user_id
+            # While frozen without proof, a cached zero cap alone is not evidence.
+            and (policy.entitlement.get('proven', True) or not policy.users))
 
 
 def require_user(policy, user_id, purpose='access'):
