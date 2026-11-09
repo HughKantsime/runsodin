@@ -474,10 +474,10 @@ def test_locked_snapshot_holds_the_lock_until_caller_commits(policy_db):
 def test_scheduler_rechecks_under_lock_before_assignment(policy_db, monkeypatch):
     from modules.jobs.scheduler import Scheduler, SchedulerConfig
     import modules.jobs.scheduler as scheduler_module
-    stale = policy.snapshot(policy_db)  # printer 9 selected
+    stale = policy.stored_snapshot(policy_db)  # printer 9 selected
     pick(policy_db, users=[3], printers=[LOCKED])  # committed: printer 9 is now locked
     # The early filter still sees the stale selection that includes printer 9 ...
-    monkeypatch.setattr(policy, 'snapshot', lambda db, **k: stale)
+    monkeypatch.setattr(policy, 'stored_snapshot', lambda db: stale)
     monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', _only_printer(Scheduler._find_best_fit, SELECTED))
     _insert_job(policy_db, 'race part')
     policy_db.commit()
@@ -559,29 +559,88 @@ def test_early_check_never_blocks_on_the_callers_writer_lock(policy_db):
         caller.rollback(); caller.close()
 
 
-def test_discarded_run_undoes_nested_writes(policy_db, monkeypatch):
-    """Education transitions use savepoints; a discarded run must undo them too."""
-    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+def _education_only_run(policy_db, monkeypatch, advance):
+    """One Education job approved for printer 9; no generic jobs, so nothing writes
+    before the Education transition (the case where pysqlite would otherwise commit
+    a released savepoint immediately)."""
+    from types import SimpleNamespace as NS
+    from modules.jobs.scheduler import Scheduler
     import modules.jobs.scheduler as scheduler_module
-    import modules.jobs.scheduler_planning as planning
-    stale = policy.snapshot(policy_db)
-    pick(policy_db, users=[3], printers=[LOCKED])
-    monkeypatch.setattr(policy, 'snapshot', lambda db, **k: stale)
+    from core.registry import registry
+    provider = NS(scheduler_context=lambda db, job_id: {
+                      'id': 1, 'lifecycle_revision': 1, 'org_id': 1, 'print_file_id': 1,
+                      'approved_printer_id': SELECTED, 'authorized': True, 'status': 'pending'},
+                  advance_schedule=advance,
+                  reset_stale_schedule=lambda *a, **k: False,
+                  reconcile_schedule_denial=lambda *a, **k: False)
+    real_get = registry.get_provider
+    monkeypatch.setattr(registry, 'get_provider',
+                        lambda name: provider if name == 'EducationPolicyProvider' else real_get(name))
+    monkeypatch.setattr(scheduler_module.Scheduler, '_is_education_job', staticmethod(lambda db, job_id: True))
+    monkeypatch.setattr(scheduler_module, 'evaluate_submission_compatibility', lambda *a, **k: {'compatible': True})
     monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', _only_printer(Scheduler._find_best_fit, SELECTED))
-    real_prepare = planning.prepare_job_write
-    def nested_first(db, ids):
-        # Stands in for an Education savepoint transition that is the run's FIRST
-        # write (Education-only runs take no generic row locks before it).
-        with db.begin_nested():
-            db.execute(text("INSERT INTO system_config (key,value) VALUES ('b2a-nested-'||abs(random()),'1')"))
-        return real_prepare(db, ids)
-    monkeypatch.setattr(planning, 'prepare_job_write', nested_first)
-    _insert_job(policy_db, 'nested part')
+    _insert_job(policy_db, 'education part')
     policy_db.commit()
+
+
+def test_discarded_run_undoes_education_savepoint_writes(policy_db, monkeypatch):
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    stale = policy.stored_snapshot(policy_db)
+    pick(policy_db, users=[3], printers=[LOCKED])  # printer 9 now locked
+    monkeypatch.setattr(policy, 'stored_snapshot', lambda db: stale)  # early filter still sees 9
+    def advance(db, **k):
+        with db.begin_nested():  # Education records its transition in a savepoint
+            db.execute(text("INSERT INTO system_config (key,value) VALUES ('b2a-nested-'||abs(random()),'1')"))
+        return True
+    _education_only_run(policy_db, monkeypatch, advance)
     result = Scheduler(SchedulerConfig()).run(policy_db)
-    assert result.scheduled_count == 0
+    assert result.scheduled_count == 0 and result.success is False
     leftover = policy_db.execute(text("SELECT count(*) FROM system_config WHERE key LIKE 'b2a-nested-%'")).scalar()
     assert leftover == 0
+
+
+def test_planning_holds_no_writer_lock_and_policy_is_locked_last(policy_db, monkeypatch):
+    """Read-only planning keeps no SQLite writer lock, and the policy row is touched
+    (reconciled/locked) only by the final check, even with a cold cache."""
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    import modules.jobs.scheduler as scheduler_module
+    engine = policy_db.get_bind()
+    order = []
+    real_reconcile = policy._reconcile
+    monkeypatch.setattr(policy, '_reconcile', lambda db, **k: order.append('policy') or real_reconcile(db, **k))
+    def advance(db, **k):
+        order.append('education_write')
+        return True
+    _education_only_run(policy_db, monkeypatch, advance)
+    real_fit = scheduler_module.Scheduler._find_best_fit
+    def fit_then_probe(self, job, *a, **k):
+        order.append('planning')
+        other = engine.raw_connection()
+        try:  # another writer commits while this run is still planning
+            other.execute('PRAGMA busy_timeout=200')
+            other.execute("INSERT INTO system_config (key,value) VALUES ('b2a-planning-probe','1')")
+            other.commit()
+        finally:
+            other.close()
+        return real_fit(self, job, *a, **k)
+    monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', fit_then_probe)
+    policy._cache.clear()
+    result = Scheduler(SchedulerConfig()).run(policy_db)
+    assert result.scheduled_count == 1
+    assert policy_db.execute(text("SELECT count(*) FROM system_config WHERE key='b2a-planning-probe'")).scalar() == 1
+    assert order.count('policy') >= 1
+    first_policy = order.index('policy')
+    assert first_policy > order.index('education_write') and first_policy > order.index('planning')
+
+
+def test_run_starts_from_a_clean_transaction_boundary(policy_db):
+    """A lock or pending write the caller holds is committed before the run locks jobs."""
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    policy._lock(policy_db)  # caller holds the policy row
+    policy_db.execute(text("INSERT INTO system_config (key,value) VALUES ('b2a-caller-pending','1')"))
+    Scheduler(SchedulerConfig()).run(policy_db)
+    with Session(policy_db.get_bind()) as other:
+        assert other.execute(text("SELECT count(*) FROM system_config WHERE key='b2a-caller-pending'")).scalar() == 1
 
 
 def test_license_recheck_runs_after_alert_row_locks(policy_db, monkeypatch):

@@ -646,15 +646,13 @@ def locked_snapshot(db):
         return None
 
 
-def printer_allowed_now(executor, printer_id):
-    """Early, non-authoritative N check for service callers (Education).
+def stored_snapshot(executor):
+    """The stored policy as a snapshot: a plain read on the caller's own executor.
 
-    A plain read of the stored policy on the caller's own executor: no reconcile,
-    no lock, no second connection, so it never blocks on or reorders the caller's
-    locks. An unreadable policy does not refuse here; admit_start (fresh, locked,
-    fail-closed) and the scheduler's final check remain the authority."""
-    if not enabled():
-        return True
+    No reconcile, no lock, no second connection, so it never blocks on or adds to
+    the caller's locks. Not fresh (a passed deadline is not applied) and None when
+    the row is missing or unreadable: callers use it only for early, non-authoritative
+    filtering; admit_start and locked_snapshot remain the authority."""
     statement = 'SELECT value FROM system_config WHERE key=:key'
     try:
         from sqlalchemy.engine import Connection
@@ -666,10 +664,16 @@ def printer_allowed_now(executor, printer_id):
             raw = row[0] if row else None
         p = _decode(raw) if raw is not None else None
     except Exception:
+        return None
+    return _snapshot(p) if _valid_policy(p) else None
+
+
+def printer_allowed_now(executor, printer_id):
+    """Early, non-authoritative N check for service callers (Education)."""
+    if not enabled():
         return True
-    if not _valid_policy(p):
-        return True
-    return printer_allowed(_snapshot(p), printer_id, 'N')
+    policy = stored_snapshot(executor)
+    return policy is None or printer_allowed(policy, printer_id, 'N')
 
 
 def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):
