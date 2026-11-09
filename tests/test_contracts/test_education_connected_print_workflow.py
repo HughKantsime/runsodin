@@ -160,16 +160,18 @@ def test_classroom_connected_transport_and_lifecycle(path, failure, review_db, t
                                  {"id": uploaded["job_id"]}).scalar_one() == 0
         assert not commands
         assert peer.received == (payload if failure == "final_reply_reset" else b"")
-        # Adapter entry is durable even when this peer proves no start command.
-        # A generic retry cannot assume that evidence exists on a real printer.
-        assert review_db.execute(text("SELECT state FROM printer_dispatch_claims WHERE job_id=:id"),
-                                 {"id": uploaded["job_id"]}).scalar_one() == "uncertain"
+        # The FTPS upload failed before ODIN sent any print command (the transport
+        # filename is a fresh per-attempt token, and Bambu printers never start an
+        # uploaded file on their own), so the claim is released and the job can be
+        # retried (specs/ftps-upload-serialization.md, part B; 2.0.51).
+        assert "no print command was sent" in reason or "no file and no print command were sent" in reason
+        assert review_db.execute(text("SELECT count(*) FROM printer_dispatch_claims WHERE job_id=:id"),
+                                 {"id": uploaded["job_id"]}).scalar_one() == 0
         review_db.rollback()
-        def forbidden(*args, **kwargs):
-            pytest.fail("Unreconciled retry must not enter any transport")
-        monkeypatch.setattr(dispatch, "_dispatch_bambu", forbidden)
-        retry_ok, retry_reason = dispatch.dispatch_job(9, uploaded["job_id"])
-        assert not retry_ok and "unresolved dispatch claim" in retry_reason and "reconcile before retrying" in retry_reason
+        retried = []
+        monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *a, **k: retried.append(a) or (False, "synthetic retry refusal"))
+        dispatch.dispatch_job(9, uploaded["job_id"])
+        assert retried, "the released claim must let a retry reach the transport again"
         assert not commands
         return
     assert ok, reason

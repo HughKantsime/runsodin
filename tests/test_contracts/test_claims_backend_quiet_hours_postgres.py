@@ -92,6 +92,11 @@ def digest(monkeypatch):
     monkeypatch.setattr(quiet_hours, 'compute_last_window_end', lambda config: END)
     monkeypatch.setattr(quiet_hours, 'get_suppressed_alerts_for_window', lambda *a, **k: alerts)
     monkeypatch.setattr(report_runner, 'get_smtp_config', lambda session: {'server': 'synthetic.invalid'})
+    # The 30-day deferred-delivery retention runs on the real clock; anchor it at the
+    # fixture window so the deferral row recorded at END is not purged as time passes.
+    from modules.notifications import channels, deferred_deliveries
+    real_purge = deferred_deliveries.purge
+    monkeypatch.setattr(channels, 'purge_deferred', lambda executor, now=None: real_purge(executor, now=now or END))
     calls = []
     lock = threading.Lock()
 
