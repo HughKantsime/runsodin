@@ -440,9 +440,9 @@ def _finish(db, row, ago=10):
     db.commit()
 
 
-def _plug(db, printer_id, auto_off):
-    db.execute(text("UPDATE printers SET plug_type='tasmota', plug_host='10.0.0.9', plug_auto_off=:a WHERE id=:p"),
-               {'a': auto_off, 'p': printer_id})
+def _plug(db, printer_id, auto_off, cooldown=0):
+    db.execute(text("UPDATE printers SET plug_type='tasmota', plug_host='10.0.0.9', plug_auto_off=:a, "
+                    "plug_cooldown_minutes=:c WHERE id=:p"), {'a': auto_off, 'c': cooldown, 'p': printer_id})
     db.commit()
 
 
@@ -535,3 +535,61 @@ def test_energy_reads_refused_for_a_locked_printer(policy_db, monkeypatch):
     with smart_plug._energy_lock:
         smart_plug._energy_starts[456] = (TEN, 1.0)
     assert smart_plug.record_energy_for_print(TEN, 456) is None
+
+
+
+# --- B2b-2 review round 1 ---------------------------------------------------------
+
+def test_cooldown_configured_at_cutoff_cannot_be_shortened(policy_db):
+    engine = policy_db.get_bind()
+    _plug(policy_db, NINE, True, cooldown=60)
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    _plug(policy_db, NINE, True, cooldown=0)  # shortened after the cutoff
+    _finish(policy_db, row, ago=600)  # ended 10 minutes ago
+    _reconcile(policy_db)
+    assert _record(policy_db, NINE)['cooldown_minutes'] == 60
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+    assert policy.completion_allowed(engine, NINE, row['id'], 'energy')
+    policy_db.execute(text('UPDATE print_jobs SET ended_at=:t WHERE id=:id'),
+                      {'t': _utcnow() - timedelta(minutes=61), 'id': row['id']})
+    policy_db.commit()
+    assert policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+
+
+def test_a_later_print_cancels_the_ticket_even_after_it_ends(policy_db):
+    engine = policy_db.get_bind()
+    _plug(policy_db, NINE, True)
+    row = _attempt(policy_db, NINE)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    _finish(policy_db, row, ago=300)
+    _reconcile(policy_db)
+    other = _attempt(policy_db, NINE, started_ago=200)
+    _finish(policy_db, other, ago=100)  # started and finished between reconciliations
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'cooldown_off')
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'energy')
+    _reconcile(policy_db)
+    assert _record(policy_db, NINE) is None
+
+
+def test_energy_needs_the_exempt_print_to_be_the_only_running_one(policy_db):
+    engine = policy_db.get_bind()
+    row = _attempt(policy_db, NINE, started_ago=900)
+    _telemetry(policy_db, NINE)
+    _lock_nine(policy_db)
+    assert policy.completion_allowed(engine, NINE, row['id'], 'energy')
+    _attempt(policy_db, NINE, started_ago=5)  # before reconcile retires the record
+    assert not policy.completion_allowed(engine, NINE, row['id'], 'energy')
+
+
+def test_dispatch_power_rechecks_the_license_right_before_power_on(policy_db, monkeypatch):
+    import time as _time
+    from modules.printers import smart_plug, plug_power_acquisition
+    monkeypatch.setattr(smart_plug, 'engine', policy_db.get_bind())
+    monkeypatch.setattr(smart_plug, 'get_plug_config', lambda pid, **k: {
+        'type': 'tasmota', 'auto_on': True, 'host': 'h', '_stored_auth_token': None})
+    monkeypatch.setattr(plug_power_acquisition, 'bounded_power_on', lambda *a, **k: pytest.fail('power-on sent'))
+    result = smart_plug.prepare_bounded_dispatch_power(TEN, _time.monotonic() + 10)
+    assert result.accepted is False and 'license selection' in result.error

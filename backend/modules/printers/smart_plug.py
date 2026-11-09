@@ -388,6 +388,11 @@ def prepare_bounded_dispatch_power(printer_id, deadline):
             connection = get_power_connection_snapshot()
             if connection is None:
                 return failure
+        from core import license_lock
+        if license_lock.printer_refusal(concrete_engine(engine), printer_id) is not None:
+            # Rechecked right before the plug command: a selection change after the
+            # dispatch entry check must not power on a newly locked printer.
+            return PowerPreparation(False, True, error='This printer is not in the active license selection; no command was sent')
         attempt = bounded_power_on(config, deadline, connection)
         current = get_plug_config(printer_id, include_storage_identity=True)
         if (not current or not current['auto_on'] or _plug_identity(current) != identity

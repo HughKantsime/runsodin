@@ -480,14 +480,23 @@ def _completion(row, record):
     ended = _utc(row['ended_at'])
     return dict(kind='completion', print_job_id=row['id'], nonce=row['economic_birth_nonce'],
                 ended_at=ended.isoformat(), until=(ended + timedelta(seconds=COMPLETION_SECONDS)).isoformat(),
-                auto_off=bool(record.get('auto_off')), cutoff=record['cutoff'], captured_at=record['captured_at'])
+                auto_off=bool(record.get('auto_off')), cooldown_minutes=record.get('cooldown_minutes'),
+                cutoff=record['cutoff'], captured_at=record['captured_at'])
+
+
+def _later_attempt(db, printer_id, row):
+    """Any other attempt on this printer that began after this one (running or not).
+
+    A different print cancels the completion ticket for good, even once it ends."""
+    return db.execute(text('SELECT 1 FROM print_jobs WHERE printer_id=:p AND id<>:id AND (id>:id OR started_at>:s) LIMIT 1'),
+                      {'p': printer_id, 'id': row['id'], 's': row['started_at']}).first() is not None
 
 
 def _ended(db, printer_id, row, record):
     """The record that follows a row that is no longer running."""
     if _uncertain_closure(row):
         return _pending([], record['cutoff'], record['captured_at'], _window(_db_now(db)))
-    if row['ended_at'] is not None and not _running_rows(db, printer_id):
+    if row['ended_at'] is not None and not _running_rows(db, printer_id) and not _later_attempt(db, printer_id, row):
         return _completion(row, record)
     return None  # ended without a time, or a different print already started
 
@@ -534,8 +543,8 @@ def _refresh(db, printer_id, record, now):
     if kind == 'completion':
         row = _row(db, record.get('print_job_id'))
         if (row is None or row['economic_birth_nonce'] != record.get('nonce') or running
-                or _utc(now) >= _utc(record.get('until'))):
-            return None  # replaced, a different print started, or the 24 h window closed
+                or _later_attempt(db, printer_id, row) or _utc(now) >= _utc(record.get('until'))):
+            return None  # replaced, a different print started (even if it already ended), or 24 h passed
         return record
     return None
 
@@ -581,14 +590,19 @@ def _exemptions(db, old, resolved, entitlement, *, reconstructed=False):
         if key in previous:
             prior = dict(previous[key])
             kept = _refresh(db, printer_id, prior, now)
-            if kept is not None and 'auto_off' in prior:
-                kept.setdefault('auto_off', prior['auto_off'])
+            if kept is not None:
+                for carried in ('auto_off', 'cooldown_minutes'):
+                    if carried in prior:
+                        kept.setdefault(carried, prior[carried])
         elif previously_unlocked is None or printer_id in previously_unlocked:
             kept = _capture(db, printer_id, cutoff, now, captured)  # newly locked (incl. just deactivated)
             if kept is not None:
                 # The cooldown configured at cutoff; a later edit cannot add one.
-                kept['auto_off'] = bool(db.execute(text('SELECT plug_auto_off FROM printers WHERE id=:p'),
-                                                   {'p': printer_id}).scalar())
+                plug = db.execute(text('SELECT plug_auto_off,plug_cooldown_minutes FROM printers WHERE id=:p'),
+                                  {'p': printer_id}).first()
+                kept['auto_off'] = bool(plug and plug[0])
+                minutes = plug[1] if plug and plug[1] is not None else 5  # smart_plug's default
+                kept['cooldown_minutes'] = minutes if type(minutes) is int and 0 <= minutes <= 1440 else None
         else:
             kept = None  # already locked before: a later attempt never gains an exemption
         if kept is not None:
@@ -658,11 +672,23 @@ def completion_allowed(engine, printer_id, print_job_id, action):
             row = _row(db, print_job_id)
             if row is None or row['economic_birth_nonce'] != record.get('nonce'):
                 return False
+            running = _running_rows(db, printer_id)
             if row['status'] == 'running':
-                return action == 'energy' and record.get('kind') == 'observed'
-            if row['ended_at'] is None or _running_rows(db, printer_id):
+                # Energy for the exempt print while it is the printer's only running attempt.
+                return (action == 'energy' and record.get('kind') == 'observed'
+                        and len(running) == 1 and running[0]['id'] == row['id'])
+            if row['ended_at'] is None or running or _later_attempt(db, printer_id, row):
                 return False
-            return _db_now(db) < _utc(row['ended_at']) + timedelta(seconds=COMPLETION_SECONDS)
+            now, ended = _db_now(db), _utc(row['ended_at'])
+            if now >= ended + timedelta(seconds=COMPLETION_SECONDS):
+                return False
+            if action == 'cooldown_off':
+                # The cooldown configured at cutoff must have elapsed; shortening it
+                # afterwards cannot bring the power-off forward.
+                minutes = record.get('cooldown_minutes')
+                if type(minutes) is not int or now < ended + timedelta(minutes=minutes):
+                    return False
+            return True
     except Exception:
         return False
 
