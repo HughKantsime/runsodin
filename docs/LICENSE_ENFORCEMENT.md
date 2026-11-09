@@ -109,8 +109,9 @@ per minute; backend checks remain authoritative.
 
 `ODIN_LICENSE_FLEET_LOCK_ENABLED` defaults off. B1 does not enable install-wide
 seat or printer enforcement. B2 hardware admission/attempt tracking and B3
-stream revocation/UI are prerequisites to rollout. `ODIN_LICENSE_PAID_LAPSE_ENABLED`
-also defaults off; paid-expiry behavior requires Shane's decision. Restricted
+stream revocation/UI are prerequisites to rollout. A paid
+lapse gets the same lock as a trial lapse (Shane, 2026-11-08);
+`ODIN_LICENSE_PAID_LAPSE_ENABLED=false` is an explicit off switch. Restricted
 recovery sessions and explicit Community-downgrade enforcement are hard disabled
 pending their decisions. Until Shane decides the restricted-session policy, a
 signed zero-seat license keeps the designated active local recovery superadmin
@@ -129,11 +130,13 @@ edit returns 409 and requires a new read/edit. `recovery_user_id` enables an
 atomic handoff to another active local-password platform admin.
 
 A missing previously accepted artifact is uncertainty, never proof of lapse.
-The first failure starts one shared 24-hour deadline. Restart/retry cannot renew
-it. After the deadline, stale evidence cannot impose fleet locks; picks remain
-saved and status continues warning. Signature, schema and current binding are
-rechecked before saved evidence is used. An unreliable elapsed-time anchor ends
-the lease. These are dormant rollout semantics, not approval of the open policy.
+While the license cannot be verified, ODIN freezes the last proven entitlement
+with no time limit (Shane, 2026-11-08: "stay locked", clarified as "freeze
+last-good"). A valid, unlocked install keeps its caps and a locked install stays
+locked. Uncertainty never adds locks and never removes them; only fresh
+verification or a known expiry changes the state. Picks remain saved and status
+keeps warning. An install with no proven entitlement keeps Slice A/Community
+semantics.
 
 The spec's **ODIN Dev decision (2026-11-08)** supersedes section 2's cold-boot gap
 rule: downtime and suspend alone never create clock uncertainty. Only forward

@@ -158,8 +158,10 @@ def test_paid_lapse_and_rollout_are_independent_off_switches(policy_db, tier_lic
     status(policy_db)
     tick[0] += 10; wall[0] += timedelta(seconds=10)
     assert lm.get_license().verification_state == 'verified_expired'
+    assert policy.snapshot(policy_db).enforcing  # paid lapse locks by default (Shane 2026-11-08)
+    monkeypatch.setenv('ODIN_LICENSE_PAID_LAPSE_ENABLED', 'false')
     assert not policy.snapshot(policy_db).enforcing
-    monkeypatch.setenv('ODIN_LICENSE_PAID_LAPSE_ENABLED', 'true')
+    monkeypatch.delenv('ODIN_LICENSE_PAID_LAPSE_ENABLED')
     assert policy.snapshot(policy_db).enforcing
     monkeypatch.delenv('ODIN_LICENSE_FLEET_LOCK_ENABLED')
     assert not policy.snapshot(policy_db).enforcing
@@ -177,7 +179,8 @@ def test_trial_lapse_requires_reliable_time(policy_db, tier_license, clock_env, 
     assert p['users'] == [3]
 
 
-def test_uncertainty_lease_survives_restart_and_never_renews(policy_db, tier_license, clock_env, monkeypatch):
+def test_uncertainty_freezes_last_good_without_time_limit(policy_db, tier_license, clock_env, monkeypatch):
+    """Shane 2026-11-08: unverifiable keeps the last proven entitlement; no lease, no unlock."""
     import license_manager as lm
     wall, tick, store, new, _ = clock_env
     clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
@@ -186,25 +189,26 @@ def test_uncertainty_lease_survives_restart_and_never_renews(policy_db, tier_lic
     tier_license(None)
     first = status(policy_db)
     evidence = policy._read(policy_db, policy.EVIDENCE_KEY)
-    deadline = evidence['uncertainty_deadline']
+    started = evidence['uncertainty_started_at']
+    assert started and 'uncertainty_deadline' not in evidence
     assert first['users'] == before['users'] and first['entitlement']['enforce']
-    for _ in range(3):
-        tick[0] += 3600; wall[0] += timedelta(hours=1)
+    assert first['entitlement']['reason'] == 'uncertainty_frozen' and first['warning']
+    assert 'lease_deadline' not in first['entitlement']
+    assert (first['entitlement']['max_printers'], first['entitlement']['max_users']) == (1, 1)
+    for hours in (1, 1, 1, 24, 24 * 30):
+        tick[0] += 3600 * hours; wall[0] += timedelta(hours=hours)
         clock.sample(persist=True)
         clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
         lm._cached_license = None; policy._cache.clear()
-        assert status(policy_db)['entitlement']['enforce']
-        assert policy._read(policy_db, policy.EVIDENCE_KEY)['uncertainty_deadline'] == deadline
-    tick[0] += 86400; wall[0] += timedelta(days=1)
-    p = status(policy_db)
-    assert not p['entitlement']['enforce'] and p['warning']
-    assert p['users'] == before['users']  # saved picks retained after lease
+        p = status(policy_db)
+        assert p['entitlement']['enforce'] and p['warning'] and p['users'] == before['users']
+        assert policy._read(policy_db, policy.EVIDENCE_KEY)['uncertainty_started_at'] == started
     tier_license('enterprise', max_users=None)
     assert not status(policy_db)['warning']
     assert policy.user_allowed(policy.snapshot(policy_db), 1)
 
 
-def test_cold_boot_gap_ends_lease(policy_db, tier_license, clock_env, monkeypatch):
+def test_cold_boot_gap_keeps_frozen_entitlement(policy_db, tier_license, clock_env, monkeypatch):
     import license_manager as lm
     wall, tick, store, new, _ = clock_env
     clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
@@ -212,7 +216,8 @@ def test_cold_boot_gap_ends_lease(policy_db, tier_license, clock_env, monkeypatc
     status(policy_db); tier_license(None); status(policy_db)
     wall[0] += timedelta(days=3)
     clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
-    assert not status(policy_db)['entitlement']['enforce']
+    p = status(policy_db)
+    assert p['entitlement']['enforce'] and p['entitlement']['reason'] == 'uncertainty_frozen'
 
 
 @pytest.mark.parametrize('field,value', [('max_users', True), ('max_printers', -1), ('max_users', 1.5),
@@ -648,7 +653,7 @@ def test_ws_mint_refuses_locked_user(auth_client):
     assert auth_client.post('/api/v1/auth/ws-token', headers={'Authorization': 'Bearer ' + token()}).status_code == 403
 
 
-def test_live_clock_quarantine_uses_monotonic_lease_without_expiry(policy_db, tier_license, clock_env, monkeypatch):
+def test_live_clock_quarantine_freezes_without_expiry(policy_db, tier_license, clock_env, monkeypatch):
     import license_manager as lm
     wall, tick, store, new, _ = clock_env
     clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
@@ -657,12 +662,11 @@ def test_live_clock_quarantine_uses_monotonic_lease_without_expiry(policy_db, ti
     wall[0] += timedelta(days=365)
     assert lm.get_license().verification_state == 'verification_unavailable'
     p = status(policy_db)
-    assert p['entitlement']['enforce'] and p['entitlement']['reason'] == 'uncertainty_lease'
-    end = policy._read(policy_db, policy.EVIDENCE_KEY)['uncertainty_deadline']
-    tick[0] += 86400
+    assert p['entitlement']['enforce'] and p['entitlement']['reason'] == 'uncertainty_frozen'
+    tick[0] += 86400 * 7
     p = status(policy_db)
-    assert not p['entitlement']['enforce']
-    assert policy._read(policy_db, policy.EVIDENCE_KEY)['uncertainty_deadline'] == end
+    assert p['entitlement']['enforce'] and p['entitlement']['reason'] == 'uncertainty_frozen'
+    assert 'uncertainty_deadline' not in policy._read(policy_db, policy.EVIDENCE_KEY)
     assert store.read() == BASE
 
 
@@ -690,7 +694,25 @@ def test_raw_cached_caps_are_not_evidence(policy_db, tier_license):
     policy._write(policy_db, policy.POLICY_KEY, p); policy_db.commit()
     tier_license(None)
     p = status(policy_db)
-    assert not p['entitlement']['enforce']
+    # Frozen caps come from the reverified signed envelope, not the tampered row.
+    assert p['entitlement']['max_users'] != 0
+    assert p['entitlement']['reason'] == 'uncertainty_frozen'
+    assert p['warning'] == 'license_policy_evidence_mismatch'
+
+
+def test_frozen_without_usable_evidence_never_unlocks_beyond_lapse_caps(policy_db, tier_license, clock_env, monkeypatch):
+    import license_manager as lm
+    wall, tick, store, new, _ = clock_env
+    clock = new(); monkeypatch.setattr(lm, 'license_clock', lambda: clock)
+    tier_license('enterprise', max_users=50, max_printers=50)
+    status(policy_db)
+    evidence = policy._read(policy_db, policy.EVIDENCE_KEY)
+    evidence['signed_envelope'] = 'tampered'
+    policy._write(policy_db, policy.EVIDENCE_KEY, evidence); policy_db.commit()
+    tier_license(None)
+    p = status(policy_db)
+    assert p['entitlement']['enforce']
+    assert (p['entitlement']['max_printers'], p['entitlement']['max_users']) == (5, 1)
     assert p['warning'] == 'license_policy_evidence_mismatch'
 
 

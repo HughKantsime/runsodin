@@ -193,7 +193,7 @@ def test_capture_public_license_wire_for_pro_gate_ui(signed_license, monkeypatch
     bodies = {}
     for tier in ('community', 'pro'):
         _, info = signed_license(tier=tier, features=[], expires_at='2099-01-01')
-        monkeypatch.setattr(routes_health, 'get_license', lambda info=info: info)
+        monkeypatch.setattr(routes_health, 'get_license', lambda info=info, **_kwargs: info)
         app = FastAPI()
         app.add_api_route('/license', routes_health.get_license_info)
         response = TestClient(app).get('/license')

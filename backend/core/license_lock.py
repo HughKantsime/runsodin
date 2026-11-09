@@ -4,7 +4,6 @@ B1 owns evidence, selections and user authorization. Physical-attempt capture an
 hardware admission are B2; no hardware permission is inferred here.
 """
 from dataclasses import dataclass
-from datetime import timedelta
 import hashlib
 import json
 import os
@@ -25,7 +24,9 @@ def enabled():
 
 
 def paid_lapse_enabled():
-    return os.getenv('ODIN_LICENSE_PAID_LAPSE_ENABLED', '').lower() in {'1', 'true', 'yes', 'on'}
+    # Shane 2026-11-08: a paid lapse gets the same lock as a trial lapse. On by
+    # default; the variable remains only as an explicit off switch.
+    return os.getenv('ODIN_LICENSE_PAID_LAPSE_ENABLED', '').lower() not in {'0', 'false', 'no', 'off'}
 
 
 # Deliberately no restricted-session issuer in B1. An environment flag alone
@@ -155,10 +156,10 @@ def _entitlement(info):
 
 
 def _evidence(db, info, previous):
-    """Persist only verified envelopes; reverify saved evidence before leasing it."""
+    """Persist only verified envelopes; while unverifiable, freeze the last proven entitlement."""
     from license_manager import verify_license_text, license_clock
     from core.license_clock import instant
-    now, uncertain = license_clock().sample()
+    now, _uncertain = license_clock().sample()
     try:
         evidence = _read(db, EVIDENCE_KEY)
     except (ValueError, TypeError):
@@ -167,7 +168,7 @@ def _evidence(db, info, previous):
         new = dict(schema_version=1, signed_envelope=info.signed_envelope, sha256=info.verified_digest,
                    binding_digest=info.binding_digest, accepted_at=now.isoformat(), time_anchor=now.isoformat(),
                    verification_state=info.verification_state,
-                   uncertainty_started_at=None, uncertainty_deadline=None)
+                   uncertainty_started_at=None)
         try:
             elapsed = (now - instant(evidence['time_anchor'])).total_seconds()
             checkpoint_due = elapsed < 0 or elapsed >= 300
@@ -181,54 +182,43 @@ def _evidence(db, info, previous):
     if info.verification_state == 'community_initial' and not evidence:
         return _entitlement(info), None
     warning = 'license_verification_unavailable'
-    unavailable = dict(_entitlement(info), state='verification_unavailable', enforce=False)
-    if previous:
-        unavailable.update(max_printers=previous.get('max_printers'), max_users=previous.get('max_users'))
-    if not isinstance(evidence, dict) or evidence.get('schema_version') != 1:
-        return unavailable, warning
-    if not evidence.get('uncertainty_started_at'):
-        evidence['uncertainty_started_at'] = now.isoformat()
-        evidence['uncertainty_deadline'] = (now + timedelta(hours=24)).isoformat()
+    # Shane 2026-11-08 ("stay locked", clarified "freeze last-good"): while the
+    # license cannot be verified, keep exactly the last proven entitlement, with
+    # no time limit. Uncertainty never locks more and never unlocks; only fresh
+    # verification or a known expiry changes the state.
+    if isinstance(evidence, dict) and evidence.get('schema_version') == 1 and (
+            not evidence.get('uncertainty_started_at') or 'uncertainty_deadline' in evidence):
+        evidence['uncertainty_started_at'] = evidence.get('uncertainty_started_at') or now.isoformat()
+        evidence.pop('uncertainty_deadline', None)
         _write(db, EVIDENCE_KEY, evidence)
-    raw = evidence.get('signed_envelope')
-    if not isinstance(raw, str) or hashlib.sha256(raw.encode()).hexdigest() != evidence.get('sha256'):
-        return unavailable, warning
-    verified = verify_license_text(raw)
-    # Clock uncertainty cannot support elapsed lease time; signature/schema and
-    # current binding must still match. Never trust a cached resolved cap alone.
-    usable = (verified.verified_digest == evidence.get('sha256') and
-              verified.binding_digest == evidence.get('binding_digest'))
-    if not usable:
-        return unavailable, warning
-    if not evidence.get('uncertainty_started_at'):
-        evidence['uncertainty_started_at'] = now.isoformat()
-        evidence['uncertainty_deadline'] = (now + timedelta(hours=24)).isoformat()
-    try:
-        anchor = instant(evidence['time_anchor'])
-        deadline = instant(evidence['uncertainty_deadline'])
-        elapsed_trusted = (license_clock().anchor is not None and
-                           getattr(license_clock(), 'reason_code', None) != 'invalid_clock_arithmetic')
-        if (uncertain and not elapsed_trusted) or now < anchor or now - anchor > timedelta(hours=24) and not previous:
-            deadline = min(deadline, now)
-            evidence['uncertainty_deadline'] = deadline.isoformat()
-    except (ValueError, TypeError, KeyError):
-        evidence['uncertainty_deadline'] = now.isoformat()
-        deadline = now
-    _write(db, EVIDENCE_KEY, evidence)
-    if now < deadline and previous and previous.get('digest') == verified.verified_digest:
-        try:
-            accepted = instant(evidence['accepted_at'])
-            proven_caps = ((verified.signed_max_printers, verified.signed_max_users)
-                           if accepted < verified.expiry_deadline else (5, 1))
-        except (ValueError, TypeError, KeyError):
-            return unavailable, warning
-        if (previous.get('max_printers'), previous.get('max_users')) != proven_caps:
-            return unavailable, 'license_policy_evidence_mismatch'
-        frozen = dict(previous, state='verification_unavailable', reason='uncertainty_lease', lease_deadline=deadline.isoformat())
-        return frozen, warning
-    if previous:
-        unavailable.update(max_printers=previous.get('max_printers'), max_users=previous.get('max_users'))
-    return unavailable, warning
+    if not previous:
+        # Nothing was ever proven here: Slice A/Community semantics, as before.
+        return dict(_entitlement(info), state='verification_unavailable', enforce=False), warning
+    frozen = dict(previous, state='verification_unavailable', reason='uncertainty_frozen')
+    frozen.pop('lease_deadline', None)
+    # Raw cached caps are not evidence: the frozen caps come from the saved signed
+    # envelope, reverified against the current binding.
+    proven = None
+    raw = evidence.get('signed_envelope') if isinstance(evidence, dict) else None
+    if isinstance(raw, str) and hashlib.sha256(raw.encode()).hexdigest() == evidence.get('sha256'):
+        verified = verify_license_text(raw)
+        if (verified.verified_digest == evidence.get('sha256') and
+                verified.binding_digest == evidence.get('binding_digest')):
+            try:
+                accepted = instant(evidence['accepted_at'])
+                current = verified.expiry_deadline is None or accepted < verified.expiry_deadline
+                proven = ((verified.signed_max_printers, verified.signed_max_users)
+                          if current else (5, 1))
+            except (ValueError, TypeError, KeyError):
+                proven = None
+    if proven is None:
+        # No usable proof of what was granted: never unlock, but never trust the
+        # stored caps beyond the lapse allowance either.
+        proven = (5, 1)
+    if (previous.get('max_printers'), previous.get('max_users')) != proven:
+        warning = 'license_policy_evidence_mismatch'
+    frozen.update(max_printers=proven[0], max_users=proven[1])
+    return frozen, warning
 
 
 def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recovery_user_id=None):
@@ -358,10 +348,7 @@ def snapshot(db, *, request=None, cycle=None):
         signature = (info.verification_state, info.verified_digest, info.binding_digest, paid_lapse_enabled())
         cache_key = str(db.get_bind().url)
         cached = _cache.get(cache_key)
-        lease = p.get('entitlement', {}).get('lease_deadline') if _valid_policy(p) else None
-        from core.license_clock import instant
-        fresh = (cached and _valid_policy(p) and cached[0] == p['revision'] and cached[1] == signature
-                 and (not lease or now < instant(lease)))
+        fresh = (cached and _valid_policy(p) and cached[0] == p['revision'] and cached[1] == signature)
         if fresh:
             result = cached[2]
         else:
