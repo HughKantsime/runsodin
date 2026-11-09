@@ -98,10 +98,11 @@ def _valid_policy(p):
             and type(p.get('membership_generation')) is int and p['membership_generation'] >= 0):
         return False
     e = p['entitlement']
-    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'proven', 'lease_deadline'}
+    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'proven', 'lease_deadline', 'recovery_exception'}
             and e.get('state') in {'verified_current', 'verified_expired', 'community_initial', 'community_selected', 'verification_unavailable'}
             and type(e.get('enforce')) is bool
             and type(e.get('proven', False)) is bool
+            and type(e.get('recovery_exception', False)) is bool
             and all(e.get(k) is None or type(e[k]) is int and e[k] >= 0 for k in ('max_users', 'max_printers'))
             and (p.get('recovery_user_id') is None or type(p['recovery_user_id']) is int and p['recovery_user_id'] > 0)
             and isinstance(p.get('exempt_attempts'), dict))
@@ -154,6 +155,7 @@ def _entitlement(info):
         caps = [5, 1]
     return dict(state=state, digest=info.verified_digest, binding_digest=info.binding_digest,
                 max_printers=caps[0], max_users=caps[1], enforce=enforce, reason=reason,
+                recovery_exception=caps[1] == 0,
                 deadline=info.expiry_deadline.isoformat() if info.expiry_deadline else None)
 
 
@@ -166,9 +168,11 @@ def _frozen_members(previous, active, entitlement, cap_key, recovery=None, old_r
     """
     active_set = set(active)
     kept = [i for i in previous if i in active_set]
-    if users and old_recovery is not None and old_recovery != recovery and old_recovery in kept:
-        # Lost recovery eligibility frees that seat for the successor.
-        kept.remove(old_recovery)
+    if (users and old_recovery is not None and recovery is not None and old_recovery != recovery
+            and old_recovery in kept and recovery not in kept):
+        # Lost recovery eligibility hands that seat to the successor; if the successor
+        # already holds a seat, nobody's seat changes.
+        kept[kept.index(old_recovery)] = recovery
     if users and recovery is None and entitlement.get('enforce') and entitlement.get(cap_key) is not None:
         # Same guard as verified reconciliation: no seat refills without a recovery admin.
         return kept
@@ -227,7 +231,12 @@ def _evidence(db, info, previous):
             # Caps come only from the reverified signed envelope, never the stored row.
             if (previous.get('max_printers'), previous.get('max_users')) != (proof.signed_max_printers, proof.signed_max_users):
                 warning = 'license_policy_evidence_mismatch'
-            frozen.update(max_printers=proof.signed_max_printers, max_users=proof.signed_max_users)
+            frozen.update(max_printers=proof.signed_max_printers, max_users=proof.signed_max_users,
+                          recovery_exception=proof.signed_max_users == 0)
+        else:
+            # Unproven: keep the last-good recovery authorization as recorded, never
+            # re-derive it from cached caps.
+            frozen['recovery_exception'] = previous.get('recovery_exception') is True
         return frozen, warning
     if proven_current:
         # Lost or corrupt policy row with usable evidence: rebuild from the proof.
@@ -441,10 +450,10 @@ def user_allowed(policy, user_id):
     return (not policy.enforcing or user_id in policy.users
             # Deliberate full-access recovery exception, including at zero seats.
             # Keep until Shane decides restricted recovery sessions (review item 1).
-            or policy.entitlement.get('max_users') == 0
-            and user_id is not None and user_id == policy.recovery_user_id
-            # While frozen without proof, a cached zero cap alone is not evidence.
-            and (policy.entitlement.get('proven', True) or not policy.users))
+            # recovery_exception is set from proof (or kept from the last proven state
+            # while frozen); cached caps never open it.
+            or policy.entitlement.get('recovery_exception') is True
+            and user_id is not None and user_id == policy.recovery_user_id)
 
 
 def require_user(policy, user_id, purpose='access'):

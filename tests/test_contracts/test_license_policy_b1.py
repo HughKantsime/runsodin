@@ -946,3 +946,45 @@ def test_frozen_lapsed_policy_snapshots_are_throttled(policy_db, tier_license, c
     for _ in range(5):
         policy.snapshot(policy_db)
     assert len(calls) == first
+
+
+def test_recovery_demotion_when_successor_already_seated_changes_nothing(policy_db, tier_license):
+    """Codex round 3 P1-1: frozen demotion matches verified behaviour."""
+    tier_license('enterprise', max_users=2, max_printers=1)
+    policy._cache.clear()
+    pick(policy_db, [3, 5])
+    for proven in (True, False):
+        if not proven:
+            tier_license('enterprise', max_users=2, max_printers=1); policy._cache.clear(); status(policy_db)
+            _unprove(policy_db, tier_license)
+        else:
+            tier_license(None); policy._cache.clear()
+        policy_db.execute(text("UPDATE users SET role='viewer' WHERE id=3")); policy_db.commit()
+        policy._cache.clear()
+        p = status(policy_db)
+        assert sorted(p['users']) == [3, 5] and p['recovery_user_id'] == 5
+        policy_db.execute(text("UPDATE users SET role='admin' WHERE id=3")); policy_db.commit()
+
+
+def test_recovery_exception_is_kept_not_derived_while_frozen(policy_db, tier_license, monkeypatch):
+    """Codex round 3 P1-2: cached caps neither open nor close the zero-seat exception."""
+    # Legitimate zero-seat install keeps recovery access while frozen, whatever the cached cap.
+    tier_license('enterprise', max_users=0, max_printers=1)
+    policy._cache.clear()
+    p = status(policy_db)
+    assert p['users'] == [] and p['entitlement']['recovery_exception']
+    recovery = p['recovery_user_id']
+    _unprove(policy_db, tier_license)
+    status(policy_db)
+    row = policy._read(policy_db, policy.POLICY_KEY)
+    row['entitlement']['max_users'] = 1
+    policy._write(policy_db, policy.POLICY_KEY, row); policy_db.commit()
+    policy._cache.clear()
+    assert policy.user_allowed(policy.snapshot(policy_db), recovery)
+    # A one-seat install with an empty frozen membership gains nothing from a cached zero.
+    row = policy._read(policy_db, policy.POLICY_KEY)
+    row['entitlement'].update(max_users=0, recovery_exception=False)
+    row['users'] = []
+    policy._write(policy_db, policy.POLICY_KEY, row); policy_db.commit()
+    policy._cache.clear()
+    assert not policy.user_allowed(policy.snapshot(policy_db), recovery)
