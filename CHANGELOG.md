@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.51] - 2026-11-08
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: Adds a read-only status endpoint for the new Home Assistant integration, and backup checks now refuse backups whose recovery history could be edited. -->
 
 ### Added
