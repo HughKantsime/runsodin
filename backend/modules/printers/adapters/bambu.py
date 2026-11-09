@@ -462,7 +462,7 @@ class BambuPrinter:
         """
         from modules.printers.telemetry.bambu.ftp_upload import upload_file
 
-        return upload_file(self.ip, self.access_code, local_path, remote_filename)
+        return bool(upload_file(self.ip, self.access_code, local_path, remote_filename))
 
     def start_print(
         self,
