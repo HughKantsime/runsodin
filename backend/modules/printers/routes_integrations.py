@@ -9,6 +9,7 @@ opens a session to each printer per call).
 """
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import bindparam, text
@@ -67,6 +68,18 @@ def is_online(gcode_state, last_seen, now) -> bool:
         return False
     age = (now - seen).total_seconds()
     return 0 <= age < ONLINE_SECONDS
+
+
+def _odin_version() -> str:
+    """The VERSION file, as system health reports it (no cross-module import)."""
+    version_file = Path(__file__).resolve().parents[3] / "VERSION"
+    try:
+        if version_file.exists():
+            return version_file.read_text().strip() or "0.0.0"
+        from main import __version__
+        return __version__
+    except (OSError, ImportError):
+        return "0.0.0"
 
 
 def unresolved_error(last_error_at, latest_print_start) -> bool:
@@ -200,10 +213,9 @@ def home_assistant_status(
 
     queue_length = _queue_length(db, current_user, scope, controlled)
 
-    from modules.system.health_version import backend_version
     return {
         "schema_version": SCHEMA_VERSION,
-        "odin_version": backend_version(),
+        "odin_version": _odin_version(),
         "generated_at": _iso(now),
         "fleet": {**counts, "total": len(items), "queue_length": queue_length},
         "printers": items,
