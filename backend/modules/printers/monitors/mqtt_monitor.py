@@ -162,7 +162,10 @@ class MQTTMonitorDaemon:
             self._command_server = None
             log.warning("Monitor command channel unavailable (%s)", type(exc).__name__)
         self._running = True
-        printers = self.load_printers()
+        try:
+            printers = self._licensed(self.load_printers)()
+        except Exception:
+            printers = []  # license policy unreadable at start: the next pass retries
 
         if not printers:
             log.info("No printers found yet, waiting for printers to be added...")
@@ -217,8 +220,13 @@ class MQTTMonitorDaemon:
                     self._check_reconnect()
                     self._last_reconnect_check = time.time()
 
-                # Every 60s, bring the monitored set in line with the table
-                if time.time() - self._last_printer_reload >= 60:
+                # Every 60s, bring the monitored set in line with the table; a
+                # license change triggers the same pass within about 2 s (B2c).
+                license_changed = False
+                if time.time() - getattr(self, '_last_license_check', 0) >= 2:
+                    self._last_license_check = time.time()
+                    license_changed = hasattr(self, '_license') and self._license.changed()
+                if license_changed or time.time() - self._last_printer_reload >= 60:
                     self._check_new_printers()
                     self._last_printer_reload = time.time()
 
@@ -237,12 +245,27 @@ class MQTTMonitorDaemon:
 
         self.stop()
 
+    def _licensed(self, load):
+        """Loader filtered to the printers this process may monitor (B2c).
+
+        An unreadable policy raises, so _check_new_printers keeps the current set."""
+        def licensed():
+            printers = load()
+            if not hasattr(self, '_license'):
+                from core.license_monitor import MonitorLicense
+                self._license = MonitorLicense(engine)
+            allowed = self._license.wanted([p['id'] for p in printers])
+            if allowed is None:
+                raise RuntimeError('license policy unavailable')
+            return [p for p in printers if p['id'] in allowed]
+        return licensed
+
     def _families(self):
-        families = [("Bambu", '_all_printers', self.load_printers, ('ip', 'serial', 'access_code'),
+        families = [("Bambu", '_all_printers', self._licensed(self.load_printers), ('ip', 'serial', 'access_code'),
                      lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
                                               serial=p['serial'], access_code=p['access_code']))]
         if MOONRAKER_AVAILABLE:
-            families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port'),
+            families.append(("Moonraker", '_all_moonraker', self._licensed(self.load_moonraker_printers), ('host', 'port'),
                              lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
                                                         host=p['host'], port=p['port'])))
         return families
@@ -264,6 +287,7 @@ class MQTTMonitorDaemon:
                 log.warning(f"{kind} printer reload failed; keeping current monitors: {type(e).__name__}")
                 continue
             loaded.append((kind, attr, previous, current, keys, factory))
+        removals = []
         for kind, _attr, previous, current, keys, _factory in loaded:
             identity = lambda p: tuple(p.get(k) for k in keys)
             after = {p['id']: p for p in current}
@@ -274,12 +298,10 @@ class MQTTMonitorDaemon:
                 monitor = self.monitors.pop(old['id'], None)
                 if monitor is None:
                     continue
-                reason = "connection settings changed" if new is not None else "removed or inactive"
+                reason = "connection settings changed" if new is not None else "removed, inactive or not licensed"
                 log.info(f"[{old['name']}] {reason}; disconnecting {kind} monitor")
-                try:
-                    monitor.disconnect()
-                except Exception as e:
-                    log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
+                removals.append((kind, monitor))
+        self._disconnect_all(removals)
         for kind, attr, _previous, current, _keys, factory in loaded:
             setattr(self, attr, current)
             for p in current:
@@ -293,6 +315,27 @@ class MQTTMonitorDaemon:
                         log.info(f"[{p['name']}] Connected")
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
+
+    @staticmethod
+    def _disconnect_all(removals):
+        """Disconnect removed monitors in parallel against one shared 5 s deadline.
+
+        disconnect() retires the monitor first (late callbacks are ignored); a
+        transport that does not stop in time is abandoned on its daemon thread."""
+        if not removals:
+            return
+        from threading import Thread
+        from core.license_monitor import drain, _joiner, TEARDOWN_SECONDS
+
+        def disconnect(kind, monitor):
+            try:
+                monitor.disconnect()
+            except Exception as e:
+                log.debug(f"Error disconnecting {kind} monitor: {type(e).__name__}")
+        threads = [Thread(target=disconnect, args=removal, daemon=True) for removal in removals]
+        late = drain([t.start for t in threads], [_joiner(t) for t in threads])
+        if late:
+            log.warning(f"{len(late)} monitor(s) did not disconnect within {TEARDOWN_SECONDS}s; abandoned (retired)")
 
     def _persist_offline(self, printer_id):
         try:

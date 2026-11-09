@@ -107,3 +107,71 @@ def test_anycubic_reconcile_stops_locked_and_starts_selected(policy_db):
     reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, _Thread, 'test')
     assert time.monotonic() - started < license_monitor.TEARDOWN_SECONDS
     assert nine.stopped.is_set() and set(threads) == {TEN} and threads[TEN][1].started
+
+
+# --- M2 Moonraker handle ------------------------------------------------------
+
+class _FakeMoonraker:
+    def __init__(self, connect_ok=True, connect_delay=0.0):
+        self.connect_ok, self.connect_delay = connect_ok, connect_delay
+        self._status_lock = threading.RLock()
+        self._retired = False
+        self._running = False
+        self._thread = None
+        self.name = 'mk'
+        self.disconnects = 0
+        self.printer = type('P', (), {'disconnect': lambda s: None})()
+
+    def connect(self):
+        time.sleep(self.connect_delay)
+        if not self.connect_ok:
+            return False
+        self._running = True
+        self._thread = threading.Thread(target=self._poll, daemon=True)
+        self._thread.start()
+        return True
+
+    def _poll(self):
+        while self._running:
+            time.sleep(0.01)
+
+    def disconnect(self):
+        self.disconnects += 1
+        self._running = False
+
+
+def _handle(monkeypatch, fake):
+    from modules.printers.monitors import moonraker_monitor
+    monkeypatch.setattr(moonraker_monitor, 'MoonrakerMonitor', lambda **k: fake)
+    return moonraker_monitor._MoonrakerHandle(1, 'mk', 'h', 80, '')
+
+
+def test_moonraker_handle_connects_in_background_and_stops(monkeypatch):
+    from core.license_monitor import _joiner
+    fake = _FakeMoonraker()
+    handle = _handle(monkeypatch, fake)
+    handle.start()
+    deadline = time.monotonic() + 2
+    while fake._thread is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert handle.is_alive()
+    handle.stop()
+    assert fake._retired and not fake._running
+    assert _joiner(handle)(1.0) is True and not handle.is_alive()
+
+
+def test_moonraker_handle_stopped_while_connecting_disconnects(monkeypatch):
+    fake = _FakeMoonraker(connect_delay=0.3)
+    handle = _handle(monkeypatch, fake)
+    handle.start()
+    handle.stop()
+    handle.join(2)
+    assert fake.disconnects == 1 and not handle.is_alive()
+
+
+def test_moonraker_failed_connect_ends_the_handle_for_a_retry(monkeypatch):
+    fake = _FakeMoonraker(connect_ok=False)
+    handle = _handle(monkeypatch, fake)
+    handle.start()
+    handle._connector.join(1)
+    assert not handle.is_alive()  # the next inventory pass restarts it

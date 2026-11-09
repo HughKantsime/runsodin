@@ -176,6 +176,8 @@ class MoonrakerMonitor(MoonrakerJobTracking):
         
         while self._running:
             time.sleep(RECONNECT_INTERVAL)
+            if not self._running:
+                return  # stopped (e.g. license-locked) while waiting: no further I/O
             if not self._marked_offline:
                 self._persist_offline()
             try:
@@ -521,43 +523,95 @@ class MoonrakerMonitor(MoonrakerJobTracking):
 # ------------------------------------------------------------------
 # Main — standalone daemon mode (supervisor entrypoint)
 # ------------------------------------------------------------------
+def _endpoint(api_host):
+    api_host = (api_host or "").strip()
+    host, port = api_host, 80
+    if ":" in api_host:
+        h, prt = api_host.rsplit(":", 1)
+        host = h.strip() or host
+        try:
+            port = int(prt)
+        except Exception as e:
+            log.debug(f"Failed to parse port '{prt}': {e}")
+            port = 80
+    return host, port
+
+
+def _api_key(api_key_raw):
+    if not api_key_raw:
+        return ""
+    try:
+        from core.crypto import decrypt
+        return decrypt(api_key_raw)
+    except Exception as e:
+        log.debug(f"Failed to decrypt API key (using raw): {e}")
+        return api_key_raw
+
+
+def _inventory():
+    """{printer_id: (name, host, port, api_key)}; a changed identity restarts the monitor."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT id, name, api_host, api_key FROM printers "
+            "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active IS TRUE")
+        ).mappings().fetchall()
+    return {row["id"]: (row["name"], *_endpoint(row["api_host"]), _api_key(row["api_key"] or "")) for row in rows}
+
+
+class _MoonrakerHandle:
+    """Thread-like wrapper for the shared monitor loop (B2c).
+
+    Connects in the background so a slow printer never stalls the license pass;
+    a failed connect ends the handle, and the next inventory pass retries it."""
+
+    def __init__(self, printer_id, name, host, port, api_key):
+        self.monitor = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
+        self._stopped = threading.Event()
+        self._connector = threading.Thread(target=self._connect, name=f"moonraker-connect-{name}", daemon=True)
+
+    def _connect(self):
+        if self._stopped.is_set():
+            return
+        if not self.monitor.connect():
+            log.warning(f"Failed to connect Moonraker monitor for {self.monitor.name}")
+            return
+        log.info(f"Started Moonraker monitor for {self.monitor.name}")
+        if self._stopped.is_set():  # stopped while connecting
+            self.monitor.disconnect()
+
+    def start(self):
+        self._connector.start()
+
+    def stop(self):
+        self._stopped.set()
+        with self.monitor._status_lock:
+            self.monitor._retired = True
+            self.monitor._running = False
+
+    def join(self, timeout=None):
+        deadline = time.monotonic() + (timeout or 0)
+        self._connector.join(timeout=max(0.0, deadline - time.monotonic()))
+        poll = self.monitor._thread
+        if poll is not None:
+            poll.join(timeout=max(0.0, deadline - time.monotonic()))
+        if not self.is_alive():
+            try:
+                self.monitor.printer.disconnect()
+            except Exception:
+                log.warning(f"[{self.monitor.name}] Disconnect failed")
+
+    def is_alive(self):
+        poll = self.monitor._thread
+        return self._connector.is_alive() or (poll is not None and poll.is_alive())
+
+
 def start_moonraker_monitors():
-    """Load Moonraker printers from DB and start monitors."""
+    """Load Moonraker printers from DB and connect them once (no license or refresh loop; see main)."""
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
     monitors = []
     try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, name, api_host, api_key FROM printers "
-                "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active IS TRUE")
-            ).mappings().fetchall()
-
-        for row in rows:
-            printer_id = row["id"]
-            name = row["name"]
-            api_host = (row["api_host"] or "").strip()
-            api_key_raw = row["api_key"] or ""
-
-            host, port = api_host, 80
-            if ":" in api_host:
-                h, prt = api_host.rsplit(":", 1)
-                host = h.strip() or host
-                try:
-                    port = int(prt)
-                except Exception as e:
-                    log.debug(f"Failed to parse port '{prt}': {e}")
-                    port = 80
-
-            api_key = ""
-            if api_key_raw:
-                try:
-                    from core.crypto import decrypt
-                    api_key = decrypt(api_key_raw)
-                except Exception as e:
-                    log.debug(f"Failed to decrypt API key (using raw): {e}")
-                    api_key = api_key_raw
-
+        for printer_id, (name, host, port, api_key) in _inventory().items():
             m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
             if m.connect():
                 monitors.append(m)
@@ -585,35 +639,19 @@ if __name__ == "__main__":
     from core.interfaces.filament_ownership import log_external_filament_accounting
     log_external_filament_accounting(log)
 
-    _running = True
+    shutdown = threading.Event()
 
     def _shutdown(signum, frame):
-        global _running
         log.info(f"Received signal {signum}, shutting down Moonraker monitors...")
-        _running = False
+        shutdown.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Daemon mode: keep running even if no printers exist yet.
-    threads = []
-    while _running:
-        threads = start_moonraker_monitors()
-        if not threads:
-            log.info("No Moonraker printers found in database — sleeping 60s")
-            try:
-                time.sleep(60)
-            except (KeyboardInterrupt, SystemExit):
-                break
-            continue
-
-        log.info(f"Monitoring {len(threads)} Moonraker printer(s)")
-        try:
-            while _running:
-                time.sleep(60)
-        except (KeyboardInterrupt, SystemExit):
-            break
-
-    for t in threads:
-        t.stop()
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
+    # Inventory every 10 s and a license pass every 2 s: added, removed, edited,
+    # failed-to-connect and license-locked printers are handled without a restart (B2c).
+    from core.license_monitor import monitor_loop
+    monitor_loop(engine, _inventory, _MoonrakerHandle, 'Moonraker', shutdown, log)
     log.info("Moonraker monitor daemon stopped.")
