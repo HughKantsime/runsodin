@@ -96,3 +96,61 @@ def drain(stoppers, joiners, seconds=TEARDOWN_SECONDS):
         except Exception:
             late.append(join)
     return late
+
+
+INVENTORY_SECONDS = 10
+
+
+def _joiner(thread):
+    def join(timeout):
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
+    return join
+
+
+def reconcile_threads(threads, wanted, factory, label, log=None):
+    """threads: {printer_id: (identity, thread)}. Stop removed, changed or dead
+    threads against one shared deadline, then start additions with factory(pid, *identity)."""
+    removals = [(pid, thread) for pid, (identity, thread) in threads.items()
+                if wanted.get(pid) != identity or not thread.is_alive()]
+    late = drain([thread.stop for _, thread in removals], [_joiner(thread) for _, thread in removals])
+    if late and log is not None:
+        log.warning('%s monitor: %d thread(s) did not stop within %ss; abandoned (retired)',
+                    label, len(late), TEARDOWN_SECONDS)
+    for pid, _ in removals:
+        del threads[pid]
+    for pid, identity in wanted.items():
+        if pid not in threads:
+            thread = factory(pid, *identity)
+            threads[pid] = (identity, thread)
+            thread.start()
+
+
+def monitor_loop(engine, load_inventory, factory, label, stop_event, log=None):
+    """Per-process loop: inventory every 10 s, license pass every 2 s.
+
+    load_inventory() -> {printer_id: identity tuple}; a changed identity restarts
+    that printer's thread. A failed inventory read keeps the previous one; an
+    unreadable policy keeps the current permitted set."""
+    threads, view = {}, MonitorLicense(engine)
+    inventory, permitted, next_inventory = {}, set(), 0.0
+    try:
+        while not stop_event.is_set():
+            refresh = time.monotonic() >= next_inventory
+            if refresh:
+                try:
+                    inventory = load_inventory()
+                except Exception:
+                    if log is not None:
+                        log.warning('%s monitor: printer inventory could not be read; keeping the current set', label)
+                next_inventory = time.monotonic() + INVENTORY_SECONDS
+            if refresh or view.changed():
+                allowed = view.wanted(inventory)
+                if allowed is not None:
+                    permitted = allowed
+                reconcile_threads(threads, {p: i for p, i in inventory.items() if p in permitted},
+                                  factory, label, log)
+            stop_event.wait(LICENSE_PASS_SECONDS)
+    finally:
+        reconcile_threads(threads, {}, factory, label, log)
+    return threads

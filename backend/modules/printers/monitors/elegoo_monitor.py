@@ -350,47 +350,43 @@ class ElegooMonitorThread(threading.Thread):
 # ------------------------------------------------------------------
 # Main — standalone daemon mode
 # ------------------------------------------------------------------
+def _mainboard(api_key):
+    # api_key stores mainboard_id for Elegoo (no auth needed)
+    if not api_key:
+        return ""
+    try:
+        from core.crypto import decrypt
+        return decrypt(api_key)
+    except Exception:
+        return api_key
+
+
+def _inventory():
+    """{printer_id: (name, host, mainboard_id)}; a changed identity restarts the thread."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='elegoo' AND api_host IS NOT NULL AND is_active IS TRUE")
+        ).mappings().fetchall()
+    return {row["id"]: (row["name"], row["api_host"], _mainboard(row["api_key"])) for row in rows}
+
+
+def _thread(printer_id, name, host, mainboard_id):
+    log.info(f"Starting Elegoo monitor for {name} ({host})")
+    return ElegooMonitorThread(printer_id=printer_id, name=name, host=host, mainboard_id=mainboard_id)
+
+
 def start_elegoo_monitors():
-    """
-    Load Elegoo printers from DB and start monitor threads.
-    Called from main.py on startup.
-    """
+    """Start one thread per configured printer (no license or refresh loop; see main)."""
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
     threads = []
     try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='elegoo' AND api_host IS NOT NULL AND is_active IS TRUE")
-            ).mappings().fetchall()
-
-        for row in rows:
-            printer_id = row["id"]
-            name = row["name"]
-            host = row["api_host"]
-            mainboard_id = ""
-
-            # api_key stores mainboard_id for Elegoo (no auth needed)
-            if row["api_key"]:
-                try:
-                    from core.crypto import decrypt
-                    mainboard_id = decrypt(row["api_key"])
-                except Exception:
-                    mainboard_id = row["api_key"]
-
-            t = ElegooMonitorThread(
-                printer_id=printer_id,
-                name=name,
-                host=host,
-                mainboard_id=mainboard_id,
-            )
+        for printer_id, identity in _inventory().items():
+            t = _thread(printer_id, *identity)
             t.start()
             threads.append(t)
-            log.info(f"Started Elegoo monitor for {name} ({host})")
-
     except Exception as e:
         log.error(f"Failed to start Elegoo monitors: {e}")
-
     return threads
 
 if __name__ == "__main__":
@@ -417,35 +413,19 @@ if __name__ == "__main__":
 
     import signal
 
-    _running = True
+    shutdown = threading.Event()
 
     def _shutdown(signum, frame):
-        global _running
         log.info(f"Received signal {signum}, shutting down Elegoo monitors...")
-        _running = False
+        shutdown.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Daemon mode: keep running even if no printers exist yet.
-    threads = []
-    while _running:
-        threads = start_elegoo_monitors()
-        if not threads:
-            log.info("No Elegoo printers found in database — sleeping 60s")
-            try:
-                time.sleep(60)
-            except (KeyboardInterrupt, SystemExit):
-                break
-            continue
-
-        log.info(f"Monitoring {len(threads)} Elegoo printer(s)")
-        try:
-            while _running:
-                time.sleep(60)
-        except (KeyboardInterrupt, SystemExit):
-            break
-
-    for t in threads:
-        t.stop()
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
+    # Inventory every 10 s and a license pass every 2 s: added, removed, edited
+    # and license-locked printers are picked up without a restart (B2c).
+    from core.license_monitor import monitor_loop
+    monitor_loop(engine, _inventory, _thread, 'Elegoo', shutdown, log)
     log.info("Elegoo monitor daemon stopped.")

@@ -83,7 +83,7 @@ def test_drain_uses_one_shared_deadline_for_hung_clients():
     for t in hung:
         t.start()
     started = time.monotonic()
-    from modules.printers.monitors.anycubic_lan_monitor import _joiner
+    from core.license_monitor import _joiner
     late = drain([t.stop for t in hung], [_joiner(t) for t in hung], seconds=0.5)
     elapsed = time.monotonic() - started
     assert all(t.stopped.is_set() for t in hung)  # every removal signalled before any join
@@ -91,12 +91,12 @@ def test_drain_uses_one_shared_deadline_for_hung_clients():
 
 
 def test_anycubic_reconcile_stops_locked_and_starts_selected(policy_db):
-    from modules.printers.monitors.anycubic_lan_monitor import reconcile_threads
+    from core.license_monitor import reconcile_threads
     view = MonitorLicense(policy_db.get_bind())
     inventory = {NINE: ('nine', 'h9'), TEN: ('ten', 'h10')}
     threads = {}
     allowed = view.wanted(inventory)
-    reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, factory=_Thread)
+    reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, _Thread, 'test')
     assert set(threads) == {NINE}
     nine = threads[NINE][1]
     pick(policy_db, users=[3], printers=[TEN])
@@ -104,6 +104,6 @@ def test_anycubic_reconcile_stops_locked_and_starts_selected(policy_db):
     policy._cache.clear()
     allowed = view.wanted(inventory)
     started = time.monotonic()
-    reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, factory=_Thread)
+    reconcile_threads(threads, {p: i for p, i in inventory.items() if p in allowed}, _Thread, 'test')
     assert time.monotonic() - started < license_monitor.TEARDOWN_SECONDS
     assert nine.stopped.is_set() and set(threads) == {TEN} and threads[TEN][1].started

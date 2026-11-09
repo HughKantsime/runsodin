@@ -8,7 +8,7 @@ import time
 
 from sqlalchemy import column, func, table, text
 from core.db import live_engine as engine
-from core.license_monitor import MonitorLicense, drain, LICENSE_PASS_SECONDS, TEARDOWN_SECONDS
+from core.license_monitor import monitor_loop
 from core.base import FilamentType
 from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
 from modules.printers.parsing.anycubic_lan import MODELS, filament_slots
@@ -111,31 +111,10 @@ def sync_slots(printer_id, boxes):
             conn.execute(text('UPDATE printers SET slot_count=:count WHERE id=:pid'), {'count': max(s['slot_number'] for s in slots), 'pid': printer_id})
 
 
-INVENTORY_SECONDS = 10
-
-
-def _joiner(thread):
-    def join(timeout):
-        thread.join(timeout=timeout)
-        return not thread.is_alive()
-    return join
-
-
-def reconcile_threads(threads, wanted, factory=None):
-    """Stop removed, changed or dead threads (one shared deadline), then start additions."""
-    removals = [(pid, thread) for pid, (identity, thread) in threads.items()
-                if wanted.get(pid) != identity or not thread.is_alive()]
-    late = drain([thread.stop for _, thread in removals], [_joiner(thread) for _, thread in removals])
-    if late:
-        log.warning('Anycubic monitor: %d thread(s) did not stop within %ss; abandoned (retired)',
-                    len(late), TEARDOWN_SECONDS)
-    for pid, _ in removals:
-        del threads[pid]
-    for pid, identity in wanted.items():
-        if pid not in threads:
-            thread = (factory or AnycubicLANMonitorThread)(pid, *identity)
-            threads[pid] = (identity, thread)
-            thread.start()
+def _inventory():
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT id,name,api_host FROM printers WHERE api_type='anycubic_lan' AND api_host IS NOT NULL AND is_active IS TRUE")).mappings().all()
+    return {r['id']: (r['name'], r['api_host']) for r in rows}
 
 
 def main():
@@ -151,25 +130,7 @@ def main():
     shutdown = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: shutdown.set())
-    threads = {}
-    license_view = MonitorLicense(engine)
-    inventory, permitted, next_inventory = {}, set(), 0.0
-    try:
-        while not shutdown.is_set():
-            refresh = time.monotonic() >= next_inventory
-            if refresh:
-                with engine.connect() as conn:
-                    rows = conn.execute(text("SELECT id,name,api_host FROM printers WHERE api_type='anycubic_lan' AND api_host IS NOT NULL AND is_active IS TRUE")).mappings().all()
-                inventory = {r['id']: (r['name'], r['api_host']) for r in rows}
-                next_inventory = time.monotonic() + INVENTORY_SECONDS
-            if refresh or license_view.changed():
-                allowed = license_view.wanted(inventory)
-                if allowed is not None:  # unreadable policy: keep the current set
-                    permitted = allowed
-                reconcile_threads(threads, {pid: ident for pid, ident in inventory.items() if pid in permitted})
-            shutdown.wait(LICENSE_PASS_SECONDS)
-    finally:
-        reconcile_threads(threads, {})
+    monitor_loop(engine, _inventory, AnycubicLANMonitorThread, 'Anycubic', shutdown, log)
 
 
 if __name__ == '__main__':
