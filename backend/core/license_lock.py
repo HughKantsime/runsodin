@@ -426,10 +426,12 @@ def _live_admission(db, printer_id):
     return _attempt_key(claim[0]), entry.get('job_id'), bound
 
 
-def _receipt_binding(db, printer_id, claim_key):
-    """The row a retained receipt bound for this admission, even after its claim is gone."""
+def _receipt_binding(db, printer_id, job_id, claim_key):
+    """The row a retained receipt bound for this admission, even after its claim is gone.
+
+    Exact: every receipt of this job on this printer is checked (no history window)."""
     for token, bound in db.execute(text('SELECT claim_token,observed_print_job_id FROM dispatch_attempt_receipts '
-                                        'WHERE printer_id=:p ORDER BY created_at DESC LIMIT 50'), {'p': printer_id}):
+                                        'WHERE printer_id=:p AND job_id=:j'), {'p': printer_id, 'j': job_id}):
         if _attempt_key(token) == claim_key:
             return bound
     return None
@@ -481,7 +483,7 @@ def _refresh(db, printer_id, record, now):
     if kind == 'admitted':
         live = _live_admission(db, printer_id)
         bound = (live[2] if live is not None and live[0] == record.get('claim_key')
-                 else _receipt_binding(db, printer_id, record.get('claim_key')))
+                 else _receipt_binding(db, printer_id, record.get('job_id'), record.get('claim_key')))
         if bound is None:
             return record if live is not None and live[0] == record.get('claim_key') else None
         row = _row(db, bound)
@@ -530,9 +532,13 @@ def _exemptions(db, old, resolved, entitlement, *, reconstructed=False):
     from core.license_clock import instant
     clock_now = license_clock().sample()[0]
     deadline = entitlement.get('deadline')
-    # The deadline is the cutoff only for the expiry transition itself; any later
-    # change (a selection edit after expiry) cuts off at the time it happens.
-    expiry_now = not was_enforcing and deadline and clock_now >= instant(deadline)
+    # The deadline is the cutoff only for the expiry transition itself (the license
+    # state turning to verified_expired); any later change, such as a selection edit
+    # after expiry, cuts off at the time it happens. A valid license already
+    # enforces its caps, so "was enforcing" cannot detect the expiry.
+    old_state = (old or {}).get('entitlement', {}).get('state')
+    expiry_now = bool(entitlement.get('state') == 'verified_expired' and old_state != 'verified_expired'
+                      and deadline and clock_now >= instant(deadline))
     cutoff_at = instant(deadline) if expiry_now else clock_now
     cutoff, captured = _utc(cutoff_at).isoformat(), _utc(clock_now).isoformat()
     now = _db_now(db)

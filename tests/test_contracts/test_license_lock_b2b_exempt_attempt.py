@@ -320,21 +320,23 @@ def test_first_policy_captures_running_prints(policy_db):
     assert policy._exemptions(policy_db, old, resolved, entitlement, reconstructed=True) == {}
 
 
-def test_selection_change_after_expiry_cuts_off_at_the_change(policy_db, monkeypatch):
-    """The expiry deadline is the cutoff only for the expiry transition itself."""
+def test_expiry_cutoff_is_the_deadline_only_for_the_expiry_itself(policy_db, monkeypatch):
     row = _attempt(policy_db, NINE, started_ago=60)  # started after the (past) deadline
     _telemetry(policy_db, NINE)
     stored = policy._read(policy_db, policy.POLICY_KEY)
     past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    entitlement = dict(stored['entitlement'], deadline=past)
-    old = dict(stored, entitlement=dict(entitlement))  # already enforcing after the expiry
     import core.license_clock as lc
     monkeypatch.setattr(lc, 'instant', lambda v: datetime.fromisoformat(v))
-    result = policy._exemptions(policy_db, old, {'printers': [TEN]}, entitlement)
+    expired = dict(stored['entitlement'], state='verified_expired', enforce=True, deadline=past)
+    # The expiry transition itself: a valid (already enforcing) license turns expired.
+    # A print started after the deadline gets nothing.
+    current = dict(stored, entitlement=dict(stored['entitlement'], state='verified_current', enforce=True))
+    assert str(NINE) not in policy._exemptions(policy_db, current, {'printers': [TEN]}, expired)
+    # A later selection change on the already-expired license cuts off at the change,
+    # so the print (allowed while 9 was selected) is kept.
+    after = dict(stored, entitlement=dict(expired))
+    result = policy._exemptions(policy_db, after, {'printers': [TEN]}, expired)
     assert result[str(NINE)]['print_job_id'] == row['id']
-    # The expiry transition itself (not enforcing before) cuts off at the deadline.
-    fresh_old = dict(stored, entitlement=dict(entitlement, enforce=False))
-    assert str(NINE) not in policy._exemptions(policy_db, fresh_old, {'printers': [TEN]}, entitlement)
 
 
 def test_pending_candidate_with_a_different_nonce_is_not_promoted(policy_db):
@@ -399,6 +401,22 @@ def test_admitted_resolves_through_retained_receipt_after_claim_is_gone(policy_d
     _telemetry(policy_db, NINE)
     _bind_receipt(policy_db, NINE, token, row['id'])
     policy_db.execute(text('DELETE FROM printer_dispatch_claims'))  # claim retired; receipt kept
+    policy_db.commit()
+    _reconcile(policy_db)
+    record = _record(policy_db, NINE)
+    assert record['kind'] == 'observed' and record['print_job_id'] == row['id']
+
+
+def test_retained_receipt_is_found_among_many_receipts(policy_db):
+    token = 'w' * 32
+    _claim_and_admit(policy_db, NINE, token, job_id=7)
+    _lock_nine(policy_db)
+    row = _attempt(policy_db, NINE, started_ago=5)
+    _telemetry(policy_db, NINE)
+    _bind_receipt(policy_db, NINE, token, row['id'], job_id=7)
+    for n in range(60):  # newer receipts for other jobs on the same printer
+        _bind_receipt(policy_db, NINE, f'{n:032d}', None, job_id=100 + n)
+    policy_db.execute(text('DELETE FROM printer_dispatch_claims'))
     policy_db.commit()
     _reconcile(policy_db)
     record = _record(policy_db, NINE)
