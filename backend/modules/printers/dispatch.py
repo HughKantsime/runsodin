@@ -146,10 +146,20 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     if not _prepare_post_upload_gate(before_start):
         return False, _gate_refusal_message(before_start)
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
-    final_check = {"before_command": before_start} if before_start is not None else {}
+    gate = {}
+
+    def before_command():
+        # run_command sends nothing unless this returns True, so a recorded False
+        # (not an exception) is a confirmed no-start rather than an unknown outcome.
+        gate["result"] = before_start() is True
+        return gate["result"]
+
+    final_check = {"before_command": before_command} if before_start is not None else {}
     try:
         ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
     except DispatchOutcomeUncertain:
+        if gate.get("result") is False:
+            return False, _gate_refusal_message(before_start)
         if getattr(before_start, "refusal", None) is not None:
             raise DispatchOutcomeUncertain(_gate_refusal_message(before_start)) from None
         raise

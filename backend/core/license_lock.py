@@ -4,6 +4,7 @@ B1 owns evidence, selections and user authorization. B2a adds printer checks and
 the final print-start admission (admit_start). Physical-attempt capture (exempt
 prints on newly locked printers) is B2b; until then only members are allowed N.
 """
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
@@ -329,12 +330,33 @@ def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recove
         resolved.update(set_by=actor, set_at=license_clock().sample()[0].isoformat(), change_reason='explicit_selection')
     elif resolved != old:
         resolved['change_reason'] = 'automatic_reconciliation'
+    _prune_admissions(db)
     if resolved != old or not valid:
         resolved['revision'] = _next_revision(db, revision)
         resolved['transition_id'] = str(uuid4())
         resolved['effective_at'] = license_clock().sample()[0].isoformat()
         _write(db, POLICY_KEY, resolved)
     return resolved
+
+
+def _live_admissions(db, entries):
+    if not isinstance(entries, dict):
+        return {}
+    live = {_attempt_key(row[0]) for row in db.execute(text('SELECT token FROM printer_dispatch_claims'))}
+    return {k: v for k, v in entries.items() if k in live}
+
+
+def _prune_admissions(db):
+    """Drop admission records whose dispatch claim is gone (released or retired)."""
+    try:
+        entries = _read(db, ADMITTED_KEY)
+    except (ValueError, TypeError):
+        entries = {}
+    if entries is None:
+        return
+    live = _live_admissions(db, entries)
+    if live != entries:
+        _write(db, ADMITTED_KEY, live)
 
 
 def reconcile(db, **kwargs):
@@ -535,10 +557,9 @@ def admit_start(engine, *, printer_id, job_id, claim_token):
     """
     if not enabled():
         return None
-    from sqlalchemy.orm import Session
     try:
-        with Session(engine) as db:
-            policy = _snapshot(_reconcile(db))
+        with _admission_session(engine) as db:
+            policy = _snapshot(_reconcile(db))  # takes the policy lock; prunes stale records
             if not printer_allowed(policy, printer_id, 'N'):
                 db.commit()  # keep any reconciliation; the refusal itself writes nothing
                 return LicenseLockError('license_printer_locked', revision=policy.revision, resource_id=printer_id,
@@ -547,8 +568,7 @@ def admit_start(engine, *, printer_id, job_id, claim_token):
                 entries = _read(db, ADMITTED_KEY)
             except (ValueError, TypeError):
                 entries = None
-            live = {_attempt_key(row[0]) for row in db.execute(text('SELECT token FROM printer_dispatch_claims'))}
-            entries = {k: v for k, v in entries.items() if k in live} if isinstance(entries, dict) else {}
+            entries = entries if isinstance(entries, dict) else {}
             from license_manager import license_clock
             entries[_attempt_key(claim_token)] = dict(printer_id=printer_id, job_id=job_id, revision=policy.revision,
                                                       admitted_at=license_clock().sample()[0].isoformat())
@@ -559,6 +579,77 @@ def admit_start(engine, *, printer_id, job_id, claim_token):
         return exc
     except Exception:
         return LicenseLockError('license_policy_unavailable', status=503, resource_id=printer_id, resource_type='printer')
+
+
+ADMISSION_WAIT_MS = 2000
+
+
+@contextmanager
+def _admission_session(engine):
+    """Own short transaction with a bounded lock wait on both databases.
+
+    PostgreSQL: _lock sets a 2 s lock_timeout. SQLite: the engine's busy timeout
+    is longer, so it is lowered for this connection and restored afterwards."""
+    from sqlalchemy.orm import Session
+    with Session(engine) as db:
+        restore = None
+        if engine.dialect.name == 'sqlite':
+            raw = db.connection().connection.driver_connection
+            restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]
+            raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')
+        try:
+            yield db
+        finally:
+            if restore is not None:
+                try:
+                    db.rollback()
+                    db.connection().connection.driver_connection.execute(f'PRAGMA busy_timeout={int(restore)}')
+                except Exception:
+                    db.invalidate()  # never return a connection with the shortened wait to the pool
+
+
+def withdraw_admission(engine, claim_token):
+    """Best effort: a later safety gate refused, so this attempt will not be sent.
+
+    Reconciliation also drops the record once the claim is released."""
+    if not enabled():
+        return
+    try:
+        with _admission_session(engine) as db:
+            _lock(db)
+            entries = _read(db, ADMITTED_KEY)
+            if isinstance(entries, dict) and entries.pop(_attempt_key(claim_token), None) is not None:
+                _write(db, ADMITTED_KEY, entries)
+            db.commit()
+    except Exception:
+        pass
+
+
+def locked_snapshot(executor):
+    """Fresh policy in the caller's transaction; the policy lock is held to its commit.
+
+    For writes that assign or reserve work on printers (scheduler, Education), so a
+    selection change cannot commit between this check and the caller's write.
+    Session or Connection only; returns None (fail closed) on any other executor or error."""
+    if not enabled():
+        return _DISABLED
+    from sqlalchemy.engine import Connection
+    from sqlalchemy.orm import Session
+    try:
+        if isinstance(executor, Session):
+            return _snapshot(_reconcile(executor))
+        if isinstance(executor, Connection):
+            executor.execute(text('SELECT 1'))  # the caller owns the transaction, not this session
+            with Session(bind=executor) as db:
+                return _snapshot(_reconcile(db))
+    except Exception:
+        pass
+    return None
+
+
+def locked_printer_allowed(executor, printer_id):
+    policy = locked_snapshot(executor)
+    return policy is not None and printer_allowed(policy, printer_id, 'N')
 
 
 def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):

@@ -1,9 +1,10 @@
-"""License admission as the last post-upload gate before a print command (B2a).
+"""License admission in the post-upload gate chain before a print command (B2a).
 
-Wraps the existing gate chain (maintenance, AMS, capability). The earlier gates
-run first; the license admission runs last, so an attempt is recorded only when
-every other check passed and the command is about to be sent. The gate never
-raises: a refusal is recorded so dispatch treats it as a clean no-start.
+Wraps the existing gate chain (maintenance, AMS, capability). The license
+admission runs first, then the existing gates, so a wait for the policy lock
+never ages their freshness checks (they stay closest to the send). If an
+existing gate then refuses, the admission is withdrawn. The gate never raises:
+a refusal is recorded so dispatch treats it as a clean no-start.
 """
 from threading import Lock
 
@@ -37,18 +38,20 @@ def create_license_gate(engine, *, job, claim_token, previous=None):
             if used:
                 return record_refusal(checked, 'already_used', 'License start gate is single use')
             used = True
-        try:
-            if previous is not None and previous() is not True:
-                return _prior_refused(previous)
-        except Exception as exc:
-            return record_refusal(checked, 'exception:' + type(exc).__name__, 'Post-upload gate raised an exception')
         refused = license_lock.admit_start(engine, printer_id=job['printer_id'], job_id=job['id'],
                                            claim_token=claim_token)
-        if refused is None:
-            return True
-        detail = refused.detail if isinstance(getattr(refused, 'detail', None), dict) else {}
-        return record_refusal(checked, detail.get('code', 'license_policy_unavailable'),
-                              license_lock.refusal_message(refused, outcome=False))
+        if refused is not None:
+            detail = refused.detail if isinstance(getattr(refused, 'detail', None), dict) else {}
+            return record_refusal(checked, detail.get('code', 'license_policy_unavailable'),
+                                  license_lock.refusal_message(refused, outcome=False))
+        try:
+            if previous is None or previous() is True:
+                return True
+            result = _prior_refused(previous)
+        except Exception as exc:
+            result = record_refusal(checked, 'exception:' + type(exc).__name__, 'Post-upload gate raised an exception')
+        license_lock.withdraw_admission(engine, claim_token)
+        return result
 
     checked.refusal = None
     checked.prepare = prepare

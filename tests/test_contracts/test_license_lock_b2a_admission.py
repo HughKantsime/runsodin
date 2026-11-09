@@ -196,12 +196,33 @@ def test_gate_admits_after_previous(policy_db):
     assert set(_admitted(policy_db)) == {policy._attempt_key('i' * 32)}
 
 
-def test_gate_previous_refusal_skips_admission(policy_db, monkeypatch):
-    previous = _previous(result=False)
-    gate = _gate(policy_db, previous)
-    monkeypatch.setattr(policy, 'admit_start', lambda *a, **k: pytest.fail('admission after a refusal'))
+def test_gate_admits_before_safety_checks_and_withdraws_on_refusal(policy_db, monkeypatch):
+    order = []
+    real_admit = policy.admit_start
+    monkeypatch.setattr(policy, 'admit_start', lambda *a, **k: order.append('license') or real_admit(*a, **k))
+    def tracked():
+        order.append('safety')
+        return False  # refuses without recording a code
+    tracked.refusal = None
+    tracked.prepare = lambda: True
+    gate = _gate(policy_db, tracked)
     assert gate() is False
-    assert gate.refusal.code == 'printer_maintenance_hold'
+    # License first, so waiting for its lock never ages the safety checks' freshness.
+    assert order == ['license', 'safety']
+    assert gate.refusal.code == 'gate_rejected'
+    assert _admitted(policy_db) == {}  # withdrawn: this attempt will not be sent
+
+
+def test_gate_previous_refusal_code_is_kept(policy_db):
+    gate = _gate(policy_db, _previous(result=False))
+    assert gate() is False and gate.refusal.code == 'printer_maintenance_hold'
+    assert _admitted(policy_db) == {}
+
+
+def test_locked_printer_never_runs_safety_checks(policy_db):
+    previous = _previous()
+    gate = _gate(policy_db, previous, printer_id=LOCKED, token='l' * 32)
+    assert gate() is False and previous.calls == []
 
 
 def test_gate_prepare_refusal_propagates(policy_db):
@@ -214,6 +235,7 @@ def test_gate_previous_exception_is_a_refusal(policy_db):
         raise OSError('socket')
     gate = _gate(policy_db, boom)
     assert gate() is False and gate.refusal.code == 'exception:OSError'
+    assert _admitted(policy_db) == {}
 
 
 def test_gate_locked_printer_and_single_use(policy_db):
@@ -340,3 +362,153 @@ def test_scheduler_uses_only_selected_printers(policy_db):
         scheduler_module.Scheduler._find_best_fit = original
     assert captured.get('printers') is not None
     assert LOCKED not in captured['printers'] and SELECTED in captured['printers']
+
+
+def _insert_job(db, name):
+    # Org 1 owns both fixture printers.
+    db.execute(text("INSERT INTO jobs (charged_to_org_id,item_name,status,priority,hold,duration_hours,quantity,"
+                    "created_at,updated_at) VALUES (1,:name,'pending',3,FALSE,1.0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"),
+               {'name': name})
+
+
+def _only_printer(original, printer_id):
+    def spy(self, job, *a, **k):
+        if 'printer_states' in k:
+            k['printer_states'] = {printer_id: k['printer_states'][printer_id]}
+        else:
+            a = ({printer_id: a[0][printer_id]},) + a[1:]
+        return original(self, job, *a, **k)
+    return spy
+
+
+# --- Review round 1 fixes --------------------------------------------------
+
+def test_sqlite_admission_wait_is_bounded_and_restored(policy_db):
+    engine = policy_db.get_bind()
+    with engine.connect() as c:
+        original = c.exec_driver_sql('PRAGMA busy_timeout').scalar()
+    assert original > policy.ADMISSION_WAIT_MS
+    holder = Session(engine)
+    policy._lock(holder)  # another writer holds the policy lock
+    try:
+        started = time.monotonic()
+        refused = policy.admit_start(engine, printer_id=SELECTED, job_id=1, claim_token='m' * 32)
+        waited = time.monotonic() - started
+    finally:
+        holder.rollback(); holder.close()
+    assert refused is not None and refused.detail['code'] == 'license_policy_unavailable'
+    assert 1.5 <= waited < original / 1000
+    for _ in range(3):
+        with engine.connect() as c:
+            assert c.exec_driver_sql('PRAGMA busy_timeout').scalar() == original
+
+
+def test_reconcile_prunes_admissions_for_released_claims(policy_db):
+    _claim(policy_db, SELECTED, 'n' * 32)
+    assert policy.admit_start(policy_db.get_bind(), printer_id=SELECTED, job_id=1, claim_token='n' * 32) is None
+    policy_db.execute(text('DELETE FROM printer_dispatch_claims'))
+    policy_db.commit()
+    policy.reconcile(policy_db); policy_db.commit()
+    assert _admitted(policy_db) == {}
+
+
+def test_locked_snapshot_executors(policy_db):
+    engine = policy_db.get_bind()
+    with engine.connect() as conn:
+        assert policy.locked_printer_allowed(conn, SELECTED)
+        assert not policy.locked_printer_allowed(conn, LOCKED)
+        assert conn.in_transaction()  # the caller still owns its transaction and the lock
+        conn.rollback()
+    raw = engine.raw_connection()
+    try:
+        assert policy.locked_snapshot(raw) is None  # unsupported executor fails closed
+    finally:
+        raw.close()
+
+
+def test_locked_snapshot_holds_the_lock_until_caller_commits(policy_db):
+    engine = policy_db.get_bind()
+    current = status(policy_db)
+    caller = Session(engine)
+    assert policy.locked_printer_allowed(caller, SELECTED)
+    done = {}
+    def change():
+        with Session(engine) as db:
+            policy.replace_selection(db, printers=[LOCKED], users=[3], expected_revision=current['revision'], actor=3)
+            db.commit()
+            done['at'] = time.monotonic()
+    worker = threading.Thread(target=change)
+    worker.start()
+    time.sleep(0.5)
+    assert worker.is_alive()
+    released = time.monotonic()
+    caller.commit(); caller.close()
+    worker.join(10)
+    assert done['at'] >= released
+
+
+def test_scheduler_rechecks_under_lock_before_assignment(policy_db, monkeypatch):
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    import modules.jobs.scheduler as scheduler_module
+    stale = policy.snapshot(policy_db)  # printer 9 selected
+    pick(policy_db, users=[3], printers=[LOCKED])  # committed: printer 9 is now locked
+    # The early filter still sees the stale selection that includes printer 9 ...
+    monkeypatch.setattr(policy, 'snapshot', lambda db, **k: stale)
+    monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', _only_printer(Scheduler._find_best_fit, SELECTED))
+    _insert_job(policy_db, 'race part')
+    policy_db.commit()
+    job_id = policy_db.execute(text("SELECT id FROM jobs WHERE item_name='race part'")).scalar()
+    result = Scheduler(SchedulerConfig()).run(policy_db)
+    # ... but the fresh check under the lock refuses the write.
+    assert result.scheduled_count == 0
+    row = policy_db.execute(text('SELECT status,printer_id FROM jobs WHERE id=:id'), {'id': job_id}).mappings().one()
+    assert row['status'] == 'pending' and row['printer_id'] is None
+    assert any('license selection' in e for e in result.errors), result.errors
+
+
+def test_education_services_refuse_locked_printer(policy_db, monkeypatch):
+    from modules.organizations import education_policy, education_dispatch_policy, education_training_policy
+    monkeypatch.setattr(education_training_policy, 'job_training_allowed', lambda *a, **k: True)
+    monkeypatch.setattr(education_policy, 'scheduler_context', lambda *a, **k: pytest.fail('past license check'))
+    assert education_policy.advance_schedule(policy_db, submission_id=1, job_id=1, printer_id=LOCKED,
+                                             expected_revision=1) is False
+    monkeypatch.setattr(education_dispatch_policy.owner, '_ExecutionAdapter',
+                        lambda *a: pytest.fail('reservation attempted'))
+    extension = sorted(education_dispatch_policy.owner._ALLOWED_REMOTE_EXTENSIONS)[0]
+    assert education_dispatch_policy.reserve_dispatch(policy_db, job_id=1, printer_id=LOCKED,
+                                                      expected_revision=1, extension=extension) is None
+
+
+def test_bambu_v2_license_refusal_is_a_clean_no_start(policy_db, monkeypatch):
+    from types import SimpleNamespace as NS
+    from modules.printers import dispatch
+    from modules.printers.telemetry.bambu import ftp_upload, session, broker_policy
+    commands = []
+    def run_command(config, method, *a, before_command=None, **k):
+        if before_command is not None and before_command() is not True:
+            return False
+        commands.append(method)
+        return True
+    monkeypatch.setattr(dispatch, '_ws', lambda *a, **k: None)
+    monkeypatch.setattr(dispatch, '_notify_start_outcome', lambda *a, **k: None)
+    monkeypatch.setattr(ftp_upload, 'upload_file', lambda *a: True)
+    monkeypatch.setattr(broker_policy, 'resolve_bambu_broker_config', lambda *a, **k:
+                        NS(host='localhost', port=8883, use_tls=True))
+    monkeypatch.setattr(session, 'run_command', run_command)
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', dispatch._dispatch_bambu_v2)
+    gate = _gate(policy_db, None, printer_id=LOCKED, token='o' * 32)
+    creds = {'api_type': 'bambu', 'ip': 'localhost', 'serial': 's', 'access_code': 'a'}
+    ok, message = dispatch._run_admitted_dispatch({'id': 1, 'printer_id': LOCKED, 'item_name': 'part'}, creds,
+                                                  '', 'inert.3mf', {}, None, None, before_start=gate)
+    assert ok is False and commands == []
+    assert 'license_printer_locked' in message and 'reconciliation' not in message
+    assert gate.clean_no_start is True
+
+
+def test_scheduler_control_assigns_selected_printer(policy_db, monkeypatch):
+    from modules.jobs.scheduler import Scheduler, SchedulerConfig
+    import modules.jobs.scheduler as scheduler_module
+    monkeypatch.setattr(scheduler_module.Scheduler, '_find_best_fit', _only_printer(Scheduler._find_best_fit, SELECTED))
+    _insert_job(policy_db, 'race part')
+    policy_db.commit()
+    assert Scheduler(SchedulerConfig()).run(policy_db).scheduled_count == 1

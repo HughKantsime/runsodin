@@ -413,6 +413,9 @@ def advance_schedule(
     from modules.organizations.education_training_policy import job_training_allowed
     if not job_training_allowed(db, job_id=job_id, printer_id=printer_id):
         return False
+    from core import license_lock
+    if license_lock.enabled() and not license_lock.locked_printer_allowed(db, printer_id):
+        return False  # held to the caller's commit; the submission stays pending
     context = scheduler_context(db, job_id=job_id)
     if (
         not context

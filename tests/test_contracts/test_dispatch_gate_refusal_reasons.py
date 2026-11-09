@@ -139,13 +139,10 @@ def test_final_command_boundary_refusal_has_code(monkeypatch, protocol):
         connect=lambda: True, start_print=lambda *a, **k: commands.append(True), disconnect=lambda: None))
     method = dispatch._dispatch_bambu_v2 if protocol == 'v2' else dispatch._dispatch_bambu_legacy
     creds = {'ip': 'localhost', 'serial': 'private-serial', 'access_code': 'private-access-code'}
-    if protocol == 'v2':
-        with pytest.raises(dispatch.DispatchOutcomeUncertain) as error:
-            method(1, '', 'inert.3mf', creds, before_start=checked)
-        message = str(error.value)
-    else:
-        ok, message = method(1, '', 'inert.3mf', creds, before_start=checked)
-        assert not ok
+    # A refusal at the command boundary is a confirmed no-start on both transports:
+    # run_command sends nothing unless the gate returns True.
+    ok, message = method(1, '', 'inert.3mf', creds, before_start=checked)
+    assert not ok
     assert 'target_lock_lost' in message
     assert not commands
     assert 'private-serial' not in message and 'private-access-code' not in message
@@ -231,3 +228,38 @@ def test_printer_observation_detail(gate_case):
     assert checked() is False
     assert 'gcode_state=RUNNING; print_error=42' in checked.refusal.detail
     assert '00000001_00000002' in checked.refusal.detail
+
+
+def test_v2_gate_exception_at_command_boundary_stays_uncertain(monkeypatch):
+    """Only a gate that returned False is a confirmed no-start; an exception is not."""
+    from modules.printers.telemetry.bambu import ftp_upload, session, broker_policy
+    def checked():
+        raise RuntimeError('boundary failure')
+    checked.prepare = lambda: True
+    monkeypatch.setattr(dispatch, '_ws', lambda *a: None)
+    monkeypatch.setattr(ftp_upload, 'upload_file', lambda *a: True)
+    monkeypatch.setattr(broker_policy, 'resolve_bambu_broker_config', lambda *a, **k:
+                        NS(host='localhost', port=8883, use_tls=True))
+    def run_command(*a, **k):
+        try:
+            return k['before_command']() is True
+        except Exception:
+            return False  # session.run_command reports an exception as False
+    monkeypatch.setattr(session, 'run_command', run_command)
+    with pytest.raises(dispatch.DispatchOutcomeUncertain):
+        dispatch._dispatch_bambu_v2(1, '', 'inert.3mf',
+            {'ip': 'localhost', 'serial': 'private-serial', 'access_code': 'private-access-code'}, before_start=checked)
+
+
+def test_v2_command_failure_after_gate_accepts_stays_uncertain(monkeypatch):
+    from modules.printers.telemetry.bambu import ftp_upload, session, broker_policy
+    checked = lambda: True
+    checked.prepare = lambda: True
+    monkeypatch.setattr(dispatch, '_ws', lambda *a: None)
+    monkeypatch.setattr(ftp_upload, 'upload_file', lambda *a: True)
+    monkeypatch.setattr(broker_policy, 'resolve_bambu_broker_config', lambda *a, **k:
+                        NS(host='localhost', port=8883, use_tls=True))
+    monkeypatch.setattr(session, 'run_command', lambda *a, **k: k['before_command']() and False)
+    with pytest.raises(dispatch.DispatchOutcomeUncertain):
+        dispatch._dispatch_bambu_v2(1, '', 'inert.3mf',
+            {'ip': 'localhost', 'serial': 'private-serial', 'access_code': 'private-access-code'}, before_start=checked)
