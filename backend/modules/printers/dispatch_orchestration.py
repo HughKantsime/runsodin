@@ -208,6 +208,17 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 result=dispatch._run_admitted_dispatch(job,creds,staged.path,
                                     transport_filename,options,provider,reservation,
                                     **({"before_start":before_start} if before_start is not None else {}))
+                            # The upload itself failed, so no print command was sent. Checked
+                            # before any message suffix turns the marker into a plain str.
+                            no_command = (type(result[0]) is bool and not result[0]
+                                          and isinstance(result[1], dispatch.NoStartMessage))
+                            if no_command:
+                                # A maintenance hold set while the upload ran keeps the fence.
+                                from modules.printers.maintenance_gate import refusal as maintenance_refusal
+                                try:
+                                    no_command = not maintenance_refusal(engine, job['printer_id'])
+                                except Exception:
+                                    no_command = False
                             if derived:
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
                             _require_target(target_handle)
@@ -215,7 +226,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             # A hold arriving after admission retains inventory-maint's
                             # conservative fence; initial holds refuse before any claim.
                             gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
-                            clean_refusal = (not accepted and getattr(before_start, 'clean_no_start', False)
+                            clean_refusal = (not accepted and (getattr(before_start, 'clean_no_start', False) or no_command)
                                 and gate_code != 'printer_maintenance_hold')
                             from modules.printers.dispatch_background import audit_actor
                             actor = audit_actor()

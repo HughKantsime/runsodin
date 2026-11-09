@@ -68,6 +68,34 @@ def _ws(job_id: int, status: str, message: str):
 
 
 
+class NoStartMessage(str):
+    """A dispatch failure message that proves no print command was sent.
+
+    Returned only when the Bambu FTPS upload itself failed, so ``start_print``
+    was never reached. Orchestration releases the claim instead of fencing the
+    printer as uncertain (specs/ftps-upload-serialization.md, part B). Any
+    string operation on it yields a plain ``str``, which fences again.
+    """
+
+
+def _upload_failure_message(result) -> NoStartMessage:
+    phase = getattr(result, "phase", None) or "transfer"
+    nothing_sent = "no file and no print command were sent; you can retry"
+    if phase == "timeout":
+        minutes = max(1, int(round(getattr(result, "waited_seconds", 0) / 60)))
+        return NoStartMessage(f"Another printer's upload was still running after {minutes} min; {nothing_sent}")
+    if phase == "busy":
+        return NoStartMessage(f"Other printers' uploads are already waiting; {nothing_sent}")
+    if phase == "lock_unavailable":
+        return NoStartMessage(f"The upload slot could not be opened (check the data directory); {nothing_sent}")
+    return NoStartMessage(f"FTPS upload failed during {phase}; no print command was sent; "
+                          "check the printer's network and retry")
+
+
+def _upload_wait_notice(job_id):
+    return lambda: _ws(job_id, "waiting_for_upload_slot", "Waiting for another printer's upload to finish...")
+
+
 def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None, **print_options) -> tuple[bool, str]:
     """Dispatch to a Bambu printer: implicit FTPS upload + MQTT project_file."""
     from modules.printers.telemetry.feature_flag import is_v2_enabled
@@ -121,15 +149,17 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
     from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
-    from modules.printers.telemetry.bambu.ftp_upload import upload_file
+    from modules.printers.telemetry.bambu.ftp_upload import upload_file, wait_notice
     from modules.printers.telemetry.bambu.session import run_command
 
     if not _mapping_gate_available(print_options, before_start):
         return False, "Explicit AMS selection requires a post-upload check; no command was sent"
     _ws(job_id, "uploading", f"Uploading {remote_filename} to printer via FTP...")
     log.info(f"[dispatch] Bambu V2 FTPS upload: {remote_filename}")
-    if not upload_file(creds["ip"], creds["access_code"], stored_path, remote_filename):
-        return False, "FTPS upload failed — check printer IP, access code, and network"
+    with wait_notice(_upload_wait_notice(job_id)):
+        uploaded = upload_file(creds["ip"], creds["access_code"], stored_path, remote_filename)
+    if not uploaded:
+        return False, _upload_failure_message(uploaded)
 
     _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
     endpoint = resolve_bambu_broker_config(
@@ -176,8 +206,11 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
     try:
         _ws(job_id, "uploading", f"Uploading {remote_filename} to printer via FTP...")
         log.info("[dispatch] Bambu FTPS upload for job %s", job_id)
-        if not printer.upload_file(stored_path, remote_filename):
-            return False, "FTPS upload failed; check printer settings and network"
+        from modules.printers.telemetry.bambu.ftp_upload import wait_notice
+        with wait_notice(_upload_wait_notice(job_id)):
+            uploaded = printer.upload_file(stored_path, remote_filename)
+        if not uploaded:
+            return False, _upload_failure_message(uploaded)
 
         _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
         if not _prepare_post_upload_gate(before_start):
