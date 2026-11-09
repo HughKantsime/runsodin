@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.51] - 2026-11-08
 
-<!-- summary: Adds a read-only status endpoint for Home Assistant, runs Bambu uploads one at a time, lets a printer be retried after an upload that failed before any print command, and refuses backups whose recovery history could be edited. -->
+<!-- summary: Adds a read-only status endpoint for Home Assistant, runs Bambu uploads one at a time, lets a printer be retried after an upload that failed before any print command (when safety checks and the claim release succeed), and refuses backups whose recovery history could be edited. -->
 
 ### Added
 
@@ -15,8 +15,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Bambu printers: an O.D.I.N. installation now runs one file upload at a time, so uploads to different printers no longer overlap on the same network. A second upload waits up to 15 minutes by default (`ODIN_FTPS_UPLOAD_WAIT_SECONDS`), and its dispatch shows "Waiting for another printer's upload to finish..." after two seconds. If two uploads are already waiting, or the upload slot can't be opened, the dispatch stops at once without sending anything and can be retried. `ODIN_FTPS_UPLOAD_SERIAL=0` turns this off.
-- A Bambu upload that fails no longer blocks the printer. Before, a failed or timed-out upload marked the dispatch as uncertain, and the printer needed manual recovery even though no print command had been sent. Now, when the upload fails before any print command, the dispatch is closed and the printer can be retried. Recovery is still required if a maintenance hold was set during the upload, the hold can't be read, an Education reservation can't be cancelled, or the outcome is otherwise unknown. A failure after the print command was attempted still requires recovery, as before.
+- Bambu printers: an O.D.I.N. installation now runs one file upload at a time, so uploads to different printers no longer overlap on the same network. A second upload waits up to 15 minutes by default (`ODIN_FTPS_UPLOAD_WAIT_SECONDS`), and its dispatch shows "Waiting for another printer's upload to finish..." after two seconds. If the waiting limit is reached (two uploads per O.D.I.N. process by default, `ODIN_FTPS_UPLOAD_MAX_WAITERS`), or the upload slot can't be opened, the dispatch stops at once without sending anything, and it can be retried once the claim is released. `ODIN_FTPS_UPLOAD_SERIAL=0` turns this off.
+- A Bambu upload that fails no longer blocks the printer. Before, a failed or timed-out upload marked the dispatch as uncertain, and the printer needed manual recovery even though no print command had been sent. Now, when the upload fails before any print command, the dispatch is closed and the printer can be retried, provided the safety checks pass and the claim release is saved. Recovery is still required if a maintenance hold was set during the upload, the hold can't be read, an Education reservation can't be cancelled, the claim release can't be saved, the printer's target ownership changed, or the outcome is otherwise unknown. A failure after the print command was attempted still requires recovery, as before.
 - Backup validation now refuses a backup whose dispatch recovery history (migrations 038 and 056) is missing its protection against edits and deletes. Before, such a backup was accepted and would restore a history that could be changed.
 
 ### Release tooling
