@@ -27,6 +27,48 @@ UNREADABLE_EXIT_SECONDS = 5
 POLICY_READ_SECONDS = 1.5  # a read still running after this counts as unreadable
 POLICY_BUSY_TIMEOUT_MS = 1000
 POLICY_ABANDON_SECONDS = 10  # a read hung this long is left behind and a new one starts
+MAX_STUCK_READS = 3  # outstanding (hung or abandoned) reads per reader; at the cap no new read starts
+
+
+class _Reads:
+    """Single-flight bounded reads on helper threads, with a finite budget of hung ones.
+
+    A read still running after POLICY_ABANDON_SECONDS is left behind and a new one may
+    start, but never while MAX_STUCK_READS reads are still alive: then every call
+    returns None (unreadable) without starting a thread, so a persistent stall cannot
+    accumulate threads or database connections."""
+
+    def __init__(self, name):
+        self.name = name
+        self._alive = []
+        self._latest_started = 0.0
+        self._guard = threading.Lock()
+
+    def exhausted(self):
+        with self._guard:
+            self._alive = [t for t in self._alive if t.is_alive()]
+            return len(self._alive) >= MAX_STUCK_READS
+
+    def run(self, function, timeout):
+        result = {}
+
+        def read():
+            try:
+                result['value'] = function()
+            except Exception:
+                pass
+        with self._guard:
+            self._alive = [t for t in self._alive if t.is_alive()]
+            if self._alive and time.monotonic() - self._latest_started < POLICY_ABANDON_SECONDS:
+                return None  # one at a time: the previous read is still within its time
+            if len(self._alive) >= MAX_STUCK_READS:
+                return None
+            reader = threading.Thread(target=read, name=self.name, daemon=True)
+            self._alive.append(reader)
+            self._latest_started = time.monotonic()
+        reader.start()
+        reader.join(timeout)
+        return None if reader.is_alive() else result.get('value')
 INVENTORY_READ_SECONDS = 3  # the retirement thread's inventory read: same bounded engine, own deadline
 
 
@@ -44,16 +86,14 @@ class MonitorLicense:
     thread, so a caller waits at most POLICY_READ_SECONDS. One read at a time:
     while an earlier read is still running, the policy counts as unreadable (a read
     hung for POLICY_ABANDON_SECONDS is abandoned, so a stuck call cannot block
-    every later read)."""
+    every later read; at most MAX_STUCK_READS hung reads exist at once, see _Reads)."""
 
     def __init__(self, engine):
         self._engine = engine
         self._bounded = None
         self._bounded_url = None
         self._exempt = False
-        self._reader = None
-        self._reader_started = 0.0
-        self._guard = threading.Lock()
+        self._reads = _Reads('license-policy-read')
 
     def _policy_engine(self):
         from sqlalchemy import event
@@ -85,22 +125,7 @@ class MonitorLicense:
 
     def policy(self, timeout=POLICY_READ_SECONDS):
         """A fresh snapshot, or None when it could not be read within timeout."""
-        result = {}
-
-        def read():
-            try:
-                result['policy'] = self._read()
-            except Exception:
-                pass
-        with self._guard:
-            if (self._reader is not None and self._reader.is_alive()
-                    and time.monotonic() - self._reader_started < POLICY_ABANDON_SECONDS):
-                return None
-            reader = threading.Thread(target=read, name='license-policy-read', daemon=True)
-            self._reader, self._reader_started = reader, time.monotonic()
-        reader.start()
-        reader.join(timeout)
-        policy = None if reader.is_alive() else result.get('policy')
+        policy = self._reads.run(self._read, timeout)
         if policy is not None:
             self._exempt = bool(policy.exempt_attempts)
         return policy
@@ -133,8 +158,7 @@ class Retirement:
         # also runs on its own thread, so a daemon whose main loop connects synchronously
         # (Bambu) or a busy shared pool cannot delay it.
         self._inventory = inventory
-        self._inventory_reader = None
-        self._inventory_started = 0.0
+        self._inventory_reads = _Reads(f'{label}-inventory-read')
         self.label, self.log = label, log
         self._exit = exit or os._exit
         self._sessions = {}
@@ -228,28 +252,20 @@ class Retirement:
 
     def _read_inventory(self):
         """{printer_id: fingerprint} within INVENTORY_READ_SECONDS, else None (one read at a time)."""
-        if (self._inventory_reader is not None and self._inventory_reader.is_alive()
-                and time.monotonic() - self._inventory_started < POLICY_ABANDON_SECONDS):
-            return None
-        result = {}
-
-        def read():
-            try:
-                result['inventory'] = self._inventory(self.license._policy_engine())
-            except Exception:
-                pass
-        reader = threading.Thread(target=read, name=f'{self.label}-inventory-read', daemon=True)
-        self._inventory_reader, self._inventory_started = reader, time.monotonic()
-        reader.start()
-        reader.join(INVENTORY_READ_SECONDS)
-        return None if reader.is_alive() else result.get('inventory')
+        return self._inventory_reads.run(lambda: self._inventory(self.license._policy_engine()),
+                                         INVENTORY_READ_SECONDS)
 
     def _inventory_run(self, stop_event):
         while stop_event is None or not stop_event.is_set():
             sessions = self.sessions()  # before the read: never judge a session it can't contain
             inventory = self._read_inventory()
-            if inventory is not None:  # unreadable or late: not a retirement condition; retry
+            if inventory is not None:  # unreadable or late: not by itself a retirement condition
                 self.check_inventory(inventory, sessions)
+            elif sessions and self._inventory_reads.exhausted():
+                # Persistently stuck: removals and edits can no longer be checked. A fresh
+                # process starts clean (and starts nothing until the database answers).
+                self.retire(f'{MAX_STUCK_READS} printer inventory reads stuck with '
+                            f'{len(sessions)} printer session(s)')
             if stop_event is None:
                 threading.Event().wait(INVENTORY_SECONDS)
             else:

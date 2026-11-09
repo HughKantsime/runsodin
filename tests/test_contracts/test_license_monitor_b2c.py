@@ -208,6 +208,39 @@ def test_inventory_read_uses_its_own_bounded_engine_and_deadline(policy_db, monk
     hung.set()
 
 
+def test_stuck_reads_are_capped_across_many_abandonment_intervals(policy_db, monkeypatch):
+    """A persistent stall never accumulates more than MAX_STUCK_READS threads, for the
+    policy reader (even with no session, where it never exits) and the inventory reader;
+    with sessions, exhausted inventory reads end the process."""
+    import threading as _threading
+    monkeypatch.setattr(license_monitor, 'POLICY_ABANDON_SECONDS', 0.05)
+    release = _threading.Event()
+    exits = []
+    retirement = Retirement(policy_db.get_bind(), 'test', exit=exits.append,
+                            inventory=lambda bind: release.wait(60) and {})
+    monkeypatch.setattr(retirement.license, '_read', lambda: release.wait(60))
+
+    def alive(prefix):
+        return sum(1 for t in _threading.enumerate() if t.name.startswith(prefix) and t.is_alive())
+    for _ in range(12):  # many abandonment intervals
+        assert retirement.license.policy(timeout=0.01) is None
+        assert retirement._read_inventory() is None
+        time.sleep(0.06)
+    assert alive('license-policy-read') <= license_monitor.MAX_STUCK_READS
+    assert alive('test-inventory-read') <= license_monitor.MAX_STUCK_READS
+    assert exits == []  # no session: nothing to retire
+    retirement.add(NINE, 'fp')
+    stop = _threading.Event()
+    exits.clear()
+    retirement.retire = lambda reason: (exits.append(75), stop.set())
+    runner = _threading.Thread(target=retirement._inventory_run, args=(stop,), daemon=True)
+    runner.start()
+    runner.join(5)
+    stop.set()
+    release.set()
+    assert exits == [75]
+
+
 def test_inventory_never_judges_a_session_registered_after_its_read(policy_db):
     exits = []
     retirement = None
