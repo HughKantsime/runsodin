@@ -52,6 +52,7 @@ ENDPOINTS = [
     ("POST", "/api/printers/{printer_id}/speed", _op_write(), {"speed": 2}, "Set print speed (Bambu)"),
     ("GET",  "/api/printers/{printer_id}/live-status", _api_read(), None, "Live status"),
     ("GET",  "/api/printers/live-status", _api_read(), None, "All live status"),
+    ("GET",  "/api/integrations/home-assistant/status", _api_read(), None, "Home Assistant fleet status"),
 
     # =========================================================================
     # 3. Printer Filament Slots
