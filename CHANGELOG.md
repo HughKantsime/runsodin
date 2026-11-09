@@ -13,6 +13,7 @@ All notable changes to O.D.I.N. are documented here.
 - When a dispatch is refused because O.D.I.N. could not confirm the printer was ready, the message now names the reason, for example `not_ready_or_unreachable`, `no_reply_before_deadline`, `reply_after_deadline`, or `read_error:` followed by the error type. Before, it said only "Fresh printer readiness was not confirmed". The decision is unchanged: nothing is sent unless readiness is confirmed. Reasons come from a fixed list, and anything unrecognized is shown as `printer_not_ready`.
 - Testing a Bambu printer's connection (from the printer page or setup) and syncing filament slots (Bambu and Moonraker) now always close the printer connection, including when an error occurs. Before, an error could leave the connection open, and on a Bambu printer that holds one of its few connection slots.
 - Bambu: if O.D.I.N. connects to a printer but then fails while recovering that printer's interrupted jobs, it now closes that connection instead of leaving it running unused.
+- Bambu: when a final check refuses the start just before the print command (for example a filament slot or printer state that no longer matches), the dispatch is now closed cleanly and the printer can be retried, the same as with the older connection method. Before, this left the dispatch marked uncertain and the printer needed manual recovery, although no print command had been sent. A check that fails with an error, or a print command whose result is unknown, still requires recovery.
 
 ### Release tooling
 
