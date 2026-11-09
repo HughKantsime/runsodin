@@ -1,4 +1,9 @@
+import os
+
 import pytest
+
+# Backup tests import routes and auth, which require JWT_SECRET_KEY at import time (as test_contracts).
+os.environ.setdefault("JWT_SECRET_KEY", "test-key-for-contract-tests-only")
 
 
 @pytest.fixture(autouse=True)

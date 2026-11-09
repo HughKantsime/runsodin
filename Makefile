@@ -117,7 +117,8 @@ test-edu-privacy: ## Run EDU privacy/browser-storage checks
 	$(PYTHON) ops/edu_readiness/run_privacy_browser.py --run-dir $(EDU_RUN_DIR)
 
 test-edu-backup: ## Run SQLite backup/restore safety checks
-	PYTHONPATH=backend $(PYTHON) -m pytest tests/backup_restore/test_backup_service.py -q --tb=short -o xfail_strict=true
+	# Every SQLite backup/restore test; the PostgreSQL one needs a server and runs in test-database-parity.
+	PYTHONPATH=backend $(PYTHON) -m pytest tests/backup_restore --ignore=tests/backup_restore/test_postgres_backup_service.py -q --tb=short -o xfail_strict=true
 
 test-edu-hardware: ## Run passive hardware protocol/transport checks
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=backend:. $(HARDWARE_PYTHON) -m pytest tests/hardware/test_read_only_certification.py tests/hardware_certification -q --tb=short -o xfail_strict=true
