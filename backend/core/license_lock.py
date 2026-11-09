@@ -96,7 +96,7 @@ def _valid_ids(ids):
 def _valid_policy(p):
     fields = {'schema_version', 'revision', 'printers', 'users', 'membership_generation',
               'entitlement', 'recovery_user_id', 'exempt_attempts', 'transition_id',
-              'effective_at', 'set_by', 'set_at', 'change_reason', 'usage', 'warning'}
+              'effective_at', 'set_by', 'set_at', 'change_reason', 'usage', 'warning', 'expiry_applied'}
     if not (isinstance(p, dict) and set(p) <= fields and p.get('schema_version') == 2
             and type(p.get('revision')) is int and p['revision'] >= 0
             and _valid_ids(p.get('printers')) and _valid_ids(p.get('users'))
@@ -516,6 +516,9 @@ def _refresh(db, printer_id, record, now):
 
 def _exemptions(db, old, resolved, entitlement, *, reconstructed=False):
     """Capture on unlocked->locked transitions; resolve and retire the rest."""
+    applied = (old or {}).get('expiry_applied')
+    if applied is not None:
+        resolved['expiry_applied'] = applied
     if not entitlement.get('enforce'):
         return {}
     members = set(resolved['printers'])
@@ -532,13 +535,15 @@ def _exemptions(db, old, resolved, entitlement, *, reconstructed=False):
     from core.license_clock import instant
     clock_now = license_clock().sample()[0]
     deadline = entitlement.get('deadline')
-    # The deadline is the cutoff only for the expiry transition itself (the license
-    # state turning to verified_expired); any later change, such as a selection edit
-    # after expiry, cuts off at the time it happens. A valid license already
-    # enforces its caps, so "was enforcing" cannot detect the expiry.
-    old_state = (old or {}).get('entitlement', {}).get('state')
-    expiry_now = bool(entitlement.get('state') == 'verified_expired' and old_state != 'verified_expired'
-                      and deadline and clock_now >= instant(deadline))
+    # The deadline is the cutoff only for the expiry transition itself: the first
+    # reconcile that sees this deadline as passed on an expired license. The policy
+    # records which deadline was applied, because the state label can flip through
+    # verification_unavailable and back. Any later change, such as a selection edit
+    # after expiry, cuts off at the time it happens.
+    expiry_now = bool(entitlement.get('state') == 'verified_expired' and deadline
+                      and clock_now >= instant(deadline) and applied != deadline)
+    if expiry_now:
+        resolved['expiry_applied'] = deadline
     cutoff_at = instant(deadline) if expiry_now else clock_now
     cutoff, captured = _utc(cutoff_at).isoformat(), _utc(clock_now).isoformat()
     now = _db_now(db)

@@ -331,12 +331,17 @@ def test_expiry_cutoff_is_the_deadline_only_for_the_expiry_itself(policy_db, mon
     # The expiry transition itself: a valid (already enforcing) license turns expired.
     # A print started after the deadline gets nothing.
     current = dict(stored, entitlement=dict(stored['entitlement'], state='verified_current', enforce=True))
-    assert str(NINE) not in policy._exemptions(policy_db, current, {'printers': [TEN]}, expired)
+    resolved = {'printers': [TEN]}
+    assert str(NINE) not in policy._exemptions(policy_db, current, resolved, expired)
+    assert resolved['expiry_applied'] == past  # recorded once applied
     # A later selection change on the already-expired license cuts off at the change,
-    # so the print (allowed while 9 was selected) is kept.
-    after = dict(stored, entitlement=dict(expired))
-    result = policy._exemptions(policy_db, after, {'printers': [TEN]}, expired)
-    assert result[str(NINE)]['print_job_id'] == row['id']
+    # so the print (allowed while 9 was selected) is kept, including after the state
+    # label went through verification_unavailable and back.
+    for label in ('verified_expired', 'verification_unavailable'):
+        after = dict(stored, entitlement=dict(expired, state=label), expiry_applied=past)
+        result = policy._exemptions(policy_db, after, {'printers': [TEN]}, expired)
+        assert result[str(NINE)]['print_job_id'] == row['id'], label
+    assert policy._valid_policy(dict(stored, expiry_applied=past))
 
 
 def test_pending_candidate_with_a_different_nonce_is_not_promoted(policy_db):
