@@ -952,7 +952,7 @@ def _admission_session(engine):
         restore = None
         if raw is not None:
             restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]
-            raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bind parameters; ADMISSION_WAIT_MS is an int constant
+            raw.execute(f'PRAGMA busy_timeout={int(ADMISSION_WAIT_MS)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bind parameters; ADMISSION_WAIT_MS is an int constant
         try:
             with Session(bind=conn) as db:
                 yield db

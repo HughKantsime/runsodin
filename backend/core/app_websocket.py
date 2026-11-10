@@ -153,13 +153,14 @@ class ConnectionManager:
         delivered = 0
         audience = list(self.active)
         from core.controlled_events import audience_messages
-        from core.license_lock import enabled as license_enabled
+        from core.license_lock import enabled
+        license_enabled = enabled()  # once per broadcast; the flag only changes with a restart
         messages = await asyncio.to_thread(audience_messages, [p for _, p in audience], public_message)
         for (ws, principal), controlled_message in zip(audience, messages):
             # Admission is fresh; ongoing delivery uses the shared heartbeat's
             # individual decisions, never a database session per socket/event.
             allowed = principal.get('_license_allowed')
-            if allowed is not True and license_enabled():
+            if allowed is not True and license_enabled:
                 try:
                     await asyncio.wait_for(ws.close(code=4403 if allowed is False else 1013,
                                                     reason='license_user_locked' if allowed is False else 'license_policy_unavailable'), timeout=1)

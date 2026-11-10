@@ -114,7 +114,7 @@ class MonitorLicense:
                 def _bound_statements(dbapi_connection, _record):
                     cursor = dbapi_connection.cursor()
                     try:
-                        cursor.execute(f'SET statement_timeout = {POLICY_BUSY_TIMEOUT_MS}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- SET takes no bind parameters; POLICY_BUSY_TIMEOUT_MS is an int constant
+                        cursor.execute(f'SET statement_timeout = {int(POLICY_BUSY_TIMEOUT_MS)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- SET takes no bind parameters; POLICY_BUSY_TIMEOUT_MS is an int constant
                     finally:
                         cursor.close()
                     dbapi_connection.commit()
