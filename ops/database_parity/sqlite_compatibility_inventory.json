@@ -1026,35 +1026,11 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 15,
+      "line": 47,
       "path": "backend/core/schema/audit_siem_gaps.py",
       "pattern": "last_insert_rowid",
       "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
-      "source": "UPDATE audit_logs SET row_hash=(SELECT {hash_expression(False, 'a.')} FROM audit_logs a WHERE a.id=last_insert_rowid())"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 51,
-      "path": "backend/core/schema/audit_siem_gaps.py",
-      "pattern": "last_insert_rowid",
-      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
-      "source": "{chain_gap_sql()}"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 54,
-      "path": "backend/core/schema/audit_siem_gaps.py",
-      "pattern": "last_insert_rowid",
-      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
-      "source": "AND (SELECT siem_until FROM audit_chain_state WHERE id=1)>{now}"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 60,
-      "path": "backend/core/schema/audit_siem_gaps.py",
-      "pattern": "last_insert_rowid",
-      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
-      "source": "WHERE {ordinary} AND {lapsed}"
+      "source": "return f\"\"\"INSERT INTO audit_logs(action,entity_type,chain_seq,details)"
     },
     {
       "classification": "sqlite-provider-only",
