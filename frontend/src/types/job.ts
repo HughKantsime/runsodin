@@ -89,7 +89,8 @@ export interface JobCreate {
 }
 
 export interface JobUpdate {
-  ams_mapping?: { source_slot: number; target_slot: number }[] | null;
+  // Entries, or the stored vector Job.ams_mapping serves (round-trips unchanged).
+  ams_mapping?: { source_slot: number; target_slot: number }[] | number[] | null;
   item_name?: string;
   model_id?: number;
   quantity?: number;

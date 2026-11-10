@@ -4,7 +4,7 @@ modules/jobs/schemas.py — Pydantic schemas for the jobs domain.
 
 from datetime import datetime
 from typing import Optional, List, Union, Any
-from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, StrictInt, field_validator, model_validator
 
 from core.base import JobStatus, FilamentType
 
@@ -73,7 +73,8 @@ class JobCreate(JobBase):
 
 
 class JobUpdate(BaseModel):
-    ams_mapping: Optional[list[dict[str, Any]]] = None
+    # Entries ({source_slot, target_slot}) or the stored vector GET serves; never coerced.
+    ams_mapping: Optional[Union[list[dict[str, Any]], list[StrictInt]]] = None
     item_name: Optional[str] = None
     model_id: Optional[int] = None
     quantity: Optional[int] = Field(default=None, ge=1, le=10000)
