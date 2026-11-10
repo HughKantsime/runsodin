@@ -8,7 +8,7 @@ All notable changes to O.D.I.N. are documented here.
 
 - Terms of Service: managed service providers, integrators and contractors may now install and operate O.D.I.N. for a customer who holds the license, on that customer's own infrastructure or in an environment dedicated to that customer (new Section 3.7). Offering O.D.I.N. as a hosted, multi-tenant or software-as-a-service product, or running one Instance for several customers, is still not allowed (Sections 3.5 and 14.2). The Terms no longer say the BSL 1.1 requires that restriction; it is a term of this Agreement.
 - Terms of Service: "Site" is now defined (one location or one environment of one legal entity; each customer of a service provider is its own Site). An Enterprise license key covers up to three Instances per licensed Site: production plus staging, test or disaster recovery. Keys bought through an authorized reseller are licensed by JLLS Holdings LLC directly to the end customer.
-- Terms of Service and FEATURES.md list the current Enterprise features (tamper-evident audit log with SIEM streaming, part traceability with certificates of conformance, controlled-part handling), and state that no feature is a CMMC, FedRAMP or other certification.
+- Terms of Service and FEATURES.md list the current Enterprise features (tamper-evident audit log with SIEM streaming, part traceability with certificates of conformance, controlled-part handling), and state that no feature is a CMMC, FedRAMP or other certification. They also correct an earlier statement: organization management is included in Education and Enterprise, not in every tier (MFA, IP allowlisting and GDPR export/anonymization remain in every tier).
 
 ## [2.0.52] - 2026-11-09
 
