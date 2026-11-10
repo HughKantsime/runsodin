@@ -4,15 +4,31 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-10
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: First release-train release: Shane's farm runs each release about a day before customers. Fixes auto-dispatch on Bambu and PrusaLink printers, keeps a P1S slot colour after a tray change, lets a job's AMS mapping be written back as it is read, and lets an opened RFID roll merge into a sealed record received later. The Terms now allow service providers to run O.D.I.N. for licensed customers. -->
+
+### Fixed
+
+- Auto-dispatch (`AUTO_DISPATCH=true`) never dispatched to Bambu or PrusaLink printers: their monitors imported a module that doesn't exist, and the error was only logged. They now use the real dispatcher, and every dispatch still passes the same admission checks. Auto-dispatch stays off by default.
+- P1S: after a filament slot was set from O.D.I.N., the printer page showed the slot as black (`000000`) until the next AMS report, and an AMS report with no colour (`00000000`) could then wipe it. The chosen colour is now stored when the slot is set, and a report with no colour no longer replaces it. A real colour change on the printer still wins. A tray reported with no colour is now shown as no colour instead of black.
+- `PATCH /api/jobs/{id}` now accepts `ams_mapping` in the same vector form that `GET` returns (for example `[3]`), so a mapping read from the API can be written back. The vector must match the file's filament layout exactly; the existing slot-entry form still works, and both get the same validation.
+- Inventory: an opened RFID roll can now be merged into a sealed record that was received after the roll was first seen, when that record is still unassigned sealed stock of the same product line, material and colour and has no usage history. Before, only records listed when the roll was first read could be targets, so the same purchase could be counted twice. Rolls that already have job usage, drying history or a Spoolman link are still refused, with a reason.
+
 ### Changed
 
+- Terms of Service: managed service providers, integrators and contractors may install and operate O.D.I.N. for a customer who holds the license, on that customer's own infrastructure or in an environment dedicated to that customer (new Section 3.7). Offering O.D.I.N. as a hosted, multi-tenant or software-as-a-service product, or running one Instance for several customers, is still not allowed (Sections 3.5 and 14.2). The Terms no longer say the BSL 1.1 requires that restriction; it is a term of this Agreement.
+- Terms of Service: "Site" is now defined (one location or one environment of one legal entity; each customer of a service provider is its own Site). An Enterprise license key covers up to three Instances per licensed Site: production plus staging, test or disaster recovery. Keys bought through an authorized reseller are licensed by JLLS Holdings LLC directly to the end customer.
+- Terms of Service and FEATURES.md list the current Enterprise features (tamper-evident audit log with SIEM streaming, part traceability with certificates of conformance, controlled-part handling) and state that no feature is a CMMC, FedRAMP or other certification. They also correct an earlier statement: organization management is included in Education and Enterprise, not in every tier (MFA, IP allowlisting and GDPR export/anonymization remain in every tier).
+- README and CONTRIBUTING point support to support@runsodin.com; the Discord invite, which no longer works, is removed.
 - SECURITY.md lists 2.x as the supported release line (it still said 1.0.x).
 
-- README and CONTRIBUTING: support now points to support@runsodin.com; the Discord invite, which no longer works, is removed.
+### Internal
 
-- Terms of Service: managed service providers, integrators and contractors may now install and operate O.D.I.N. for a customer who holds the license, on that customer's own infrastructure or in an environment dedicated to that customer (new Section 3.7). Offering O.D.I.N. as a hosted, multi-tenant or software-as-a-service product, or running one Instance for several customers, is still not allowed (Sections 3.5 and 14.2). The Terms no longer say the BSL 1.1 requires that restriction; it is a term of this Agreement.
-- Terms of Service: "Site" is now defined (one location or one environment of one legal entity; each customer of a service provider is its own Site). An Enterprise license key covers up to three Instances per licensed Site: production plus staging, test or disaster recovery. Keys bought through an authorized reseller are licensed by JLLS Holdings LLC directly to the end customer.
-- Terms of Service and FEATURES.md list the current Enterprise features (tamper-evident audit log with SIEM streaming, part traceability with certificates of conformance, controlled-part handling), and state that no feature is a CMMC, FedRAMP or other certification. They also correct an earlier statement: organization management is included in Education and Enterprise, not in every tier (MFA, IP allowlisting and GDPR export/anonymization remain in every tier).
+- Groundwork for per-printer license limits is included but switched off (`ODIN_LICENSE_FLEET_LOCK_ENABLED` is unset): with it off, printer monitoring and dispatch behave exactly as in 2.0.52.
+- Release process: each release now runs on Shane's own farm for about 24 hours before it is offered to customers.
 
 ## [2.0.52] - 2026-11-09
 
