@@ -407,7 +407,7 @@ fi
 section "Version Consistency"
 
 version_file=$(cat "$REPO_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')
-install_version=$(grep '^ODIN_VERSION=' "$INSTALL_SH" | head -1 | cut -d'"' -f2)
+install_version=$(grep -m1 '^ODIN_VERSION=' "$INSTALL_SH" | cut -d'"' -f2)
 
 if [ "$version_file" = "$install_version" ]; then
     pass "install.sh ODIN_VERSION matches VERSION file ($version_file)"
@@ -419,7 +419,7 @@ fi
 
 section "Image References"
 
-install_image=$(grep '^ODIN_IMAGE=' "$INSTALL_SH" | head -1 | cut -d'"' -f2)
+install_image=$(grep -m1 '^ODIN_IMAGE=' "$INSTALL_SH" | cut -d'"' -f2)
 update_image=$(grep '^ODIN_IMAGE=' "$UPDATE_SH" | head -1 | cut -d'"' -f2)
 compose_image=$(grep -m1 'image:' "$REPO_DIR/install/docker-compose.yml" | awk '{print $2}')
 
