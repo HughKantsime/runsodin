@@ -112,7 +112,7 @@ O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) native
 
 ## Community
 
-- [Discord](https://discord.gg/odin-community) — Support and discussion
+- Email [support@runsodin.com](mailto:support@runsodin.com) — Support, licenses and sales
 - [GitHub Issues](https://github.com/HughKantsime/runsodin/issues) — Bug reports and feature requests
 - [runsodin.com](https://runsodin.com) — Website and documentation
 
@@ -123,7 +123,7 @@ Contributions are welcome — bug reports, feature requests, docs fixes, and PRs
 - **File a bug** — open a [GitHub issue](https://github.com/HughKantsime/runsodin/issues/new) with steps to reproduce
 - **Request a feature** — describe the problem first, then your proposed solution
 - **Submit a PR** — fork, branch off `main`, run tests, and open the PR
-- **Help others** — answer questions on [Discord](https://discord.gg/odin-community) or in GitHub issues
+- **Help others** — answer questions in GitHub issues
 - **Star the repo** — it helps new operators find the project
 
 For security vulnerabilities, please follow the disclosure process in [SECURITY.md](SECURITY.md).
