@@ -332,9 +332,12 @@ fi
 section "Non-TTY Mode"
 
 # Verify color stripping when piped
-color_check=$(echo 'test' | bash -c '
+# No input pipe: the inner bash never reads stdin, so `echo | bash` could SIGPIPE the echo
+# under load and, with pipefail, kill this whole script with exit 141. $(...) already
+# makes stdout a pipe, which is what this check is about.
+color_check=$(bash -c '
     if [ -t 1 ] && [ -t 2 ]; then echo "tty"; else echo "pipe"; fi
-')
+' </dev/null)
 if [ "$color_check" = "pipe" ]; then
     pass "TTY detection works (pipe mode detected)"
 else
