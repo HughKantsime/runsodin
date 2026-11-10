@@ -6,6 +6,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Changed
 
+- SECURITY.md lists 2.x as the supported release line (it still said 1.0.x).
+
 - README and CONTRIBUTING: support now points to support@runsodin.com; the Discord invite, which no longer works, is removed.
 
 - Terms of Service: managed service providers, integrators and contractors may now install and operate O.D.I.N. for a customer who holds the license, on that customer's own infrastructure or in an environment dedicated to that customer (new Section 3.7). Offering O.D.I.N. as a hosted, multi-tenant or software-as-a-service product, or running one Instance for several customers, is still not allowed (Sections 3.5 and 14.2). The Terms no longer say the BSL 1.1 requires that restriction; it is a term of this Agreement.
