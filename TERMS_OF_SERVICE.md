@@ -26,8 +26,9 @@ If you do not agree to these terms, do not download, install, or use the Softwar
 - **"Community Tier"** means the free, limited edition of the Software (5 printers, 1 user).
 - **"Pro Tier"** means the paid commercial license at $15/month or $150/year.
 - **"Education Tier"** means the paid license, licensed per site and quoted on request, designed for educational institutions.
-- **"Enterprise Tier"** means the paid license, priced per agreement, which adds audit-log CSV export and MQTT event republishing.
+- **"Enterprise Tier"** means the paid license, priced per agreement, which adds the Enterprise features described in Section 3.4.
 - **"Instance"** means a single deployment of the Software on a single server or Docker host.
+- **"Site"** means one physical location of one legal entity, or one environment controlled by one legal entity (for example one cloud tenant or one enclave). When a service provider operates the Software for several customers, each customer's location or environment is a separate Site.
 - **"Vigil AI"** means the optional AI-based print failure detection system included in the Software.
 
 ---
@@ -48,14 +49,14 @@ Subject to payment of applicable fees and this Agreement, we grant you a non-exc
 
 ### 3.4 Enterprise Tier
 
-Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for any lawful purpose. The Enterprise Tier includes all Education features plus audit-log CSV export and MQTT event republishing, with unlimited printers and users. MFA, IP allowlisting, organizations and GDPR data export/anonymization are included in every tier, including the Community Tier.
+Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **up to three (3) Instances per licensed Site** for any lawful purpose: one production Instance and up to two non-production Instances for staging, testing or disaster recovery, unless your agreement states otherwise. The Enterprise Tier includes all Education features plus a tamper-evident audit log (integrity verification, signed export, CSV export and streaming to a SIEM), part traceability (inspections and signed certificates of conformance), controlled-part handling for CUI, ITAR and custom markings, and MQTT event republishing, with unlimited printers and users. Features are as documented for the version you run. No feature of the Software is a certification, authorization or attestation under CMMC, FedRAMP or any other program. MFA, IP allowlisting and GDPR data export/anonymization are included in every tier, including the Community Tier. Organization management is included in the Education and Enterprise Tiers.
 
 ### 3.5 License Restrictions
 
 You may NOT:
 
 - Sublicense, rent, lease, or lend the Software or License Key to any third party
-- Offer the Software as a hosted or managed service to third parties (this restriction is required by the BSL 1.1 license)
+- Offer the Software to third parties as a hosted, multi-tenant or software-as-a-service product, or run one Instance for more than one customer, except as a service provider under Section 3.7
 - Share, distribute, or publish your License Key
 - Circumvent, disable, or tamper with the license validation mechanism
 - Remove or alter any proprietary notices, labels, or marks
@@ -66,6 +67,12 @@ These restrictions apply to O.D.I.N.'s own code. Third-party components that shi
 ### 3.6 BSL 1.1 Incorporation
 
 The Software is licensed under the Business Source License 1.1. The full text of the BSL 1.1 is included with the Software in the LICENSE file. In the event of a conflict between this Agreement and the BSL 1.1, the more restrictive provision applies. Neither this Agreement nor the BSL 1.1 applies to the separately licensed third-party components described in Section 3.5; those components are governed only by their own licenses. Per the BSL 1.1, each version of the Software will convert to the Apache License 2.0 on the earlier of (a) the Change Date specified in the LICENSE file or (b) four years after the first public release of that version.
+
+### 3.7 Service Providers and Authorized Resellers
+
+**Service providers.** A managed service provider, integrator or contractor may install, configure, operate and support the Software for a customer if: (a) the customer holds a valid license for each Instance; (b) each Instance runs on the customer's own infrastructure or in an environment dedicated solely to that customer; and (c) no Instance serves more than one customer. The customer remains the licensee and is responsible for its service provider's compliance with this Agreement.
+
+**Authorized resellers.** We may appoint resellers in writing. A License Key bought through an authorized reseller is licensed by JLLS Holdings LLC directly to the end customer under this Agreement; the reseller does not sublicense the Software. Reseller pricing and terms are set in a separate written agreement.
 
 ---
 
@@ -284,7 +291,7 @@ We may terminate or suspend your license immediately if you:
 - Fail to pay applicable fees within 30 days of the due date
 - Use the Software in a manner that violates applicable law
 - Share, distribute, or publish your License Key
-- Offer the Software as a hosted service to third parties
+- Offer the Software as a hosted service in breach of Section 3.5
 
 ### 14.3 Effect of Termination
 
