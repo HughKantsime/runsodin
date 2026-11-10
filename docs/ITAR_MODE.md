@@ -17,7 +17,9 @@ Private (RFC 1918, loopback, link-local) destinations are unaffected.
 
 A cloud identity provider (Microsoft Entra ID, GCC High, Okta, Google) is public, so by default SSO cannot be used with ITAR mode on. To allow one, list its hostnames:
 
-    ODIN_ITAR_ALLOWED_IDP_HOSTS=login.microsoftonline.us
+    ODIN_ITAR_ALLOWED_IDP_HOSTS=login.microsoftonline.us,graph.microsoft.us
+
+Microsoft Entra ID in GCC High needs both hosts: sign-in, token and signing keys are on `login.microsoftonline.us`, and its discovery document points user info at `graph.microsoft.us`. Commercial Entra ID uses `login.microsoftonline.com` and `graph.microsoft.com`. Check your provider's discovery document (`/.well-known/openid-configuration`) and list every host its endpoints use.
 
 The allowance is deliberately narrow:
 

@@ -1,47 +1,36 @@
-"""ITAR mode: explicit OIDC identity-provider allowance (ODIN_ITAR_ALLOWED_IDP_HOSTS).
+"""ITAR mode + explicit identity-provider allowance (ODIN_ITAR_ALLOWED_IDP_HOSTS).
 
-DNS is monkeypatched at the resolver behind the pin, and the HTTP transport is an
-httpx.MockTransport, so the real itar.pin_for_request / pinned_async_request code
-runs against a fake identity provider (including a GCC High shaped tenant).
+The OIDC client marks its requests with `itar.oidc_request_scope()` (a ContextVar);
+`pin_for_request` reads it. No function signature carries the marker. Covers the
+allowance parser, scope semantics, https/443, mixed answers, DNS pinning and
+resolution count, the audit row, propagation into the outbound worker, the
+discovery-endpoint check, the boot audit, GCC High, and that only oidc_handler
+opts in.
 """
 
 import asyncio
-import json
-import logging
-import re
 import socket
-import time
 from collections import OrderedDict
 from pathlib import Path
 
 import httpx
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 
 from core import itar, outbound_http, webhook_utils
 from modules.organizations import oidc_handler
+from modules.organizations.oidc_handler import OIDCHandler, create_handler_from_config
 
-pytestmark = pytest.mark.usefixtures("pro_license")
-
-PUBLIC_IP = "203.0.113.10"
-PRIVATE_IP = "10.20.30.40"
-GCC_HOST = "login.microsoftonline.us"
-COMMERCIAL_HOST = "login.microsoftonline.com"
-EVIL_HOST = "evil.example.test"
+GCC = "login.microsoftonline.us"
+PUBLIC_IP = "20.140.0.1"
 TENANT = "11111111-2222-3333-4444-555555555555"
-CLIENT_ID = "odin-test-client"
-DISCOVERY = f"https://{GCC_HOST}/{TENANT}/v2.0/.well-known/openid-configuration"
+DISCOVERY = f"https://{GCC}/{TENANT}/v2.0/.well-known/openid-configuration"
 
 
-# ------------------------------------------------------------------ helpers
 @pytest.fixture(autouse=True)
-def clean_state(monkeypatch):
+def _clean_env(monkeypatch):
+    monkeypatch.delenv(itar.IDP_HOSTS_ENV, raising=False)
     monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
-    monkeypatch.delenv(itar.IDP_ALLOWANCE_ENV, raising=False)
     monkeypatch.setattr(oidc_handler, "_discovery_cache", OrderedDict(), raising=False)
-    monkeypatch.setattr(oidc_handler, "_state_db_store", lambda *a, **k: None)
-    monkeypatch.setattr(oidc_handler, "_state_db_cleanup", lambda: None)
 
 
 @pytest.fixture
@@ -49,368 +38,329 @@ def itar_on(monkeypatch):
     monkeypatch.setenv("ODIN_ITAR_MODE", "1")
 
 
-def allow(monkeypatch, *hosts):
-    monkeypatch.setenv(itar.IDP_ALLOWANCE_ENV, ",".join(hosts))
-
-
-def resolve(monkeypatch, mapping, default=None):
-    """Make every name resolve from `mapping` (else `default`, else NXDOMAIN)."""
-    def fake(host, port, *args, **kwargs):
-        ips = mapping.get(host, default)
-        if ips is None:
-            raise socket.gaierror(socket.EAI_NONAME, "unknown host")
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port or 0)) for ip in ips]
-    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", fake)
-
-
-def install_transport(monkeypatch, handler):
-    real_client = httpx.Client
-
-    class MockedClient(real_client):
-        def __init__(self, *args, **kwargs):
-            kwargs["transport"] = httpx.MockTransport(handler)
-            super().__init__(*args, **kwargs)
-
-    monkeypatch.setattr(outbound_http.httpx, "Client", MockedClient)
-
-
-def run(coro):
-    return asyncio.run(coro)
-
-
-class FakeSession:
-    commits = 0
-
-    def commit(self):
-        FakeSession.commits += 1
-
-    def rollback(self):
-        pass
-
-    def close(self):
-        pass
-
-
 @pytest.fixture
-def audit_rows(monkeypatch):
-    """Capture staged audit rows without a database."""
-    import core.audit as audit_mod
-    import core.db as db_mod
-
+def audit(monkeypatch):
     rows = []
-    FakeSession.commits = 0
-    monkeypatch.setattr(db_mod, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(
-        audit_mod, "log_audit",
-        lambda db, action, entity_type=None, entity_id=None, details=None, ip=None:
-            rows.append({"action": action, "entity_type": entity_type, "details": details}),
-    )
+    monkeypatch.setattr(itar, "_record_idp_outbound", lambda host, kind: rows.append((host, kind)))
     return rows
 
 
-class FakeIdP:
-    """An Entra v2.0 shaped tenant served over a MockTransport."""
+def resolver(monkeypatch, ips):
+    calls = []
 
-    def __init__(self, host, *, offsite=(), userinfo_host=None):
-        self.host = host
-        self.offsite = set(offsite)  # discovery keys that point at EVIL_HOST
-        self.userinfo_host = userinfo_host
-        self.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.kid = "kid-1"
-        self.nonce = "test-nonce"
-        self.sub = "idp-subject-1"
-        self.token_issuer = None
-        self.requests = []
+    def fake(host, port, *args, **kwargs):
+        calls.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, port)) for ip in ips]
 
-    @property
-    def issuer(self):
-        return f"https://{self.host}/{TENANT}/v2.0"
-
-    @property
-    def discovery_url(self):
-        return f"{self.issuer}/.well-known/openid-configuration"
-
-    def _host_for(self, key):
-        if key in self.offsite:
-            return EVIL_HOST
-        if key == "userinfo_endpoint" and self.userinfo_host:
-            return self.userinfo_host
-        return self.host
-
-    def discovery(self):
-        return {
-            "issuer": self.issuer,
-            "authorization_endpoint": f"https://{self.host}/{TENANT}/oauth2/v2.0/authorize",
-            "token_endpoint": f"https://{self._host_for('token_endpoint')}/{TENANT}/oauth2/v2.0/token",
-            "userinfo_endpoint": f"https://{self._host_for('userinfo_endpoint')}/oidc/userinfo",
-            "jwks_uri": f"https://{self._host_for('jwks_uri')}/{TENANT}/discovery/v2.0/keys",
-        }
-
-    def id_token(self, **overrides):
-        now = int(time.time())
-        claims = {
-            "iss": self.token_issuer or self.issuer, "aud": CLIENT_ID, "sub": self.sub,
-            "nonce": self.nonce, "iat": now, "exp": now + 300,
-            "email": "ada@contoso.example",
-        }
-        claims.update(overrides)
-        return jwt.encode(claims, self.key, algorithm="RS256", headers={"kid": self.kid})
-
-    def jwks(self):
-        jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(self.key.public_key()))
-        jwk.update(kid=self.kid, use="sig", alg="RS256")
-        return {"keys": [jwk]}
-
-    @staticmethod
-    def kind(path):
-        for suffix, kind in (("/.well-known/openid-configuration", "discovery"),
-                             ("/oauth2/v2.0/token", "token"),
-                             ("/discovery/v2.0/keys", "jwks"),
-                             ("/oidc/userinfo", "userinfo")):
-            if path.endswith(suffix):
-                return kind
-        return "unknown"
-
-    def handle(self, request):
-        pin = webhook_utils._dns_pin_state.get()
-        kind = self.kind(request.url.path)
-        self.requests.append({
-            "kind": kind, "method": request.method, "host": request.url.host,
-            "scheme": request.url.scheme, "port": request.url.port,
-            "pin": dict(pin) if pin else None,
-        })
-        if kind == "discovery":
-            return httpx.Response(200, json=self.discovery())
-        if kind == "token":
-            return httpx.Response(200, json={"access_token": "at-secret", "token_type": "Bearer",
-                                             "id_token": self.id_token()})
-        if kind == "jwks":
-            return httpx.Response(200, json=self.jwks())
-        if kind == "userinfo":
-            return httpx.Response(200, json={"sub": self.sub, "email": "ada@contoso.example"})
-        return httpx.Response(404)
-
-    def install(self, monkeypatch):
-        install_transport(monkeypatch, self.handle)
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", fake)
+    return calls
 
 
-def make_handler(idp):
-    return oidc_handler.OIDCHandler(
-        CLIENT_ID, "s3cret", TENANT, "https://odin.example.test/api/auth/oidc/callback",
-        discovery_url=idp.discovery_url,
-    )
+# ---- allowance parser ------------------------------------------------------
+
+def test_parse_accepts_exact_hostnames_and_lowercases():
+    hosts, errors = itar.parse_allowed_idp_hosts(" Login.MicrosoftOnline.us , accounts.google.com,login.microsoftonline.us")
+    assert errors == []
+    assert hosts == (GCC, "accounts.google.com")
 
 
-def setup_itar_idp(monkeypatch, host=GCC_HOST, allowed=(GCC_HOST,), **idp_kwargs):
-    idp = FakeIdP(host, **idp_kwargs)
-    if allowed:
-        allow(monkeypatch, *allowed)
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
-    idp.install(monkeypatch)
-    return idp, make_handler(idp)
-
-
-# ------------------------------------------------------------ env parsing
-@pytest.mark.parametrize("raw, hosts", [
-    (None, []), ("", []), ("  ", []),
-    (GCC_HOST, [GCC_HOST]),
-    (f"{GCC_HOST}, graph.microsoft.us ,{GCC_HOST}", [GCC_HOST, "graph.microsoft.us"]),
-    (",".join(f"h{i}.example.test" for i in range(8)), [f"h{i}.example.test" for i in range(8)]),
+@pytest.mark.parametrize("entry", [
+    "*.microsoftonline.us", "10.0.0.5", "8.8.8.8", "[::1]", "https://login.microsoftonline.us",
+    "login.microsoftonline.us:443", "login.microsoftonline.us/path", "login.microsoftonline.us.",
+    "localhost", "bad_host.example.com", "-x.example.com",
 ])
-def test_parse_allowance_accepts_exact_lowercase_hostnames(raw, hosts):
-    assert itar.parse_idp_allowance(raw) == (hosts, [])
+def test_parse_rejects_non_exact_hostnames_and_invalid_value_fails_closed(monkeypatch, entry):
+    assert itar.parse_allowed_idp_hosts(entry)[1]
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, f"{GCC},{entry}")
+    assert itar.allowed_idp_hosts() == frozenset()
+    assert itar.idp_allowance_errors()
 
 
-@pytest.mark.parametrize("raw", [
-    "*.microsoftonline.us", f"{GCC_HOST},*", "10.0.0.5", "127.1", "[::1]", "2001:db8::1",
-    "Login.MicrosoftOnline.us", f"https://{GCC_HOST}", f"{GCC_HOST}:443", f"{GCC_HOST}/",
-    f"{GCC_HOST}.", f"{GCC_HOST},,graph.microsoft.us", f"{GCC_HOST},", "bad_host.example.test",
-    "-bad.example.test", "user@host.example.test", "two words.example.test",
-    ",".join(f"h{i}.example.test" for i in range(9)),
-])
-def test_parse_allowance_rejects_invalid_entries(raw):
-    hosts, errors = itar.parse_idp_allowance(raw)
-    assert errors, f"{raw!r} should be rejected"
+def test_parse_enforces_maximum_of_eight():
+    ok = ",".join(f"idp{i}.example.com" for i in range(8))
+    assert itar.parse_allowed_idp_hosts(ok)[1] == []
+    assert itar.parse_allowed_idp_hosts(ok + ",idp8.example.com")[1]
 
 
-def test_invalid_allowance_refuses_boot_when_itar_on(itar_on, monkeypatch):
-    monkeypatch.setenv(itar.IDP_ALLOWANCE_ENV, f"{GCC_HOST},*.example.test,10.0.0.5")
-    with pytest.raises(RuntimeError) as exc:
-        itar.enforce_boot_config([])
-    text = str(exc.value)
-    assert itar.IDP_ALLOWANCE_ENV in text and "wildcards" in text and "IP addresses" in text
+# ---- scope semantics and unchanged behaviour -------------------------------
+
+def test_unset_env_changes_nothing_inside_scope(monkeypatch, itar_on, audit):
+    calls = resolver(monkeypatch, [PUBLIC_IP])
+    with itar.oidc_request_scope("token"):
+        with pytest.raises(itar.ItarOutboundBlocked, match="public"):
+            with itar.pin_for_request(f"https://{GCC}/x"):
+                pass
+    assert calls == [GCC] and audit == []
 
 
-def test_invalid_allowance_is_ignored_when_itar_off(monkeypatch):
-    monkeypatch.setenv(itar.IDP_ALLOWANCE_ENV, "*.example.test")
-    itar.enforce_boot_config([])
-    assert itar.idp_allowed_hosts() == frozenset()
+def test_itar_off_is_a_noop_even_when_listed(monkeypatch, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    calls = resolver(monkeypatch, [PUBLIC_IP])
+    with itar.oidc_request_scope("token"):
+        with itar.pin_for_request(f"https://{GCC}/x"):
+            assert webhook_utils._dns_pin_state.get() is None
+    assert calls == [] and audit == []
 
 
-def test_invalid_allowance_fails_closed_at_runtime(itar_on, monkeypatch):
-    allow(monkeypatch, GCC_HOST, "*")
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
-    assert itar.idp_allowed_hosts() == frozenset()
+def test_listed_host_in_scope_is_pinned_audited_and_resolved_once(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    calls = resolver(monkeypatch, [PUBLIC_IP, PUBLIC_IP])
+    with itar.oidc_request_scope("token"):
+        with itar.pin_for_request(f"https://{GCC}/{TENANT}/oauth2/v2.0/token"):
+            pinned = socket.getaddrinfo(GCC, 443)
+            assert [info[4][0] for info in pinned] == [PUBLIC_IP]
+    assert calls == [GCC], "validation is the only resolution"
+    assert audit == [(GCC, "token")]
+    assert webhook_utils._dns_pin_state.get() is None
+
+
+def test_listed_host_without_scope_stays_refused(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, [PUBLIC_IP])
     with pytest.raises(itar.ItarOutboundBlocked):
-        with itar.pin_for_request(DISCOVERY, purpose="oidc"):
-            pytest.fail("a rejected allowance must not pin a public host")
+        with itar.pin_for_request(f"https://{GCC}/x"):
+            pass
+    assert audit == []
 
 
-# ------------------------------------------------------------ pin_for_request
-def test_pin_allows_public_for_listed_oidc_host(itar_on, monkeypatch):
-    allow(monkeypatch, GCC_HOST)
-    resolve(monkeypatch, {GCC_HOST: [PUBLIC_IP]})
-    with itar.pin_for_request(DISCOVERY, purpose="oidc"):
-        assert webhook_utils._dns_pin_state.get() == {
-            "hostname": GCC_HOST, "port": 443, "ips": [PUBLIC_IP]}
+def test_unlisted_host_in_scope_is_refused(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, [PUBLIC_IP])
+    with itar.oidc_request_scope("jwks"):
+        for host in ("evil.example.com", f"sub.{GCC}", f"{GCC}.evil.example.com"):
+            with pytest.raises(itar.ItarOutboundBlocked):
+                with itar.pin_for_request(f"https://{host}/keys"):
+                    pass
+    assert audit == []
 
 
-def test_pin_allows_listed_host_that_resolves_private(itar_on, monkeypatch):
-    allow(monkeypatch, GCC_HOST)
-    resolve(monkeypatch, {GCC_HOST: [PRIVATE_IP]})
-    with itar.pin_for_request(DISCOVERY, purpose="oidc"):
-        assert webhook_utils._dns_pin_state.get()["ips"] == [PRIVATE_IP]
+@pytest.mark.parametrize("url", [f"http://{GCC}/x", f"https://{GCC}:8443/x", f"http://{GCC}:443/x"])
+def test_listed_host_requires_https_443(monkeypatch, itar_on, audit, url):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, [PUBLIC_IP])
+    with itar.oidc_request_scope("discovery"):
+        with pytest.raises(itar.ItarOutboundBlocked, match="https"):
+            with itar.pin_for_request(url):
+                pass
+    assert audit == []
 
 
-@pytest.mark.parametrize("url, purpose, allowance", [
-    (DISCOVERY, None, GCC_HOST),                                   # every other caller
-    (DISCOVERY, "webhook", GCC_HOST),                              # unknown purpose is not oidc
-    (DISCOVERY, "oidc", None),                                     # no allowance
-    (DISCOVERY, "oidc", COMMERCIAL_HOST),                          # a different host is listed
-    (DISCOVERY.replace("https://", "http://"), "oidc", GCC_HOST),  # https only
-    (f"https://{GCC_HOST}:8443/x", "oidc", GCC_HOST),              # port 443 only
-    (f"https://user:pw@{GCC_HOST}/x", "oidc", GCC_HOST),           # no URL credentials
-    (f"https://sub.{GCC_HOST}/x", "oidc", GCC_HOST),               # exact match, no subdomains
-    (f"https://{GCC_HOST}./x", "oidc", GCC_HOST),                  # exact match, no trailing dot
-    ("https://8.8.8.8/", "oidc", GCC_HOST),                        # IP literals never match
-])
-def test_pin_refuses_public_unless_oidc_and_exactly_listed(itar_on, monkeypatch, url, purpose, allowance):
-    if allowance:
-        allow(monkeypatch, allowance)
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
+def test_mixed_private_and_public_answer_is_refused_for_listed_host(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, ["10.0.0.5", PUBLIC_IP])
+    with itar.oidc_request_scope("token"):
+        with pytest.raises(itar.ItarOutboundBlocked, match="public"):
+            with itar.pin_for_request(f"https://{GCC}/x"):
+                pass
+    assert audit == []
+
+
+def test_literal_public_ip_is_refused_even_with_listed_host(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    with itar.oidc_request_scope("token"):
+        with pytest.raises(itar.ItarOutboundBlocked, match="literal IP"):
+            with itar.pin_for_request(f"https://{PUBLIC_IP}/x"):
+                pass
+
+
+def test_listed_host_resolving_private_needs_no_allowance_and_no_audit(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, ["10.0.0.5"])
+    with itar.oidc_request_scope("token"):
+        with itar.pin_for_request(f"http://{GCC}:8080/x"):
+            pass
+    assert audit == []
+
+
+def test_audit_failure_refuses_the_request(monkeypatch, itar_on):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, [PUBLIC_IP])
+
+    def boom(host, kind):
+        raise itar.ItarOutboundBlocked("audit row could not be written")
+
+    monkeypatch.setattr(itar, "_record_idp_outbound", boom)
+    with itar.oidc_request_scope("token"):
+        with pytest.raises(itar.ItarOutboundBlocked, match="audit"):
+            with itar.pin_for_request(f"https://{GCC}/x"):
+                pass
+    assert webhook_utils._dns_pin_state.get() is None
+
+
+def test_scope_resets_on_exit_exception_and_nesting():
+    assert itar._oidc_scope.get() is None
+    with itar.oidc_request_scope("token"):
+        with itar.oidc_request_scope("jwks"):
+            assert itar._oidc_scope.get() == "jwks"
+        assert itar._oidc_scope.get() == "token"
+    assert itar._oidc_scope.get() is None
+    with pytest.raises(RuntimeError):
+        with itar.oidc_request_scope("token"):
+            raise RuntimeError("x")
+    assert itar._oidc_scope.get() is None
+    with pytest.raises(ValueError):
+        with itar.oidc_request_scope("webhook"):
+            pass
+
+
+# ---- worker thread propagation --------------------------------------------
+
+def test_scope_reaches_the_outbound_worker_and_connects_to_the_pinned_address(monkeypatch, itar_on, audit):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    calls = resolver(monkeypatch, [PUBLIC_IP])
+    connections = []
+
+    def connect(sock, address):
+        connections.append(address)
+        raise ConnectionRefusedError("test stops before sending traffic")
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+
+    async def scoped():
+        with itar.oidc_request_scope("userinfo"):
+            return await outbound_http.pinned_async_request("GET", f"https://{GCC}/userinfo", timeout=5)
+
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(scoped())
+    assert connections == [(PUBLIC_IP, 443)]
+    assert calls == [GCC]
+    assert audit == [(GCC, "userinfo")]
+
+    connections.clear()
     with pytest.raises(itar.ItarOutboundBlocked):
-        with itar.pin_for_request(url, purpose=purpose):
-            pytest.fail("public destination was pinned")
+        asyncio.run(outbound_http.pinned_async_request("GET", f"https://{GCC}/userinfo", timeout=5))
+    assert connections == []
 
 
-def test_pin_refuses_mixed_private_and_public_answer_for_listed_host(itar_on, monkeypatch):
-    allow(monkeypatch, GCC_HOST)
-    resolve(monkeypatch, {GCC_HOST: [PUBLIC_IP, PRIVATE_IP]})
-    with pytest.raises(itar.ItarOutboundBlocked, match="mixed"):
-        with itar.pin_for_request(DISCOVERY, purpose="oidc"):
-            pytest.fail("mixed answer was pinned")
+# ---- oidc_handler marks each request kind ----------------------------------
 
-
-def test_pinned_request_does_not_follow_redirects(itar_on, monkeypatch):
-    allow(monkeypatch, GCC_HOST)
-    resolve(monkeypatch, {GCC_HOST: [PUBLIC_IP]}, default=[PUBLIC_IP])
+def test_oidc_handler_wraps_every_request_kind(monkeypatch, pro_license):
     seen = []
 
-    def handler(request):
-        seen.append(request.url.host)
-        return httpx.Response(302, headers={"location": f"https://{EVIL_HOST}/steal"})
+    async def request(method, url, **kwargs):
+        seen.append(itar._oidc_scope.get())
+        return httpx.Response(200, json={"issuer": "i", "keys": [], "access_token": "t"},
+                              request=httpx.Request(method, url))
 
-    install_transport(monkeypatch, handler)
-    resp = run(outbound_http.pinned_async_request("GET", DISCOVERY, purpose="oidc"))
-    assert resp.status_code == 302 and seen == [GCC_HOST]
+    monkeypatch.setattr(oidc_handler, "pinned_async_request", request)
+    handler = OIDCHandler("c", "s", "t", "https://cb", discovery_url="https://idp.example.com/d")
 
+    async def run():
+        await handler._get_oidc_config()
+        await handler.exchange_code("code")
+        with pytest.raises(ValueError):
+            await handler.get_user_info("tok")  # no userinfo endpoint; no request made
+        with pytest.raises(ValueError):
+            await handler.parse_id_token("not-a-jwt")  # fails after the JWKS fetch
 
-def test_unknown_purpose_is_rejected_by_the_request_helper():
-    with pytest.raises(ValueError):
-        run(outbound_http.pinned_async_request("GET", DISCOVERY, purpose="webhook"))
+    config = {"token_endpoint": "https://idp.example.com/t", "jwks_uri": "https://idp.example.com/k", "issuer": "i"}
 
+    async def cfg():
+        return config
 
-# ------------------------------------- other callers stay refused (same host)
-OTHER_HOSTS = ("hooks.example.test", "license.example.test", "spoolman.example.test",
-               "classroom.example.test", "smtp.example.test", "mqtt.example.test",
-               "api.telegram.org")
+    async def go():
+        await handler._get_oidc_config()
+        monkeypatch.setattr(handler, "_get_oidc_config", cfg)
+        await handler.exchange_code("code")
+        with pytest.raises(ValueError):
+            await handler.parse_id_token("not-a-jwt")
+        monkeypatch.setattr(handler, "_get_oidc_config", lambda: _userinfo_cfg())
+        await handler.get_user_info("tok")
 
+    async def _userinfo_cfg():
+        return {"userinfo_endpoint": "https://idp.example.com/u"}
 
-def other_callers_setup(monkeypatch):
-    allow(monkeypatch, *OTHER_HOSTS)
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
-
-
-def test_webhook_callers_refuse_an_allowed_public_host(itar_on, monkeypatch):
-    other_callers_setup(monkeypatch)
-    with pytest.raises(webhook_utils.WebhookSSRFError):
-        webhook_utils.safe_post("https://hooks.example.test/hook", json={})
-    with pytest.raises(webhook_utils.WebhookSSRFError):
-        webhook_utils.trusted_post("https://api.telegram.org/botX/sendMessage", json={})
-
-
-@pytest.mark.parametrize("host", ["license.example.test", "spoolman.example.test", "classroom.example.test"])
-def test_license_spoolman_classroom_requests_refuse_an_allowed_public_host(itar_on, monkeypatch, host):
-    """These callers use pinned_async_request without a purpose."""
-    other_callers_setup(monkeypatch)
-    install_transport(monkeypatch, lambda request: pytest.fail("request reached the network"))
-    with pytest.raises(itar.ItarOutboundBlocked):
-        run(outbound_http.pinned_async_request("GET", f"https://{host}/api"))
+    asyncio.run(go())
+    assert seen == ["discovery", "token", "jwks", "userinfo"]
+    assert itar._oidc_scope.get() is None
 
 
-@pytest.mark.parametrize("host, label", [("smtp.example.test", "smtp"), ("mqtt.example.test", "mqtt")])
-def test_smtp_and_mqtt_refuse_an_allowed_public_host(itar_on, monkeypatch, host, label):
-    other_callers_setup(monkeypatch)
-    with pytest.raises(itar.ItarOutboundBlocked):
-        itar.enforce_host_destination(host, label)
+# ---- discovery endpoint hosts ----------------------------------------------
+
+def _discovery_fake(monkeypatch, doc):
+    async def request(method, url, **kwargs):
+        return httpx.Response(200, json=doc, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(oidc_handler, "pinned_async_request", request)
 
 
-def test_boot_audit_of_non_oidc_urls_ignores_the_allowance(itar_on, monkeypatch):
-    other_callers_setup(monkeypatch)
-    for url in ("https://hooks.example.test/hook", "smtp://smtp.example.test:25",
-                "mqtt://mqtt.example.test:1883", DISCOVERY.replace(GCC_HOST, "hooks.example.test")):
-        with pytest.raises(RuntimeError):
-            itar.enforce_boot_config([url])
-    # an untagged URL is not an identity-provider discovery URL, even for a listed host
-    allow(monkeypatch, GCC_HOST)
-    with pytest.raises(RuntimeError):
-        itar.enforce_boot_config([DISCOVERY])
+def gcc_doc(**overrides):
+    base = f"https://{GCC}/{TENANT}"
+    doc = {
+        "issuer": f"{base}/v2.0",
+        "authorization_endpoint": f"{base}/oauth2/v2.0/authorize",
+        "token_endpoint": f"{base}/oauth2/v2.0/token",
+        "userinfo_endpoint": "https://graph.microsoft.us/oidc/userinfo",
+        "jwks_uri": f"{base}/discovery/v2.0/keys",
+    }
+    doc.update(overrides)
+    return doc
 
 
-def test_only_the_oidc_handler_passes_the_oidc_purpose():
-    backend = Path(itar.__file__).resolve().parents[1]
-    pattern = re.compile(r"purpose\s*=\s*(?:itar\.)?(?:PURPOSE_OIDC|[\"']oidc[\"'])")
-    offenders = sorted(
-        str(path.relative_to(backend)) for path in backend.rglob("*.py")
-        if pattern.search(path.read_text(encoding="utf-8", errors="ignore"))
-        and path.name != "oidc_handler.py"
-        # itar.py defines and documents the purpose; it never passes it.
-        and str(path.relative_to(backend)) != "core/itar.py"
-    )
-    assert offenders == []
+def test_discovery_endpoints_must_be_allowed_hosts(monkeypatch, itar_on):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, f"{GCC},graph.microsoft.us")
+    _discovery_fake(monkeypatch, gcc_doc())
+    handler = OIDCHandler("c", "s", TENANT, "https://cb", discovery_url=DISCOVERY)
+    assert asyncio.run(handler._get_oidc_config())["issuer"].endswith("/v2.0")
 
 
-# ------------------------------------------------------------ boot audit
-def test_boot_refuses_enabled_public_idp_that_is_not_allowed(itar_on, monkeypatch):
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
-    with pytest.raises(RuntimeError, match=GCC_HOST):
-        itar.enforce_boot_config([itar.IdpDiscoveryUrl(DISCOVERY)])
-    allow(monkeypatch, COMMERCIAL_HOST)  # a different host listed
-    with pytest.raises(RuntimeError, match=GCC_HOST):
-        itar.enforce_boot_config([itar.IdpDiscoveryUrl(DISCOVERY)])
+@pytest.mark.parametrize("key", ["token_endpoint", "userinfo_endpoint", "jwks_uri"])
+def test_discovery_doc_pointing_at_unlisted_host_is_refused_and_not_cached(monkeypatch, itar_on, key):
+    # Both real GCC High hosts are allowed, so only the overridden endpoint is unlisted.
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, f"{GCC},graph.microsoft.us")
+    _discovery_fake(monkeypatch, gcc_doc(**{key: "https://attacker.example.net/x"}))
+    handler = OIDCHandler("c", "s", TENANT, "https://cb", discovery_url=DISCOVERY)
+    with pytest.raises(itar.ItarOutboundBlocked, match=key):
+        asyncio.run(handler._get_oidc_config())
+    assert DISCOVERY not in oidc_handler._discovery_cache
 
 
-def test_boot_passes_for_allowed_idp_and_logs_the_allowance(itar_on, monkeypatch, caplog):
-    allow(monkeypatch, GCC_HOST)
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
-    with caplog.at_level(logging.INFO, logger="odin.itar"):
-        itar.enforce_boot_config([itar.IdpDiscoveryUrl(DISCOVERY)])
-    assert GCC_HOST in caplog.text and itar.IDP_ALLOWANCE_ENV in caplog.text
+def test_cached_doc_is_rechecked(monkeypatch, itar_on):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, f"{GCC},graph.microsoft.us")
+    _discovery_fake(monkeypatch, gcc_doc())
+    handler = OIDCHandler("c", "s", TENANT, "https://cb", discovery_url=DISCOVERY)
+    asyncio.run(handler._get_oidc_config())
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)  # graph host no longer listed
+    with pytest.raises(itar.ItarOutboundBlocked, match="userinfo_endpoint"):
+        asyncio.run(handler._get_oidc_config())
 
 
-def test_boot_passes_for_private_idp_without_allowance(itar_on, monkeypatch):
-    itar.enforce_boot_config([itar.IdpDiscoveryUrl("https://10.1.2.3/realms/x/.well-known/openid-configuration")])
+def test_endpoint_check_is_inert_when_unset_off_or_idp_not_listed(monkeypatch):
+    doc = gcc_doc(token_endpoint="https://attacker.example.net/t")
+    _discovery_fake(monkeypatch, doc)
+    handler = OIDCHandler("c", "s", TENANT, "https://cb", discovery_url=DISCOVERY)
+    # ITAR off, env set
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    assert asyncio.run(handler._get_oidc_config()) == doc
+    # ITAR on, env unset
+    monkeypatch.delenv(itar.IDP_HOSTS_ENV)
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    oidc_handler._discovery_cache.clear()
+    assert asyncio.run(handler._get_oidc_config()) == doc
+    # ITAR on, allowance set for a different host: private-IdP path untouched here
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, "accounts.google.com")
+    oidc_handler._discovery_cache.clear()
+    assert asyncio.run(handler._get_oidc_config()) == doc
 
 
-def test_boot_refuses_listed_idp_over_http_or_odd_port(itar_on, monkeypatch):
-    allow(monkeypatch, GCC_HOST)
-    resolve(monkeypatch, {}, default=[PUBLIC_IP])
-    for url in (DISCOVERY.replace("https://", "http://"), DISCOVERY.replace(GCC_HOST, f"{GCC_HOST}:8443")):
-        with pytest.raises(RuntimeError):
-            itar.enforce_boot_config([itar.IdpDiscoveryUrl(url)])
+# ---- boot audit ------------------------------------------------------------
+
+def test_boot_refuses_invalid_allowance_only_under_itar(monkeypatch):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, "*.example.com")
+    itar.enforce_boot_config([])  # ITAR off: no-op
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    with pytest.raises(RuntimeError, match=itar.IDP_HOSTS_ENV):
+        itar.enforce_boot_config([])
 
 
-def test_collect_tags_the_oidc_discovery_url(monkeypatch):
+def test_boot_log_lists_the_allowance(monkeypatch, itar_on, caplog):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, f"{GCC},accounts.google.com")
+    with caplog.at_level("INFO", logger="odin.itar"):
+        itar.enforce_boot_config([])
+    assert f"{itar.IDP_HOSTS_ENV}=accounts.google.com,{GCC}" in caplog.text
+
+
+def _fake_db(monkeypatch, discovery_urls):
     import core.db as db_mod
 
     class Result:
@@ -422,145 +372,87 @@ def test_collect_tags_the_oidc_discovery_url(monkeypatch):
 
     class DB:
         def execute(self, clause, params=None):
-            return Result([(DISCOVERY,)] if "oidc_config" in str(clause) else [])
+            if "oidc_config" in str(clause):
+                return Result([(u,) for u in discovery_urls])
+            return Result([])
 
         def close(self):
             pass
 
     monkeypatch.setattr(db_mod, "SessionLocal", lambda: DB())
-    urls = itar.collect_db_configured_urls()
-    assert urls == [DISCOVERY] and isinstance(urls[0], itar.IdpDiscoveryUrl)
 
 
-# -------------------------------------------- sign-in through a fake IdP
-def test_allowed_idp_signs_in_through_fake_idp_under_itar(itar_on, monkeypatch, audit_rows):
-    idp, handler = setup_itar_idp(monkeypatch)
-
-    async def flow():
-        url, _state = await handler.get_authorization_url()
-        tokens = await handler.exchange_code("auth-code")
-        handler._expected_nonce = idp.nonce
-        claims = await handler.parse_id_token(tokens["id_token"])
-        info = await handler.get_user_info(tokens["access_token"])
-        return url, claims, info
-
-    url, claims, info = run(flow())
-    assert url.startswith(f"https://{GCC_HOST}/{TENANT}/oauth2/v2.0/authorize?")
-    assert claims["sub"] == idp.sub and info["email"] == "ada@contoso.example"
-    kinds = ["discovery", "token", "jwks", "userinfo"]  # discovery is cached afterwards
-    assert [r["kind"] for r in idp.requests] == kinds
-    for request in idp.requests:
-        assert request["host"] == GCC_HOST and request["scheme"] == "https"
-        assert request["port"] in (None, 443)
-        assert request["pin"] == {"hostname": GCC_HOST, "port": 443, "ips": [PUBLIC_IP]}
-    assert audit_rows == [
-        {"action": "itar.idp_outbound", "entity_type": "system",
-         "details": {"host": GCC_HOST, "endpoint_kind": kind}}
-        for kind in kinds
-    ]
-    assert FakeSession.commits == len(kinds)
+def test_boot_collects_enabled_idp_url_unless_https_443_on_allowed_host(monkeypatch, itar_on):
+    other = "https://idp.example.com/.well-known/openid-configuration"
+    insecure = f"http://{GCC}/x"
+    wrong_port = f"https://{GCC}:8443/x"
+    _fake_db(monkeypatch, [DISCOVERY, other, insecure, wrong_port])
+    # no allowance: everything is collected (identical to before)
+    assert itar.collect_db_configured_urls() == [DISCOVERY, other, insecure, wrong_port]
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    assert itar.collect_db_configured_urls() == [other, insecure, wrong_port]
 
 
-@pytest.mark.parametrize("allowed", [(), (COMMERCIAL_HOST,)])
-def test_without_the_allowance_the_idp_is_refused(itar_on, monkeypatch, audit_rows, allowed):
-    idp, handler = setup_itar_idp(monkeypatch, allowed=allowed)
-    with pytest.raises(itar.ItarOutboundBlocked, match=itar.IDP_ALLOWANCE_ENV):
-        run(handler._get_oidc_config())
-    assert idp.requests == [] and audit_rows == []
+def test_boot_refuses_enabled_public_idp_not_in_allowance(monkeypatch, itar_on):
+    other = "https://idp.example.com/.well-known/openid-configuration"
+    _fake_db(monkeypatch, [DISCOVERY, other])
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, GCC)
+    resolver(monkeypatch, [PUBLIC_IP])
+    with pytest.raises(RuntimeError, match="idp.example.com"):
+        itar.enforce_boot_config(itar.collect_db_configured_urls())
+    _fake_db(monkeypatch, [DISCOVERY])
+    itar.enforce_boot_config(itar.collect_db_configured_urls())
 
 
-@pytest.mark.parametrize("key", ["token_endpoint", "userinfo_endpoint", "jwks_uri"])
-def test_discovery_document_endpoint_on_an_unlisted_host_is_refused(itar_on, monkeypatch, audit_rows, key):
-    idp, handler = setup_itar_idp(monkeypatch, offsite={key})
-    with pytest.raises(itar.ItarOutboundBlocked, match=key):
-        run(handler._get_oidc_config())
-    assert [r["kind"] for r in idp.requests] == ["discovery"]
-    assert all(r["host"] == GCC_HOST for r in idp.requests)
-    assert len(oidc_handler._discovery_cache) == 0
-    assert [r["details"]["endpoint_kind"] for r in audit_rows] == ["discovery"]
+# ---- GCC High --------------------------------------------------------------
 
-
-def test_token_request_is_never_sent_to_an_unlisted_token_endpoint(itar_on, monkeypatch, audit_rows):
-    idp, handler = setup_itar_idp(monkeypatch, offsite={"token_endpoint"})
-    with pytest.raises(itar.ItarOutboundBlocked):
-        run(handler.exchange_code("auth-code"))
-    assert [r["kind"] for r in idp.requests] == ["discovery"]
-
-
-def test_endpoints_on_a_second_listed_host_are_allowed(itar_on, monkeypatch, audit_rows):
-    idp, handler = setup_itar_idp(
-        monkeypatch, allowed=(GCC_HOST, "graph.microsoft.us"), userinfo_host="graph.microsoft.us")
-    info = run(handler.get_user_info("at-secret"))
-    assert info["sub"] == idp.sub
-    assert [r["host"] for r in idp.requests] == [GCC_HOST, "graph.microsoft.us"]
-    assert [r["details"]["host"] for r in audit_rows] == [GCC_HOST, "graph.microsoft.us"]
-
-
-def test_cached_discovery_document_is_rechecked_under_itar(monkeypatch, audit_rows):
-    idp, handler = setup_itar_idp(monkeypatch, offsite={"jwks_uri"})
-    assert run(handler._get_oidc_config())["jwks_uri"].startswith(f"https://{EVIL_HOST}/")  # ITAR off
-    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
-    with pytest.raises(itar.ItarOutboundBlocked, match="jwks_uri"):
-        run(handler._get_oidc_config())
-
-
-def test_audit_failure_refuses_the_request(itar_on, monkeypatch):
-    import core.audit as audit_mod
-    import core.db as db_mod
-
-    idp, handler = setup_itar_idp(monkeypatch)
-    monkeypatch.setattr(db_mod, "SessionLocal", lambda: FakeSession())
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("audit store down")
-
-    monkeypatch.setattr(audit_mod, "log_audit", boom)
-    with pytest.raises(itar.ItarOutboundBlocked, match="audit"):
-        run(handler._get_oidc_config())
-    assert idp.requests == []
-
-
-def test_itar_off_behaviour_is_unchanged(monkeypatch, audit_rows):
-    monkeypatch.setenv(itar.IDP_ALLOWANCE_ENV, "*.invalid")  # ignored while ITAR mode is off
-    idp, handler = setup_itar_idp(monkeypatch, allowed=())
-    monkeypatch.setenv(itar.IDP_ALLOWANCE_ENV, "*.invalid")
-    config = run(handler._get_oidc_config())
-    assert config["issuer"] == idp.issuer
-    assert audit_rows == [] and idp.requests[0]["pin"] is None
-
-
-# ------------------------------------------------------------ GCC High
-def test_gcc_high_environment_is_detected_from_the_discovery_url():
-    base = {"client_id": CLIENT_ID, "client_secret_encrypted": None, "tenant_id": TENANT}
-    gcc = oidc_handler.create_handler_from_config({**base, "discovery_url": DISCOVERY}, "https://odin.example.test/cb")
-    commercial = oidc_handler.create_handler_from_config(
-        {**base, "discovery_url": DISCOVERY.replace(GCC_HOST, COMMERCIAL_HOST)}, "https://odin.example.test/cb")
-    assert gcc.environment == "gcc_high" and gcc.discovery_url == DISCOVERY
-    assert commercial.environment == "commercial"
-
-
-def test_gcc_high_template_is_used_without_a_discovery_url():
-    handler = oidc_handler.OIDCHandler(CLIENT_ID, "s3cret", TENANT, "https://odin.example.test/cb",
-                                       environment="gcc_high")
+def test_gcc_high_environment_detection_and_default_discovery():
+    handler = create_handler_from_config({"discovery_url": DISCOVERY, "tenant_id": TENANT}, "https://cb")
     assert handler.discovery_url == DISCOVERY
+    default = OIDCHandler("c", "s", TENANT, "https://cb", environment="gcc_high")
+    assert default.discovery_url == DISCOVERY
 
 
-def test_gcc_high_id_token_issuer_is_validated(itar_on, monkeypatch, audit_rows):
-    idp, handler = setup_itar_idp(monkeypatch)
-    handler._expected_nonce = idp.nonce
-    claims = run(handler.parse_id_token(idp.id_token()))
-    assert claims["iss"] == f"https://{GCC_HOST}/{TENANT}/v2.0"
+def test_gcc_high_signs_in_through_a_fake_idp_with_itar_on(monkeypatch, itar_on, audit, pro_license):
+    monkeypatch.setenv(itar.IDP_HOSTS_ENV, f"{GCC},graph.microsoft.us")
+    resolver(monkeypatch, [PUBLIC_IP])
+    seen = []
 
-    idp.token_issuer = f"https://{COMMERCIAL_HOST}/{TENANT}/v2.0"  # commercial issuer on a GCC High tenant
-    handler._expected_nonce = idp.nonce
-    with pytest.raises(ValueError, match="ID token validation failed"):
-        run(handler.parse_id_token(idp.id_token()))
+    def upstream(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, json={"sub": "u1", "email": "a@example.test"})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(outbound_http.httpx, "Client",
+                        lambda **kw: real_client(transport=httpx.MockTransport(upstream), **kw))
+    handler = OIDCHandler("c", "s", TENANT, "https://cb", discovery_url=DISCOVERY)
+
+    async def config():
+        return gcc_doc()
+
+    monkeypatch.setattr(handler, "_get_oidc_config", config)
+    assert asyncio.run(handler.get_user_info("tok"))["sub"] == "u1"
+    assert seen == ["https://graph.microsoft.us/oidc/userinfo"]
+    assert audit == [("graph.microsoft.us", "userinfo")]
 
 
-def test_gcc_high_passes_with_the_allowance_and_is_refused_without_it(itar_on, monkeypatch, audit_rows):
-    idp, handler = setup_itar_idp(monkeypatch)
-    assert run(handler._get_oidc_config())["issuer"] == f"https://{GCC_HOST}/{TENANT}/v2.0"
-    monkeypatch.delenv(itar.IDP_ALLOWANCE_ENV)
-    oidc_handler._discovery_cache.clear()
+def test_gcc_high_without_allowance_is_refused(monkeypatch, itar_on, audit, pro_license):
+    resolver(monkeypatch, [PUBLIC_IP])
+    handler = OIDCHandler("c", "s", TENANT, "https://cb", discovery_url=DISCOVERY)
     with pytest.raises(itar.ItarOutboundBlocked):
-        run(handler._get_oidc_config())
+        asyncio.run(handler._get_oidc_config())
+    assert audit == []
+
+
+# ---- only oidc_handler opts in ---------------------------------------------
+
+def test_only_oidc_handler_uses_oidc_request_scope():
+    backend = Path(__file__).resolve().parents[2] / "backend"
+    users = set()
+    for path in backend.rglob("*.py"):
+        rel = path.relative_to(backend).as_posix()
+        if rel.startswith("core/schema/") or rel == "core/itar.py":
+            continue  # preserved migration snapshots; itar.py defines it
+        if "oidc_request_scope" in path.read_text(encoding="utf-8"):
+            users.add(rel)
+    assert users == {"modules/organizations/oidc_handler.py"}

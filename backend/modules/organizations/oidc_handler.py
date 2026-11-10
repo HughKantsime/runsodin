@@ -14,7 +14,6 @@ Flow:
 6. Frontend receives JWT and logs in
 """
 
-import asyncio
 import logging
 import secrets
 from collections import OrderedDict
@@ -23,7 +22,7 @@ from time import monotonic as _cache_clock
 from core import itar
 from core.outbound_http import pinned_async_request
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 from typing import Optional, Dict, Any
 
 log = logging.getLogger("oidc")
@@ -33,10 +32,6 @@ log = logging.getLogger("oidc")
 _discovery_cache = OrderedDict()
 _discovery_cache_lock = Lock()
 _DISCOVERY_CACHE_SIZE = 128
-
-# Discovery-document endpoints ODIN itself calls. Under ITAR mode each must be on
-# an allowed (or private) host, so an identity provider cannot pull in another host.
-_ITAR_ENDPOINT_KEYS = ("token_endpoint", "userinfo_endpoint", "jwks_uri")
 
 # State tokens are stored in SQLite via _state_db_*() helpers below.
 # The in-memory dict is kept only as a fast fallback for the brief
@@ -110,77 +105,6 @@ def _state_db_cleanup():
         log.debug(f"Failed to clean expired OIDC states: {e}")
 
 
-def _audit_idp_outbound(host: str, endpoint_kind: str) -> None:
-    """Write one `itar.idp_outbound` audit row: host and endpoint kind only.
-
-    Never receives or records tokens, codes, secrets, URLs or bodies.
-    """
-    from core.audit import log_audit
-    from core.db import SessionLocal
-    db = SessionLocal()
-    try:
-        log_audit(db, "itar.idp_outbound", "system",
-                  details={"host": host, "endpoint_kind": endpoint_kind})
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-async def _idp_request(method: str, url: str, endpoint_kind: str, **kwargs):
-    """Every outbound OIDC request (discovery, token, userinfo, JWKS) goes through here.
-
-    Under ITAR mode: the URL must be on an allowed identity-provider host
-    (https, port 443) or a private host; a request to a listed host writes one
-    audit row before it is sent, and an unwritable audit row refuses the
-    request. The request itself passes purpose="oidc" explicitly; outside ITAR
-    mode that is a no-op.
-    """
-    if itar.is_itar_mode():
-        ok, reason = await asyncio.to_thread(itar.check_idp_endpoint, url)
-        if not ok:
-            log.error("ITAR mode refused OIDC %s request: %s", endpoint_kind, reason)
-            raise itar.ItarOutboundBlocked(
-                f"ODIN_ITAR_MODE=1 refused OIDC {endpoint_kind} request — {reason}"
-            )
-        host = urlsplit(url).hostname
-        if host in itar.idp_allowed_hosts():
-            try:
-                await asyncio.to_thread(_audit_idp_outbound, host, endpoint_kind)
-            except Exception as exc:
-                log.error("ITAR mode: could not write the identity-provider audit row (%s); "
-                          "OIDC %s request refused", type(exc).__name__, endpoint_kind)
-                raise itar.ItarOutboundBlocked(
-                    f"ODIN_ITAR_MODE=1 refused OIDC {endpoint_kind} request — "
-                    "the audit trail is unavailable"
-                ) from exc
-    return await pinned_async_request(method, url, purpose=itar.PURPOSE_OIDC, **kwargs)
-
-
-async def _enforce_itar_endpoints(config: Dict[str, Any]) -> None:
-    """Under ITAR mode, refuse a discovery document whose token, userinfo or JWKS
-    endpoint is on a host that is neither allowed nor private. An endpoint the
-    document omits is left to the flow that needs it (it fails on its own)."""
-    if not itar.is_itar_mode():
-        return
-    for key in _ITAR_ENDPOINT_KEYS:
-        value = config.get(key)
-        if value is None:
-            continue
-        if not isinstance(value, str) or not value:
-            raise itar.ItarOutboundBlocked(
-                f"ODIN_ITAR_MODE=1 refused OIDC discovery document: {key} is invalid"
-            )
-        ok, reason = await asyncio.to_thread(itar.check_idp_endpoint, value)
-        if not ok:
-            log.error("ITAR mode refused OIDC discovery document: %s: %s", key, reason)
-            raise itar.ItarOutboundBlocked(
-                f"ODIN_ITAR_MODE=1 refused OIDC discovery document: {key} — {reason}"
-            )
-
-
 class OIDCHandler:
     """
     Handles OIDC authentication with Microsoft Entra ID.
@@ -211,7 +135,6 @@ class OIDCHandler:
         self.tenant_id = tenant_id
         self.redirect_uri = redirect_uri
         self.scopes = scopes
-        self.environment = environment
         self.provider_type = provider_type
         self.allowed_domains = allowed_domains or ""
         self._expected_nonce: Optional[str] = None
@@ -226,25 +149,30 @@ class OIDCHandler:
             self.discovery_url = template.format(tenant=tenant_id)
         
     async def _get_oidc_config(self) -> Dict[str, Any]:
-        """Fetch OIDC configuration from discovery endpoint. Cached for 1 hour."""
-        config = None
+        """Fetch OIDC configuration from discovery endpoint. Cached for 1 hour.
+
+        Under ITAR mode with ODIN_ITAR_ALLOWED_IDP_HOSTS set, a discovery
+        document on an allowed host must keep its token, userinfo and JWKS
+        endpoints on allowed hosts. The check runs on cached and fresh
+        documents, and a refused document is never cached.
+        """
+        cached_config = None
         with _discovery_cache_lock:
             cached = _discovery_cache.get(self.discovery_url)
             if cached and _cache_clock() < cached[0]:
                 _discovery_cache.move_to_end(self.discovery_url)
-                config = cached[1]
-        if config is not None:
-            # Re-checked on every use: ITAR policy and DNS can change under a cached document.
-            await _enforce_itar_endpoints(config)
-            return config
+                cached_config = cached[1]
+        if cached_config is not None:
+            itar.enforce_idp_endpoint_hosts(self.discovery_url, cached_config)
+            return cached_config
 
-        resp = await _idp_request("GET", self.discovery_url, "discovery", timeout=10)
+        with itar.oidc_request_scope("discovery"):
+            resp = await pinned_async_request("GET", self.discovery_url, timeout=10)
         resp.raise_for_status()
         config = resp.json()
         if not isinstance(config, dict):
             raise ValueError("OIDC discovery response is invalid")
-        # Refuse before caching so a rejected document is never retained.
-        await _enforce_itar_endpoints(config)
+        itar.enforce_idp_endpoint_hosts(self.discovery_url, config)
         with _discovery_cache_lock:
             _discovery_cache[self.discovery_url] = (_cache_clock() + 3600, config)
             _discovery_cache.move_to_end(self.discovery_url)
@@ -318,7 +246,8 @@ class OIDCHandler:
             "grant_type": "authorization_code",
         }
         
-        resp = await _idp_request("POST", token_endpoint, "token", data=data, timeout=10)
+        with itar.oidc_request_scope("token"):
+            resp = await pinned_async_request("POST", token_endpoint, data=data, timeout=10)
         if resp.status_code != 200:
             log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
             raise Exception(f"Token exchange failed: {resp.text}")
@@ -333,10 +262,11 @@ class OIDCHandler:
         if not isinstance(userinfo_url, str) or not userinfo_url:
             raise ValueError("OIDC discovery document has no userinfo_endpoint")
 
-        resp = await _idp_request(
-            "GET", userinfo_url, "userinfo",
-            headers={"Authorization": f"Bearer {access_token}"}, timeout=10,
-        )
+        with itar.oidc_request_scope("userinfo"):
+            resp = await pinned_async_request(
+                "GET", userinfo_url,
+                headers={"Authorization": f"Bearer {access_token}"}, timeout=10,
+            )
         if resp.status_code != 200:
             log.error("OIDC userinfo fetch failed with status %s", resp.status_code)
             raise ValueError("OIDC userinfo request failed")
@@ -372,7 +302,8 @@ class OIDCHandler:
         from jwt import PyJWKSet
 
         try:
-            _resp = await _idp_request("GET", jwks_uri, "jwks", timeout=10)
+            with itar.oidc_request_scope("jwks"):
+                _resp = await pinned_async_request("GET", jwks_uri, timeout=10)
             _resp.raise_for_status()
             _jwks_json = _resp.json()
 
