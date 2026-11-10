@@ -154,7 +154,7 @@ class ConnectionManager:
         audience = list(self.active)
         from core.controlled_events import audience_messages
         from core.license_lock import enabled
-        license_enabled = enabled()  # once per broadcast; the flag only changes with a restart
+        license_enabled = enabled()  # env read once per broadcast; never cache it longer, the rollout flag can change
         messages = await asyncio.to_thread(audience_messages, [p for _, p in audience], public_message)
         for (ws, principal), controlled_message in zip(audience, messages):
             # Admission is fresh; ongoing delivery uses the shared heartbeat's
