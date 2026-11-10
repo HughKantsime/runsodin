@@ -28,10 +28,10 @@ a misconfiguration fails loud at boot.
 
 Identity-provider allowance (`ODIN_ITAR_ALLOWED_IDP_HOSTS`)
 -----------------------------------------------------------
-A comma-separated list of exact hostnames (max 8, no wildcards, no IPs).
-Env-only, like ITAR mode itself. Under ITAR mode it lets the OIDC client,
-and only the OIDC client, reach those hosts over https/443 even though they
-resolve to public addresses. The OIDC client marks its requests with
+A comma-separated list of exact DNS hostnames (max 8, no wildcards, no IPs in
+any form). Env-only, like ITAR mode itself. Under ITAR mode it lets the OIDC
+client, and only the OIDC client, reach those hosts over https/443 even though
+they resolve to public addresses. The OIDC client marks its requests with
 `oidc_request_scope()`; `pin_for_request` reads that ContextVar. No function
 signature carries the marker, so every other caller is unchanged and cannot
 opt in by accident. With the env var unset, or ITAR mode off, behaviour is
@@ -60,7 +60,7 @@ _LOCAL_V6 = tuple(ipaddress.ip_network(cidr) for cidr in ("fc00::/7", "::1/128",
 
 IDP_HOSTS_ENV = "ODIN_ITAR_ALLOWED_IDP_HOSTS"
 _MAX_IDP_HOSTS = 8
-_IDP_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_IDP_LABEL = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 _OIDC_KINDS = frozenset({"oidc", "discovery", "token", "userinfo", "jwks"})
 
 # Set only by oidc_request_scope(). The value is the endpoint kind (used for the
@@ -87,12 +87,45 @@ def is_itar_mode() -> bool:
     return os.getenv("ODIN_ITAR_MODE", "").strip().lower() in _ENABLED_VALUES
 
 
+def _parses_as_ip(entry: str) -> bool:
+    """True if `entry` is an address under ipaddress or the C resolver.
+
+    socket.inet_aton accepts short, hexadecimal and octal IPv4 forms ("8.8",
+    "0x8.8.8.8", "010.1.1.1", "127.1") that ipaddress rejects but getaddrinfo
+    resolves as addresses.
+    """
+    try:
+        ipaddress.ip_address(entry.strip("[]"))
+        return True
+    except ValueError:
+        pass
+    try:
+        socket.inet_aton(entry)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _is_dns_hostname(entry: str) -> bool:
+    """Proper DNS name: 2+ LDH labels, TLD has a letter and is not all digits."""
+    if len(entry) > 253:
+        return False
+    labels = entry.split(".")
+    if len(labels) < 2 or not all(_IDP_LABEL.fullmatch(label) for label in labels):
+        return False
+    tld = labels[-1]
+    return not tld.isdigit() and any(ch.isalpha() for ch in tld)
+
+
 def parse_allowed_idp_hosts(raw: Optional[str]) -> tuple[tuple[str, ...], list[str]]:
     """Parse the allowance. Returns (hosts, errors).
 
-    Entries are trimmed and lowercased. Each must be an exact DNS name with at
-    least two labels: no wildcard, IP literal, scheme, port, path or trailing
-    dot. At most 8 distinct hosts.
+    Entries are trimmed and lowercased. Each must be an exact DNS name: at least
+    two labels, each 1-63 LDH characters (letters, digits, hyphen; no leading or
+    trailing hyphen), and a final label that has a letter and is not all digits.
+    No wildcard, IP literal in any form the resolver accepts (dotted, short,
+    hexadecimal, octal, IPv6), scheme, port, path or trailing dot. At most 8
+    distinct hosts.
     """
     hosts: list[str] = []
     errors: list[str] = []
@@ -103,15 +136,10 @@ def parse_allowed_idp_hosts(raw: Optional[str]) -> tuple[tuple[str, ...], list[s
         if "*" in entry:
             errors.append(f"{entry!r}: wildcards are not allowed")
             continue
-        try:
-            ipaddress.ip_address(entry.strip("[]"))
-        except ValueError:
-            pass
-        else:
+        if _parses_as_ip(entry):
             errors.append(f"{entry!r}: IP addresses are not allowed")
             continue
-        labels = entry.split(".")
-        if len(labels) < 2 or not all(_IDP_LABEL.match(label) for label in labels):
+        if not _is_dns_hostname(entry):
             errors.append(
                 f"{entry!r}: must be an exact hostname "
                 "(no scheme, port, path or trailing dot)"
