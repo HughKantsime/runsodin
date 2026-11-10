@@ -83,6 +83,9 @@ def reserve_dispatch(
     from modules.organizations.education_training_policy import job_training_allowed
     if not job_training_allowed(executor, job_id=job_id, printer_id=printer_id, lock=True):
         return None
+    from core import license_lock
+    if not license_lock.printer_allowed_now(executor, printer_id):
+        return None  # no reservation for a printer outside the license selection
     adapter = owner._ExecutionAdapter(executor)
     token = secrets.token_hex(16)
     claim_id = str(uuid.uuid4())

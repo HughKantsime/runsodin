@@ -345,42 +345,63 @@ class PrusaLinkMonitorThread(threading.Thread):
 # ------------------------------------------------------------------
 # Main — standalone daemon mode (like moonraker_monitor.py)
 # ------------------------------------------------------------------
+def _credentials(api_key_raw):
+    """(username, password, api_key) from the stored, usually encrypted, credential."""
+    # Decrypt credentials if encrypted (same as Moonraker)
+    username, password, api_key = "maker", "", ""
+    if api_key_raw:
+        try:
+            from core.crypto import decrypt
+            decrypted = decrypt(api_key_raw)
+            # Format: "username|password" or just "api_key"
+            if "|" in decrypted:
+                username, password = decrypted.split("|", 1)
+            else:
+                api_key = decrypted
+        except Exception:
+            # Not encrypted or decrypt failed — use as raw API key
+            api_key = api_key_raw
+    return username, password, api_key
+
+
+def _rows():
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active IS TRUE")
+        ).mappings().fetchall()
+
+
+def _inventory():
+    """{printer_id: (fingerprint, (name, host, username, password, api_key))} for license retirement (B2c)."""
+    from core.license_monitor import connection_fingerprint
+    inventory = {}
+    for row in _rows():
+        credentials = _credentials(row["api_key"] or "")
+        inventory[row["id"]] = (connection_fingerprint("prusalink", row["api_host"], *credentials),
+                                (row["name"], row["api_host"], *credentials))
+    return inventory
+
+
+def _session(printer_id, name, host, username, password, api_key):
+    log.info(f"Starting PrusaLink monitor for {name} ({host})")
+    return PrusaLinkMonitorThread(printer_id=printer_id, name=name, host=host,
+                                  username=username, password=password, api_key=api_key)
+
+
 def start_prusalink_monitors():
     """
     Load PrusaLink printers from DB and start monitor threads.
-    Called from main.py on startup, same as start_moonraker_monitors().
+    License fleet lock off; see __main__.
     """
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
     threads = []
     try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active IS TRUE")
-            ).mappings().fetchall()
-
-        for row in rows:
+        for row in _rows():
             printer_id = row["id"]
             name = row["name"]
             host = row["api_host"]
-            api_key_raw = row["api_key"] or ""
-
-            # Decrypt credentials if encrypted (same as Moonraker)
-            username = "maker"
-            password = ""
-            api_key = ""
-            if api_key_raw:
-                try:
-                    from core.crypto import decrypt
-                    decrypted = decrypt(api_key_raw)
-                    # Format: "username|password" or just "api_key"
-                    if "|" in decrypted:
-                        username, password = decrypted.split("|", 1)
-                    else:
-                        api_key = decrypted
-                except Exception:
-                    # Not encrypted or decrypt failed — use as raw API key
-                    api_key = api_key_raw
+            username, password, api_key = _credentials(row["api_key"] or "")
 
             t = PrusaLinkMonitorThread(
                 printer_id=printer_id,
@@ -413,35 +434,17 @@ if __name__ == "__main__":
     from core.interfaces.filament_ownership import log_external_filament_accounting
     log_external_filament_accounting(log)
 
-    _running = True
+    shutdown = threading.Event()
 
     def _shutdown(signum, frame):
-        global _running
         log.info(f"Received signal {signum}, shutting down PrusaLink monitors...")
-        _running = False
+        shutdown.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Daemon mode: keep running even if no printers exist yet.
-    threads = []
-    while _running:
-        threads = start_prusalink_monitors()
-        if not threads:
-            log.info("No PrusaLink printers found in database — sleeping 60s")
-            try:
-                time.sleep(60)
-            except (KeyboardInterrupt, SystemExit):
-                break
-            continue
-
-        log.info(f"Monitoring {len(threads)} PrusaLink printer(s)")
-        try:
-            while _running:
-                time.sleep(60)
-        except (KeyboardInterrupt, SystemExit):
-            break
-
-    for t in threads:
-        t.stop()
+    # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
+    # Otherwise the monitors start once (retried every 60 s while none exist), as before.
+    from core.license_monitor import run_monitor_process
+    run_monitor_process(engine, _inventory, _session, start_prusalink_monitors, 'PrusaLink', shutdown, log)
     log.info("PrusaLink monitor daemon stopped.")

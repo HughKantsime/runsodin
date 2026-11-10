@@ -23,8 +23,9 @@ def admitted_range(value,size):
     return start,end,206
 
 class AdmittedFDResponse(Response):
-    def __init__(self,fd,*,size,range_header=None,head=False,filename=None):
+    def __init__(self,fd,*,size,range_header=None,head=False,filename=None,authorize=None):
         self.fd=fd
+        self.authorize=authorize
         try:
             self.original=os.fstat(fd);self.start,self.end,code=admitted_range(range_header,size)
             self.head=head;self.deadline=time.monotonic()+300
@@ -37,12 +38,23 @@ class AdmittedFDResponse(Response):
         fd,self.fd=self.fd,None
         if fd is not None:os.close(fd)
     async def __call__(self,scope,receive,send):
+        started = asyncio.Event()
         async def send_bounded(message):
             remaining=self.deadline-time.monotonic()
             if remaining<=0:raise TimeoutError('Media lease expired')
             await asyncio.wait_for(send(message),min(30,remaining))
         async def deliver():
+            if self.authorize is not None:
+                from core.license_lock import LicenseLockError
+                from starlette.responses import JSONResponse
+                try:
+                    await asyncio.to_thread(self.authorize)
+                except LicenseLockError as exc:
+                    await JSONResponse(status_code=exc.status_code, content={'detail': exc.detail},
+                                       headers=exc.headers)(scope, receive, send_bounded)
+                    return
             await send_bounded({'type':'http.response.start','status':self.status_code,'headers':self.raw_headers})
+            started.set()
             position=self.start;left=max(0,self.end-self.start+1)
             while left and not self.head:
                 now=os.fstat(self.fd)
@@ -57,9 +69,15 @@ class AdmittedFDResponse(Response):
         async def disconnected():
             while True:
                 if (await receive())['type']=='http.disconnect':return
+        async def revalidate():
+            await started.wait()
+            while True:
+                await asyncio.sleep(1)
+                await asyncio.to_thread(self.authorize)
         tasks=[]
         try:
             tasks=[asyncio.create_task(deliver()),asyncio.create_task(disconnected())]
+            if self.authorize is not None:tasks.append(asyncio.create_task(revalidate()))
             done,_=await asyncio.wait(tasks,return_when=asyncio.FIRST_COMPLETED)
             for task in done:task.result()
         finally:

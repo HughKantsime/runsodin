@@ -362,7 +362,7 @@ class Scheduler(SchedulerPlanning):
         return reset_count
 
     @staticmethod
-    def _finish_run(db: Session, result: SchedulerResult, total_jobs: int, skipped):
+    def _finish_run(db: Session, result: SchedulerResult, total_jobs: int, skipped, before_commit=None):
         from modules.notifications.alert_dispatcher import lock_queue_alert, stage_alert, deliver_staged_alert
         plans = []
         from modules.printers.services import KOBRA_DISPATCH_DETAIL
@@ -400,6 +400,8 @@ class Scheduler(SchedulerPlanning):
             skipped_count=result.skipped_count, setup_blocks=result.setup_blocks,
             avg_match_score=result.avg_match_score, avg_job_duration=result.avg_duration,
             notes="; ".join(result.errors[:5]) if result.errors else None))
+        if before_commit is not None:
+            before_commit()  # after every row lock this run takes; may raise to discard the run
         db.commit()
         for plan in plans:
             deliver_staged_alert(db, plan)

@@ -23,6 +23,18 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "sqlite-provider-only",
         "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",
     ),
+    "backend/core/license_lock.py": (
+        "sqlite-provider-only",
+        "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
+    ),
+    "backend/core/sql_write_shape.py": (
+        "dialect-neutral",
+        "SQL write-shape regular expressions (INSERT OR ..., quoted identifiers) inspect statement text for runtime guards; this helper performs no database operations.",
+    ),
+    "backend/modules/system/backup_api_export.py": (
+        "sqlite-provider-only",
+        "SQLite backup export scrubs license keys from a private file copy (secure_delete PRAGMA, DELETE, VACUUM) before download; PostgreSQL exports go through pg_dump/pg_restore.",
+    ),
     "backend/core/schema/audit_siem_gaps.py": ("sqlite-provider-only", "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers."),
     "backend/core/audit_snapshot.py": ("sqlite-provider-only", "SQLite read-only snapshots use query_only and explicit BEGIN; PostgreSQL uses REPEATABLE READ READ ONLY."),
     "backend/core/audit_integrity.py": ("sqlite-provider-only", "SQLite registers a SHA-256 UDF; PostgreSQL uses native SHA-256 with the same length-prefixed UTF-8 encoding."),

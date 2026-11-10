@@ -156,8 +156,19 @@ def run(module, printer_id, purpose, *, physical_id=None, expected=None, timer=N
             from modules.printers.power_authority import ManualPowerAuthority
             if type(authority) is not ManualPowerAuthority:
                 return None
+        def licensed():
+            # Checked before any lock and again in fresh(), outside the DB
+            # transaction, immediately before the plug command (B2b-2).
+            from core import license_lock
+            from core.db import concrete_engine
+            if not license_lock.enabled():
+                return True
+            bound = concrete_engine(module.engine)  # ORM sessions never bind the live proxy
+            if purpose == 'cooldown_off':
+                return license_lock.completion_allowed(bound, printer_id, physical_id, 'cooldown_off')
+            return license_lock.printer_refusal(bound, printer_id) is None
         initial = _snapshot(module, printer_id, purpose, physical_id)
-        if initial is None:
+        if initial is None or not licensed():
             return None
         facts, config = initial
         if authority is not None:
@@ -175,7 +186,7 @@ def run(module, printer_id, purpose, *, physical_id=None, expected=None, timer=N
         if not acquired:
             return None
         def fresh():
-            return (time.monotonic() < deadline and handle.held()
+            return (time.monotonic() < deadline and handle.held() and licensed()
                     and (timer is None or module._cooldown_timers.get(printer_id) is timer)
                     and _snapshot(module, printer_id, purpose, physical_id) == initial
                     and (authority is None or authority.valid())

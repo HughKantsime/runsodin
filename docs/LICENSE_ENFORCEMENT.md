@@ -1,8 +1,9 @@
-# Offline license enforcement (slice A)
+# Offline license enforcement (slice A and disabled B1)
 
-Applies to gaps 1, 3, 4 and 6 in the license-enforcement spec. This change does
-not lock existing excess printers/users (slice B), revoke existing sessions, or
-change the trial portal policy (gap 5). No schema migration is required.
+Slice A applies to gaps 1, 3, 4 and 6 in the license-enforcement spec. With the
+B1 rollout flag left off, existing excess printers/users remain unlocked and
+sessions retain their existing behavior. The trial portal policy (gap 5) is
+unchanged. No schema migration is required.
 
 ## Clock and expiry
 
@@ -102,3 +103,111 @@ RBAC denials do not trigger a refresh. Requests coalesce, timers handle long
 licenses without overflow, and unmount removes timers/listeners. If browser
 time is ahead of server time, an already elapsed deadline retries at most once
 per minute; backend checks remain authoritative.
+
+
+## B1 policy control plane (disabled by default)
+
+`ODIN_LICENSE_FLEET_LOCK_ENABLED` defaults off. B1 does not enable install-wide
+seat or printer enforcement. B2 hardware admission/attempt tracking and B3
+stream revocation/UI are prerequisites to rollout. A paid
+lapse gets the same lock as a trial lapse (Shane, 2026-11-08);
+`ODIN_LICENSE_PAID_LAPSE_ENABLED=false` is an explicit off switch. Restricted
+recovery sessions and explicit Community-downgrade enforcement are hard disabled
+pending their decisions. Until Shane decides the restricted-session policy, a
+signed zero-seat license keeps the designated active local recovery superadmin
+authorized, including login and license replacement. Other users remain locked.
+Full access for that recovery principal is deliberate until Shane decides restricted recovery.
+This temporary safety exception does not allocate a seat or enable restricted
+recovery sessions.
+
+The policy and private evidence use existing `system_config` keys
+`license_active_selection` (schema 2), `license_lock_evidence` (schema 1), and
+the monotonic `license_lock_revision` counter.
+The evidence contains the signed envelope and must stay out of public APIs,
+logs and audits. Selection GET/PUT requires an interactive platform superadmin;
+PUT atomically supplies both ordered lists and `expected_revision`. A concurrent
+edit returns 409 and requires a new read/edit. `recovery_user_id` enables an
+atomic handoff to another active local-password platform admin.
+
+A missing previously accepted artifact is uncertainty, never proof of lapse.
+While the license cannot be verified, ODIN freezes the last proven entitlement
+with no time limit (Shane, 2026-11-08: "stay locked", clarified as "freeze
+last-good"). A valid, unlocked install keeps its caps and a locked install stays
+locked. Uncertainty never adds locks and never removes them; only fresh
+verification or a known expiry changes the state. Picks remain saved and status
+keeps warning. An install with no proven entitlement keeps Slice A/Community
+semantics.
+
+The spec's **ODIN Dev decision (2026-11-08)** supersedes section 2's cold-boot gap
+rule: downtime and suspend alone never create clock uncertainty. Only forward
+jumps observed within a running process (wall time advancing over
+24 hours faster than suspend-aware elapsed time) are quarantined. A five-second
+window of agreeing wall/elapsed deltas clears a forward-jump quarantine. Cold
+boots and normal suspend/sleep intervals are not clock errors, regardless of
+downtime length. Linux CLOCK_BOOTTIME and macOS mach_continuous_time include
+suspend. Older restored checkpoint copies do not quarantine a current clock;
+checkpoints in the future and wall rollback still require clock correction.
+Continuous elapsed passage through the signed deadline still proves expiry.
+An otherwise plausible first-seen host clock remains an offline trust limitation.
+
+Public license status never reconciles policy or persists clock checkpoints.
+Selection reads do not rewrite private evidence. Verified evidence checkpoints
+are throttled to five minutes; issuing sessions with unchanged policy does not
+rewrite evidence or the policy row (PostgreSQL issuances share a read lock).
+WebSocket admission checks fresh policy. One manager heartbeat shares a
+revision-checked snapshot across all sockets each second; broadcasts reuse
+those decisions and temporary policy outages retain each admitted decision.
+
+With fleet locking off, every backup format uses the previous download behavior,
+without privacy inspection or a database copy. With locking enabled, SQLite
+backup downloads redact all `license_lock_*` keys and `license_active_selection`
+from a temporary copy; on-host backups are unchanged.
+Native PostgreSQL backups containing those keys are refused for HTTP download
+and require on-host recovery. The native archive is inspected with `pg_restore`;
+an unavailable inspector produces a temporary error, never an unchecked download.
+Other historical formats pass through unchanged; scrubbing makes no claim about
+formats it cannot interpret. Preparation (including SQLite rebuilds and bundle
+creation) runs in a bounded background queue. The download endpoint returns 202
+with Retry-After while preparing; the UI polls using the same authorization and
+controlled-data acknowledgement. At most eight live jobs (two running workers)
+are admitted; completed jobs do not consume that cap. Up to eight prepared
+artifacts wait for polling, with older ready artifacts evicted and deleted.
+Unpolled jobs expire after 15 minutes without needing another request; queued
+work is cancelled and running work deletes its result when it finishes.
+Temporary files are deleted after download completion, failure or cancellation,
+and on expiry or eviction.
+`backup.downloaded` is recorded only after preparation succeeds, before sending
+the artifact; pending and refused exports never produce that event.
+
+Payload compatibility remains the Slice A contract regardless of B1 evidence
+classification: missing/null optional identity fields and tier-default caps and
+features retain their historical meaning. Absent `licensee` is also accepted.
+Stronger schema checks may withhold B1 evidence, but cannot revoke a legacy
+entitlement. Expired payloads retain Slice A's Community feature fallback.
+
+## B2c monitor retirement (fleet locking on)
+
+Each printer monitor daemon (Bambu, Moonraker, PrusaLink, Elegoo, Anycubic)
+starts sessions only for printers the license lets it monitor: selected printers,
+plus a newly locked printer while its exempt attempt grants monitoring. It never
+stops a session in-process. A dedicated thread reads a fresh policy every 2 s on
+its own bounded connection (1 s lock wait); if a printer with a session
+(connected, connecting or retrying) is no longer allowed, or the policy stays
+unreadable for more than 5 s while sessions exist, the daemon logs one line and
+exits with code 75. Every 10 s an inventory pass does the same for a session whose
+printer was removed, deactivated or had its connection settings (protocol, host,
+port, serial, credential) changed, and starts new or newly allowed printers in
+place. supervisord (`autorestart=true`, `startsecs=0`) restarts the daemon, which
+starts only allowed printers; with an unreadable policy it starts nothing and
+retries. Exiting closes every socket and ends every thread, whatever it holds.
+Other printers on the same daemon reconnect after a few seconds, as after any
+restart, and the Bambu command channel is unavailable meanwhile. Commands already
+sent before the exit can still complete. With fleet locking off the daemons keep
+their previous behaviour and never read the policy.
+
+Smart-plug completion work (cooldown auto-off and the final energy reading) runs
+in the monitor process, so a restart loses work still pending, as after any ODIN
+restart: the plug stays on and the print's energy is unknown. A license
+retirement restarts the daemon, so it can lose that work for every printer on the
+same daemon. Durable completion actions (completion-time plug identity, shared
+command ownership with dispatch exclusion) are a separate roadmap item.

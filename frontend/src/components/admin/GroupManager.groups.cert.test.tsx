@@ -121,7 +121,10 @@ const WIRE: any = {
   "binding_present": false,
   "binding_matches_current": false,
   "license_sha256": "b6afa8b2829680d87de0cd998e54611b61c9c1c33c490497c67f0e937fc86eb4",
-  "device_bound": false
+  "device_bound": false,
+  "fleet_lock_rollout_enabled": false,
+  "time_confidence": "trusted",
+  "verification_state": "verified_current"
  }
 }
 // WIRE-END

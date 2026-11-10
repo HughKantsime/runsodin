@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import text
 
 # Resolved at use time: never a stale engine bound at import.
-from core.db import live_engine as engine
+from core.db import live_engine as engine, concrete_engine
 import core.crypto as crypto
 from modules.printers import plug_http_protocol
 
@@ -388,6 +388,11 @@ def prepare_bounded_dispatch_power(printer_id, deadline):
             connection = get_power_connection_snapshot()
             if connection is None:
                 return failure
+        from core import license_lock
+        if license_lock.printer_refusal(concrete_engine(engine), printer_id) is not None:
+            # Rechecked right before the plug command: a selection change after the
+            # dispatch entry check must not power on a newly locked printer.
+            return PowerPreparation(False, True, error='This printer is not in the active license selection; no command was sent')
         attempt = bounded_power_on(config, deadline, connection)
         current = get_plug_config(printer_id, include_storage_identity=True)
         if (not current or not current['auto_on'] or _plug_identity(current) != identity
@@ -459,10 +464,13 @@ def _unfenced_on_print_start(printer_id: int, *, print_job_id=None):
                 ), {"pid": printer_id}).first()
             if claimed is not None:
                 return
+            from core import license_lock
+            if license_lock.printer_refusal(concrete_engine(engine), printer_id) is not None:
+                return  # never auto-on a printer outside the license selection
             power_on(printer_id)
 
 
-def _unfenced_on_print_complete(printer_id: int):
+def _unfenced_on_print_complete(printer_id: int, *, print_job_id=None):
     """Schedule an identity-guarded off; cancellation cannot undo sent commands."""
     with _printer_power_lock(printer_id):
         previous = _cooldown_timers.pop(printer_id, None)
@@ -483,8 +491,10 @@ def _unfenced_on_print_complete(printer_id: int):
                     return
                 try:
                     current = get_plug_config(printer_id)
+                    from core import license_lock
                     if (current and current["auto_off"] and _plug_identity(current) == identity
-                            and _auto_off_safe(printer_id)):
+                            and _auto_off_safe(printer_id)
+                            and license_lock.completion_allowed(concrete_engine(engine), printer_id, print_job_id, 'cooldown_off')):
                         power_off(printer_id, expected_config=identity)
                 except Exception:
                     log.warning("Automatic power-off could not be completed")
@@ -530,7 +540,7 @@ def on_print_complete(printer_id: int, *, print_job_id=None):
     """Keep legacy timers; Tasmota OFF requires physical observation authority."""
     config = get_plug_config(printer_id)
     if config and config["type"] in ("homeassistant", "mqtt"):
-        return _unfenced_on_print_complete(printer_id)
+        return _unfenced_on_print_complete(printer_id, print_job_id=print_job_id)
     # For Tasmota, bare IDs schedule inert metadata and never authorize OFF.
     from modules.printers.power_fence import run, _snapshot
     import sys
@@ -598,7 +608,14 @@ def _energy_counter(printer_id: int) -> Optional[float]:
     return float(value)
 
 
+def _energy_licensed(printer_id, print_job_id):
+    from core import license_lock
+    return license_lock.completion_allowed(concrete_engine(engine), printer_id, print_job_id, 'energy')
+
+
 def record_energy_start(printer_id: int, print_job_id: int) -> None:
+    if not _energy_licensed(printer_id, print_job_id):
+        return
     reading = _energy_counter(printer_id)
     if reading is None:
         return
@@ -623,6 +640,8 @@ def record_energy_for_print(printer_id: int, print_job_id: int) -> Optional[floa
                 _energy_ended.pop(next(iter(_energy_ended)))
             _energy_ended[print_job_id] = time.monotonic()
     if start is None or start[0] != printer_id:
+        return None
+    if not _energy_licensed(printer_id, print_job_id):
         return None
     end_kwh = _energy_counter(printer_id)
     if end_kwh is None or end_kwh < start[1]:

@@ -15,6 +15,9 @@ import os
 import re
 import uuid
 import tempfile
+import time
+import threading
+import stat as stat_module
 from datetime import datetime, date, time as datetime_time, timezone
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -130,9 +133,14 @@ from core.license_info import LicenseInfo
 
 def _find_license_file() -> Optional[str]:
     """Look for a license file in known locations."""
+    def is_file(path):
+        try:
+            return stat_module.S_ISREG(os.stat(path).st_mode)
+        except FileNotFoundError:
+            return False
     explicit_path = os.environ.get("ODIN_LICENSE_FILE", "").strip()
     if explicit_path:
-        return explicit_path if os.path.isfile(explicit_path) else None
+        return explicit_path if is_file(explicit_path) else None
     search_paths = [
         os.path.join(LICENSE_DIR, LICENSE_FILENAME),
         os.path.join(os.path.dirname(__file__), LICENSE_FILENAME),
@@ -140,7 +148,7 @@ def _find_license_file() -> Optional[str]:
         os.path.join("/data", LICENSE_FILENAME),
     ]
     for path in search_paths:
-        if os.path.isfile(path):
+        if is_file(path):
             return path
     return None
 
@@ -199,14 +207,16 @@ def license_clock():
 
 def load_license() -> LicenseInfo:
     """Load and validate the installed license file."""
-    path = _find_license_file()
-    if not path:
-        return LicenseInfo()
     try:
+        path = _find_license_file()
+        if not path:
+            return LicenseInfo()
         with open(path) as stream:
             raw = stream.read().strip()
     except Exception:
         info = LicenseInfo()
+        info.verification_state = "verification_unavailable"
+        info.reason_code = "artifact_read_failed"
         info.error = "Failed to read license file"
         return info
     # Verification must never create identity files.
@@ -272,6 +282,8 @@ TRIAL_DEVICE_MISMATCH = "This trial license was issued to a different device key
 def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_reader=None) -> LicenseInfo:
     """Verify candidate bytes using runtime rules, without installing a file."""
     info = LicenseInfo()
+    info.verification_state = "verification_unavailable"
+    info.reason_code = "invalid_artifact"
     installation_id_reader = installation_id_reader or _read_existing_installation_id
     device_pubkey_reader = device_pubkey_reader or _read_existing_device_pubkey
     try:
@@ -291,6 +303,7 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
 
         # Verify signature
         if not _verify_signature(payload_bytes, sig_bytes):
+            info.reason_code = "signature_invalid"
             info.error = "Invalid license signature"
             return info
 
@@ -317,6 +330,8 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
         if payload_install_id:
             info.binding_matches_current = payload_install_id == installation_id_reader()
             if not info.binding_matches_current:
+                info.reason_code = "binding_mismatch"
+                info.binding_result = "mismatch"
                 info.error = "License is bound to a different installation"
                 return info
         elif license_binding_is_required():
@@ -351,39 +366,50 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
             info.error = TRIAL_DEVICE_MISMATCH
             return info
 
-        # Check expiry
+        # Compatibility is the Slice A acceptance contract. Stronger B1 schema
+        # checks classify evidence only; they cannot revoke legacy entitlements.
+        from core.license_clock import instant
+        issued = payload.get("issued_at", "")
         expires = _license_expiry_deadline(payload["expires_at"])
-        now, rollback = license_clock().sample()
-        clock_error = license_clock().error(payload.get("issued_at", ""), sample=(now, rollback))
-        if clock_error or now >= expires:
-            info.valid = False
-            info.expired = True
-            info.error = clock_error or f"License expired on {payload['expires_at']}"
-            # Still set tier info so UI can show "expired Pro" vs "no license"
-            info.tier = payload["tier"]
-            info.licensee = payload.get("licensee", "")
-            info.expires_at = payload["expires_at"]
-            info.trial = is_trial
-            # Fall back to community features
-            info.max_printers = TIERS["community"]["max_printers"]
-            info.max_users = TIERS["community"]["max_users"]
-            info.features = TIERS["community"]["features"]
-            return info
-
-        # The license portal signs "features": null when the admin leaves the
-        # feature list blank; null means "tier default", exactly like an
-        # absent field. Any other non-list value is malformed.
+        sample = license_clock().sample()
+        clock_error = license_clock().error(issued, sample=sample)
+        expired = bool(clock_error) or sample[0] >= expires
         payload_features = payload.get("features")
-        if payload_features is not None and not (
+        features_valid = payload_features is None or (
             isinstance(payload_features, list)
             and all(isinstance(feature, str) for feature in payload_features)
-        ):
+        )
+        # Slice A classified expiry before checking the feature-list shape.
+        if not expired and not features_valid:
             info.error = "License contains an invalid feature list"
             return info
+        try:
+            info.issue_deadline = instant(issued) if issued not in ("", None) else None
+            evidence_valid = (
+                payload["tier"] in TIERS
+                and isinstance(payload.get("licensee", ""), (str, type(None)))
+                and ("schema_version" not in payload or
+                     type(payload["schema_version"]) is int and payload["schema_version"] == 1)
+                and all(payload.get(field) is None or
+                        type(payload[field]) is int and payload[field] >= 0
+                        for field in ("max_printers", "max_users"))
+                and all(payload.get(field) is None or isinstance(payload[field], str)
+                        for field in ("key", "email", "installation_id"))
+                and (info.issue_deadline is None or expires > info.issue_deadline)
+                and features_valid
+            )
+        except (ValueError, TypeError):
+            evidence_valid = False
 
         # Valid license
         tier = payload["tier"]
-        tier_def = TIERS.get(tier, TIERS["community"])
+        try:
+            tier_def = TIERS.get(tier, TIERS["community"])
+        except TypeError:
+            if not expired:
+                raise
+            # Slice A returned expired before indexing even an unhashable tier.
+            tier_def = TIERS["community"]
 
         info.valid = True
         info.tier = tier
@@ -407,14 +433,43 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
             # features, education_workflows included for Education/Enterprise.
             # An explicit list must still name education_workflows.
             info.features = list(tier_def["features"])
+        info.time_confidence = "uncertain" if clock_error else "trusted"
+        if evidence_valid:
+            info.signed_tier, info.signed_trial = tier, is_trial
+            info.signed_max_printers, info.signed_max_users = info.max_printers, info.max_users
+            info.verified_digest = info.license_sha256
+            info.signed_envelope = raw
+            info.binding_result = "matched" if info.binding_present else "not_required"
+            info.binding_digest = hashlib.sha256(json.dumps(
+                [installation_id_reader(), device_pubkey_reader()], separators=(",", ":")
+            ).encode()).hexdigest()
+            info.verification_state = "verified_current"
+            info.reason_code = "current"
+        if clock_error or sample[0] >= expires:
+            info.valid = False
+            # Compatibility: Slice A treats clock refusal as expired for feature gates.
+            info.expired = True
+            if evidence_valid:
+                info.verification_state = "verification_unavailable" if clock_error else "verified_expired"
+                info.reason_code = "clock_uncertain" if clock_error else "deadline_reached"
+            info.error = clock_error or f"License expired on {payload['expires_at']}"
+            info.max_printers = TIERS["community"]["max_printers"]
+            info.max_users = TIERS["community"]["max_users"]
+            info.features = TIERS["community"]["features"]
+            return info
         info.expired = False
 
         return info
 
     except json.JSONDecodeError:
+        info.valid = False
         info.error = "License file contains invalid data"
         return info
     except Exception:
+        info.valid = False
+        info.verification_state = "verification_unavailable"
+        info.verified_digest = None
+        info.binding_digest = None
         info.error = "License file contains invalid data"
         return info
 
@@ -537,44 +592,79 @@ _cached_mtime: float = 0
 _cached_identity = None
 
 
-def get_license() -> LicenseInfo:
-    """Get the current license, with caching. Reloads if file changed."""
+_cache_lock = threading.RLock()
+_cache_checked = 0.0
+_cache_verified = 0.0
+_cache_retry = 0.0
+_cache_failures = 0
+_cache_file_identity = None
+
+
+def get_license(*, persist_clock=True) -> LicenseInfo:
+    """Bounded local cache: metadata <=1s, content <=30s, errors 1/5/15/30s."""
     global _cached_license, _cached_mtime, _cached_identity
-
-    license_path = _find_license_file()
-    current_mtime = os.path.getmtime(license_path) if license_path else 0
-
-    # Hash identity contents, not mtimes: restores can preserve timestamps.
-    identity = []
-    for name in (INSTALL_ID_FILENAME, DEVICE_PRIVATE_KEY_FILENAME):
+    global _cache_checked, _cache_verified, _cache_retry, _cache_failures, _cache_file_identity
+    with _cache_lock:
+        tick = time.monotonic()
+        cached = _cached_license
+        sample = license_clock().sample(issued_at=cached.issued_at) if cached is not None else (license_clock().wall(), False)
+        deadline = bool(cached and cached.valid and cached.expiry_deadline and sample[0] >= cached.expiry_deadline)
+        clock_changed = bool(cached and cached.time_confidence != "unavailable" and (sample[1] != (cached.time_confidence == "uncertain")))
+        from core.license_lock import enabled
+        if enabled() and cached is not None and tick - _cache_checked < 1 and not deadline and not clock_changed:
+            return cached
+        _cache_checked = tick
         try:
-            with open(os.path.join(LICENSE_DIR, name), "rb") as stream:
-                identity.append(hashlib.sha256(stream.read()).digest())
-        except OSError:
-            identity.append(None)
-    identity = tuple(identity)
-
-    clock_sample = license_clock().sample(persist=True)
-    clock_changed = (
-        _cached_license is not None and (
-            bool(license_clock().error(_cached_license.issued_at, sample=clock_sample))
-            or bool(_cached_license.error and _cached_license.error.startswith("License clock"))
-        )
-    )
-
-    # A valid license that reaches its expiry instant while cached is re-read
-    # (and so reverts to Community) without waiting for a file change or restart.
-    expired_in_cache = (
-        _cached_license is not None and _cached_license.valid
-        and _cached_license.expiry_deadline is not None
-        and clock_sample[0] >= _cached_license.expiry_deadline
-    )
-    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache or clock_changed or identity != _cached_identity:
-        _cached_license = load_license()
-        _cached_mtime = current_mtime
-        _cached_identity = identity
-
-    return _cached_license
+            path = _find_license_file()
+            stat = os.stat(path) if path else None
+            file_identity = (path, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) if stat else None
+            identity = []
+            for name in (INSTALL_ID_FILENAME, DEVICE_PRIVATE_KEY_FILENAME):
+                try:
+                    with open(os.path.join(LICENSE_DIR, name), "rb") as stream:
+                        identity.append(hashlib.sha256(stream.read()).digest())
+                except FileNotFoundError:
+                    identity.append(None)
+            identity = tuple(identity)
+            retry = bool(cached and cached.verification_state == "verification_unavailable" and tick >= _cache_retry)
+            if cached is None or file_identity != _cache_file_identity or identity != _cached_identity or deadline or clock_changed or retry or tick - _cache_verified >= 30:
+                _cached_license = load_license()
+                if _cached_license.verification_state == "community_initial" and enabled():
+                    # The private store distinguishes deliberate removal from a
+                    # missing previously accepted file, including after restart.
+                    from core.db import current_engine
+                    from sqlalchemy import text
+                    try:
+                        with current_engine().connect() as connection:
+                            intent = connection.execute(text("SELECT value FROM system_config WHERE key='license_lock_removal_intent'")).scalar()
+                            stored = intent or connection.execute(text("SELECT value FROM system_config WHERE key='license_lock_evidence'")).scalar()
+                        evidence = json.loads(stored) if isinstance(stored, str) else stored
+                    except Exception:
+                        evidence = None
+                    if isinstance(evidence, dict) and evidence.get("community_selected"):
+                        _cached_license.verification_state = "community_selected"
+                        _cached_license.reason_code = "explicit_community_selection"
+                    elif evidence or cached and cached.verified_digest:
+                        _cached_license.verification_state = "verification_unavailable"
+                        _cached_license.reason_code = "accepted_artifact_missing"
+                _cache_verified = tick
+                _cache_file_identity, _cached_identity = file_identity, identity
+                _cached_mtime = stat.st_mtime if stat else 0
+            if _cached_license.verification_state == "verification_unavailable":
+                if _cache_verified == tick:
+                    _cache_retry = tick + (1, 5, 15, 30)[min(_cache_failures, 3)]
+                    _cache_failures += 1
+            else:
+                _cache_failures = 0
+                license_clock().sample(persist=persist_clock, issued_at=_cached_license.issued_at)
+        except (OSError, ValueError, TypeError):
+            _cached_license = LicenseInfo()
+            _cached_license.verification_state = "verification_unavailable"
+            _cached_license.reason_code = "storage_or_identity_unavailable"
+            _cached_license.error = "License storage or binding identity is unavailable"
+            _cache_retry = tick + (1, 5, 15, 30)[min(_cache_failures, 3)]
+            _cache_failures += 1
+        return _cached_license
 
 
 def require_feature(feature: str):

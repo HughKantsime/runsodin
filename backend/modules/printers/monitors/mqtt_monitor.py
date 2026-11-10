@@ -51,15 +51,15 @@ class MQTTMonitorDaemon:
         self.monitors: Dict[int, PrinterMonitor] = {}
         self._running = False
 
-    def load_printers(self):
-        """Load Bambu printers from database."""
+    def load_printers(self, bind=None):
+        """Load Bambu printers from database (bind: an engine; default the shared one)."""
         # Get encryption key
         key = os.environ.get('ENCRYPTION_KEY')
         if not key:
             log.error("ENCRYPTION_KEY not set")
             return []
 
-        with engine.connect() as conn:
+        with (bind or engine).connect() as conn:
             result = conn.execute(text('''
                 SELECT id, name, model, api_host, api_key
                 FROM printers
@@ -115,9 +115,9 @@ class MQTTMonitorDaemon:
 
         return printers
 
-    def load_moonraker_printers(self):
-        """Load Moonraker-based printers from database."""
-        with engine.connect() as conn:
+    def load_moonraker_printers(self, bind=None):
+        """Load Moonraker-based printers from database (bind: an engine; default the shared one)."""
+        with (bind or engine).connect() as conn:
             result = conn.execute(text("""
                 SELECT id, name, api_host
                 FROM printers
@@ -162,7 +162,18 @@ class MQTTMonitorDaemon:
             self._command_server = None
             log.warning("Monitor command channel unavailable (%s)", type(exc).__name__)
         self._running = True
-        printers = self.load_printers()
+        from core import license_lock
+        licensed = license_lock.enabled()
+        if licensed:
+            # Restart retirement (B2c): the license pass runs on its own thread,
+            # independent of the synchronous connects in this loop; the first
+            # inventory pass (_licensed_pass) starts the allowed printers.
+            from core.license_monitor import Retirement, INVENTORY_SECONDS
+            # The removal/reconfiguration check also runs on its own thread (inventory=),
+            # so a connect hung in this loop cannot delay it.
+            self._retirement = Retirement(engine, 'Bambu', log,
+                                          inventory=self._session_fingerprints).start()
+        printers = [] if licensed else self.load_printers()
 
         if not printers:
             log.info("No printers found yet, waiting for printers to be added...")
@@ -184,7 +195,7 @@ class MQTTMonitorDaemon:
 
         # Start Moonraker monitors
         if MOONRAKER_AVAILABLE:
-            mk_printers = self.load_moonraker_printers()
+            mk_printers = [] if licensed else self.load_moonraker_printers()
             if mk_printers:
                 log.info(f"Starting {len(mk_printers)} Moonraker monitor(s)")
                 for p in mk_printers:
@@ -207,7 +218,9 @@ class MQTTMonitorDaemon:
         else:
             self._all_moonraker = []
         self._last_reconnect_check = time.time()
-        self._last_printer_reload = time.time()
+        self._last_printer_reload = 0.0 if licensed else time.time()
+        reload_every = INVENTORY_SECONDS if licensed else 60
+        refresh = self._licensed_pass if licensed else self._check_new_printers
 
         try:
             while self._running:
@@ -218,8 +231,9 @@ class MQTTMonitorDaemon:
                     self._last_reconnect_check = time.time()
 
                 # Every 60s, bring the monitored set in line with the table
-                if time.time() - self._last_printer_reload >= 60:
-                    self._check_new_printers()
+                # (license fleet lock enabled: every 10 s, see _licensed_pass)
+                if time.time() - self._last_printer_reload >= reload_every:
+                    refresh()
                     self._last_printer_reload = time.time()
 
                 # Every 5 min, rebuild the go2rtc config: camera hosts are
@@ -293,6 +307,53 @@ class MQTTMonitorDaemon:
                         log.info(f"[{p['name']}] Connected")
                 except Exception as e:
                     log.warning(f"[{p['name']}] {kind} connect failed; retry next pass: {type(e).__name__}")
+
+    def _licensed_inventory(self, bind=None):
+        """{printer_id: (fingerprint, kind, attr, row, factory)}; raises if any family fails to load."""
+        from core.license_monitor import connection_fingerprint
+        inventory = {}
+        for kind, attr, load, keys, factory in self._families():
+            for p in load(bind=bind):
+                fingerprint = connection_fingerprint(kind, *(p.get(k) for k in keys))
+                inventory[p['id']] = (fingerprint, kind, attr, p, factory)
+        return inventory
+
+    def _session_fingerprints(self, bind):
+        """Retirement's inventory source: read on its bounded engine (own connection, short timeouts)."""
+        return {pid: entry[0] for pid, entry in self._licensed_inventory(bind).items()}
+
+    def _licensed_pass(self):
+        """License fleet lock enabled (B2c): the inventory pass, every 10 s.
+
+        Sessions are never stopped in-process. A printer with a session that was
+        removed, deactivated or reconfigured ends the process (exit 75; see
+        core.license_monitor), and so does losing the license, on the retirement
+        thread. A new or newly allowed printer becomes a session here: registered
+        before its first connect, then retried by _check_reconnect like any other.
+        """
+        from core import license_lock
+        try:
+            inventory = self._licensed_inventory()
+        except Exception as e:
+            log.warning(f"printer reload failed; retry next pass: {type(e).__name__}")
+            return
+        self._retirement.check_inventory({pid: entry[0] for pid, entry in inventory.items()})
+        pending = [pid for pid in inventory if not self._retirement.has(pid)]
+        policy = self._retirement.current() if pending else None
+        for pid in pending if policy is not None else ():
+            if not license_lock.printer_allowed(policy, pid, 'M'):
+                continue
+            fingerprint, kind, attr, p, factory = inventory[pid]
+            self._retirement.add(pid, fingerprint)
+            getattr(self, attr).append(p)  # _check_reconnect retries a failed connect
+            log.info(f"[{p['name']}] Connecting {kind} monitor...")
+            try:
+                monitor = factory(p)
+                if monitor.connect():
+                    self.monitors[pid] = monitor
+                    log.info(f"[{p['name']}] Connected")
+            except Exception as e:
+                log.warning(f"[{p['name']}] {kind} connect failed; retry next check: {type(e).__name__}")
 
     def _persist_offline(self, printer_id):
         try:

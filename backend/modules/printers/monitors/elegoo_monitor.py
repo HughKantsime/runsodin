@@ -350,33 +350,54 @@ class ElegooMonitorThread(threading.Thread):
 # ------------------------------------------------------------------
 # Main — standalone daemon mode
 # ------------------------------------------------------------------
+def _mainboard(api_key):
+    # api_key stores mainboard_id for Elegoo (no auth needed)
+    if not api_key:
+        return ""
+    try:
+        from core.crypto import decrypt
+        return decrypt(api_key)
+    except Exception:
+        return api_key
+
+
+def _rows():
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='elegoo' AND api_host IS NOT NULL AND is_active IS TRUE")
+        ).mappings().fetchall()
+
+
+def _inventory():
+    """{printer_id: (fingerprint, (name, host, mainboard_id))} for license retirement (B2c)."""
+    from core.license_monitor import connection_fingerprint
+    inventory = {}
+    for row in _rows():
+        mainboard_id = _mainboard(row["api_key"])
+        inventory[row["id"]] = (connection_fingerprint("elegoo", row["api_host"], mainboard_id),
+                                (row["name"], row["api_host"], mainboard_id))
+    return inventory
+
+
+def _session(printer_id, name, host, mainboard_id):
+    log.info(f"Starting Elegoo monitor for {name} ({host})")
+    return ElegooMonitorThread(printer_id=printer_id, name=name, host=host, mainboard_id=mainboard_id)
+
+
 def start_elegoo_monitors():
     """
     Load Elegoo printers from DB and start monitor threads.
-    Called from main.py on startup.
+    License fleet lock off; see __main__.
     """
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
     threads = []
     try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='elegoo' AND api_host IS NOT NULL AND is_active IS TRUE")
-            ).mappings().fetchall()
-
-        for row in rows:
+        for row in _rows():
             printer_id = row["id"]
             name = row["name"]
             host = row["api_host"]
-            mainboard_id = ""
-
-            # api_key stores mainboard_id for Elegoo (no auth needed)
-            if row["api_key"]:
-                try:
-                    from core.crypto import decrypt
-                    mainboard_id = decrypt(row["api_key"])
-                except Exception:
-                    mainboard_id = row["api_key"]
+            mainboard_id = _mainboard(row["api_key"])
 
             t = ElegooMonitorThread(
                 printer_id=printer_id,
@@ -417,35 +438,17 @@ if __name__ == "__main__":
 
     import signal
 
-    _running = True
+    shutdown = threading.Event()
 
     def _shutdown(signum, frame):
-        global _running
         log.info(f"Received signal {signum}, shutting down Elegoo monitors...")
-        _running = False
+        shutdown.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Daemon mode: keep running even if no printers exist yet.
-    threads = []
-    while _running:
-        threads = start_elegoo_monitors()
-        if not threads:
-            log.info("No Elegoo printers found in database — sleeping 60s")
-            try:
-                time.sleep(60)
-            except (KeyboardInterrupt, SystemExit):
-                break
-            continue
-
-        log.info(f"Monitoring {len(threads)} Elegoo printer(s)")
-        try:
-            while _running:
-                time.sleep(60)
-        except (KeyboardInterrupt, SystemExit):
-            break
-
-    for t in threads:
-        t.stop()
+    # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
+    # Otherwise the monitors start once (retried every 60 s while none exist), as before.
+    from core.license_monitor import run_monitor_process
+    run_monitor_process(engine, _inventory, _session, start_elegoo_monitors, 'Elegoo', shutdown, log)
     log.info("Elegoo monitor daemon stopped.")

@@ -66,7 +66,8 @@ def test_restart_and_one_copy_restore_uses_newest(clock_env, restore):
     clock = new()
     assert clock.sample(persist=True) == (BASE, True)
     assert store.read() == BASE
-    assert json.loads(store.path.read_text())['high_water'] == BASE.isoformat()
+    # Quarantine does not rewrite either checkpoint using uncertain evidence.
+    assert json.loads(store.path.read_text())['high_water'] == (old if restore == 'file' else BASE).isoformat()
 
 
 def test_checkpoints_throttled_and_max_merge(clock_env):

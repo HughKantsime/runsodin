@@ -51,7 +51,7 @@ def backup_client(review_db, monkeypatch):
     return TestClient(app), user, live, routes_backup
 
 
-def test_admin_creates_lists_downloads_and_deletes_point_in_time_snapshot(backup_client, review_db):
+def test_admin_creates_lists_downloads_and_deletes_point_in_time_snapshot(backup_client, review_db, tmp_path):
     client, _, live, _ = backup_client
     created = client.post('/backups')
     assert created.status_code == 200, created.text
@@ -72,7 +72,10 @@ def test_admin_creates_lists_downloads_and_deletes_point_in_time_snapshot(backup
     assert download.status_code == 200
     assert download.headers['content-type'] == 'application/octet-stream'
     assert name in download.headers['content-disposition']
-    assert download.content == stored.read_bytes()
+    # HTTP exports rebuild a privacy-filtered copy; local recovery stays intact.
+    downloaded = tmp_path / 'downloaded.db'
+    downloaded.write_bytes(download.content)
+    assert _marker(downloaded) == 'before'
     assert download.content[:16] == b'SQLite format 3\x00'
     audit = review_db.execute(text("SELECT details FROM audit_logs WHERE action='backup_created'")).scalar_one()
     assert name in str(audit)

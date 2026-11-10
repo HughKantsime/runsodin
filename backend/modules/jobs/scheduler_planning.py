@@ -10,8 +10,37 @@ from modules.printers.models import Printer
 from modules.jobs.models import Job
 
 
+def _sqlite_outer_transaction(db):
+    """Open the run's outer transaction just before an Education savepoint.
+
+    pysqlite issues no BEGIN for SAVEPOINT, so a savepoint opened outside a
+    transaction commits when released and a discarded run could not undo it.
+    Taken at the first assignment write, where a generic assignment would take
+    the writer lock anyway; read-only planning before it keeps no writer lock."""
+    if db.get_bind().dialect.name == 'sqlite':
+        raw = db.connection().connection.driver_connection
+        if not raw.in_transaction:
+            db.execute(text('BEGIN IMMEDIATE'))
+
+
+class LicenseSelectionChanged(RuntimeError):
+    """An assigned printer left the license selection before this run committed."""
+
+
 class SchedulerPlanning:
     def run(self, db: Session, start_date: Optional[datetime] = None) -> "SchedulerResult":
+        """Run once; if the license selection changed under the run, discard it and run again once."""
+        for attempt in range(2):
+            try:
+                return self._run_once(db, start_date)
+            except LicenseSelectionChanged:
+                db.rollback()
+        from modules.jobs.scheduler import SchedulerResult
+        result = SchedulerResult(success=False)
+        result.errors.append('The license selection changed during scheduling; nothing was scheduled. Run the scheduler again.')
+        return result
+
+    def _run_once(self, db: Session, start_date: Optional[datetime] = None) -> "SchedulerResult":
         """
         Run the scheduler on all pending jobs.
 
@@ -25,6 +54,11 @@ class SchedulerPlanning:
         from modules.jobs.scheduler import (SchedulerResult, PrinterState, SlotAssignment,
             _printer_authority, evaluate_submission_compatibility)
         result = SchedulerResult(success=True)
+        from core import license_lock
+        if license_lock.enabled():
+            # Start from a clean transaction boundary: no lock the caller holds (the
+            # policy row in particular) is carried into this run's job-row locking.
+            db.commit()
 
         # Default start to now, rounded up to next slot
         if start_date is None:
@@ -55,6 +89,15 @@ class SchedulerPlanning:
         printers = [p for p in db.query(Printer).filter(Printer.is_active.is_(True)).all()
                     if raw_authorities.get(p.id) is not None and p.id not in claimed_printers
                     and not hold_reason(db, p.id) and not dispatch_unsupported_reason(p)]
+        from core import license_lock
+        if license_lock.enabled():
+            # New work goes only to printers in the license selection. Jobs pinned
+            # to a locked printer stay pending; they are never moved elsewhere.
+            # A plain stored read (no reconcile, no lock): the policy row is locked
+            # only by the final check, after this run's job-row locks.
+            policy = license_lock.stored_snapshot(db)
+            if policy is not None:
+                printers = [p for p in printers if license_lock.printer_allowed(policy, p.id, 'N')]
         if not printers:
             # Stale cleanup may have made an atomic Education lifecycle
             # correction even when there is no printer available for new work.
@@ -280,6 +323,8 @@ class SchedulerPlanning:
             
             if best_fit:
                 if education_context is not None:
+                    if license_lock.enabled():
+                        _sqlite_outer_transaction(db)
                     advanced = education_policy.advance_schedule(
                         db,
                         submission_id=int(education_context["id"]),
@@ -359,7 +404,17 @@ class SchedulerPlanning:
                 else:
                     result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")
         
+        def license_recheck():
+            # Fresh check (deadline included) under the policy lock, taken last: after
+            # the assignment and skipped-job alert row locks, the order printer
+            # deletion uses (job rows, then policy). Held only to the commit.
+            # A printer that left the selection discards the whole run.
+            final = license_lock.locked_snapshot(db)
+            if final is None or any(not license_lock.printer_allowed(final, a.printer_id, 'N')
+                                    for a in result.assignments):
+                raise LicenseSelectionChanged()
         # Reconcile in the same transaction as all generic state writes.
         reconcile_job_write(db, production_orders)
-        return self._finish_run(db, result, len(pending_jobs), skipped)
+        return self._finish_run(db, result, len(pending_jobs), skipped,
+                                before_commit=license_recheck if result.assignments and license_lock.enabled() else None)
 

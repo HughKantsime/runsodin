@@ -184,6 +184,8 @@ async def classroom_callback(
         )
         return RedirectResponse("/education?classroom=authorization_failed", status_code=302)
     try:
+        from core.license_lock import authorize_user
+        authorize_user(db, principal["id"], issuance=True)
         result = await complete_connection(db, state=state, code=code, principal=principal)
         log_audit(db, "classroom_connected", "classroom", details={"org_id": principal.get("group_id")})
         db.commit()
@@ -393,7 +395,10 @@ async def import_classroom_course(
     org_id = _org(principal, body.org_id)
     claimed_command: tuple[str, str] | None = None
     try:
+        from core.license_lock import authorize_user
+        authorize_user(db, principal["id"])
         roster = await get_roster(db, org_id, course_id)
+        authorize_user(db, principal["id"], issuance=True)
         desired = _desired_roster(roster)
         # Establish the request transaction before claim_command opens its
         # savepoint, so a validation failure rolls the idempotency claim back.

@@ -1,6 +1,7 @@
 """WebSocket audience enforcement and bounded event delivery."""
 import asyncio
 import logging
+import threading
 from fastapi import WebSocket
 from sqlalchemy import text
 log = logging.getLogger("odin.api")
@@ -10,13 +11,76 @@ class ConnectionManager:
 
     def __init__(self):
         self.active: list[tuple[WebSocket, dict]] = []
+        self._policy_lock = threading.Lock()
+        self._heartbeat_task = None
 
     async def connect(self, ws: WebSocket, principal: dict):
         await ws.accept()
+        principal["_license_allowed"] = True  # caller completed fresh admission
         self.active.append((ws, principal))
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(self._license_heartbeat())
 
     def disconnect(self, ws: WebSocket):
         self.active = [(active_ws, principal) for active_ws, principal in self.active if active_ws is not ws]
+
+    def policy_snapshot(self, *, cached=False):
+        from core.license_lock import enabled, snapshot
+        if not enabled():
+            return None
+        from core.db import SessionLocal
+        with self._policy_lock:
+            with SessionLocal() as db:
+                # snapshot's cache is keyed by durable revision and entitlement
+                # signature/deadline. One read per cycle detects other workers.
+                return snapshot(db)
+
+    def principal_allowed(self, principal, *, cached=False):
+        from core.license_lock import user_allowed
+        try:
+            policy = self.policy_snapshot(cached=cached)
+            allowed = policy is None or user_allowed(policy, principal.get('id'))
+            principal['_license_allowed'] = allowed
+            return allowed
+        except Exception as exc:
+            from core.license_lock import LicenseLockError
+            if isinstance(exc, LicenseLockError):
+                raise
+            raise LicenseLockError('license_policy_unavailable', status=503) from None
+
+    async def _license_heartbeat(self):
+        while self.active:
+            await asyncio.sleep(1)
+            await self.heartbeat_cycle()
+
+    async def heartbeat_cycle(self):
+        """Share one revision-checked snapshot across the whole socket audience."""
+        audience = list(self.active)
+        if not audience:
+            return
+        from core.license_lock import user_allowed
+        try:
+            policy = await asyncio.to_thread(self.policy_snapshot)
+        except Exception:
+            # An outage is not a new lock decision. Preserve each admitted
+            # principal's last decision until the next successful cycle.
+            log.warning('WebSocket license policy temporarily unavailable; retaining individual decisions')
+            return
+        denied = []
+        for ws, principal in audience:
+            allowed = policy is None or user_allowed(policy, principal.get('id'))
+            principal['_license_allowed'] = allowed
+            if not allowed:
+                denied.append(ws)
+        async def close(ws):
+            try:
+                await asyncio.wait_for(ws.close(code=4403, reason='license_user_locked'), timeout=1)
+            except Exception:
+                pass
+            finally:
+                self.disconnect(ws)
+        # A slow socket cannot multiply the cycle duration by the socket count.
+        await asyncio.gather(*(close(ws) for ws in denied))
 
     @staticmethod
     def _can_receive(principal: dict, user_ids: set[int] | None, org_id: int | None, shared: bool) -> bool:
@@ -89,8 +153,22 @@ class ConnectionManager:
         delivered = 0
         audience = list(self.active)
         from core.controlled_events import audience_messages
+        from core.license_lock import enabled
+        license_enabled = enabled()  # env read once per broadcast; never cache it longer, the rollout flag can change
         messages = await asyncio.to_thread(audience_messages, [p for _, p in audience], public_message)
         for (ws, principal), controlled_message in zip(audience, messages):
+            # Admission is fresh; ongoing delivery uses the shared heartbeat's
+            # individual decisions, never a database session per socket/event.
+            allowed = principal.get('_license_allowed')
+            if allowed is not True and license_enabled:
+                try:
+                    await asyncio.wait_for(ws.close(code=4403 if allowed is False else 1013,
+                                                    reason='license_user_locked' if allowed is False else 'license_policy_unavailable'), timeout=1)
+                except Exception:
+                    pass
+                finally:
+                    dead.append(ws)
+                continue
             if not self._can_receive(principal, user_ids, org_id, shared):
                 continue
             if not await asyncio.to_thread(self._education_principal_current, principal, message):

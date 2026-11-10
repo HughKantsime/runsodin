@@ -404,6 +404,8 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
         )
         request.state.oidc_audit_username = resolved_user["username"]
         user_id = resolved_user["id"]
+        from core.license_lock import authorize_user
+        authorize_user(db, user_id, issuance=True)
         if resolved_user.get("_created"):
             log_audit(db, "user.created", "user", user_id, {"role": "viewer"})
         user_role = resolved_user["role"]
@@ -432,7 +434,8 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
         return RedirectResponse(url=f"/?error={quote(e.code)}", status_code=302)
     except Exception as e:
         db.rollback()
-        if _is_sso_license_refusal(e):
+        from core.license_lock import LicenseLockError
+        if isinstance(e, LicenseLockError) or _is_sso_license_refusal(e):
             raise
         log.error("OIDC callback failed")
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
@@ -578,6 +581,9 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
     try:
         response = await _oidc_callback(request, code, state, error, error_description, db)
     except Exception as exc:
+        from core.license_lock import LicenseLockError
+        if isinstance(exc, LicenseLockError):
+            raise
         if _is_sso_license_refusal(exc):
             from fastapi.responses import RedirectResponse
             response = RedirectResponse("/login?error=sso_license_required", status_code=302)

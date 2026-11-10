@@ -77,7 +77,14 @@ def admitted_response(engine,root,tid,evidence,*,range_header=None,head=False,fi
                     if _facts(path,os.stat(check_name,dir_fd=check_parent,follow_symlinks=False))!=value:_refuse('object_changed')
                 db.rollback()
         owned,fd=fd,None
-        response=AdmittedFDResponse(owned,size=value.byte_count,range_header=range_header,head=head,filename=filename)
+        from core.license_lock import enabled, authorize_user
+        authorize = None
+        if enabled():
+            user_id = evidence.user_id
+            def authorize():
+                with Session(engine) as current:
+                    authorize_user(current, user_id)
+        response=AdmittedFDResponse(owned,size=value.byte_count,range_header=range_header,head=head,filename=filename,authorize=authorize)
         return response
     finally:
         if fd is not None:os.close(fd)

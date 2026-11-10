@@ -209,8 +209,11 @@ def readiness_check(db: Session = Depends(get_db)):
 @router.get("/license", tags=["License"])
 def get_license_info():
     """Get current license status. No auth required so frontend can check tier."""
-    license_info = get_license()
-    return license_info.to_public_dict()
+    license_info = get_license(persist_clock=False)
+    result = license_info.to_public_dict()
+    from core.license_lock import enabled
+    result['fleet_lock_rollout_enabled'] = enabled()
+    return result
 
 
 @router.post("/license/upload", tags=["License"])
@@ -229,6 +232,8 @@ async def upload_license(
         raise HTTPException(status_code=400, detail=license_info.error or "Invalid or expired license file")
     def audit_installation(_candidate):
         try:
+            from core.license_lock import enabled, reconcile
+            if enabled(): reconcile(db)
             log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
             db.commit()
         except Exception:
@@ -248,16 +253,9 @@ def remove_license(
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Remove the license file (revert to Community tier). Admin only."""
-    import os as _os
-    from license_manager import LICENSE_DIR, LICENSE_FILENAME
-    license_path = _os.path.join(LICENSE_DIR, LICENSE_FILENAME)
-    if _os.path.exists(license_path):
-        _os.remove(license_path)
-    import license_manager
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-    log_audit(db, "license.removed", "system", details="License removed, reverted to community tier")
-    db.commit()
+    from core.license_lock import remove_installed_license
+    remove_installed_license(db, current_user['id'], 'license.removed',
+                             details='License removed, reverted to community tier')
     return {"status": "removed", "tier": "community"}
 
 
@@ -324,6 +322,7 @@ async def activate_license(
     request: LicenseActivateRequest,
     current_user: dict = Depends(require_superadmin(scope="write")),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
+    db: Session = Depends(get_db),
 ):
     """Activate a license by key via the license server. Admin only."""
     license_server_url = settings.license_server_url
@@ -394,7 +393,13 @@ async def activate_license(
         candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
         if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
             raise HTTPException(status_code=502, detail="The portal did not return a valid device-v1 paid license. Your installed license is unchanged. Update the portal or contact support.")
-    license_info = install_portal_license(license_content)
+    def publish_activation(candidate):
+        from core.license_lock import enabled, reconcile
+        if enabled():
+            reconcile(db)
+            log_audit(db, 'license.activated', 'system', details={'tier': candidate.tier})
+            db.commit()
+    license_info = install_portal_license(license_content, after_install=publish_activation)
 
     return {
         "status": "activated", "tier": license_info.tier,
@@ -565,16 +570,9 @@ async def unactivate_license(
         detail = resp.json().get("error", "Unactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
-    # Remove local license file and clear the cache
-    from license_manager import LICENSE_DIR, LICENSE_FILENAME
-    import license_manager
-    if os.path.exists(license_path := os.path.join(LICENSE_DIR, LICENSE_FILENAME)):
-        os.remove(license_path)
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-
-    log_audit(db, "license.unactivated", "system", details={"key": license_key[:4] + "..."})
-    db.commit()
+    from core.license_lock import remove_installed_license
+    remove_installed_license(db, current_user['id'], 'license.unactivated',
+                             details={'key': license_key[:4] + '...'})
     return {"status": "unactivated", "tier": "community"}
 
 
@@ -624,6 +622,8 @@ async def reactivate_license(
         if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
             raise HTTPException(status_code=502, detail="The portal returned an invalid device-bound refresh. Your installed license is unchanged; contact support.")
     def audit_refresh(candidate):
+        from core.license_lock import enabled, reconcile
+        if enabled(): reconcile(db)
         log_audit(db, "license.reactivated", "system", details={"tier": candidate.tier, "licensee": candidate.licensee})
         db.commit()
     license_info = install_portal_license(license_content, after_install=audit_refresh)
@@ -666,14 +666,11 @@ def get_unactivation_request(
         "signature": sign_license_challenge("unactivate", current_license.key, installation_id, nonce),
     }
     content = json.dumps(payload, indent=2)
-    try:  # hands the seat over: this install stops using the license now (as online /unactivate)
-        quarantined = quarantine_installed_license()
-    except OSError:
-        raise HTTPException(status_code=503, detail="License could not be removed; no unactivation request was issued")
-    log_audit(db, "license.offline_unactivation_requested", "system", details={"quarantined": os.path.basename(quarantined or "")})
-    db.commit()
+    from core.license_lock import remove_installed_license
+    remove_installed_license(db, current_user['id'], 'license.offline_unactivation_requested')
     return _Response(
         content=content,
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="odin-unactivation-request.json"'},
     )
+

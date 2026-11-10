@@ -361,6 +361,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("POST", "/api/license/reactivate"), ("POST", "/api/license/unactivate"),
         ("POST", "/api/license/unactivation-request"), ("POST", "/api/license/upload"),
         ("POST", "/api/license/trial-request"),  # device-signed Pro trial request (cert-trial2)
+        ("PUT", "/api/license/selection"),  # superadmin-only license seat selection (B1), interactive session
         ("POST", "/api/orgs"), ("DELETE", "/api/orgs/{org_id}"), ("POST", "/api/orgs/{org_id}/printers"),
         ("PUT", "/api/permissions"), ("POST", "/api/permissions/reset"),
         ("POST", "/api/push/vapid-key/rotate"),

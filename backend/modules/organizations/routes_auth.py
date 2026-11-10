@@ -235,6 +235,8 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     if not get_fernet():
         raise HTTPException(status_code=503, detail="Encryption is not configured on this server. MFA setup requires ENCRYPTION_KEY to be set.")
     encrypted_secret = encrypt(secret)
+    from core.license_lock import authorize_user
+    authorize_user(db, current_user["id"], issuance=True)
     db.execute(text("UPDATE users SET mfa_secret = :secret WHERE id = :id"),
                {"secret": encrypted_secret, "id": current_user["id"]})
     db.commit()
@@ -263,6 +265,8 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
 
+    from core.license_lock import authorize_user
+    authorize_user(db, current_user["id"], issuance=True)
     db.execute(text("UPDATE users SET mfa_enabled = TRUE WHERE id = :id"), {"id": current_user["id"]})
     log_audit(db, "mfa_enabled", "user", current_user["id"], "MFA enabled")
     db.commit()
@@ -434,6 +438,8 @@ async def get_ws_token(
     """Issue a short-lived JWT for WebSocket authentication."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    from core.license_lock import authorize_user
+    authorize_user(db, current_user["id"], issuance=True)
     ws_token = create_access_token(
         data={
             "sub": current_user["username"],

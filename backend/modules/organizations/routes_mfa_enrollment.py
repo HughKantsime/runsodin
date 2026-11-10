@@ -48,6 +48,8 @@ def _authority(request,db):
             raise ValueError('Invalid authority')
     except Exception:
         raise HTTPException(status_code=401,detail='Invalid or expired enrollment authority') from None
+    from core.license_lock import enabled, _lock
+    if enabled(): _lock(db)
     # All operations take the user lock before the authority lock/write.
     dialect=db.get_bind().dialect.name
     if dialect=='sqlite':
@@ -64,6 +66,8 @@ def _authority(request,db):
     if (not row or row.user_id!=user.id or row.state!='pending'
         or row.expires_at!=expiry or row.expires_at<=time.time() or revoked):
         raise HTTPException(status_code=401,detail='Enrollment is no longer available. Restart sign-in.')
+    from core.license_lock import authorize_user, request_purpose
+    authorize_user(db, user.id, purpose=request_purpose(request), issuance=True)
     return payload,user,row
 
 

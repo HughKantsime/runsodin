@@ -65,6 +65,14 @@ def start(db, printer, user, data, *, background=False):
     if reason:
         return {'success': False, 'state': 'refused', 'job_id': data.suggested_job_id,
                 'request_id': str(data.request_id), 'code': 'printer_maintenance_hold', 'message': reason}
+    from core import license_lock
+    if license_lock.enabled():
+        try:
+            license_lock.require_printer(license_lock.snapshot(db), printer_id)
+        except license_lock.LicenseLockError as exc:
+            return {'success': False, 'state': 'refused', 'job_id': data.suggested_job_id,
+                    'request_id': str(data.request_id), 'code': exc.detail['code'],
+                    'message': license_lock.refusal_message(exc)}
     if data.bed_clear_confirmed is not True:
         raise HTTPException(422, 'Confirm the bed is clear before starting')
     visible = lambda job: check_org_access(user, job.charged_to_org_id)

@@ -56,6 +56,8 @@ async def create_biometric_token(
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    from core.license_lock import authorize_user
+    authorize_user(db, current_user["id"], issuance=True)
     raw_token = secrets.token_hex(32)
     token_hash = _hash_token(raw_token)
     expires_at = datetime.now(timezone.utc) + timedelta(days=BIOMETRIC_TOKEN_TTL_DAYS)
@@ -118,6 +120,8 @@ async def refresh_with_biometric_token(
         db.rollback()
         raise HTTPException(status_code=401, detail="Biometric token expired — please log in again")
 
+    from core.license_lock import enabled, _lock
+    if enabled(): _lock(db)
     # Acquire parent authority before changing its credential. SQLite's exact
     # no-op write also fences a transaction that already performed discovery.
     try:
@@ -135,6 +139,8 @@ async def refresh_with_biometric_token(
         db.rollback()
         raise HTTPException(status_code=401, detail='User not found or inactive')
 
+    from core.license_lock import authorize_user
+    authorize_user(db, user_row.id, issuance=True)
     original_id = bio_token.id
     original_expiry = bio_token.expires_at
     if original_expiry.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):

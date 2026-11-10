@@ -27,3 +27,21 @@ test('signed audit export acknowledges with date bounds and bundle intact', asyn
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining('unredacted controlled details'))
   expect(fetch).toHaveBeenLastCalledWith('/api/export/audit-logs/jsonl/acknowledge?date_from=2026-11-01&date_to=2026-11-06&bundle=true', expect.objectContaining({ method: 'POST' }))
 })
+
+test('background backup preparation polls without repeating acknowledgement', async () => {
+  vi.useFakeTimers()
+  try {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(refusal())
+      .mockResolvedValueOnce(new Response('{"status":"preparing"}', { status: 202 }))
+      .mockResolvedValueOnce(new Response('ready'))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const result = controlledDownload('/api/backups/owned.db?bundle=true', 'backup')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(await (await result).text()).toBe('ready')
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(fetch.mock.calls[2]).toEqual(fetch.mock.calls[1])
+  } finally {
+    vi.useRealTimers()
+  }
+})

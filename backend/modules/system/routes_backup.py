@@ -9,7 +9,7 @@ from core.controlled_csrf import require_controlled_ack
 from core.rbac import require_action
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -291,11 +291,18 @@ def _download_backup(filename: str, current_user: dict = Depends(require_superad
     from core.controlled_exports import acknowledge_export
     path = _safe_backup_path(filename)
     acknowledge_export(db, current_user, acknowledge_controlled, "backup")
-    audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
-    if bundle:
-        from modules.system.audit_backup import download_bundle
-        return download_bundle(path)
-    return FileResponse(path=path, filename=path.name, media_type="application/octet-stream")
+    from modules.system.backup_api_export import download_response
+    response = download_response(path, bundle)
+    if isinstance(response, JSONResponse) and response.status_code == 202:
+        return response
+    try:
+        # Refused/pending exports are not downloaded. Only record a fully
+        # prepared artifact, before any successful response bytes are sent.
+        audit_download(db, "backup.downloaded", "system", details={"filename": path.name, "bundle": bundle})
+    except BaseException:
+        response.discard()
+        raise
+    return response
 
 
 @router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"], dependencies=[Depends(require_interactive_session())])

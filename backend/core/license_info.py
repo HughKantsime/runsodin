@@ -6,6 +6,18 @@ class LicenseInfo:
     """Parsed and validated license information."""
 
     def __init__(self):
+        self.verification_state = "community_initial"
+        self.reason_code = "no_artifact"
+        self.signed_tier = None
+        self.signed_trial = False
+        self.signed_max_printers = None
+        self.signed_max_users = None
+        self.issue_deadline = None
+        self.verified_digest = None
+        self.binding_digest = None
+        self.binding_result = "unverified"
+        self.time_confidence = "unavailable"
+        self.signed_envelope = None  # private; never serialized by public/config APIs
         self.valid = False
         self.tier = "community"
         self.key = ""
@@ -74,6 +86,9 @@ class LicenseInfo:
         from license_manager import TIERS, license_is_managed_externally, get_installation_id
         tier_def = TIERS.get(self.tier, TIERS["community"])
         return {
+            "verification_state": self.verification_state,
+            "reason_code": self.reason_code,
+            "time_confidence": self.time_confidence,
             "valid": self.valid,
             "tier": self.tier,
             "tier_name": tier_def["name"],
@@ -109,6 +124,8 @@ class LicenseInfo:
         from license_manager import TIERS, license_is_managed_externally, get_installation_id
         tier_def = TIERS.get(self.tier, TIERS["community"])
         return {
+            "verification_state": self.verification_state,
+            "time_confidence": self.time_confidence,
             "valid": self.valid,
             "tier": self.tier,
             "tier_name": tier_def["name"],

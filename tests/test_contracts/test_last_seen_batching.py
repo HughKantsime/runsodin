@@ -130,14 +130,18 @@ class TestGetCurrentUserUsesCache:
         tree = ast.parse(src_text)
         fn_src = ""
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_resolve_current_user":
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "resolve_current_user_sync":
                 fn_src = ast.get_source_segment(src_text, node)
                 break
-        assert fn_src, "_resolve_current_user is missing"
+        assert fn_src, "resolve_current_user_sync is missing"
 
         # Every last_seen write goes through _touch_session_last_seen (which writes
         # only a stale stored value), and every touch is behind the in-process gate.
         assert "UPDATE active_sessions" not in fn_src
+        # The async dependency only delegates; it must never touch last_seen itself.
+        wrapper = next(ast.get_source_segment(src_text, n) for n in ast.walk(tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "_resolve_current_user")
+        assert "last_seen" not in wrapper and "UPDATE active_sessions" not in wrapper
         touch_count = fn_src.count("_touch_session_last_seen(db, jti)")
         gate_count = fn_src.count("_should_write_last_seen(jti)")
         # Cookie and bearer now share the same gated JWT resolution loop.

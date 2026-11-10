@@ -8,7 +8,8 @@ import os
 import pathlib
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from core.license_lock import LicenseLockError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -229,10 +230,12 @@ def _register_http_middleware(app: FastAPI) -> None:
                 # SQLAlchemy sessions must be created, used and closed together
                 # off the event loop, including when validation raises.
                 with SessionLocal() as auth_db:
-                    return validate_perimeter_access_token(bearer.strip(), auth_db)
+                    return validate_perimeter_access_token(bearer.strip(), auth_db, request=request)
 
             try:
                 principal = await run_in_threadpool(validate_native_bearer)
+            except LicenseLockError as exc:
+                return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
             except Exception:
                 return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
             if principal is not None:
@@ -263,6 +266,45 @@ def _register_http_middleware(app: FastAPI) -> None:
             status_code=401,
             content={"detail": "Invalid or missing API key"},
         )
+
+    @app.middleware("http")
+    async def license_principal_gate(request: Request, call_next):
+        from core.license_lock import enabled
+        if not enabled():
+            return await call_next(request)
+        path = request.scope.get('path', '')
+        api_path = path[7:] if path.startswith('/api/v1/') else path[4:] if path.startswith('/api/') else path
+        public = (request.method == 'OPTIONS' or _is_public_browser_request(request)
+                  or api_path == '/license' and request.method in {'GET', 'HEAD'}
+                  or api_path in {'/health', '/setup'}
+                  or api_path.startswith(('/auth/', '/health/', '/setup/', '/static/'))
+                  or path.startswith(('/static/', '/assets/'))
+                  or api_path == '/branding' and request.method == 'GET')
+        # Defer only when credentials are exclusively route-specific carriers.
+        # An added query token/API key must never bypass a session/bearer lock.
+        authorization = request.headers.get('authorization', '')
+        scheme, _, bearer = authorization.partition(' ')
+        understood = (request.cookies.get('session') or
+                      scheme.lower() == 'bearer' and bearer.strip())
+        if understood and not public:
+            from core.dependencies import resolve_current_user_sync
+            from core.db import SessionLocal
+            from starlette.concurrency import run_in_threadpool
+            authorization = request.headers.get('authorization', '')
+            scheme, _, bearer = authorization.partition(' ')
+            def resolve():
+                with SessionLocal() as policy_db:
+                    return resolve_current_user_sync(request, bearer if scheme.lower() == 'bearer' else None,
+                                                     policy_db, side_effects=False)
+            try:
+                request.state.resolved_license_principal = await run_in_threadpool(resolve)
+            except HTTPException as exc:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=exc.status_code, content={'detail': exc.detail}, headers=exc.headers)
+            except Exception:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=503, content={'detail': 'Service temporarily unavailable'})
+        return await call_next(request)
 
     # security_headers must be the OUTERMOST middleware so it runs on every
     # response — including 401/403/503 short-circuits from authenticate_request
@@ -612,8 +654,25 @@ def create_app() -> FastAPI:
             await ws.close(code=4001, reason="Authentication required")
             return
 
-        await ws_manager.connect(ws, principal)
+        from core.license_lock import enabled as license_lock_enabled, LicenseLockError
         try:
+            allowed = not license_lock_enabled() or await asyncio.to_thread(ws_manager.principal_allowed, principal)
+        except LicenseLockError:
+            from starlette.responses import JSONResponse
+            if 'websocket.http.response' in ws.scope.get('extensions', {}):
+                await ws.send_denial_response(JSONResponse(status_code=503, content={'detail': 'License policy temporarily unavailable'}))
+            else:
+                await ws.accept()
+                await ws.close(code=1013, reason='license_policy_unavailable')
+            return
+        if not allowed:
+            # Accept before closing so browsers receive the documented close
+            # code, rather than an opaque failed HTTP handshake (1006).
+            await ws.accept()
+            await ws.close(code=4403, reason='license_user_locked')
+            return
+        await ws_manager.connect(ws, principal)
+        async def receive_messages():
             while True:
                 try:
                     data = await asyncio.wait_for(ws.receive_text(), timeout=30)
@@ -627,10 +686,10 @@ def create_app() -> FastAPI:
                         if request == {"type": "subscribe", "channels": ["events"]}:
                             await ws.send_json({"type": "subscribed", "channels": ["events"]})
                 except asyncio.TimeoutError:
-                    try:
-                        await ws.send_json({"type": "ping"})
-                    except Exception:
-                        break
+                    await ws.send_json({"type": "ping"})
+
+        try:
+            await receive_messages()
         except WebSocketDisconnect:
             pass
         except Exception:
