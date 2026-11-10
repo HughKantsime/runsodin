@@ -176,7 +176,7 @@
           "slot_number": 6,
           "filament_type": "PLA_SUPPORT",
           "color": "Bambu Lab Support for PLA",
-          "color_hex": "000000",
+          "color_hex": null,
           "spoolman_spool_id": null,
           "assigned_spool_id": 5,
           "spool_confirmed": true,
