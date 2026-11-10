@@ -8,7 +8,7 @@ All notable changes to O.D.I.N. are documented here.
 
 <!-- release-date placeholder: set by ops/bump-version.sh -->
 
-<!-- summary: First release-train release: Shane's farm runs each release about a day before customers. Fixes auto-dispatch on Bambu and PrusaLink printers, keeps a P1S slot colour after a tray change, lets a job's AMS mapping be written back as it is read, and lets an opened RFID roll merge into a sealed record received later. The Terms now allow service providers to run O.D.I.N. for licensed customers. -->
+<!-- summary: First release-train release: Shane's farm runs each train release about a day before customers. Fixes auto-dispatch on Bambu and PrusaLink printers, keeps a P1S slot colour after a tray change, lets a job's AMS mapping be written back as it is read, and lets an opened RFID roll merge into a sealed record received later. The Terms now allow service providers to run O.D.I.N. for licensed customers. -->
 
 ### Fixed
 
@@ -21,17 +21,17 @@ All notable changes to O.D.I.N. are documented here.
 
 - Terms of Service: managed service providers, integrators and contractors may install and operate O.D.I.N. for a customer who holds the license, on that customer's own infrastructure or in an environment dedicated to that customer (new Section 3.7). Offering O.D.I.N. as a hosted, multi-tenant or software-as-a-service product, or running one Instance for several customers, is still not allowed (Sections 3.5 and 14.2). The Terms no longer say the BSL 1.1 requires that restriction; it is a term of this Agreement.
 - Terms of Service: "Site" is now defined (one location or one environment of one legal entity; each customer of a service provider is its own Site). An Enterprise license key covers up to three Instances per licensed Site: production plus staging, test or disaster recovery. Keys bought through an authorized reseller are licensed by JLLS Holdings LLC directly to the end customer.
-- Terms of Service and FEATURES.md list the current Enterprise features (tamper-evident audit log with SIEM streaming, part traceability with certificates of conformance, controlled-part handling) and state that no feature is a CMMC, FedRAMP or other certification. They also correct an earlier statement: organization management is included in Education and Enterprise, not in every tier (MFA, IP allowlisting and GDPR export/anonymization remain in every tier).
-- README and CONTRIBUTING point support to support@runsodin.com; the Discord invite, which no longer works, is removed.
+- Terms of Service and FEATURES.md list the current Enterprise features (tamper-evident audit log with SIEM streaming, part traceability with certificates of conformance, controlled-part handling), and the Terms state that no feature is a CMMC, FedRAMP or other certification. They also correct an earlier statement: organization management is included in Education and Enterprise, not in every tier (MFA, IP allowlisting and GDPR export/anonymization remain in every tier).
+- README points support to support@runsodin.com, and README and CONTRIBUTING no longer link the Discord invite, which no longer works.
 - SECURITY.md lists 2.x as the supported release line (it still said 1.0.x).
 
-- License checks: if the server's clock jumps more than 24 hours forward while O.D.I.N. is running, the license is treated as unverified, and paid features pause, until the clock has read steadily for a few seconds; it then recovers on its own. A clock that is already wrong when O.D.I.N. starts is judged as before. The license status reports the clock error while it lasts. Local password login is never affected.
+- License checks: if the server's clock jumps more than 24 hours forward while O.D.I.N. is running, the license is treated as unverified, and paid features pause, until the clock has read steadily for a few seconds; the clock check then recovers on its own (a license whose expiry date has passed by the new time stays expired). A clock that is already wrong when O.D.I.N. starts is judged as before. The license status reports the clock error while it lasts. Local password login is never affected.
 - License checks: a license file that exists but can't be read (for example a permissions problem on `/data/odin.license`) now shows as "verification unavailable" with the read error, instead of silently falling back to Community as if no license were installed.
 
 ### Internal
 
 - Groundwork for per-printer license limits is included but switched off (`ODIN_LICENSE_FLEET_LOCK_ENABLED` is unset): with it off, printer monitoring and dispatch behave exactly as in 2.0.52.
-- Release process: each release now runs on Shane's own farm for about 24 hours before it is offered to customers.
+- Release process: each train release now runs on Shane's own farm for about 24 hours before it is offered to customers (hotfixes soak for about an hour).
 
 ## [2.0.52] - 2026-11-09
 
