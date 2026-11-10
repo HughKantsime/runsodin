@@ -7,7 +7,7 @@
 
 **JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Sublab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
-**Contact:** sublab3dp@gmail.com
+**Contact:** support@runsodin.com
 
 ---
 
@@ -84,7 +84,7 @@ Paid tiers require providing accurate contact information for license issuance. 
 
 ### 4.2 Account Security
 
-You are responsible for all activity under your Instance, including actions taken by users you provision within the Software. You must promptly notify us of any unauthorized use at sublab3dp@gmail.com.
+You are responsible for all activity under your Instance, including actions taken by users you provision within the Software. You must promptly notify us of any unauthorized use at support@runsodin.com.
 
 ### 4.3 Self-Hosted Responsibility
 
@@ -110,32 +110,29 @@ Current pricing is published on our website. All prices are in US Dollars (USD) 
 | Education | Quoted per site (contact us) |
 | Enterprise | Quoted per agreement (contact sales) |
 
-### 5.2 Billing Cycle
+### 5.2 Subscription and Auto-Renewal
 
-Paid licenses are billed annually by default. Monthly billing is available for the Pro Tier. Payment is due at the beginning of each billing period.
+The Pro Tier is a subscription, billed monthly or annually as offered at checkout. It is charged when you subscribe and at the start of each billing period, and it renews automatically for successive periods of the same length at the then-current price until you cancel. You can cancel at any time from your subscription account, linked from runsodin.com/manage-subscription and from your receipt. Cancellation takes effect at the end of the period you have paid for, and you keep your license until then. We email a reminder before each annual renewal.
 
-### 5.3 Payment Methods
+### 5.3 Orders, Seller and Payment
 
-We accept credit card payments for Pro and Education tiers. **Purchase orders (POs) are accepted for Education and Enterprise tiers** with Net-30 payment terms.
+Online orders for paid licenses are processed by Paddle.com Market Limited and its affiliates ("Paddle"), our merchant of record and reseller. Paddle is the seller of record for your order, collects and remits applicable taxes, processes payment, and provides billing support, and Paddle's buyer terms apply to your purchase. We license the Software to you under this Agreement and provide support under Section 8. Education and Enterprise licenses are quoted, and may be invoiced with payment terms set out in your quote or agreement.
 
 ### 5.4 Taxes
 
-Prices do not include applicable taxes. You are responsible for all taxes, duties, and levies associated with your purchase, excluding taxes based on our net income.
+Applicable taxes are calculated and shown at checkout by Paddle. For licenses invoiced directly by us, prices exclude applicable taxes, which are shown on the invoice.
 
 ### 5.5 Price Changes
 
 We may change pricing with 60 days' written notice. Price changes take effect at the start of your next billing period. Your continued use after the new billing period begins constitutes acceptance.
 
-### 5.6 Auto-Renewal
+### 5.6 Licenses Purchased Before Online Checkout
 
-Paid licenses automatically renew for successive periods of equal length unless:
-
-- You provide written cancellation notice at least 30 days before the renewal date, or
-- We provide written notice of non-renewal at least 30 days before the renewal date.
+Licenses purchased by invoice before online checkout was available keep the term stated on their invoice. They can be renewed through online checkout or by a new invoice.
 
 ### 5.7 Refunds
 
-Annual licenses may be refunded within 30 days of initial purchase if you have not deployed the Software in a production environment. Monthly Pro licenses are non-refundable. Contact sublab3dp@gmail.com for refund requests.
+You can try the Pro Tier free for 14 days before you subscribe. Payments are non-refundable, except where applicable law or Paddle's buyer terms give you a right to a refund. See our Refund Policy at runsodin.com/refund-policy. Paddle handles refunds for online orders.
 
 ---
 
@@ -176,7 +173,7 @@ Community support only. Access to community forums and GitHub issues. No guarant
 
 ### 8.2 Pro Tier
 
-Email support at sublab3dp@gmail.com. Best-effort response within 3 business days. Support covers installation, configuration, and usage questions. Does not include custom development, hardware troubleshooting, or network configuration.
+Email support at support@runsodin.com. Best-effort response within 3 business days. Support covers installation, configuration, and usage questions. Does not include custom development, hardware troubleshooting, or network configuration.
 
 ### 8.3 Education Tier
 
@@ -347,6 +344,6 @@ Neither party shall be liable for delays or failures in performance resulting fr
 
 **JLLS Holdings LLC, d/b/a SubLab 3DP**
 Shane Smith, Principal
-Email: sublab3dp@gmail.com
+Email: support@runsodin.com
 
-For license inquiries, support, or legal questions, contact us at sublab3dp@gmail.com.
+For license inquiries, support, or legal questions, contact us at support@runsodin.com.
