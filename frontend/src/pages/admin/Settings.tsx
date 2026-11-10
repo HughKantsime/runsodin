@@ -63,8 +63,9 @@ export default function Settings() {
   })
   const uiMode = pricingData?.ui_mode || 'advanced'
 
-  // Access stays open on every tier: MFA, API tokens, sessions, IP allowlist and
-  // organizations are free; its Pro-only sections are gated individually below.
+  // Access stays open on every tier: MFA, API tokens, sessions and IP allowlist are
+  // free; organizations need Education or Enterprise (user_groups), and the other
+  // gated sections are checked individually below.
   const PRO_TABS = ['integrations', 'branding']
   const ALL_TABS = [
     { id: 'general', label: 'General', icon: SettingsIcon },
