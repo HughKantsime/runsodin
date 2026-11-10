@@ -25,6 +25,9 @@ All notable changes to O.D.I.N. are documented here.
 - README and CONTRIBUTING point support to support@runsodin.com; the Discord invite, which no longer works, is removed.
 - SECURITY.md lists 2.x as the supported release line (it still said 1.0.x).
 
+- License checks: if the server's clock jumps more than 24 hours forward while O.D.I.N. is running, the license is treated as unverified, and paid features pause, until the clock has read steadily for a few seconds; it then recovers on its own. A clock that is already wrong when O.D.I.N. starts is judged as before. The license status reports the clock error while it lasts. Local password login is never affected.
+- License checks: a license file that exists but can't be read (for example a permissions problem on `/data/odin.license`) now shows as "verification unavailable" with the read error, instead of silently falling back to Community as if no license were installed.
+
 ### Internal
 
 - Groundwork for per-printer license limits is included but switched off (`ODIN_LICENSE_FLEET_LOCK_ENABLED` is unset): with it off, printer monitoring and dispatch behave exactly as in 2.0.52.
