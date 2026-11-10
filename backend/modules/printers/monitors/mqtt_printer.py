@@ -815,7 +815,7 @@ class PrinterMonitor:
         try:
             # Brief settle delay so the printer is fully in IDLE before we upload
             time.sleep(5)
-            import printer_dispatch
+            from modules.printers import dispatch as printer_dispatch
             printer_dispatch.attempt_dispatch(self.printer_id)
         except Exception as e:
             log.warning(f"[{self.name}] Dispatch attempt error: {e}")
