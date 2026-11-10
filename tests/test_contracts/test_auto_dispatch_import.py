@@ -16,7 +16,8 @@ BACKEND = Path(__file__).resolve().parents[2] / "backend"
 def test_no_backend_module_imports_the_nonexistent_printer_dispatch_module():
     offenders = []
     for path in sorted(BACKEND.rglob("*.py")):
-        if any(part.startswith("preserved") for part in path.parts):
+        rel = path.relative_to(BACKEND).parts
+        if rel[:2] == ("core", "schema") and len(rel) > 2 and rel[2].startswith("preserved"):
             continue  # frozen historical bundles under core/schema, never imported at runtime
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Import) and any(a.name == "printer_dispatch" for a in node.names):
@@ -52,3 +53,14 @@ def test_attempt_dispatch_is_a_no_op_with_auto_dispatch_off(monkeypatch):
     monkeypatch.setattr(dispatch, "dispatch_job", lambda *a, **k: pytest.fail("dispatched with AUTO_DISPATCH off"))
     dispatch.attempt_dispatch(42)
     assert looked_up == []
+
+
+@pytest.mark.parametrize("value, expected", [("true", True), ("TRUE", True), ("false", False), ("0", False), ("", False)])
+def test_attempt_dispatch_honours_the_flag_value(monkeypatch, value, expected):
+    from modules.printers import dispatch
+    monkeypatch.setenv("AUTO_DISPATCH", value)
+    looked_up = []
+    monkeypatch.setattr(dispatch, "_get_next_scheduled_job", lambda *a, **k: looked_up.append(a) or None)
+    monkeypatch.setattr(dispatch, "dispatch_job", lambda *a, **k: pytest.fail("no job was offered"))
+    dispatch.attempt_dispatch(42)
+    assert bool(looked_up) is expected
