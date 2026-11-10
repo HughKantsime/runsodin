@@ -25,11 +25,11 @@ router = APIRouter(prefix='/spools', tags=['Spools'])
 def eligible_candidates(db, spool, details):
     ids = details.get('possible_duplicate_spool_ids', []) if details.get('possible_duplicate') else []
     filament = spool.filament
-    if not filament or filament.brand.casefold() != 'bambu lab':
+    if not filament or (filament.brand or '').casefold() != 'bambu lab':
         return []
     return [row[0] for row in rfid.candidate_rows(db, spool.org_id)
             if row[0] in ids and row[0] != spool.id and row[2] == filament.name
-            and row[4].casefold() == 'bambu lab'
+            and (row[4] or '').casefold() == 'bambu lab'
             and canonical_reported_material(row[3]) == canonical_reported_material(filament.material)]
 
 
@@ -61,7 +61,12 @@ class MergeRoll(BaseModel):
     sealed_spool_id: int = Field(gt=0)
 
 
-def reference_reason(db, spool):
+def reference_reason(db, spool, *, sealed_record=False):
+    """The first usage, ledger or other history reference, or None.
+
+    A sealed merge target keeps its own purchase link: for it, its creation and
+    its purchase evidence (and the audit of recording either) are not history.
+    """
     # Explicit scalar references, including raw tables outside ORM metadata.
     references = db.execute(text('''
         SELECT 'job usage or deductions' AS reason FROM spool_usage WHERE spool_id=:id
@@ -73,8 +78,8 @@ def reference_reason(db, spool):
         UNION ALL SELECT 'costing history' FROM filament_cost_events
             WHERE spool_uid=(SELECT economic_uid FROM spools WHERE id=:id)
         UNION ALL SELECT 'purchase evidence' FROM spool_purchase_evidence
-            WHERE spool_uid=(SELECT economic_uid FROM spools WHERE id=:id)
-        LIMIT 1'''), {'id': spool.id}).first()
+            WHERE :purchase=1 AND spool_uid=(SELECT economic_uid FROM spools WHERE id=:id)
+        LIMIT 1'''), {'id': spool.id, 'purchase': int(not sealed_record)}).first()
     if references:
         return references[0]
     # A captured running/finished print is a reference even before deduction.
@@ -94,9 +99,45 @@ def reference_reason(db, spool):
             return 'a captured print reference'
     if spool.spoolman_spool_id is not None:
         return 'Spoolman link'
+    creation = (['create', 'spool.purchase_evidence_updated'] if sealed_record
+                else ['inventory.rfid_created', 'inventory.rfid_identified'])
     event = db.query(AuditLog.id).filter(AuditLog.entity_type == 'spool', AuditLog.entity_id == spool.id,
-        ~AuditLog.action.in_(['inventory.rfid_created', 'inventory.rfid_identified'])).first()
+        ~AuditLog.action.in_(creation)).first()
     return 'other inventory history' if event else None
+
+
+def later_sealed_refusal(db, source, target):
+    """Why an opened RFID roll may not merge into a sealed record received after it.
+
+    Its creation could not list a record that did not exist yet. The record must
+    still be unassigned sealed shelf stock of the same Bambu line, material and
+    colour, with no usage, ledger or other history of its own.
+    """
+    if target.id <= source.id:
+        return 'Sealed candidate is no longer eligible for this line and material'
+    if target.id not in {row[0] for row in rfid.candidate_rows(db, source.org_id)}:
+        return 'Sealed record is not unassigned sealed shelf stock'
+    roll, sealed = source.filament, target.filament
+    if (not roll or not sealed or (roll.brand or '').casefold() != 'bambu lab'
+            or (sealed.brand or '').casefold() != 'bambu lab' or roll.name != sealed.name):
+        return 'Sealed record is a different product line'
+    if canonical_reported_material(roll.material) != canonical_reported_material(sealed.material):
+        return 'Sealed record is a different material'
+    # The catalogue colour name decides; the reported hex only when the roll has no name.
+    # A roll's 000000 may be a stored 00000000 no-colour placeholder, so it is unknown.
+    from modules.printers.telemetry.bambu.ams_identity import hex_color
+    names = [(s.color_name or '').strip().casefold() for s in (source, target)]
+    roll_hex = hex_color(source.color_hex)
+    hexes = [None if roll_hex == '000000' else roll_hex, hex_color(target.color_hex)]
+    compared = names if all(names) else hexes if not names[0] and all(hexes) else None
+    if compared is None:
+        return 'Cannot merge: the roll colour cannot be confirmed against the sealed record'
+    if compared[0] != compared[1]:
+        return 'Sealed record is a different colour'
+    if target.remaining_measured_at is not None or target.remaining_weight_g != target.initial_weight_g:
+        return 'Cannot merge: sealed record has a balance history'
+    reason = reference_reason(db, target, sealed_record=True)
+    return 'Cannot merge: sealed record has ' + reason if reason else None
 
 
 @router.post('/rfid-onboarding/{spool_id}/merge', dependencies=[Depends(require_role('operator', scope='write:spools'))])
@@ -138,8 +179,11 @@ def _merge(db, user, source_id, target_id):
         action='inventory.rfid_created').order_by(AuditLog.id).first()
     if source.status == SpoolStatus.ARCHIVED or not (source.tray_uuid or source.rfid_tag) or not event:
         raise HTTPException(409, 'Source is no longer an auto-created RFID spool')
-    if target_id not in eligible_candidates(db, source, event.details or {}):
-        raise HTTPException(409, 'Sealed candidate is no longer eligible for this line and material')
+    later = target_id not in eligible_candidates(db, source, event.details or {})
+    if later:
+        refusal = later_sealed_refusal(db, source, target)
+        if refusal:
+            raise HTTPException(409, refusal)
     reason = reference_reason(db, source)
     if reason:
         raise HTTPException(409, 'Cannot merge: source has ' + reason)
@@ -169,6 +213,7 @@ def _merge(db, user, source_id, target_id):
     break_seal(db, target_id)
     log_audit(db, 'inventory.rfid_merged', 'spool', target_id,
               dict(spool_id=target_id, source_spool_id=source_id, tray_uuid=target.tray_uuid,
-                   printer_id=target.location_printer_id, slot=target.location_slot))
+                   printer_id=target.location_printer_id, slot=target.location_slot,
+                   basis='later_sealed_record' if later else 'possible_duplicate'))
     db.commit()
     return dict(spool_id=target_id, archived_spool_id=source_id)

@@ -96,7 +96,7 @@ def sync_ams_inventory(conn, printer_id, units):
     concurrency acceptance requirement.
     """
     rfid = rfid_identity()
-    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
+    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag, reported_color
     identified = ams_trays_by_slot(units, strict=True)
     identified = [(number, {**tray, 'tag_uid': rfid.identity(tray.get('tag_uid')),
                             'tray_uuid': rfid.identity(tray.get('tray_uuid'))}) for number, tray in identified]
@@ -177,8 +177,9 @@ def sync_ams_inventory(conn, printer_id, units):
         if candidates:
             spool_id = candidates[0]
             used_candidates.add(spool_id)
-            conn.execute('UPDATE spools SET tray_uuid=?,rfid_tag=?,color_hex=? WHERE id=?',
-                         (tray['tray_uuid'], tray['tag_uid'], (tray.get('tray_color') or '')[:6] or None, spool_id))
+            # A report without a colour keeps the received record's colour.
+            conn.execute('UPDATE spools SET tray_uuid=?,rfid_tag=?,color_hex=COALESCE(?,color_hex) WHERE id=?',
+                         (tray['tray_uuid'], tray['tag_uid'], reported_color(tray), spool_id))
             action = 'inventory.rfid_bound'
         else:
             spool_id = rfid.create_raw_spool(conn, org, tray)
@@ -202,11 +203,24 @@ def sync_ams_inventory(conn, printer_id, units):
                 displaced = spools[association[0]]
                 if (displaced[2], displaced[5]) == (printer_id, number):
                     conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))
+    from modules.printers.telemetry.bambu.ams_identity import slot_color, stored_observation, tray_swapped
+    # The slots' spools before this report; departures above have already cleared them.
+    previous_spools = {(association[1], association[2]): association[0] for association in before[0].values()}
     for number, tray in identified:
         material = tray.get('tray_type') or ''
-        color = (tray.get('tray_color') or '')[:6] if material else None
         filament_type = slot_filament_value(material)
-        existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
+        # Row: id, filament_type, color_hex, tray_observation (the previous observation until observe() below).
+        existing = conn.execute('SELECT id,filament_type,color_hex,tray_observation FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
+        color = None
+        if material:
+            destination = destinations.get(number)
+            swapped = tray_swapped(tray, stored_observation(existing[3] if existing else None), destination,
+                                   previous_spools.get((printer_id, number)))
+            spool_color = None
+            if swapped and destination is not None:
+                spool_color = conn.execute('SELECT color_hex FROM spools WHERE id=?', (destination,)).fetchone()[0]
+            color = slot_color(reported_color(tray), filament_type, existing[1] if existing else None,
+                               existing[2] if existing else None, swapped=swapped, spool_color=spool_color)
         if existing:
             identifier = existing[0]
             conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=?,loaded_at=CURRENT_TIMESTAMP WHERE id=?', (filament_type, color, identifier))

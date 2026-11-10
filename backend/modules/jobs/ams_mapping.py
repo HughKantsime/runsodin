@@ -55,11 +55,36 @@ def checked_changes(db, actor, job, changes):
         target = pin or target
         file = source_file(db, job, actor)
         changes['ams_mapping'] = validate_for_printer(
-            db, mapping, file.filaments_json, target, actor,
+            db, vector_entries(mapping, file.filaments_json), file.filaments_json, target, actor,
             check_material=changes.get('hold', job.hold) is not True)
         changes.update(pin_columns(target))
         changes['printer_id'] = target
     return changes
+
+
+def vector_entries(mapping, filaments_json):
+    """Read the stored protocol vector GET serves as the entries a dict write sends.
+
+    The vector is indexed by file ID minus one: every file ID holds a zero-based
+    tray, every other position holds -1. Anything else is refused, never guessed;
+    tray bounds and materials are then checked exactly as for the dict form.
+    """
+    from core.print_payload import source_filaments
+    if not mapping or not all(type(slot) is int for slot in mapping):
+        return mapping
+    try:
+        ids = {f['slot'] for f in source_filaments(filaments_json)}
+    except HTTPException:
+        # No usable filaments: validate_mapping refuses it exactly as for entries.
+        return mapping
+    if not ids:
+        return mapping
+    if len(mapping) != max(ids):
+        raise HTTPException(400, 'AMS mapping must cover every source filament')
+    if any((slot < 0) if index + 1 in ids else (slot != -1) for index, slot in enumerate(mapping)):
+        raise HTTPException(400, 'Invalid or duplicate AMS slot')
+    return [{'source_slot': index + 1, 'target_slot': slot + 1}
+            for index, slot in enumerate(mapping) if index + 1 in ids]
 
 
 def source_file(db, job, actor):

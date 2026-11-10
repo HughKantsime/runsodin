@@ -204,17 +204,15 @@ async def configure_ams_slot(
     color = body.color
     spool_id = body.spool_id
 
-    slot = None
+    slot = db.query(FilamentSlot).filter(
+        FilamentSlot.printer_id == printer_id,
+        FilamentSlot.slot_number == ams_id * 4 + slot_id + 1,
+    ).first()
     if spool_id is not None:
         from modules.inventory.models import Spool
         spool = db.query(Spool).filter(Spool.id == spool_id).first()
         if not spool or not check_org_access(current_user, spool.org_id):
             raise HTTPException(status_code=404, detail="Spool not found")
-        slot_number = ams_id * 4 + slot_id + 1
-        slot = db.query(FilamentSlot).filter(
-            FilamentSlot.printer_id == printer_id,
-            FilamentSlot.slot_number == slot_number,
-        ).first()
         if not slot:
             raise HTTPException(status_code=404, detail="Filament slot not found")
 
@@ -235,8 +233,15 @@ async def configure_ams_slot(
                             content={'success': False, **reply, 'detail': {'message': 'Tray setting not confirmed', **reply}})
 
     if slot is not None:
+        # The printer accepted this material and colour; record both. A later
+        # report without a colour keeps it (ams_identity.slot_color).
         slot.filament_type = FilamentType(slot_filament_value(material))
-        slot.color = body.color
-        assign_slot(db, slot, spool_id, current_user)
+        from modules.printers.telemetry.bambu.ams_identity import hex_color
+        accepted = hex_color(color)
+        if accepted is not None:  # never fail after the printer accepted the command
+            slot.color_hex = accepted
+        if spool_id is not None:
+            slot.color = body.color
+            assign_slot(db, slot, spool_id, current_user)
     db.commit()
     return {"success": True, **reply}

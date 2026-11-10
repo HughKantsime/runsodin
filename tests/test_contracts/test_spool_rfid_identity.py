@@ -504,7 +504,8 @@ def test_merge_requires_possible_duplicate_creation_and_is_atomic(inventory, syn
     from fastapi import HTTPException
     from modules.inventory.routes import rfid_onboarding as route_module
     source = ambiguous_roll(inventory, sync)
-    # Reject a candidate not named in the creation audit even if newly eligible.
+    # A later record not named in the creation audit needs a confirmed colour;
+    # this roll has no catalogue colour name and the record no reported hex.
     seed(inventory, 60)
     with pytest.raises(HTTPException) as exc:
         merge(inventory, source, 60)
@@ -529,6 +530,179 @@ def test_merge_refuses_captured_print_before_deduction(inventory, sync):
         merge(inventory, source)
     assert exc.value.status_code == 409
     assert 'captured print' in exc.value.detail
+
+
+def receive_sealed(engine, color='Nardo Gray', filament=1, color_hex=None):
+    """A sealed record received through the real spool factory, with its purchase link."""
+    from datetime import datetime
+    from core.models import SystemConfig
+    from modules.inventory.receiving import seal_key
+    from modules.inventory.routes._helpers import SpoolCreate
+    from modules.inventory.routes.spools import _create_spool_record
+    with Session(engine) as db:
+        created = _create_spool_record(SpoolCreate(
+            filament_id=filament, color_name=color, color_hex=color_hex, initial_weight_g=1000,
+            price=24.99, vendor='Bambu Lab Store', lot_number='ORDER-1028', purchase_date=datetime(2026, 10, 28),
+            storage_location='Shelf A', purchase_evidence={'currency': 'USD', 'price': '24.99', 'net_weight_g': '1000'}),
+            dict(id=1, role='admin', group_id=1), db, commit=False)
+        db.add(SystemConfig(key=seal_key(created['id']), value=True))
+        db.commit()
+    return created['id']
+
+
+PURCHASE_LINK = ('SELECT price,vendor,lot_number,purchase_date,economic_uid,economic_birth_nonce,'
+                 'purchase_evidence_nonce,purchase_revision FROM spools WHERE id={id}')
+
+
+def opened_roll(inventory, sync, **changes):
+    """An opened RFID roll created while no sealed record for it existed."""
+    sync(report(**changes))
+    return rows(inventory, 'SELECT id FROM spools WHERE tray_uuid IS NOT NULL')[0][0]
+
+
+def test_merge_into_later_sealed_record_keeps_balance_and_purchase_link(inventory, sync):
+    source = opened_roll(inventory, sync)
+    assert rows(inventory, f"SELECT details FROM audit_logs WHERE action='inventory.rfid_created' AND entity_id={source}")
+    measured = rows(inventory, f'SELECT remaining_weight_g,remaining_measured_g,remaining_measured_at,remaining_measured_printer_id FROM spools WHERE id={source}')
+    assert measured[0][2] is not None and measured[0][0] == 730
+    target = receive_sealed(inventory)
+    assert target > source
+    link = rows(inventory, PURCHASE_LINK.format(id=target))
+    assert link[0][6] is not None and link[0][7] == 1
+    assert merge(inventory, source, target) == dict(spool_id=target, archived_spool_id=source)
+    assert rows(inventory, f'SELECT remaining_weight_g,remaining_measured_g,remaining_measured_at,remaining_measured_printer_id FROM spools WHERE id={target}') == measured
+    assert rows(inventory, PURCHASE_LINK.format(id=target)) == link
+    assert rows(inventory, 'SELECT count(*) FROM spool_purchase_evidence') == [(1,)]
+    assert rows(inventory, f'SELECT tray_uuid,rfid_tag,color_hex,location_printer_id,location_slot,storage_location,status FROM spools WHERE id={target}') == [
+        ('a'*32, '1111111111111111', '9F9F9F', 1, 1, None, 'active')]
+    assert rows(inventory, f'SELECT status,tray_uuid,rfid_tag,location_printer_id FROM spools WHERE id={source}') == [('archived', None, None, None)]
+    assert rows(inventory, 'SELECT assigned_spool_id FROM filament_slots') == [(target,)]
+    assert rows(inventory, f"SELECT key FROM system_config WHERE key='inventory.sealed.{target}'") == []
+    audit = rows(inventory, "SELECT entity_type,entity_id,details FROM audit_logs WHERE action='inventory.rfid_merged'")
+    assert [(a[0], a[1]) for a in audit] == [('spool', target)]
+    details = audit[0][2] if isinstance(audit[0][2], dict) else json.loads(audit[0][2])
+    assert (details['source_spool_id'], details['basis']) == (source, 'later_sealed_record')
+    # The RFID identity now resolves to the surviving record.
+    sync(report(tag_uid='2222222222222222'), printer=2)
+    assert rows(inventory, 'SELECT assigned_spool_id FROM filament_slots WHERE printer_id=2') == [(target,)]
+
+
+def test_merge_into_later_record_matches_reported_hex_when_roll_has_no_colour_name(inventory, sync):
+    source = opened_roll(inventory, sync, tray_id_name='unknown')
+    assert rows(inventory, f'SELECT color_name,color_hex FROM spools WHERE id={source}') == [(None, '9F9F9F')]
+    other = receive_sealed(inventory, color_hex='FFFFFF')
+    target = receive_sealed(inventory, color_hex='#9f9f9f')
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, other)
+    assert (exc.value.status_code, exc.value.detail) == (409, 'Sealed record is a different colour')
+    assert merge(inventory, source, target) == dict(spool_id=target, archived_spool_id=source)
+
+
+@pytest.mark.parametrize('change,reason', [
+    ("INSERT INTO spool_usage(spool_id,weight_used_g) VALUES(:target,50)", 'Cannot merge: sealed record has job usage or deductions'),
+    ("INSERT INTO drying_logs(spool_id,duration_hours) VALUES(:target,2)", 'Cannot merge: sealed record has drying history'),
+    ("UPDATE spools SET remaining_weight_g=900 WHERE id=:target", 'Cannot merge: sealed record has a balance history'),
+    ("UPDATE spools SET remaining_measured_at='2026-10-29 00:00:00',remaining_measured_g=1000 WHERE id=:target",
+     'Cannot merge: sealed record has a balance history'),
+    ("INSERT INTO audit_logs(action,entity_type,entity_id,details) VALUES('use','spool',:target,'{}')",
+     'Cannot merge: sealed record has other inventory history'),
+    ("INSERT INTO print_jobs(id,printer_id,status,started_at,spool_snapshot) VALUES(801,1,'completed',CURRENT_TIMESTAMP,'{\"slots\":[{\"spool_id\":' || :target || '}]}')",
+     'Cannot merge: sealed record has a captured print reference'),
+    ("UPDATE spools SET spoolman_spool_id=998 WHERE id=:target", 'Cannot merge: sealed record has Spoolman link'),
+    ("UPDATE spools SET filament_id=4 WHERE id=:target", 'Sealed record is a different material'),
+    ("UPDATE spools SET filament_id=3 WHERE id=:target", 'Sealed record is a different product line'),
+    ("UPDATE spools SET filament_id=2 WHERE id=:target", 'Sealed record is a different product line'),
+    ("UPDATE spools SET color_name='Ivory White' WHERE id=:target", 'Sealed record is a different colour'),
+    ("UPDATE spools SET color_name=NULL WHERE id=:target", 'Cannot merge: the roll colour cannot be confirmed against the sealed record'),
+    ("DELETE FROM system_config WHERE key='inventory.sealed.' || CAST(:target AS VARCHAR)", 'Sealed record is not unassigned sealed shelf stock'),
+    ("UPDATE spools SET status='archived' WHERE id=:target", 'Sealed record is not unassigned sealed shelf stock'),
+    ("UPDATE spools SET location_printer_id=2,location_slot=1 WHERE id=:target", 'Sealed record is not unassigned sealed shelf stock'),
+    ("INSERT INTO spool_usage(spool_id,weight_used_g) VALUES(:source,50)", 'Cannot merge: source has job usage or deductions'),
+])
+def test_merge_into_later_sealed_record_refusals(inventory, sync, change, reason):
+    from fastapi import HTTPException
+    source = opened_roll(inventory, sync)
+    target = receive_sealed(inventory)
+    with inventory.begin() as c:
+        c.execute(text(change), {'source': source, 'target': target})
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, target)
+    assert (exc.value.status_code, exc.value.detail) == (409, reason)
+    assert rows(inventory, 'SELECT id FROM spools WHERE tray_uuid IS NOT NULL') == [(source,)]
+    assert rows(inventory, 'SELECT assigned_spool_id FROM filament_slots') == [(source,)]
+    assert rows(inventory, "SELECT count(*) FROM audit_logs WHERE action='inventory.rfid_merged'") == [(0,)]
+
+
+def test_merge_refuses_earlier_record_outside_creation_candidates(inventory, sync):
+    from fastapi import HTTPException
+    seed(inventory, 56, color='Ivory White')  # on the shelf before the roll, a different colour then
+    source = opened_roll(inventory, sync)
+    assert source > 56
+    with inventory.begin() as c:
+        c.execute(text("UPDATE spools SET color_name='Nardo Gray' WHERE id=56"))
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, 56)
+    assert (exc.value.status_code, exc.value.detail) == (409, 'Sealed candidate is no longer eligible for this line and material')
+
+
+def test_placeholder_colour_creates_rfid_spool_and_library_without_colour(inventory, sync):
+    sync(report(tray_sub_brands='PLA Galaxy', tray_id_name='unknown', tray_color='00000000', cols=['00000000']))
+    assert rows(inventory, "SELECT s.color_hex,f.color_hex FROM spools s JOIN filament_library f ON f.id=s.filament_id "
+                           "WHERE s.tray_uuid IS NOT NULL AND f.name='PLA Galaxy'") == [(None, None)]
+
+
+def test_placeholder_colour_binding_keeps_received_colour(inventory, sync):
+    seed(inventory, 56)
+    with inventory.begin() as c:
+        c.execute(text("UPDATE spools SET color_hex='9F9F9F' WHERE id=56"))
+    sync(report(tray_color='00000000'))
+    assert rows(inventory, 'SELECT tray_uuid,color_hex FROM spools WHERE id=56') == [('a'*32, '9F9F9F')]
+
+
+@pytest.mark.parametrize('stored', [None, '000000'])
+def test_merge_refuses_unnamed_placeholder_roll_into_black_record(inventory, sync, stored):
+    """A 00000000 report is no colour; a roll stored as 000000 before normalisation is not black either."""
+    from fastapi import HTTPException
+    source = opened_roll(inventory, sync, tray_id_name='unknown', tray_color='00000000', cols=['00000000'])
+    assert rows(inventory, f'SELECT color_name,color_hex FROM spools WHERE id={source}') == [(None, None)]
+    with inventory.begin() as c:
+        c.execute(text('UPDATE spools SET color_hex=:hex WHERE id=:id'), {'hex': stored, 'id': source})
+    target = receive_sealed(inventory, color='Black', color_hex='000000')
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, target)
+    assert (exc.value.status_code, exc.value.detail) == (
+        409, 'Cannot merge: the roll colour cannot be confirmed against the sealed record')
+
+
+@pytest.mark.parametrize('side', ['roll', 'sealed'])
+def test_merge_blank_brand_refuses_as_different_line(inventory, sync, side):
+    from fastapi import HTTPException
+    source = opened_roll(inventory, sync)
+    target = receive_sealed(inventory)
+    with inventory.begin() as c:
+        c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(9,'','PLA Matte','PLA')"))
+        c.execute(text('UPDATE spools SET filament_id=9 WHERE id=:id'), {'id': source if side == 'roll' else target})
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, target)
+    assert (exc.value.status_code, exc.value.detail) == (409, 'Sealed record is a different product line')
+
+
+@pytest.mark.parametrize('side', ['roll', 'sealed'])
+def test_null_brand_never_raises(monkeypatch, side):
+    """The schema forbids a NULL brand, but legacy rows must refuse cleanly, never 500."""
+    from modules.inventory.routes import rfid_onboarding as route
+    def library(brand):
+        return SimpleNamespace(brand=brand, name='PLA Matte', material='PLA')
+    source = SimpleNamespace(id=1, org_id=1, filament=library(None if side == 'roll' else 'Bambu Lab'),
+                             color_name='Nardo Gray', color_hex=None)
+    target = SimpleNamespace(id=2, org_id=1, filament=library(None if side == 'sealed' else 'Bambu Lab'),
+                             color_name='Nardo Gray', color_hex=None)
+    monkeypatch.setattr(route.rfid, 'candidate_rows', lambda db, org: [(2, 'Nardo Gray', 'PLA Matte', 'PLA', None)])
+    assert route.later_sealed_refusal(None, source, target) == 'Sealed record is a different product line'
+    assert route.eligible_candidates(None, source, {'possible_duplicate': True, 'possible_duplicate_spool_ids': [2]}) == []
+    from modules.inventory.rfid_identity import choose_candidates
+    assert choose_candidates([(2, 'Nardo Gray', 'PLA Matte', 'PLA', None)], report()) == ([], [])
 
 
 @pytest.mark.parametrize('role,auth_kind,scopes,allowed,expected', [

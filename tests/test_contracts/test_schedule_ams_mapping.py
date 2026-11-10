@@ -188,3 +188,97 @@ def test_mapping_edit_rechecks_source_model_audience(mapping_client, review_db):
     response = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': MAPPING})
     assert response.status_code == 400, response.text
     assert response.json()['detail'] == 'AMS mapping requires an accessible job print file'
+
+
+def _stored(review_db, job):
+    review_db.expire_all()
+    return json.loads(review_db.execute(text('SELECT ams_mapping FROM jobs WHERE id=:id'), {'id': job}).scalar_one())
+
+
+def _mapping_audits(review_db, job):
+    return review_db.execute(text("SELECT count(*) FROM audit_logs WHERE entity_id=:id AND action='job.ams_mapping_changed'"),
+                             {'id': job}).scalar_one()
+
+
+def test_patch_round_trips_the_vector_get_serves(mapping_client, review_db):
+    client, auth = mapping_client
+    job = schedule(mapping_client).json()['job_id']
+    served = client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping']
+    assert served == [3]
+    response = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': served})
+    assert response.status_code == 200, response.text
+    assert response.json()['ams_mapping'] == served and _stored(review_db, job) == served
+    # The entry form still works and normalizes to the same stored vector.
+    response = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': [{'source_slot': 1, 'target_slot': 3}]})
+    assert response.status_code == 200, response.text
+    assert response.json()['ams_mapping'] == [2]
+    served = client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping']
+    assert client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': served}).json()['ams_mapping'] == [2]
+    details = [json.loads(r[0]) for r in review_db.execute(text(
+        "SELECT details FROM audit_logs WHERE entity_id=:id AND action='job.ams_mapping_changed' ORDER BY id"), {'id': job})]
+    assert [d['ams_mapping'] for d in details] == [[3], [3], [2], [2]]
+
+
+def test_patch_round_trips_vector_with_file_id_gap(mapping_client, review_db):
+    client, auth = mapping_client
+    review_db.execute(text("UPDATE print_files SET filaments_json=:f WHERE id=501"), {'f': json.dumps(
+        [{'slot': 1, 'type': 'PETG', 'color': '#ffffff'}, {'slot': 3, 'type': 'PETG', 'color': '#000000'}])})
+    review_db.commit()
+    job = schedule(mapping_client, mapping=None).json()['job_id']
+    def patch(value): return client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': value})
+    response = patch([{'source_slot': 1, 'target_slot': 4}, {'source_slot': 3, 'target_slot': 3}])
+    assert response.status_code == 200, response.text
+    served = client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping']
+    assert served == [3, -1, 2]
+    response = patch(served)
+    assert response.status_code == 200, response.text
+    assert response.json()['ams_mapping'] == served and _stored(review_db, job) == served
+    for value, message in (([3, 2, 2], 'Invalid or duplicate AMS slot'),
+                           ([3, -1, -1], 'Invalid or duplicate AMS slot'),
+                           ([3, -1], 'AMS mapping must cover every source filament'),
+                           ([3, -1, 2, -1], 'AMS mapping must cover every source filament')):
+        refused = patch(value)
+        assert refused.status_code == 400, (value, refused.text)
+        assert refused.json()['detail'] == message
+    assert _stored(review_db, job) == served
+
+
+@pytest.mark.parametrize('value,status,message', [
+    ([15], 400, 'Invalid or duplicate AMS slot'),          # tray 16 has no slot fact
+    ([16], 400, 'Invalid or duplicate AMS slot'),          # beyond the 16-tray bound
+    ([4], 400, 'Invalid or duplicate AMS slot'),           # tray 5 is not loaded
+    ([-1], 400, 'Invalid or duplicate AMS slot'),          # the only source left unmapped
+    ([-2], 400, 'Invalid or duplicate AMS slot'),
+    ([1], 400, 'Selected tray material does not match the source filament'),
+    ([3, -1], 400, 'AMS mapping must cover every source filament'),
+    ([3, 3], 400, 'AMS mapping must cover every source filament'),
+    ([True], 422, None),
+    (['3'], 422, None),
+    ([3.0], 422, None),
+    ([3, {'source_slot': 1, 'target_slot': 4}], 422, None),
+])
+def test_patch_vector_refusals_keep_stored_mapping(mapping_client, review_db, value, status, message):
+    client, auth = mapping_client
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color,color_hex) VALUES(9,2,'PLA','Red','ff0000')"))
+    review_db.commit()
+    job = schedule(mapping_client).json()['job_id']
+    before = _mapping_audits(review_db, job)
+    response = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': value})
+    assert response.status_code == status, response.text
+    if message is not None:
+        assert response.json()['detail'] == message
+    assert _stored(review_db, job) == [3]
+    assert _mapping_audits(review_db, job) == before
+
+
+@pytest.mark.parametrize('filaments', ['[]', None, 'invalid', '[{"slot": 1}, {"type": "PLA"}]'])
+def test_patch_vector_without_usable_filaments_refuses_like_entries(mapping_client, review_db, filaments):
+    client, auth = mapping_client
+    job = schedule(mapping_client).json()['job_id']
+    review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=501'), {'f': filaments})
+    review_db.commit()
+    entries = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': [{'source_slot': 1, 'target_slot': 4}]})
+    vector = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': [3]})
+    assert entries.status_code == vector.status_code == 400, (entries.text, vector.text)
+    assert vector.json()['detail'] == entries.json()['detail'] == 'Original filament metadata is invalid'
+    assert _stored(review_db, job) == [3]
