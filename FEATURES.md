@@ -756,7 +756,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Community (free, 5 printers, 1 user; browser push notifications, cost calculator and pricing configuration included)
 - Pro (Community features + unlimited printers/users, orders, analytics, CSV exports, SSO and usage reports)
 - Education (Pro features + job approval + user groups + quotas; unlimited printers and users)
-- Enterprise (Education features + audit-log CSV export and MQTT event republishing; unlimited printers and users). MFA, IP allowlist and GDPR export are included in every tier, including Community. Organization management requires the Education/Enterprise `user_groups` entitlement.
+- Enterprise (Education features + tamper-evident audit log with SIEM streaming and CSV export, part traceability with certificates of conformance, controlled-part handling, and MQTT event republishing; unlimited printers and users; up to 3 Instances per licensed Site: production plus staging, test or disaster recovery). MFA, IP allowlist and GDPR export are included in every tier, including Community. Organization management requires the Education/Enterprise `user_groups` entitlement.
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
