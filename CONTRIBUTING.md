@@ -16,7 +16,6 @@ Open a [GitHub issue](https://github.com/HughKantsime/runsodin/issues) with:
 Open an issue tagged `feature-request`. Describe the problem you're trying to solve, not just the solution you want. The best feature requests explain the "why."
 
 ### Join the Community
-- [Discord](https://discord.gg/odin-community) — chat, help others, share your setup
 - Star the repo — it helps with visibility
 
 ### Submit Code
