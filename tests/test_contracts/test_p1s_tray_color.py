@@ -67,7 +67,11 @@ def slot3(db, printer_id=301):
     (dict(tray_color="00000000"), None),
     (dict(), None),
     (dict(tray_color=""), None),
-    (dict(tray_color="#898989"), None),
+    (dict(tray_color="#898989"), "898989"),
+    (dict(tray_color="FFFFFF00"), None),  # any alpha-00 value is the no-colour placeholder
+    (dict(tray_color="FFFFFF00", cols=["898989FF"]), "898989"),
+    (dict(tray_color="748C4580"), "748C45"),  # translucent, not a placeholder
+    (dict(tray_color="89898"), None),
     (dict(tray_color=0), None),
     (dict(tray_color="00000000", cols=[]), None),
     (dict(tray_color="00000000", cols="898989FF"), None),
@@ -172,3 +176,111 @@ def test_p1s_wire_report_keeps_colour_then_real_change_wins(wire_monitor, review
     clock[0] += 61
     sock.deliver(p1s_report(p1s_tray(tray_color="FF0000FF", cols=["FF0000FF"])))
     assert slot3(review_db) == ("PETG", "FF0000")
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("898989", "898989"), ("#898989", "898989"), ("898989ff", "898989"), ("#898989FF", "898989"),
+    ("00000000", None), ("89898900", None), ("red", None), ("", None), ("#12345", None),
+    ("8989898", None), ("898989FFF", None), (None, None), (898989, None),
+])
+def test_hex_color_accepts_only_six_or_eight_digit_hex(value, expected):
+    from modules.printers.telemetry.bambu.ams_identity import hex_color
+    assert hex_color(value) == expected
+
+
+@pytest.mark.parametrize("color", ["#898989", "898989ff", "#898989FF"])
+def test_tray_set_normalises_accepted_colour_forms(cert_app, tray_broker, review_db, color):
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                           "VALUES(301,3,'PLA','FFFFFF')"))
+    review_db.commit()
+    response = cert_app.put("/printers/301/ams/0/slots/2", headers=cert_app.roles["operator"],
+                            json={**TRAY_SET, "color": color})
+    assert response.status_code == 200, response.text
+    assert slot3(review_db) == ("PETG", "898989")
+
+
+@pytest.mark.parametrize("color", ["red", "89898900", "#12345", "898989FFF"])
+def test_tray_set_request_schema_refuses_invalid_colour_before_wire(cert_app, broker_socket, review_db, color):
+    response = cert_app.put("/printers/301/ams/0/slots/2", headers=cert_app.roles["operator"],
+                            json={**TRAY_SET, "color": color})
+    assert response.status_code == 422, response.text
+
+
+def test_tray_set_invalid_colour_after_acceptance_keeps_colour_without_failing(cert_app, tray_broker, review_db):
+    """Defence in depth: a colour that bypassed the schema never fails the accepted command."""
+    import asyncio
+    from sqlalchemy.orm import Session
+    from modules.printers.routes_ams_env import AMSSlotConfigRequest, configure_ams_slot
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                           "VALUES(301,3,'PLA','FFFFFF')"))
+    review_db.commit()
+    body = AMSSlotConfigRequest.model_construct(**{**TRAY_SET, "color": "not-a-colour"})
+    with Session(review_db.get_bind()) as db:
+        result = asyncio.run(configure_ams_slot(301, 0, 2, body,
+                                                current_user={"id": 6, "role": "operator", "group_id": 1}, db=db))
+    assert result["success"] is True
+    assert slot3(review_db) == ("PETG", "FFFFFF")
+
+
+def test_rfid_swap_same_material_with_placeholder_takes_new_spool_colour(cert_app, tray_broker, review_db):
+    """A different RFID spool of the same material never inherits the previous spool's colour."""
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(77,'Bambu Lab','PETG Basic','PETG')"))
+    review_db.execute(text("INSERT INTO spools(id,filament_id,org_id,status,rfid_tag,tray_uuid,color_hex,location_printer_id,location_slot) VALUES "
+                           "(71,77,1,'active','AAAAAAAAAAAAAAAA','" + "a" * 32 + "','FF0000',301,3),"
+                           "(72,77,1,'active','BBBBBBBBBBBBBBBB','" + "b" * 32 + "','00FF00',NULL,NULL)"))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex,assigned_spool_id,spool_confirmed) "
+                           "VALUES(301,3,'PETG','FF0000',71,1)"))
+    review_db.commit()
+    rfid = dict(tray_sub_brands="PETG Basic", tray_color="00000000", cols=["00000000"])
+    # Same spool, placeholder colour: the known colour stays.
+    daemon_sync(review_db, p1s_units(p1s_tray(tag_uid="AAAAAAAAAAAAAAAA", tray_uuid="a" * 32, **rfid)))
+    assert slot3(review_db) == ("PETG", "FF0000")
+    # Swapped to a known spool of the same material: its own colour, not the stale one.
+    daemon_sync(review_db, p1s_units(p1s_tray(tag_uid="BBBBBBBBBBBBBBBB", tray_uuid="b" * 32, **rfid)))
+    assert slot3(review_db) == ("PETG", "00FF00")
+    assert review_db.execute(text("SELECT assigned_spool_id FROM filament_slots WHERE printer_id=301 AND slot_number=3")).scalar_one() == 72
+    # Swapped to an unknown RFID spool: created without a colour, so the slot has none.
+    daemon_sync(review_db, p1s_units(p1s_tray(tag_uid="CCCCCCCCCCCCCCCC", tray_uuid="c" * 32, **rfid)))
+    assert slot3(review_db) == ("PETG", None)
+    created = review_db.execute(text("SELECT color_hex FROM spools WHERE rfid_tag='CCCCCCCCCCCCCCCC'")).one()
+    assert created == (None,)
+
+
+def test_rfid_spool_replaced_by_tagless_spool_drops_the_rfid_colour(cert_app, tray_broker, review_db):
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(77,'Bambu Lab','PETG Basic','PETG')"))
+    review_db.execute(text("INSERT INTO spools(id,filament_id,org_id,status,rfid_tag,tray_uuid,color_hex,location_printer_id,location_slot) VALUES "
+                           "(71,77,1,'active','AAAAAAAAAAAAAAAA','" + "a" * 32 + "','FF0000',301,3)"))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex,assigned_spool_id,spool_confirmed) "
+                           "VALUES(301,3,'PETG','FF0000',71,1)"))
+    review_db.commit()
+    daemon_sync(review_db, p1s_units(p1s_tray(tag_uid="AAAAAAAAAAAAAAAA", tray_uuid="a" * 32, tray_sub_brands="PETG Basic",
+                                              tray_color="FF0000FF")))
+    daemon_sync(review_db, p1s_units(p1s_tray(tray_color="00000000")))
+    assert slot3(review_db) == ("PETG", None)
+
+
+def test_tagless_tray_with_unknown_identity_keeps_known_colour(cert_app, tray_broker, review_db):
+    """Documented limitation: a tagless tray after a tagless tray has no identity to compare,
+    so a different tagless spool of the same material keeps the known colour until the
+    printer reports one (or tray_set records one)."""
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                           "VALUES(301,3,'PETG','898989')"))
+    review_db.commit()
+    daemon_sync(review_db, p1s_units(p1s_tray(tray_color="00000000")))
+    daemon_sync(review_db, p1s_units(p1s_tray(tray_color="00000000", tray_info_idx="GFG99")))
+    assert slot3(review_db) == ("PETG", "898989")
+
+
+@pytest.mark.parametrize("args,expected", [
+    (dict(tray={"tag_uid": "A" * 16}, observation={"observed": {"tag": "A" * 16}}, destination=None, previous_spool=None), False),
+    (dict(tray={"tag_uid": "B" * 16}, observation={"observed": {"tag": "A" * 16}}, destination=None, previous_spool=None), True),
+    (dict(tray={"tray_uuid": "b" * 32, "tag_uid": "A" * 16}, observation={"observed": {"uuid": "a" * 32, "tag": "A" * 16}}, destination=None, previous_spool=None), True),
+    (dict(tray={}, observation={"observed": {"tag": "A" * 16}}, destination=None, previous_spool=None), True),
+    (dict(tray={"tag_uid": "0" * 16}, observation={}, destination=None, previous_spool=None), False),
+    (dict(tray={"tag_uid": "A" * 16}, observation={}, destination=5, previous_spool=5), False),
+    (dict(tray={"tag_uid": "A" * 16}, observation={"observed": {"tag": "A" * 16}}, destination=6, previous_spool=5), True),
+    (dict(tray={"tag_uid": "A" * 16}, observation=None, destination=6, previous_spool=None), True),
+])
+def test_tray_swapped_decisions(args, expected):
+    from modules.printers.telemetry.bambu.ams_identity import tray_swapped
+    assert tray_swapped(**args) is expected

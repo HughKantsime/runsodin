@@ -10,7 +10,7 @@ from core.models import SystemConfig
 from modules.inventory.models import Spool, FilamentLibrary
 from modules.printers.models import FilamentSlot
 from modules.inventory.receiving import seal_key
-from modules.printers.telemetry.bambu.ams_identity import is_rfid_tag
+from modules.printers.telemetry.bambu.ams_identity import is_rfid_tag, reported_color
 
 # Observed SKU/name pairs from captured tags, not a hex-distance guess:
 # https://github.com/queengooborg/Bambu-Lab-RFID-Library (2026-10-27).
@@ -92,7 +92,7 @@ def choose_candidates(rows, tray, used=()):
     if not material:
         return [], []
     line = tray.get('tray_sub_brands') or tray.get('tray_type')
-    rows = [r for r in rows if r[0] not in used and r[4].casefold() == 'bambu lab'
+    rows = [r for r in rows if r[0] not in used and (r[4] or '').casefold() == 'bambu lab'
             and r[2] == line and canonical_reported_material(r[3]) == material]
     name = color_name(tray)
     if name:
@@ -123,10 +123,10 @@ def create_raw_spool(conn, org, tray):
     line = tray.get('tray_sub_brands') or tray.get('tray_type')
     library = conn.execute("SELECT id FROM filament_library WHERE brand='Bambu Lab' AND name=? AND material=? ORDER BY id LIMIT 1", (line, material)).fetchone()
     if library is None:
-        library = conn.execute("INSERT INTO filament_library(brand,name,material,color_hex) VALUES('Bambu Lab',?,?,?) RETURNING id", (line, material, (tray.get('tray_color') or '')[:6] or None)).fetchone()
+        library = conn.execute("INSERT INTO filament_library(brand,name,material,color_hex) VALUES('Bambu Lab',?,?,?) RETURNING id", (line, material, reported_color(tray))).fetchone()
     return create_rfid_spool(qmark_runner(conn), filament_id=library[0],
         qr_code='SPL-' + uuid.uuid4().hex[:8].upper(), tag=identity(tray.get('tag_uid')),
-        tray_uuid=identity(tray.get('tray_uuid')), color_hex=(tray.get('tray_color') or '')[:6] or None,
+        tray_uuid=identity(tray.get('tray_uuid')), color_hex=reported_color(tray),
         color_name=color_name(tray), org_id=org)
 
 

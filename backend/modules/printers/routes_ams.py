@@ -165,6 +165,19 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection, 
         raise
 
 
+def _slot_color_hex(db, ams_slot, tray, ftype, previous, destination):
+    """The slot colour for a loaded tray resolved to ``destination`` (or None).
+
+    ``previous`` is the slot's (type, colour, spool, observation) before this sync.
+    """
+    from modules.printers.telemetry.bambu.ams_identity import slot_color, tray_swapped
+    previous_type, previous_hex, previous_spool, observation = previous
+    swapped = tray_swapped(tray, observation, destination, previous_spool)
+    spool_color = db.get(Spool, destination).color_hex if swapped and destination is not None else None
+    return slot_color(ams_slot.reported_color_hex, ftype, previous_type, previous_hex,
+                      swapped=swapped, spool_color=spool_color)
+
+
 @router.post("/printers/{printer_id}/sync-ams", tags=["Printers"])
 def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Sync AMS filament state from printer."""
@@ -419,6 +432,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     from core.interfaces.inventory_moves import inventory_moves
     from core.tray_identity import advance, observe, preset_label
     from core.print_attempts import sqlalchemy_runner
+    from modules.printers.telemetry.bambu.ams_identity import stored_observation
+    # Each slot's spool and observation before departures below clear or replace them.
+    previous_slots = {slot.slot_number: (slot.assigned_spool_id, stored_observation(slot.tray_observation))
+                      for slot in db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all()}
     states = inventory_moves().observe_slots(db, printer_id,
         [(s.slot_number, s.empty, t['tag_uid']) for s, t in zip(bambu_status.ams_slots, trays)],
         set(known_ids), current_user,
@@ -439,10 +456,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             db.flush()
 
         state = states.setdefault(ams_slot.slot_number, advance({}, tray)[0])
-        color_hex = ams_slot.color_hex[:6] if ams_slot.color_hex else None
+        # The normalised reported colour: None for an absent or placeholder colour.
+        color_hex = ams_slot.reported_color_hex
         ftype = FilamentType(slot_filament_value(ams_slot.filament_type))
-        from modules.printers.telemetry.bambu.ams_identity import slot_color
-        slot_color_hex = slot_color(ams_slot.reported_color_hex, ftype, db_slot.filament_type, db_slot.color_hex)
+        previous = (db_slot.filament_type, db_slot.color_hex, *previous_slots.get(ams_slot.slot_number, (None, {})))
 
         if not ams_slot.empty:
             rfid_match = rfid.match_id(locked_rfid, tray)
@@ -455,7 +472,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                     used_candidates.add(rfid_match.id)
                     rfid_match.rfid_tag = tray['tag_uid']
                     rfid_match.tray_uuid = tray['tray_uuid']
-                    rfid_match.color_hex = color_hex
+                    if color_hex is not None:
+                        rfid_match.color_hex = color_hex
                     bound = True
                     log_audit(db, 'inventory.rfid_bound', 'spool', rfid_match.id,
                               rfid.audit_details(rfid_match.id, tray, printer_id, ams_slot.slot_number, candidates))
@@ -469,6 +487,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                     log_audit(db, 'inventory.rfid_identified', 'spool', rfid_match.id,
                               rfid.audit_details(rfid_match.id, tray, printer_id, ams_slot.slot_number))
                 color_name = f"{rfid_match.filament.brand} {rfid_match.filament.name}".strip() if rfid_match.filament else "Unknown"
+                slot_color_hex = _slot_color_hex(db, ams_slot, tray, ftype, previous, rfid_match.id)
                 db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
                 db_slot.color_hex = slot_color_hex
@@ -534,6 +553,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 log_audit(db, "inventory.rfid_created", "spool", new_spool.id,
                           rfid.audit_details(new_spool.id, tray, printer_id, ams_slot.slot_number, possible=possible))
                 color_name = f"{library_entry.brand} {library_entry.name}".strip()
+                slot_color_hex = _slot_color_hex(db, ams_slot, tray, ftype, previous, new_spool.id)
                 db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
                 db_slot.color_hex = slot_color_hex
@@ -551,6 +571,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             from core.tray_identity import decode, preset_label
             spool = db_slot.assigned_spool
             color_name = f"{spool.filament.brand} {spool.filament.name}".strip() if spool and spool.filament else preset_label(state)
+            slot_color_hex = _slot_color_hex(db, ams_slot, tray, ftype, previous, None)
             db_slot.filament_type = FilamentType(slot_filament_value(ftype))
             db_slot.color = color_name
             db_slot.color_hex = slot_color_hex

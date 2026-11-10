@@ -269,3 +269,16 @@ def test_patch_vector_refusals_keep_stored_mapping(mapping_client, review_db, va
         assert response.json()['detail'] == message
     assert _stored(review_db, job) == [3]
     assert _mapping_audits(review_db, job) == before
+
+
+@pytest.mark.parametrize('filaments', ['[]', None, 'invalid', '[{"slot": 1}, {"type": "PLA"}]'])
+def test_patch_vector_without_usable_filaments_refuses_like_entries(mapping_client, review_db, filaments):
+    client, auth = mapping_client
+    job = schedule(mapping_client).json()['job_id']
+    review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=501'), {'f': filaments})
+    review_db.commit()
+    entries = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': [{'source_slot': 1, 'target_slot': 4}]})
+    vector = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': [3]})
+    assert entries.status_code == vector.status_code == 400, (entries.text, vector.text)
+    assert vector.json()['detail'] == entries.json()['detail'] == 'Original filament metadata is invalid'
+    assert _stored(review_db, job) == [3]

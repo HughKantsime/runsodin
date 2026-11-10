@@ -236,7 +236,10 @@ async def configure_ams_slot(
         # The printer accepted this material and colour; record both. A later
         # report without a colour keeps it (ams_identity.slot_color).
         slot.filament_type = FilamentType(slot_filament_value(material))
-        slot.color_hex = color.lstrip("#")[:6].upper()
+        from modules.printers.telemetry.bambu.ams_identity import hex_color
+        accepted = hex_color(color)
+        if accepted is not None:  # never fail after the printer accepted the command
+            slot.color_hex = accepted
         if spool_id is not None:
             slot.color = body.color
             assign_slot(db, slot, spool_id, current_user)

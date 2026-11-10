@@ -646,6 +646,65 @@ def test_merge_refuses_earlier_record_outside_creation_candidates(inventory, syn
     assert (exc.value.status_code, exc.value.detail) == (409, 'Sealed candidate is no longer eligible for this line and material')
 
 
+def test_placeholder_colour_creates_rfid_spool_and_library_without_colour(inventory, sync):
+    sync(report(tray_sub_brands='PLA Galaxy', tray_id_name='unknown', tray_color='00000000', cols=['00000000']))
+    assert rows(inventory, "SELECT s.color_hex,f.color_hex FROM spools s JOIN filament_library f ON f.id=s.filament_id "
+                           "WHERE s.tray_uuid IS NOT NULL AND f.name='PLA Galaxy'") == [(None, None)]
+
+
+def test_placeholder_colour_binding_keeps_received_colour(inventory, sync):
+    seed(inventory, 56)
+    with inventory.begin() as c:
+        c.execute(text("UPDATE spools SET color_hex='9F9F9F' WHERE id=56"))
+    sync(report(tray_color='00000000'))
+    assert rows(inventory, 'SELECT tray_uuid,color_hex FROM spools WHERE id=56') == [('a'*32, '9F9F9F')]
+
+
+@pytest.mark.parametrize('stored', [None, '000000'])
+def test_merge_refuses_unnamed_placeholder_roll_into_black_record(inventory, sync, stored):
+    """A 00000000 report is no colour; a roll stored as 000000 before normalisation is not black either."""
+    from fastapi import HTTPException
+    source = opened_roll(inventory, sync, tray_id_name='unknown', tray_color='00000000', cols=['00000000'])
+    assert rows(inventory, f'SELECT color_name,color_hex FROM spools WHERE id={source}') == [(None, None)]
+    with inventory.begin() as c:
+        c.execute(text('UPDATE spools SET color_hex=:hex WHERE id=:id'), {'hex': stored, 'id': source})
+    target = receive_sealed(inventory, color='Black', color_hex='000000')
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, target)
+    assert (exc.value.status_code, exc.value.detail) == (
+        409, 'Cannot merge: the roll colour cannot be confirmed against the sealed record')
+
+
+@pytest.mark.parametrize('side', ['roll', 'sealed'])
+def test_merge_blank_brand_refuses_as_different_line(inventory, sync, side):
+    from fastapi import HTTPException
+    source = opened_roll(inventory, sync)
+    target = receive_sealed(inventory)
+    with inventory.begin() as c:
+        c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(9,'','PLA Matte','PLA')"))
+        c.execute(text('UPDATE spools SET filament_id=9 WHERE id=:id'), {'id': source if side == 'roll' else target})
+    with pytest.raises(HTTPException) as exc:
+        merge(inventory, source, target)
+    assert (exc.value.status_code, exc.value.detail) == (409, 'Sealed record is a different product line')
+
+
+@pytest.mark.parametrize('side', ['roll', 'sealed'])
+def test_null_brand_never_raises(monkeypatch, side):
+    """The schema forbids a NULL brand, but legacy rows must refuse cleanly, never 500."""
+    from modules.inventory.routes import rfid_onboarding as route
+    def library(brand):
+        return SimpleNamespace(brand=brand, name='PLA Matte', material='PLA')
+    source = SimpleNamespace(id=1, org_id=1, filament=library(None if side == 'roll' else 'Bambu Lab'),
+                             color_name='Nardo Gray', color_hex=None)
+    target = SimpleNamespace(id=2, org_id=1, filament=library(None if side == 'sealed' else 'Bambu Lab'),
+                             color_name='Nardo Gray', color_hex=None)
+    monkeypatch.setattr(route.rfid, 'candidate_rows', lambda db, org: [(2, 'Nardo Gray', 'PLA Matte', 'PLA', None)])
+    assert route.later_sealed_refusal(None, source, target) == 'Sealed record is a different product line'
+    assert route.eligible_candidates(None, source, {'possible_duplicate': True, 'possible_duplicate_spool_ids': [2]}) == []
+    from modules.inventory.rfid_identity import choose_candidates
+    assert choose_candidates([(2, 'Nardo Gray', 'PLA Matte', 'PLA', None)], report()) == ([], [])
+
+
 @pytest.mark.parametrize('role,auth_kind,scopes,allowed,expected', [
     ('admin',None,None,True,200), ('operator',None,None,True,200),
     ('viewer',None,None,True,403), ('operator',None,None,False,403),

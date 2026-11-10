@@ -68,28 +68,77 @@ def ams_trays_by_slot(units, *, strict=False):
     return [(number, tray) for number, tray in entries if number not in duplicate]
 
 
-# Bambu's "no colour" placeholder (zero RGB, zero alpha), never black.
-NO_REPORTED_COLOR = '00000000'
+_HEX_COLOR = re.compile(r'#?([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?')
+
+
+def hex_color(value):
+    """RRGGBB from a 6- or 8-digit hex colour (optional '#'), or None.
+
+    Alpha 00 is Bambu's no-colour placeholder (00000000 on loaded trays without
+    a set colour), never a colour: it is None, not black.
+    """
+    match = _HEX_COLOR.fullmatch(value.strip()) if isinstance(value, str) else None
+    if match is None or (match.group(2) or '').upper() == '00':
+        return None
+    return match.group(1).upper()
 
 
 def reported_color(tray):
     """The tray's RRGGBB colour, or None when the report carries no colour.
 
     tray_color is RRGGBBAA; firmware that supports multi-colour trays repeats it
-    in cols. An absent, malformed or 00000000 tray_color falls back to cols[0].
+    in cols. An absent, malformed or placeholder tray_color falls back to cols[0].
     """
     cols = tray.get('cols')
-    for value in (tray.get('tray_color'), cols[0] if isinstance(cols, list) and cols else None):
-        if (isinstance(value, str) and re.fullmatch(r'[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?', value)
-                and value.upper() != NO_REPORTED_COLOR):
-            return value[:6].upper()
-    return None
+    return hex_color(tray.get('tray_color')) or hex_color(cols[0] if isinstance(cols, list) and cols else None)
 
 
-def slot_color(reported, filament_type, previous_type, previous_color):
-    """A report without a colour keeps the known colour of the same loaded material."""
+def _rfid(value):
+    return value.strip().upper() if isinstance(value, str) and value.strip().strip('0') else None
+
+
+def tray_swapped(tray, observation, destination, previous_spool):
+    """Whether a different spool is in the tray than the slot last held.
+
+    A tray resolved to a spool is a swap when that spool is not the slot's
+    previous one. Otherwise the RFID identity is compared with the last
+    observed one; an RFID spool replaced by a tagless one is a swap. A tagless
+    tray after a tagless tray has unknown identity: not a swap (limitation:
+    a different tagless spool of the same material keeps the known colour).
+    """
+    if destination is not None:
+        return destination != previous_spool
+    observed = (observation or {}).get('observed') or {}
+    uuid, tag = _rfid(tray.get('tray_uuid')), _rfid(tray.get('tag_uid'))
+    old_uuid, old_tag = _rfid(observed.get('uuid')), _rfid(observed.get('tag'))
+    if uuid and old_uuid:
+        return uuid != old_uuid
+    if tag and old_tag:
+        return tag != old_tag
+    return bool(uuid or tag) != bool(old_uuid or old_tag)
+
+
+def stored_observation(value):
+    """A slot's stored tray observation, or {} when absent or unreadable."""
+    import json
+    try:
+        result = json.loads(value) if value else {}
+    except (TypeError, ValueError):
+        return {}
+    return result if isinstance(result, dict) else {}
+
+
+def slot_color(reported, filament_type, previous_type, previous_color, *, swapped=False, spool_color=None):
+    """The slot colour for a loaded tray.
+
+    A reported colour wins. Without one, a swapped spool takes that spool's own
+    colour (or none); the same or an unknown spool keeps the known colour of
+    the same loaded material.
+    """
     if reported is not None:
         return reported
+    if swapped:
+        return hex_color(spool_color)
     return previous_color if filament_type == previous_type else None
 
 

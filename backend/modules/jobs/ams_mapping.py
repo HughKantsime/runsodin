@@ -72,7 +72,13 @@ def vector_entries(mapping, filaments_json):
     from core.print_payload import source_filaments
     if not mapping or not all(type(slot) is int for slot in mapping):
         return mapping
-    ids = {f['slot'] for f in source_filaments(filaments_json)}
+    try:
+        ids = {f['slot'] for f in source_filaments(filaments_json)}
+    except HTTPException:
+        # No usable filaments: validate_mapping refuses it exactly as for entries.
+        return mapping
+    if not ids:
+        return mapping
     if len(mapping) != max(ids):
         raise HTTPException(400, 'AMS mapping must cover every source filament')
     if any((slot < 0) if index + 1 in ids else (slot != -1) for index, slot in enumerate(mapping)):

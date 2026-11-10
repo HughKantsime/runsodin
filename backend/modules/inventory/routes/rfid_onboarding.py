@@ -25,11 +25,11 @@ router = APIRouter(prefix='/spools', tags=['Spools'])
 def eligible_candidates(db, spool, details):
     ids = details.get('possible_duplicate_spool_ids', []) if details.get('possible_duplicate') else []
     filament = spool.filament
-    if not filament or filament.brand.casefold() != 'bambu lab':
+    if not filament or (filament.brand or '').casefold() != 'bambu lab':
         return []
     return [row[0] for row in rfid.candidate_rows(db, spool.org_id)
             if row[0] in ids and row[0] != spool.id and row[2] == filament.name
-            and row[4].casefold() == 'bambu lab'
+            and (row[4] or '').casefold() == 'bambu lab'
             and canonical_reported_material(row[3]) == canonical_reported_material(filament.material)]
 
 
@@ -118,14 +118,17 @@ def later_sealed_refusal(db, source, target):
     if target.id not in {row[0] for row in rfid.candidate_rows(db, source.org_id)}:
         return 'Sealed record is not unassigned sealed shelf stock'
     roll, sealed = source.filament, target.filament
-    if (not roll or not sealed or roll.brand.casefold() != 'bambu lab'
-            or sealed.brand.casefold() != 'bambu lab' or roll.name != sealed.name):
+    if (not roll or not sealed or (roll.brand or '').casefold() != 'bambu lab'
+            or (sealed.brand or '').casefold() != 'bambu lab' or roll.name != sealed.name):
         return 'Sealed record is a different product line'
     if canonical_reported_material(roll.material) != canonical_reported_material(sealed.material):
         return 'Sealed record is a different material'
     # The catalogue colour name decides; the reported hex only when the roll has no name.
+    # A roll's 000000 may be a stored 00000000 no-colour placeholder, so it is unknown.
+    from modules.printers.telemetry.bambu.ams_identity import hex_color
     names = [(s.color_name or '').strip().casefold() for s in (source, target)]
-    hexes = [(s.color_hex or '').strip().lstrip('#').upper() for s in (source, target)]
+    roll_hex = hex_color(source.color_hex)
+    hexes = [None if roll_hex == '000000' else roll_hex, hex_color(target.color_hex)]
     compared = names if all(names) else hexes if not names[0] and all(hexes) else None
     if compared is None:
         return 'Cannot merge: the roll colour cannot be confirmed against the sealed record'
