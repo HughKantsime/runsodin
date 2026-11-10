@@ -16,6 +16,12 @@ Activated by the env var `ODIN_ITAR_MODE=1`. When enabled:
    URL → internal host). ITAR mode is the dual: prevent ODIN from
    leaking data to external services at all.
 
+4. One narrow, explicit exception: `ODIN_ITAR_ALLOWED_IDP_HOSTS` lists exact
+   hostnames of an OIDC identity provider (for example Microsoft Entra ID
+   or GCC High). Only the OIDC client (`purpose="oidc"`) may reach a listed
+   host over a public address, https and port 443 only. Every other caller
+   is unchanged.
+
 The two checks can coexist because they're layered: SSRF protects
 against attackers supplying a private URL; ITAR protects against
 operators (or admins) accidentally configuring a public URL when they
@@ -24,7 +30,8 @@ shouldn't be able to reach public destinations at all.
 Env-var toggle (not a DB setting) because ITAR posture is a
 container-level decision that cannot be flipped by a compromised
 admin account. Operators set it in their compose / systemd unit and
-a misconfiguration fails loud at boot.
+a misconfiguration fails loud at boot. The identity-provider allowance is
+env-only for the same reason.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import os
+import re
 import socket
 from typing import Iterable, Optional
 from urllib.parse import urlparse
@@ -43,6 +51,22 @@ _LOCAL_V4 = tuple(ipaddress.ip_network(cidr) for cidr in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16",
 ))
 _LOCAL_V6 = tuple(ipaddress.ip_network(cidr) for cidr in ("fc00::/7", "::1/128", "fe80::/10"))
+
+# Identity-provider allowance (env only).
+IDP_ALLOWANCE_ENV = "ODIN_ITAR_ALLOWED_IDP_HOSTS"
+IDP_ALLOWANCE_MAX_HOSTS = 8
+# The only purpose that may use the allowance. Passed explicitly by the OIDC
+# client; never inferred from the URL or the caller's module.
+PURPOSE_OIDC = "oidc"
+_HOST_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+class IdpDiscoveryUrl(str):
+    """An OIDC discovery URL collected for the boot audit.
+
+    The boot audit treats these differently from every other URL: a public
+    host is acceptable when it is listed in ODIN_ITAR_ALLOWED_IDP_HOSTS.
+    """
 
 
 def _is_local_address(addr) -> bool:
@@ -61,6 +85,83 @@ def _is_local_address(addr) -> bool:
 def is_itar_mode() -> bool:
     """Read the env var every call so tests can flip it without restarts."""
     return os.getenv("ODIN_ITAR_MODE", "").strip().lower() in _ENABLED_VALUES
+
+
+def _idp_host_error(entry: str) -> Optional[str]:
+    """Why `entry` is not an acceptable allowance entry, or None."""
+    if not entry:
+        return "empty entry"
+    if entry != entry.lower():
+        return "must be lowercase"
+    if "*" in entry:
+        return "wildcards are not allowed"
+    try:
+        ipaddress.ip_address(entry.strip("[]"))
+        return "IP addresses are not allowed"
+    except ValueError:
+        pass
+    if any(ch in entry for ch in "/:@?#[]\\ \t"):
+        return "must be a bare hostname (no scheme, port, path or credentials)"
+    if len(entry) > 253:
+        return "hostname is too long"
+    labels = entry.split(".")
+    if not all(_HOST_LABEL.match(label) for label in labels):
+        return "not a valid hostname (letters, digits and hyphens; no trailing dot)"
+    if labels[-1].isdigit():
+        return "looks like an IP address"
+    return None
+
+
+def parse_idp_allowance(raw: Optional[str]) -> tuple[list[str], list[str]]:
+    """Parse ODIN_ITAR_ALLOWED_IDP_HOSTS into (hosts, errors).
+
+    Comma-separated exact lowercase hostnames; no wildcards, no IP literals,
+    at most IDP_ALLOWANCE_MAX_HOSTS distinct entries. Whitespace around an
+    entry is ignored. Unset or blank means "no allowance" (no errors).
+    """
+    if raw is None or not raw.strip():
+        return [], []
+    hosts: list[str] = []
+    errors: list[str] = []
+    for part in raw.split(","):
+        entry = part.strip()
+        problem = _idp_host_error(entry)
+        if problem:
+            errors.append(f"{entry!r}: {problem}")
+        elif entry not in hosts:
+            hosts.append(entry)
+    if len(hosts) > IDP_ALLOWANCE_MAX_HOSTS:
+        errors.append(
+            f"{len(hosts)} hosts listed; the maximum is {IDP_ALLOWANCE_MAX_HOSTS}"
+        )
+    return hosts, errors
+
+
+def idp_allowance_errors() -> list[str]:
+    """Problems with the current env value (empty list when valid or unset)."""
+    return parse_idp_allowance(os.getenv(IDP_ALLOWANCE_ENV))[1]
+
+
+def idp_allowed_hosts() -> frozenset:
+    """The active allowance. Empty unless ITAR mode is on and the env value
+    is valid: an invalid value fails closed (boot refuses it separately)."""
+    if not is_itar_mode():
+        return frozenset()
+    hosts, errors = parse_idp_allowance(os.getenv(IDP_ALLOWANCE_ENV))
+    if errors:
+        return frozenset()
+    return frozenset(hosts)
+
+
+def _idp_public_policy_problem(parsed, port) -> Optional[str]:
+    """Rules for a host the operator listed: https, port 443, no credentials."""
+    if parsed.scheme != "https":
+        return "identity-provider hosts require https"
+    if port != 443:
+        return "identity-provider hosts require port 443"
+    if parsed.username or parsed.password:
+        return "credentials in the URL are not allowed"
+    return None
 
 
 def is_private_destination(host: str) -> bool:
@@ -127,15 +228,52 @@ def check_url_allowed(url: Optional[str]) -> tuple[bool, str]:
     return False, f"{host} resolves to a public address"
 
 
+def check_idp_endpoint(url: Optional[str]) -> tuple[bool, str]:
+    """Return (allowed, reason) for an OIDC identity-provider URL.
+
+    Used for the OIDC discovery URL at boot and for each OIDC request and
+    discovery-document endpoint at runtime. Allowed iff the host is listed in
+    ODIN_ITAR_ALLOWED_IDP_HOSTS (then https, port 443 and no credentials are
+    required) or resolves only to private addresses (today's rule, unchanged).
+    Blocking DNS: call from a thread in async code.
+    """
+    if not url or not isinstance(url, str):
+        return False, "URL is empty"
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return False, "URL is malformed"
+    if not host:
+        return False, "URL has no host"
+    if host in idp_allowed_hosts():
+        problem = _idp_public_policy_problem(parsed, port)
+        if problem:
+            return False, f"{host}: {problem}"
+        return True, f"{host} is listed in {IDP_ALLOWANCE_ENV}"
+    if is_private_destination(host):
+        return True, f"{host} resolves to a private range"
+    return False, (
+        f"{host} is not listed in {IDP_ALLOWANCE_ENV} and does not resolve "
+        "to a private address"
+    )
+
+
 def audit_boot_config(urls: Iterable[str]) -> list[str]:
     """Inspect a list of configured URLs for ITAR compliance.
 
     Returns a list of violations (strings). Empty list means clean boot.
     Caller is responsible for refusing to start if the list is non-empty.
+    `IdpDiscoveryUrl` entries are judged by `check_idp_endpoint`; everything
+    else by `check_url_allowed` (the allowance never applies to it).
     """
     violations: list[str] = []
     for url in urls:
-        ok, reason = check_url_allowed(url)
+        if isinstance(url, IdpDiscoveryUrl):
+            ok, reason = check_idp_endpoint(url)
+        else:
+            ok, reason = check_url_allowed(url)
         if not ok:
             violations.append(f"  - {url} — {reason}")
     return violations
@@ -151,6 +289,17 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
     if not is_itar_mode():
         return
 
+    errors = idp_allowance_errors()
+    if errors:
+        msg = (
+            f"ODIN_ITAR_MODE=1 is set but {IDP_ALLOWANCE_ENV} is invalid:\n"
+            + "\n".join(f"  - {error}" for error in errors)
+            + "\n\nUse comma-separated exact lowercase hostnames (no wildcards, "
+            f"no IP addresses, at most {IDP_ALLOWANCE_MAX_HOSTS}), or unset it."
+        )
+        log.critical(msg)
+        raise RuntimeError(msg)
+
     violations = audit_boot_config(urls)
     if violations:
         msg = (
@@ -161,7 +310,15 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
         )
         log.critical(msg)
         raise RuntimeError(msg)
-    log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.")
+    allowed = sorted(idp_allowed_hosts())
+    log.info(
+        "ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private%s.",
+        (
+            f" or an allowed OIDC identity provider ({IDP_ALLOWANCE_ENV}="
+            f"{','.join(allowed)}; https/443, OIDC client only)"
+            if allowed else ""
+        ),
+    )
 
 
 def collect_db_configured_urls() -> list[str]:
@@ -179,6 +336,9 @@ def collect_db_configured_urls() -> list[str]:
       - `system_config` MQTT republish host (mqtt://host:port).
       - `groups.settings_json` webhook URLs (org-level outbound from
         OrgSettingsProvider).
+      - `oidc_config.discovery_url` of an enabled config, tagged as an
+        `IdpDiscoveryUrl` so the audit can apply the identity-provider
+        allowance to it and to nothing else.
 
     Non-HTTP destinations (SMTP, MQTT) are encoded as synthetic URLs
     so `check_url_allowed` (which uses urlparse + getaddrinfo on the
@@ -258,7 +418,8 @@ def collect_db_configured_urls() -> list[str]:
         # -------- 3. oidc_config.discovery_url (only when enabled) --------
         # Codex pass 15 (2026-04-15): OIDC login unconditionally
         # reaches out to discovery_url; under ITAR it must be private
-        # or the service should fail at boot rather than at first login.
+        # (or an explicitly allowed identity-provider host) or the
+        # service should fail at boot rather than at first login.
         try:
             rows = db.execute(
                 sa_text(
@@ -269,7 +430,7 @@ def collect_db_configured_urls() -> list[str]:
             for row in rows:
                 url = row[0] if row else None
                 if url:
-                    urls.append(str(url))
+                    urls.append(IdpDiscoveryUrl(str(url)))
         except Exception as exc:
             log.debug("ITAR audit: oidc_config not queryable: %s", exc)
 
@@ -329,7 +490,7 @@ import contextlib
 
 
 @contextlib.contextmanager
-def pin_for_request(url: str):
+def pin_for_request(url: str, *, purpose: Optional[str] = None):
     """Context manager: validate AND DNS-pin an outbound httpx call.
 
     Codex pass 11 (2026-04-15): the bare `enforce_request_destination`
@@ -349,6 +510,14 @@ def pin_for_request(url: str):
          installed by `core/webhook_utils`) to the validated list
          for the duration of the context in the connecting thread.
       4. Outside ITAR mode: this is a pure no-op for zero overhead.
+
+    The one exception is `purpose="oidc"` (passed explicitly by the OIDC
+    client, never inferred): when the URL's host is exactly listed in
+    ODIN_ITAR_ALLOWED_IDP_HOSTS the call must be https on port 443 without
+    URL credentials, and the host may resolve to public addresses. The pin
+    then covers those public addresses, and a private+public mixed answer
+    is still refused. Any other purpose (including None) gets the rules
+    above with no exception.
 
     Synchronous usage (disable proxies while ITAR pinning is active):
         with pin_for_request(url):
@@ -371,6 +540,17 @@ def pin_for_request(url: str):
         )
 
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    # Exact, case-normalized host match (urlparse lowercases hostname; a
+    # trailing dot or a subdomain is a different host). Literal IPs can never
+    # be in the allowance.
+    allow_public = purpose == PURPOSE_OIDC and host in idp_allowed_hosts()
+    if allow_public:
+        problem = _idp_public_policy_problem(parsed, port)
+        if problem:
+            raise ItarOutboundBlocked(
+                f"ODIN_ITAR_MODE=1: identity-provider host {host!r} refused: {problem}"
+            )
 
     # Literal-IP short-circuit.
     try:
@@ -404,11 +584,20 @@ def pin_for_request(url: str):
             else:
                 public.append(ip_str)
         if public:
-            # Any public answer is a rebinding signal. Refuse outright.
-            raise ItarOutboundBlocked(
-                f"ODIN_ITAR_MODE=1: {host!r} resolves to public address(es) "
-                f"{public}; refusing to connect"
-            )
+            if not allow_public:
+                # Any public answer is a rebinding signal. Refuse outright.
+                raise ItarOutboundBlocked(
+                    f"ODIN_ITAR_MODE=1: {host!r} resolves to public address(es) "
+                    f"{public}; refusing to connect"
+                )
+            if validated:
+                # An allowed host gets no leniency on mixed answers.
+                raise ItarOutboundBlocked(
+                    f"ODIN_ITAR_MODE=1: identity-provider host {host!r} resolves "
+                    f"to both private {validated} and public {public} addresses "
+                    "(mixed answer); refusing to connect"
+                )
+            validated = list(dict.fromkeys(public))
         if not validated:
             raise ItarOutboundBlocked(
                 f"ODIN_ITAR_MODE=1: {host!r} returned no addresses"
@@ -426,7 +615,8 @@ def enforce_request_destination(url: str) -> None:
     """Raise ItarOutboundBlocked if ITAR is on and the URL is public.
 
     Called by `safe_post` / `trusted_post` at the top of each request.
-    No-op if ITAR mode is off.
+    No-op if ITAR mode is off. The identity-provider allowance does not
+    apply here.
     """
     if not is_itar_mode():
         return
@@ -445,7 +635,7 @@ def enforce_host_destination(host: str, scheme: str = "net") -> None:
     For non-HTTP outbound channels — SMTP (smtplib), MQTT (paho), any
     socket-level connect. The resolver check is the same as
     enforce_request_destination but takes a bare hostname rather
-    than a URL.
+    than a URL. The identity-provider allowance does not apply here.
 
     Codex pass 7 (2026-04-15): boot-time DNS audit alone isn't enough.
     A host that resolved private at boot could resolve public later

@@ -46,7 +46,8 @@ def _release_slot(loop, slots):
 
 async def pinned_async_request(
     method: str, url: str, *, timeout=5,
-    max_response_bytes=_DEFAULT_MAX_RESPONSE_BYTES, public_only=False, **kwargs,
+    max_response_bytes=_DEFAULT_MAX_RESPONSE_BYTES, public_only=False,
+    purpose=None, **kwargs,
 ) -> httpx.Response:
     """Validate, pin and complete one request in the same worker thread.
 
@@ -65,6 +66,11 @@ async def pinned_async_request(
     pinning still happen in the connecting worker.
     Redirects remain disabled so an upstream cannot change the destination.
 
+    `purpose` is an explicit, closed set (None or "oidc"). Only the OIDC client
+    passes "oidc"; under ITAR mode that lets it reach a host exactly listed in
+    ODIN_ITAR_ALLOWED_IDP_HOSTS (see itar.pin_for_request). Every other caller
+    leaves it None and keeps today's behaviour.
+
     Cancellation/deadline cannot interrupt an in-progress synchronous operation.
     Its slot remains occupied until the worker actually exits; streaming checks
     stop a dribbling body on the next chunk, and blocking I/O has httpx timeouts.
@@ -77,6 +83,8 @@ async def pinned_async_request(
         raise ValueError("outbound timeout must be a positive finite number")
     if isinstance(max_response_bytes, bool) or not isinstance(max_response_bytes, int) or max_response_bytes <= 0:
         raise ValueError("outbound response size limit must be a positive integer")
+    if purpose not in (None, itar.PURPOSE_OIDC):
+        raise ValueError("unknown outbound purpose")
     deadline = time.monotonic() + timeout
     cancelled = threading.Event()
 
@@ -89,7 +97,7 @@ async def pinned_async_request(
     def request():
         remaining()
         with ExitStack() as pins:
-            pins.enter_context(itar.pin_for_request(url))
+            pins.enter_context(itar.pin_for_request(url, purpose=purpose))
             if public_only:
                 ips, port, host, _ = webhook_utils._resolve_and_pin(url)
                 pins.enter_context(webhook_utils._pin_dns(host, port, ips))
