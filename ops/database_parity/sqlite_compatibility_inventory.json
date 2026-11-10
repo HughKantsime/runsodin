@@ -598,7 +598,7 @@
       "path": "backend/core/license_lock.py",
       "pattern": "PRAGMA",
       "reason": "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
-      "source": "raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')"
+      "source": "raw.execute(f'PRAGMA busy_timeout={int(ADMISSION_WAIT_MS)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA ta"
     },
     {
       "classification": "sqlite-provider-only",
@@ -606,7 +606,7 @@
       "path": "backend/core/license_lock.py",
       "pattern": "PRAGMA",
       "reason": "Mixed sites: policy serialization is dialect guarded (SQLite BEGIN IMMEDIATE and a bounded busy_timeout PRAGMA for start admission, restoring the connection timeout; PostgreSQL SET LOCAL lock_timeout and row locks). The stored_snapshot qmark read is dialect-neutral: it runs through the shared monitor DBAPI cursor adapter on both providers.",
-      "source": "raw.execute(f'PRAGMA busy_timeout={int(restore)}')"
+      "source": "raw.execute(f'PRAGMA busy_timeout={int(restore)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bin"
     },
     {
       "classification": "sqlite-provider-only",
@@ -1026,11 +1026,35 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 47,
+      "line": 15,
       "path": "backend/core/schema/audit_siem_gaps.py",
       "pattern": "last_insert_rowid",
       "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
-      "source": "return f\"\"\"INSERT INTO audit_logs(action,entity_type,chain_seq,details)"
+      "source": "UPDATE audit_logs SET row_hash=(SELECT {hash_expression(False, 'a.')} FROM audit_logs a WHERE a.id=last_insert_rowid())"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 51,
+      "path": "backend/core/schema/audit_siem_gaps.py",
+      "pattern": "last_insert_rowid",
+      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
+      "source": "{chain_gap_sql()}"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 54,
+      "path": "backend/core/schema/audit_siem_gaps.py",
+      "pattern": "last_insert_rowid",
+      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
+      "source": "AND (SELECT siem_until FROM audit_chain_state WHERE id=1)>{now}"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 60,
+      "path": "backend/core/schema/audit_siem_gaps.py",
+      "pattern": "last_insert_rowid",
+      "reason": "Dialect-specific transactional gap counters for SQLite and PostgreSQL append triggers.",
+      "source": "WHERE {ordinary} AND {lapsed}"
     },
     {
       "classification": "sqlite-provider-only",
