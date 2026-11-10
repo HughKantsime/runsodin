@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.1.0] - 2026-11-10
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: First release-train release: Shane's farm runs each train release about a day before customers. Fixes auto-dispatch on Bambu and PrusaLink printers, keeps a P1S slot colour after a tray change, lets a job's AMS mapping be written back as it is read, and lets an opened RFID roll merge into a sealed record received later. The Terms now allow service providers to run O.D.I.N. for licensed customers. -->
 
