@@ -441,6 +441,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         state = states.setdefault(ams_slot.slot_number, advance({}, tray)[0])
         color_hex = ams_slot.color_hex[:6] if ams_slot.color_hex else None
         ftype = FilamentType(slot_filament_value(ams_slot.filament_type))
+        from modules.printers.telemetry.bambu.ams_identity import slot_color
+        slot_color_hex = slot_color(ams_slot.reported_color_hex, ftype, db_slot.filament_type, db_slot.color_hex)
 
         if not ams_slot.empty:
             rfid_match = rfid.match_id(locked_rfid, tray)
@@ -469,7 +471,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 color_name = f"{rfid_match.filament.brand} {rfid_match.filament.name}".strip() if rfid_match.filament else "Unknown"
                 db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
-                db_slot.color_hex = color_hex
+                db_slot.color_hex = slot_color_hex
                 assign_slot(db, db_slot, rfid_match.id, current_user)
                 db_slot.spool_confirmed = True
                 db_slot.loaded_at = datetime.now(timezone.utc)
@@ -479,7 +481,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 rfid.accept_measurement(db, rfid_match, printer, ams_slot.remaining_percent)
                 updated_slots.append({
                     "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
-                    "color_hex": color_hex, "spool_id": rfid_match.id,
+                    "color_hex": slot_color_hex, "spool_id": rfid_match.id,
                     "rfid": tray["tag_uid"], "tray_uuid": rfid_match.tray_uuid,
                     "matched": "rfid_bound" if bound else "rfid",
                     "remaining_percent": state["remaining"],
@@ -534,13 +536,13 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 color_name = f"{library_entry.brand} {library_entry.name}".strip()
                 db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
-                db_slot.color_hex = color_hex
+                db_slot.color_hex = slot_color_hex
                 assign_slot(db, db_slot, new_spool.id, current_user)
                 db_slot.spool_confirmed = True
                 db_slot.loaded_at = datetime.now(timezone.utc)
                 updated_slots.append({
                     "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
-                    "color_hex": color_hex, "spool_id": new_spool.id,
+                    "color_hex": slot_color_hex, "spool_id": new_spool.id,
                     "rfid": tray["tag_uid"], "tray_uuid": new_spool.tray_uuid, "matched": "rfid_auto_created",
                     "possible_duplicate_spool_ids": possible,
                 })
@@ -551,11 +553,11 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             color_name = f"{spool.filament.brand} {spool.filament.name}".strip() if spool and spool.filament else preset_label(state)
             db_slot.filament_type = FilamentType(slot_filament_value(ftype))
             db_slot.color = color_name
-            db_slot.color_hex = color_hex
+            db_slot.color_hex = slot_color_hex
             db_slot.loaded_at = datetime.now(timezone.utc)
             updated_slots.append({
                 "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
-                "color_hex": color_hex, "matched": "spool" if spool else "preset",
+                "color_hex": slot_color_hex, "matched": "spool" if spool else "preset",
                 "remaining_percent": None,
             })
         else:

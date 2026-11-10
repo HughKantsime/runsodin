@@ -44,6 +44,8 @@ class AMSSlotCompat:
     filament_type: str = ""
     color: str = ""
     color_hex: str = ""
+    # RRGGBB, or None when the report carries no colour (see ams_identity.reported_color).
+    reported_color_hex: Optional[str] = None
     remaining_percent: Optional[int] = None
     rfid_tag: str = ""
     tray_uuid: str = ""
@@ -193,7 +195,7 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
         return []
 
     slots: list[AMSSlotCompat] = []
-    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag
+    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag, reported_color
     for slot_number, raw_tray in ams_trays_by_slot([unit.model_dump() for unit in section.ams.ams]):
         color_hex = (raw_tray.get("tray_color") or "")[:6] if raw_tray.get("tray_color") else ""
         from modules.printers.monitors.ams_inventory import remaining_percent
@@ -203,6 +205,7 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
             filament_type=raw_tray.get("tray_type") or "",
             color=raw_tray.get("tray_color") or "",
             color_hex=color_hex,
+            reported_color_hex=reported_color(raw_tray),
             remaining_percent=remaining,
             rfid_tag=raw_tray.get("tag_uid") or "",
             tray_uuid=raw_tray.get("tray_uuid") or "",

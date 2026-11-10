@@ -10,6 +10,8 @@ ams_evidence rejects AMS HT units, so no mapping target can reach an HT
 slot. AMS HT is inventory/display only until HT acquisition evidence is
 accepted; mapping it would need Bambu's HT tray id (the unit id, 128+).
 """
+import re
+
 from modules.printers.telemetry.validators import coerce_int_or_raise
 
 AMS_HT_FIRST_UNIT = 128
@@ -64,6 +66,31 @@ def ams_trays_by_slot(units, *, strict=False):
     if strict and (invalid or duplicate):
         raise ValueError('AMS physical identity unavailable')
     return [(number, tray) for number, tray in entries if number not in duplicate]
+
+
+# Bambu's "no colour" placeholder (zero RGB, zero alpha), never black.
+NO_REPORTED_COLOR = '00000000'
+
+
+def reported_color(tray):
+    """The tray's RRGGBB colour, or None when the report carries no colour.
+
+    tray_color is RRGGBBAA; firmware that supports multi-colour trays repeats it
+    in cols. An absent, malformed or 00000000 tray_color falls back to cols[0].
+    """
+    cols = tray.get('cols')
+    for value in (tray.get('tray_color'), cols[0] if isinstance(cols, list) and cols else None):
+        if (isinstance(value, str) and re.fullmatch(r'[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?', value)
+                and value.upper() != NO_REPORTED_COLOR):
+            return value[:6].upper()
+    return None
+
+
+def slot_color(reported, filament_type, previous_type, previous_color):
+    """A report without a colour keeps the known colour of the same loaded material."""
+    if reported is not None:
+        return reported
+    return previous_color if filament_type == previous_type else None
 
 
 def tray_exists(bits, slot_number):

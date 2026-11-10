@@ -83,6 +83,8 @@ class AMSSlot:
     filament_type: str = ""
     color: str = ""
     color_hex: str = ""
+    # RRGGBB, or None when the report carries no colour (see ams_identity.reported_color).
+    reported_color_hex: Optional[str] = None
     remaining_percent: Optional[int] = None
     rfid_tag: str = ""  # Bambu RFID tag_uid
     tray_uuid: str = ""
@@ -626,7 +628,7 @@ class BambuPrinter:
         self._status.ams_slots = []
         
         ams_units = ams_data.get("ams", [])
-        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag
+        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag, reported_color
         
         from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -645,6 +647,7 @@ class BambuPrinter:
                 filament_type=tray.get("tray_type", ""),
                 color=tray.get("tray_color", ""),
                 color_hex=tray.get("tray_color", "")[:6] if tray.get("tray_color") else "",
+                reported_color_hex=reported_color(tray),
                 remaining_percent=remaining,
                 empty=tray.get("tray_type", "") == "" or tray_exists(ams_data.get("tray_exist_bits"), slot_num) is False,
                 exists=tray_exists(ams_data.get("tray_exist_bits"), slot_num),

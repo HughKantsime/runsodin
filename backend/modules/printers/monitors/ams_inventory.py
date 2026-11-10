@@ -202,11 +202,14 @@ def sync_ams_inventory(conn, printer_id, units):
                 displaced = spools[association[0]]
                 if (displaced[2], displaced[5]) == (printer_id, number):
                     conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))
+    from modules.printers.telemetry.bambu.ams_identity import reported_color, slot_color
     for number, tray in identified:
         material = tray.get('tray_type') or ''
-        color = (tray.get('tray_color') or '')[:6] if material else None
         filament_type = slot_filament_value(material)
-        existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
+        existing = conn.execute('SELECT id,filament_type,color_hex FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
+        color = reported_color(tray) if material else None
+        if material and existing:
+            color = slot_color(color, filament_type, existing[1], existing[2])
         if existing:
             identifier = existing[0]
             conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=?,loaded_at=CURRENT_TIMESTAMP WHERE id=?', (filament_type, color, identifier))

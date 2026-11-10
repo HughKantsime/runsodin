@@ -152,8 +152,10 @@ def test_x1c_ipcam_report_registers_rtsps_camera_stream(wire_monitor, review_db,
 
 
 def x1c_reported_trays(frames):
+    from modules.printers.telemetry.bambu.ams_identity import reported_color
     ams = merged(frames)["ams"]["ams"]
-    return ams, [(int(u["id"]) * 4 + int(t["id"]) + 1, t.get("tray_type"), (t.get("tray_color") or "")[:6], t.get("tag_uid"))
+    # The captured PLA-S tray reports the 00000000 no-colour placeholder: stored as no colour, not black.
+    return ams, [(int(u["id"]) * 4 + int(t["id"]) + 1, t.get("tray_type"), reported_color(t) or "", t.get("tag_uid"))
                  for u in ams for t in u.get("tray", []) if t.get("tray_type")]
 
 
