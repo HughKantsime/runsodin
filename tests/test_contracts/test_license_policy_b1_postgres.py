@@ -58,7 +58,7 @@ def test_postgres_print_admission_linearizes_with_selection(native_pg, tier_lice
                            "VALUES(:p,'part','pending',3,FALSE,1,now(),now())"), {'p': printer})
             c.execute(text("INSERT INTO printer_dispatch_claims(printer_id,job_id,physical_key,configuration_key,"
                            "payload_sha256,token,state) VALUES(:p,:p,:k,:k,:k,:t,'adapter_entered')"),
-                      {'p': printer, 't': token, 'k': '0' * 64})
+                      {'p': printer, 't': token, 'k': str(printer) * 64})  # physical keys are unique per active claim
     tier_license('enterprise', max_users=1, max_printers=1)
     monkeypatch.setenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', 'true')
     policy._cache.clear()

@@ -28,6 +28,8 @@ def put_license_selection(body: LicenseSelectionInput, current_user: dict = Depe
     from core.license_lock import replace_selection, status_view
     try:
         result = replace_selection(db, **body.model_dump(), actor=current_user['id'])
+        from core.audit import log_audit
+        log_audit(db, 'license.selection', 'system', details={'revision': result['revision'], 'actor_id': current_user['id']})
         db.commit()
         return status_view(result)
     except Exception:

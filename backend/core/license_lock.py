@@ -952,7 +952,7 @@ def _admission_session(engine):
         restore = None
         if raw is not None:
             restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]
-            raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')
+            raw.execute(f'PRAGMA busy_timeout={ADMISSION_WAIT_MS}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bind parameters; ADMISSION_WAIT_MS is an int constant
         try:
             with Session(bind=conn) as db:
                 yield db
@@ -961,7 +961,7 @@ def _admission_session(engine):
                 try:
                     if conn.in_transaction():
                         conn.rollback()
-                    raw.execute(f'PRAGMA busy_timeout={int(restore)}')
+                    raw.execute(f'PRAGMA busy_timeout={int(restore)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bind parameters; int() of SQLite's own busy_timeout reading
                 except Exception:
                     conn.invalidate()  # never pool a connection with the shortened wait
 
@@ -1068,11 +1068,8 @@ def issuance_snapshot(db):
 def replace_selection(db, *, printers, users, expected_revision, actor, recovery_user_id=None):
     if type(expected_revision) is not int or expected_revision < 0:
         raise LicenseLockError('license_selection_invalid', status=422)
-    result = reconcile(db, selection={'printers': printers, 'users': users}, expected_revision=expected_revision,
-                       actor=actor, recovery_user_id=recovery_user_id)
-    from core.audit import log_audit
-    log_audit(db, 'license.selection', 'system', details={'revision': result['revision'], 'actor_id': actor})
-    return result
+    return reconcile(db, selection={'printers': printers, 'users': users}, expected_revision=expected_revision,
+                     actor=actor, recovery_user_id=recovery_user_id)
 
 
 def status_view(p):

@@ -219,6 +219,7 @@ async def launch(connection_id: str, request: Request, db: Session = Depends(get
     db.execute(text('UPDATE education_roster_connections SET tokens_encrypted=:t WHERE id=:id'),
         {'t': store.pack({'contexts': contexts}), 'id': connection_id})
     store.audit(db, 'canvas_context', connection['org_id'], resource=connection_id)
+    db.commit()
     if user is None:
         store.audit(db, 'signin_refused', connection['org_id'], resource=connection_id, reason='roster_import_required')
         db.commit()

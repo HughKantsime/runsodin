@@ -25,6 +25,8 @@ def owned_completion_background(review_db, monkeypatch):
             return get_spoolman_url(db=session)
 
     monkeypatch.setattr(services, 'get_spoolman_url', configured_url)
+    # Modules that subclass threading.Thread at import must load before the patch.
+    import modules.printers.monitors.moonraker_monitor  # noqa: F401
     original = threading.Thread
     workers = []
 

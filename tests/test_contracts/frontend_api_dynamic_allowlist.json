@@ -215,29 +215,9 @@
   },
   {
     "file": "api/controlledDownload.ts",
-    "expression": "acknowledgeURL",
-    "options": "{ method: 'POST', credentials: 'include', headers: { 'X-ODIN-Controlled-Ack': 'true' } }",
-    "reason": "Generic controlled-download transport; its only callers (api/system.ts, AuditIntegritySettings.tsx) pass these routes. New callers must add their route here. The acknowledgement URL is the download path plus /acknowledge.",
-    "routes": [
-      [
-        "POST",
-        "/api/backups/{param}/acknowledge"
-      ],
-      [
-        "POST",
-        "/api/admin/support-bundle/acknowledge"
-      ],
-      [
-        "POST",
-        "/api/export/audit-logs/jsonl/acknowledge"
-      ]
-    ]
-  },
-  {
-    "file": "api/controlledDownload.ts",
     "expression": "url",
     "options": "init",
-    "reason": "Generic controlled-restore transport; its only callers (BackupRestore.tsx, api/system.ts) pass these routes. New callers must add their route here.",
+    "reason": "Generic controlled transport. preparedDownload polls every controlled download and its acknowledgement through fetch(url, init); callers are BackupRestore.tsx and api/system.ts (restore/stage) and api/system.ts and AuditIntegritySettings.tsx (downloads; the acknowledgement URL is the download path plus /acknowledge). New callers must add their route here.",
     "routes": [
       [
         "POST",
@@ -246,15 +226,7 @@
       [
         "POST",
         "/api/backups/{param}/stage"
-      ]
-    ]
-  },
-  {
-    "file": "api/controlledDownload.ts",
-    "expression": "url",
-    "options": "{ credentials: 'include' }",
-    "reason": "Generic controlled-download transport; its only callers (api/system.ts, AuditIntegritySettings.tsx) pass these routes. New callers must add their route here.",
-    "routes": [
+      ],
       [
         "GET",
         "/api/backups/{param}"
@@ -266,6 +238,18 @@
       [
         "GET",
         "/api/export/audit-logs/jsonl"
+      ],
+      [
+        "POST",
+        "/api/backups/{param}/acknowledge"
+      ],
+      [
+        "POST",
+        "/api/admin/support-bundle/acknowledge"
+      ],
+      [
+        "POST",
+        "/api/export/audit-logs/jsonl/acknowledge"
       ]
     ]
   },
