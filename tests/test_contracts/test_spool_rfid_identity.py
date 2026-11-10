@@ -72,7 +72,21 @@ def inventory(identity_engine):
         c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(1,'Bambu Lab','PLA Matte','PLA'),(2,'Other','PLA Matte','PLA'),(3,'Bambu Lab','PLA Basic','PLA'),(4,'Bambu Lab','PLA Matte','PETG')"))
         c.execute(text("UPDATE printers SET model='X1C',machine_type='X1C' WHERE id=1"))
         c.execute(text("UPDATE printers SET model='A1',machine_type='A1' WHERE id=2"))
+        advance_sequences(c, 'printers', 'filament_library')
     return identity_engine
+
+
+def advance_sequences(c, *tables):
+    """Explicit-id fixture rows do not move PostgreSQL sequences; real inserts do.
+
+    Without this a PostgreSQL row created after a seed gets id 1, so it looks older
+    than the seeded record (unlike SQLite and production) and can collide with it.
+    """
+    if c.dialect.name != 'postgresql':
+        return
+    for table in tables:
+        c.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}','id'), "
+                       f"(SELECT COALESCE(MAX(id),0)+1 FROM {table}), false)"))
 
 
 def seed(engine, spool_id=56, color='Nardo Gray', org=1, filament=1, sealed=True, tag=None, tray_uuid=None, location=None):
@@ -83,6 +97,7 @@ def seed(engine, spool_id=56, color='Nardo Gray', org=1, filament=1, sealed=True
             dict(id=spool_id, filament=filament, color=color, org=org, tag=tag, uuid=tray_uuid, location=location, slot=1 if location else None))
         if sealed:
             c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'), dict(key=seal_key(spool_id), value=json.dumps(True)))
+        advance_sequences(c, 'spools')
 
 
 def report(**changes):
