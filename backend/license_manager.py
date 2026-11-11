@@ -506,19 +506,88 @@ def save_license_file(content: str, directory: str = None) -> str:
     return path
 
 
-def install_portal_license(license_content, after_install=None) -> "LicenseInfo":
+LICENSE_OLDER_THAN_INSTALLED = (
+    "This license file was issued before the one installed on this server, so it was not installed. "
+    "Your installed license is unchanged. If you need an older file, contact support@runsodin.com."
+)
+
+
+def is_expired_replacement(candidate) -> bool:
+    """True for a signature-verified license whose end has already passed.
+
+    Only the portal refresh path accepts such a file: after a refund or
+    chargeback the portal signs a replacement that has already ended, and ODIN
+    installs it so the server stays on Community across restarts. The artifact
+    must be fully verified (``verified_expired`` on a trusted clock), carry an
+    issue time, and not be a trial. The portal must sign ``expires_at`` strictly
+    after ``issued_at``; an equal or inverted pair fails evidence validation and
+    is not ``verified_expired``.
+    """
+    return bool(
+        candidate.expired
+        and not candidate.trial
+        and candidate.verification_state == "verified_expired"
+        and candidate.reason_code == "deadline_reached"
+        and candidate.issued_at
+    )
+
+
+def _installed_license(previous: Optional[bytes]) -> Optional["LicenseInfo"]:
+    """Verify the currently installed bytes (None when nothing is installed)."""
+    if previous is None:
+        return None
+    try:
+        return verify_license_text(previous.decode("utf-8").strip())
+    except UnicodeDecodeError:
+        return None
+
+
+def _refuse_replacement_out_of_order(candidate, installed) -> None:
+    """Refuse a file for the same key that was issued before the installed one.
+
+    Order is decided by the signed ``issued_at``, never by ``expires_at``: a
+    later issue may legitimately end earlier (a cancellation) or already have
+    ended (a refund). Equal issue times are accepted (re-installing the same
+    file). A file with no issue time cannot be shown to be newer than an
+    installed file that has one. Licenses for different keys are not compared.
+    """
+    from fastapi import HTTPException
+    from core.license_clock import instant
+    if installed is None or not installed.license_sha256 or not installed.key or installed.key != candidate.key:
+        return
+    if not installed.issued_at:
+        return
+    try:
+        installed_at = instant(installed.issued_at)
+        candidate_at = instant(candidate.issued_at) if candidate.issued_at else None
+    except ValueError:
+        return
+    if candidate_at is None or candidate_at < installed_at:
+        raise HTTPException(status_code=409, detail=LICENSE_OLDER_THAN_INSTALLED)
+
+
+def install_portal_license(license_content, after_install=None, *, allow_expired=False) -> "LicenseInfo":
     """Verify a portal-issued license and install it only if it is valid.
 
     The candidate is checked with the runtime rules (signature, binding,
     expiry, payload) BEFORE it touches LICENSE_DIR, so an invalid portal
     response can never replace or delete the installed license.
+
+    A candidate for the same key that was issued before the installed file is
+    refused (see ``_refuse_replacement_out_of_order``). With ``allow_expired``
+    (the portal refresh path only) a verified replacement that has already
+    ended is installed too, provided it is for the installed license's key; the
+    file is persisted, so the server stays on Community across restarts.
     """
     from fastapi import HTTPException
     if not isinstance(license_content, str):
         raise HTTPException(status_code=502, detail="License server returned an invalid license file")
     candidate = verify_license_text(license_content.strip())
+    expired_replacement = False
     if not candidate.valid or candidate.error:
-        raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
+        if not (allow_expired and is_expired_replacement(candidate)):
+            raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
+        expired_replacement = True
     target = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
     try:
         with open(target, "rb") as stream:
@@ -527,6 +596,12 @@ def install_portal_license(license_content, after_install=None) -> "LicenseInfo"
         previous = None
     except OSError:
         raise HTTPException(status_code=503, detail="Cannot read the current license safely. Check storage permissions; the installed license is unchanged.")
+    installed = _installed_license(previous)
+    if expired_replacement and not (
+        installed is not None and installed.license_sha256 and installed.key and installed.key == candidate.key
+    ):
+        raise HTTPException(status_code=400, detail="License server returned an already-ended license for a different key. Your installed license is unchanged.")
+    _refuse_replacement_out_of_order(candidate, installed)
     try:
         save_license_file(license_content)
         if after_install is not None:

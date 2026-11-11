@@ -1,9 +1,34 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { User, PublicLicense } from '../../types/user'
-import { FileText, Key, Download, Sparkles } from 'lucide-react'
+import type { User } from '../../types/user'
+import { FileText, Key, Download, Sparkles, RefreshCw } from 'lucide-react'
 import { license as licenseApi, downloadBlob } from '../../api'
+import { licenseRefresh, type LicenseWithRefresh, type RefreshResult } from '../../api/licenseRefresh'
+import { LICENSE_REFRESH_EVENT } from '../../api/licenseEvents'
 import { Button, Card, Input } from '../ui'
+import LicenseRenewalBanner, { renewalBannerState, formatLicenseDate } from './LicenseRenewalBanner'
+
+function titleCase(value: string): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value
+}
+
+/** The portal's answer to "Refresh license", in plain words. */
+function refreshSummary(data: RefreshResult): string {
+  switch (data.refresh_status) {
+    case 'renewed':
+      return data.valid && data.expires_at
+        ? `License refreshed. ${titleCase(data.tier)} is active until ${formatLicenseDate(data.expires_at)}.`
+        : 'License refreshed. This license has already ended.'
+    case 'not_renewed_yet':
+      return 'The license portal does not show a renewal yet. Your current license file stays in place.'
+    case 'canceled':
+      return 'The license portal reports that your subscription was canceled.'
+    case 'not_entitled':
+      return 'The license portal reports that this license is no longer active.'
+    default:
+      return 'License refreshed.'
+  }
+}
 
 export default function LicenseTab() {
   const queryClient = useQueryClient()
@@ -40,12 +65,14 @@ export default function LicenseTab() {
       if (stillCurrent(owner, stamp)) setIdBusy(false)
     }
   }
-  const [licenseInfo, setLicenseInfo] = useState<PublicLicense | null>(null)
+  const [licenseInfo, setLicenseInfo] = useState<LicenseWithRefresh | null>(null)
   const [uploading, setUploading] = useState(false)
   const [activating, setActivating] = useState(false)
   const [requestBound, setRequestBound] = useState(false)
   const [licenseKey, setLicenseKey] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshResult, setRefreshResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -57,6 +84,29 @@ export default function LicenseTab() {
       const data = await licenseApi.get()
       setLicenseInfo(data)
     } catch (e) { console.error('Failed to fetch license:', e) }
+  }
+
+  const handleRefresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setRefreshResult(null)
+    try {
+      const data = await licenseRefresh.reactivate()
+      setRefreshResult({ type: 'success', text: refreshSummary(data) })
+      window.dispatchEvent(new Event(LICENSE_REFRESH_EVENT))
+      await loadLicense()
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Unknown error'
+      if (/^Could not reach/i.test(reason)) {
+        const keepsWorking = licenseInfo?.valid === true && licenseInfo.expires_at
+          ? ` Your license keeps working until ${formatLicenseDate(licenseInfo.expires_at)}.` : ''
+        setRefreshResult({ type: 'error', text: `Could not reach the license portal. Try again later, or use offline activation.${keepsWorking}` })
+      } else {
+        setRefreshResult({ type: 'error', text: 'Refresh failed: ' + reason })
+      }
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const handleActivate = async () => {
@@ -199,6 +249,17 @@ export default function LicenseTab() {
     enterprise: 'text-purple-400',
   }
 
+  // "Refresh license": administrators, a signed non-trial license installed (also
+  // once it has ended, so a restored entitlement can be picked up), not read-only.
+  const canRefresh = Boolean(currentAudience) && !managedExternally && licenseInfo?.trial !== true && Boolean(licenseInfo?.license_sha256)
+  const nowMs = Date.now()
+  const bannerState = currentAudience ? renewalBannerState(licenseInfo, nowMs) : null
+  const refreshButton = (
+    <Button variant="secondary" icon={RefreshCw} loading={refreshing} disabled={refreshing} onClick={handleRefresh}>
+      Refresh license
+    </Button>
+  )
+
   return (
     <div className="space-y-6">
       <Card padding="lg">
@@ -208,6 +269,9 @@ export default function LicenseTab() {
           <FileText size={18} className="text-[var(--brand-primary)]" />
           <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Current License</h3>
         </div>
+        {bannerState && (
+          <LicenseRenewalBanner license={licenseInfo} nowMs={nowMs} actions={canRefresh ? refreshButton : null} />
+        )}
         {(trialActive || trialEnded) && (
           <div
             role="status"
@@ -258,6 +322,24 @@ export default function LicenseTab() {
             <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo?.max_users === null ? 'Unlimited' : (licenseInfo?.max_users ?? 1)}</span>
           </div>
         </div>
+
+        {canRefresh && (
+          <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)]">
+            {!bannerState && refreshButton}
+            <p className="mt-2 text-xs text-[var(--brand-text-secondary)]">
+              Contacts the O.D.I.N. license portal once to load your latest license file. Use it after a renewal is paid; offline servers can use the offline activation page instead.
+            </p>
+            {refreshResult && (
+              <div
+                role={refreshResult.type === 'error' ? 'alert' : 'status'}
+                data-testid="license-refresh-result"
+                className={`mt-3 text-sm px-3 py-2 rounded-md ${refreshResult.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}
+              >
+                {refreshResult.text}
+              </div>
+            )}
+          </div>
+        )}
 
         {installation?.audience === currentAudience && installation?.error && <p role="alert">{installation.error}</p>}
         {currentAudience && (

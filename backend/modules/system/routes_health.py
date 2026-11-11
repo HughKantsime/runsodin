@@ -32,7 +32,10 @@ from core.config import settings
 from license_manager import (
     get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
     get_device_keypair, sign_license_challenge, require_license_mutation_enabled, install_portal_license,
-    quarantine_installed_license,
+    quarantine_installed_license, is_expired_replacement,
+)
+from modules.system.license_refresh import (
+    FILE_REQUIRED_STATUSES, read_last_refresh, record_last_refresh, refresh_status_from, server_end_date,
 )
 
 log = logging.getLogger("odin.api")
@@ -208,11 +211,19 @@ def readiness_check(db: Session = Depends(get_db)):
 
 @router.get("/license", tags=["License"])
 def get_license_info():
-    """Get current license status. No auth required so frontend can check tier."""
+    """Get current license status. No auth required so frontend can check tier.
+
+    ``last_refresh`` ({status, at, expires_at}) is added once an admin has used
+    "Refresh license" for the installed license file, and only while that file
+    is still installed. It carries no customer or device identity.
+    """
     license_info = get_license(persist_clock=False)
     result = license_info.to_public_dict()
     from core.license_lock import enabled
     result['fleet_lock_rollout_enabled'] = enabled()
+    last_refresh = read_last_refresh(license_info.license_sha256)
+    if last_refresh is not None:
+        result['last_refresh'] = last_refresh
     return result
 
 
@@ -582,7 +593,23 @@ async def reactivate_license(
     db: Session = Depends(get_db),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
-    """Reactivate the license to pick up tier/feature changes. Admin only."""
+    """Refresh the license from the portal ("Refresh license" in Settings > License). Admin only.
+
+    The portal answers with ``refresh_status``:
+
+    * ``renewed``: a new signed file is installed.
+    * ``not_renewed_yet``: no new period yet; the current file stays.
+    * ``canceled``: an end date is reported; a replacement file that ends
+      earlier is installed when the portal sends one.
+    * ``not_entitled``: the portal sends a signed replacement that has already
+      ended. It is installed and persisted, so the server stays on Community
+      across restarts. A later refresh installs a valid file again if
+      entitlement returns.
+
+    A portal that sends no ``refresh_status`` is treated as ``renewed``. The
+    answer is stored and shown by ``GET /license`` (``last_refresh``) until the
+    next refresh or until another license file is installed.
+    """
     license_server_url = settings.license_server_url
 
     current_license = get_license()
@@ -614,24 +641,41 @@ async def reactivate_license(
     from .license_portal import activation_response
     data = activation_response(resp, "Reactivation failed")
     license_content = data.get("license_file")
-    if not license_content:
+    refresh_status = refresh_status_from(data)
+    if refresh_status is None:
+        raise HTTPException(status_code=502, detail="The license portal sent an answer this version of O.D.I.N. does not understand. Your installed license is unchanged. Update O.D.I.N. or contact support.")
+    if not license_content and refresh_status in FILE_REQUIRED_STATUSES:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    if current_license.device_bound:
-        candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
-        if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
-            raise HTTPException(status_code=502, detail="The portal returned an invalid device-bound refresh. Your installed license is unchanged; contact support.")
     def audit_refresh(candidate):
         from core.license_lock import enabled, reconcile
         if enabled(): reconcile(db)
         log_audit(db, "license.reactivated", "system", details={"tier": candidate.tier, "licensee": candidate.licensee})
         db.commit()
-    license_info = install_portal_license(license_content, after_install=audit_refresh)
+
+    if license_content:
+        if current_license.device_bound:
+            candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
+            if candidate is None or not (candidate.valid or is_expired_replacement(candidate)) or not candidate.device_bound or candidate.trial:
+                raise HTTPException(status_code=502, detail="The portal returned an invalid device-bound refresh. Your installed license is unchanged; contact support.")
+        license_info = install_portal_license(license_content, after_install=audit_refresh, allow_expired=True)
+        expires_at = license_info.expires_at
+    else:
+        # not_renewed_yet / canceled with no new file: the installed file stays.
+        license_info = get_license()
+        log_audit(db, "license.refresh_checked", "system", details={"refresh_status": refresh_status})
+        db.commit()
+        expires_at = server_end_date(data) or license_info.expires_at
+
+    last_refresh = record_last_refresh(db, refresh_status, expires_at or None, license_info.license_sha256)
     return {
         "status": "reactivated",
-        "tier": license_info.tier,
+        "refresh_status": refresh_status,
+        "tier": license_info.tier if license_info.valid else "community",
+        "valid": license_info.valid,
         "licensee": license_info.licensee,
-        "expires_at": license_info.expires_at,
+        "expires_at": expires_at,
+        "last_refresh": last_refresh,
     }
 
 
