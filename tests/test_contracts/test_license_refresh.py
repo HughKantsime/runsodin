@@ -348,3 +348,20 @@ def test_an_unreadable_file_from_the_portal_says_so(app):
         app.refresh(license_file=12345, refresh_status="not_entitled")
     assert exc.value.status_code == 502 and "could not be read" in exc.value.detail
     assert app.path.read_text() == installed
+
+
+# ---- the license server's wire (odin-site-cf api/v1/reactivate.js) ----
+
+def test_canceled_reads_the_portals_ends_at(app):
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    result = app.refresh(refresh_status="canceled", ends_at=iso(ahead(days=2)), license_file=None)
+    assert result["expires_at"] == iso(ahead(days=2))
+    assert last_refresh(app)["expires_at"] == iso(ahead(days=2))
+
+
+def test_reactivate_sends_the_held_expiry(app):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    app.refresh(refresh_status="not_renewed_yet", license_file=None)
+    url, body = next((url, body) for url, body in reversed(app.calls) if url.endswith("/api/v1/reactivate"))
+    assert body["current_expires_at"] == iso(ahead(days=5))

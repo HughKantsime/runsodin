@@ -639,6 +639,9 @@ async def reactivate_license(
                 "installation_id": installation_id,
                 "nonce": nonce,
                 "signature": signature,
+                # Unsigned hint (B.4): lets the portal tell "renewed" from "not renewed yet"
+                # by comparing with the file this server holds.
+                **({"current_expires_at": current_license.expires_at} if current_license.expires_at else {}),
             },
         )
     except Exception as e:

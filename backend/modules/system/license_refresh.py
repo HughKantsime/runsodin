@@ -28,9 +28,12 @@ def refresh_status_from(data: dict) -> Optional[str]:
 
 
 def server_end_date(data: dict) -> Optional[str]:
-    """The portal's stated end date when it sent a readable one (display only, not signed)."""
+    """The portal's stated end date when it sent a readable one (display only, not signed).
+
+    The portal sends it as ``ends_at`` (canceled: when Pro stops); ``expires_at`` is read too.
+    """
     from license_manager import _license_expiry_deadline
-    value = data.get("expires_at")
+    value = data.get("ends_at") if data.get("ends_at") is not None else data.get("expires_at")
     if not isinstance(value, str):
         return None
     try:
