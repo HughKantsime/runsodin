@@ -319,3 +319,31 @@ def test_a_candidate_with_an_unreadable_issue_time_is_refused(app):
     with pytest.raises(HTTPException):
         app.lm.install_portal_license(candidate)
     assert app.path.read_text() == installed
+
+
+def test_not_entitled_file_ending_within_the_clock_allowance_is_installed(app):
+    """This server's clock runs behind the portal's: the 'ended' file still has seconds to go."""
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    ending = app.make(ago(seconds=1), ahead(seconds=30))
+    result = app.refresh(license_file=ending, refresh_status="not_entitled")
+    assert result["refresh_status"] == "not_entitled"
+    assert app.path.read_text() == ending
+    assert last_refresh(app)["status"] == "not_entitled"
+
+
+def test_not_entitled_file_ending_after_the_allowance_is_refused(app):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=app.make(ago(seconds=1), ahead(hours=2)), refresh_status="not_entitled")
+    assert exc.value.status_code == 502
+    assert app.path.read_text() == installed
+
+
+def test_an_unreadable_file_from_the_portal_says_so(app):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=12345, refresh_status="not_entitled")
+    assert exc.value.status_code == 502 and "could not be read" in exc.value.detail
+    assert app.path.read_text() == installed

@@ -36,9 +36,9 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks() })
 
-function renderTab(role = 'admin') {
+function renderTab(role = 'admin', group_id: number | null = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  client.setQueryData(['auth', 'me'], { id: 1, role, group_id: null })
+  client.setQueryData(['auth', 'me'], { id: 1, role, group_id })
   render(<QueryClientProvider client={client}><LicenseTab /></QueryClientProvider>)
 }
 
@@ -146,4 +146,13 @@ test('the portal answer comes only from the admin endpoint; a refused read falls
   renderTab()
   await screen.findByRole('button', { name: 'Refresh license' })
   expect(screen.queryByTestId('license-renewal-banner')).not.toBeInTheDocument()
+})
+
+
+test('an organization administrator gets no Refresh license button and never reads the portal answer', async () => {
+  api.get.mockResolvedValue(paid)
+  renderTab('admin', 7)
+  await waitFor(() => expect(api.get).toHaveBeenCalled())
+  expect(screen.queryByRole('button', { name: 'Refresh license' })).not.toBeInTheDocument()
+  expect(lastRefresh).not.toHaveBeenCalled()
 })

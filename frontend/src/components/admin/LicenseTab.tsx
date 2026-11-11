@@ -35,6 +35,9 @@ export default function LicenseTab() {
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], enabled: false })
   const audience = (user: User | null | undefined) => user?.role === 'admin' && Number.isInteger(user.id) && user.id > 0 ? JSON.stringify([user.id, user.role, user.group_id ?? null]) : null
   const currentAudience = audience(principal)
+  // Refresh and the portal's last answer are platform-level: the server allows them to an
+  // administrator with no organization (superadmin) only.
+  const isSuperadmin = Boolean(currentAudience) && (principal?.group_id ?? null) === null
   const generation = useRef(0)
   const [installation, setInstallation] = useState<{ audience: string; id: string; device: string | null; error?: string | null } | null>(null)
   const [idBusy, setIdBusy] = useState(false)
@@ -77,7 +80,7 @@ export default function LicenseTab() {
 
   useEffect(() => {
     loadLicense()
-  }, [])
+  }, [isSuperadmin])
 
   const loadLicense = async () => {
     try {
@@ -85,7 +88,7 @@ export default function LicenseTab() {
       // The portal's last answer is billing state, so it is not on the public license
       // answer; a superadmin reads it separately. Anyone else sees the expiry window only.
       let last_refresh = null
-      if (data?.license_sha256) {
+      if (isSuperadmin && data?.license_sha256) {
         try { last_refresh = (await licenseRefresh.lastRefresh()).last_refresh } catch { last_refresh = null }
       }
       setLicenseInfo({ ...data, last_refresh })
@@ -257,7 +260,7 @@ export default function LicenseTab() {
 
   // "Refresh license": administrators, a signed non-trial license installed (also
   // once it has ended, so a restored entitlement can be picked up), not read-only.
-  const canRefresh = Boolean(currentAudience) && !managedExternally && licenseInfo?.trial !== true && Boolean(licenseInfo?.license_sha256)
+  const canRefresh = isSuperadmin && !managedExternally && licenseInfo?.trial !== true && Boolean(licenseInfo?.license_sha256)
   const nowMs = Date.now()
   const bannerState = currentAudience ? renewalBannerState(licenseInfo, nowMs) : null
   const refreshButton = (

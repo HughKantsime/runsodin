@@ -35,7 +35,7 @@ from license_manager import (
     quarantine_installed_license, is_expired_replacement,
 )
 from modules.system.license_refresh import (
-    FILE_REQUIRED_STATUSES, earlier_end_date, read_last_refresh, record_last_refresh, refresh_status_from, server_end_date,
+    FILE_REQUIRED_STATUSES, earlier_end_date, ends_within_clock_allowance, read_last_refresh, record_last_refresh, refresh_status_from, server_end_date,
 )
 
 log = logging.getLogger("odin.api")
@@ -614,8 +614,8 @@ async def reactivate_license(
       entitlement returns.
 
     A portal that sends no ``refresh_status`` is treated as ``renewed``. The
-    answer is stored and shown by ``GET /license`` (``last_refresh``) until the
-    next refresh or until another license file is installed.
+    answer is stored and returned to superadmins by ``GET /license/last-refresh``
+    until the next refresh or until another license file is installed.
     """
     license_server_url = settings.license_server_url
 
@@ -662,12 +662,16 @@ async def reactivate_license(
 
     if license_content:
         candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
+        if candidate is None:
+            raise HTTPException(status_code=502, detail="The license portal sent a license file that could not be read. Your installed license is unchanged; contact support.")
         # The answer and the file must agree: an ended file only with not_entitled,
-        # and not_entitled only with an ended file. Anything else changes nothing.
-        ended = candidate is not None and is_expired_replacement(candidate)
-        if refresh_status == "not_entitled" and not ended:
+        # and not_entitled only with a file that has ended (or ends within the clock
+        # allowance: the portal signs it to end at once, and this server's clock may
+        # run a little behind). Anything else changes nothing.
+        ended = is_expired_replacement(candidate)
+        if refresh_status == "not_entitled" and not (ended or ends_within_clock_allowance(candidate)):
             raise HTTPException(status_code=502, detail="The license portal said this license is no longer active but sent a license that has not ended. Your installed license is unchanged; contact support.")
-        if refresh_status != "not_entitled" and candidate is not None and not candidate.valid and ended:
+        if refresh_status != "not_entitled" and not candidate.valid and ended:
             raise HTTPException(status_code=502, detail="The license portal sent a license that has already ended with an answer that does not say so. Your installed license is unchanged; contact support.")
         if current_license.device_bound:
             if candidate is None or not (candidate.valid or ended) or not candidate.device_bound or candidate.trial:

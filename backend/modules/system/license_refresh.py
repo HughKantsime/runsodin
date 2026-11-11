@@ -40,6 +40,24 @@ def server_end_date(data: dict) -> Optional[str]:
     return value.strip()
 
 
+# The portal signs a not_entitled file to end at once (expires_at one second after
+# issued_at). A server whose clock runs behind still sees it as valid; allow this
+# much so the refund or chargeback still takes effect. The file then ends by itself.
+NOT_ENTITLED_CLOCK_ALLOWANCE_SECONDS = 15 * 60
+
+
+def ends_within_clock_allowance(candidate, now: Optional[datetime] = None) -> bool:
+    """A verified, non-trial license that ends within the clock allowance from now."""
+    from license_manager import _license_expiry_deadline
+    if not getattr(candidate, "valid", False) or getattr(candidate, "trial", False) or not candidate.expires_at:
+        return False
+    try:
+        remaining = (_license_expiry_deadline(candidate.expires_at) - (now or datetime.now(timezone.utc))).total_seconds()
+    except (ValueError, TypeError):
+        return False
+    return remaining <= NOT_ENTITLED_CLOCK_ALLOWANCE_SECONDS
+
+
 def earlier_end_date(portal: Optional[str], installed: Optional[str]) -> Optional[str]:
     """The earlier of the portal's stated end and the installed file's end (either may be missing)."""
     from license_manager import _license_expiry_deadline
