@@ -559,9 +559,12 @@ def _refuse_replacement_out_of_order(candidate, installed) -> None:
         return
     try:
         installed_at = instant(installed.issued_at)
+    except ValueError:
+        return  # An unreadable installed file cannot be ordered against; never lock the server out.
+    try:
         candidate_at = instant(candidate.issued_at) if candidate.issued_at else None
     except ValueError:
-        return
+        candidate_at = None  # A candidate whose issue time cannot be read is not shown to be newer.
     if candidate_at is None or candidate_at < installed_at:
         raise HTTPException(status_code=409, detail=LICENSE_OLDER_THAN_INSTALLED)
 

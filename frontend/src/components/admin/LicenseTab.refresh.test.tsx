@@ -10,7 +10,16 @@ vi.mock('../../api', () => ({
   license: { get: api.get, activate: vi.fn(), upload: vi.fn(), remove: vi.fn(), getActivationRequest: vi.fn(), getInstallationId: vi.fn() },
   downloadBlob: vi.fn(),
 }))
-vi.mock('../../api/licenseRefresh', () => ({ licenseRefresh: { reactivate: api.reactivate } }))
+// The admin-only last answer: tests describe it on the license fixture, the tab must read it from here.
+const lastRefresh = vi.hoisted(() => vi.fn())
+vi.mock('../../api/licenseRefresh', () => ({ licenseRefresh: { reactivate: api.reactivate, lastRefresh } }))
+beforeEach(() => {
+  lastRefresh.mockImplementation(async () => {
+    const latest = api.get.mock.results[api.get.mock.results.length - 1]
+    const value = latest ? await latest.value : null
+    return { last_refresh: value?.last_refresh ?? null }
+  })
+})
 
 const paid = {
   ...publicWire.body, tier: 'pro', tier_name: 'Pro', valid: true, expired: false, trial: false,
@@ -128,4 +137,13 @@ test('another failure shows the server message', async () => {
   renderTab()
   fireEvent.click(await screen.findByRole('button', { name: 'Refresh license' }))
   expect(await screen.findByTestId('license-refresh-result')).toHaveTextContent('Refresh failed: This license file was issued before the one installed')
+})
+
+
+test('the portal answer comes only from the admin endpoint; a refused read falls back to the expiry window', async () => {
+  api.get.mockResolvedValue({ ...paid, last_refresh: { status: 'canceled', at: '2026-11-11T12:00:00Z', expires_at: null } })
+  lastRefresh.mockRejectedValue(new Error('Forbidden'))
+  renderTab()
+  await screen.findByRole('button', { name: 'Refresh license' })
+  expect(screen.queryByTestId('license-renewal-banner')).not.toBeInTheDocument()
 })

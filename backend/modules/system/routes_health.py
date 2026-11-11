@@ -35,7 +35,7 @@ from license_manager import (
     quarantine_installed_license, is_expired_replacement,
 )
 from modules.system.license_refresh import (
-    FILE_REQUIRED_STATUSES, read_last_refresh, record_last_refresh, refresh_status_from, server_end_date,
+    FILE_REQUIRED_STATUSES, earlier_end_date, read_last_refresh, record_last_refresh, refresh_status_from, server_end_date,
 )
 
 log = logging.getLogger("odin.api")
@@ -213,18 +213,25 @@ def readiness_check(db: Session = Depends(get_db)):
 def get_license_info():
     """Get current license status. No auth required so frontend can check tier.
 
-    ``last_refresh`` ({status, at, expires_at}) is added once an admin has used
-    "Refresh license" for the installed license file, and only while that file
-    is still installed. It carries no customer or device identity.
+    The portal's last refresh answer (billing state) is not part of this public
+    answer; administrators read it from ``GET /license/last-refresh``.
     """
     license_info = get_license(persist_clock=False)
     result = license_info.to_public_dict()
     from core.license_lock import enabled
     result['fleet_lock_rollout_enabled'] = enabled()
-    last_refresh = read_last_refresh(license_info.license_sha256)
-    if last_refresh is not None:
-        result['last_refresh'] = last_refresh
     return result
+
+
+@router.get("/license/last-refresh", tags=["License"])
+def get_license_last_refresh(current_user: dict = Depends(require_superadmin(scope="read"))):
+    """What the license portal said at the last "Refresh license" ({status, at, expires_at}).
+
+    Superadmin only: it shows billing state (canceled, no longer active). Null
+    until a refresh has happened for the installed license file.
+    """
+    license_info = get_license(persist_clock=False)
+    return {"last_refresh": read_last_refresh(license_info.license_sha256)}
 
 
 @router.post("/license/upload", tags=["License"])
@@ -654,18 +661,27 @@ async def reactivate_license(
         db.commit()
 
     if license_content:
+        candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
+        # The answer and the file must agree: an ended file only with not_entitled,
+        # and not_entitled only with an ended file. Anything else changes nothing.
+        ended = candidate is not None and is_expired_replacement(candidate)
+        if refresh_status == "not_entitled" and not ended:
+            raise HTTPException(status_code=502, detail="The license portal said this license is no longer active but sent a license that has not ended. Your installed license is unchanged; contact support.")
+        if refresh_status != "not_entitled" and candidate is not None and not candidate.valid and ended:
+            raise HTTPException(status_code=502, detail="The license portal sent a license that has already ended with an answer that does not say so. Your installed license is unchanged; contact support.")
         if current_license.device_bound:
-            candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
-            if candidate is None or not (candidate.valid or is_expired_replacement(candidate)) or not candidate.device_bound or candidate.trial:
+            if candidate is None or not (candidate.valid or ended) or not candidate.device_bound or candidate.trial:
                 raise HTTPException(status_code=502, detail="The portal returned an invalid device-bound refresh. Your installed license is unchanged; contact support.")
-        license_info = install_portal_license(license_content, after_install=audit_refresh, allow_expired=True)
+        license_info = install_portal_license(license_content, after_install=audit_refresh,
+                                              allow_expired=refresh_status == "not_entitled")
         expires_at = license_info.expires_at
     else:
         # not_renewed_yet / canceled with no new file: the installed file stays.
         license_info = get_license()
         log_audit(db, "license.refresh_checked", "system", details={"refresh_status": refresh_status})
         db.commit()
-        expires_at = server_end_date(data) or license_info.expires_at
+        # Pro stops when the installed file ends, whatever later date the portal states.
+        expires_at = earlier_end_date(server_end_date(data), license_info.expires_at)
 
     last_refresh = record_last_refresh(db, refresh_status, expires_at or None, license_info.license_sha256)
     return {

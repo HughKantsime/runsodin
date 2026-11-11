@@ -12,7 +12,7 @@ export interface LastRefresh {
   expires_at: string | null;
 }
 
-/** GET /api/license once a refresh has happened for the installed file. */
+/** The public license plus the admin-only last refresh answer (GET /api/license/last-refresh). */
 export type LicenseWithRefresh = PublicLicense & { last_refresh?: LastRefresh | null }
 
 export interface RefreshResult {
@@ -29,4 +29,7 @@ export interface RefreshResult {
 export const licenseRefresh = {
   /** "Refresh license": asks the license portal once. Superadmin only; the server enforces it. */
   reactivate: (): Promise<RefreshResult> => fetchAPI<RefreshResult>('/license/reactivate', { method: 'POST' }),
+  /** What the portal said at the last refresh. Superadmin only: it shows billing state. */
+  lastRefresh: (): Promise<{ last_refresh: LastRefresh | null }> =>
+    fetchAPI<{ last_refresh: LastRefresh | null }>('/license/last-refresh'),
 }

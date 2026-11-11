@@ -14,6 +14,10 @@ from modules.system import license_refresh
 from tests.test_contracts.test_license_offline_import import owned_import  # noqa: F401  (fixture)
 from tests.test_contracts.test_paid_license_binding import device, portal  # noqa: F401  (fixtures)
 
+from core.schema.bootstrap import import_all_models
+
+import_all_models()  # Every mapper registered, so the SystemConfig query works when this file runs alone.
+
 KEY = "REFRESH-TEST"
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -86,6 +90,12 @@ def app(portal, monkeypatch):
                            upload=upload, sign=sign, fields=fields, db=db, calls=calls)
 
 
+def last_refresh(app):
+    """The admin-only answer; the public license answer never carries it."""
+    assert "last_refresh" not in app.routes.get_license_info()
+    return app.routes.get_license_last_refresh(current_user={"id": 1})["last_refresh"]
+
+
 # ---- earlier expiry, newer issued_at ----
 
 def test_earlier_expiry_with_newer_issued_at_is_installed(app):
@@ -103,11 +113,13 @@ def test_older_issued_at_is_refused_whatever_the_expiry(app, expires):
     installed = app.make(ago(hours=1), ahead(days=20))
     app.lm.save_license_file(installed)
     older = app.make(ago(days=2), expires)
+    # An ended file is only ever sent with not_entitled; any other answer with it is refused first (502).
+    status = "not_entitled" if expires < NOW else "renewed"
     with pytest.raises(HTTPException) as exc:
-        app.refresh(license_file=older, refresh_status="renewed")
+        app.refresh(license_file=older, refresh_status=status)
     assert exc.value.status_code == 409
     assert app.path.read_text() == installed
-    assert "last_refresh" not in app.routes.get_license_info()
+    assert last_refresh(app) is None
 
 
 def test_uploading_an_older_file_is_refused(app):
@@ -148,7 +160,7 @@ def test_expired_replacement_is_installed_and_persists_across_restart(app):
         info = app.lm.get_license()
         assert not info.valid and info.expired and info.verification_state == "verified_expired"
         assert info.max_printers == app.lm.TIERS["community"]["max_printers"]
-        assert app.routes.get_license_info()["last_refresh"]["status"] == "not_entitled"
+        assert last_refresh(app)["status"] == "not_entitled"
     assert app.path.read_text() == ended
 
 
@@ -216,17 +228,17 @@ def test_expires_at_equal_to_issued_at_is_not_accepted(app):
 def test_status_without_a_file_changes_nothing_and_is_stored(app, status):
     installed = app.make(ago(days=30), ahead(days=5))
     app.lm.save_license_file(installed)
-    assert "last_refresh" not in app.routes.get_license_info()
+    assert last_refresh(app) is None
     result = app.refresh(refresh_status=status, expires_at=iso(ahead(days=5)))
     assert app.path.read_text() == installed
     assert result["refresh_status"] == status and result["valid"] is True
     assert result["expires_at"] == iso(ahead(days=5))
-    public = app.routes.get_license_info()
-    assert public["last_refresh"] == result["last_refresh"]
-    assert public["last_refresh"]["status"] == status
-    assert public["last_refresh"]["expires_at"] == iso(ahead(days=5))
+    stored = last_refresh(app)
+    assert stored == result["last_refresh"]
+    assert stored["status"] == status
+    assert stored["expires_at"] == iso(ahead(days=5))
     app.restart()
-    assert app.routes.get_license_info()["last_refresh"]["status"] == status
+    assert last_refresh(app)["status"] == status
 
 
 def test_an_unreadable_end_date_from_the_portal_is_ignored(app):
@@ -239,7 +251,7 @@ def test_portal_without_refresh_status_is_a_renewal(app):
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
     result = app.refresh(license_file=app.make(ago(hours=1), ahead(days=35)))
     assert result["status"] == "reactivated" and result["refresh_status"] == "renewed"
-    assert app.routes.get_license_info()["last_refresh"]["status"] == "renewed"
+    assert last_refresh(app)["status"] == "renewed"
 
 
 def test_unknown_refresh_status_is_refused_and_changes_nothing(app):
@@ -249,7 +261,7 @@ def test_unknown_refresh_status_is_refused_and_changes_nothing(app):
         app.refresh(license_file=app.make(ago(hours=1), ahead(days=35)), refresh_status="paused")
     assert exc.value.status_code == 502
     assert app.path.read_text() == installed
-    assert "last_refresh" not in app.routes.get_license_info()
+    assert last_refresh(app) is None
 
 
 @pytest.mark.parametrize("status", ["renewed", "not_entitled"])
@@ -265,6 +277,45 @@ def test_status_that_needs_a_file_is_refused_without_one(app, status):
 def test_last_refresh_is_hidden_once_another_license_file_is_installed(app):
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
     app.refresh(refresh_status="canceled", expires_at=iso(ahead(days=5)))
-    assert "last_refresh" in app.routes.get_license_info()
+    assert last_refresh(app) is not None
     app.lm.save_license_file(app.make(ago(hours=1), ahead(days=40)))
-    assert "last_refresh" not in app.routes.get_license_info()
+    assert last_refresh(app) is None
+
+
+# ---- review round 1: the answer and the file must agree; earlier stated end ----
+
+def test_renewed_with_an_ended_file_is_refused_and_changes_nothing(app):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=app.make(ago(hours=2), ago(hours=1)), refresh_status="renewed")
+    assert exc.value.status_code == 502
+    assert app.path.read_text() == installed
+    assert last_refresh(app) is None
+
+
+def test_not_entitled_with_a_valid_file_is_refused_and_changes_nothing(app):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=app.make(ago(hours=1), ahead(days=35)), refresh_status="not_entitled")
+    assert exc.value.status_code == 502
+    assert app.path.read_text() == installed
+    assert last_refresh(app) is None
+
+
+def test_a_later_portal_end_date_never_outlasts_the_installed_file(app):
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    result = app.refresh(refresh_status="canceled", expires_at=iso(ahead(days=40)))
+    assert result["expires_at"] == iso(ahead(days=5))
+    earlier = app.refresh(refresh_status="canceled", expires_at=iso(ahead(days=2)))
+    assert earlier["expires_at"] == iso(ahead(days=2))
+
+
+def test_a_candidate_with_an_unreadable_issue_time_is_refused(app):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    candidate = app.sign(**app.fields, key=KEY, issued_at="not-a-time", expires_at=iso(ahead(days=35))).decode()
+    with pytest.raises(HTTPException):
+        app.lm.install_portal_license(candidate)
+    assert app.path.read_text() == installed

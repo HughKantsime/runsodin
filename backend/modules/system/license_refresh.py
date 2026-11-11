@@ -40,6 +40,19 @@ def server_end_date(data: dict) -> Optional[str]:
     return value.strip()
 
 
+def earlier_end_date(portal: Optional[str], installed: Optional[str]) -> Optional[str]:
+    """The earlier of the portal's stated end and the installed file's end (either may be missing)."""
+    from license_manager import _license_expiry_deadline
+    if not portal:
+        return installed or None
+    if not installed:
+        return portal
+    try:
+        return portal if _license_expiry_deadline(portal) < _license_expiry_deadline(installed) else installed
+    except (ValueError, TypeError):
+        return installed
+
+
 def _session():
     from core.db import SessionLocal
     return SessionLocal()

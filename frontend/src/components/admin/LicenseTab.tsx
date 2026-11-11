@@ -22,7 +22,7 @@ function refreshSummary(data: RefreshResult): string {
     case 'not_renewed_yet':
       return 'The license portal does not show a renewal yet. Your current license file stays in place.'
     case 'canceled':
-      return 'The license portal reports that your subscription was canceled.'
+      return 'The license portal reports that your subscription was cancelled.'
     case 'not_entitled':
       return 'The license portal reports that this license is no longer active.'
     default:
@@ -82,7 +82,13 @@ export default function LicenseTab() {
   const loadLicense = async () => {
     try {
       const data = await licenseApi.get()
-      setLicenseInfo(data)
+      // The portal's last answer is billing state, so it is not on the public license
+      // answer; a superadmin reads it separately. Anyone else sees the expiry window only.
+      let last_refresh = null
+      if (data?.license_sha256) {
+        try { last_refresh = (await licenseRefresh.lastRefresh()).last_refresh } catch { last_refresh = null }
+      }
+      setLicenseInfo({ ...data, last_refresh })
     } catch (e) { console.error('Failed to fetch license:', e) }
   }
 
