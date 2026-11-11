@@ -16,9 +16,10 @@ function titleCase(value: string): string {
 function refreshSummary(data: RefreshResult): string {
   switch (data.refresh_status) {
     case 'renewed':
-      return data.valid && data.expires_at
+      if (!data.valid) return 'License refreshed. This license has already ended.'
+      return data.expires_at
         ? `License refreshed. ${titleCase(data.tier)} is active until ${formatLicenseDate(data.expires_at)}.`
-        : 'License refreshed. This license has already ended.'
+        : `License refreshed. ${titleCase(data.tier)} is active.`
     case 'not_renewed_yet':
       return 'The license portal does not show a renewal yet. Your current license file stays in place.'
     case 'canceled':
@@ -82,7 +83,9 @@ export default function LicenseTab() {
     loadLicense()
   }, [isSuperadmin])
 
+  const loadSeq = useRef(0)
   const loadLicense = async () => {
+    const seq = ++loadSeq.current
     try {
       const data = await licenseApi.get()
       // The portal's last answer is billing state, so it is not on the public license
@@ -91,6 +94,7 @@ export default function LicenseTab() {
       if (isSuperadmin && data?.license_sha256) {
         try { last_refresh = (await licenseRefresh.lastRefresh()).last_refresh } catch { last_refresh = null }
       }
+      if (seq !== loadSeq.current) return  // A newer load started (for example once the user resolved).
       setLicenseInfo({ ...data, last_refresh })
     } catch (e) { console.error('Failed to fetch license:', e) }
   }
@@ -262,7 +266,8 @@ export default function LicenseTab() {
   // once it has ended, so a restored entitlement can be picked up), not read-only.
   const canRefresh = isSuperadmin && !managedExternally && licenseInfo?.trial !== true && Boolean(licenseInfo?.license_sha256)
   const nowMs = Date.now()
-  const bannerState = currentAudience ? renewalBannerState(licenseInfo, nowMs) : null
+  // Only a superadmin can act on the banner (Refresh license), so only a superadmin sees it.
+  const bannerState = isSuperadmin ? renewalBannerState(licenseInfo, nowMs) : null
   const refreshButton = (
     <Button variant="secondary" icon={RefreshCw} loading={refreshing} disabled={refreshing} onClick={handleRefresh}>
       Refresh license

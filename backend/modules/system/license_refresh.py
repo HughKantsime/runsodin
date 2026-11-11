@@ -47,12 +47,18 @@ NOT_ENTITLED_CLOCK_ALLOWANCE_SECONDS = 15 * 60
 
 
 def ends_within_clock_allowance(candidate, now: Optional[datetime] = None) -> bool:
-    """A verified, non-trial license that ends within the clock allowance from now."""
+    """A verified, non-trial license that ends within the clock allowance from now.
+
+    "Now" is the trusted license clock, the same one validity is judged on.
+    """
     from license_manager import _license_expiry_deadline
     if not getattr(candidate, "valid", False) or getattr(candidate, "trial", False) or not candidate.expires_at:
         return False
     try:
-        remaining = (_license_expiry_deadline(candidate.expires_at) - (now or datetime.now(timezone.utc))).total_seconds()
+        if now is None:
+            from license_manager import license_clock
+            now = license_clock().sample()[0]
+        remaining = (_license_expiry_deadline(candidate.expires_at) - now).total_seconds()
     except (ValueError, TypeError):
         return False
     return remaining <= NOT_ENTITLED_CLOCK_ALLOWANCE_SECONDS

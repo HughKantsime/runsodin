@@ -324,7 +324,8 @@ def test_a_candidate_with_an_unreadable_issue_time_is_refused(app):
 def test_not_entitled_file_ending_within_the_clock_allowance_is_installed(app):
     """This server's clock runs behind the portal's: the 'ended' file still has seconds to go."""
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
-    ending = app.make(ago(seconds=1), ahead(seconds=30))
+    now = datetime.now(timezone.utc).replace(microsecond=0)  # fresh, not NOW: a long suite must not age this file past its end
+    ending = app.make(now - timedelta(seconds=1), now + timedelta(minutes=5))
     result = app.refresh(license_file=ending, refresh_status="not_entitled")
     assert result["refresh_status"] == "not_entitled"
     assert app.path.read_text() == ending
