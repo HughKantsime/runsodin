@@ -19,6 +19,7 @@ import secrets
 from collections import OrderedDict
 from threading import Lock
 from time import monotonic as _cache_clock
+from core import itar
 from core.outbound_http import pinned_async_request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -148,18 +149,30 @@ class OIDCHandler:
             self.discovery_url = template.format(tenant=tenant_id)
         
     async def _get_oidc_config(self) -> Dict[str, Any]:
-        """Fetch OIDC configuration from discovery endpoint. Cached for 1 hour."""
+        """Fetch OIDC configuration from discovery endpoint. Cached for 1 hour.
+
+        Under ITAR mode with ODIN_ITAR_ALLOWED_IDP_HOSTS set, a discovery
+        document on an allowed host must keep its token, userinfo and JWKS
+        endpoints on allowed hosts. The check runs on cached and fresh
+        documents, and a refused document is never cached.
+        """
+        cached_config = None
         with _discovery_cache_lock:
             cached = _discovery_cache.get(self.discovery_url)
             if cached and _cache_clock() < cached[0]:
                 _discovery_cache.move_to_end(self.discovery_url)
-                return cached[1]
+                cached_config = cached[1]
+        if cached_config is not None:
+            itar.enforce_idp_endpoint_hosts(self.discovery_url, cached_config)
+            return cached_config
 
-        resp = await pinned_async_request("GET", self.discovery_url, timeout=10)
+        with itar.oidc_request_scope("discovery"):
+            resp = await pinned_async_request("GET", self.discovery_url, timeout=10)
         resp.raise_for_status()
         config = resp.json()
         if not isinstance(config, dict):
             raise ValueError("OIDC discovery response is invalid")
+        itar.enforce_idp_endpoint_hosts(self.discovery_url, config)
         with _discovery_cache_lock:
             _discovery_cache[self.discovery_url] = (_cache_clock() + 3600, config)
             _discovery_cache.move_to_end(self.discovery_url)
@@ -233,7 +246,8 @@ class OIDCHandler:
             "grant_type": "authorization_code",
         }
         
-        resp = await pinned_async_request("POST", token_endpoint, data=data, timeout=10)
+        with itar.oidc_request_scope("token"):
+            resp = await pinned_async_request("POST", token_endpoint, data=data, timeout=10)
         if resp.status_code != 200:
             log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
             raise Exception(f"Token exchange failed: {resp.text}")
@@ -248,10 +262,11 @@ class OIDCHandler:
         if not isinstance(userinfo_url, str) or not userinfo_url:
             raise ValueError("OIDC discovery document has no userinfo_endpoint")
 
-        resp = await pinned_async_request(
-            "GET", userinfo_url,
-            headers={"Authorization": f"Bearer {access_token}"}, timeout=10,
-        )
+        with itar.oidc_request_scope("userinfo"):
+            resp = await pinned_async_request(
+                "GET", userinfo_url,
+                headers={"Authorization": f"Bearer {access_token}"}, timeout=10,
+            )
         if resp.status_code != 200:
             log.error("OIDC userinfo fetch failed with status %s", resp.status_code)
             raise ValueError("OIDC userinfo request failed")
@@ -287,7 +302,8 @@ class OIDCHandler:
         from jwt import PyJWKSet
 
         try:
-            _resp = await pinned_async_request("GET", jwks_uri, timeout=10)
+            with itar.oidc_request_scope("jwks"):
+                _resp = await pinned_async_request("GET", jwks_uri, timeout=10)
             _resp.raise_for_status()
             _jwks_json = _resp.json()
 
