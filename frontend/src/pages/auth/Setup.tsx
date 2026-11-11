@@ -488,8 +488,8 @@ export default function Setup() {
       <h2 className="text-xl font-bold text-white mb-1">Pick a Tier</h2>
       <p className="text-white/50 text-sm mb-6">
         Community is free forever (5 printers, 1 user). Pro unlocks
-        unlimited printers, Vigil AI detection, orders, RBAC, and
-        Microsoft Entra ID SSO. You can upgrade later from Settings.
+        unlimited printers and users, orders, analytics, CSV export,
+        role permissions and single sign-on (SSO). You can upgrade later from Settings.
       </p>
 
       {tierError && (
