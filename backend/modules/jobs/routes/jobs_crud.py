@@ -5,7 +5,7 @@ from core.rbac import should_filter_org, require_action
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List, Optional
+from typing import List, Literal, Optional
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -298,8 +298,10 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
 
 @router.get("", response_model=List[JobResponse], tags=["Jobs"])
 def list_jobs(
-    status: Optional[JobStatus] = None,
+    status: Optional[List[JobStatus]] = Query(None, description="Repeat for several statuses (status=pending&status=scheduled)."),
     printer_id: Optional[int] = None,
+    finished_since: Optional[datetime] = Query(None, description="Only jobs that ended at or after this time (actual_end)."),
+    order: Literal["queue", "recent"] = Query("queue", description="queue: queue order (default). recent: newest end first."),
     org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
@@ -310,7 +312,11 @@ def list_jobs(
     ),
     db: Session = Depends(get_db),
 ):
-    """List jobs with optional filters."""
+    """List jobs with optional filters.
+
+    The apps' Queue loads active statuses and, separately, jobs finished since local
+    midnight (finished_since, order=recent), so neither is cut off by the default limit.
+    """
     query = db.query(Job).filter(text("NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"))
 
     from core.controlled_parts import any_controlled_data, job_visibility
@@ -318,9 +324,13 @@ def list_jobs(
         controlled, controlled_params = job_visibility(current_user)
         query = query.filter(text(controlled)).params(**controlled_params)
     if status:
-        query = query.filter(Job.status == status)
+        query = query.filter(Job.status == status[0]) if len(status) == 1 else query.filter(Job.status.in_(status))
     if printer_id:
         query = query.filter(Job.printer_id == printer_id)
+    if finished_since is not None:
+        # Stored job times are naive UTC.
+        since = finished_since.astimezone(timezone.utc).replace(tzinfo=None) if finished_since.tzinfo else finished_since
+        query = query.filter(Job.actual_end.isnot(None), Job.actual_end >= since)
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
@@ -328,9 +338,12 @@ def list_jobs(
 
     # Priority first; drag-and-drop queue_position orders jobs within a
     # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
-    rows = query.order_by(
-        Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
-    ).offset(offset).limit(limit).all()
+    if order == "recent":
+        from sqlalchemy import func
+        ordering = (func.coalesce(Job.actual_end, Job.updated_at, Job.created_at).desc(), Job.id.desc())
+    else:
+        ordering = (Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id)
+    rows = query.order_by(*ordering).offset(offset).limit(limit).all()
     from core.display_names import name_jobs
     from modules.jobs.display_facts import enrich_job_facts
     return enrich_job_facts(db, name_jobs(db, rows, current_user), current_user)
