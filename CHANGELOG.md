@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
-- `GET /api/v1/jobs` takes several `status` values (`status=pending&status=scheduled`), `finished_since` (jobs that ended at or after a time) and `order=recent` (newest end first). The iPhone/iPad Queue uses them, so active jobs and today's finished jobs are no longer cut off by the default limit of 100 on servers with many jobs. The default order is unchanged.
+- `GET /api/v1/jobs` takes several `status` values (`status=pending&status=scheduled`), `finished_since` (jobs that ended at or after a time) and `order=recent` (newest end first). They let the iPhone/iPad Queue load active jobs and today's finished jobs without being cut off by the default limit of 100 on servers with many jobs (needs the matching app update). The default order is unchanged.
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
 
 ## [2.1.0] - 2026-11-10

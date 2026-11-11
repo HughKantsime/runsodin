@@ -300,8 +300,8 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
 def list_jobs(
     status: Optional[List[JobStatus]] = Query(None, description="Repeat for several statuses (status=pending&status=scheduled)."),
     printer_id: Optional[int] = None,
-    finished_since: Optional[datetime] = Query(None, description="Only jobs that ended at or after this time (actual_end)."),
-    order: Literal["queue", "recent"] = Query("queue", description="queue: queue order (default). recent: newest end first."),
+    finished_since: Optional[datetime] = Query(None, description="Only jobs that ended at or after this time (actual_end). Send an offset or Z; a time without one is UTC."),
+    order: Literal["queue", "recent"] = Query("queue", description="queue: queue order (default). recent: newest first by end time, then last update, for jobs without an end."),
     org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,

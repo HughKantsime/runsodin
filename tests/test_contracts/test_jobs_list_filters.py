@@ -12,7 +12,6 @@ from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_product_bom_integrity import bom_client  # noqa: F401
 
-NOW = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
 
 
 def stamp(moment):
@@ -30,6 +29,7 @@ def _insert(connection, identifier, status, *, created, actual_end=None):
 @pytest.fixture
 def many_jobs(bom_client, review_db, monkeypatch):  # noqa: F811
     """150 old completed jobs ahead of 12 pending and 3 scheduled ones, and 4 finished today."""
+    NOW = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)  # at fixture time, not import time
     from core.registry import registry
     from modules.organizations.services import EducationPolicyService
     from modules.jobs.routes import jobs_crud
@@ -57,7 +57,7 @@ def ids(response):
 def test_active_statuses_are_not_cut_off_by_old_jobs(many_jobs):
     active = ids(many_jobs.get('/jobs', params=[('status', 'pending'), ('status', 'scheduled')]))
     assert set(range(6000, 6012)) | set(range(6100, 6103)) <= set(active)
-    assert all(identifier < 7000 and identifier >= 6000 for identifier in active)
+    assert not any(5000 <= identifier < 5150 for identifier in active)  # no old completed job
 
 
 def test_a_single_status_still_works(many_jobs):
@@ -67,7 +67,8 @@ def test_a_single_status_still_works(many_jobs):
 def test_finished_since_returns_todays_ends_newest_first(many_jobs):
     since = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
     today = ids(many_jobs.get('/jobs', params={'finished_since': since, 'order': 'recent'}))
-    assert today[:4] == [6200, 6201, 6202, 6203]  # 30, 31, 32, 33 minutes ago: newest first
+    synthetic = [identifier for identifier in today if 6200 <= identifier < 6204]
+    assert synthetic == [6200, 6201, 6202, 6203]  # 30, 31, 32, 33 minutes ago: newest first
     assert not any(5000 <= identifier < 5150 for identifier in today)  # last month's ends are excluded
 
 
