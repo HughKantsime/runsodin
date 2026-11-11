@@ -4,9 +4,10 @@ modules/jobs/schemas.py — Pydantic schemas for the jobs domain.
 
 from datetime import datetime
 from typing import Optional, List, Union, Any
-from pydantic import BaseModel, Field, ConfigDict, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, StrictInt, field_serializer, field_validator, model_validator
 
 from core.base import JobStatus, FilamentType
+from core.datetime_wire import to_wire
 
 
 # ============== Job Schemas ==============
@@ -214,6 +215,17 @@ class JobResponse(JobBase):
     printer: Optional["_PrinterSummary"] = None
     model: Optional["_ModelSummary"] = None
 
+    @field_serializer('scheduled_start', 'scheduled_end', 'actual_start', 'actual_end',
+                      'due_date', 'approved_at', 'created_at', 'updated_at', when_used='json')
+    def _wire_datetime(self, value):
+        """The apps decode one form only: naive UTC "YYYY-MM-DDTHH:MM:SS".
+
+        A stored "+00:00"/"Z"/fractional value reaches here as an aware datetime and
+        would otherwise be sent with a zone, failing the app's whole list decode.
+        JSON mode only: python-mode dumps keep real datetimes for internal callers.
+        """
+        return to_wire(value)
+
 
 class JobDetailResponse(JobResponse):
     ams_preview: Optional[dict] = None
@@ -270,6 +282,10 @@ class JobSummary(BaseModel):
     duration_hours: Optional[float] = None
     colors_list: List[str] = []
     match_score: Optional[int] = None
+
+    @field_serializer('scheduled_start', 'scheduled_end', when_used='json')
+    def _wire_datetime(self, value):
+        return to_wire(value)
 
 
 # ============== Scheduler Schemas ==============

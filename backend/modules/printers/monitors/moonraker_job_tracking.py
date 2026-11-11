@@ -1,4 +1,5 @@
 """Moonraker job tracking, split from the live monitor to keep both modules bounded."""
+from core.datetime_wire import to_storage_utc
 from core.order_production import retry_production_linkage
 
 
@@ -27,7 +28,7 @@ class MoonrakerJobTracking:
                 observed=observe_start(conn,printer_id=self.printer_id,protocol='moonraker',
                     filename=filename,job_name=filename,physical_values={
                         'job_id':f'mk_{int(time.time())}',
-                        'started_at':datetime.now(timezone.utc).isoformat(),
+                        'started_at':to_storage_utc(datetime.now(timezone.utc)),
                         'total_layers':total_layers,'bed_temp_target':bed_target,
                         'nozzle_temp_target':nozzle_target},source='moonraker-first-start',allow_physical_resume=True,observed_elapsed=getattr(status,'total_duration',None))
                 self._current_job_db_id=observed.id
@@ -70,7 +71,9 @@ class MoonrakerJobTracking:
         completion_job_id = None
         try:
             with engine.begin() as conn:
-                now_utc = history['ended_at'] if history else datetime.now(timezone.utc).isoformat()
+                # Naive UTC "YYYY-MM-DD HH:MM:SS", like every other writer.
+                now_utc = (to_storage_utc(history['ended_at']) if history
+                           else to_storage_utc(datetime.now(timezone.utc)))
 
                 # Calculate duration
                 duration_seconds = None
@@ -84,7 +87,7 @@ class MoonrakerJobTracking:
                         if not history and ended_observation_id == getattr(self, '_unwatched_row', None) and getattr(status, 'total_duration', None) is not None:
                             # It ran for total_duration, not until this poll first saw the end.
                             ended = min(ended, started + timedelta(seconds=float(status.total_duration)))
-                            now_utc = ended.isoformat()
+                            now_utc = to_storage_utc(ended)
                         duration_seconds = int((ended - started).total_seconds())
                     except Exception as e:
                         log.debug(f"Failed to parse duration: {e}")
@@ -93,7 +96,7 @@ class MoonrakerJobTracking:
                     duration_seconds = history['duration']
                     if pj_row and pj_row[0] and as_utc_datetime(pj_row[0]) < as_utc_datetime(history['started_at']):
                         conn.execute(text('UPDATE print_jobs SET started_at=:start WHERE id=:id'),
-                                     {'start':history['started_at'], 'id':self._current_job_db_id})
+                                     {'start':to_storage_utc(history['started_at']), 'id':self._current_job_db_id})
 
                 from core.registry import registry
 
