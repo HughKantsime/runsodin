@@ -15,7 +15,7 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_product_bom_integrity import bom_client
 
 WIRE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$")
-STORED = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
+STORED = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(\.\d{1,6})?$")  # naive UTC, no zone; fractions kept
 JOB_DATETIMES = ('scheduled_start', 'scheduled_end', 'actual_start', 'actual_end',
                  'due_date', 'approved_at', 'created_at', 'updated_at')
 
@@ -65,10 +65,10 @@ def test_to_wire_unparseable_is_null_and_logged_once(caplog, monkeypatch):
 
 def test_to_storage_utc_is_naive_utc_without_fraction():
     from core.datetime_wire import to_storage_utc
-    assert to_storage_utc(datetime(2026, 11, 8, 4, 41, 45, 599830, tzinfo=timezone.utc)) == '2026-11-08 04:41:45'
+    assert to_storage_utc(datetime(2026, 11, 8, 4, 41, 45, 599830, tzinfo=timezone.utc)) == '2026-11-08 04:41:45.599830'
     assert to_storage_utc(datetime(2026, 11, 8, 6, 41, 45, tzinfo=timezone(timedelta(hours=2)))) == '2026-11-08 04:41:45'
     assert to_storage_utc(datetime(2026, 11, 8, 4, 41, 45)) == '2026-11-08 04:41:45'
-    assert to_storage_utc('2026-11-08T04:41:45.599830Z') == '2026-11-08 04:41:45'
+    assert to_storage_utc('2026-11-08T04:41:45.599830Z') == '2026-11-08 04:41:45.599830'
     assert to_storage_utc(None) is None
     with pytest.raises(ValueError):
         to_storage_utc('not a date')

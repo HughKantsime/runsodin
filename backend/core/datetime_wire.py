@@ -1,6 +1,6 @@
 """One format for job datetimes: what Moonraker stores and what the apps are sent.
 
-Storage: naive UTC "YYYY-MM-DD HH:MM:SS", the form every other writer uses.
+Storage: naive UTC "YYYY-MM-DD HH:MM:SS[.ffffff]" (no zone), the form the ORM writes.
 Wire:    naive UTC "YYYY-MM-DDTHH:MM:SS" (the iOS/iPad decoders accept only this).
 
 Stored rows are never rewritten; to_wire() normalizes whatever a row holds at read time.
@@ -28,10 +28,10 @@ def _parse(value) -> datetime:
 
 
 def _utc_naive(parsed: datetime) -> datetime:
-    """Aware values convert to UTC; naive values are already UTC by convention. Fractions drop."""
+    """Aware values convert to UTC; naive values are already UTC by convention."""
     if parsed.utcoffset() is not None:
         parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-    return parsed.replace(microsecond=0)
+    return parsed
 
 
 def _report_once(value) -> None:
@@ -52,20 +52,22 @@ def to_wire(value):
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
     try:
-        return _utc_naive(_parse(value)).isoformat(timespec="seconds")
+        return _utc_naive(_parse(value)).replace(microsecond=0).isoformat(timespec="seconds")
     except (TypeError, ValueError, OverflowError):
         _report_once(value)
         return None
 
 
 def to_storage_utc(dt):
-    """A datetime (or ISO string) -> "YYYY-MM-DD HH:MM:SS" naive UTC, for writers.
+    """A datetime (or ISO string) -> naive UTC "YYYY-MM-DD HH:MM:SS[.ffffff]", for writers.
 
-    None gives None. Unlike to_wire(), garbage raises ValueError: a writer must not persist it.
+    The zone goes (the apps' decoders reject it); sub-second precision stays, because
+    Moonraker history matching compares exact start and end times. None gives None.
+    Unlike to_wire(), garbage raises ValueError: a writer must not persist it.
     """
     if dt is None:
         return None
     try:
-        return _utc_naive(_parse(dt)).isoformat(sep=" ", timespec="seconds")
+        return _utc_naive(_parse(dt)).isoformat(sep=" ")
     except (TypeError, OverflowError) as error:
         raise ValueError(f"cannot store {dt!r} as a UTC timestamp") from error
