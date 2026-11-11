@@ -131,8 +131,10 @@ def get_print_jobs(
         job = dict(row._mapping)
         if job.get('ended_at') and job.get('started_at'):
             try:
-                start = dt.fromisoformat(job['started_at'])
-                end = dt.fromisoformat(job['ended_at'])
+                # Rows may mix a zoned start (older Moonraker writes) with a naive end; both are UTC.
+                from core.db_compat import as_utc_datetime
+                start = as_utc_datetime(job['started_at'])
+                end = as_utc_datetime(job['ended_at'])
                 job['duration_minutes'] = round((end - start).total_seconds() / 60, 1)
             except Exception:
                 job['duration_minutes'] = None

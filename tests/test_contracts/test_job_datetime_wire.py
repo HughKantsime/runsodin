@@ -197,3 +197,18 @@ def test_job_detail_sends_one_datetime_form(wire_jobs, identifier):
     for name in JOB_DATETIMES:
         assert body[name] is None or WIRE.match(body[name]), (name, body[name])
     assert WIRE.match(body['actual_end'])
+
+
+def test_print_history_duration_across_the_upgrade(bom_client, review_db):
+    """A Moonraker print that started before 2.1.1 (zoned start) and ended after it (naive end)."""
+    from modules.jobs.routes import presets
+    bom_client.app.include_router(presets.router)
+    with review_db.get_bind().begin() as connection:
+        connection.execute(text(
+            "INSERT INTO print_jobs(id,printer_id,job_name,filename,status,started_at,ended_at) "
+            "VALUES(9101,9,'Synthetic upgrade print','upgrade.gcode','completed',"
+            "'2026-11-11T10:00:00+00:00','2026-11-11 11:30:00')"))
+    response = bom_client.get('/print-jobs', params={'job_id': 9101})
+    assert response.status_code == 200, response.text
+    rows = response.json()
+    assert len(rows) == 1 and rows[0]['duration_minutes'] == 90.0
