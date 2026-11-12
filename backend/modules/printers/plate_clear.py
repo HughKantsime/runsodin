@@ -43,10 +43,11 @@ def record_plate_clear(db, printer, actor) -> Optional[datetime]:
                   {"p": printer.id}).first():
         return None
     # Stored times mix forms (naive UTC, ISO with "T" or an offset), so they are compared as
-    # parsed instants, never as text: the newest of the printer's recent finished prints.
+    # parsed instants, never as text, across every finished print on this printer (three small
+    # columns; an old low-numbered job can be the one that finished last).
     recent = db.execute(text(
         f"SELECT id, charged_to_org_id, actual_end FROM jobs WHERE printer_id=:p AND status IN {_ENDED} "
-        "AND actual_end IS NOT NULL ORDER BY id DESC LIMIT 50"), {"p": printer.id}).all()
+        "AND actual_end IS NOT NULL"), {"p": printer.id}).all()
     dated = [(as_utc(row[2]), row[0], row) for row in recent if as_utc(row[2]) is not None]
     if not dated:
         return None

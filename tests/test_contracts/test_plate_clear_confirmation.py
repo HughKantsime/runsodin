@@ -161,3 +161,13 @@ def test_the_newest_confirmation_is_chosen_by_instant_before_a_later_start_is_ju
     db.commit()
     shown = confirmed_at(client, issue)
     assert shown is not None and '12:00:00' in shown
+
+
+def test_an_old_job_that_finished_last_is_the_one_confirmed(floor):
+    """Third sign-off: only the 50 highest job ids were considered."""
+    client, issue, db = floor
+    for job_id in range(900, 960):
+        finished(db, job_id, start='2026-11-10 08:00:00', end='2026-11-10 09:00:00')
+    finished(db, 805, start='2026-11-12 08:00:00', end='2026-11-12 12:00:00')     # lowest id, latest end
+    assert client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()['message'] == 'Plate clear recorded'
+    assert [row.job_id for row in events(db)] == [805]
