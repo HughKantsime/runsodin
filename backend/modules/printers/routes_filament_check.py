@@ -65,6 +65,9 @@ def get_job_filament_check(job_id: int = Path(gt=0), printer_id: Optional[int] =
         raise HTTPException(400, 'Choose a printer to check')
     printer = db.execute(text('SELECT org_id, shared FROM printers WHERE id = :id'),
                          {'id': target}).mappings().first()
-    if printer is None or not (check_org_access(current_user, printer['org_id']) or printer['shared']):
+    owner = printer is not None and check_org_access(current_user, printer['org_id'])
+    if printer is None or not (owner or printer['shared']):
         raise HTTPException(404, 'Printer not found')
-    return filament_check.check_job(db.connection(), job_id, target)
+    result = filament_check.check_job(db.connection(), job_id, target)
+    # A printer reached only because it is shared: the verdict, not the owner's spool id or weight.
+    return result if owner else filament_check.hide_spool_details(result)

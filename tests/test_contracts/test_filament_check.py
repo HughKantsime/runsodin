@@ -97,6 +97,29 @@ def test_short_message_is_plain_words_with_the_numbers(engine):
     assert item['message'] == 'Slot 2 (black PLA) has about 40 g left; this print needs about 55 g'
 
 
+@pytest.mark.parametrize('remaining,status,message', [
+    (40, 'short', 'Slot 2 (black PLA) does not have enough filament; this print needs about 55 g'),
+    (900, 'enough', 'Slot 2 (black PLA) has enough filament for this print'),
+])
+def test_shared_printer_callers_get_the_verdict_without_spool_id_or_weight(engine, remaining, status, message):
+    seed(engine, slots=AMS, spools={1: 900, 2: remaining})
+    full = evaluate(engine, job(BLACK_PLA, mapping=[1]))
+    hidden = fc.hide_spool_details(full)
+    item = hidden['slots'][0]
+    assert (item['status'], item['spool_id'], item['remaining_g'], item['message']) == (status, None, None, message)
+    assert hidden['overall'] == full['overall'] and hidden['spool_details_hidden'] is True
+    assert hidden['warnings'] == ([message] if status == 'short' else [])
+    assert str(remaining) not in json.dumps(hidden)
+    assert full['slots'][0]['spool_id'] == 2  # the owner's result is untouched
+
+
+def test_the_job_route_hides_spool_details_unless_the_caller_owns_the_printer():
+    from modules.printers import routes_filament_check
+    source = inspect.getsource(routes_filament_check.get_job_filament_check)
+    assert "owner = printer is not None and check_org_access(current_user, printer['org_id'])" in source
+    assert 'return result if owner else filament_check.hide_spool_details(result)' in source
+
+
 def test_margin_setting_applies(engine):
     seed(engine, slots=AMS, spools={1: 900, 2: 52}, margin='0')
     item = evaluate(engine, job(BLACK_PLA, mapping=[1]))['slots'][0]
