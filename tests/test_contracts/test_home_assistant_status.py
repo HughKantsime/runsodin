@@ -58,7 +58,7 @@ def test_status_payload_shape_and_values(ha_client):
     response = client.get(URL, headers=issue(['read:printers', 'read:jobs']))
     assert response.status_code == 200
     body = response.json()
-    assert body['schema_version'] == 1
+    assert body['schema_version'] == 2
     assert body['odin_version']
     printers = {p['id']: p for p in body['printers']}
     # Org 1, global, never the foreign org or an inactive printer.
@@ -77,8 +77,11 @@ def test_status_payload_shape_and_values(ha_client):
     assert kobra['last_error'] == {'code': 'PRINT_FAILED', 'message': 'Nozzle clog', 'at': '2026-11-08T23:36:50Z',
                                    'unresolved': True}
     assert printers[72]['status'] == 'offline' and printers[72]['online'] is False
-    assert body['fleet'] == {'printing': 1, 'paused': 1, 'error': 1, 'offline': 1, 'idle': 0,
-                             'total': 4, 'queue_length': 3}  # 301, 302 and the seeded submitted job 13
+    floor_keys = {'today', 'queued_hours', 'queued_unestimated', 'next_unassigned'}  # covered in test_home_assistant_print_floor.py
+    assert {k: v for k, v in body['fleet'].items() if k not in floor_keys} == {
+        'printing': 1, 'paused': 1, 'error': 1, 'offline': 1, 'idle': 0,
+        'total': 4, 'queue_length': 3}  # 301, 302 and the seeded submitted job 13
+    assert floor_keys <= set(body['fleet'])
 
 
 def test_payload_carries_no_credentials_hosts_or_camera_urls(ha_client):
