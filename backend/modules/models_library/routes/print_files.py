@@ -118,6 +118,24 @@ async def _extract_preview_mesh(path):
     return mesh
 
 
+PLATE_CACHE_UPLOAD_TIMEOUT_SECONDS = 15
+
+
+async def _cache_plate_facts(path, file_hash, file_id):
+    """Best-effort per-plate cache of a committed upload (modules.models_library.plate_cache).
+    Any failure is logged and swallowed: it must never fail or change the upload's outcome."""
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from modules.models_library import plate_cache
+        from modules.models_library.mesh_isolation import analyze_3mf_isolated
+        if plate_cache.read_facts(file_hash) is not None:
+            return
+        analysis = await analyze_3mf_isolated(path, mode="platefacts", timeout=PLATE_CACHE_UPLOAD_TIMEOUT_SECONDS)
+        await run_in_threadpool(plate_cache.store_analysis, file_hash, analysis)
+    except Exception as exc:
+        log.warning("Plate cache not built for file %s (%s)", file_id, type(exc).__name__)
+
+
 @router.post("/print-files/upload")
 @limiter.limit("30/minute")
 async def upload_3mf(
@@ -301,6 +319,9 @@ async def upload_3mf(
             db.flush()
             commit_started = True
             db.commit()
+
+            # Row committed: derive per-plate facts and thumbnails. Never raises.
+            await _cache_plate_facts(tmp_path, file_hash, file_id)
 
             return {
                 "id": file_id,
@@ -683,3 +704,36 @@ async def get_model_mesh(model_id: int, current_user: dict = Depends(require_rol
     if not model or not model.print_file_id or not check_org_access(current_user, model.org_id):
         raise preview_not_found()
     return await get_print_file_mesh(model.print_file_id, current_user, db)
+
+
+@router.get("/print-files/{file_id}/plates", tags=["Print Files"])
+def get_print_file_plates(file_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
+    """Per-plate facts of a sliced 3MF (no thumbnails inline). Authorized exactly like the mesh preview:
+    organization, controlled-part audience and Education policy. Built from the stored file on first read."""
+    from core.model_preview_access import accessible_preview_file
+    from modules.models_library import plate_cache
+    from modules.models_library.mesh_isolation import Busy
+    row = accessible_preview_file(db, file_id, current_user)
+    try:
+        facts = plate_cache.facts_for_row(row)
+    except Busy as busy:
+        raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
+                            headers={"Retry-After": str(busy.retry_after)}) from None
+    if facts is None:
+        raise HTTPException(status_code=404, detail="Plate data not available")
+    return facts
+
+
+@router.get("/print-files/{file_id}/plates/{plate}/thumbnail", tags=["Print Files"])
+def get_print_file_plate_thumbnail(file_id: int, plate: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
+    """One plate's picture from the cache (404 when absent). Same authorization as the facts route."""
+    from starlette.responses import Response
+    from core.model_preview_access import accessible_preview_file
+    from modules.models_library import plate_cache
+    row = accessible_preview_file(db, file_id, current_user)
+    image = plate_cache.thumbnail_for_row(row, plate)
+    if image is None:
+        raise HTTPException(status_code=404, detail="Plate thumbnail not available")
+    audit_download(db, "print_file.downloaded", "print_file", file_id, {"what": "plate_thumbnail"})
+    return Response(content=image.content, media_type=image.media_type,
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

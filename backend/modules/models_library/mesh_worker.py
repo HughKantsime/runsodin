@@ -21,7 +21,8 @@ Output frames on stdout for mesh_isolation:
 
 Modes: ``upload`` (analysis + mesh), ``metadata`` (analysis only), ``education``
 (analysis + the Education rule: exactly one nonempty Metadata/plate_1.gcode),
-``mesh`` (mesh only), ``plates`` (a ``P`` frame: per-plate summaries of a stored package).
+``mesh`` (mesh only), ``plates`` (a ``P`` frame: per-plate summaries of a stored package),
+``platefacts`` (an ``F`` frame: per-plate facts and thumbnails for the plate cache).
 """
 import json
 import os
@@ -118,6 +119,23 @@ def _plates(path: str) -> dict:
         return {"status": "bad_zip"}
 
 
+def _plate_facts(path: str) -> dict:
+    """Per-plate facts and thumbnails of a package (plate_cache). Same archive bounds as _plates."""
+    import zipfile
+    from core.zip_bounds import ArchiveRefused, check_expansion, open_bounded
+    from modules.models_library.threemf_parser import plate_facts_from_archive
+    try:
+        with open_bounded(path) as package:
+            check_expansion(package)
+            return {"status": "ok", **plate_facts_from_archive(package)}
+    except ArchiveRefused as refused:
+        if refused.reason == "compression_ratio":
+            return {"status": "bad_zip"}
+        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
+    except zipfile.BadZipFile:
+        return {"status": "bad_zip"}
+
+
 def _mesh_frame(path: str) -> None:
     from core.zip_bounds import open_bounded, check_expansion
     from modules.models_library.threemf_parser import extract_mesh_from_3mf
@@ -152,6 +170,9 @@ def main() -> int:
         with open(spawn, "w") as marker:
             marker.write(str(child.pid))
     try:
+        if mode == "platefacts":
+            _frame(b"F", json.dumps(_plate_facts(INPUT)).encode())
+            return 0
         if mode == "plates":
             _frame(b"P", json.dumps(_plates(INPUT)).encode())
             return 0

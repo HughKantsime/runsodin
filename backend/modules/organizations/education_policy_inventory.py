@@ -211,6 +211,7 @@ POLICY_INVENTORY = (
     _entry("archives.valuation_content_visibility", "assert_content_visible", "model/file/path/submission", "private-read", "caller bound reader and fenced content closure", ("private valuation response",), "test_private_attempt_valuation_route.py", "guarded"),
     _entry("archives.valuation_financial_graph", "prove_financial_graph", "attempt/job/order/economic identity", "private-read", "caller reader and locked financial parents; supplies no reader authority", ("private valuation response",), "test_private_attempt_valuation_route.py", "guarded"),
     _entry("jobs.recent_terminal", "recent terminal projection", "job/file/submission/thumbnail", "read", "token scope and tenant/content policy audience", ("dashboard",), "test_recent_terminal_jobs.py", "guarded"),
+    _entry("printers.routes_plate_thumbnail", "router:GET /printers/{id}/current-plate-thumbnail", "printer/print job/job/file/submission", "read derived plate image", "viewer with read:printers and read:models; organization/shared printer fence; controlled print audience; canonical file audience (accessible_preview_file incl. Education policy); cache-only, no mutation", ("Printers page",), "test_plate_cache_routes.py", "guarded"),
     _entry("organizations.education_ams_payload_authority", "capture_payload_graph/lock_and_recheck_payload_graph", "submission/job/model/file/upload operation", "approve-payload", "current reviewer and exact committed upload graph", ("AMS approval",), "test_education_ams_payload_authority.py", "guarded"),
 )
 

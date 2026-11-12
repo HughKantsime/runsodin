@@ -114,6 +114,13 @@ async def _periodic_cleanup():
                     text("DELETE FROM token_blacklist WHERE expires_at < :now"),
                     {"now": now.isoformat()},
                 )
+                # Plate pictures and facts of files that no longer exist (deleted, retired,
+                # purged by retention) must not linger on disk.
+                try:
+                    from modules.models_library import plate_cache
+                    plate_cache.sweep(db)
+                except Exception:
+                    log.warning("Plate cache sweep failed", exc_info=True)
                 # v1.8.6 (codex pass 4): the digest-sends idempotency tables
                 # grow monotonically without this — one row per user per
                 # quiet-hours window forever. 30-day retention is well past

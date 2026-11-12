@@ -15,7 +15,7 @@ from core.api_token_policy import token_scope_granted
 from core.registry import registry
 from core.model_preview_access import is_education_owned_file
 
-MAX_THUMBNAIL_BYTES=262144
+from core.thumbnail_check import MAX_THUMBNAIL_BYTES,thumbnail_data
 
 
 class RecentTerminalJob(BaseModel):
@@ -48,20 +48,7 @@ def _time_key(value):
     return parsed.isoformat(timespec='microseconds') if parsed is not None else None
 
 
-def thumbnail_data(value):
-    if type(value) is not str or not 1<=len(value)<=4*((MAX_THUMBNAIL_BYTES+2)//3):return None
-    try:
-        content=base64.b64decode(value,validate=True)
-        if not 1<=len(content)<=MAX_THUMBNAIL_BYTES:return None
-        with warnings.catch_warnings():
-            warnings.simplefilter('error',Image.DecompressionBombWarning)
-            with Image.open(BytesIO(content)) as image:
-                kind={'PNG':'png','JPEG':'jpeg'}.get(image.format)
-                if kind is None or not 1<=image.width<=1024 or not 1<=image.height<=1024 or image.width*image.height>1048576 or getattr(image,'n_frames',1)!=1:return None
-                image.verify()
-            with Image.open(BytesIO(content)) as image:image.load()
-        return f'data:image/{kind};base64,'+base64.b64encode(content).decode('ascii')
-    except (ValueError,OSError,Image.DecompressionBombError,Image.DecompressionBombWarning):return None
+# thumbnail_data is the shared validator in core.thumbnail_check (imported above).
 
 
 def _scope(user,name):
