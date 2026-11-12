@@ -24,7 +24,8 @@ interface SpoolCardProps {
 export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, printers }: SpoolCardProps) {
   const foundry = useFoundry()
   // The server sends remaining_weight_g = null when the balance is unknown (percent_remaining is then 0).
-  const unknownRemaining = spool.remaining_weight_g == null
+  // A row that still reports a percentage is known, even without the gram figure.
+  const unknownRemaining = spool.remaining_weight_g == null && !(Number(spool.percent_remaining) > 0)
   const percentRemaining = spool.percent_remaining || 0
   const isLow = !unknownRemaining && (spool.is_low_stock === true || percentRemaining < 20)
   const isEmpty = spool.status === 'empty'

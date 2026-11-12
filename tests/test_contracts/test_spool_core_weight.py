@@ -54,7 +54,7 @@ def test_invalid_core_weight_refuses_and_changes_nothing(inventory_client, revie
 
 
 def test_core_weight_edit_needs_the_spool_edit_action():
-    from core.rbac_policy import ACTIONS  # noqa: F401
+    from core.rbac_policy import RBAC_DEFAULT_ACTION_ACCESS as ACTIONS
     assert ACTIONS['spools.edit'] == ['admin', 'operator']
 
 
