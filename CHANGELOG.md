@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Confirming a cleared plate now always counts: `POST /api/printers/{id}/plate-cleared` records the confirmation against the printer's last finished print even when no job was waiting for it, so `plate_clear_confirmed_at` is set (Home Assistant and the printer card can show the printer as ready). The confirmation is dropped again as soon as the next print starts. Nothing is recorded while the printer is printing or paused, or when it has no finished print.
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
 
 ## [2.1.0] - 2026-11-10

@@ -102,6 +102,17 @@ def plate_clear_times(db, printer_ids, actor):
     for printer_id, at, org_id in rows:
         if check_org_access(actor, org_id):
             result.setdefault(printer_id, at)
+    if not result:
+        return result
+    # A confirmation stands only until the next print starts: a plate cleared several prints
+    # ago says nothing about the bed now.
+    from modules.printers.plate_clear import as_utc
+    started = db.execute(text("SELECT printer_id, MAX(actual_start) FROM jobs WHERE printer_id IN :ids "
+        "AND actual_start IS NOT NULL GROUP BY printer_id").bindparams(bindparam('ids', expanding=True)), {'ids': list(result)})
+    for printer_id, latest in started:
+        confirmed, begun = as_utc(result.get(printer_id)), as_utc(latest)
+        if confirmed is not None and begun is not None and begun > confirmed:
+            del result[printer_id]
     return result
 
 

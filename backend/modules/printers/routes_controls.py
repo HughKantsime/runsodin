@@ -412,8 +412,15 @@ async def plate_cleared(
         {"pid": printer_id},
     ).fetchone()
 
+    from modules.printers.plate_clear import record_plate_clear
     if not waiting:
-        return {"success": True, "message": "No jobs waiting for plate clear"}
+        # Nothing to release, but the plate WAS cleared: record it against the last finished
+        # print so plate_clear_confirmed_at is set (Home Assistant shows the printer as ready).
+        confirmed = record_plate_clear(db, printer, current_user)
+        if confirmed is None:
+            return {"success": True, "message": "No jobs waiting for plate clear"}
+        db.commit()
+        return {"success": True, "message": "Plate clear recorded", "plate_clear_confirmed_at": confirmed.isoformat()}
 
     from core.order_production import prepare_job_write, reconcile_job_write
     from core.registry import registry
@@ -430,6 +437,7 @@ async def plate_cleared(
     changed = transition_job(db, waiting[0], "pending", "plate",
                              where="printer_id=:pid", params={"pid": printer_id}) or None
     reconcile_job_write(db, parents)
+    record_plate_clear(db, printer, current_user)  # the same confirmation, when a print has finished here
     db.commit()
     if changed is None:
         return {"success": True, "message": "Waiting job changed; current state preserved"}
