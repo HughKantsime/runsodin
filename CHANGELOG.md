@@ -8,6 +8,10 @@ All notable changes to O.D.I.N. are documented here.
 
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
 
+### Fixed
+
+- Settings > Notifications: the Alert Preferences table lays out as a table again (alert type, then In-App, Push and Email side by side). A malformed layout rule had stacked the three switches under each alert on every screen width. The same fault is fixed in the Education cost-center manager's two-column layout and member rows.
+
 ## [2.1.0] - 2026-11-10
 
 

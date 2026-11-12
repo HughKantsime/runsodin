@@ -236,7 +236,7 @@ export default function CostCenterManager({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[280px,minmax(0,1fr)]">
+    <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
       <Card padding="sm" className="h-fit border border-[var(--brand-card-border)]">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-[var(--brand-text-primary)]">Classes and clubs</h2>
@@ -312,7 +312,7 @@ export default function CostCenterManager({
             </div>
             <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
               {filteredUsers.map((user) => (
-                <div key={user.id} className="grid gap-2 rounded-md px-3 py-2 hover:bg-[var(--brand-surface)] sm:grid-cols-[minmax(0,1fr),auto,auto] sm:items-center">
+                <div key={user.id} className="grid gap-2 rounded-md px-3 py-2 hover:bg-[var(--brand-surface)] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
                   <div className="min-w-0">
                     <p className="truncate text-sm text-[var(--brand-text-primary)]">{user.username}</p>
                     <p className="truncate text-xs text-[var(--brand-text-muted)]">{user.email}</p>

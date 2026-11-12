@@ -265,7 +265,7 @@ export default function NotificationsTab() {
         ) : (
           <>
             {/* Header row */}
-            <div className="hidden md:grid md:grid-cols-[1fr,80px,80px,80px] gap-3 mb-2 px-3">
+            <div className="hidden md:grid md:grid-cols-[1fr_80px_80px_80px] gap-3 mb-2 px-3">
               <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider">Alert Type</div>
               <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider text-center">In-App</div>
               <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider text-center">Push</div>
@@ -279,7 +279,7 @@ export default function NotificationsTab() {
                 const AlertIcon = meta.icon
                 return (
                   <div key={typeKey} className="bg-[var(--brand-card-bg)] rounded-md p-3">
-                    <div className="md:grid md:grid-cols-[1fr,80px,80px,80px] gap-3 items-center">
+                    <div className="md:grid md:grid-cols-[1fr_80px_80px_80px] gap-3 items-center">
                       {/* Label */}
                       <div>
                         <div className="flex items-center gap-2">
