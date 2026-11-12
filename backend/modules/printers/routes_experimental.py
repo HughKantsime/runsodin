@@ -41,7 +41,7 @@ def set_experimental_actions(
         if printer is None:
             raise HTTPException(404, 'Printer not found')
         level = support_levels.support_level(printer.api_type)
-        if body.enabled and level != support_levels.EXPERIMENTAL:
+        if body.enabled and not support_levels.opt_in_applies(printer.api_type):
             raise HTTPException(409, detail={
                 'code': 'not_experimental',
                 'message': 'Only a printer of an Experimental type has this setting.'})
@@ -59,7 +59,7 @@ def set_experimental_actions(
                        'actor_token_id': current_user.get('_token_id')})
         db.commit()
         return {'printer_id': printer_id, 'support_level': level,
-                'experimental_actions_enabled': result['enabled'] and level == support_levels.EXPERIMENTAL}
+                'experimental_actions_enabled': result['enabled'] and support_levels.opt_in_applies(printer.api_type)}
     except Exception:
         db.rollback()
         raise
@@ -87,7 +87,7 @@ def experimental_controls_guard(
     printer = db.get(Printer, printer_id)
     if printer is None or not check_org_access(current_user, printer.org_id):
         return
-    refusal = support_levels.experimental_refusal(db, printer.id, printer.api_type)
+    refusal = support_levels.control_refusal(db, printer.id, printer.api_type, action)
     if refusal is None:
         return
     from core.audit import log_audit

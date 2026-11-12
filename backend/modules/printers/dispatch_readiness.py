@@ -59,6 +59,8 @@ def fresh_http_status_is_idle(creds: dict, deadline: float) -> bool:
         if not math.isfinite(deadline):
             return False
         protocol = creds.get('api_type')
+        if protocol == 'elegoo':
+            return fresh_sdcp_status_is_idle(creds, deadline)  # SDCP status arrives over a WebSocket, not HTTP
         endpoint = {'moonraker':'/printer/objects/query?webhooks&print_stats&virtual_sdcard',
                     'prusalink':'/api/v1/status',
                     'octoprint':'/api/printer'}.get(protocol)
@@ -118,6 +120,62 @@ def fresh_http_status_is_idle(creds: dict, deadline: float) -> bool:
     except Exception:
         # Do not expose configured credentials, network errors or device bodies.
         return False
+
+
+def fresh_sdcp_status_is_idle(creds: dict, deadline: float) -> bool:
+    """Elegoo SDCP: one fresh status read over the printer's WebSocket, bounded by ``deadline``.
+
+    Sends Cmd 0 (status request, id used by this repo) and accepts only a status frame on
+    ``sdcp/status/<MainboardID>`` whose own MainboardID matches the configured one. Idle only when
+    the repo's parser says IDLE (CurrentStatus 0 and PrintInfo.Status 0). A finished-but-not-reset
+    print, an unknown state, a mismatched board, silence or any error is not idle. The WebSocket
+    connects to the policy-validated IP literal (device_connect_ip)."""
+    conn = None
+    try:
+        host, port, mainboard = creds.get('ip'), creds.get('port', 3030), creds.get('api_key')
+        if (not isinstance(host, str) or not host or type(port) is not int or not 1 <= port <= 65535
+                or not isinstance(mainboard, str) or not mainboard
+                or any(ord(char) < 32 or ord(char) == 127 for char in mainboard)):
+            return False
+        if ':' not in host and re.fullmatch(r'[A-Za-z0-9_.-]+', host) is None:
+            return False
+        import uuid
+        import websocket
+        from core.webhook_utils import device_connect_ip
+        from modules.printers.adapters.elegoo import SDCPCommand, sdcp_request_frame
+        from modules.printers.parsing.elegoo import parse_status
+        address = device_connect_ip(host, port)
+        shown = f'[{address}]' if ':' in address else address
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        conn = websocket.create_connection(f'ws://{shown}:{port}/websocket', timeout=remaining)  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP is ws:// on the LAN
+        conn.send(json.dumps(sdcp_request_frame(mainboard, SDCPCommand.STATUS_REQUEST, None, str(uuid.uuid4()))))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            conn.settimeout(remaining)
+            message = conn.recv()
+            if len(message) > _MAX_STATUS_BYTES:
+                return False
+            frame = json.loads(message)
+            if not isinstance(frame, dict) or frame.get('Topic') != f'sdcp/status/{mainboard}':
+                continue
+            parsed = parse_status(frame)
+            if not parsed:
+                continue
+            if parsed.get('mainboard_id') != mainboard:
+                return False
+            return time.monotonic() < deadline and parsed.get('internal_state') == 'IDLE'
+    except Exception:
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 BAMBU_TASK_CANCELED = 0x0300400C  # 50348044

@@ -281,7 +281,7 @@ def schedule_from_model(
         if suffix not in (".3mf", ".gcode", ".bgcode"):
             raise HTTPException(400, "Unsupported print payload format")
         if printer:
-            if api_type not in {"bambu", "moonraker", "prusalink", "octoprint"} or not printer.is_active:
+            if api_type not in {"bambu", "moonraker", "prusalink", "octoprint", "elegoo"} or not printer.is_active:
                 raise HTTPException(400, "Selected printer does not support dispatch")
             allowed = [v.strip() for v in (file.compatible_api_types or "").split(",") if v.strip()]
             from modules.models_library.queue_payload import PRINTER_PAYLOAD_SUFFIXES

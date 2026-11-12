@@ -130,7 +130,7 @@ def test_preflight_refusal_never_admits_job_or_quota(schedule_client,review_db,p
         monkeypatch.setitem(registry._providers,'EducationPolicyProvider',None if kind=='missing_policy' else Denied())
     if kind=='unreadable':payload.unlink()
     if kind=='bed':review_db.execute(text('UPDATE print_files SET bed_x_mm=300,bed_y_mm=300 WHERE id=201'))
-    if kind=='protocol':review_db.execute(text("UPDATE printers SET api_type='elegoo' WHERE id=9"))
+    if kind=='protocol':review_db.execute(text("UPDATE printers SET api_type='anycubic_lan' WHERE id=9"))
     review_db.commit()
     response=schedule_client.post(f'/models/{model}/schedule?printer_id={printer}',json={'plate_index':1})
     assert response.status_code in (400,404,409,503),response.text

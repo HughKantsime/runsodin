@@ -65,7 +65,7 @@ def test_file_schedule_refuses_unusable_payload_without_queue_effects(creators, 
         with source.open('r+b') as payload:
             payload.truncate(160 * 1024 * 1024 + 1)
     if defect == 'unsupported_api':
-        review_db.execute(text("UPDATE printers SET api_type='elegoo' WHERE id=9"))
+        review_db.execute(text("UPDATE printers SET api_type='anycubic_lan' WHERE id=9"))
     if defect == 'inactive_target':
         review_db.execute(text('UPDATE printers SET is_active=0 WHERE id=9'))
     if defect == 'symlink':

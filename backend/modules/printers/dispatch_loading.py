@@ -61,7 +61,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
     api_key_raw = r["api_key"] or ""
 
     # Parse host:port
-    host, port = api_host, 80
+    host, port = api_host, (3030 if api_type == "elegoo" else 80)
     if ":" in api_host:
         h, p = api_host.rsplit(":", 1)
         try:
@@ -127,6 +127,16 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
                     info["username"], info["password"] = decrypted.split("|", 1)
                 else:
                     info["api_key"] = decrypted
+            except Exception:
+                info["api_key"] = api_key_raw
+
+    elif api_type == "elegoo":
+        # api_key holds the SDCP MainboardID (Fernet-encrypted, or plain as the monitor also accepts).
+        # It is carried as "api_key" so the shared status and identity inputs need no new field.
+        info["api_key"] = ""
+        if api_key_raw:
+            try:
+                info["api_key"] = crypto.decrypt(api_key_raw)
             except Exception:
                 info["api_key"] = api_key_raw
 

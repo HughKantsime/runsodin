@@ -288,6 +288,40 @@ def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, cre
     return True, "Print started"
 
 
+def _dispatch_elegoo(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None) -> tuple[bool, str]:
+    """Experimental. Elegoo SDCP: HTTP upload, the post-upload gate, then Cmd 128 over the WebSocket.
+
+    The caller has already required the per-printer opt-in. "api_key" in creds is the MainboardID."""
+    from modules.printers.adapters.elegoo import ElegooOutcomeUnknown, ElegooPrinter
+
+    if not str(remote_filename).lower().endswith(".gcode"):
+        return False, "Elegoo printers accept .gcode files only; no print command was sent"
+    printer = ElegooPrinter(host=creds["ip"], port=creds["port"], mainboard_id=creds.get("api_key", ""))
+
+    _ws(job_id, "uploading", f"Uploading {remote_filename} to Elegoo...")
+    log.info(f"[dispatch] Elegoo upload: {remote_filename} → {creds['ip']}")
+    try:
+        uploaded = printer.upload_file(stored_path, remote_filename)
+    except ElegooOutcomeUnknown as exc:
+        raise DispatchOutcomeUncertain("Elegoo upload outcome is unknown") from exc
+    if not uploaded:
+        return False, "Elegoo file upload was not confirmed; no print command was sent — check the address"
+
+    if not _prepare_post_upload_gate(before_start) or not _post_upload_gate(before_start):
+        return False, _gate_refusal_message(before_start)
+    _ws(job_id, "starting", "File uploaded, sending print command...")
+    try:
+        if not printer.connect():
+            return False, "Elegoo WebSocket connection failed after a successful upload; no print command was sent"
+        log.info(f"[dispatch] Elegoo start_print: {remote_filename}")
+        # Same doctrine as every adapter: a start that is not confirmed True, including a refusal or a
+        # timeout, is an uncertain outcome that is never re-sent without reconciliation.
+        _submit_print_command(printer.start_print, remote_filename)
+    finally:
+        printer.disconnect()
+    return True, "Print started"
+
+
 def _dispatch_octoprint(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None) -> tuple[bool, str]:
     """Dispatch to an OctoPrint server: one multipart upload that selects and starts the file."""
     from modules.printers.adapters.octoprint import OctoPrintPrinter
@@ -406,9 +440,9 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     # Experimental types send nothing until a superadmin opts the printer in. Checked before
     # any power, claim or device step. (Named import: a later local `engine` import in this function.)
     from core.db import engine as _experimental_engine
-    from modules.printers.support_levels import experimental_refusal
+    from modules.printers.support_levels import dispatch_refusal
     with _experimental_engine.connect() as experimental_conn:
-        experimental = experimental_refusal(experimental_conn, printer_id, creds.get("api_type"))
+        experimental = dispatch_refusal(experimental_conn, printer_id, creds.get("api_type"))
     if experimental:
         return False, experimental
 
@@ -420,7 +454,7 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
 
     api_type = creds["api_type"]
 
-    if api_type not in {"bambu", "moonraker", "prusalink", "octoprint"}:
+    if api_type not in {"bambu", "moonraker", "prusalink", "octoprint", "elegoo"}:
         return False, f"Dispatch not supported for printer type '{api_type}'"
 
     # Validate options once, against the owned staged snapshot in dispatch_prepared.
@@ -506,6 +540,9 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
         elif api_type == "octoprint":
             success, message = _dispatch_octoprint(job_id, stored_path, remote_filename, creds,
                                                    **({"before_start": before_start} if before_start is not None else {}))
+        elif api_type == "elegoo":
+            success, message = _dispatch_elegoo(job_id, stored_path, remote_filename, creds,
+                                                **({"before_start": before_start} if before_start is not None else {}))
         elif api_type == "prusalink":
             success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds,
                                                    **({"before_start": before_start} if before_start is not None else {}))

@@ -52,9 +52,61 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Callable
 from enum import IntEnum
 
-from modules.printers.parsing.elegoo import parse_status as parse_elegoo_status
+import hashlib
+import os
+
+from modules.printers.parsing.elegoo import (parse_response, parse_status as parse_elegoo_status,
+                                             parse_upload_reply)
 
 log = logging.getLogger(__name__)
+
+# Sources, marked wherever a command id, endpoint or field is used:
+#   [repo] already used by this repo's adapter or monitor before job sending existed.
+#   [docs] SDCP public documentation (SDCP V3.0.0 repository, docs.opencentauri.cc), unverified on hardware.
+UPLOAD_PATH = "/uploadFile/upload"   # [docs] HTTP multipart upload on the SDCP port
+UPLOAD_CHUNK_BYTES = 1024 * 1024     # [docs] chunked upload with an Offset per chunk
+UPLOAD_TIMEOUT = 60
+COMMAND_TIMEOUT = 15.0
+GCODE_SUFFIX = ".gcode"
+_MAX_NAME = 255
+_MAX_BODY = 1_048_576
+
+
+class ElegooOutcomeUnknown(RuntimeError):
+    """A request was sent (or may have been) and no usable answer came back.
+
+    Distinct from a refusal: the printer may have accepted the upload or started the print."""
+
+
+def sdcp_request_frame(mainboard_id: str, cmd: int, cmd_data: Optional[Dict], request_id: str) -> Dict:
+    """One SDCP request frame, shaped exactly as _send_command sends it [repo]."""
+    return {
+        "Id": str(uuid.uuid4()),
+        "Data": {
+            "Cmd": cmd,
+            "Data": cmd_data or {},
+            "RequestID": request_id,
+            "MainboardID": mainboard_id,
+            "TimeStamp": int(time.time()),
+            "From": 0,
+        },
+        "Topic": f"sdcp/request/{mainboard_id}",
+    }
+
+
+def _usable_name(name: str) -> bool:
+    """Only .gcode, a plain file name, no control characters."""
+    return (bool(name) and len(name) <= _MAX_NAME and name.lower().endswith(GCODE_SUFFIX)
+            and not any(ord(c) < 32 or ord(c) == 127 for c in name))
+
+
+def _json_body(reply):
+    try:
+        if len(reply.content) > _MAX_BODY:
+            return None
+        return reply.json()
+    except Exception:
+        return None
 
 
 class SDCPCurrentStatus(IntEnum):
@@ -161,6 +213,10 @@ class ElegooPrinter:
         self._transport_lock = threading.RLock()
         self._connection_ready = threading.Event()
         self._on_status_callback: Optional[Callable] = None
+        # request_id -> [Event, {"ack": int}, cmd]: the command waiting for its sdcp/response
+        self._replies: Dict[str, list] = {}
+        self._reply_lock = threading.Lock()
+        self.command_timeout = COMMAND_TIMEOUT
 
     @staticmethod
     def discover(timeout: float = 3.0, broadcast_addr: str = "255.255.255.255") -> List[Dict]:
@@ -339,6 +395,8 @@ class ElegooPrinter:
                 self._parse_status(data)
             elif "sdcp/notice/" in topic:
                 log.debug("SDCP notice received")
+            elif "sdcp/response/" in topic:
+                self._on_response(data)
 
     def _parse_status(self, data: Dict):
         """Parse sdcp/status message into ElegooStatus."""
@@ -428,3 +486,152 @@ class ElegooPrinter:
     def set_print_speed(self, speed_pct: int) -> bool:
         """Set print speed percentage (Cmd 403)."""
         return self._send_command(SDCPCommand.SET_PRINT_SPEED, {"PrintSpeedPct": speed_pct})
+
+    def cancel_print(self) -> bool:
+        """Alias of stop_print: the shared control path may ask for either name."""
+        return self.stop_print()
+
+    # ------------------------------------------------------------------
+    # job sending (Experimental): HTTP upload, then Cmd 128 over the WebSocket
+    #
+    # Pause, resume, stop and speed above keep their existing send-only behaviour [repo]: they
+    # return True once the frame is written. Only start_print waits for the printer's answer.
+    # ------------------------------------------------------------------
+    def _on_response(self, data: Dict):
+        """Hand a sdcp/response frame to the request waiting for that RequestID and command."""
+        parsed = parse_response(data)
+        if parsed is None:
+            return
+        with self._reply_lock:
+            waiter = self._replies.get(parsed["request_id"])
+            if waiter is not None and waiter[2] == parsed["cmd"] and not waiter[0].is_set():
+                waiter[1]["ack"] = parsed["ack"]
+                waiter[0].set()
+
+    def _request(self, cmd: int, cmd_data: Optional[Dict] = None, timeout: Optional[float] = None) -> Optional[int]:
+        """Send one command and wait for its response.
+
+        Returns the Ack [docs]; None when nothing was sent (not connected, no MainboardID); raises
+        ElegooOutcomeUnknown when the frame was written (or may have been) and no response with the
+        same RequestID and command came back in time."""
+        with self._transport_lock:
+            ws, connected = self._ws, self._connected
+        if not connected or ws is None or not self.mainboard_id:
+            return None
+        request_id = str(uuid.uuid4())
+        waiter = [threading.Event(), {}, int(cmd)]
+        with self._reply_lock:
+            self._replies[request_id] = waiter
+        try:
+            frame = sdcp_request_frame(self.mainboard_id, cmd, cmd_data, request_id)
+            try:
+                ws.send(json.dumps(frame))
+            except Exception as exc:
+                raise ElegooOutcomeUnknown("SDCP command write failed part-way") from exc
+            if not waiter[0].wait(self.command_timeout if timeout is None else timeout):
+                raise ElegooOutcomeUnknown("no SDCP response after the command was sent")
+            return waiter[1]["ack"]
+        finally:
+            with self._reply_lock:
+                self._replies.pop(request_id, None)
+
+    def start_print(self, filename: str) -> bool:
+        """Start a file that is already on the printer: Cmd 128 [repo id].
+
+        Data fields: Filename and StartLayer [docs, SDCP V3.0.0]; Calibration_switch,
+        PrintPlatformType and Tlp_Switch [docs, Centauri Carbon community protocol notes], all
+        unverified on hardware. Ack 0 means accepted [docs]; any other Ack is a refusal.
+
+        True only on Ack 0. False when the printer refused or nothing was sent (not connected, no
+        MainboardID, unusable name): the print did not start. Raises ElegooOutcomeUnknown when the
+        command was sent and no matching answer arrived: the printer may have started."""
+        name = os.path.basename(str(filename).replace("\\", "/"))
+        if not _usable_name(name):
+            log.error("Elegoo start refused: only .gcode file names are sent")
+            return False
+        ack = self._request(SDCPCommand.START_PRINT, {
+            "Filename": name, "StartLayer": 0, "Calibration_switch": 0,
+            "PrintPlatformType": 0, "Tlp_Switch": 0,
+        })
+        if ack is None:
+            log.error("Elegoo start not sent (%s): not connected or no MainboardID", self.host)
+            return False
+        if ack != 0:
+            log.warning("Elegoo start refused by the printer (Ack %s, %s)", ack, self.host)
+            return False
+        return True
+
+    def upload_file(self, local_path: str, remote_filename: str = None) -> bool:
+        """POST /uploadFile/upload, multipart, in 1 MiB chunks [docs, unverified on hardware].
+
+        Form fields per chunk: Check=1, Offset, Uuid, TotalSize, S-File-MD5 (MD5 of the whole file, a
+        transfer checksum the protocol asks for, not a security use) and File. A chunk succeeds only
+        on HTTP 200 whose JSON is {"code": "000000", "success": true}.
+
+        False: refused (unusable name, unreadable or empty file, ITAR block, any answered non-success).
+        Raises ElegooOutcomeUnknown when a request was sent and got no answer (timeout, connection
+        lost). Nothing is started by an upload; Cmd 128 does that."""
+        import requests
+        from core.itar import ItarOutboundBlocked, enforce_request_destination
+        from modules.printers.adapters.octoprint import _origin
+        from modules.printers.adapters.prusalink import _PinnedRequests
+
+        raw_name = remote_filename if remote_filename is not None else local_path
+        name = os.path.basename(str(raw_name).replace("\\", "/"))
+        if not _usable_name(name):
+            log.error("Elegoo upload refused: only .gcode file names are sent")
+            return False
+        origin = _origin(self.host, self.port)
+        if origin is None:
+            log.error("Elegoo upload refused: unusable printer address")
+            return False
+        url = origin + UPLOAD_PATH
+        try:
+            enforce_request_destination(url)
+        except ItarOutboundBlocked as exc:
+            log.warning("elegoo: ITAR blocked %s: %s", self.host, exc)
+            return False
+        try:
+            total = os.path.getsize(local_path)
+            digest = hashlib.md5(usedforsecurity=False)  # protocol transfer checksum, not security
+            with open(local_path, "rb") as handle:
+                for block in iter(lambda: handle.read(UPLOAD_CHUNK_BYTES), b""):
+                    digest.update(block)
+        except OSError:
+            log.error("Elegoo upload refused: local file unreadable")
+            return False
+        if total <= 0:
+            log.error("Elegoo upload refused: empty file")
+            return False
+        checksum, upload_id = digest.hexdigest(), uuid.uuid4().hex
+        http = _PinnedRequests()
+        offset = 0
+        try:
+            handle = open(local_path, "rb")
+        except OSError:
+            log.error("Elegoo upload refused: local file unreadable")
+            return False
+        with handle:
+            while offset < total:
+                chunk = handle.read(UPLOAD_CHUNK_BYTES)
+                if not chunk:
+                    log.error("Elegoo upload refused: file changed while reading")
+                    return False
+                try:
+                    reply = http.post(
+                        url,
+                        files={"File": (name, chunk, "application/octet-stream")},
+                        data={"Check": "1", "Offset": str(offset), "Uuid": upload_id,
+                              "TotalSize": str(total), "S-File-MD5": checksum},
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                except requests.exceptions.RequestException as exc:
+                    raise ElegooOutcomeUnknown("no answer to an upload request") from exc
+                except Exception as exc:
+                    raise ElegooOutcomeUnknown("upload request failed after it was sent") from exc
+                if reply.status_code != 200 or not parse_upload_reply(_json_body(reply)):
+                    log.error("Elegoo upload not confirmed (%s, HTTP %s, offset %s)", self.host, reply.status_code, offset)
+                    return False
+                offset += len(chunk)
+        log.info("Uploaded %s to Elegoo at %s", name, self.host)
+        return True

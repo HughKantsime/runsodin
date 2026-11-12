@@ -51,3 +51,30 @@ def parse_status(data: dict[str, Any]) -> dict[str, Any]:
         "time_remaining": max(0, total_ticks - current_ticks) if total_ticks and current_ticks else 0,
         "raw_data": data,
     }
+
+
+def parse_response(data: Any) -> dict[str, Any] | None:
+    """A ``sdcp/response/`` frame -> {"cmd", "request_id", "ack"}, or None unless every field is well formed.
+
+    Shape: SDCP public documentation, unverified on hardware:
+    {"Data": {"Cmd": int, "Data": {"Ack": int}, "RequestID": str, ...}, "Topic": "sdcp/response/<id>"}.
+    A malformed reply is None, so the caller sees "no answer", never a guessed success."""
+    if not isinstance(data, dict):
+        return None
+    body = data.get("Data")
+    if not isinstance(body, dict):
+        return None
+    cmd, request_id, inner = body.get("Cmd"), body.get("RequestID"), body.get("Data")
+    if type(cmd) is not int or not isinstance(request_id, str) or not request_id or not isinstance(inner, dict):
+        return None
+    ack = inner.get("Ack")
+    if type(ack) is not int:
+        return None
+    return {"cmd": cmd, "request_id": request_id, "ack": ack}
+
+
+def parse_upload_reply(body: Any) -> bool:
+    """True only for the documented upload success body {"code": "000000", "success": true, ...}.
+
+    Source: SDCP public documentation (POST /uploadFile/upload), unverified on hardware."""
+    return isinstance(body, dict) and body.get("success") is True and body.get("code") == "000000"
