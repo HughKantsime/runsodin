@@ -83,13 +83,23 @@ def _labels(values: Iterable) -> Tuple[str, ...]:
 
 
 def needed_materials(filaments_json, job_filament_type=None) -> Materials:
-    """Distinct recognised ``type`` values of the sliced file, else the job's own
-    filament type, else None (unknown)."""
+    """Distinct ``type`` values of the sliced file; the job's own filament type only when
+    the file names none; None (unknown) otherwise.
+
+    A file that names a material the gate's rule does not recognise ("PLA Basic") is unknown as
+    a whole: the job's field must not stand in for it, or a known wrong answer would exclude a
+    printer that an unknown never excludes.
+    """
     try:
         types = [f.get("type") for f in print_payload.source_filaments(filaments_json)]
     except HTTPException:  # missing or invalid file metadata: no file information
         types = []
-    return _labels(types) or _labels([job_filament_type]) or None
+    named = [t for t in (getattr(t, "value", t) for t in types) if t is not None and str(t).strip()]
+    if named:
+        if any(print_payload.canonical_material(t) is None for t in named):
+            return None
+        return _labels(named) or None
+    return _labels([job_filament_type]) or None
 
 
 def loaded_materials(slot_types: Iterable) -> Materials:
@@ -114,11 +124,13 @@ def missing_materials(loaded: Tuple[str, ...], needed: Tuple[str, ...]) -> Tuple
                  if not any(print_payload.material_match(n, l) is True for l in loaded))
 
 
-def refusal_text(missing: Tuple[str, ...], pinned_name: Optional[str] = None) -> str:
+def refusal_text(missing: Tuple[str, ...], pinned_name: Optional[str] = None, together: bool = False) -> str:
     """Why a job stays pending; shown in the run log and the run summary."""
     labels = " and ".join(missing)
     if pinned_name:
         return f"printer {pinned_name} does not have {labels} loaded"
+    if together:
+        return f"no printer has {labels} loaded together"
     return f"no printer has {labels} loaded"
 
 
@@ -177,4 +189,12 @@ class MaterialPlan:
         passed the other filters was refused for material."""
         if job_id in self._passed or job_id not in self._refused:
             return None
-        return refusal_text(min(self._refused[job_id], key=len), pinned_name)
+        gaps = self._refused[job_id]
+        if pinned_name:
+            return refusal_text(min(gaps, key=len), pinned_name)
+        # Only what EVERY refused printer lacks may be called loaded nowhere. When each printer
+        # lacks a different one (PLA here, PETG there), the true statement is about the set.
+        everywhere = tuple(m for m in gaps[0] if all(m in gap for gap in gaps))
+        if everywhere:
+            return refusal_text(everywhere)
+        return refusal_text(tuple(self.needed.get(job_id) or min(gaps, key=len)), together=True)

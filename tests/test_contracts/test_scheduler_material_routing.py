@@ -360,3 +360,37 @@ def test_default_holds_the_job_off_releases_it_and_the_run_says_why(mode_probe):
     assert mode_probe["require_run"] == ["pending", None]
     assert mode_probe["off_run"][0] == "scheduled" and mode_probe["off_run"][1] == 21
     assert any(n and "no printer has PETG loaded" in n for n in mode_probe["notes"])
+
+
+# ---------------- Codex sign-off 11-12 ----------------
+def test_an_unrecognised_file_material_is_unknown_even_when_the_job_field_is_set():
+    """The job field stood in for a file that said "PLA Basic": a known PETG then excluded a
+    PLA printer, although unknown must never exclude."""
+    basic = json.dumps([{'slot': 1, 'type': 'PLA Basic'}])
+    assert sm.needed_materials(basic, 'PETG') is None
+    assert sm.needed_materials(json.dumps([{'slot': 1, 'type': 'PLA'}, {'slot': 2, 'type': 'PLA Basic'}]), 'PETG') is None
+    assert sm.needed_materials(json.dumps([{'slot': 1, 'type': ''}]), 'PETG') == ('PETG',)   # the file names none
+
+
+def test_an_unrecognised_file_material_never_excludes_a_printer(fleet):
+    only_active(fleet, [11])
+    load(fleet, 11, ['PLA'])
+    add_job(fleet, 931)
+    need(fleet, 931, 'PETG')
+    file_needs(fleet, 931, ['PLA Basic'])
+    run(fleet)
+    assert placed(fleet, 931) == ('scheduled', 11)
+
+
+def test_the_reason_is_about_the_set_when_each_printer_lacks_a_different_material(fleet):
+    """PLA on one printer and PETG on the other: "no printer has PETG loaded" was false."""
+    only_active(fleet, [11, 12])
+    load(fleet, 11, ['PLA'])
+    load(fleet, 12, ['PETG'])
+    add_job(fleet, 932)
+    file_needs(fleet, 932, ['PLA', 'PETG'])
+    result = run(fleet)
+    assert placed(fleet, 932) == ('pending', None)
+    assert any('no printer has PLA and PETG loaded together' in e or 'no printer has PETG and PLA loaded together' in e
+               for e in result.errors), result.errors
+    assert sm.refusal_text(('PLA', 'PETG'), together=True) == 'no printer has PLA and PETG loaded together'
