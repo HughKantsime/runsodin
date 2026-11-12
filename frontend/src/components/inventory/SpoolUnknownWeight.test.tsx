@@ -69,3 +69,9 @@ it('editing an unknown balance does not turn it into 0', () => {
   fireEvent.submit(view.container.ownerDocument.querySelector('form')!)
   expect(onSave.mock.calls[0][0]).not.toHaveProperty('remaining_weight_g')
 })
+
+it('a balance known only as a percentage shows the percentage, never "undefinedg"', () => {
+  const view = card({ ...base, remaining_weight_g: null, percent_remaining: 45 })
+  expect(view.container).toHaveTextContent('45% / 1000g')
+  expect(view.container).not.toHaveTextContent('undefined')
+})

@@ -100,7 +100,7 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
           <label htmlFor="spool-remaining" className="block text-sm text-[var(--brand-text-muted)] mb-1">Remaining Weight (g)</label>
           <input
             type="number"
-            step="1"
+            step="any"
             min="0"
             id="spool-remaining"
             value={form.remaining_weight_g}

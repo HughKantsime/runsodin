@@ -77,7 +77,7 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           <span className="text-[var(--brand-text-muted)]">Remaining</span>
           <span className="text-[var(--brand-text-secondary)]">{unknownRemaining
             ? (spool.location_printer_id ? 'Not measured on this printer model' : 'Not measured yet')
-            : `${spool.remaining_weight_g?.toFixed(0)}g / ${spool.initial_weight_g?.toFixed(0)}g`}</span>
+            : `${spool.remaining_weight_g != null ? `${spool.remaining_weight_g.toFixed(0)}g` : `${Math.round(percentRemaining)}%`}${spool.initial_weight_g != null ? ` / ${spool.initial_weight_g.toFixed(0)}g` : ''}`}</span>
         </div>
         {!unknownRemaining && <ProgressBar
           value={percentRemaining}
