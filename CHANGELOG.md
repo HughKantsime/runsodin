@@ -10,7 +10,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Settings > Notifications: the Alert Preferences table lays out as a table again (alert type, then In-App, Push and Email side by side). A malformed layout rule had stacked the three switches under each alert on every screen width. The same fault is fixed in the Education cost-center manager's two-column layout and member rows.
+- Settings > Notifications: the Alert Preferences table lays out as a table again (alert type, then In-App, Push and Email side by side). A malformed layout rule had stacked the three switches under each alert at tablet and desktop widths (768 px and up; on a phone they stack by design). The same fault is fixed in the Education cost-center manager's two-column layout and member rows.
 
 ## [2.1.0] - 2026-11-10
 
