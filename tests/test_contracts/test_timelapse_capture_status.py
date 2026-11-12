@@ -61,7 +61,7 @@ def test_off(database):
 def test_capturing_reports_frames_and_last_frame(database, monkeypatch):
     configure(database)
     start_capture(database, frames=412)
-    monkeypatch.setattr(status_module, "_frame_stats", lambda db, nonce: (NOW - timedelta(seconds=20), 0))
+    monkeypatch.setattr(status_module, "_frame_stats", lambda db, nonce: (NOW - timedelta(seconds=20), False))
     result = status_of(database)
     assert result["enabled"] and result["capturing"]
     assert result["print_job_id"] == 1 and result["frames_captured"] == 412
@@ -88,8 +88,27 @@ def test_stale_capture_reports_missing_frames(database):
 def test_blocked_frame_reports_retry(database, monkeypatch):
     configure(database)
     start_capture(database, frames=3)
-    monkeypatch.setattr(status_module, "_frame_stats", lambda db, nonce: (NOW - timedelta(seconds=5), 1))
+    monkeypatch.setattr(status_module, "_frame_stats", lambda db, nonce: (NOW - timedelta(seconds=5), True))
     assert status_of(database)["last_error"] == status_module.MSG_BLOCKED
+
+
+def test_frames_not_arriving_outranks_a_blocked_frame(database, monkeypatch):
+    configure(database)
+    start_capture(database, frames=3)
+    monkeypatch.setattr(status_module, "_frame_stats", lambda db, nonce: (NOW - timedelta(seconds=600), True))
+    assert status_of(database)["last_error"] == status_module.MSG_STALE
+
+
+def test_a_job_printing_for_a_while_with_no_capture_says_the_recorder_has_not_started(database):
+    configure(database)
+    database.execute(text("UPDATE jobs SET printer_id=1,status='printing',actual_start=:t WHERE id=1"),
+                     {"t": NOW - timedelta(minutes=30)})
+    database.commit()
+    result = status_of(database)
+    assert result["capturing"] is False and result["last_error"] == status_module.MSG_NOT_STARTED
+    database.execute(text("UPDATE jobs SET actual_start=:t WHERE id=1"), {"t": NOW - timedelta(seconds=40)})
+    database.commit()
+    assert status_of(database)["last_error"] is None      # the first moments of a print
 
 
 def test_paused_print_is_not_capturing(database):
@@ -167,7 +186,8 @@ def test_other_organization_printer_is_hidden_unless_shared(database):
     assert error.value.status_code == 404
     database.execute(text("UPDATE printers SET shared=1 WHERE id=2"))
     database.commit()
-    assert set(call(database, 2, viewer)) == KEYS
+    shared = call(database, 2, viewer)
+    assert set(shared) == KEYS and shared["print_job_id"] is None   # another organization's job id stays private
 
 
 def test_controlled_work_is_refused_to_non_members(database, tier_license):

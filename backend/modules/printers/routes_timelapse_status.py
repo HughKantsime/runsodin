@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import case, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -38,9 +38,10 @@ MSG_CAMERA_OFF = "The camera is turned off for this printer."
 MSG_NO_CAMERA = "No camera is set up for this printer."
 MSG_NOT_PRINTING = "The printer is not printing right now."
 MSG_NO_JOB = "This print has no matching ODIN job, so it is not recorded."
+MSG_NOT_STARTED = "The recorder has not started for this print."
 MSG_BLOCKED = "A frame could not be saved. The recorder will retry."
 MSG_STALE = "No new frame has been saved recently."
-MESSAGES = (MSG_INACTIVE, MSG_CAMERA_OFF, MSG_NO_CAMERA, MSG_NOT_PRINTING, MSG_NO_JOB, MSG_BLOCKED, MSG_STALE)
+MESSAGES = (MSG_INACTIVE, MSG_CAMERA_OFF, MSG_NO_CAMERA, MSG_NOT_PRINTING, MSG_NO_JOB, MSG_NOT_STARTED, MSG_BLOCKED, MSG_STALE)
 
 _RECORDING_SQL = text(
     "SELECT t.id, t.print_job_id, t.created_at, t.frame_count, t.ownership_operation_id "
@@ -49,7 +50,7 @@ _RECORDING_SQL = text(
     "AND t.ownership_operation_id IS NOT NULL AND j.printer_id = :pid AND j.status = 'printing' "
     "ORDER BY t.id DESC LIMIT 1"
 )
-_ACTIVE_JOB_SQL = text("SELECT 1 FROM jobs WHERE printer_id = :pid AND status = 'printing' LIMIT 1")
+_ACTIVE_JOB_SQL = text("SELECT id, actual_start FROM jobs WHERE printer_id = :pid AND status = 'printing' ORDER BY id DESC LIMIT 1")
 
 
 class TimelapseCaptureStatus(BaseModel):
@@ -83,14 +84,15 @@ def _iso(value) -> Optional[str]:
 
 
 def _frame_stats(db: Session, nonce: str):
-    """(newest completed frame time, number of blocked frame publications)."""
-    row = db.execute(
-        select(
-            func.max(publications.c.completed_at),
-            func.sum(case((publications.c.state == "blocked", 1), else_=0)),
-        ).where(publications.c.kind == "frame", publications.c.source_nonce == nonce)
-    ).one()
-    return _as_utc(row[0]), int(row[1] or 0)
+    """(newest completed frame time, whether the NEWEST frame publication is blocked).
+
+    Only the newest frame counts: an early blocked frame followed by good ones is history."""
+    where = (publications.c.kind == "frame", publications.c.source_nonce == nonce)
+    newest = db.execute(select(func.max(publications.c.completed_at)).where(*where)).scalar()
+    latest_state = db.execute(
+        select(publications.c.state).where(*where).order_by(publications.c.frame_number.desc()).limit(1)
+    ).scalar()
+    return _as_utc(newest), latest_state == "blocked"
 
 
 def _setup_problem(printer: Printer) -> Optional[str]:
@@ -126,10 +128,18 @@ def build_timelapse_status(db: Session, printer: Printer, now: Optional[datetime
     printing = is_printing_state(printer.gcode_state)
     recording = db.execute(_RECORDING_SQL, {"pid": printer.id}).mappings().first()
     if recording is None:
-        # Printing with no scheduled job at all: the daemon will never record it.
-        # Printing with a scheduled job but no row yet: the daemon has not ticked.
-        if printing and db.execute(_ACTIVE_JOB_SQL, {"pid": printer.id}).first() is None:
+        if not printing:
+            return status
+        job = db.execute(_ACTIVE_JOB_SQL, {"pid": printer.id}).mappings().first()
+        if job is None:
+            # Printing with no scheduled job at all: the daemon will never record it.
             status["last_error"] = MSG_NO_JOB
+        else:
+            # A scheduled job but no capture row: fine for the first moments (the daemon has not
+            # ticked yet), a stopped recorder after that. An unknown start time is not judged.
+            began = _as_utc(job["actual_start"])
+            if began is not None and (now - began).total_seconds() > STALE_FRAME_SECONDS:
+                status["last_error"] = MSG_NOT_STARTED
         return status
     if not printing:
         status["last_error"] = MSG_NOT_PRINTING
@@ -145,10 +155,10 @@ def build_timelapse_status(db: Session, printer: Printer, now: Optional[datetime
         last_frame_at=_iso(last_frame),
     )
     reference = last_frame or started
-    if blocked:
+    if reference is not None and (now - reference).total_seconds() > STALE_FRAME_SECONDS:
+        status["last_error"] = MSG_STALE     # nothing is arriving: says more than "will retry"
+    elif blocked:
         status["last_error"] = MSG_BLOCKED
-    elif reference is not None and (now - reference).total_seconds() > STALE_FRAME_SECONDS:
-        status["last_error"] = MSG_STALE
     return status
 
 
@@ -166,4 +176,7 @@ def get_timelapse_status(
     from core.controlled_parts import assert_access
     assert_access(db, "printer", printer_id, current_user)
     response.headers["Cache-Control"] = "private, no-store"
-    return build_timelapse_status(db, printer)
+    status = build_timelapse_status(db, printer)
+    if not check_org_access(current_user, printer.org_id):
+        status["print_job_id"] = None   # a shared printer: another organization's job id stays private
+    return status

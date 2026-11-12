@@ -27,7 +27,7 @@ export function describeTimelapseStatus(status: unknown, nowMs: number): string 
 }
 
 export default function TimelapseStatusLine({ printerId }: { printerId: number }) {
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: ['timelapse-status', printerId],
     queryFn: ({ signal }) => timelapses.captureStatus(printerId, signal),
     refetchInterval: 10000,
@@ -38,8 +38,9 @@ export default function TimelapseStatusLine({ printerId }: { printerId: number }
     const timer = setInterval(() => setNow(Date.now()), 5000)
     return () => clearInterval(timer)
   }, [])
-  // A refused or failed request (for example controlled work) shows no line.
-  const text = describeTimelapseStatus(data, now)
+  // A refused or failed request (for example controlled work) shows no line; the query keeps its
+  // last good answer after an error, so that is dropped too: an old "Recording" must never linger.
+  const text = isError ? null : describeTimelapseStatus(data, now)
   if (!text) return null
   return <p className="mt-2 text-xs text-[var(--brand-text-secondary)]" data-testid="timelapse-status">{text}</p>
 }
