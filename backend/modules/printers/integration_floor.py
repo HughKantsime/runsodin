@@ -6,6 +6,17 @@ Everything here reads O.D.I.N.'s database. Nothing contacts a printer, an adapte
 or a broker, and nothing writes. Every job surfaced passes the same predicates as
 ``queue_length`` (``visible_clauses``): a job the caller cannot list is never
 selected, so it cannot be named, counted or described.
+
+Unlinked prints have no durable resume history: the timeline writer drops events
+without a scheduled job. Monitors overwrite print_jobs progress/layer values;
+vision detections store no progress/layer snapshot, and printer_telemetry stores
+only temperatures/fan speed. The attention lane's pause_episode is also overwritten
+on each transition. None can tie an old auto_paused detection to the current pause.
+For an unlinked print with such a detection, pause_cause is null and the reason is
+"Paused (Vigil flagged this print earlier; cause of this pause unknown)", unless current HMS/print-error evidence supplies a cause.
+Even a recent detection cannot prove that no resume has intervened. Scheduled
+prints retain the existing timeline-based classification. No history is inferred
+from elapsed time or the current layer alone.
 """
 import json
 import os
@@ -412,7 +423,7 @@ class Floor:
             for printer_id, slot, color, kind in db.execute(query, {"ids": list(self.next_rows)}).all():
                 self.loaded.setdefault(printer_id, {})[slot] = {"color": color, "material": _material(kind)}
         self.clear_plate = _clear_plate(db, actor, scope, controlled, ids) if ids else {}
-        self.paused_since, self.vision_paused = {}, set()
+        self.paused_since, self.vision_paused, self.vision_unattributed = {}, set(), set()
         paused = [p.id for p in printers if (p.gcode_state or "").strip().upper() in ("PAUSE", "PAUSED")]
         if paused:
             query = text("SELECT printer_id, MAX(occurred_at) FROM job_timeline_events WHERE kind = 'paused' "
@@ -420,7 +431,9 @@ class Floor:
             self.paused_since = {pid: iso(at) for pid, at in db.execute(query, {"ids": paused}).all()}
             prints = [running[pid]["id"] for pid in paused if pid in running]
             if prints:
-                query = text("SELECT d.print_job_id, d.printer_id, d.created_at FROM vision_detections d WHERE d.print_job_id IN :ids "
+                query = text("SELECT d.print_job_id, d.printer_id, d.created_at, p.scheduled_job_id "
+                             "FROM vision_detections d JOIN print_jobs p ON p.id = d.print_job_id AND p.printer_id = d.printer_id "
+                             "WHERE d.print_job_id IN :ids "
                              "AND d.status = 'auto_paused' AND d.id = (SELECT MAX(x.id) FROM vision_detections x "
                              "WHERE x.print_job_id = d.print_job_id)").bindparams(bindparam("ids", expanding=True))
                 detections = db.execute(query, {"ids": prints}).all()
@@ -433,7 +446,10 @@ class Floor:
                     moment = _instant(at)
                     if moment is not None and (pid not in resumed or moment > resumed[pid]):
                         resumed[pid] = moment
-                for print_id, pid, created in detections:
+                for print_id, pid, created, scheduled_job_id in detections:
+                    if scheduled_job_id is None:
+                        self.vision_unattributed.add(print_id)
+                        continue
                     seen, last_resume = _instant(created), resumed.get(pid)
                     if last_resume is None or (seen is not None and seen > last_resume):
                         self.vision_paused.add(print_id)
@@ -564,6 +580,8 @@ class Floor:
                 code = next((f"{a:08X}_{c:08X}" for a, c, _ in entries if a is not None and c is not None), None)
                 message = f"Printer error {code}" if code else "Printer error"
             return "error", message
+        if running is not None and running["id"] in self.vision_unattributed:
+            return None, "Paused (Vigil flagged this print earlier; cause of this pause unknown)"
         layer = running["current_layer"] if running is not None else None
         return "planned", f"Planned pause at layer {layer}" if layer else "Planned pause"
 

@@ -206,13 +206,76 @@ def test_pause_cause_planned_spaghetti_error(ha_client, review_db, state, hms, l
 
 
 def test_vision_auto_pause_is_spaghetti(ha_client, review_db):
+    """Scheduled prints retain vision classification through their timeline."""
     client, issue = ha_client
     review_db.execute(text("UPDATE printers SET gcode_state='PAUSED' WHERE id=9"))
     running = review_db.execute(text("SELECT id FROM print_jobs WHERE printer_id=9 AND status='running'")).scalar_one()
+    review_db.execute(text("UPDATE print_jobs SET scheduled_job_id=13 WHERE id=:p"), {'p': running})
     review_db.execute(text("INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status) "
                            "VALUES(9,:p,'spaghetti',0.9,'auto_paused')"), {'p': running})
     review_db.commit()
     assert _printers(_get(client, issue))[9]['bench']['pause_cause'] == 'spaghetti'
+
+
+@pytest.mark.parametrize('progress,layer', [(42.5, 12), (60, 16), (None, None)])
+def test_unlinked_vision_pause_cannot_explain_a_later_pause(ha_client, review_db, monkeypatch, progress, layer):
+    """The real writer drops unlinked resumes; latest progress cannot date a pause."""
+    from core.job_timeline import TimelineWriter, event as timeline_event
+
+    client, issue = ha_client
+    running, scheduled = review_db.execute(text(
+        "SELECT id, scheduled_job_id FROM print_jobs WHERE printer_id=9 AND status='running'"
+    )).one()
+    assert scheduled is None
+    review_db.execute(text(
+        "INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+        "VALUES(9,:p,'spaghetti',0.9,'auto_paused',:at)"
+    ), {'p': running, 'at': _stamp(1800)})
+    review_db.commit()
+
+    # Exercise production identity resolution without a background worker or alert delivery.
+    with monkeypatch.context() as patch:
+        patch.setattr('core.job_timeline.threading.Thread.start', lambda self: None)
+        writer = TimelineWriter(review_db.get_bind().url)
+    try:
+        item = timeline_event(1, 'resumed', printer_id=9, occurred_at=_stamp(900))
+        item['resolve_printer'] = 9
+        writer.enqueue(item)
+        assert writer._drain()
+    finally:
+        writer.engine.dispose()
+    assert review_db.execute(text(
+        "SELECT count(*) FROM job_timeline_events WHERE printer_id=9 AND kind='resumed'"
+    )).scalar_one() == 0
+
+    review_db.execute(text("UPDATE printers SET gcode_state='PAUSED' WHERE id=9"))
+    review_db.execute(text("UPDATE print_jobs SET progress_percent=:progress,current_layer=:layer WHERE id=:p"),
+                      {'progress': progress, 'layer': layer, 'p': running})
+    review_db.commit()
+    bench = _printers(_get(client, issue))[9]['bench']
+    assert bench['state'] == 'paused'
+    assert bench['pause_cause'] is None
+    assert bench['reason'] == 'Paused (Vigil flagged this print earlier; cause of this pause unknown)'
+
+
+@pytest.mark.parametrize('hms,cause,reason', [
+    ('[]', None, 'Paused (Vigil flagged this print earlier; cause of this pause unknown)'),
+    (json.dumps([{'attr': 0x0C000300, 'code': 0x00030008}]), 'spaghetti', 'Paused: possible spaghetti'),
+    (json.dumps([{'attr': 1, 'code': 2}]), 'error', 'Printer error 00000001_00000002'),
+])
+def test_recent_unlinked_detection_needs_current_fault_evidence(ha_client, review_db, hms, cause, reason):
+    """Freshness alone proves nothing; active HMS still supplies a current cause."""
+    client, issue = ha_client
+    review_db.execute(text("UPDATE printers SET gcode_state='PAUSED',hms_errors=:hms WHERE id=9"), {'hms': hms})
+    running = review_db.execute(text("SELECT id FROM print_jobs WHERE printer_id=9 AND status='running'")).scalar_one()
+    review_db.execute(text(
+        "INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+        "VALUES(9,:p,'spaghetti',0.9,'auto_paused',:at)"
+    ), {'p': running, 'at': _stamp(1)})
+    review_db.commit()
+    bench = _printers(_get(client, issue))[9]['bench']
+    assert bench['pause_cause'] == cause
+    assert bench['reason'] == reason
 
 
 def test_recorded_error_on_a_paused_non_bambu_printer_is_an_error_pause(ha_client):
@@ -479,6 +542,7 @@ def test_a_vision_pause_from_before_the_last_resume_does_not_explain_this_pause(
     review_db.execute(text("UPDATE printers SET gcode_state='PAUSED' WHERE id=9"))
     running = review_db.execute(text("SELECT id FROM print_jobs WHERE printer_id=9 AND status='running'")).scalar_one()
     _job(review_db, 402, 'plain-part', 'printing', printer=9)
+    review_db.execute(text("UPDATE print_jobs SET scheduled_job_id=402 WHERE id=:p"), {'p': running})
     job = 402
     review_db.execute(text("INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
                            "VALUES(9,:p,'spaghetti',0.9,'auto_paused','2026-11-12 08:00:00')"), {'p': running})
