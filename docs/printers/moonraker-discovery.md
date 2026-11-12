@@ -2,7 +2,7 @@
 
 When you add a printer and choose **Klipper / Moonraker**, **Find Klipper printers on the network** lists the Klipper printers on your local network. Click one to fill in the printer address.
 
-Moonraker announces itself over mDNS (zeroconf) as `_moonraker._tcp.local`. O.D.I.N. sends one mDNS query and listens for about three seconds. It never joins the multicast group and keeps no discovery state.
+Moonraker announces itself over mDNS (zeroconf) as `_moonraker._tcp.local` when its `[zeroconf]` section is enabled in `moonraker.conf` (it is not on by default on every install; without it, type the address instead). O.D.I.N. sends one mDNS query and listens for about three seconds. It never joins the multicast group and keeps no discovery state.
 
 ## What you see
 

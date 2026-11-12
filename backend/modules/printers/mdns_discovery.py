@@ -30,7 +30,7 @@ MAX_DATAGRAMS = 128        # datagrams read per scan (accepted or not)
 MAX_RECORDS = 128          # records per packet, all sections together
 MAX_NAME_BYTES = 255
 MAX_POINTER_JUMPS = 8
-MAX_CANDIDATES = 16
+MAX_CANDIDATES = 64   # heard per scan; the caller keeps the 16 most useful
 MAX_ADDRESSES_PER_HOST = 4
 MAX_DISPLAY = 64
 

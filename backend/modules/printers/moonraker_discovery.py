@@ -27,13 +27,15 @@ from modules.printers import mdns_discovery
 from modules.printers.models import Printer
 
 REASON_NO_MULTICAST = "Discovery needs the container on the host network or mDNS reflection."
-REASON_NONE_HEARD = ("No Klipper printers answered. If O.D.I.N. runs in a container, discovery needs "
-                     "the container on the host network or mDNS reflection.")
+REASON_NONE_HEARD = ("No Klipper printers answered. Moonraker only announces itself when its [zeroconf] "
+                     "section is enabled in moonraker.conf. If O.D.I.N. runs in a container, discovery also "
+                     "needs the container on the host network or mDNS reflection. You can always type the address.")
 REASON_NOT_LOCAL = "Printers answered, but none had a local network address that O.D.I.N. may connect to."
 REASON_BUSY = "A discovery scan is already running; try again in a few seconds."
 
 PROBE_TIMEOUT_SECONDS = 2
 PROBE_WORKERS = 8
+MAX_OFFERED = 16          # results shown per scan (not-yet-added printers first)
 MAX_INFO_BYTES = 65536
 
 _scan_lock = threading.Lock()
@@ -109,7 +111,7 @@ def _is_configured(candidate: dict, configured: set) -> bool:
         try:
             if name and normalize_hostname(name) in configured:
                 return True
-        except UnicodeError:
+        except Exception:  # a hostile or malformed announced name must never fail the whole scan
             continue
     return False
 
@@ -135,16 +137,21 @@ def discover(db, current_user, *, scan=None, probe=None) -> dict:
     if not offered:
         return _result([], REASON_NONE_HEARD if not heard else REASON_NOT_LOCAL, filtered_out)
 
-    targets = [c for c in offered if c["self_announced"]]
+    configured = configured_hosts(db, current_user)
+    for candidate in offered:
+        candidate["already_configured"] = _is_configured(candidate, configured)
+    # Printers not added yet come first and are the ones kept when more answer than are shown,
+    # so a large farm can still find its remaining printers.
+    offered = sorted(offered, key=lambda c: c["already_configured"])[:MAX_OFFERED]
+    targets = [c for c in offered if c["self_announced"] and not c["already_configured"]]
     if targets:
         with ThreadPoolExecutor(max_workers=min(PROBE_WORKERS, len(targets))) as pool:
             infos = dict(zip((id(c) for c in targets), pool.map(lambda c: probe(c["ip"], c["port"]), targets)))
     else:
         infos = {}
-    configured = configured_hosts(db, current_user)
     printers = []
     for candidate in offered:
-        attempted = candidate["self_announced"]
+        attempted = candidate["self_announced"] and not candidate["already_configured"]
         info = infos.get(id(candidate)) or {}
         printers.append({
             "name": candidate["name"],
@@ -152,7 +159,7 @@ def discover(db, current_user, *, scan=None, probe=None) -> dict:
             "ip": candidate["ip"],
             "port": candidate["port"],
             "address": candidate["ip"] if candidate["port"] == 80 else f"{candidate['ip']}:{candidate['port']}",
-            "already_configured": _is_configured(candidate, configured),
+            "already_configured": candidate["already_configured"],
             "confirmed": bool(info) if attempted else None,
             "klippy_state": info.get("klippy_state"),
             "hostname": info.get("hostname"),

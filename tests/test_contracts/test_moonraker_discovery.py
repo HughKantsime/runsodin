@@ -152,13 +152,14 @@ def test_bad_record_shapes_are_refused():
 
 def test_candidates_and_names_are_bounded_and_printable():
     answers, additionals = [], []
-    for index in range(40):
+    for index in range(90):
         inst = name(f"p{index}\x07" + "x" * 55 if index == 0 else f"p{index}", "_moonraker", "_tcp", "local")
         tgt = name(f"h{index}", "local")
         answers.append(rr(SVC, 12, inst))
         additionals += [rr(inst, 33, struct.pack("!HHH", 0, 0, 7125) + tgt), rr(tgt, 1, bytes((192, 168, 1, index + 1)))]
-    candidates = mdns.build_candidates([("192.168.1.1", mdns.parse_packet(packet(answers[:20], additionals[:40])))])
-    assert len(candidates) == 16
+    packets = [("192.168.1.1", mdns.parse_packet(packet(answers[i:i + 15], additionals[2 * i:2 * i + 30]))) for i in range(0, 90, 15)]
+    candidates = mdns.build_candidates(packets)
+    assert len(candidates) == mdns.MAX_CANDIDATES == 64
     assert candidates[0]["name"].isprintable() and len(candidates[0]["name"]) <= mdns.MAX_DISPLAY
 
 
@@ -321,10 +322,11 @@ def test_route_marks_configured_hosts_filters_policy_and_probes_only_self_announ
     assert by_ip["192.168.50.13"]["address"] == "192.168.50.13:7125"
     assert by_ip["192.168.50.13"]["confirmed"] is True
     assert by_ip["192.168.50.13"]["klippy_state"] == "ready" and by_ip["192.168.50.13"]["hostname"] == "d"
-    assert by_ip["192.168.50.10"]["confirmed"] is False                   # probed, no answer
-    assert by_ip["192.168.50.14"]["confirmed"] is None                    # never probed
-    assert sorted(ip for ip, _ in discovery_client.probes) == [
-        "192.168.50.10", "192.168.50.11", "192.168.50.12", "192.168.50.13"]
+    assert by_ip["192.168.50.10"]["confirmed"] is None                    # already added: not probed
+    assert by_ip["192.168.50.14"]["confirmed"] is None                    # relayed: never probed
+    assert sorted(ip for ip, _ in discovery_client.probes) == ["192.168.50.12", "192.168.50.13"]
+    # Printers not added yet are listed first, so they survive the result cap on a large farm.
+    assert [p["already_configured"] for p in body["printers"]] == sorted(p["already_configured"] for p in body["printers"])
 
 
 def test_route_empty_with_plain_reasons(discovery_client, monkeypatch):
