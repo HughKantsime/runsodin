@@ -169,9 +169,15 @@ it('keeps the chosen camera button in view by moving the chooser strip only', ()
     expect(strip.scrollLeft).toBe(320)                     // its right edge (530) meets the strip's (210)
     fireEvent.click(screen.getByRole('button', { name: 'Press' }))
     expect(strip.scrollLeft).toBe(0)
-    strip.scrollLeft = 150                                 // the user swiped away, then the window is resized
+    strip.scrollLeft = 150                                 // the user swiped away; the address bar hides (height only)
     fireEvent(window, new Event('resize'))
-    expect(strip.scrollLeft).toBe(0)
+    expect(strip.scrollLeft).toBe(150)
+    const width = window.innerWidth
+    try {
+      Object.defineProperty(window, 'innerWidth', { value: width + 200, configurable: true })
+      fireEvent(window, new Event('resize'))               // a real change of width puts the chosen camera back in view
+      expect(strip.scrollLeft).toBe(0)
+    } finally { Object.defineProperty(window, 'innerWidth', { value: width, configurable: true }) }
     expect(scrollIntoView).not.toHaveBeenCalled()          // the page itself is never scrolled
   } finally { spies.forEach(spy => spy.mockRestore()); rects.mockRestore(); Element.prototype.scrollIntoView = original }
 })

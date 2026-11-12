@@ -83,7 +83,7 @@ function formatName(key: string) {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-function Toggle({ checked, onChange, disabled, locked }: { checked: boolean; onChange: () => void; disabled: boolean; locked?: boolean }) {
+function Toggle({ checked, onChange, disabled, locked, label }: { checked: boolean; onChange: () => void; disabled: boolean; locked?: boolean; label?: string }) {
   if (locked) {
     return (
       <div className="flex items-center justify-center" title="Required — cannot be disabled">
@@ -92,7 +92,7 @@ function Toggle({ checked, onChange, disabled, locked }: { checked: boolean; onC
     )
   }
   return (
-    <button onClick={onChange} disabled={disabled} role="switch" aria-checked={checked}
+    <button onClick={onChange} disabled={disabled} role="switch" aria-checked={checked} aria-label={label}
       className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${
         checked ? 'bg-green-500/80' : 'bg-[var(--brand-input-bg)]'
       } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-90'}`}>
@@ -158,6 +158,7 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }: { title:
                               checked={isChecked}
                               locked={isLocked}
                               disabled={saving}
+                              label={`${role}: ${item}`}
                               onChange={() => onToggle(type, item, role, !isChecked)}
                             />
                           </div>

@@ -543,7 +543,7 @@ html.light .setup-wizard textarea {
 /* Classic on a phone: every control in the page, a pop-up or a stand-alone page (setup, TV, password
    reset) is at least 44 px to the finger. Ordinary buttons grow (inline text links are unaffected:
    min-height does not apply to inline boxes; buttons placed inside a field with `absolute` keep their size).
-   Switches keep their drawn size: a 12 px transparent border makes the control itself 44 px tall, so
+   Switches keep their drawn size: a 12 px transparent border makes the control itself at least 44 px tall, so
    the larger touch area is real layout and can never sit on top of a neighbour. Desktop and Foundry
    are untouched. */
 @media (max-width: 639px) {
@@ -552,8 +552,14 @@ html.light .setup-wizard textarea {
     min-width: 44px;
   }
   html:not([data-theme-family="foundry"]) :is(main, [role="dialog"], [role="alertdialog"], body:not(:has(main)) #root) button[role="switch"] {
-    box-sizing: content-box;
     border: 12px solid transparent;
     background-clip: padding-box;
   }
+  /* Sizing stays border-box, so each switch size used in the app is widened by the border here:
+     the drawn pill, its padding and its knob travel are exactly as on desktop. */
+  html:not([data-theme-family="foundry"]) button[role="switch"].w-9 { width: calc(2.25rem + 24px); }
+  html:not([data-theme-family="foundry"]) button[role="switch"].w-10 { width: calc(2.5rem + 24px); }
+  html:not([data-theme-family="foundry"]) button[role="switch"].w-11 { width: calc(2.75rem + 24px); }
+  html:not([data-theme-family="foundry"]) button[role="switch"].h-5 { height: calc(1.25rem + 24px); }
+  html:not([data-theme-family="foundry"]) button[role="switch"].h-6 { height: calc(1.5rem + 24px); }
 }

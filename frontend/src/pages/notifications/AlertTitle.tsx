@@ -19,7 +19,7 @@ export default function AlertTitle({ title }: { title: string }) {
       aria-expanded={open}
       title={title}
       onClick={() => setOpen(value => !value)}
-      className="w-full text-left text-sm font-semibold"
+      className="block w-full text-left text-sm font-semibold"
       style={style}
     >
       {/* The clamp sits on a span: a button cannot be the clamped box itself. */}

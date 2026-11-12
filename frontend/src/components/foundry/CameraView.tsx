@@ -41,8 +41,12 @@ export default function CameraView({ cameras, printers = [], prints = [], initia
       else if (tab.right > box.right) strip.scrollLeft += tab.right - box.right
     }
     keepVisible()
-    window.addEventListener('resize', keepVisible)
-    return () => window.removeEventListener('resize', keepVisible)
+    // Only a change of width (rotation, window resize) re-centres: a phone's address bar hiding
+    // while the page scrolls changes the height only and must not undo a sideways swipe.
+    let width = window.innerWidth
+    const onResize = () => { if (window.innerWidth !== width) { width = window.innerWidth; keepVisible() } }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [selected, cameras.length])
   async function fullscreen() {
     try {
