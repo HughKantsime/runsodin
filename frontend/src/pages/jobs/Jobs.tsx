@@ -272,6 +272,22 @@ export default function Jobs() {
     catch (err) { toast.error('Reorder failed: ' + (err.message || 'Unknown error')) }
   }
 
+  // Phone cards: one place up or down, the same rule and request as a drag in the table.
+  const moveJob = async (jobId: number, direction: -1 | 1) => {
+    if (!canDo('jobs.edit')) return
+    const currentJobs = (jobsData || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
+    const fromIdx = currentJobs.findIndex(j => j.id === jobId)
+    const toIdx = fromIdx + direction
+    if (fromIdx === -1 || toIdx < 0 || toIdx >= currentJobs.length) return
+    if ((currentJobs[fromIdx].priority ?? 99) !== (currentJobs[toIdx].priority ?? 99)) {
+      toast.error('Jobs move within the same priority; change the priority to move it further')
+      return
+    }
+    const reordered = [...currentJobs]; const [moved] = reordered.splice(fromIdx, 1); reordered.splice(toIdx, 0, moved)
+    try { await jobs.reorder(reordered.map(j => j.id)); queryClient.invalidateQueries({ queryKey: ['jobs'] }) }
+    catch (err) { toast.error('Reorder failed: ' + (err.message || 'Unknown error')) }
+  }
+
   const handleAction = (action, jobId, jobName, existingReason, existingNotes) => {
     switch (action) {
       case 'start':
@@ -498,6 +514,7 @@ export default function Jobs() {
             printers={printersData || []}
             extraJob={deepExtra}
             highlightId={deepLinkId}
+            onMove={canDo('jobs.edit') && sortField === 'queue' && serverOrder === 'queue' ? moveJob : undefined}
           />
         </div>
       ) : (

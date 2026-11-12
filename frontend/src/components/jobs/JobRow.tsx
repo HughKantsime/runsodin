@@ -2,7 +2,7 @@ import OutcomeCorrection from './OutcomeCorrection'
 import CheckTarget from '../ui/CheckTarget'
 import { displayName } from '../../utils/displayName'
 import PageState from '../ui/PageState'
-import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar, Pencil, GripVertical, ShoppingCart, MessageSquare, RefreshCw, Send, Loader2 } from 'lucide-react'
+import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar, Pencil, GripVertical, ShoppingCart, MessageSquare, RefreshCw, Send, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { resolveColor } from '../../utils/colorMap'
@@ -162,7 +162,7 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
 
 // Phone layout (< 640 px): one stacked card per job. Order: name (wraps by words),
 // status, printer, priority/time, then the same row actions.
-function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean }) {
+function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight, onMove }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean; onMove?: (jobId: number, direction: -1 | 1) => void }) {
   const overdue = job.due_date && new Date(job.due_date) < new Date() && !['completed', 'cancelled', 'failed'].includes(job.status)
   return (
     <li data-testid="job-card" data-job-id={job.id} className={clsx(
@@ -197,15 +197,22 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       </div>
       <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal}
         className="mt-2 flex flex-wrap items-center gap-1 [&_button]:min-h-11 [&_button]:min-w-11" />
+      {/* The table reorders by drag, which touch screens do not have: the card moves a job one place. */}
+      {onMove && (job.status === 'pending' || job.status === 'scheduled') && (
+        <div className="mt-1 flex items-center gap-1 [&_button]:min-h-11 [&_button]:min-w-11">
+          <Button variant="ghost" size="icon" icon={ChevronUp} onClick={() => onMove(job.id, -1)} className="text-[var(--brand-text-secondary)]" aria-label={`Move ${displayName(job)} up in the queue`} />
+          <Button variant="ghost" size="icon" icon={ChevronDown} onClick={() => onMove(job.id, 1)} className="text-[var(--brand-text-secondary)]" aria-label={`Move ${displayName(job)} down in the queue`} />
+        </div>
+      )}
     </li>
   )
 }
 
-export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleSelect, onSelectAll, allSelected, onAction, dispatchFencedIds, dispatchingId, correctionPrincipal, printers, extraJob, highlightId }: {
+export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleSelect, onSelectAll, allSelected, onAction, dispatchFencedIds, dispatchingId, correctionPrincipal, printers, extraJob, highlightId, onMove }: {
   jobs: any[]; isLoading: boolean; emptyText: string; selectedIds: Set<number>; onToggleSelect: (id: number) => void; onSelectAll: () => void; allSelected: boolean
   onAction: (...args: any[]) => void; dispatchFencedIds?: Set<number>; dispatchingId?: number | null; correctionPrincipal?: any; printers: any[]
   // A job opened by link that is not in the loaded list is shown first, like the table's extra row.
-  extraJob?: any; highlightId?: number | null
+  extraJob?: any; highlightId?: number | null; onMove?: (jobId: number, direction: -1 | 1) => void
 }) {
   const extra = extraJob ? (
     <ul aria-label="Linked job">
@@ -229,7 +236,7 @@ export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleS
       </div>
       <ul aria-label="Jobs list">
         {jobs.map(job => (
-          <JobCard key={job.id} job={job} highlight={highlightId === job.id} onAction={onAction} isSelected={selectedIds.has(job.id)} onToggleSelect={onToggleSelect}
+          <JobCard key={job.id} job={job} highlight={highlightId === job.id} onMove={onMove} onAction={onAction} isSelected={selectedIds.has(job.id)} onToggleSelect={onToggleSelect}
             correctionPrincipal={correctionPrincipal} dispatchFenced={dispatchFencedIds?.has(job.id)} isDispatching={dispatchingId === job.id}
             pinnedPrinterName={job.pinned_printer_id != null ? printers.find(p => p.id === job.pinned_printer_id)?.name : undefined} />
         ))}

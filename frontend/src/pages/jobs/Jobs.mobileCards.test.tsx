@@ -8,12 +8,12 @@ import { MemoryRouter } from 'react-router-dom'
 import Jobs from './Jobs'
 import wire from '../../test-fixtures/certDops-bulk-jobs-wire.json'
 
-const h = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), dispatch: vi.fn() }))
+const h = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), dispatch: vi.fn(), reorder: vi.fn() }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('../../api', async () => {
   const real = await vi.importActual<typeof import('../../api/printers')>('../../api/printers')
   return {
-    jobs: { list: h.list, get: h.get, reorder: vi.fn(), create: vi.fn(), update: vi.fn(), start: vi.fn(), complete: vi.fn(), cancel: vi.fn(), delete: vi.fn(), repeat: vi.fn(), dispatch: h.dispatch, recentTerminal: vi.fn().mockResolvedValue([]) },
+    jobs: { list: h.list, get: h.get, reorder: h.reorder, create: vi.fn(), update: vi.fn(), start: vi.fn(), complete: vi.fn(), cancel: vi.fn(), delete: vi.fn(), repeat: vi.fn(), dispatch: h.dispatch, recentTerminal: vi.fn().mockResolvedValue([]) },
     models: { list: vi.fn().mockResolvedValue([]) }, modelRevisions: { list: vi.fn().mockResolvedValue([]) },
     printers: { list: vi.fn().mockResolvedValue([]) },
     getApprovalSetting: vi.fn().mockResolvedValue({ require_approval: false }),
@@ -90,5 +90,20 @@ describe('Jobs phone cards vs desktop table', () => {
     await screen.findByText(/will be uploaded to/)
     fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Dispatch')!)
     expect(await within(card).findByRole('button', { name: 'Dispatching...' })).toBeDisabled()
+  })
+
+  it('a queued job can be moved one place on a phone, where the table\'s drag does not exist', async () => {
+    // Codex sign-off 11-12: cards had no way to reorder the queue.
+    viewport(true)
+    const queued = [1, 2, 3].map(n => ({ ...wire.jobs[0], id: 9500 + n, item_name: `Queued ${n}`, display_name: `Queued ${n}`, status: 'pending', priority: 3 }))
+    h.list.mockResolvedValue([...queued, { ...wire.jobs[0], id: 9600, item_name: 'Printing now', display_name: 'Printing now', status: 'printing' }])
+    h.reorder.mockResolvedValue({})
+    show()
+    await screen.findByText('Queued 2')
+    expect(screen.queryByRole('button', { name: 'Move Printing now up in the queue' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Move Queued 2 up in the queue' }))
+    await vi.waitFor(() => expect(h.reorder).toHaveBeenCalledWith([9502, 9501, 9503]))
+    fireEvent.click(screen.getByRole('button', { name: 'Move Queued 3 down in the queue' }))   // already last: nothing sent
+    expect(h.reorder).toHaveBeenCalledTimes(1)
   })
 })

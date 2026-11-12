@@ -87,6 +87,9 @@ export default function Alerts() {
   const [alerts, setAlerts] = useState([])
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const listGeneration = useRef(0)
+  // What is on screen now, for callbacks that finish after the list or its filter changed.
+  const shownAlerts = useRef<any[]>([])
+  shownAlerts.current = alerts
   const deletedIds = useRef(new Set<number>())
   const pendingDeletes = useRef(new Set<number>())
   const canDelete = ['operator', 'admin'].includes(getCurrentUser()?.role ?? '')
@@ -308,9 +311,11 @@ export default function Alerts() {
   const handleGroupDismiss = (ids: number[]) =>
     runGroupAction(ids, id => alertsApi.dismiss(id), 'dismiss', done => {
       const set = new Set(done)
+      // Only alerts still in the list on screen move the next page's offset: after a switch
+      // to another filter the dismissed ones were never part of that list.
+      const removed = shownAlerts.current.filter(a => set.has(a.id)).length
       setAlerts(prev => prev.filter(a => !set.has(a.id)))
-      // The server no longer lists them: keep the next page's offset aligned.
-      setOffset(prev => Math.max(0, prev - done.length))
+      setOffset(prev => Math.max(0, prev - removed))
       window.dispatchEvent(new Event('odin:alerts-changed'))
     })
 
