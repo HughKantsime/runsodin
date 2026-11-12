@@ -163,7 +163,7 @@ class PrinterVisionThread(threading.Thread):
         collect = self.settings.get('collect_training_data', 0)
 
         # Save training data if enabled (every frame, not just detections)
-        if collect:
+        if collect and self._training_capture_allowed():
             path = frame_storage.save_training_frame(self.printer_id, frame)
             self._insert_training_sample(path)
 
@@ -401,6 +401,34 @@ class PrinterVisionThread(threading.Thread):
                 and detection_type in ('spaghetti', 'first_layer', 'detachment')
                 and is_printing_state(self.gcode_state)):
             self._auto_pause()
+
+    def _training_capture_allowed(self) -> bool:
+        """No training frame is written for controlled work.
+
+        Viewing these frames is already restricted, but a saved picture of a controlled part
+        would still sit on disk for the retention period. Checked once a minute per print;
+        if the check cannot be made, nothing is saved.
+        """
+        now = time.monotonic()
+        cached = getattr(self, '_training_allowed', None)
+        if cached and cached[0] == self.print_job_id and now - cached[2] < 60:
+            return cached[1]
+        try:
+            from sqlalchemy.orm import Session
+            from core.controlled_parts import any_controlled_data, policies
+            with engine.connect() as conn, Session(bind=conn) as db:
+                if not any_controlled_data(db):
+                    allowed = True
+                elif self.print_job_id is None:
+                    # A print ODIN cannot tie to a job cannot be shown to be uncontrolled.
+                    allowed = False
+                else:
+                    allowed = not policies(db, 'print_job', self.print_job_id)
+        except Exception:
+            log.warning(f"[{self.printer_name}] Controlled-work check failed; training frame not saved")
+            allowed = False
+        self._training_allowed = (self.print_job_id, allowed, now)
+        return allowed
 
     def _insert_training_sample(self, frame_path: str) -> None:
         """Index a collected frame for annotation; not a detection (status 'training')."""
