@@ -227,65 +227,79 @@ def test_policy_refuses_odins_own_service_ports(monkeypatch):
     assert [(c["ip"], c["port"]) for c in kept] == [("192.168.1.9", 7125)]
 
 
-def _stream(monkeypatch, status=200, chunks=(b'{"result": {"state": "ready\\u0007", "hostname": "voron"}}',), calls=None):
-    """Replace httpx.stream and the destination pin; returns the list of calls made."""
+def _device(monkeypatch, respond):
+    """A real local TCP listener standing in for the device; the destination policy is stubbed."""
     import contextlib
-    import httpx
+    import socket
+    import threading
     import core.webhook_utils as webhook_utils
-    calls = [] if calls is None else calls
+    server = socket.socket(); server.bind(("127.0.0.1", 0)); server.listen(1)
+    seen = {}
 
-    @contextlib.contextmanager
-    def fake_stream(method, url, **kwargs):
-        calls.append((method, url, kwargs))
-        yield SimpleNamespace(status_code=status, iter_bytes=lambda: iter(chunks))
+    def serve():
+        conn, _ = server.accept()
+        try:
+            seen["request"] = conn.recv(4096)
+            respond(conn)
+        except OSError:
+            pass
+        finally:
+            conn.close(); server.close()
+    threading.Thread(target=serve, daemon=True).start()
 
     @contextlib.contextmanager
     def fake_pin(url):
-        calls.append(("pin", url, {}))
+        seen["pinned"] = url
         yield
-    monkeypatch.setattr(httpx, "stream", fake_stream)
     monkeypatch.setattr(webhook_utils, "pinned_device_destination", fake_pin)
-    return calls
+    return server.getsockname()[1], seen
+
+
+def _answer(body, status=b"200 OK", extra=b""):
+    return b"HTTP/1.0 " + status + b"\r\nContent-Type: application/json\r\n" + extra + b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+
+
+GOOD = b'{"result": {"state": "ready\\u0007", "hostname": "voron"}}'
 
 
 def test_probe_is_pinned_credential_free_and_bounded(monkeypatch):
-    calls = _stream(monkeypatch)
-    assert discovery.probe_klippy("192.168.50.13", 7125) == {"klippy_state": "ready", "hostname": "voron"}
-    assert calls[0] == ("pin", "http://192.168.50.13:7125/printer/info", {})   # inside the destination pin
-    method, url, kwargs = calls[1]
-    assert (method, url) == ("GET", "http://192.168.50.13:7125/printer/info")
-    assert kwargs == {"timeout": 2, "trust_env": False, "follow_redirects": False}   # no headers, auth, cookies or api key
+    port, seen = _device(monkeypatch, lambda conn: conn.sendall(_answer(GOOD)))
+    assert discovery.probe_klippy("127.0.0.1", port) == {"klippy_state": "ready", "hostname": "voron"}
+    assert seen["pinned"] == f"http://127.0.0.1:{port}/printer/info"            # inside the destination policy
+    request = seen["request"].decode()
+    assert request.startswith("GET /printer/info HTTP/1.0\r\n") and "Accept-Encoding: identity" in request
+    lowered = request.lower()
+    assert not any(word in lowered for word in ("authorization", "cookie", "x-api-key", "token"))   # no credentials
 
-    _stream(monkeypatch, status=401, chunks=())
-    assert discovery.probe_klippy("192.168.50.13", 7125) is None
-
-    def down(*a, **k):
-        raise OSError("down")
-    import httpx
-    monkeypatch.setattr(httpx, "stream", down)
-    assert discovery.probe_klippy("192.168.50.13", 7125) is None
+    port, _ = _device(monkeypatch, lambda conn: conn.sendall(_answer(b"{}", status=b"401 Unauthorized")))
+    assert discovery.probe_klippy("127.0.0.1", port) is None
+    assert discovery.probe_klippy("127.0.0.1", 1) is None                      # nothing listening
 
 
-def test_probe_drops_an_oversized_or_endless_answer_without_buffering_it(monkeypatch):
-    """Codex sign-off 11-12: the whole body was buffered before the size check and nothing
-    bounded the total time."""
+def test_probe_drops_oversized_trickled_and_compressed_answers(monkeypatch):
+    """Codex sign-off 11-12 (two passes): the body was buffered before the size check, nothing
+    bounded the total time (headers included), and a compressed answer was expanded first."""
+    import gzip
     import time
-    read = []
 
-    def endless():
-        while True:
-            read.append(1)
-            yield b"x" * 8192
-    _stream(monkeypatch, chunks=endless())
-    assert discovery.probe_klippy("192.168.50.13", 7125) is None
-    assert len(read) <= discovery.MAX_INFO_BYTES // 8192 + 2          # stopped at the limit
+    def flood(conn):
+        conn.sendall(b"HTTP/1.0 200 OK\r\n\r\n")
+        for _ in range(64):
+            conn.sendall(b"x" * 8192)
+    port, _ = _device(monkeypatch, flood)
+    assert discovery.probe_klippy("127.0.0.1", port) is None
 
-    def trickle():
-        yield b'{"result": '
-        time.sleep(discovery.PROBE_TIMEOUT_SECONDS + 0.2)
-        yield b'{"state": "ready"}}'
-    _stream(monkeypatch, chunks=trickle())
-    assert discovery.probe_klippy("192.168.50.13", 7125) is None       # past the total deadline
+    def trickle_headers(conn):
+        for _ in range(40):                      # one header byte every 0.2 s: each read succeeds
+            conn.sendall(b"H"); time.sleep(0.2)
+    port, _ = _device(monkeypatch, trickle_headers)
+    began = time.monotonic()
+    assert discovery.probe_klippy("127.0.0.1", port) is None
+    assert time.monotonic() - began < discovery.PROBE_TIMEOUT_SECONDS + 1.0     # one total deadline
+
+    packed = gzip.compress(b'{"result": {"state": "ready"}}' + b" " * (8 * 1024 * 1024))
+    port, _ = _device(monkeypatch, lambda conn: conn.sendall(_answer(packed, extra=b"Content-Encoding: gzip\r\n")))
+    assert discovery.probe_klippy("127.0.0.1", port) is None                    # never decompressed
 
 
 def test_aliases_of_one_endpoint_are_one_candidate():

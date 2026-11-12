@@ -69,31 +69,76 @@ def _bounded(value, limit: int):
     return "".join(ch for ch in value if ch.isprintable())[:limit].strip() or None
 
 
-def probe_klippy(ip: str, port: int):
-    """GET /printer/info, pinned, no credentials. Dict on success, else None.
+MAX_HEADER_BYTES = 8192
 
-    The answer is read as a stream with a byte limit and one total deadline: a hostile
-    host that sends a huge body, or keeps trickling chunks, is dropped instead of being
-    buffered or holding a worker (httpx's own timeout is per read, not total).
+
+def _read_info(ip: str, port: int, deadline: float):
+    """Body of GET /printer/info over one plain socket, or None.
+
+    A raw HTTP/1.0 exchange, so ONE deadline covers connect, headers and body (an HTTP
+    client's timeout is per read: a host that trickles bytes keeps it alive for ever), and
+    nothing is ever decompressed (a small compressed answer can expand to megabytes).
+    Every byte is counted before it is kept.
     """
+    import socket
+    import time
+
+    def left():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("probe deadline")
+        return remaining
+
+    request = (f"GET /printer/info HTTP/1.0\r\nHost: {ip}:{port}\r\nAccept: application/json\r\n"
+               "Accept-Encoding: identity\r\nConnection: close\r\n\r\n").encode("ascii")
+    data = bytearray()
+    sock = socket.create_connection((ip, port), timeout=left())
+    try:
+        sock.settimeout(left())
+        sock.sendall(request)
+        while True:
+            sock.settimeout(left())
+            chunk = sock.recv(8192)
+            if not chunk:
+                break
+            if len(data) + len(chunk) > MAX_HEADER_BYTES + MAX_INFO_BYTES:
+                return None
+            data += chunk
+            head, found, body = bytes(data).partition(b"\r\n\r\n")
+            if found:
+                length = _header(head, b"content-length")
+                if length is not None and length.isdigit() and len(body) >= int(length):
+                    break
+            elif len(data) > MAX_HEADER_BYTES:
+                return None
+    finally:
+        sock.close()
+    head, found, body = bytes(data).partition(b"\r\n\r\n")
+    status = head.split(b"\r\n", 1)[0].split()
+    if not found or len(status) < 2 or not status[0].startswith(b"HTTP/1.") or status[1] != b"200":
+        return None
+    if (_header(head, b"content-encoding") or b"identity").lower() != b"identity" or _header(head, b"transfer-encoding"):
+        return None
+    return body if len(body) <= MAX_INFO_BYTES else None
+
+
+def _header(head: bytes, name: bytes):
+    for line in head.split(b"\r\n")[1:]:
+        key, _, value = line.partition(b":")
+        if key.strip().lower() == name:
+            return value.strip()
+    return None
+
+
+def probe_klippy(ip: str, port: int):
+    """GET /printer/info, policy-checked, no credentials. Dict on success, else None."""
     import json
     import time
-    import httpx
     from core.webhook_utils import pinned_device_destination
-    url = f"http://{ip}:{port}/printer/info"
-    deadline = time.monotonic() + PROBE_TIMEOUT_SECONDS
     try:
-        body = bytearray()
-        with pinned_device_destination(url):
-            with httpx.stream("GET", url, timeout=PROBE_TIMEOUT_SECONDS, trust_env=False,
-                              follow_redirects=False) as response:
-                if response.status_code != 200:
-                    return None
-                for chunk in response.iter_bytes():
-                    body += chunk
-                    if len(body) > MAX_INFO_BYTES or time.monotonic() > deadline:
-                        return None
-        result = json.loads(bytes(body)).get("result")
+        with pinned_device_destination(f"http://{ip}:{port}/printer/info"):
+            body = _read_info(ip, port, time.monotonic() + PROBE_TIMEOUT_SECONDS)
+        result = json.loads(body).get("result") if body is not None else None
     except Exception:
         return None
     if not isinstance(result, dict):
