@@ -3,7 +3,8 @@ import { Modal } from '../ui'
 
 export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose: () => void; onSave: (data: any) => void }) {
   const [form, setForm] = useState({
-    remaining_weight_g: spool?.remaining_weight_g ?? 0,
+    remaining_weight_g: spool?.remaining_weight_g ?? '',
+    spool_weight_g: spool?.spool_weight_g ?? 250,
     pa_profile: spool?.pa_profile ?? '',
     low_stock_threshold_g: spool?.low_stock_threshold_g ?? 50,
     notes: spool?.notes || '',
@@ -26,13 +27,27 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
       setError('Spoolman spool ID must be a positive whole number, or blank to unlink.');
       return;
     }
+    const remainingText = String(form.remaining_weight_g).trim();
+    const remaining = remainingText === '' ? null : Number(remainingText);
+    if (remaining !== null && (!Number.isFinite(remaining) || remaining < 0)) {
+      setError('Remaining weight must be a number of grams, or blank when it is not measured.');
+      return;
+    }
+    const coreText = String(form.spool_weight_g).trim();
+    const core = Number(coreText);
+    if (coreText === '' || !Number.isFinite(core) || core < 0 || core > 10000) {
+      setError('Empty-spool weight must be from 0 to 10000 g.');
+      return;
+    }
     onSave({
       id: spool.id,
+      ...(core !== (spool.spool_weight_g ?? 250) ? { spool_weight_g: core } : {}),
       // Only a changed link is sent: an existing (possibly duplicate) link is not re-written.
       ...(spoolmanId !== (spool.spoolman_spool_id ?? null) ? { spoolman_spool_id: spoolmanId } : {}),
       pa_profile: form.pa_profile || null,
       low_stock_threshold_g: threshold,
-      remaining_weight_g: parseFloat(form.remaining_weight_g),
+      // A blank (not measured) or unchanged balance is never sent, so unknown is not overwritten with 0.
+      ...(remaining !== null && remaining !== spool.remaining_weight_g ? { remaining_weight_g: remaining } : {}),
       notes: form.notes || null,
       storage_location: form.storage_location || null,
     });
@@ -82,18 +97,29 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
             className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Remaining Weight (g)</label>
+          <label htmlFor="spool-remaining" className="block text-sm text-[var(--brand-text-muted)] mb-1">Remaining Weight (g)</label>
           <input
             type="number"
             step="1"
             min="0"
+            id="spool-remaining"
             value={form.remaining_weight_g}
             onChange={(e) => setForm({ ...form, remaining_weight_g: e.target.value })}
-            required
+            placeholder="Not measured"
             className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
           <div className="text-xs text-[var(--brand-text-muted)] mt-1">
-            Initial: {spool.initial_weight_g}g
+            Initial: {spool.initial_weight_g}g{spool.remaining_weight_g == null ? ' · Remaining is not measured; leave blank to keep it that way' : ''}
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="spool-core-weight" className="block text-sm text-[var(--brand-text-muted)] mb-1">Empty spool weight (g)</label>
+          <input id="spool-core-weight" type="number" min="0" max="10000" step="any" value={form.spool_weight_g}
+            onChange={e => setForm({ ...form, spool_weight_g: e.target.value })}
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" />
+          <div className="text-xs text-[var(--brand-text-muted)] mt-1">
+            The core or refill-core weight. Used to turn a scale reading into filament weight. Remaining weight is not changed.
           </div>
         </div>
 

@@ -76,6 +76,16 @@ class SpoolUpdate(PydanticBaseModel):
     pa_profile: Optional[str] = Field(default=None, max_length=50)
     low_stock_threshold_g: Optional[int] = Field(default=None, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     remaining_weight_g: Optional[float] = None
+    # Empty-spool (core) weight: correctable after receiving, e.g. for refill cores.
+    # Same bounds as receiving. It is never cleared: weigh needs a number.
+    spool_weight_g: Optional[float] = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
+
+    @field_validator('spool_weight_g')
+    @classmethod
+    def core_weight_set(cls, value):
+        if value is None:
+            raise ValueError('Empty-spool weight cannot be cleared')
+        return value
     status: Optional[str] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None

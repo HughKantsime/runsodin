@@ -23,8 +23,10 @@ interface SpoolCardProps {
 }
 export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, printers }: SpoolCardProps) {
   const foundry = useFoundry()
+  // The server sends remaining_weight_g = null when the balance is unknown (percent_remaining is then 0).
+  const unknownRemaining = spool.remaining_weight_g == null
   const percentRemaining = spool.percent_remaining || 0
-  const isLow = spool.is_low_stock === true || percentRemaining < 20
+  const isLow = !unknownRemaining && (spool.is_low_stock === true || percentRemaining < 20)
   const isEmpty = spool.status === 'empty'
   const isArchived = spool.status === 'archived'
 
@@ -42,7 +44,7 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
             color={spool.filament_color_hex ? `#${spool.filament_color_hex}` : '#888'}
             material={foundry ? undefined : spool.filament_material}
             className={foundry ? 'f-spool-ring' : undefined}
-            level={percentRemaining}
+            level={unknownRemaining ? null : percentRemaining}
             empty={isEmpty}
             size={32}
           />
@@ -72,13 +74,15 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
       <div className="mb-3">
         <div className="flex justify-between text-xs md:text-sm mb-1">
           <span className="text-[var(--brand-text-muted)]">Remaining</span>
-          <span className="text-[var(--brand-text-secondary)]">{spool.remaining_weight_g?.toFixed(0)}g / {spool.initial_weight_g?.toFixed(0)}g</span>
+          <span className="text-[var(--brand-text-secondary)]">{unknownRemaining
+            ? (spool.location_printer_id ? 'Not measured on this printer model' : 'Not measured yet')
+            : `${spool.remaining_weight_g?.toFixed(0)}g / ${spool.initial_weight_g?.toFixed(0)}g`}</span>
         </div>
-        <ProgressBar
+        {!unknownRemaining && <ProgressBar
           value={percentRemaining}
           color={isEmpty ? 'red' : isLow ? 'yellow' : 'green'}
           size="md"
-        />
+        />}
       </div>
 
       {/* Location */}

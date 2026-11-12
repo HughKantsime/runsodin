@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import OutcomeCorrection from './OutcomeCorrection'
+import FilamentCheckPanel from './FilamentCheckPanel'
 import CheckTarget from '../ui/CheckTarget'
 import { displayName } from '../../utils/displayName'
 import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar, Pencil, GripVertical, ShoppingCart, MessageSquare, RefreshCw, Send, Loader2 } from 'lucide-react'
@@ -43,7 +45,9 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
 }
 
 export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
+  const [showFilament, setShowFilament] = useState(false)
   return (
+    <>
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
           job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
@@ -103,6 +107,12 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       </td>
       <td className="px-3 md:px-4 py-3 text-sm">
         {job.printer?.name || '—'}
+        {job.status === 'scheduled' && job.printer_id != null && (
+          <button type="button" aria-expanded={showFilament} onClick={() => setShowFilament(v => !v)}
+            className="block min-h-[24px] text-xs underline text-[var(--brand-text-muted)]">
+            {showFilament ? 'Hide filament check' : 'Filament check'}
+          </button>
+        )}
         {job.pinned_printer_id != null && (
           <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
             Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
@@ -187,5 +197,13 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         </div>
       </td>
     </tr>
+    {showFilament && job.printer_id != null && (
+      <tr className="border-b border-[var(--brand-card-border)]">
+        <td colSpan={9} className="px-3 md:px-4 pb-3">
+          <FilamentCheckPanel jobId={job.id} printerId={job.printer_id} />
+        </td>
+      </tr>
+    )}
+    </>
   )
 }

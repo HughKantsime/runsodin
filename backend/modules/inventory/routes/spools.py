@@ -357,6 +357,16 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
                   {"state": "cleared" if purchase is None else "recorded"})
 
 
+    if "spool_weight_g" in update_data:
+        if update_data["spool_weight_g"] == spool.spool_weight_g:
+            del update_data["spool_weight_g"]
+        else:
+            # remaining_weight_g is stored as net filament weight, so a corrected core
+            # weight changes only how a later weigh converts gross to net.
+            log_audit(db, "spool.core_weight_updated", "spool", spool_id,
+                      {"before_g": spool.spool_weight_g, "after_g": update_data["spool_weight_g"],
+                       "remaining_weight_g": spool.remaining_weight_g})
+
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])
 
