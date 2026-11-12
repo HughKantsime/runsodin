@@ -147,3 +147,17 @@ def test_a_controlled_job_outside_the_callers_audience_is_never_written_to(floor
     monkeypatch.setattr(controlled_parts, 'allowed', lambda db_, kind, identifier, actor: not (kind == 'job' and identifier == 802))
     body = client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()
     assert body == {'success': True, 'message': 'No jobs waiting for plate clear'} and events(db) == []
+
+
+def test_the_newest_confirmation_is_chosen_by_instant_before_a_later_start_is_judged(floor):
+    """Second sign-off: '11:00+02:00' (09:00 UTC) sorted ahead of '12:00+00:00' as text, so a
+    09:30 start wrongly cancelled the valid noon confirmation."""
+    client, issue, db = floor
+    finished(db, 812, start='2026-11-12 08:10:00', end='2026-11-12 08:45:00')
+    finished(db, 813, start='2026-11-12 09:30:00', end='2026-11-12 11:30:00')
+    db.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,detail,occurred_at) VALUES"
+                    "('old',812,199,1,'bed_clear_confirmed','{}','2026-11-12T11:00:00+02:00'),"
+                    "('new',813,199,1,'bed_clear_confirmed','{}','2026-11-12 12:00:00+00:00')"))
+    db.commit()
+    shown = confirmed_at(client, issue)
+    assert shown is not None and '12:00:00' in shown

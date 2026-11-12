@@ -99,15 +99,20 @@ def plate_clear_times(db, printer_ids, actor):
         "JOIN jobs j ON j.id=e.job_id WHERE e.kind='bed_clear_confirmed' AND e.printer_id IN :ids "
         "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=j.id AND s.archived_at IS NOT NULL) "
         "ORDER BY e.occurred_at DESC,e.id DESC").bindparams(bindparam('ids', expanding=True)), {'ids': printer_ids})
-    result = {}
+    # The newest visible confirmation per printer, by parsed instant: stored times mix naive
+    # UTC and ISO forms with offsets, so the SQL order above is only a hint.
+    from modules.printers.plate_clear import as_utc
+    result, newest = {}, {}
     for printer_id, at, org_id in rows:
-        if check_org_access(actor, org_id):
-            result.setdefault(printer_id, at)
+        if not check_org_access(actor, org_id):
+            continue
+        moment = as_utc(at)
+        if printer_id not in result or (moment is not None and (newest[printer_id] is None or moment > newest[printer_id])):
+            result[printer_id], newest[printer_id] = at, moment
     if not result:
         return result
     # A confirmation stands only until the next print starts: a plate cleared several prints
     # ago says nothing about the bed now.
-    from modules.printers.plate_clear import as_utc
     # Compared as parsed instants: stored times mix naive UTC and ISO forms, which do not
     # sort correctly as text. Only jobs started on or after the day before the oldest
     # confirmation can matter (the date prefix is the same in every form).
