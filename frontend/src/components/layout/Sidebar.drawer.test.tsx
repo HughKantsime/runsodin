@@ -1,10 +1,11 @@
 // Mobile web pass, slice 3: the navigation drawer reports its open state and closes on backdrop tap and on navigation.
 import { useState } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Sidebar from './Sidebar'
+import { useCloseOnNavigate } from '../../hooks/useCloseOnNavigate'
 
 vi.mock('../../api', () => ({
   printers: { list: vi.fn().mockResolvedValue([]) },
@@ -57,4 +58,39 @@ test('phone sheet classes are phone-only; the desktop classes are intact; the na
   expect(drawer()).toHaveClass('fixed', 'md:relative', 'md:z-auto', 'w-64', 'translate-x-0')
   const nav = drawer().querySelector('nav')!
   expect(nav).toHaveClass('flex-1', 'overflow-y-auto', 'min-h-0', 'max-sm:overscroll-contain')
+})
+
+// The owner (App) wires the hook; this harness mirrors that wiring.
+let navigate: ReturnType<typeof useNavigate>
+function Capture() { navigate = useNavigate(); return null }
+function Owner() {
+  const [open, setOpen] = useState(true)
+  useCloseOnNavigate(() => setOpen(false))
+  return <><Capture /><button onClick={() => setOpen(true)}>Open menu</button><Sidebar mobileOpen={open} onMobileClose={() => setOpen(false)} /></>
+}
+function showOwner() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/jobs']}><Owner /></MemoryRouter></QueryClientProvider>)
+}
+
+test('programmatic navigation to another page closes the open drawer', () => {
+  showOwner()
+  expect(drawer()).toHaveAttribute('data-drawer-open', 'true')
+  act(() => { navigate('/printers') })
+  expect(drawer()).toHaveAttribute('data-drawer-open', 'false')
+})
+
+test('navigation that keeps the pathname (search result with a query, hash) closes it too', () => {
+  showOwner()
+  act(() => { navigate('/jobs?q=benchy') })
+  expect(drawer()).toHaveAttribute('data-drawer-open', 'false')
+})
+
+test('browser back closes a reopened drawer', () => {
+  showOwner()
+  act(() => { navigate('/printers') })
+  fireEvent.click(screen.getByText('Open menu'))
+  expect(drawer()).toHaveAttribute('data-drawer-open', 'true')
+  act(() => { navigate(-1) })
+  expect(drawer()).toHaveAttribute('data-drawer-open', 'false')
 })

@@ -36,14 +36,14 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }: { mo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="revision-panel-title">
-      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-[var(--brand-card-border)] max-h-[90vh] overflow-y-auto">
+      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-[var(--brand-card-border)] max-h-[90vh] overflow-y-auto max-sm:h-full max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <History size={18} className="text-[var(--brand-primary)]" />
             <h2 id="revision-panel-title" className="text-lg font-display font-semibold">Revisions</h2>
             <span className="text-sm text-[var(--brand-muted)]">— {modelName}</span>
           </div>
-          <button onClick={onClose} className="text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)]" aria-label="Close revisions"><X size={20} /></button>
+          <button onClick={onClose} className="text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center" aria-label="Close revisions"><X size={20} /></button>
         </div>
 
         {canDo('models.edit') && !showUpload && (

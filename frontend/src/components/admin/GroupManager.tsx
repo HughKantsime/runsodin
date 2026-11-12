@@ -7,7 +7,7 @@ import { useLicense } from '../../LicenseContext'
 import { groups, users as usersApi } from '../../api'
 import { Plus, Edit2, Trash2, Users, X, FolderOpen, RefreshCw } from 'lucide-react'
 
-function GroupModal({ group, operatorAdmins, onClose, onSave }) {
+export function GroupModal({ group, operatorAdmins, onClose, onSave }) {
   const fieldId = useId()
   const [formData, setFormData] = useState({
     name: group?.name || '',
@@ -25,10 +25,10 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
-      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto max-sm:h-full max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none">
         <div className="flex justify-between items-center mb-4 md:mb-6">
           <h2 id="group-modal-title" className="text-lg md:text-xl font-display font-bold">{group ? 'Edit Group' : 'New Group'}</h2>
-          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white" aria-label="Close"><X size={20} /></button>
+          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center" aria-label="Close"><X size={20} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -50,7 +50,7 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
             </select>
             <p className="text-xs text-[var(--brand-text-muted)] mt-1">The owner receives approval requests from group members</p>
           </div>
-          <div className="flex gap-3 pt-4">
+          <div data-modal-footer className="flex gap-3 pt-4 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:bg-[var(--brand-card-bg)] max-sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">Cancel</button>
             <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm">{group ? 'Save Changes' : 'Create Group'}</button>
           </div>

@@ -114,7 +114,7 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
           </fieldset>
         </> : <p>The job will be held. The fence, receipts, observations, assignment and accounting will remain. Hold cannot retract an admitted command.</p>}
         {confirmation.action === 'reconcile-retain' && confirmation.snapshot.education && ['reserved','awaiting'].includes(confirmation.snapshot.education.reservation_state || '') && <label className="flex gap-2"><input type="checkbox" checked={cancelIntent} onChange={e => setCancelIntent(e.target.checked)} />Record a request to cancel unbound Education dispatch permission. This request retains the reservation and changes no print status.</label>}
-        <div className="flex flex-wrap gap-2">
+        <div data-modal-footer className="flex flex-wrap gap-2">
           <Button disabled={mutation.isPending || (confirmation.action === 'release' && !checks.every(([key]) => attested[key]))} onClick={submit}>Confirm {confirmation.action === 'release' ? 'release' : confirmation.action === 'hold' ? 'hold' : 'retain'}</Button>
           <Button variant="ghost" disabled={mutation.isPending} onClick={() => setConfirmation(null)}>Back</Button>
         </div>

@@ -162,7 +162,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
             className="absolute inset-0 bg-black/50"
             onClick={() => { setIsEditing(false); setSearch('') }}
           />
-          <div className="relative bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-md p-4 w-full sm:w-80 shadow-xl border border-[var(--brand-border)] max-h-[80vh] flex flex-col">
+          <div className="relative bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-md p-4 w-full sm:w-80 shadow-xl border border-[var(--brand-border)] max-h-[80vh] flex flex-col max-sm:h-full max-sm:max-h-none max-sm:rounded-none">
             <div className="text-sm font-medium text-[var(--brand-text-primary)] mb-3">Slot {slot.slot_number} - Select Filament</div>
             <div className="relative mb-3">
               <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
@@ -175,7 +175,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 autoFocus
               />
             </div>
-            <div className="flex-1 overflow-y-auto space-y-1 max-h-96">
+            <div className="flex-1 overflow-y-auto space-y-1 max-h-96 max-sm:max-h-none max-sm:min-h-0">
               {filteredSpools.length > 0 && (
                 <>
                   <div className="text-xs text-green-400 font-medium px-1 py-1">Tracked Spools</div>
@@ -242,9 +242,9 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 <PageState kind="empty" className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</PageState>
               )}
             </div>
-            <div className="flex gap-2 mt-4 shrink-0">
-              <button onClick={handleClear} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Clear</button>
-              <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Cancel</button>
+            <div data-modal-footer className="flex gap-2 mt-4 shrink-0 max-sm:pb-[env(safe-area-inset-bottom)]">
+              <button onClick={handleClear} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2 max-sm:min-h-11">Clear</button>
+              <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2 max-sm:min-h-11">Cancel</button>
             </div>
           </div>
         </div>, document.body

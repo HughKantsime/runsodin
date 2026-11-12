@@ -27,7 +27,7 @@ const fetchUsers = async () => {
 const roleIcons = { admin: Shield, operator: UserCheck, viewer: Eye }
 const roleColors = { admin: 'text-red-400 bg-red-900/30', operator: 'text-[var(--brand-primary)] bg-[var(--brand-primary)]/30', viewer: 'text-[var(--brand-text-secondary)] bg-[var(--brand-input-bg)]' }
 
-function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any; groupsList?: any[]; hasGroups: boolean; onClose: () => void; onSave: (data: any) => void }) {
+export function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any; groupsList?: any[]; hasGroups: boolean; onClose: () => void; onSave: (data: any) => void }) {
   const [formData, setFormData] = useState({
     username: user?.username || '',
     email: user?.email || '',
@@ -46,10 +46,10 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-user-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-user-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto max-sm:h-full max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none">
         <div className="flex justify-between items-center mb-4 md:mb-6">
           <h2 id="admin-user-modal-title" className="text-lg md:text-xl font-display font-bold">{user ? 'Edit User' : 'New User'}</h2>
-          <button onClick={onClose} aria-label={user ? 'Close edit user dialog' : 'Close new user dialog'} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
+          <button onClick={onClose} aria-label={user ? 'Close edit user dialog' : 'Close new user dialog'} className="text-[var(--brand-text-muted)] hover:text-white max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center"><X size={20} aria-hidden="true" /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -99,7 +99,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
               <label htmlFor="is_active" className="text-sm text-[var(--brand-text-secondary)]">Active</label>
             </div>
           )}
-          <div className="flex gap-3 pt-4">
+          <div data-modal-footer className="flex gap-3 pt-4 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:bg-[var(--brand-card-bg)] max-sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">Cancel</button>
             <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
           </div>
@@ -109,7 +109,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
   )
 }
 
-function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+export function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const fileRef = useRef(null)
   const [preview, setPreview] = useState(null)
   const [importing, setImporting] = useState(false)
@@ -166,13 +166,13 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-import-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-import-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto max-sm:h-full max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none">
         <div className="flex justify-between items-center mb-4">
           <h2 id="admin-import-modal-title" className="text-lg font-display font-bold flex items-center gap-2">
             <Upload size={18} className="text-[var(--brand-primary)]" />
             Import Users from CSV
           </h2>
-          <button onClick={onClose} aria-label="Close import users dialog" className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
+          <button onClick={onClose} aria-label="Close import users dialog" className="text-[var(--brand-text-muted)] hover:text-white max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center"><X size={20} aria-hidden="true" /></button>
         </div>
 
         {/* Instructions */}
@@ -257,7 +257,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
         )}
 
         {/* Actions */}
-        <div className="flex gap-3">
+        <div data-modal-footer className="flex gap-3 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:bg-[var(--brand-card-bg)] max-sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <button onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">
             {result ? 'Close' : 'Cancel'}
           </button>

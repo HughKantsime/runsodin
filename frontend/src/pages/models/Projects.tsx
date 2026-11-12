@@ -23,7 +23,7 @@ const DEFAULT_COLORS = [
   '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
 ]
 
-function CreateProjectModal({ onClose, onCreate }) {
+export function CreateProjectModal({ onClose, onCreate }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState('#6366f1')
@@ -41,11 +41,11 @@ function CreateProjectModal({ onClose, onCreate }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="new-project-modal-title" className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 max-sm:p-0" onClick={onClose}>
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="new-project-modal-title" className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-sm:h-full max-sm:max-w-none max-sm:rounded-none max-sm:overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="new-project-modal-title" className="text-lg font-semibold flex items-center gap-2"><FolderKanban size={18} aria-hidden="true" /> New Project</h2>
-          <button onClick={onClose} aria-label="Close new project dialog" className="text-[var(--brand-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
+          <button onClick={onClose} aria-label="Close new project dialog" className="text-[var(--brand-muted)] hover:text-white max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center"><X size={20} aria-hidden="true" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -96,7 +96,7 @@ function CreateProjectModal({ onClose, onCreate }) {
               placeholder="Optional"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div data-modal-footer className="flex justify-end gap-2 pt-2 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:bg-[var(--brand-card-bg)] max-sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded-md text-sm text-[var(--brand-muted)] hover:text-white transition-colors">Cancel</button>
             <button type="submit" disabled={!name.trim()} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm text-white disabled:opacity-50 transition-colors">Create</button>
           </div>
@@ -106,7 +106,7 @@ function CreateProjectModal({ onClose, onCreate }) {
   )
 }
 
-function ProjectDetail({ project, onClose, onDelete }) {
+export function ProjectDetail({ project, onClose, onDelete }) {
   const queryClient = useQueryClient()
   const { data: detail, isLoading } = useQuery({
     queryKey: ['project', project.id],
@@ -129,13 +129,13 @@ function ProjectDetail({ project, onClose, onDelete }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="project-detail-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-xl border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="project-detail-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-xl border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto max-sm:h-full max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: detail?.color || project.color || '#6366f1' }} />
             <h2 id="project-detail-modal-title" className="text-lg font-semibold truncate">{detail?.name || project.name}</h2>
           </div>
-          <button onClick={onClose} aria-label="Close project details" className="text-[var(--brand-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
+          <button onClick={onClose} aria-label="Close project details" className="text-[var(--brand-muted)] hover:text-white max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center"><X size={20} aria-hidden="true" /></button>
         </div>
 
         {isLoading ? (

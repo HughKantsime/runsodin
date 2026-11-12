@@ -16,6 +16,7 @@ import '@fontsource/ibm-plex-sans/700.css'
 
 import { useState, useEffect } from "react"
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useCloseOnNavigate } from './hooks/useCloseOnNavigate'
 import Toast from './components/ui/Toast'
 import FoundryPage from './components/foundry/Page'
 import ProGate from './components/shared/ProGate'
@@ -84,10 +85,8 @@ export default function App() {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Close mobile menu on route change
-  useEffect(() => {
-    setMobileMenuOpen(false)
-  }, [location.pathname])
+  // Close the drawer on any navigation (back, search result, programmatic), not only on a menu click
+  useCloseOnNavigate(() => setMobileMenuOpen(false))
 
   // Check if first-time setup is needed
   useEffect(() => {

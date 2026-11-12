@@ -338,7 +338,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
             )}
 
             {/* Actions */}
-            <div className="flex gap-2">
+            <div data-modal-footer className="flex gap-2">
               <button
                 onClick={resetScan}
                 className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm"

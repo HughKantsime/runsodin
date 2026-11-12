@@ -188,7 +188,7 @@ export default function SubmissionUploadModal({
           </p>
         )}
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div data-modal-footer className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="ghost" onClick={close}>Cancel</Button>
           <Button type="submit" loading={pending} disabled={!file || !selectedCenter || !audience || audience !== currentAudience()}>
             Submit for review

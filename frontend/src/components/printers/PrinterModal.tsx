@@ -590,7 +590,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-4">
+        <div data-modal-footer className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
           <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
         </div>

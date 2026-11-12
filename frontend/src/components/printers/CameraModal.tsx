@@ -214,6 +214,7 @@ export default function CameraModal({ printer, onClose }: CameraModalProps) {
       onClose={onClose}
       size="xl"
       mobileSheet={false}
+      ownHeader
       className="!p-0 !max-w-5xl"
     >
       {videoSection}

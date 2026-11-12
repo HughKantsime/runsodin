@@ -15,6 +15,8 @@ interface ModalProps {
   children?: ReactNode
   className?: string
   alert?: boolean
+  // The content draws its own close control: skip the sheet's added header bar (phone, no title only).
+  ownHeader?: boolean
 }
 
 const SIZE_CLASSES: Record<string, string> = {
@@ -33,6 +35,7 @@ export default function Modal({
   children,
   className = '',
   alert = false,
+  ownHeader = false,
 }: ModalProps) {
   const foundry = useFoundry()
   // Under 640 px a (non-alert) modal is a full-screen sheet. Same breakpoint as the slice-1/2 phone cards.
@@ -87,7 +90,7 @@ export default function Modal({
         style={{ boxShadow: 'var(--brand-card-shadow)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        {(title || sheet) && (
+        {(title || (sheet && !ownHeader)) && (
           <div className={sheet ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]' : 'flex items-center justify-between p-4 sm:p-6 pb-0'}>
             {title ? (
               <h2

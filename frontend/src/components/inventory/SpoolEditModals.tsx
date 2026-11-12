@@ -119,7 +119,7 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
           />
         </div>
 
-        <div className="flex gap-3 pt-2">
+        <div data-modal-footer className="flex gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
@@ -245,7 +245,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
           <p className="text-xs text-[var(--brand-text-muted)] mt-1">Used for cost calculation. Leave blank to use system default.</p>
         </div>
 
-        <div className="flex gap-3 pt-2">
+        <div data-modal-footer className="flex gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}

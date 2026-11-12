@@ -52,3 +52,26 @@ test('no matchMedia (jsdom default) renders the desktop layout', () => {
   render(<Modal isOpen onClose={() => {}} title="T">body</Modal>)
   expect(panel()).toHaveClass('max-h-[90vh]')
 })
+
+test('phone: ownHeader without a title skips the added header bar and close button', () => {
+  viewport(true)
+  render(<Modal isOpen onClose={() => {}} ownHeader><button>Own close</button></Modal>)
+  expect(screen.queryByLabelText('Close')).toBeNull()
+  expect(panel().children).toHaveLength(1)
+})
+
+test('phone: ownHeader with a title still renders the title bar', () => {
+  viewport(true)
+  render(<Modal isOpen onClose={() => {}} title="T" ownHeader>x</Modal>)
+  expect(screen.getByLabelText('Close')).toBeInTheDocument()
+})
+
+test('640 px and above: ownHeader changes nothing', () => {
+  viewport(false)
+  render(<Modal isOpen onClose={() => {}}>x</Modal>)
+  const plain = screen.getByRole('dialog').outerHTML
+  cleanup()
+  viewport(false)
+  render(<Modal isOpen onClose={() => {}} ownHeader>x</Modal>)
+  expect(screen.getByRole('dialog').outerHTML).toBe(plain)
+})

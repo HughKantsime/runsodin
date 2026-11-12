@@ -138,7 +138,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
           <label className="block text-sm text-[var(--brand-muted)] mb-1">Notes</label>
           <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 h-20 text-sm" placeholder="Optional notes..." />
         </div>
-        <div className="flex justify-end gap-3 pt-4">
+        <div data-modal-footer className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
           <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">{editingModel ? 'Save Changes' : 'Add Model'}</button>
         </div>
@@ -353,7 +353,7 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
       {payloadError && <p role="alert" className="text-red-400 text-sm mb-3">Scheduling options could not be loaded: {payloadError.message}</p>}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={scheduleOpts.hold} onChange={e => setScheduleOpts(prev => ({ ...prev, hold: e.target.checked }))} />Hold for planned filament load</label>
       {isBambu && payloadOptions?.print_file_id && <AmsMappingEditor planned={scheduleOpts.hold} preview={mappingFile?.ams_preview} loading={mappingLoading} error={mappingError} {...mapping} />}
-      <div className="flex justify-end gap-3">
+      <div data-modal-footer className="flex justify-end gap-3">
         <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors">Cancel</button>
         <button onClick={() => onConfirm(selectedPrinter, { ...scheduleOpts, quantity: Number(scheduleOpts.quantity), due_date: scheduleOpts.due_date ? scheduleOpts.due_date + 'T00:00:00Z' : null, notes: scheduleOpts.notes || null, print_file_id: payloadOptions?.print_file_id, payload_sha256: payloadOptions?.payload_sha256, ...(isBambu && mapping.value ? { ams_mapping: mapping.value } : {}) })} disabled={isScheduling || (isBambu && (mappingLoading || mappingError || (mapping.enabled && !mapping.valid))) || loadingPayload || loadingPlates || !!payloadError || !!plateError || (!!payloadOptions?.plate_indices?.length && !payloadOptions.plate_indices.includes(scheduleOpts.plate_index)) || !Number.isInteger(Number(scheduleOpts.quantity)) || Number(scheduleOpts.quantity) < 1} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
           {isScheduling ? 'Scheduling...' : 'Create Job'}

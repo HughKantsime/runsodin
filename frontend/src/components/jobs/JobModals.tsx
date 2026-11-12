@@ -194,7 +194,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Notes</label>
           <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" rows={2} />
         </div>
-        <div className="flex justify-end gap-3 pt-4">
+        <div data-modal-footer className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
           {onSavePreset && formData.item_name && !showPresetInput && (
             <button
@@ -286,7 +286,7 @@ export function RejectModal({ isOpen, onClose, onSubmit }: { isOpen: boolean; on
           autoFocus
         />
       </div>
-      <div className="flex justify-end gap-3">
+      <div data-modal-footer className="flex justify-end gap-3">
         <button onClick={handleClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
         <button
           onClick={() => { if (reason.trim()) { onSubmit(reason.trim()); setReason(''); onClose() } }}
@@ -411,7 +411,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Notes</label>
           <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" rows={2} />
         </div>
-        <div className="flex justify-end gap-3 pt-4">
+        <div data-modal-footer className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
           <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 rounded-md text-sm">Save Changes</button>
         </div>

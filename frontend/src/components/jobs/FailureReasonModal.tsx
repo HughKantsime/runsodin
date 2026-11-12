@@ -73,7 +73,7 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 pt-4">
+      <div data-modal-footer className="flex items-center justify-end gap-3 pt-4">
         <button
           onClick={onClose}
           className="px-4 py-2 text-sm text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] rounded-md"

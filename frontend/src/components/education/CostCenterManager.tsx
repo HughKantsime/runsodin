@@ -425,7 +425,7 @@ function CenterEditor({
         <Input label="Name" value={draft.name} maxLength={200} required onChange={(event) => onDraftChange({ ...draft, name: event.target.value })} />
         <Input label="Code" value={draft.code} maxLength={100} required onChange={(event) => onDraftChange({ ...draft, code: event.target.value })} />
         <Textarea label="Description" value={draft.description} maxLength={2000} rows={4} onChange={(event) => onDraftChange({ ...draft, description: event.target.value })} />
-        <div className="flex justify-end gap-2">
+        <div data-modal-footer className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" loading={pending} disabled={!draft.name.trim() || !draft.code.trim()}>
             {editing ? 'Save changes' : 'Create cost center'}

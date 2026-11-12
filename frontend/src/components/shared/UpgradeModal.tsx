@@ -15,7 +15,7 @@ export default function UpgradeModal({ isOpen, onClose, resource = 'printers' }:
       <p className="text-sm text-[var(--brand-text-secondary)] mb-6">
         You've reached the Community tier limit for {label}. Upgrade to Pro for unlimited {label}, plus multi-user RBAC, analytics, and more.
       </p>
-      <div className="flex items-center gap-3">
+      <div data-modal-footer className="flex items-center gap-3">
         <button
           onClick={onClose}
           className="flex-1 px-4 py-2.5 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-sm transition-colors"

@@ -126,7 +126,7 @@ function CreateSpoolForm({ filaments, onClose, onCreate, pending = false, owner 
         <label className="block"><input type="checkbox" checked={purchaseEnabled} onChange={e => setPurchaseEnabled(e.target.checked)} /> Record explicit purchase evidence</label>
         {purchaseEnabled && <PurchaseFields {...purchase} onChange={(field, value) => setPurchase({ ...purchase, [field]: value })} />}
         {purchaseError && <p role="alert">{purchaseError}</p>}
-        <div className="flex gap-3 pt-2">
+        <div data-modal-footer className="flex gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
@@ -222,7 +222,7 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
           </div>
         )}
 
-        <div className="flex gap-3 pt-2">
+        <div data-modal-footer className="flex gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
@@ -301,7 +301,7 @@ export function UseSpoolModal({ spool, onClose, onUse }: { spool: any; onClose: 
           />
         </div>
 
-        <div className="flex gap-3 pt-2">
+        <div data-modal-footer className="flex gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
@@ -375,7 +375,7 @@ export function DryingModal({ spool, onClose, onSubmit }: { spool: any; onClose:
           <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Notes</label>
           <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" placeholder="Before printing nylon parts" />
         </div>
-        <div className="flex gap-3 pt-2">
+        <div data-modal-footer className="flex gap-3 pt-2">
           <button type="button" onClick={onClose} className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]">Cancel</button>
           <button type="submit" className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-md text-white">Log Drying</button>
         </div>
