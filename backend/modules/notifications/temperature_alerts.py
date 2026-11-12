@@ -31,6 +31,7 @@ SETTINGS_KEY = "temperature_alerts"
 STATE_KEY = "temperature_alerts_state"
 INTERVAL_SECONDS = 120
 LOCK_NAME = ".temperature-alerts.lock"
+CRITICAL_MARK = ":critical"   # state key suffix: the critical form of an alert was sent
 
 # One statement for every printer with a running print. LEFT JOIN: a printer with no recent telemetry
 # still appears (so its alert state survives a telemetry gap) with NULL readings.
@@ -73,7 +74,7 @@ def store_settings(db, settings: dict) -> None:
 def load_state(db) -> dict:
     row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": STATE_KEY}).first()
     state = {}
-    for key, entry in (_load_json(row[0]) if row else None or {}).items():
+    for key, entry in ((_load_json(row[0]) if row else None) or {}).items():  # unreadable row = no state
         if (isinstance(key, str) and key.isdigit() and isinstance(entry, dict)
                 and isinstance(entry.get("print"), int) and isinstance(entry.get("alerted"), list)):
             state[key] = {"print": entry["print"], "alerted": [a for a in entry["alerted"] if isinstance(a, str)]}
@@ -100,8 +101,6 @@ def describe(name: str, finding: Finding) -> str:
         return f"{who} is {_c(finding.actual - finding.target)} above its {_c(finding.target)} target for {span}"
     if finding.rule == HEATING_WITHOUT_TARGET:
         return f"{who} is heating up ({_c(finding.actual)}) with no target set, rising for {span}"
-    if finding.detail == "frozen":
-        return f"{who} sensor has read exactly {_c(finding.actual)} for {span} while its target changed"
     return f"{who} sensor reads {_c(finding.actual)}, outside its possible range"
 
 
@@ -123,6 +122,8 @@ def _stage(db, printer_id: int, name: str, finding: Finding):
 # ---------------------------------------------------------------- the pass
 
 def _naive_utc(value):
+    if value is None:
+        return None  # a print with no recorded start: the rules accept that
     if isinstance(value, str):
         value = datetime.fromisoformat(value)
     if value.tzinfo is not None:
@@ -167,15 +168,18 @@ def run_pass(session_factory, *, now=None) -> list:
             previous = state.get(str(printer_id))
             carried = set(previous["alerted"]) if previous and previous["print"] == group["print_id"] else set()
             result = evaluate(group["samples"], group["started_at"], current, th)
-            alerted = carried - {f"{sensor}:{rule}" for sensor, rule in result.clear}
+            cleared = {f"{sensor}:{rule}" for sensor, rule in result.clear}
+            alerted = carried - cleared - {key + CRITICAL_MARK for key in cleared}
             plans, fresh = [], []
             try:
                 for finding in result.findings:
                     key = f"{finding.sensor}:{finding.rule}"
-                    if key in alerted:
+                    # A warning that worsens to critical is reported once more, as critical.
+                    marks = {key, key + CRITICAL_MARK} if finding.critical else {key}
+                    if marks <= alerted:
                         continue
                     plans.append(_stage(db, printer_id, group["name"], finding))
-                    alerted.add(key)
+                    alerted |= marks
                     fresh.append((printer_id, finding.sensor, finding.rule))
                 if alerted:
                     state[str(printer_id)] = {"print": group["print_id"], "alerted": sorted(alerted)}

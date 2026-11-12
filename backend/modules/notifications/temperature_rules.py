@@ -22,11 +22,9 @@ SENSOR_FAULT = "sensor_fault"
 RULES = (NOT_REACHING_TARGET, OVERSHOOT, HEATING_WITHOUT_TARGET, SENSOR_FAULT)
 
 SANE_RANGE = {NOZZLE: (-10.0, 350.0), BED: (-10.0, 150.0)}
-FROZEN_MINUTES = 30          # an identical reading this long, while the target moved, is a frozen sensor
-FROZEN_TARGET_SPAN_C = 5.0   # "the target moved": its extremes in the window differ by more than this
-AMBIENT_C = 35.0             # an unchanging reading at or below this is just a cold sensor
 STALE_MINUTES = 6            # newest sample older than this: the printer is not reporting, judge nothing
-GAP_SLACK_MINUTES = 2        # N consecutive samples may span N + this many minutes, no more
+_TAIL_TOLERANCE = timedelta(seconds=45)   # sampling jitter allowed at the start of a sustained period
+GAP_SLACK_MINUTES = 2        # a sustained period may miss this many one-minute samples, no more
 TARGET_STEP_C = 0.5          # a target moving by more than this is a target change
 RISE_C = 2.0                 # net rise over the window that counts as "rising"
 RISE_DIP_C = 1.0             # a step down larger than this inside the window means not rising
@@ -83,7 +81,7 @@ class Finding:
     target: Optional[float]
     minutes: int
     critical: bool = False
-    detail: str = ""  # sensor_fault only: "range" or "frozen"
+    detail: str = ""  # sensor_fault only: "range"
 
     @property
     def key(self) -> tuple[str, str]:
@@ -166,7 +164,7 @@ def thresholds_from(settings: Mapping[str, Any]) -> Thresholds:
 
 def window_minutes(thresholds: Thresholds) -> int:
     """How far back the checker must read: the longest look-back any rule uses, plus a margin."""
-    return max(thresholds.sustain_minutes + thresholds.warmup_minutes, FROZEN_MINUTES) + 2
+    return thresholds.sustain_minutes + thresholds.warmup_minutes + GAP_SLACK_MINUTES + 2
 
 
 # ---------------------------------------------------------------- helpers
@@ -188,11 +186,17 @@ def _points(samples: Sequence[Sample], sensor: str, started_at: Optional[datetim
 
 
 def _tail(points: list[_Point], count: int) -> Optional[list[_Point]]:
-    """The last `count` points, if they really are consecutive (no long gap inside them)."""
+    """The points covering the last `count` minutes, if they really span them without a long gap.
+    Judged by time, not by sample count: a monitor that writes several rows a minute must still
+    violate for the whole period."""
     if len(points) < count:
         return None
-    tail = points[-count:]
-    if tail[-1].at - tail[0].at > timedelta(minutes=count + GAP_SLACK_MINUTES):
+    last = points[-1].at
+    need = timedelta(minutes=count - 1)
+    tail = [point for point in points if point.at >= last - need - _TAIL_TOLERANCE]
+    if len(tail) < max(2, count - GAP_SLACK_MINUTES) or last - tail[0].at < need - _TAIL_TOLERANCE:
+        return None
+    if any(after.at - before.at > timedelta(minutes=1 + GAP_SLACK_MINUTES) for before, after in zip(tail, tail[1:])):
         return None
     return tail
 
@@ -271,7 +275,8 @@ def overshoot(sensor: str, points: list[_Point], th: Thresholds) -> tuple[Option
                    critical=last.actual - last.target > CRITICAL_OVER_C), False
 
 
-def heating_without_target(sensor: str, points: list[_Point], th: Thresholds) -> tuple[Optional[Finding], bool]:
+def heating_without_target(sensor: str, points: list[_Point], th: Thresholds,
+                           started_at: Optional[datetime] = None) -> tuple[Optional[Finding], bool]:
     tail = _tail(points, th.sustain_minutes)
     if tail is None:
         return None, False
@@ -287,24 +292,13 @@ def heating_without_target(sensor: str, points: list[_Point], th: Thresholds) ->
     rising = values[-1] - values[0] >= RISE_C and all(after - before >= -RISE_DIP_C for before, after in zip(values, values[1:]))
     if not rising:
         return None, False  # hot and cooling, or hot and steady: not an alert, and not a recovery either
+    # A target reported late at the very start of a print looks the same: wait out the warm-up.
+    grace_end = _grace_end((started_at,), th.warmup_minutes)
+    if grace_end is not None and tail[0].at < grace_end:
+        return None, False
     last = tail[-1]
     return Finding(HEATING_WITHOUT_TARGET, sensor, last.actual, last.target,
                    _run_minutes(points, idle_hot, th.sustain_minutes), critical=True), False
-
-
-def _frozen_window(points: list[_Point]) -> Optional[list[_Point]]:
-    last = points[-1]
-    window = [point for point in points if point.at >= last.at - timedelta(minutes=FROZEN_MINUTES)]
-    if len(window) < FROZEN_MINUTES * 0.8:
-        return None
-    if last.at - window[0].at < timedelta(minutes=FROZEN_MINUTES - GAP_SLACK_MINUTES):
-        return None
-    if last.actual <= AMBIENT_C or any(point.actual != last.actual for point in window):
-        return None
-    targets = [point.target for point in window if point.target is not None]
-    if not targets or max(targets) - min(targets) <= FROZEN_TARGET_SPAN_C:
-        return None
-    return window
 
 
 def sensor_fault(sensor: str, points: list[_Point], th: Thresholds) -> tuple[Optional[Finding], bool]:
@@ -342,7 +336,7 @@ def evaluate(samples: Sequence[Sample], started_at: Optional[datetime], now: dat
         results = (
             (NOT_REACHING_TARGET, not_reaching_target(sensor, points, started_at, th)),
             (OVERSHOOT, overshoot(sensor, points, th)),
-            (HEATING_WITHOUT_TARGET, heating_without_target(sensor, points, th)),
+            (HEATING_WITHOUT_TARGET, heating_without_target(sensor, points, th, started_at)),
             (SENSOR_FAULT, sensor_fault(sensor, points, th)),
         )
         for rule, (finding, recovered) in results:

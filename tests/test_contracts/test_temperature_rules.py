@@ -140,7 +140,7 @@ def test_defaults_match_the_spec():
                                   "disabled_printer_ids": []}
     th = thresholds_from(default_settings())
     assert (th.under_c, th.over_c, th.sustain_minutes, th.warmup_minutes) == (15.0, 15.0, 5, 8)
-    assert window_minutes(th) >= 30
+    assert 13 <= window_minutes(th) <= 20   # sustain + warm-up plus a margin, never the whole history
 
 
 def test_defaults_are_not_shared():
@@ -172,3 +172,22 @@ def test_normalize_falls_back_per_key():
     assert settings["under_c"] == 15 and settings["over_c"] == 25 and settings["enabled"] is False
     assert settings["sustain_minutes"] == 5 and "stray" not in settings
     assert normalize_settings(None) == default_settings() and normalize_settings("x") == default_settings()
+
+
+def test_fast_telemetry_must_still_violate_for_the_whole_period():
+    # A monitor writing every 5 seconds: 30 low samples cover two and a half minutes, not 5.
+    fast = [Sample(NOW - timedelta(seconds=5 * (29 - i)), 60.0, 190.0, 60.0, 220.0) for i in range(30)]
+    assert keys(evaluate(fast, LONG_AGO, NOW)) == set()
+    long_enough = [Sample(NOW - timedelta(seconds=5 * (59 - i)), 60.0, 190.0, 60.0, 220.0) for i in range(60)]
+    assert keys(evaluate(long_enough, LONG_AGO, NOW)) == {(NOZZLE, NOT_REACHING_TARGET)}
+
+
+def test_a_long_gap_inside_the_period_is_not_sustained():
+    samples = [s for i, s in enumerate(make(12, nozzle=190.0)) if i not in (8, 9, 10)]
+    assert keys(evaluate(samples, LONG_AGO, NOW)) == set()
+
+
+def test_heating_with_no_target_waits_out_the_warm_up():
+    rising = make(8, nozzle=lambda i: 70.0 + 5 * i, nozzle_target=0.0)
+    assert keys(evaluate(rising, NOW - timedelta(minutes=7), NOW)) == set()
+    assert keys(evaluate(rising, None, NOW)) == {(NOZZLE, HEATING_WITHOUT_TARGET)}

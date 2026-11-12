@@ -165,10 +165,10 @@ def test_critical_for_overshoot_above_30_and_for_heating_with_no_target(farm):
     add_printer(farm, 2, "Yoda", print_id=2)
     add_printer(farm, 3, "Zed", print_id=3)
     fill(farm, 1, 0, 8, nozzle=255.0)  # 35 above
-    fill(farm, 2, 0, 8, nozzle=235.0)  # 15 above? 15 is not more than 15: use 238 below
-    fill(farm, 2, 0, 0, nozzle=235.0)
-    fill(farm, 3, 0, 8, nozzle=lambda m: 70.0 + 5 * m, nozzle_target=0.0)
-    raised = farm.run(8)
+    fill(farm, 2, 0, 14, nozzle=235.0)  # exactly 15 above: not "more than 15"
+    fill(farm, 1, 9, 14, nozzle=255.0)
+    fill(farm, 3, 0, 14, nozzle=lambda m: 70.0 + 5 * m, nozzle_target=0.0)  # judged once the warm-up has passed
+    raised = farm.run(14)
     severity = {(plan.printer_id): plan.severity for plan in farm.delivered}
     assert (1, "nozzle", "overshoot") in raised and (3, "nozzle", "heating_without_target") in raised
     assert severity[1] == AlertSeverity.CRITICAL and severity[3] == AlertSeverity.CRITICAL
@@ -229,12 +229,19 @@ def test_one_telemetry_query_per_pass_for_all_printers(farm):
 def test_only_the_recent_window_is_read(farm):
     add_printer(farm, 1, "Xena", print_id=1, started=0)
     fill(farm, 1, 0, 100)
-    statements = []
-    event.listen(farm.engine, "before_cursor_execute",
-                 lambda conn, cursor, statement, parameters, *rest: statements.append(parameters))
+    bounds = []
+
+    def capture(conn, cursor, statement, parameters, *rest):
+        if "printer_telemetry" in statement:
+            bounds.append(parameters)
+
+    event.listen(farm.engine, "before_cursor_execute", capture)
     farm.run(100)
-    bound = next(p for p in statements if isinstance(p, (tuple, list, dict)) and "until" in str(p) or True)
-    assert bound is not None  # the bounds are exercised by the window assertions in the rule tests
+    assert len(bounds) == 1
+    values = list(bounds[0].values()) if isinstance(bounds[0], dict) else list(bounds[0])
+    moments = sorted(str(v) for v in values)
+    since, until = datetime.fromisoformat(moments[0]), datetime.fromisoformat(moments[-1])
+    assert timedelta(minutes=13) <= until - since <= timedelta(minutes=20)
 
 
 def test_the_lock_keeps_a_second_worker_out(farm, monkeypatch):
@@ -320,3 +327,25 @@ def test_education_inventory_needs_no_entry_for_the_new_modules():
     assert not {"notifications.temperature_alerts", "notifications.temperature_rules",
                 "system.routes_temperature_alerts"} & surfaces
     validate_policy_inventory(surfaces)
+
+
+@pytest.mark.parametrize("value", ["not json", "null", "[1, 2]", '{"1": "x"}'])
+def test_an_unreadable_state_row_is_treated_as_no_state(farm, value):
+    add_printer(farm, 1, "Xena", print_id=1)
+    fill(farm, 1, 0, 14, nozzle=190.0)
+    with farm.factory() as db:
+        temperature_alerts.write_config_text(db, temperature_alerts.STATE_KEY, value)
+        db.commit()
+    assert farm.run(14) == [(1, "nozzle", "not_reaching_target")]
+    assert farm.run(16) == []
+
+
+def test_an_overshoot_that_worsens_to_critical_alerts_once_more(farm):
+    add_printer(farm, 1, "Xena", print_id=1)
+    fill(farm, 1, 0, 14, nozzle=240.0)            # 20 over: warning
+    assert farm.run(14) == [(1, "nozzle", "overshoot")]
+    fill(farm, 1, 15, 24, nozzle=265.0)           # 45 over: critical
+    assert farm.run(24) == [(1, "nozzle", "overshoot")]
+    assert [plan.severity for plan in farm.delivered] == [AlertSeverity.WARNING, AlertSeverity.CRITICAL]
+    fill(farm, 1, 25, 30, nozzle=265.0)
+    assert farm.run(30) == []
