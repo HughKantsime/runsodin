@@ -328,10 +328,8 @@ def _report_hold(job, refusal, detail) -> None:
                                        gate_refusal=GateRefusal(REFUSAL_CODE, detail), message=detail)
     except Exception:
         pass
-    try:
-        dispatch._ws(job['id'], 'failed', refusal)
-    except Exception:
-        pass
+    # No websocket 'failed' here: like the other pre-admission refusals, the dispatch worker
+    # reports the refused result once.
 
 
 def _raise_alert(engine, job, result, message) -> None:
