@@ -209,7 +209,7 @@ export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleS
 }) {
   const extra = extraJob ? (
     <ul aria-label="Linked job">
-      <JobCard key={`deep-${extraJob.id}`} job={extraJob} highlight onAction={onAction} isSelected={false} onToggleSelect={onToggleSelect} correctionPrincipal={correctionPrincipal}
+      <JobCard key={`deep-${extraJob.id}`} job={extraJob} highlight onAction={onAction} isSelected={selectedIds.has(extraJob.id)} onToggleSelect={onToggleSelect} correctionPrincipal={correctionPrincipal}
         dispatchFenced={dispatchFencedIds?.has(extraJob.id)} isDispatching={dispatchingId === extraJob.id}
         pinnedPrinterName={extraJob.pinned_printer_id != null ? printers.find(p => p.id === extraJob.pinned_printer_id)?.name : undefined} />
     </ul>
