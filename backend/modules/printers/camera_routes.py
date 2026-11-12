@@ -578,36 +578,60 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
 # It reads go2rtc's JPEG of the already-shared upstream, so it opens no stream and takes no
 # stream slot; callers of one printer inside the window below share a single upstream read.
 OVERLAY_SNAPSHOT_SHARE_SECONDS = 1.0
+OVERLAY_SNAPSHOT_FAILURE_SECONDS = 10.0   # a camera that just failed is not asked again for this long
+OVERLAY_SNAPSHOT_SYNC_SECONDS = 60.0      # relay config sync at most this often per printer
+OVERLAY_SNAPSHOT_KEEP_SECONDS = 30.0      # frames older than this are dropped from memory
 OVERLAY_SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024
-_snapshot_frames: dict = {}   # printer_id -> (monotonic time, jpeg bytes)
-_snapshot_locks: dict = {}    # printer_id -> asyncio.Lock (single flight per printer)
+_snapshot_frames: dict = {}    # printer_id -> (monotonic time, jpeg bytes)
+_snapshot_failures: dict = {}  # printer_id -> (monotonic time, relay_missing: bool)
+_snapshot_synced: dict = {}    # printer_id -> monotonic time of the last relay sync
+_snapshot_locks: dict = {}     # printer_id -> asyncio.Lock (single flight per printer)
+
+
+class _RelayHasNoStream(Exception):
+    """go2rtc answered, but not with a frame for this camera (unknown stream, or no source yet)."""
 
 
 async def _overlay_frame(printer_id: int) -> bytes:
+    """The camera's current JPEG. Raises _RelayHasNoStream when the relay has none, or
+    HTTPException(502) for anything else; a failure is remembered briefly so callers
+    queued on a dead camera do not each wait out the upstream timeout."""
     import asyncio, time
-    from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
     from modules.printers.route_utils import mjpeg_stream_name
     lock = _snapshot_locks.setdefault(printer_id, asyncio.Lock())
     async with lock:
+        now = time.monotonic()
         cached = _snapshot_frames.get(printer_id)
-        if cached and time.monotonic() - cached[0] < OVERLAY_SNAPSHOT_SHARE_SECONDS:
+        if cached and now - cached[0] < OVERLAY_SNAPSHOT_SHARE_SECONDS:
             return cached[1]
-        frame = bytearray()
+        failed = _snapshot_failures.get(printer_id)
+        if failed and now - failed[0] < OVERLAY_SNAPSHOT_FAILURE_SECONDS:
+            if failed[1]:
+                raise _RelayHasNoStream()
+            raise HTTPException(status_code=502, detail="Camera snapshot unavailable")
+        for stale in [pid for pid, (at, _) in _snapshot_frames.items() if now - at > OVERLAY_SNAPSHOT_KEEP_SECONDS]:
+            del _snapshot_frames[stale]
+        frame, missing = bytearray(), False
         try:
             async with httpx.AsyncClient(trust_env=False, **go2rtc_client_kwargs()) as client:
                 async with client.stream("GET", f"{go2rtc_api_url()}/api/frame.jpeg",
                                          params={"src": mjpeg_stream_name(printer_id)}, timeout=15,
                                          follow_redirects=False) as upstream:
                     if upstream.status_code != 200:
-                        raise HTTPException(status_code=502, detail="Camera snapshot unavailable")
-                    async for chunk in upstream.aiter_bytes():
-                        frame.extend(chunk)
-                        if len(frame) > OVERLAY_SNAPSHOT_MAX_BYTES:
-                            raise HTTPException(status_code=502, detail="Camera snapshot too large")
+                        missing = True
+                    else:
+                        async for chunk in upstream.aiter_bytes():
+                            frame.extend(chunk)
+                            if len(frame) > OVERLAY_SNAPSHOT_MAX_BYTES:
+                                break
         except httpx.HTTPError:
-            raise HTTPException(status_code=502, detail="Camera snapshot unavailable") from None
-        if not frame.startswith(b"\xff\xd8\xff"):
+            frame = bytearray()
+        if missing or len(frame) > OVERLAY_SNAPSHOT_MAX_BYTES or not frame.startswith(b"\xff\xd8\xff"):
+            _snapshot_failures[printer_id] = (time.monotonic(), missing)
+            if missing:
+                raise _RelayHasNoStream()
             raise HTTPException(status_code=502, detail="Camera snapshot unavailable")
+        _snapshot_failures.pop(printer_id, None)
         _snapshot_frames[printer_id] = (time.monotonic(), bytes(frame))
         return _snapshot_frames[printer_id][1]
 
@@ -626,12 +650,23 @@ async def overlay_camera_snapshot(printer_id: int, token: Optional[str] = Query(
         bind_verified_actor(db, principal, 'user_api_token')
 
     await run_in_threadpool(authorize)
+    import time
     try:
         frame = await _overlay_frame(printer_id)
-    except HTTPException:
-        # The relay may not know this camera yet (first use, or a restart): sync once and retry.
+    except _RelayHasNoStream:
+        # The relay does not know this camera yet (first use, or a restart): sync its config
+        # and retry, but at most once a minute per printer so a dead camera cannot keep
+        # rewriting the relay under other viewers.
+        last = _snapshot_synced.get(printer_id)
+        if last is not None and time.monotonic() - last < OVERLAY_SNAPSHOT_SYNC_SECONDS:
+            raise HTTPException(status_code=502, detail="Camera snapshot unavailable") from None
+        _snapshot_synced[printer_id] = time.monotonic()
         await run_in_threadpool(sync_go2rtc_config, db)
-        frame = await _overlay_frame(printer_id)
+        _snapshot_failures.pop(printer_id, None)
+        try:
+            frame = await _overlay_frame(printer_id)
+        except _RelayHasNoStream:
+            raise HTTPException(status_code=502, detail="Camera snapshot unavailable") from None
     # The frame may have been read for another caller: authorize again before releasing it.
     db.expire_all()
     await run_in_threadpool(authorize)
