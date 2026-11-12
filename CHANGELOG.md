@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Deleting a printer locks the shared Experimental opt-in store before reading it, so a concurrent revocation for another printer cannot be overwritten on PostgreSQL.
+- OctoPrint monitoring retries start observation after an unreadable job or missing filename, and establishes an active attempt when first observed paused so resume and progress remain tracked.
+- Printer detail pages show the Experimental badge, warning and administrator opt-in, with immediate refresh after changing the setting.
+
 ### Added
 
 - OctoPrint printers (Experimental). Add an OctoPrint server as a printer (type OctoPrint, with an application key created in OctoPrint) to monitor its state, temperatures, progress and camera. Sending jobs and resume stay off until a platform administrator turns them on for that printer; pause and stop always work. The support is built from OctoPrint's public REST API documentation and has not been verified on real hardware. Restart the container after adding an OctoPrint printer, changing its address or key, or deactivating it, so the monitor process reads the new list (the same as PrusaLink; with the license fleet lock on, new printers start by themselves). See [OctoPrint](docs/printers/octoprint.md).

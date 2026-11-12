@@ -177,9 +177,13 @@ def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:
 
 def forget_printer(connection, printer_id) -> None:
     """Drop a deleted printer's entry so a recycled id never inherits an opt-in."""
-    from sqlalchemy import update
+    from sqlalchemy import select, update
     from core.models import SystemConfig
-    raw = connection.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': CONFIG_KEY}).scalar_one_or_none()
+    table = SystemConfig.__table__
+    # Serialize with opt-in changes before taking the shared JSON snapshot.
+    raw = connection.execute(
+        select(table.c.value).where(table.c.key == CONFIG_KEY).with_for_update()
+    ).scalar_one_or_none()
     if raw is None:
         return
     try:
@@ -187,5 +191,4 @@ def forget_printer(connection, printer_id) -> None:
     except ValueError:
         store = {}
     store.pop(str(printer_id), None)
-    table = SystemConfig.__table__
     connection.execute(update(table).where(table.c.key == CONFIG_KEY).values(value=store))
