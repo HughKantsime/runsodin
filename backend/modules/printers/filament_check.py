@@ -302,6 +302,26 @@ def check_job(conn, job_id, printer_id) -> dict:
     return evaluate(conn, job=job, printer_id=printer_id, mapping=None, settings=settings)
 
 
+def hide_spool_details(result) -> dict:
+    """The same verdict without the printer owner's spool id or remaining weight.
+
+    Used when the caller reaches the printer only because it is shared: whether the job fits is
+    theirs to know, the owner's inventory is not.
+    """
+    slots = []
+    for item in result.get('slots', []):
+        item = dict(item, spool_id=None, remaining_g=None)
+        label = _label(item.get('slot'), item.get('material'), item.get('color'))
+        if item['status'] == 'enough':
+            item['message'] = f'{label} has enough filament for this print'
+        elif item['status'] == 'short':
+            item['message'] = (f'{label} does not have enough filament; '
+                               f"this print needs about {math.ceil(item['needed_g'])} g")
+        slots.append(item)
+    return {**result, 'slots': slots, 'spool_details_hidden': True,
+            'warnings': [i['message'] for i in slots if i['status'] == 'short']}
+
+
 # -------------------------------------------------------------------- gate
 
 def _audit_details(job, result) -> dict:
