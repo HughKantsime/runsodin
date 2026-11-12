@@ -169,7 +169,7 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
           <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] text-sm" rows={2} />
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t border-[var(--brand-card-border)]">
+        <div data-modal-footer className="flex justify-end gap-2 pt-4 border-t border-[var(--brand-card-border)]">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">
             Cancel
           </button>
@@ -411,7 +411,7 @@ export function ShippingModal({ isOpen, order, shippingForm, setShippingForm, on
             <option value="other">Other</option>
           </select>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div data-modal-footer className="flex justify-end gap-2 pt-2">
           <button disabled={isSubmitting} onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
           <button disabled={isSubmitting} onClick={onSubmit} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm flex items-center gap-2">
             <Truck size={14} /> Mark Shipped
@@ -546,7 +546,7 @@ export function EditOrderModal({ isOpen, order, onClose, onSubmit, editFormData,
           )}
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t border-[var(--brand-card-border)]">
+        <div data-modal-footer className="flex justify-end gap-2 pt-4 border-t border-[var(--brand-card-border)]">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
           <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">Save Changes</button>
         </div>

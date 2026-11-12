@@ -105,7 +105,7 @@ export default function AlertBell() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-md transition-colors hover:bg-[var(--brand-surface)]"
+        className="relative p-2 rounded-md transition-colors hover:bg-[var(--brand-surface)] max-sm:min-h-11 max-sm:min-w-11 max-sm:flex max-sm:items-center max-sm:justify-center"
         style={{ color: 'var(--brand-text-secondary)' }}
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
         aria-expanded={isOpen}

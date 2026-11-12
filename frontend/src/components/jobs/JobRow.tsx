@@ -169,7 +169,7 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       overdue && 'bg-red-950/30 border-l-2 border-l-red-500'
     )}>
       <div className="flex items-start gap-2">
-        <CheckTarget><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 mt-0.5 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
+        <CheckTarget touch><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 mt-0.5 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
         <div className="min-w-0 flex-1">
           <JobItemDetails job={job} nameClassName="font-medium text-sm break-words" />
         </div>
@@ -209,7 +209,7 @@ export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleS
   return (
     <div>
       <div className="flex items-center gap-2 px-3 py-2 bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)] text-xs text-[var(--brand-text-secondary)]">
-        <CheckTarget><input type="checkbox" checked={allSelected} onChange={onSelectAll} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" /></CheckTarget>
+        <CheckTarget touch><input type="checkbox" checked={allSelected} onChange={onSelectAll} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" /></CheckTarget>
         <span>Select all</span>
       </div>
       <ul aria-label="Jobs list">

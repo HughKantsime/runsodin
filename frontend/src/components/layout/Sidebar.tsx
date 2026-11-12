@@ -164,11 +164,14 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
 
       <aside
         role="navigation"
+        data-drawer-open={mobileOpen ? 'true' : 'false'}
         aria-label="Main navigation"
         className={clsx(
           "sidebar flex flex-col h-full transition-all duration-300",
           // Mobile: fixed drawer, hidden by default
           "fixed md:relative z-50 md:z-auto",
+          // Phone: full-height sheet (dynamic viewport height so the browser toolbar does not clip the footer)
+          "max-sm:inset-y-0 max-sm:left-0 max-sm:h-dvh",
           mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
           // Width
           collapsed ? "w-64 md:w-16" : "w-64"
@@ -239,7 +242,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         )}
 
         {/* Navigation */}
-        <nav className="sidebar-nav flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
+        <nav className="sidebar-nav flex-1 overflow-y-auto p-4 space-y-1 min-h-0 max-sm:overscroll-contain">
           {/* Fleet */}
           {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>{t('nav.dashboard')}</NavItem>}
           {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>{t('nav.printers')}</NavItem>}
@@ -326,7 +329,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         )}
 
         {/* Footer */}
-        <div className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+        <div className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
           <div className="flex items-center justify-between">
             {(!collapsed || mobileOpen) && (
               <span className="text-[10px]" style={{ color: 'var(--brand-text-muted)' }}>v{__APP_VERSION__}</span>

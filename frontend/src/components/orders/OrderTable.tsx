@@ -13,7 +13,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
             <div className="flex justify-between items-start mb-2">
               <button
                 onClick={() => onDetail(order)}
-                className="font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
+                className="font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)] max-sm:min-h-11"
               >
                 {order.order_number || `#${order.id}`}
               </button>
@@ -26,7 +26,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               <div>Revenue: <span className="font-mono">{order.revenue != null ? `$${order.revenue.toFixed(2)}` : '-'}</span></div>
               {order.created_at && <div>Date: {new Date(order.created_at).toLocaleDateString()}</div>}
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
               <Button variant="ghost" size="icon" icon={Eye} onClick={() => onDetail(order)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="View Details" />
               {canDo('orders.edit') && (
                 <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onEdit(order)} title="Edit Order" />

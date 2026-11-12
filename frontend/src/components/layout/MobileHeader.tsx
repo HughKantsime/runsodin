@@ -1,5 +1,7 @@
 import { useFoundry } from '../../hooks/themePreferences'
-import { Menu } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Menu, Search } from 'lucide-react'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useBranding } from '../../BrandingContext'
 import GlobalSearch from '../shared/GlobalSearch'
 import ThemeToggle from './ThemeToggle'
@@ -8,6 +10,22 @@ import AlertBell from '../notifications/AlertBell'
 export default function MobileHeader({ onMenuClick }) {
   const branding = useBranding()
   const foundry = useFoundry()
+  // Under 640 px the search collapses to an icon button; tapping it expands the field.
+  const phone = useMediaQuery('(max-width: 639px)')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const expanded = phone && searchOpen
+  const searchBox = useRef<HTMLDivElement>(null)
+  const searchButton = useRef<HTMLButtonElement>(null)
+  const refocusButton = useRef(false)
+  useEffect(() => {
+    if (expanded) searchBox.current?.querySelector('input')?.focus()
+  }, [expanded])
+  useEffect(() => {
+    if (!searchOpen && refocusButton.current) {
+      refocusButton.current = false
+      searchButton.current?.focus()
+    }
+  }, [searchOpen])
 
   return (
     <header
@@ -17,7 +35,7 @@ export default function MobileHeader({ onMenuClick }) {
         borderBottom: '1px solid var(--brand-sidebar-border)',
       }}
     >
-      <div className={foundry ? 'flex items-center gap-3 min-w-0 shrink-0 max-w-[28%]' : 'flex items-center gap-3'}>
+      <div className={(foundry ? 'flex items-center gap-3 min-w-0 shrink-0 max-w-[28%]' : 'flex items-center gap-3') + (expanded ? ' hidden' : '')}>
         {branding.logo_url && (
           <img src={branding.logo_url} alt={branding.app_name} className={foundry ? 'h-6 max-w-8 object-contain shrink-0' : 'h-6 object-contain'} />
         )}
@@ -25,13 +43,40 @@ export default function MobileHeader({ onMenuClick }) {
           {branding.app_name}
         </h1>
       </div>
-      <div className={foundry ? 'mobile-header-actions flex flex-1 min-w-0 items-center justify-end gap-2' : 'flex items-center gap-2'}>
-        <GlobalSearch id="global-search-mobile" />
+      <div className={(foundry ? 'mobile-header-actions flex flex-1 min-w-0 items-center justify-end gap-2' : 'flex items-center gap-2') + (expanded ? ' w-full' : '')}>
+        {!phone ? (
+          <GlobalSearch id="global-search-mobile" />
+        ) : expanded ? (
+          <div
+            ref={searchBox}
+            className="flex-1 min-w-0 [&>div]:w-full [&_input]:w-full"
+            onKeyDown={e => { if (e.key === 'Escape') { refocusButton.current = true; setSearchOpen(false) } }}
+            onBlur={e => {
+              const next = e.relatedTarget as Node | null
+              if (next && e.currentTarget.contains(next)) return
+              if (!e.currentTarget.querySelector('input')?.value) setSearchOpen(false)
+            }}
+          >
+            <GlobalSearch id="global-search-mobile" />
+          </div>
+        ) : (
+          <button
+            ref={searchButton}
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="p-2 rounded-lg transition-colors min-w-11 min-h-11 flex items-center justify-center"
+            style={{ color: 'var(--brand-sidebar-text)' }}
+            aria-label="Search"
+            aria-expanded={false}
+          >
+            <Search size={20} aria-hidden="true" />
+          </button>
+        )}
         <ThemeToggle />
         <AlertBell />
         <button
           onClick={onMenuClick}
-          className="p-2 rounded-lg transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
+          className="p-2 rounded-lg transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center max-sm:min-w-11 max-sm:min-h-11"
           style={{ color: 'var(--brand-sidebar-text)' }}
           aria-label="Open menu"
         >
