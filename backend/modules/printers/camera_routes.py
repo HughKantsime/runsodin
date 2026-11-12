@@ -507,7 +507,9 @@ def overlay_camera_principal(db: Session, token: Optional[str], printer: Optiona
 
 # A stream re-checks its token, user and camera this often, and ends on refusal.
 OVERLAY_REVALIDATE_SECONDS = 30
-OVERLAY_MAX_STREAMS_PER_TOKEN = 3
+# One token often serves a whole dashboard (Home Assistant: every printer's live tile), so its
+# cap spans printers; the per-user and per-printer caps below still bound each camera.
+OVERLAY_MAX_STREAMS_PER_TOKEN = 16
 OVERLAY_MAX_STREAMS_PER_USER_PRINTER = 3   # one user's share of a printer's camera
 OVERLAY_MAX_STREAMS_PER_PRINTER = 8        # small global ceiling per printer (per API worker)
 # These caps are kept per API worker process (in memory): with N uvicorn workers a
@@ -570,3 +572,68 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
         revalidate_seconds=OVERLAY_REVALIDATE_SECONDS, audit=record,
         check_frame=_controlled_frame_guard(bind, printer_id),
     )
+
+
+# One still frame for dashboards that poll (Home Assistant asks every ~10 s per camera).
+# It reads go2rtc's JPEG of the already-shared upstream, so it opens no stream and takes no
+# stream slot; callers of one printer inside the window below share a single upstream read.
+OVERLAY_SNAPSHOT_SHARE_SECONDS = 1.0
+OVERLAY_SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024
+_snapshot_frames: dict = {}   # printer_id -> (monotonic time, jpeg bytes)
+_snapshot_locks: dict = {}    # printer_id -> asyncio.Lock (single flight per printer)
+
+
+async def _overlay_frame(printer_id: int) -> bytes:
+    import asyncio, time
+    from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+    from modules.printers.route_utils import mjpeg_stream_name
+    lock = _snapshot_locks.setdefault(printer_id, asyncio.Lock())
+    async with lock:
+        cached = _snapshot_frames.get(printer_id)
+        if cached and time.monotonic() - cached[0] < OVERLAY_SNAPSHOT_SHARE_SECONDS:
+            return cached[1]
+        frame = bytearray()
+        try:
+            async with httpx.AsyncClient(trust_env=False, **go2rtc_client_kwargs()) as client:
+                async with client.stream("GET", f"{go2rtc_api_url()}/api/frame.jpeg",
+                                         params={"src": mjpeg_stream_name(printer_id)}, timeout=15,
+                                         follow_redirects=False) as upstream:
+                    if upstream.status_code != 200:
+                        raise HTTPException(status_code=502, detail="Camera snapshot unavailable")
+                    async for chunk in upstream.aiter_bytes():
+                        frame.extend(chunk)
+                        if len(frame) > OVERLAY_SNAPSHOT_MAX_BYTES:
+                            raise HTTPException(status_code=502, detail="Camera snapshot too large")
+        except httpx.HTTPError:
+            raise HTTPException(status_code=502, detail="Camera snapshot unavailable") from None
+        if not frame.startswith(b"\xff\xd8\xff"):
+            raise HTTPException(status_code=502, detail="Camera snapshot unavailable")
+        _snapshot_frames[printer_id] = (time.monotonic(), bytes(frame))
+        return _snapshot_frames[printer_id][1]
+
+
+@router.get("/overlay/{printer_id}/snapshot", tags=["Overlay"])
+async def overlay_camera_snapshot(printer_id: int, token: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """One JPEG for a camera-only token: the same authorization as the overlay stream
+    (token, printer visibility, camera enabled, controlled-part audience) on every request."""
+    from core.audit_actor import bind_verified_actor
+    from core.audit_views import audit_view
+    from fastapi.concurrency import run_in_threadpool
+    from fastapi.responses import Response
+
+    def authorize():
+        principal = overlay_camera_principal(db, token, db.get(Printer, printer_id))
+        bind_verified_actor(db, principal, 'user_api_token')
+
+    await run_in_threadpool(authorize)
+    try:
+        frame = await _overlay_frame(printer_id)
+    except HTTPException:
+        # The relay may not know this camera yet (first use, or a restart): sync once and retry.
+        await run_in_threadpool(sync_go2rtc_config, db)
+        frame = await _overlay_frame(printer_id)
+    # The frame may have been read for another caller: authorize again before releasing it.
+    db.expire_all()
+    await run_in_threadpool(authorize)
+    await run_in_threadpool(audit_view, db, 'camera.viewed', 'printer', printer_id, 'snapshot')
+    return Response(frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
