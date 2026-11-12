@@ -32,6 +32,8 @@ const jobTypeTabs = [
   { value: 'adhoc', label: 'Ad-hoc', icon: null },
 ]
 
+const BULK_BATCH = 100 // POST /jobs/bulk-update refuses more
+
 export default function Jobs() {
   const foundry = useFoundry()
   const org = useOrg()
@@ -131,7 +133,19 @@ export default function Jobs() {
   const toggleSelectAll = (jobIds) => setSelectedJobs(prev => prev.size === jobIds.length ? new Set() : new Set(jobIds))
 
   const bulkAction = useMutation({
-    mutationFn: ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => bulkOps.jobs([...selectedJobs], action, extra),
+    // The server takes at most 100 jobs per request and the Active view can hold more, so a
+    // large selection goes in batches; counts from every batch are added up.
+    mutationFn: async ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => {
+      const ids = [...selectedJobs]
+      if (ids.length <= BULK_BATCH) return bulkOps.jobs(ids, action, extra)
+      let affected = 0, skipped = 0, counted = true
+      for (let i = 0; i < ids.length; i += BULK_BATCH) {
+        const part = (await bulkOps.jobs(ids.slice(i, i + BULK_BATCH), action, extra) ?? {}) as { affected?: number; skipped?: number }
+        if (Number.isInteger(part.affected) && Number.isInteger(part.skipped)) { affected += part.affected as number; skipped += part.skipped as number }
+        else counted = false
+      }
+      return counted ? { affected, skipped } : {}
+    },
     onSuccess: (result, vars) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] }); setSelectedJobs(new Set())
       if (vars.action === 'reschedule') {
@@ -140,7 +154,8 @@ export default function Jobs() {
         else toast.error('Reschedule result unavailable. Refresh the queue.')
       } else toast.success(`Bulk ${vars.action} completed`)
     },
-    onError: (err, vars) => toast.error(`Bulk ${vars.action} failed: ${err.message}`),
+    // An earlier batch may already have been applied: show the real state.
+    onError: (err, vars) => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.error(`Bulk ${vars.action} failed: ${err.message}`) },
   })
 
   const schedulePreset = useMutation({
@@ -472,7 +487,7 @@ export default function Jobs() {
             />
             <tbody>
               {deepExtra && (
-                <JobRow key={`deep-${deepExtra.id}`} job={deepExtra} highlight correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={false} onToggleSelect={toggleJobSelect}
+                <JobRow key={`deep-${deepExtra.id}`} job={deepExtra} highlight correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(deepExtra.id)} onToggleSelect={toggleJobSelect}
                   pinnedPrinterName={deepExtra.pinned_printer_id != null ? (printersData || []).find(p => p.id === deepExtra.pinned_printer_id)?.name : undefined}
                   dispatchFenced={dispatchFencedIds?.has(deepExtra.id)} isDispatching={dispatchJob.isPending && dispatchJob.variables === deepExtra.id} />
               )}

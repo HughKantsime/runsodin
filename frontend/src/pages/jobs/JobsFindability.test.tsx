@@ -8,13 +8,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import Jobs from './Jobs'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), cancel: vi.fn(), recent: vi.fn(), dispatch: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), cancel: vi.fn(), recent: vi.fn(), dispatch: vi.fn(), bulk: vi.fn() }))
 vi.mock('../../api', () => ({
   jobs: { list: api.list, get: api.get, cancel: api.cancel, recentTerminal: api.recent, create: vi.fn(), update: vi.fn(), reorder: vi.fn(), dispatch: api.dispatch, start: vi.fn(), complete: vi.fn(), delete: vi.fn(), repeat: vi.fn() },
   models: { list: vi.fn().mockResolvedValue([]) }, modelRevisions: { list: vi.fn().mockResolvedValue([]) },
   printers: { list: vi.fn().mockResolvedValue([{ id: 7, name: 'Printer Alpha', is_active: true }, { id: 8, name: 'Printer Beta', is_active: true }]) },
   presets: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), schedule: vi.fn(), delete: vi.fn() },
-  getApprovalSetting: vi.fn().mockResolvedValue({ require_approval: false }), scheduler: { run: vi.fn() }, bulkOps: { jobs: vi.fn() },
+  getApprovalSetting: vi.fn().mockResolvedValue({ require_approval: false }), scheduler: { run: vi.fn() }, bulkOps: { jobs: api.bulk },
   approveJob: vi.fn(), rejectJob: vi.fn(), resubmitJob: vi.fn(), updateJobFailure: vi.fn(),
 }))
 vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: 17 }) }))
@@ -172,4 +172,31 @@ it('a deep-linked job outside the filter keeps the dispatch safeguards of an ord
   await waitFor(() => expect(api.dispatch).toHaveBeenCalledTimes(1))
   const busy = await within(row('Far away job')).findByRole('button', { name: 'Dispatching...' })
   expect(busy).toBeDisabled()
+})
+
+it('a selection above the server limit of 100 is sent in batches', async () => {
+  // Regression (Codex sign-off 11-12): the Active view loads up to 500 jobs, Select all sent
+  // them in one request and the server refused it.
+  api.list.mockImplementation(async () => Array.from({ length: 135 }, (_, i) => ({ ...base, id: 1000 + i, item_name: `Bulk job ${i}`, status: 'pending' })))
+  api.bulk.mockResolvedValue({ affected: 1, skipped: 0 })
+  await show('/jobs', 'Bulk job 0')
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select all jobs' }))
+  await screen.findByText('135 selected')
+  fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Priority 1')!)
+  await waitFor(() => expect(api.bulk).toHaveBeenCalledTimes(2))
+  expect(api.bulk.mock.calls.map(c => c[0].length)).toEqual([100, 35])
+  expect(new Set(api.bulk.mock.calls.flatMap(c => c[0])).size).toBe(135)
+  expect(api.bulk.mock.calls.every(c => c[1] === 'set_priority')).toBe(true)
+})
+
+it('the extra row of a deep-linked job shows that it is selected', async () => {
+  // Regression (Codex sign-off 11-12): its checkbox stayed unchecked while bulk actions included it.
+  api.get.mockResolvedValue({ ...base, id: 999, item_name: 'Far away job', status: 'pending' })
+  await show('/jobs?job=999')
+  await screen.findByText('Far away job')
+  const box = within(row('Far away job')).getByRole('checkbox') as HTMLInputElement
+  expect(box.checked).toBe(false)
+  fireEvent.click(box)
+  await waitFor(() => expect((within(row('Far away job')).getByRole('checkbox') as HTMLInputElement).checked).toBe(true))
+  expect(await screen.findByText('1 selected')).toBeInTheDocument()
 })
