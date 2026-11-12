@@ -62,7 +62,9 @@ def ends_within_clock_allowance(candidate, now: Optional[datetime] = None) -> bo
             from license_manager import license_clock
             now = license_clock().sample()[0]
         remaining = (_license_expiry_deadline(candidate.expires_at) - now).total_seconds()
-    except (ValueError, TypeError):
+    except Exception:
+        # An unreadable clock or date never widens what is installed: refuse (502 upstream).
+        log.warning("Clock allowance check failed; treating the file as not ended", exc_info=True)
         return False
     return remaining <= NOT_ENTITLED_CLOCK_ALLOWANCE_SECONDS
 

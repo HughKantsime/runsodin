@@ -365,3 +365,23 @@ def test_reactivate_sends_the_held_expiry(app):
     app.refresh(refresh_status="not_renewed_yet", license_file=None)
     url, body = next((url, body) for url, body in reversed(app.calls) if url.endswith("/api/v1/reactivate"))
     assert body["current_expires_at"] == iso(ahead(days=5))
+
+
+def test_clock_allowance_uses_the_trusted_clock_not_the_wall_clock(app, monkeypatch):
+    """The trusted license clock decides: a file that ends in 10 minutes on it is within the
+    allowance even if the wall clock says hours remain, and one that ends 2 h after it is not."""
+    from types import SimpleNamespace as NS
+    trusted_now = datetime.now(timezone.utc) + timedelta(hours=3)  # trusted clock ahead of the wall clock
+    monkeypatch.setattr(app.lm, "license_clock", lambda: NS(sample=lambda *a, **k: (trusted_now, False)))
+    near = SimpleNamespace(valid=True, trial=False, expires_at=iso(trusted_now + timedelta(minutes=10)))
+    far = SimpleNamespace(valid=True, trial=False, expires_at=iso(trusted_now + timedelta(hours=2)))
+    assert license_refresh.ends_within_clock_allowance(near) is True
+    assert license_refresh.ends_within_clock_allowance(far) is False
+
+
+def test_clock_allowance_refuses_when_the_clock_fails(app, monkeypatch):
+    def broken():
+        raise RuntimeError("clock state unreadable")
+    monkeypatch.setattr(app.lm, "license_clock", broken)
+    ending = SimpleNamespace(valid=True, trial=False, expires_at=iso(ahead(seconds=30)))
+    assert license_refresh.ends_within_clock_allowance(ending) is False
