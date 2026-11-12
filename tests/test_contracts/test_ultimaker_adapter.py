@@ -389,3 +389,22 @@ def test_every_command_is_refused_and_never_falls_through_to_bambu(um, monkeypat
     printer = SimpleNamespace(id=9, api_type='ultimaker', api_host=HOST, api_key=None)
     assert route_utils._send_printer_command(printer, action) is False
     assert um.requests == []
+
+
+def test_a_body_that_dribbles_past_the_time_limit_is_dropped(monkeypatch):
+    from modules.printers.adapters import ultimaker as adapter_module
+
+    class Slow:
+        closed = False
+
+        def iter_content(self, chunk_size=8192):
+            yield b'{"variant": '
+            yield b'"Ultimaker S5"}'
+
+        def close(self):
+            self.closed = True
+
+    ticks = iter([0.0, 1.0, 999.0, 1000.0])
+    monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: next(ticks))
+    reply = Slow()
+    assert adapter_module._json_object(reply) is None and reply.closed

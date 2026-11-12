@@ -22,6 +22,7 @@ Fail closed:
 """
 
 import json
+import time
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -41,6 +42,7 @@ log = logging.getLogger(__name__)
 API = "/api/v1"
 TIMEOUT = 5            # seconds, per request
 _MAX_BODY = 65_536     # bytes, per response
+_BODY_SECONDS = 10          # whole-body limit, on top of the per-read timeout
 CAMERA_PORT = 8080
 
 
@@ -81,9 +83,12 @@ def _json_object(reply) -> Optional[dict]:
     """The reply body as a JSON object, read with a hard cap of _MAX_BODY bytes, else None."""
     try:
         chunks, size = [], 0
+        # The request timeout bounds each socket read, not the whole body: a device that
+        # dribbles bytes must not hold a monitor thread or an API worker.
+        deadline = time.monotonic() + _BODY_SECONDS
         for chunk in reply.iter_content(chunk_size=8192):
             size += len(chunk)
-            if size > _MAX_BODY:
+            if size > _MAX_BODY or time.monotonic() > deadline:
                 return None
             chunks.append(chunk)
         value = json.loads(b"".join(chunks).decode("utf-8"))
