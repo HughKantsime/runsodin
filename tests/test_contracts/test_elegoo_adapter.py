@@ -323,3 +323,13 @@ def test_status_read_respects_the_deadline_and_a_blocked_destination(sdcp_socket
     monkeypatch.setattr('core.webhook_utils.device_connect_ip', blocked)
     monkeypatch.setattr('websocket.create_connection', lambda *a, **k: pytest.fail('must not connect'))
     assert dispatch_readiness.fresh_http_status_is_idle(creds(), soon()) is False
+
+
+def test_the_whole_upload_has_a_time_limit(octo, gcode, monkeypatch):
+    monkeypatch.setattr(adapter_module, 'UPLOAD_CHUNK_BYTES', 4)
+    clock = iter([0.0, 1.0, 5.0, 10_000.0, 10_001.0])
+    monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: next(clock))
+    seen = []
+    octo.routes[UPLOAD] = lambda request: seen.append(request.kwargs['data']['Offset']) or Reply(200, UPLOAD_OK)
+    assert printer().upload_file(str(gcode), 'gear.gcode') is False   # stopped, never reported as sent
+    assert seen == ['0', '4']

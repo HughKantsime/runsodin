@@ -1,14 +1,14 @@
 # Elegoo (SDCP)
 
-O.D.I.N. monitors Elegoo printers that speak SDCP (Centauri Carbon and similar FDM printers) and controls running prints. Sending jobs and resume are **Experimental**.
+O.D.I.N. monitors Elegoo printers that speak SDCP (Centauri Carbon and similar FDM printers) and controls running prints. Sending jobs is **Experimental**.
 
-**Support level.** Monitoring, pause and stop are Supported and work as before. Job sending, resume and print speed are Experimental: they are built from Elegoo's public SDCP documentation and have not been verified on real hardware. They stay off until a platform administrator turns them on for that printer (`PUT /api/printers/{id}/experimental-actions`, audited). Pause and stop never need the opt-in. The printer card does not yet show an Experimental badge or toggle for Elegoo; use the API.
+**Support level.** Monitoring, pause, resume, print speed and stop are Supported and work as before. Job sending is Experimental: it is built from Elegoo's public SDCP documentation and has not been verified on real hardware. It stays off until a platform administrator turns it on for that printer (`PUT /api/printers/{id}/experimental-actions`, audited). The existing controls never need the opt-in. The printer card does not yet show an Experimental badge or toggle for Elegoo; use the API.
 
 ## Set up
 
 1. Add the printer as type Elegoo with its address. The port is 3030 unless you add one (`192.168.1.50:3030`).
 2. Enter the printer's MainboardID in **API Key** (the address finder fills it in). SDCP needs it for every command; without it nothing is sent.
-3. To send jobs or resume from O.D.I.N., a platform administrator turns on the opt-in for that printer. Restart the container after changing an Elegoo printer's address or MainboardID so the monitor reads the new list.
+3. To send jobs from O.D.I.N., a platform administrator turns on the opt-in for that printer. Restart the container after changing an Elegoo printer's address or MainboardID so the monitor reads the new list.
 
 ## What O.D.I.N. does
 
@@ -18,7 +18,7 @@ Source tags: **repo** = already used by O.D.I.N.'s Elegoo monitor before job sen
 |---|---|---|---|
 | Monitor | WebSocket `ws://host:3030/websocket`, topic `sdcp/status/<MainboardID>` | repo | status frames arrive |
 | Pause, stop | Cmd 129, Cmd 130 | repo | the frame is written (no answer is read) |
-| Resume, speed | Cmd 131, Cmd 403 (`PrintSpeedPct`) | repo | the frame is written; Experimental opt-in. Speed has no screen or route yet |
+| Resume, speed | Cmd 131, Cmd 403 (`PrintSpeedPct`) | repo | the frame is written (as before; no opt-in). Speed has no screen or route yet |
 | Admission check | Cmd 0, then a `sdcp/status/<MainboardID>` frame | repo | the configured board reports idle |
 | Send a file | `POST http://host:3030/uploadFile/upload`, multipart, 1 MiB chunks (`Check`, `Offset`, `Uuid`, `TotalSize`, `S-File-MD5`, `File`) | docs | every chunk: HTTP 200 and `{"code": "000000", "success": true}` |
 | Start the print | Cmd 128 (`Filename`, `StartLayer`, `Calibration_switch`, `PrintPlatformType`, `Tlp_Switch`) on `sdcp/request/<MainboardID>`; answer on `sdcp/response/<MainboardID>` matched by `RequestID` and `Cmd` | id: repo; fields and answer: docs | `Data.Ack` is 0 |

@@ -27,7 +27,7 @@ SUPPORT_TABLE: dict[str, tuple[str, str]] = {
     'bambu': (SUPPORTED, 'Bambu Lab LAN-mode MQTT and FTPS; verified on real hardware'),
     'moonraker': (SUPPORTED, 'Moonraker REST API; verified on real hardware'),
     'prusalink': (SUPPORTED, 'PrusaLink REST API; verified on real hardware'),
-    'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring, pause and stop; resume, speed and job sending are Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in'),
+    'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring, pause, resume, speed and stop; job sending is Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in'),
     'anycubic_lan': (SUPPORTED, 'Anycubic LAN mode; monitoring and ACE slots only'),
     'octoprint': (EXPERIMENTAL, "OctoPrint's public REST API documentation (docs.octoprint.org); built from the documentation, not verified on real hardware"),
 }
@@ -68,10 +68,11 @@ def is_experimental(api_type) -> bool:
 
 
 # Capabilities that need the per-printer opt-in on a type whose OVERALL level stays Supported:
-# monitoring, pause and stop are unchanged and are never gated.
+# monitoring and the controls that already shipped are unchanged and are never gated.
 DISPATCH = 'dispatch'
 GATED_CAPABILITIES: dict[str, frozenset] = {
-    'elegoo': frozenset({DISPATCH, 'resume', 'speed'}),
+    # Resume and speed shipped as Supported before job sending existed: they stay ungated.
+    'elegoo': frozenset({DISPATCH}),
 }
 # Control route suffix or command name -> the capability it needs.
 ACTION_CAPABILITY = {'resume': 'resume', 'resume_print': 'resume', 'speed': 'speed', 'set_print_speed': 'speed'}

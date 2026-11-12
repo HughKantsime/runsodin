@@ -66,6 +66,7 @@ log = logging.getLogger(__name__)
 UPLOAD_PATH = "/uploadFile/upload"   # [docs] HTTP multipart upload on the SDCP port
 UPLOAD_CHUNK_BYTES = 1024 * 1024     # [docs] chunked upload with an Offset per chunk
 UPLOAD_TIMEOUT = 60
+UPLOAD_TOTAL_SECONDS = 20 * 60   # whole upload; each request also has UPLOAD_TIMEOUT
 COMMAND_TIMEOUT = 15.0
 GCODE_SUFFIX = ".gcode"
 _MAX_NAME = 255
@@ -611,8 +612,13 @@ class ElegooPrinter:
         except OSError:
             log.error("Elegoo upload refused: local file unreadable")
             return False
+        deadline = time.monotonic() + UPLOAD_TOTAL_SECONDS
         with handle:
             while offset < total:
+                if time.monotonic() > deadline:
+                    # Nothing was started: a partial upload is only an unused file on the printer.
+                    log.error("Elegoo upload stopped: over %s s in total (%s, offset %s)", UPLOAD_TOTAL_SECONDS, self.host, offset)
+                    return False
                 chunk = handle.read(UPLOAD_CHUNK_BYTES)
                 if not chunk:
                     log.error("Elegoo upload refused: file changed while reading")

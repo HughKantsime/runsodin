@@ -296,6 +296,9 @@ def _dispatch_elegoo(job_id: int, stored_path: str, remote_filename: str, creds:
 
     if not str(remote_filename).lower().endswith(".gcode"):
         return False, "Elegoo printers accept .gcode files only; no print command was sent"
+    if not str(creds.get("api_key") or "").strip():
+        # Without the MainboardID the start command cannot be addressed: refuse before uploading.
+        return False, "This Elegoo printer has no MainboardID saved; no file or print command was sent"
     printer = ElegooPrinter(host=creds["ip"], port=creds["port"], mainboard_id=creds.get("api_key", ""))
 
     _ws(job_id, "uploading", f"Uploading {remote_filename} to Elegoo...")

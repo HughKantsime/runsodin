@@ -1,5 +1,5 @@
 """Elegoo dispatch: Experimental opt-in on a Supported type, explicit routing, upload then start,
-unknown outcomes, and the resume gate (pause and stop never gated)."""
+unknown outcomes, and that the controls that already shipped are never gated."""
 import pytest
 from sqlalchemy import text
 
@@ -16,11 +16,10 @@ def opt_in(db, printer_id=59, enabled=True):
     db.commit()
 
 
-def test_table_keeps_elegoo_supported_and_gates_only_dispatch_resume_and_speed():
+def test_table_keeps_elegoo_supported_and_gates_only_dispatch():
     assert support_levels.support_level('elegoo') == support_levels.SUPPORTED
     gated = support_levels.gated_capabilities('Elegoo')
-    assert gated == {'dispatch', 'resume', 'speed'}
-    assert 'pause' not in gated and 'stop' not in gated
+    assert gated == {'dispatch'}   # resume and speed shipped before job sending: never newly gated
     assert support_levels.gated_capabilities('bambu') == frozenset()
     assert support_levels.opt_in_applies('elegoo') and support_levels.opt_in_applies('octoprint')
     assert not support_levels.opt_in_applies('moonraker') and not support_levels.opt_in_applies(None)
@@ -32,9 +31,7 @@ def test_dispatch_refusal_for_a_supported_gated_type(graph):
     graph.commit()
     assert support_levels.experimental_refusal(graph, 9, 'elegoo') is None  # monitoring/scheduling unchanged
     assert support_levels.dispatch_refusal(graph, 9, 'elegoo') == support_levels.EXPERIMENTAL_REFUSAL
-    assert support_levels.control_refusal(graph, 9, 'elegoo', 'resume') == support_levels.EXPERIMENTAL_REFUSAL
-    assert support_levels.control_refusal(graph, 9, 'elegoo', 'speed') == support_levels.EXPERIMENTAL_REFUSAL
-    for safety in ('pause', 'stop', 'plate-cleared'):
+    for safety in ('pause', 'stop', 'plate-cleared', 'resume', 'speed'):
         assert support_levels.control_refusal(graph, 9, 'elegoo', safety) is None
     assert support_levels.enabled_for_printer(printer) is False
     support_levels.set_experimental_enabled(graph, printer, True, 3)
@@ -246,17 +243,22 @@ def test_a_refused_or_unanswered_start_takes_the_shared_uncertain_outcome_and_al
 
 # ---- controls ----
 
-def test_resume_needs_the_opt_in_but_pause_and_stop_never_do(graph, monkeypatch):
+def test_existing_controls_need_no_opt_in(graph, monkeypatch):
     from modules.printers import route_utils
     printer = graph.get(Printer, 9)
     monkeypatch.setattr(printer, 'api_type', 'elegoo', raising=False)
     sent = []
     monkeypatch.setattr(route_utils, '_elegoo_command', lambda p, action: sent.append(action) or True)
     monkeypatch.setattr(route_utils, '_bambu_command', lambda *a: pytest.fail('elegoo must never reach the Bambu fallback'))
-    assert route_utils._send_printer_command(printer, 'resume_print') is False
-    for safety in ('pause_print', 'stop_print', 'cancel_print'):
+    for safety in ('pause_print', 'stop_print', 'cancel_print', 'resume_print'):
         assert route_utils._send_printer_command(printer, safety) is True, safety
-    support_levels.set_experimental_enabled(graph, printer, True, 3)
-    graph.commit()
-    assert route_utils._send_printer_command(printer, 'resume_print') is True
     assert sent == ['pause_print', 'stop_print', 'cancel_print', 'resume_print']
+
+
+def test_a_printer_with_no_board_id_is_refused_before_any_upload(fake_elegoo, tmp_path):
+    from modules.printers import dispatch
+    log, _ = fake_elegoo
+    for missing in ({**CREDS, 'api_key': ''}, {**CREDS, 'api_key': '  '}, {k: v for k, v in CREDS.items() if k != 'api_key'}):
+        ok, message = dispatch._dispatch_elegoo(1, str(tmp_path / 'a.gcode'), 'a.gcode', missing)
+        assert ok is False and 'no file or print command was sent' in message
+    assert log == []
