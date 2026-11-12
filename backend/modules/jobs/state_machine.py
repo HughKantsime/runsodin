@@ -93,6 +93,7 @@ TRANSITIONS: dict[str, dict[str, frozenset[str]]] = {
 }
 
 _CLEARS_QUEUE_POSITION = TERMINAL | {REJECTED}
+_ENDS_WITHOUT_END_TIME = frozenset({CANCELLED, REJECTED})
 _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 _NAMED = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -161,6 +162,10 @@ def transition_job(executor, job_id: int, to, actor: str, *,
     fields = dict(extra_fields or {})
     if to in _CLEARS_QUEUE_POSITION:
         fields.setdefault("queue_position", None)
+    if to in _ENDS_WITHOUT_END_TIME:
+        # A job cancelled or rejected before it starts has no actual_end; this is its end time
+        # (GET /jobs finished_since and order=recent read it). Raw SQL skips the ORM's onupdate.
+        fields.setdefault("updated_at", Expr("CURRENT_TIMESTAMP"))
     for index, (column, value) in enumerate(fields.items()):
         if column == "status" or not _IDENT.match(column):
             raise TransitionError(f"Invalid job column {column!r}")

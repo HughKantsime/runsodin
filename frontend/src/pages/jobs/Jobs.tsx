@@ -472,7 +472,9 @@ export default function Jobs() {
             />
             <tbody>
               {deepExtra && (
-                <JobRow key={`deep-${deepExtra.id}`} job={deepExtra} highlight correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={false} onToggleSelect={toggleJobSelect} />
+                <JobRow key={`deep-${deepExtra.id}`} job={deepExtra} highlight correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={false} onToggleSelect={toggleJobSelect}
+                  pinnedPrinterName={deepExtra.pinned_printer_id != null ? (printersData || []).find(p => p.id === deepExtra.pinned_printer_id)?.name : undefined}
+                  dispatchFenced={dispatchFencedIds?.has(deepExtra.id)} isDispatching={dispatchJob.isPending && dispatchJob.variables === deepExtra.id} />
               )}
               {isLoading ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><PageState kind="loading" className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</PageState></td></tr>

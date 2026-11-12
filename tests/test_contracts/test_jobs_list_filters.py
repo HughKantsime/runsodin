@@ -98,3 +98,18 @@ def test_finished_since_includes_a_job_cancelled_before_it_started(many_jobs):
     today = ids(many_jobs.get('/jobs', params={'finished_since': since, 'order': 'recent'}))
     assert 6300 in today and 6301 not in today
     assert not set(range(6000, 6012)) & set(today)  # still-pending jobs never count as finished
+
+
+def test_a_cancellation_dates_a_job_that_never_started(many_jobs, review_db):  # noqa: F811
+    """Regression (Codex sign-off 11-12): the state machine's raw UPDATE left updated_at alone, so a
+    job created days ago and cancelled today was missing from finished_since=today."""
+    from modules.jobs.state_machine import transition_job
+    old = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2)
+    with review_db.get_bind().begin() as connection:
+        _insert(connection, 6400, 'pending', created=old)
+        _insert(connection, 6401, 'submitted', created=old)
+        assert transition_job(connection, 6400, 'cancelled', 'operator')
+        assert transition_job(connection, 6401, 'rejected', 'approval')
+    since = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+    today = ids(many_jobs.get('/jobs', params={'finished_since': since, 'order': 'recent', 'limit': 500}))
+    assert 6400 in today and 6401 in today

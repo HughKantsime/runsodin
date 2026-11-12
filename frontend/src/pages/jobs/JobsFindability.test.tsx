@@ -8,9 +8,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import Jobs from './Jobs'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), cancel: vi.fn(), recent: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), cancel: vi.fn(), recent: vi.fn(), dispatch: vi.fn() }))
 vi.mock('../../api', () => ({
-  jobs: { list: api.list, get: api.get, cancel: api.cancel, recentTerminal: api.recent, create: vi.fn(), update: vi.fn(), reorder: vi.fn(), dispatch: vi.fn(), start: vi.fn(), complete: vi.fn(), delete: vi.fn(), repeat: vi.fn() },
+  jobs: { list: api.list, get: api.get, cancel: api.cancel, recentTerminal: api.recent, create: vi.fn(), update: vi.fn(), reorder: vi.fn(), dispatch: api.dispatch, start: vi.fn(), complete: vi.fn(), delete: vi.fn(), repeat: vi.fn() },
   models: { list: vi.fn().mockResolvedValue([]) }, modelRevisions: { list: vi.fn().mockResolvedValue([]) },
   printers: { list: vi.fn().mockResolvedValue([{ id: 7, name: 'Printer Alpha', is_active: true }, { id: 8, name: 'Printer Beta', is_active: true }]) },
   presets: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), schedule: vi.fn(), delete: vi.fn() },
@@ -157,4 +157,19 @@ it('a deep link to a job that is missing or hidden says only that it was not fou
   await show('/jobs?job=404', 'Queued thing')
   expect(await screen.findByText('Job 404 was not found, or you cannot see it.')).toBeInTheDocument()
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('a deep-linked job outside the filter keeps the dispatch safeguards of an ordinary row', async () => {
+  // Regression (Codex sign-off 11-12): the extra row had no isDispatching/dispatchFenced, so
+  // Dispatch stayed enabled while a dispatch was in flight and could be sent again.
+  api.get.mockResolvedValue({ ...base, id: 999, item_name: 'Far away job', status: 'scheduled', printer_id: 7, printer: { id: 7, name: 'Printer Alpha' } })
+  api.dispatch.mockReturnValue(new Promise(() => {})) // never answers: the dispatch stays in flight
+  await show('/jobs?job=999')
+  await screen.findByText('Far away job')
+  fireEvent.click(within(row('Far away job')).getByRole('button', { name: 'Dispatch to printer' }))
+  await screen.findByText(/will be uploaded to/)
+  fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Dispatch')!)
+  await waitFor(() => expect(api.dispatch).toHaveBeenCalledTimes(1))
+  const busy = await within(row('Far away job')).findByRole('button', { name: 'Dispatching...' })
+  expect(busy).toBeDisabled()
 })
