@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Model library plate pictures
+
+- Printer cards retry missing plate pictures while the background cache builds, with a bounded retry count and cancellation when the active print or display preference changes.
+
 ## Prepared: Education funding and program reports
 
 - Class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks, with small-cell suppression. The Perkins worksheet stays off until a school's reporting fields are confirmed.

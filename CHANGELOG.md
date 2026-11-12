@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Printer-card plate pictures now retry up to six times at ten-second intervals when unavailable, so a background cache build can populate the picture without changing prints or toggling the preference. Retries stop after success, when pictures are disabled, or when the card unmounts; changing prints starts a fresh attempt.
+
 ### Added
 
 - Model library search and plate viewer. The Models page has a Filters panel (model, file or project name; material; sliced-for printer model; plate count range; "printed OK on printer"), and the model list endpoints (`GET /api/models`, `GET /api/models-with-pricing`) and `GET /api/print-files` accept `q`, `material`, `printer_model`, `plates_min`, `plates_max` and `printed_on_printer`. Filtering happens on the server under the list's existing organization, controlled-part and Education rules, so a file you cannot see is never matched; Education-owned files are not searchable by file facts. Each model card has a Plates view that lists every plate with its picture, filaments with colour and grams, print time, weight, layer height, slicer warnings and the slicer name and version.
