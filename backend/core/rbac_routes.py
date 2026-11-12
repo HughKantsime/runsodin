@@ -364,6 +364,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("PUT", "/api/license/selection"),  # superadmin-only license seat selection (B1), interactive session
         ("POST", "/api/orgs"), ("DELETE", "/api/orgs/{org_id}"), ("POST", "/api/orgs/{org_id}/printers"),
         ("PUT", "/api/permissions"), ("POST", "/api/permissions/reset"),
+        ("PUT", "/api/printers/{printer_id}/experimental-actions"),  # per-printer opt-in for Experimental printer types
         ("POST", "/api/push/vapid-key/rotate"),
         ("POST", "/api/report-schedules"), ("DELETE", "/api/report-schedules/{schedule_id}"),
         ("PATCH", "/api/report-schedules/{schedule_id}"), ("POST", "/api/report-schedules/{schedule_id}/run"),

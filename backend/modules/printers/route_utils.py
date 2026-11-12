@@ -496,6 +496,7 @@ def sync_go2rtc_config_raw():
 # ====================================================================
 
 _ALLOWED_COMMANDS = frozenset({"pause_print", "resume_print", "stop_print", "cancel_print"})
+_SAFETY_COMMANDS = frozenset({"pause_print", "stop_print", "cancel_print"})
 
 def _call_adapter_method(adapter, action: str, *args):
     """Dispatch an allowed command to an adapter via explicit allowlist."""
@@ -596,6 +597,12 @@ def _send_printer_command(printer, action: str) -> bool:
     """Route a command to the correct adapter based on printer type."""
     if action not in _ALLOWED_COMMANDS:
         log.error(f"Rejected unknown printer command: {action}")
+        return False
+    from modules.printers.support_levels import command_refusal
+    # Pausing or stopping a print is always allowed (Vigil auto-pause, operator stop): refusing a
+    # safety action on an Experimental printer would leave its print uncontrollable.
+    if action not in _SAFETY_COMMANDS and command_refusal(printer):
+        log.warning("Printer command %s refused: Experimental printer without opt-in", action)
         return False
     if printer.api_type == "anycubic_lan":
         return False  # Monitor-only: never fall through to the Bambu command path.

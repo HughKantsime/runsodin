@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { printers, getPlugConfig } from '../../api'
 import type { PlugConfig } from '../../types'
 import { canDo } from '../../permissions'
+import { PRINTER_TYPE_OPTIONS, printerTypeLabel, supportLevelOfType, experimentalWarning } from '../../utils/supportLevels'
 import { Modal } from '../ui'
 
 // TODO: type this properly — runtime printer has extra fields
@@ -425,13 +426,13 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-2">Printer Connection (Optional)</label>
           <select value={formData.api_type} onChange={(e) => setFormData(prev => ({ ...prev, api_type: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
             <option value="">Manual (no connection)</option>
-            <option value="bambu">Bambu Lab (X1C, P1S, A1, etc.)</option>
-            <option value="moonraker">Klipper / Moonraker</option>
-            <option value="prusalink">Prusa (PrusaLink)</option>
-            <option value="elegoo">Elegoo (SDCP)</option>
-            <option value="anycubic_lan">Anycubic LAN (monitor only)</option>
-            <option value="octoprint" disabled>OctoPrint (coming soon)</option>
+            {PRINTER_TYPE_OPTIONS.map(option => (
+              <option key={option.value} value={option.value} disabled={option.disabled}>{printerTypeLabel(option)}</option>
+            ))}
           </select>
+          {supportLevelOfType(formData.api_type) === 'experimental' && (
+            <p role="note" className="text-xs text-amber-400 mt-2">{experimentalWarning(formData.api_type)}</p>
+          )}
         </div>
 
         {showConnectionFields && (

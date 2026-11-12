@@ -284,6 +284,7 @@ ENDPOINTS = [
     ("GET",    "/api/printers/{printer_id}/telemetry",                       _api_read(),   None, "Printer telemetry"),
     ("GET",    "/api/printers/{printer_id}/vision",                          _api_read(),   None, "Printer vision settings"),
     ("PATCH",  "/api/printers/{printer_id}/vision",                          _admin_only(), {},   "Update printer vision settings"),
+    ("PUT",    "/api/printers/{printer_id}/experimental-actions",            _admin_only(), {"enabled": False}, "Experimental-type opt-in — platform superadmin (disabling is an idempotent 200)"),
     ("POST",   "/api/printers/bulk-update",                                  _admin_only(), {"printer_ids": [], "action": "enable"}, "Bulk update printers"),
     ("PATCH",  "/api/printers/{printer_id}/slots/{slot_number}",             _op_write(),   {"filament_type": "PLA"},                 "Update slot (template)"),
     ("PATCH",  "/api/printers/{printer_id}/slots/{slot_number}/manual-assign", _op_write(), {"filament_type": "PLA", "color": "Red"}, "Manual assign (template)"),

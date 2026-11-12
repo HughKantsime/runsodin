@@ -5,6 +5,8 @@ Sub-router responsibilities:
   routes_crud.py        — Printer CRUD, filament slots, test-connection, bulk-update
   routes_status.py      — Live status, telemetry, HMS error history
   routes_controls.py    — Commands: pause, resume, cancel, lights, speed, fans, bed level, movement
+                          (guarded by routes_experimental.experimental_controls_guard)
+  routes_experimental.py — Superadmin opt-in for Experimental printer types; the control guard
   routes_ams.py         — AMS sync (Moonraker MMU + Bambu)
   routes_bambu.py       — Bambu test-connection, filament types, manual slot assignment
   routes_ams_env.py     — AMS environment, current telemetry, AMS slot updates
@@ -14,7 +16,7 @@ Sub-router responsibilities:
 """
 
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 log = logging.getLogger("odin.api")
 
@@ -24,6 +26,7 @@ from modules.printers import (  # noqa: E402
     routes_crud,
     routes_status,
     routes_controls,
+    routes_experimental,
     routes_ams,
     routes_bambu,
     routes_ams_env,
@@ -38,7 +41,9 @@ from modules.printers import (  # noqa: E402
 
 router.include_router(routes_crud.router)
 router.include_router(routes_status.router)
-router.include_router(routes_controls.router)
+# Every non-read route here is refused for an Experimental printer without the superadmin opt-in.
+router.include_router(routes_controls.router, dependencies=[Depends(routes_experimental.experimental_controls_guard)])
+router.include_router(routes_experimental.router)
 router.include_router(routes_ams.router)
 router.include_router(routes_bambu.router)
 router.include_router(routes_ams_env.router)

@@ -4,6 +4,7 @@ import SlotTile from '../foundry/SlotTile'
 import StatusBadge, { printerBadgeStatus } from '../ui/StatusBadge'
 import SlotLabel from './SlotLabel'
 import MaintenanceBanner from './MaintenanceBanner'
+import { SupportLevelBadge, ExperimentalOptIn } from './SupportLevel'
 import { useState, useEffect, useRef, type DragEvent } from 'react'
 import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
@@ -217,6 +218,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               {isDualNozzle(printer.machine_type) && (
                 <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">{dualNozzleModelName(printer.machine_type)}</span>
               )}
+              <SupportLevelBadge printer={printer} />
               {printer.tags?.map(tag => (
                 <span key={tag} className="px-1.5 py-0.5 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] text-[10px] rounded-full border border-[var(--brand-primary)]/30">{tag}</span>
               ))}
@@ -246,6 +248,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {printer.plug_type && plugStates?.[printer.id] === undefined && <p className="px-3 text-xs text-[var(--brand-text-muted)]">State unknown</p>}
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
+      <ExperimentalOptIn printer={printer} />
       <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />

@@ -381,6 +381,15 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     if unsupported:
         return False, unsupported
 
+    # Experimental types send nothing until a superadmin opts the printer in. Checked before
+    # any power, claim or device step. (Named import: a later local `engine` import in this function.)
+    from core.db import engine as _experimental_engine
+    from modules.printers.support_levels import experimental_refusal
+    with _experimental_engine.connect() as experimental_conn:
+        experimental = experimental_refusal(experimental_conn, printer_id, creds.get("api_type"))
+    if experimental:
+        return False, experimental
+
     from core.dispatch_identity import ownership_refusal
     ownership_error=ownership_refusal(job,creds)
     if ownership_error:return False,ownership_error
