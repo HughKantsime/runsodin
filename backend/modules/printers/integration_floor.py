@@ -207,8 +207,11 @@ def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
     result = {"plates_done": 0, "plates_failed": 0, "since": iso(start)}
     if not printer_ids:
         return result
-    clauses = ["p.printer_id IN :pids", "p.status IN ('completed', 'failed')", "p.ended_at >= :since"]
-    params = {"pids": list(printer_ids), "since": start.strftime("%Y-%m-%d %H:%M:%S")}
+    # The exact test is on parsed instants below. This text bound only keeps the scan to recent
+    # rows (this feed is polled every few seconds): the date prefix sorts the same in every
+    # stored form, and two days cover any UTC offset.
+    clauses = ["p.printer_id IN :pids", "p.status IN ('completed', 'failed')", "p.ended_at >= :day"]
+    params = {"pids": list(printer_ids), "day": (start.astimezone(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")}
     # A print that belongs to a job counts only when the caller could list that job (the queue's
     # own predicates: org, archived Education, controlled parts). A print with no job is the
     # printer's own and counts with the printer.
@@ -216,10 +219,13 @@ def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
     clauses.append("(p.scheduled_job_id IS NULL OR p.scheduled_job_id IN (SELECT jobs.id FROM jobs WHERE "
                    + " AND ".join(job_clauses) + "))")
     params.update(job_params)
-    sql = "SELECT p.status, count(*) FROM print_jobs p WHERE " + " AND ".join(clauses) + " GROUP BY p.status"
+    sql = "SELECT p.status, p.ended_at FROM print_jobs p WHERE " + " AND ".join(clauses)
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
-    for status, count in db.execute(text(sql).bindparams(bindparam("pids", expanding=True)), params).all():
-        result["plates_done" if status == "completed" else "plates_failed"] = int(count)
+    for status, ended_at in db.execute(text(sql).bindparams(bindparam("pids", expanding=True)), params):
+        # Monitors store both naive UTC and ISO timestamps with offsets; text order is not time order.
+        ended = _instant(ended_at)
+        if ended is not None and ended >= start:
+            result["plates_done" if status == "completed" else "plates_failed"] += 1
     return result
 
 

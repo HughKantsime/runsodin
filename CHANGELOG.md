@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Home Assistant day totals compare parsed completion times against local midnight, so Moonraker ISO timestamps and timestamps with offsets count on the correct day alongside naive UTC timestamps.
+
 ### Added
 
 - The Home Assistant status endpoint (`GET /api/integrations/home-assistant/status`, `schema_version` 2) now includes the print floor: each printer has `next_job` (name, held, estimated minutes, copies on the plate, filaments with the AMS slot each needs, plate, and an `ams_check` that compares the job with the loaded trays using the same check as dispatch) and `bench` (`clear_plate`, `blocked`, `held` or `paused`, with a plain reason; paused printers say whether it was a planned pause, a spaghetti pause or an error). The `fleet` object adds `today` (plates done and failed since local midnight), `queued_hours`, `queued_unestimated` and `next_unassigned` (up to five unassigned jobs). Existing keys are unchanged, nothing is written and no printer is contacted, and the same job visibility rules apply: a job the caller cannot list is not counted or shown, and controlled work is named "Controlled work" with its filaments, plate and AMS check withheld.

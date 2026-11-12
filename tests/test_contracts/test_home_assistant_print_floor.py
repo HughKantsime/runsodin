@@ -328,6 +328,43 @@ def test_day_totals_start_at_local_midnight(ha_client, review_db, monkeypatch):
     assert today == {'plates_done': 2, 'plates_failed': 1, 'since': start.isoformat().replace('+00:00', 'Z')}
 
 
+@pytest.mark.parametrize('status', ['completed', 'failed'])
+@pytest.mark.parametrize(('ended_at', 'count'), [
+    ('2026-11-12 04:59:59.999999', 0),
+    ('2026-11-12 05:00:00', 1),
+    ('2026-11-12T03:00:00+00:00', 0),  # Moonraker: yesterday in New York
+    ('2026-11-12T05:00:00+00:00', 1),
+    ('2026-11-12T04:59:59.999999Z', 0),
+    ('2026-11-12T05:00:00Z', 1),
+    ('2026-11-12T06:59:59.999999+02:00', 0),
+    ('2026-11-12T07:00:00+02:00', 1),
+    ('2026-11-11T20:59:59.999999-08:00', 0),
+    ('2026-11-11T21:00:00-08:00', 1),  # previous date, but midnight in New York
+    (None, 0),
+    ('invalid', 0),
+])
+def test_day_totals_compare_stored_instants(ha_client, review_db, monkeypatch, status, ended_at, count):
+    from modules.printers import routes_integrations
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 12, 12, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setenv('TZ', 'America/New_York')
+    monkeypatch.setattr(routes_integrations, 'datetime', FixedDateTime)
+    review_db.execute(text("INSERT INTO print_jobs(printer_id,job_name,status,started_at,ended_at) "
+                           "VALUES(9,'part.gcode',:status,'2026-11-11 00:00:00',:ended_at)"),
+                      {'status': status, 'ended_at': ended_at})
+    review_db.commit()
+    client, issue = ha_client
+    assert _get(client, issue)['fleet']['today'] == {
+        'plates_done': count if status == 'completed' else 0,
+        'plates_failed': count if status == 'failed' else 0,
+        'since': '2026-11-12T05:00:00Z',
+    }
+
+
 def test_response_is_database_only_and_read_only(ams, review_db):
     client, issue = ams
     _job(review_db, 580, 'Bracket', printer=9, model_id=12, ams_mapping='[0, 1]', hold=1)
