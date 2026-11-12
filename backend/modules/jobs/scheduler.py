@@ -370,7 +370,7 @@ class Scheduler(SchedulerPlanning):
             'printer_dispatch_unsupported': KOBRA_DISPATCH_DETAIL,
             "unknown_quantity": "Set the job quantity before scheduling. The job remains queued.",
             "no_fit": "No compatible printer has capacity within the scheduling horizon. Check job requirements and printer availability.",
-            "material_mismatch": "No eligible printer has the filament this job needs loaded. Load that material, or change Filament routing under Settings > General > Scheduler Settings; the job remains queued.",
+            "material_mismatch": "No eligible printer has the filament this job needs loaded (a job pinned to one printer only counts that printer). Load that material, or change Filament routing under Settings > General > Scheduler Settings; the job remains queued.",
             "no_active_printers": "No active printers are available. Check which printers are enabled; the job remains queued.",
             "policy_unavailable": "The Education scheduling policy is unavailable. Check server diagnostics before scheduling.",
             "policy_context_unavailable": "The Education approval context could not be validated. Review the submission before scheduling.",
