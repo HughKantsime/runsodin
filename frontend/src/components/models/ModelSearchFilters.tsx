@@ -15,6 +15,7 @@ const toNumber = (value: string) => (value.trim() && Number.isInteger(Number(val
 
 export default function ModelSearchFilters({ value, onChange, resultCount }: { value: ModelLibraryFilters; onChange: (next: ModelLibraryFilters) => void; resultCount: number | null }) {
   const [open, setOpen] = useState(false)
+  const [rangeError, setRangeError] = useState('')
   const [draft, setDraft] = useState({
     q: value.q ?? '', material: value.material ?? '', printer_model: value.printer_model ?? '',
     plates_min: value.plates_min?.toString() ?? '', plates_max: value.plates_max?.toString() ?? '',
@@ -22,7 +23,10 @@ export default function ModelSearchFilters({ value, onChange, resultCount }: { v
   })
   const { data: printerList } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), enabled: open })
   const count = activeFilterCount(value)
-  const set = (key: keyof typeof draft) => (e: { target: { value: string } }) => setDraft(prev => ({ ...prev, [key]: e.target.value }))
+  const set = (key: keyof typeof draft) => (e: { target: { value: string } }) => {
+    setDraft(prev => ({ ...prev, [key]: e.target.value }))
+    setRangeError('')
+  }
 
   const apply = (e: { preventDefault: () => void }) => {
     e.preventDefault()
@@ -31,12 +35,18 @@ export default function ModelSearchFilters({ value, onChange, resultCount }: { v
     if (draft.material.trim()) next.material = draft.material.trim()
     if (draft.printer_model.trim()) next.printer_model = draft.printer_model.trim()
     const min = toNumber(draft.plates_min), max = toNumber(draft.plates_max), printer = toNumber(draft.printed_on_printer)
+    if (min !== undefined && max !== undefined && min > max) {
+      setRangeError('Minimum plates cannot exceed maximum plates.')
+      return
+    }
+    setRangeError('')
     if (min !== undefined) next.plates_min = min
     if (max !== undefined) next.plates_max = max
     if (printer !== undefined) next.printed_on_printer = printer
     onChange(next)
   }
   const clear = () => {
+    setRangeError('')
     setDraft({ q: '', material: '', printer_model: '', plates_min: '', plates_max: '', printed_on_printer: '' })
     onChange(EMPTY_FILTERS)
   }
@@ -70,6 +80,7 @@ export default function ModelSearchFilters({ value, onChange, resultCount }: { v
               {(Array.isArray(printerList) ? printerList : []).map((p: { id: number; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
+          {rangeError && <p role="alert" className="text-sm text-red-400 sm:col-span-2 lg:col-span-3">{rangeError}</p>}
           <div className="flex gap-2 sm:col-span-2 lg:col-span-3">
             <button type="submit" className="px-3 py-1.5 bg-[var(--brand-primary)] rounded-md text-sm">Apply</button>
             <button type="button" onClick={clear} className="px-3 py-1.5 rounded-md text-sm border border-[var(--brand-card-border)]">Clear</button>

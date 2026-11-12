@@ -69,7 +69,7 @@
     "frontend/src/pages/inventory/Spools.tsx": "fa610e9c9b35b4180f3b83f0f61803a525b49ab03fb7e83552375bb9c9498d8e",
     "frontend/src/pages/jobs/Jobs.tsx": "4ffb6b6b87ff7a673aa09124a9abec83ba9de1cb4a426d61df592ff081ae362c",
     "frontend/src/pages/jobs/Timeline.tsx": "10e7a561cfef37374ceb3dc9811547622236d513067598a3fb0c7f7eb47dab68",
-    "frontend/src/pages/models/Models.tsx": "7c11d6a792cb7d8fe27f7f577c6ce52c036494d2cb9c5b69bdcc2d8c7fc4564f",
+    "frontend/src/pages/models/Models.tsx": "cfa63fcb21d0dd796989481acddc55e8cb4580a67bd94b0df2f1d4ace461259e",
     "frontend/src/pages/models/ProfileHistory.tsx": "eff558628e11b85f42f2fa7e4ab73a42c4f22cbf455e793f9f990265adfaf90b",
     "frontend/src/pages/models/Profiles.tsx": "34f1c4dab3e829d3e1a7d7a376d25a4002380a9594a5cf4c3bbce6b33cdbc5ff",
     "frontend/src/pages/models/Projects.tsx": "c9b767d5c26e130c5507ed020a6ac80309196f37674a85ee725bfdbfabaca085",

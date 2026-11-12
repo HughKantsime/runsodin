@@ -411,7 +411,7 @@ export default function Models() {
     updateSearchParams({ q: value })
   }, [updateSearchParams])
 
-  const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId, libraryFilters], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId, libraryFilters) })
+  const { data: modelsData, isLoading, error: modelsError, refetch } = useQuery({ queryKey: ['models', categoryFilter, org.orgId, libraryFilters], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId, libraryFilters) })
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
   // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
@@ -519,7 +519,7 @@ export default function Models() {
         className="max-w-md mb-4"
       />
 
-      <ModelSearchFilters value={libraryFilters} onChange={setLibraryFilters} resultCount={isLoading ? null : (modelsData?.length ?? 0)} />
+      <ModelSearchFilters value={libraryFilters} onChange={setLibraryFilters} resultCount={isLoading || modelsError ? null : (modelsData?.length ?? null)} />
 
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4 md:mb-6 items-center">
@@ -574,6 +574,11 @@ export default function Models() {
 
       {isLoading ? (
         <PageState kind="loading" className="text-center py-12 text-[var(--brand-muted)] text-sm">Loading models...</PageState>
+      ) : modelsError ? (
+        <PageState kind="error" role="alert" className="text-center py-12 text-sm">
+          <p>Could not load models: {modelsError.message}</p>
+          <Button onClick={() => refetch()} className="mt-3">Retry</Button>
+        </PageState>
       ) : modelsData?.length === 0 && activeFilterCount(libraryFilters) === 0 ? (
         <EmptyState
           icon={Upload}
