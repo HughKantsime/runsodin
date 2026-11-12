@@ -13,6 +13,7 @@ import { PageHeader, Button, EmptyState } from '../../components/ui'
 import ScrollTabs from '../../components/ui/ScrollTabs'
 import type { AlertListParams } from '../../types/notification'
 import AlertGroupRow from './AlertGroupRow'
+import AlertTitle from './AlertTitle'
 import { groupAlerts } from './alertGroups'
 
 interface DigestStatusEntry {
@@ -503,9 +504,7 @@ export default function Alerts() {
                     <div className="flex gap-3 min-w-0 flex-1">
                       {(() => { const SevIcon = SEVERITY_ICONS[alert.severity] || Info; return <SevIcon size={18} className={`shrink-0 ${SEVERITY_ICON_COLORS[alert.severity] || 'text-green-500'}`} /> })()}
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>
-                          {alert.title}
-                        </div>
+                        <AlertTitle title={alert.title} />
                         {alert.metadata_json?.summary && <CompletionSummary summary={alert.metadata_json.summary} />}
                         {alert.message && (
                           <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--brand-text-secondary)' }}>

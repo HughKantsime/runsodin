@@ -539,3 +539,23 @@ html.light .setup-wizard textarea {
 .mobile-header { position: relative; }
 .mobile-header .theme-settings { position: static; }
 .mobile-header .theme-settings-panel { right: 1rem; }
+
+/* Classic on a phone: every control in the page, a pop-up or a stand-alone page (setup, TV, password reset) is at least 44 px to the finger.
+   Ordinary buttons grow (inline text links are unaffected: min-height does not apply to inline boxes).
+   Pill switches keep their look and get an invisible 12 px hit area around them instead; --tap-pad
+   tells the phone layout check how far that area reaches. Desktop and Foundry are untouched. */
+@media (max-width: 639px) {
+  html:not([data-theme-family="foundry"]) :is(main, [role="dialog"], [role="alertdialog"], body:not(:has(main)) #root) :is(button, a[href], [role="button"]):not(.sr-only):not(.rounded-full) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  html:not([data-theme-family="foundry"]) :is(main, [role="dialog"], [role="alertdialog"]) button.rounded-full:not(.absolute):not(.fixed):not(.sticky) {
+    position: relative;
+    --tap-pad: 12px;
+  }
+  html:not([data-theme-family="foundry"]) :is(main, [role="dialog"], [role="alertdialog"]) button.rounded-full:not(.absolute):not(.fixed):not(.sticky)::after {
+    content: '';
+    position: absolute;
+    inset: -12px;
+  }
+}

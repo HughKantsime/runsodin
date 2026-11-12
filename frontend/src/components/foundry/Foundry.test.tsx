@@ -146,6 +146,29 @@ it('switches cameras, labels paused printers, opens wall and requests fullscreen
   fireEvent.click(screen.getByRole('button', { name: 'Full screen' }))
   expect(fullscreen).toHaveBeenCalledOnce()
 })
+it('keeps the chosen camera button in view by moving the chooser strip only', () => {
+  const cameras = [{ id: 1, name: 'Press' }, { id: 2, name: 'Far press' }] as Camera[]
+  const size = (prop: string, value: (el: HTMLElement) => number) =>
+    vi.spyOn(HTMLElement.prototype, prop as any, 'get').mockImplementation(function (this: HTMLElement) { return value(this) })
+  const isStrip = (el: HTMLElement) => el.classList.contains('f-camera-tabs')
+  const spies = [
+    size('scrollWidth', el => isStrip(el) ? 600 : 0), size('clientWidth', el => isStrip(el) ? 200 : 0),
+    size('offsetLeft', el => isStrip(el) ? 10 : el.textContent === 'Far press' ? 410 : 10),
+    size('offsetWidth', el => el.textContent === 'Far press' ? 120 : 80),
+  ]
+  const scrollIntoView = vi.fn(); const original = Element.prototype.scrollIntoView
+  Element.prototype.scrollIntoView = scrollIntoView
+  try {
+    mount(<CameraView cameras={cameras} />)
+    const strip = screen.getByRole('group', { name: 'Choose camera' })
+    expect(strip.scrollLeft).toBe(0)                       // the first camera is already in view
+    fireEvent.click(screen.getByRole('button', { name: 'Far press' }))
+    expect(strip.scrollLeft).toBe(320)                     // right edge 400 + 120 - visible 200
+    fireEvent.click(screen.getByRole('button', { name: 'Press' }))
+    expect(strip.scrollLeft).toBe(0)
+    expect(scrollIntoView).not.toHaveBeenCalled()          // the page itself is never scrolled
+  } finally { spies.forEach(spy => spy.mockRestore()); Element.prototype.scrollIntoView = original }
+})
 it('camera chip waits for MJPEG frames and never calls snapshots live', async () => {
   mocks.fallback = true; mocks.status = 'error'
   mount(<CameraView cameras={[{ id: 1, name: 'Press' } as Camera]} />)

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import useWebRTC from '../../hooks/useWebRTC'
 import useCameraList from '../../hooks/useCameraList'
@@ -25,8 +25,20 @@ export function CameraFeed({ camera, printer, job }: { camera: Camera; printer?:
 export default function CameraView({ cameras, printers = [], prints = [], initialId }: { cameras: Camera[]; printers?: Printer[]; prints?: PrintJob[]; initialId?: number }) {
   const [selection, select] = useState<number | 'wall'>(initialId || cameras[0]?.id)
   const root = useRef<HTMLElement>(null)
+  const tabs = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
   const selected = selection === 'wall' ? 'wall' : cameras.some(c => c.id === selection) ? selection : cameras[0]?.id
+  // On a narrow screen the chooser scrolls sideways: keep the chosen camera's button in view.
+  // Moves the strip only, never the page.
+  useEffect(() => {
+    const strip = tabs.current
+    const active = strip?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return
+    const left = active.offsetLeft - strip.offsetLeft
+    const right = left + active.offsetWidth
+    if (left < strip.scrollLeft) strip.scrollLeft = left
+    else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth
+  }, [selected, cameras.length])
   async function fullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen()
@@ -36,7 +48,7 @@ export default function CameraView({ cameras, printers = [], prints = [], initia
   }
   if (!cameras.length) return <p>No cameras available.</p>
   return <section ref={root} className="f-camera-view" aria-label="Cameras">
-    <div className="f-camera-toolbar"><div className="f-camera-tabs" role="group" aria-label="Choose camera">{cameras.map(camera => <button type="button" key={camera.id} aria-pressed={selected === camera.id} onClick={() => select(camera.id)}>{camera.name}{isPausedState(printers.find(p => p.id === camera.id)?.gcode_state) ? ' · paused' : ''}</button>)}<button type="button" aria-pressed={selected === 'wall'} onClick={() => select('wall')}>Wall</button></div><button type="button" onClick={fullscreen}>Full screen</button></div>
+    <div className="f-camera-toolbar"><div ref={tabs} className="f-camera-tabs" role="group" aria-label="Choose camera">{cameras.map(camera => <button type="button" key={camera.id} aria-pressed={selected === camera.id} onClick={() => select(camera.id)}>{camera.name}{isPausedState(printers.find(p => p.id === camera.id)?.gcode_state) ? ' · paused' : ''}</button>)}<button type="button" aria-pressed={selected === 'wall'} onClick={() => select('wall')}>Wall</button></div><button type="button" onClick={fullscreen}>Full screen</button></div>
     {error && <p role="status">{error}</p>}
     <div className={selected === 'wall' ? 'f-camera-wall' : ''}>{cameras.filter(camera => selected === 'wall' || camera.id === selected).map(camera => {
       const printer = printers.find(p => p.id === camera.id)

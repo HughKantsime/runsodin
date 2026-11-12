@@ -76,6 +76,15 @@ export function collectPhoneLayout() {
     const text = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40)
     return `${el.tagName.toLowerCase()}${id}${classes}${text ? ` "${text}"` : ''}`
   }
+  // A control may extend its hit area with an invisible ::after (index.css, Classic phones): it says how
+  // far with --tap-pad. Counted only when that ::after really exists and is positioned.
+  const tapRect = el => {
+    const r = rectOf(el)
+    const pad = parseFloat(getComputedStyle(el).getPropertyValue('--tap-pad')) || 0
+    const after = getComputedStyle(el, '::after')
+    if (!pad || after.content === 'none' || after.position !== 'absolute' || getComputedStyle(el).overflow !== 'visible') return r
+    return { left: r.left - pad, right: r.right + pad, top: r.top - pad, bottom: r.bottom + pad, width: r.width + 2 * pad, height: r.height + 2 * pad }
+  }
   const scrollsX = el => ['auto', 'scroll'].includes(getComputedStyle(el).overflowX) && el.scrollWidth > el.clientWidth
   // Same rule as inspectFoundryLayout: a scroller that itself leaves the viewport excuses nothing.
   const inScroller = el => {
@@ -118,7 +127,7 @@ export function collectPhoneLayout() {
   for (const el of document.body.querySelectorAll('button, a[href], [role="button"]')) {
     if (targets.length >= 500) break
     if (el.classList.contains('sr-only') || el.closest('nav, aside, header') || !el.closest(actionContainer) || !visible(el)) continue
-    targets.push({ label: hint(el), area: 'action', rect: rectOf(el) })
+    targets.push({ label: hint(el), area: 'action', rect: tapRect(el) })
   }
   return {
     viewport: { width: innerWidth, height: innerHeight },
