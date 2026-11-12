@@ -19,7 +19,8 @@ from .const import CONF_CAMERA_TOKEN
 from .coordinator import OdinCoordinator
 from .entity import OdinPrinterEntity, track_printers
 
-SNAPSHOT_TIMEOUT = 10
+# A camera relayed from UniFi Protect (rtspx) waits for a keyframe: first frames of 5-6 s were seen.
+SNAPSHOT_TIMEOUT = 20
 SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024
 
 
