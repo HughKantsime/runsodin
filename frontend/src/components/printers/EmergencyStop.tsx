@@ -87,7 +87,7 @@ export default function EmergencyStop() {
       {/* Floating Button */}
       <button
         onClick={() => setShowPanel(!showPanel)}
-        className={`emergency-controls-toggle fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
+        className={`emergency-controls-toggle fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.75rem)] md:bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
           showPanel
             ? 'bg-[var(--brand-card-bg)] text-white'
             : 'border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white'
@@ -106,7 +106,7 @@ export default function EmergencyStop() {
 
       {/* Control Panel */}
       {showPanel && (
-        <div className="emergency-controls-panel fixed bottom-20 right-6 z-40 w-80 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
+        <div className="emergency-controls-panel fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom)+4rem)] md:bottom-20 right-6 z-40 w-80 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
           <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
             <AlertTriangle className="text-red-400" size={18} aria-hidden="true" />
             <span className="font-medium text-red-200">Emergency Controls</span>

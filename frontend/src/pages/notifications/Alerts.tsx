@@ -10,6 +10,7 @@ import { alerts as alertsApi, approveJob, rejectJob, fetchAPI, printers as print
 import { getCurrentUser } from '../../permissions'
 import { formatDate } from '../../utils/shared'
 import { PageHeader, Button, EmptyState } from '../../components/ui'
+import ScrollTabs from '../../components/ui/ScrollTabs'
 import type { AlertListParams } from '../../types/notification'
 
 interface DigestStatusEntry {
@@ -280,11 +281,12 @@ export default function Alerts() {
 
       <DigestStatusStrip />
 
-      <div className="flex gap-1 mb-6 p-1 rounded-md" style={{ backgroundColor: 'var(--brand-sidebar-bg)' }}>
+      <ScrollTabs className="flex gap-1 mb-6 p-1 rounded-md max-sm:overflow-x-auto" style={{ backgroundColor: 'var(--brand-sidebar-bg)' }} fadeClassName="from-[var(--brand-sidebar-bg)]">
         {TABS.map(tab => (
           <button
             key={tab.key}
             onClick={() => handleTabChange(tab.key)}
+            data-scrolltab-active={activeTab === tab.key ? 'true' : undefined}
             className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
             style={activeTab === tab.key
               ? { backgroundColor: 'var(--brand-accent)', color: foundry ? 'var(--brand-on-primary)' : 'white' }
@@ -294,7 +296,7 @@ export default function Alerts() {
             {tab.label}
           </button>
         ))}
-      </div>
+      </ScrollTabs>
 
       <div className="space-y-3">
         {loading && alerts.length === 0 ? (

@@ -42,6 +42,7 @@ export default function TabBar({ tabs, activeTab, active, onTabChange, onChange,
         return (
           <button
             data-foundry-active={foundry ? isActive : undefined}
+            data-scrolltab-active={isActive ? 'true' : undefined}
             aria-pressed={foundry ? isActive : undefined}
             key={key}
             onClick={() => handleChange?.(key)}

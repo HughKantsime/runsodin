@@ -1,6 +1,7 @@
 import OutcomeCorrection from './OutcomeCorrection'
 import CheckTarget from '../ui/CheckTarget'
 import { displayName } from '../../utils/displayName'
+import PageState from '../ui/PageState'
 import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar, Pencil, GripVertical, ShoppingCart, MessageSquare, RefreshCw, Send, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
@@ -42,6 +43,186 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   )
 }
 
+// Shared by the table row and the phone card so both render the same content and rules.
+function JobItemDetails({ job, nameClassName = 'font-medium text-sm' }: { job: any; nameClassName?: string }) {
+  return (
+    <>
+      <div className={nameClassName}>{displayName(job)}</div>
+      {(job.quantity == null || job.hold == null || job.is_locked == null) && (
+        <div className="text-xs text-[var(--brand-text-muted)]">
+          {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
+        </div>
+      )}
+      {job.order_item_id && (
+        <div className="text-xs text-[var(--brand-primary)] flex items-center gap-1">
+          <ShoppingCart size={10} />
+          Order #{job.order_item?.order_id || '—'}
+        </div>
+      )}
+      {job.rejected_reason && (
+        <div className="text-xs text-red-400 flex items-center gap-1 truncate max-w-xs">
+          <MessageSquare size={10} />
+          {job.rejected_reason}
+        </div>
+      )}
+      {job.notes && <div className="text-xs text-[var(--brand-text-muted)] truncate max-w-xs">{job.notes}</div>}
+      {job.due_date && <DueDateBadge dueDate={job.due_date} />}
+      {job.fail_reason && (
+        <div className="text-xs text-red-400 truncate max-w-xs">
+          <AlertTriangle size={10} className="shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
+        </div>
+      )}
+    </>
+  )
+}
+
+function PriorityBadge({ priority }: { priority: number }) {
+  return (
+    <span className={clsx(
+      'px-2 py-0.5 rounded-md text-xs font-medium',
+      priority <= 2 ? 'bg-red-900/50 text-red-400' :
+      priority >= 4 ? 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]' :
+      'bg-amber-900/50 text-amber-400'
+    )}>
+      P{priority}
+    </span>
+  )
+}
+
+function JobPrinterInfo({ job, pinnedPrinterName }: { job: any; pinnedPrinterName?: string }) {
+  return (
+    <>
+      {job.printer?.name || '—'}
+      {job.pinned_printer_id != null && (
+        <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
+          Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
+        </div>
+      )}
+      {job.pinned_printer_issue && (
+        <div className="text-xs text-red-400" role="status">{PIN_ISSUE_TEXT[job.pinned_printer_issue] ?? 'Pinned printer is unavailable — job stays queued'}</div>
+      )}
+    </>
+  )
+}
+
+function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPrincipal, className = 'flex items-center gap-1' }: { job: any; onAction: (...args: any[]) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; className?: string }) {
+  return (
+    <div className={className}>
+      {job.status === 'submitted' && canDo('jobs.approve') && (
+        <>
+          <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('approve', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Approve job" />
+          <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('reject', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Reject job" />
+        </>
+      )}
+      {job.status === 'rejected' && job.submitted_by != null && getCurrentUser()?.id === job.submitted_by && canDo('jobs.resubmit') && (
+        <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('resubmit', job.id)} className="text-amber-400 hover:bg-amber-900/50" aria-label="Resubmit job" />
+      )}
+      {job.status === 'scheduled' && canDo('jobs.start') && (
+        <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Start print (manual)" />
+      )}
+      {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
+        <Button
+          variant="ghost"
+          size="icon"
+          icon={isDispatching ? Loader2 : Send}
+          loading={isDispatching}
+          onClick={() => !isDispatching && onAction('dispatch', job.id, displayName(job), job.printer?.name)}
+          className={clsx(isDispatching ? 'text-emerald-500' : 'text-emerald-400 hover:bg-emerald-900/50')}
+          title={dispatchFenced ? 'Dispatch requires verification. Check the printer before any further dispatch.' : isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
+          aria-label={dispatchFenced ? 'Dispatch requires verification' : isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
+          disabled={isDispatching || dispatchFenced}
+        />
+      )}
+      {job.status === 'printing' && canDo('jobs.complete') && (
+        <>
+          <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('complete', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Mark job complete" />
+          <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('markFailed', job.id, displayName(job))} className="text-red-400 hover:bg-red-900/50" aria-label="Mark job failed" />
+        </>
+      )}
+      {(canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) ||
+        job.status === 'rejected' && correctionPrincipal?.role === 'viewer' && Number.isInteger(correctionPrincipal.id) && correctionPrincipal.id > 0 && correctionPrincipal.id === job.submitted_by && Number.isInteger(correctionPrincipal.group_id) && correctionPrincipal.group_id > 0 && correctionPrincipal.group_id === job.charged_to_org_id) && (
+        <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Edit job" />
+      )}
+      {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
+        <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
+      )}
+      {job.status === 'failed' && (
+        <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('failReason', job.id, displayName(job), job.fail_reason, job.fail_notes)} className="text-amber-400 hover:bg-amber-900/50" aria-label={job.fail_reason ? 'Edit failure reason' : 'Add failure reason'} />
+      )}
+      {canDo('jobs.create') && ['pending', 'scheduled', 'completed', 'failed'].includes(job.status) && (
+        <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Print again" />
+      )}
+      {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
+        <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onAction('delete', job.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete job" />
+      )}
+    </div>
+  )
+}
+
+// Phone layout (< 640 px): one stacked card per job. Order: name (wraps by words),
+// status, printer, priority/time, then the same row actions.
+function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
+  const overdue = job.due_date && new Date(job.due_date) < new Date() && !['completed', 'cancelled', 'failed'].includes(job.status)
+  return (
+    <li data-testid="job-card" className={clsx(
+      'px-3 py-3 border-b border-[var(--brand-card-border)] last:border-b-0',
+      overdue && 'bg-red-950/30 border-l-2 border-l-red-500'
+    )}>
+      <div className="flex items-start gap-2">
+        <CheckTarget><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 mt-0.5 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
+        <div className="min-w-0 flex-1">
+          <JobItemDetails job={job} nameClassName="font-medium text-sm break-words" />
+        </div>
+        {job.queue_position != null && ['pending', 'scheduled'].includes(job.status) && (
+          <span className="text-xs font-mono text-[var(--brand-text-muted)] shrink-0" title="Queue position">#{job.queue_position + 1}</span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <StatusBadge status={job.status} />
+        <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
+      </div>
+      <div className="mt-2 text-sm">
+        <span className="text-xs text-[var(--brand-text-muted)] mr-1">Printer</span>
+        <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName} />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--brand-text-secondary)]">
+        <PriorityBadge priority={job.priority} />
+        <span className="font-mono">{formatHours(job.duration_hours)}</span>
+        {job.scheduled_start && <span className="font-mono text-xs">{format(new Date(job.scheduled_start), 'MMM d HH:mm')}</span>}
+      </div>
+      <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal}
+        className="mt-2 flex flex-wrap items-center gap-1 [&_button]:min-h-11 [&_button]:min-w-11" />
+    </li>
+  )
+}
+
+export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleSelect, onSelectAll, allSelected, onAction, dispatchFencedIds, dispatchingId, correctionPrincipal, printers }: {
+  jobs: any[]; isLoading: boolean; emptyText: string; selectedIds: Set<number>; onToggleSelect: (id: number) => void; onSelectAll: () => void; allSelected: boolean
+  onAction: (...args: any[]) => void; dispatchFencedIds?: Set<number>; dispatchingId?: number | null; correctionPrincipal?: any; printers: any[]
+}) {
+  if (isLoading) {
+    return <PageState kind="loading" className="flex items-center justify-center gap-2 px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><RefreshCw size={14} className="animate-spin" />Loading...</PageState>
+  }
+  if (jobs.length === 0) {
+    return <div className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm">{emptyText}</div>
+  }
+  return (
+    <div>
+      <div className="flex items-center gap-2 px-3 py-2 bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)] text-xs text-[var(--brand-text-secondary)]">
+        <CheckTarget><input type="checkbox" checked={allSelected} onChange={onSelectAll} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" /></CheckTarget>
+        <span>Select all</span>
+      </div>
+      <ul aria-label="Jobs list">
+        {jobs.map(job => (
+          <JobCard key={job.id} job={job} onAction={onAction} isSelected={selectedIds.has(job.id)} onToggleSelect={onToggleSelect}
+            correctionPrincipal={correctionPrincipal} dispatchFenced={dispatchFencedIds?.has(job.id)} isDispatching={dispatchingId === job.id}
+            pinnedPrinterName={job.pinned_printer_id != null ? printers.find(p => p.id === job.pinned_printer_id)?.name : undefined} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
   return (
     <tr className={clsx(
@@ -65,52 +246,13 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
       </td>
       <td className="px-3 md:px-4 py-3">
-        <div className="font-medium text-sm">{displayName(job)}</div>
-        {(job.quantity == null || job.hold == null || job.is_locked == null) && (
-          <div className="text-xs text-[var(--brand-text-muted)]">
-            {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
-          </div>
-        )}
-        {job.order_item_id && (
-          <div className="text-xs text-[var(--brand-primary)] flex items-center gap-1">
-            <ShoppingCart size={10} />
-            Order #{job.order_item?.order_id || '—'}
-          </div>
-        )}
-        {job.rejected_reason && (
-          <div className="text-xs text-red-400 flex items-center gap-1 truncate max-w-xs">
-            <MessageSquare size={10} />
-            {job.rejected_reason}
-          </div>
-        )}
-        {job.notes && <div className="text-xs text-[var(--brand-text-muted)] truncate max-w-xs">{job.notes}</div>}
-        {job.due_date && <DueDateBadge dueDate={job.due_date} />}
-        {job.fail_reason && (
-          <div className="text-xs text-red-400 truncate max-w-xs">
-            <AlertTriangle size={10} className="shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
-          </div>
-        )}
+        <JobItemDetails job={job} />
       </td>
       <td className="px-3 md:px-4 py-3">
-        <span className={clsx(
-          'px-2 py-0.5 rounded-md text-xs font-medium',
-          job.priority <= 2 ? 'bg-red-900/50 text-red-400' :
-          job.priority >= 4 ? 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]' :
-          'bg-amber-900/50 text-amber-400'
-        )}>
-          P{job.priority}
-        </span>
+        <PriorityBadge priority={job.priority} />
       </td>
       <td className="px-3 md:px-4 py-3 text-sm">
-        {job.printer?.name || '—'}
-        {job.pinned_printer_id != null && (
-          <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
-            Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
-          </div>
-        )}
-        {job.pinned_printer_issue && (
-          <div className="text-xs text-red-400" role="status">{PIN_ISSUE_TEXT[job.pinned_printer_issue] ?? 'Pinned printer is unavailable — job stays queued'}</div>
-        )}
+        <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName} />
       </td>
       <td className="px-3 md:px-4 py-3 hidden lg:table-cell">
         {job.colors_list?.length > 0 ? (
@@ -136,55 +278,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         <span className="font-mono">{job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
       </td>
       <td className="px-3 md:px-4 py-3">
-        <div className="flex items-center gap-1">
-          {job.status === 'submitted' && canDo('jobs.approve') && (
-            <>
-              <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('approve', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Approve job" />
-              <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('reject', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Reject job" />
-            </>
-          )}
-          {job.status === 'rejected' && job.submitted_by != null && getCurrentUser()?.id === job.submitted_by && canDo('jobs.resubmit') && (
-            <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('resubmit', job.id)} className="text-amber-400 hover:bg-amber-900/50" aria-label="Resubmit job" />
-          )}
-          {job.status === 'scheduled' && canDo('jobs.start') && (
-            <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Start print (manual)" />
-          )}
-          {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
-            <Button
-              variant="ghost"
-              size="icon"
-              icon={isDispatching ? Loader2 : Send}
-              loading={isDispatching}
-              onClick={() => !isDispatching && onAction('dispatch', job.id, displayName(job), job.printer?.name)}
-              className={clsx(isDispatching ? 'text-emerald-500' : 'text-emerald-400 hover:bg-emerald-900/50')}
-              title={dispatchFenced ? 'Dispatch requires verification. Check the printer before any further dispatch.' : isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
-              aria-label={dispatchFenced ? 'Dispatch requires verification' : isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
-              disabled={isDispatching || dispatchFenced}
-            />
-          )}
-          {job.status === 'printing' && canDo('jobs.complete') && (
-            <>
-              <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('complete', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Mark job complete" />
-              <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('markFailed', job.id, displayName(job))} className="text-red-400 hover:bg-red-900/50" aria-label="Mark job failed" />
-            </>
-          )}
-          {(canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) ||
-            job.status === 'rejected' && correctionPrincipal?.role === 'viewer' && Number.isInteger(correctionPrincipal.id) && correctionPrincipal.id > 0 && correctionPrincipal.id === job.submitted_by && Number.isInteger(correctionPrincipal.group_id) && correctionPrincipal.group_id > 0 && correctionPrincipal.group_id === job.charged_to_org_id) && (
-            <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Edit job" />
-          )}
-          {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
-            <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
-          )}
-          {job.status === 'failed' && (
-            <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('failReason', job.id, displayName(job), job.fail_reason, job.fail_notes)} className="text-amber-400 hover:bg-amber-900/50" aria-label={job.fail_reason ? 'Edit failure reason' : 'Add failure reason'} />
-          )}
-          {canDo('jobs.create') && ['pending', 'scheduled', 'completed', 'failed'].includes(job.status) && (
-            <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Print again" />
-          )}
-          {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
-            <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onAction('delete', job.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete job" />
-          )}
-        </div>
+        <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal} />
       </td>
     </tr>
   )

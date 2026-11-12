@@ -29,6 +29,7 @@ import ProBadge from '../../components/shared/ProBadge'
 import RequiresLicense from '../../components/shared/RequiresLicense'
 import { pricingConfig } from '../../api'
 import { PageHeader, TabBar } from '../../components/ui'
+import ScrollTabs from '../../components/ui/ScrollTabs'
 
 function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }: { title: string; icon?: any; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -91,7 +92,7 @@ export default function Settings() {
       <PageHeader icon={SettingsIcon} title="Settings" subtitle="Configure your print farm" />
 
       {/* Tab Bar */}
-      <div className="mb-6 overflow-x-auto pb-1 -mx-1 px-1">
+      <ScrollTabs className="mb-6 overflow-x-auto pb-1 -mx-1 px-1" fadeClassName="from-[var(--brand-card-bg)]">
         <TabBar
           tabs={TABS.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}
           active={shownTab}
@@ -100,7 +101,7 @@ export default function Settings() {
             if (!tab?.disabled) setActiveTab(val)
           }}
         />
-      </div>
+      </ScrollTabs>
 
       {/* ==================== GENERAL TAB ==================== */}
       {shownTab === 'general' && <GeneralTab />}

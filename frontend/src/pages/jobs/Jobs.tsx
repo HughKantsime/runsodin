@@ -14,7 +14,9 @@ import FailureReasonModal from '../../components/jobs/FailureReasonModal'
 import { updateJobFailure } from '../../api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
-import JobRow from '../../components/jobs/JobRow'
+import JobRow, { JobCardList } from '../../components/jobs/JobRow'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
+import ScrollTabs from '../../components/ui/ScrollTabs'
 import TraceabilityPanel from '../../components/jobs/TraceabilityPanel'
 import RecentlyCompleted from '../../components/jobs/RecentlyCompleted'
 import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs/JobModals'
@@ -34,6 +36,7 @@ const jobTypeTabs = [
 
 export default function Jobs() {
   const foundry = useFoundry()
+  const compact = useMediaQuery('(max-width: 639px)')
   const org = useOrg()
   const queryClient = useQueryClient()
   const {
@@ -294,7 +297,7 @@ export default function Jobs() {
       <TraceabilityPanel />
 
       {/* Job Type Tabs */}
-      <div className="mb-4">
+      <ScrollTabs className="mb-4 max-sm:overflow-x-auto" fadeClassName="from-[var(--brand-card-bg)]">
         <TabBar
           tabs={jobTypeTabs.map(tab => ({
             ...tab,
@@ -305,7 +308,7 @@ export default function Jobs() {
           active={jobTypeFilter}
           onChange={setJobTypeFilter}
         />
-      </div>
+      </ScrollTabs>
 
       {/* Quick Schedule from Presets */}
       {presetsData?.length > 0 && (
@@ -368,6 +371,24 @@ export default function Jobs() {
         </div>
       )}
 
+      {compact ? (
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
+          <JobCardList
+            jobs={filteredJobs}
+            isLoading={isLoading}
+            emptyText={jobTypeFilter === 'order' ? 'No order jobs found' : jobTypeFilter === 'adhoc' ? 'No ad-hoc jobs found' : 'No jobs found'}
+            selectedIds={selectedJobs}
+            onToggleSelect={toggleJobSelect}
+            onSelectAll={() => toggleSelectAll(filteredJobs.map(j => j.id))}
+            allSelected={filteredJobs.length > 0 && selectedJobs.size === filteredJobs.length}
+            onAction={handleAction}
+            dispatchFencedIds={dispatchFencedIds}
+            dispatchingId={dispatchJob.isPending ? dispatchJob.variables : null}
+            correctionPrincipal={recentPrincipal}
+            printers={printersData || []}
+          />
+        </div>
+      ) : (
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
         <div className="overflow-x-auto" tabIndex={0} role={foundry ? 'region' : undefined} aria-label="Jobs table">
           <Table className="w-full min-w-[600px]">
@@ -404,6 +425,8 @@ export default function Jobs() {
           </Table>
         </div>
       </div>
+
+      )}
 
       <RecentlyCompleted jobs={recentJobs} loading={recentLoading} error={recentError} onRetry={() => { void retryRecent() }} />
 
