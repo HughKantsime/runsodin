@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.1.1] - 2026-11-11
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Hotfix: the iPhone/iPad Queue could fail to load after a Kobra/Moonraker print finished. Job dates are now stored and sent in one form. -->
 
