@@ -156,7 +156,10 @@ def build_timelapse_status(db: Session, printer: Printer, now: Optional[datetime
     )
     reference = last_frame or started
     if reference is not None and (now - reference).total_seconds() > STALE_FRAME_SECONDS:
-        status["last_error"] = MSG_STALE     # nothing is arriving: says more than "will retry"
+        # Nothing is arriving (a stopped recorder, a paused print): not "recording", whatever
+        # the capture row says. The counters stay so the page can show what was saved.
+        status["capturing"] = False
+        status["last_error"] = MSG_STALE
     elif blocked:
         status["last_error"] = MSG_BLOCKED
     return status
@@ -177,6 +180,17 @@ def get_timelapse_status(
     assert_access(db, "printer", printer_id, current_user)
     response.headers["Cache-Control"] = "private, no-store"
     status = build_timelapse_status(db, printer)
-    if not check_org_access(current_user, printer.org_id):
-        status["print_job_id"] = None   # a shared printer: another organization's job id stays private
+    if status["print_job_id"] is not None and not _may_see_job(db, current_user, status["print_job_id"]):
+        status["print_job_id"] = None   # the job id follows the job's own visibility, not the printer's
     return status
+
+
+def _may_see_job(db: Session, user: dict, job_id: int) -> bool:
+    """The job routes' rule: the job's organization (not the printer's) and controlled work."""
+    from core.controlled_parts import allowed
+    row = db.execute(text("SELECT charged_to_org_id FROM jobs WHERE id = :id"), {"id": job_id}).first()
+    if row is None:
+        return False
+    if row[0] is not None and not check_org_access(user, row[0]):
+        return False
+    return bool(allowed(db, "job", job_id, user))

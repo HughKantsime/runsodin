@@ -82,7 +82,9 @@ def test_stale_capture_reports_missing_frames(database):
     configure(database)
     start_capture(database)
     result = status_of(database, now=NOW + timedelta(minutes=10))
-    assert result["capturing"] and result["last_error"] == status_module.MSG_STALE
+    # Codex sign-off 11-12: a capture row with no fresh frame is not "recording".
+    assert result["capturing"] is False and result["last_error"] == status_module.MSG_STALE
+    assert result["print_job_id"] == 1 and result["started_at"] is not None
 
 
 def test_blocked_frame_reports_retry(database, monkeypatch):
@@ -240,3 +242,23 @@ def test_read_scopes_get_the_status_block(status_client, review_db, scope):
 def test_unknown_printer_over_http_is_404(status_client):
     client, issue = status_client
     assert client.get("/printers/987654/timelapse-status", headers=issue(["read:printers"])).status_code == 404
+
+
+def test_the_job_id_follows_the_jobs_organization_not_the_printers(database, monkeypatch):
+    """Codex sign-off 11-12: organization B's job on organization A's shared printer showed its id
+    to A's viewers, who cannot open that job."""
+    configure(database)
+    start_capture(database)
+    monkeypatch.setattr(status_module, "_frame_stats", lambda db, nonce: (NOW, False))
+    monkeypatch.setattr(status_module, "build_timelapse_status",
+                        lambda db, printer, now=None, _real=status_module.build_timelapse_status: _real(db, printer, now=NOW))
+    org = database.execute(text("SELECT org_id FROM printers WHERE id=1")).scalar()
+    database.execute(text("UPDATE printers SET shared=1 WHERE id=1"))
+    database.execute(text("UPDATE jobs SET charged_to_org_id=:o WHERE id=1"), {"o": (org or 1) + 40})
+    database.commit()
+    owner_viewer = {"id": 9, "role": "viewer", "group_id": org, "_auth_kind": "session_jwt"}
+    hidden = call(database, 1, owner_viewer)
+    assert hidden["capturing"] is True and hidden["print_job_id"] is None
+    database.execute(text("UPDATE jobs SET charged_to_org_id=:o WHERE id=1"), {"o": org})
+    database.commit()
+    assert call(database, 1, owner_viewer)["print_job_id"] == 1
