@@ -357,3 +357,20 @@ def test_only_the_platform_superadmin_may_read_or_change_the_setting(app, review
         assert client.get('/api/config/filament-check').status_code == 403
         assert client.put('/api/config/filament-check', json={'mode': 'off'}).status_code == 403
     assert count(review_db, "SELECT COUNT(*) FROM system_config WHERE key LIKE 'filament_check_%'") == 0
+
+
+# ---------------------------------------------------------------- Codex sign-off 11-12
+@pytest.mark.parametrize('plate_index, overall', [(None, 'short'), (0, 'short'), (1, 'unknown'), (3, 'unknown')])
+def test_a_job_on_a_later_plate_is_never_judged_with_the_first_plates_grams(engine, recorded, plate_index, overall):
+    """The stored estimate is the first plate's: plate 2 could need ten times as much, so a job
+    that prints another plate is unknown (and never held), not 'enough' or 'short'."""
+    seed(engine, slots=AMS, spools={1: 900, 2: 40}, mode='hold')
+    the_job = job(BLACK_PLA, mapping=[1], plate_index=plate_index)
+    result = evaluate(engine, the_job)
+    assert result['overall'] == overall
+    outcome = fc.dispatch_gate(engine, the_job, [1])
+    if overall == 'unknown':
+        assert result['slots'][0]['reason'] == 'other_plate' and 'first plate' in result['slots'][0]['message']
+        assert outcome.refusal is None and outcome.warning is None
+    else:
+        assert outcome.refusal.startswith('filament_short')
