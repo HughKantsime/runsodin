@@ -83,9 +83,10 @@ def test_samples_before_the_print_started_are_ignored():
 
 
 def test_under_finding_carries_actual_target_and_minutes():
-    [finding] = evaluate(make(12, nozzle=198.0), NOW - timedelta(minutes=12), NOW).findings
+    assert evaluate(make(12, nozzle=198.0), NOW - timedelta(minutes=12), NOW).findings == ()  # four minutes past the grace
+    [finding] = evaluate(make(13, nozzle=198.0), NOW - timedelta(minutes=13), NOW).findings
     assert (finding.rule, finding.sensor, finding.actual, finding.target) == (NOT_REACHING_TARGET, NOZZLE, 198.0, 220.0)
-    assert finding.minutes == 5 and finding.critical is False  # samples from the end of the 8-minute grace
+    assert finding.minutes == 5 and finding.critical is False  # five elapsed minutes from the end of the 8-minute grace
 
 
 @pytest.mark.parametrize("nozzle,critical", [(240.0, False), (251.0, True), (250.0, False)])
@@ -110,9 +111,9 @@ def test_thresholds_are_honoured():
 # ------------------------------------------------------------ recovery (re-arm)
 
 def test_recovery_clears_only_after_the_whole_sustain_window():
-    bad_then_good = make(12, nozzle=lambda i: 190.0 if i < 8 else 220.0)  # 4 good samples
+    bad_then_good = make(13, nozzle=lambda i: 190.0 if i < 8 else 220.0)  # good for four minutes
     assert (NOZZLE, NOT_REACHING_TARGET) not in evaluate(bad_then_good, LONG_AGO, NOW).clear
-    good = make(13, nozzle=lambda i: 190.0 if i < 8 else 220.0)  # 5 good samples
+    good = make(14, nozzle=lambda i: 190.0 if i < 8 else 220.0)  # good for five minutes
     assert (NOZZLE, NOT_REACHING_TARGET) in evaluate(good, LONG_AGO, NOW).clear
 
 
@@ -191,3 +192,14 @@ def test_heating_with_no_target_waits_out_the_warm_up():
     rising = make(8, nozzle=lambda i: 70.0 + 5 * i, nozzle_target=0.0)
     assert keys(evaluate(rising, NOW - timedelta(minutes=7), NOW)) == set()
     assert keys(evaluate(rising, None, NOW)) == {(NOZZLE, HEATING_WITHOUT_TARGET)}
+
+
+def test_a_burst_of_rows_never_shortens_the_sustained_time():
+    """Codex sign-off 11-12: forty low readings five seconds apart (3 min 15 s) raised the
+    five-minute alert. The configured time itself must elapse."""
+    burst = [Sample(NOW - timedelta(seconds=5 * i), 60.0, 190.0, 60.0, 220.0) for i in range(40)]
+    assert evaluate(burst, LONG_AGO, NOW).findings == ()
+    nearly = [Sample(NOW - timedelta(seconds=10 * i), 60.0, 190.0, 60.0, 220.0) for i in range(29)]   # 4 min 40 s
+    assert evaluate(nearly, LONG_AGO, NOW).findings == ()
+    full = [Sample(NOW - timedelta(seconds=10 * i), 60.0, 190.0, 60.0, 220.0) for i in range(31)]     # 5 min
+    assert keys(evaluate(full, LONG_AGO, NOW)) == {(NOZZLE, NOT_REACHING_TARGET)}

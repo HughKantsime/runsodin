@@ -114,9 +114,14 @@ def alert_metadata(finding: Finding) -> dict:
 
 def _stage(db, printer_id: int, name: str, finding: Finding):
     severity = AlertSeverity.CRITICAL if finding.critical else AlertSeverity.WARNING
+    # The critical form has its own words: the dispatcher drops a message identical to an unread
+    # one, and a warning that worsens can round to the same sentence as the warning before it.
+    title, message = f"Temperature warning: {name} {finding.sensor}", describe(name, finding)
+    if finding.critical:
+        title, message = f"Temperature critical: {name} {finding.sensor}", "Critical: " + message
     return alert_dispatcher.stage_alert(
-        db, AlertType.PRINTER_ERROR, severity, f"Temperature warning: {name} {finding.sensor}",
-        describe(name, finding), printer_id=printer_id, metadata=alert_metadata(finding))
+        db, AlertType.PRINTER_ERROR, severity, title, message,
+        printer_id=printer_id, metadata={**alert_metadata(finding), "critical": bool(finding.critical)})
 
 
 # ---------------------------------------------------------------- the pass

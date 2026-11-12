@@ -93,19 +93,19 @@ def state_row(farm):
 
 def test_fires_only_after_the_warmup_and_the_sustained_window(farm):
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 11, nozzle=190.0)
-    assert farm.run(11) == []  # samples 7..11: two of them still inside the 8-minute grace
-    fill(farm, 1, 12, 12, nozzle=190.0)
-    assert farm.run(12) == [FAULT]  # samples 8..12 are all past the grace
+    fill(farm, 1, 0, 12, nozzle=190.0)
+    assert farm.run(12) == []  # 8..12 is past the grace but only four minutes long
+    fill(farm, 1, 13, 13, nozzle=190.0)
+    assert farm.run(13) == [FAULT]  # 8..13: five full minutes past the grace
 
 
 def test_a_target_change_restarts_the_grace(farm):
     add_printer(farm, 1, "Xena", print_id=1)
     fill(farm, 1, 0, 20)  # at temperature
-    fill(farm, 1, 21, 32, nozzle_target=260.0)  # target raised at minute 21, nozzle has not followed
-    assert farm.run(28) == [] and farm.run(32) == []  # grace runs to minute 29; the window needs 29..33
-    fill(farm, 1, 33, 33, nozzle_target=260.0)
-    assert farm.run(33) == [FAULT]
+    fill(farm, 1, 21, 33, nozzle_target=260.0)  # target raised at minute 21, nozzle has not followed
+    assert farm.run(28) == [] and farm.run(33) == []  # grace runs to minute 29; the window needs 29..34
+    fill(farm, 1, 34, 34, nozzle_target=260.0)
+    assert farm.run(34) == [FAULT]
 
 
 def test_cooling_down_never_raises_heating_with_no_target(farm):
@@ -124,23 +124,23 @@ def test_a_single_outlier_is_ignored(farm):
 
 def test_one_alert_per_print_then_rearm_after_recovery(farm):
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    assert farm.run(12) == [FAULT]
-    fill(farm, 1, 13, 16, nozzle=190.0)
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    assert farm.run(13) == [FAULT]
+    fill(farm, 1, 14, 16, nozzle=190.0)
     assert farm.run(14) == [] and farm.run(16) == []  # still faulty: no second alert
     assert len(farm.delivered) == 1
-    fill(farm, 1, 17, 21)  # recovered for five samples
-    assert farm.run(21) == []
-    fill(farm, 1, 22, 26, nozzle=195.0)  # and faulty again, by a different amount
-    assert farm.run(26) == [FAULT]
+    fill(farm, 1, 17, 22)  # recovered for five full minutes
+    assert farm.run(22) == []
+    fill(farm, 1, 23, 28, nozzle=195.0)  # and faulty again, by a different amount
+    assert farm.run(27) == [] and farm.run(28) == [FAULT]
     assert len(farm.delivered) == 2
     assert sorted(a["user_id"] for a in alerts(farm)) == [1, 1, 2, 2]  # two recipients, alerted twice
 
 
 def test_a_new_print_alerts_again(farm):
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    assert farm.run(12) == [FAULT]
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    assert farm.run(13) == [FAULT]
     execute(farm, "UPDATE print_jobs SET status='completed' WHERE id=1")
     assert farm.run(30) == []
     assert json.loads(state_row(farm)) == {}  # the print ended: its state is cleared
@@ -151,10 +151,10 @@ def test_a_new_print_alerts_again(farm):
 
 def test_a_restart_does_not_realert_because_the_state_is_stored(farm):
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    assert farm.run(12) == [FAULT]
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    assert farm.run(13) == [FAULT]
     assert json.loads(state_row(farm)) == {"1": {"alerted": ["nozzle:not_reaching_target"], "print": 1}}
-    fill(farm, 1, 13, 14, nozzle=190.0)
+    fill(farm, 1, 14, 14, nozzle=190.0)
     assert farm.run(14) == []  # a pass with no memory of its own, only the row
     execute(farm, "DELETE FROM system_config WHERE key='temperature_alerts_state'")
     assert farm.run(14) == [FAULT]  # without the row it would alert again: the row is what holds it back
@@ -187,20 +187,20 @@ def test_a_sensor_fault_is_a_warning(farm):
 
 def test_disabled_globally(farm):
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
+    fill(farm, 1, 0, 13, nozzle=190.0)
     configure(farm, enabled=False)
-    assert farm.run(12) == [] and alerts(farm) == [] and farm.delivered == []
+    assert farm.run(13) == [] and alerts(farm) == [] and farm.delivered == []
     configure(farm, enabled=True)
-    assert farm.run(12) == [FAULT]
+    assert farm.run(13) == [FAULT]
 
 
 def test_disabled_per_printer(farm):
     add_printer(farm, 1, "Xena", print_id=1)
     add_printer(farm, 2, "Yoda", print_id=2)
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    fill(farm, 2, 0, 12, nozzle=190.0)
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    fill(farm, 2, 0, 13, nozzle=190.0)
     configure(farm, disabled_printer_ids=[1])
-    assert farm.run(12) == [(2, "nozzle", "not_reaching_target")]
+    assert farm.run(13) == [(2, "nozzle", "not_reaching_target")]
     assert {a["printer_id"] for a in alerts(farm)} == {2}
 
 
@@ -209,20 +209,20 @@ def test_printers_with_no_rows_or_no_running_print_are_skipped(farm):
     add_printer(farm, 3, "Silent", print_id=3)  # running print, no telemetry
     add_printer(farm, 4, "Done", print_id=4, status="completed")  # telemetry, but nothing running
     add_printer(farm, 5, "Idle")  # no print at all
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    fill(farm, 4, 0, 12, nozzle=190.0)
-    fill(farm, 5, 0, 12, nozzle=190.0)
-    assert farm.run(12) == [FAULT]
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    fill(farm, 4, 0, 13, nozzle=190.0)
+    fill(farm, 5, 0, 13, nozzle=190.0)
+    assert farm.run(13) == [FAULT]
     assert set(json.loads(state_row(farm))) == {"1"}
 
 
 def test_one_telemetry_query_per_pass_for_all_printers(farm):
     for printer_id, name in ((1, "Xena"), (2, "Yoda"), (3, "Zed")):
         add_printer(farm, printer_id, name, print_id=printer_id)
-        fill(farm, printer_id, 0, 12, nozzle=190.0)
+        fill(farm, printer_id, 0, 13, nozzle=190.0)
     statements = []
     event.listen(farm.engine, "before_cursor_execute", lambda conn, cursor, statement, *rest: statements.append(statement))
-    assert len(farm.run(12)) == 3
+    assert len(farm.run(13)) == 3
     assert sum("printer_telemetry" in statement for statement in statements) == 1
 
 
@@ -252,7 +252,7 @@ def test_the_lock_keeps_a_second_worker_out(farm, monkeypatch):
 
     monkeypatch.setattr("core.audit_keys.file_lock", busy)
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
+    fill(farm, 1, 0, 13, nozzle=190.0)
     assert temperature_alerts.check(farm.engine, now=BASE + timedelta(minutes=12)) is None
     assert alerts(farm) == []
 
@@ -261,14 +261,14 @@ def test_the_lock_keeps_a_second_worker_out(farm, monkeypatch):
 
 def test_alert_text_and_metadata(farm):
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    farm.run(12)
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    farm.run(13)
     first = alerts(farm)[0]
     assert first["message"].startswith("Xena nozzle is 30 C below its 220 C target for 5 minutes.")
     assert "Xena" in first["title"] and first["printer_id"] == 1
     assert first["severity"].lower() == "warning"
     assert first["metadata"] == {"kind": "temperature_anomaly", "rule": "not_reaching_target", "sensor": "nozzle",
-                                 "actual": 190.0, "target": 220.0}
+                                 "actual": 190.0, "target": 220.0, "critical": False}
 
 
 @pytest.mark.parametrize("finding,expected", [
@@ -287,16 +287,16 @@ def test_alert_wording(finding, expected):
 def test_recipients_follow_alert_preferences(farm):
     add_printer(farm, 1, "Xena", print_id=1)
     execute(farm, "UPDATE alert_preferences SET in_app=0 WHERE user_id=2")
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    farm.run(12)
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    farm.run(13)
     assert [a["user_id"] for a in alerts(farm)] == [1]
 
 
 def test_quiet_hours_hold_back_external_delivery_but_keep_the_inbox_row(farm, monkeypatch):
     monkeypatch.setattr(alert_dispatcher, "should_suppress_notification", lambda **_: True)
     add_printer(farm, 1, "Xena", print_id=1)
-    fill(farm, 1, 0, 12, nozzle=190.0)
-    farm.run(12)
+    fill(farm, 1, 0, 13, nozzle=190.0)
+    farm.run(13)
     assert sorted(a["user_id"] for a in alerts(farm)) == [1, 2]
     assert [plan.suppress_external for plan in farm.delivered] == [True]
 
@@ -349,3 +349,18 @@ def test_an_overshoot_that_worsens_to_critical_alerts_once_more(farm):
     assert [plan.severity for plan in farm.delivered] == [AlertSeverity.WARNING, AlertSeverity.CRITICAL]
     fill(farm, 1, 25, 30, nozzle=265.0)
     assert farm.run(30) == []
+
+
+def test_a_critical_alert_is_never_swallowed_as_a_repeat_of_its_own_warning(farm):
+    """Codex sign-off 11-12: 250.0 against 220 (warning) then 250.1 (critical) rounded to the
+    same sentence, the dispatcher dropped the second as a duplicate of an unread alert, and
+    the state recorded it as sent."""
+    add_printer(farm, 1, "Xena", print_id=1)
+    fill(farm, 1, 0, 14, nozzle=250.0)            # exactly 30 over: warning
+    assert farm.run(14) == [(1, "nozzle", "overshoot")]
+    fill(farm, 1, 15, 24, nozzle=250.1)           # just over 30: critical, same rounded figures
+    assert farm.run(24) == [(1, "nozzle", "overshoot")]
+    mine = [a for a in alerts(farm) if a["user_id"] == 1]
+    assert [a["severity"].lower() for a in mine] == ["warning", "critical"]
+    assert mine[0]["message"] != mine[1]["message"] and mine[1]["message"].startswith("Critical: ")
+    assert mine[1]["metadata"]["critical"] is True and mine[0]["metadata"]["critical"] is False

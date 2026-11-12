@@ -1,7 +1,7 @@
 """Pure temperature-anomaly rules over printer_telemetry samples.
 
 No I/O and no clock: callers pass the samples, the print's start, "now" and the thresholds. Every
-timestamp is naive UTC, as stored. Every rule needs `sustain_minutes` consecutive samples, so one bad
+timestamp is naive UTC, as stored. Every rule needs `sustain_minutes` of elapsed violation, so one bad
 reading never alerts. Findings are keyed (sensor, rule); `Evaluation.clear` lists the keys whose
 condition has been absent for the whole sustain window, which is what re-arms an alert.
 """
@@ -23,7 +23,8 @@ RULES = (NOT_REACHING_TARGET, OVERSHOOT, HEATING_WITHOUT_TARGET, SENSOR_FAULT)
 
 SANE_RANGE = {NOZZLE: (-10.0, 350.0), BED: (-10.0, 150.0)}
 STALE_MINUTES = 6            # newest sample older than this: the printer is not reporting, judge nothing
-_TAIL_TOLERANCE = timedelta(seconds=45)   # sampling jitter allowed at the start of a sustained period
+_TAIL_TOLERANCE = timedelta(seconds=45)   # how far before the period's start its first sample may lie
+_SPAN_JITTER = timedelta(seconds=5)       # clock jitter forgiven when measuring the period itself
 GAP_SLACK_MINUTES = 2        # a sustained period may miss this many one-minute samples, no more
 TARGET_STEP_C = 0.5          # a target moving by more than this is a target change
 RISE_C = 2.0                 # net rise over the window that counts as "rising"
@@ -192,9 +193,11 @@ def _tail(points: list[_Point], count: int) -> Optional[list[_Point]]:
     if len(points) < count:
         return None
     last = points[-1].at
-    need = timedelta(minutes=count - 1)
+    # The configured time itself must elapse between the first and last sample: "5 minutes" is
+    # five minutes of violation (six one-minute samples), never four minutes or a burst of rows.
+    need = timedelta(minutes=count)
     tail = [point for point in points if point.at >= last - need - _TAIL_TOLERANCE]
-    if len(tail) < max(2, count - GAP_SLACK_MINUTES) or last - tail[0].at < need - _TAIL_TOLERANCE:
+    if len(tail) < max(2, count - GAP_SLACK_MINUTES) or last - tail[0].at < need - _SPAN_JITTER:
         return None
     if any(after.at - before.at > timedelta(minutes=1 + GAP_SLACK_MINUTES) for before, after in zip(tail, tail[1:])):
         return None
@@ -224,7 +227,7 @@ def _run_minutes(points: list[_Point], violates: Callable[[_Point], Optional[boo
         run.append(point)
     if not run:
         return floor
-    return max(floor, int(round((run[0].at - run[-1].at).total_seconds() / 60)) + 1)
+    return max(floor, int(round((run[0].at - run[-1].at).total_seconds() / 60)))  # elapsed time, not a sample count
 
 
 def _grace_end(starts: Sequence[Optional[datetime]], warmup_minutes: int) -> Optional[datetime]:
