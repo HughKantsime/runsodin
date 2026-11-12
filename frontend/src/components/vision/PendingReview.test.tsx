@@ -141,3 +141,16 @@ test('no Review pending button without permission', async () => {
   expect(screen.queryByRole('button', { name: /Review pending/ })).toBeNull()
   expect(api.get).not.toHaveBeenCalled()
 })
+
+test('a key pressed the instant a label returns acts on the next detection, never the same one twice', async () => {
+  let resolve: (v: unknown) => void = () => {}
+  api.review.mockImplementationOnce(() => new Promise(r => { resolve = r }))
+  mount(); await open()
+  key('f')
+  resolve({})
+  // Let the request's continuation run, then press before React has had a chance to re-render.
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  key('j')
+  await screen.findByRole('img', { name: /Printer 3/ })
+  expect(api.review.mock.calls.map(c => c[0])).toEqual([1, 2])
+})

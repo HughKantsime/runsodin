@@ -74,7 +74,9 @@ function ReviewDialog({ audience, isCurrent, onClose }: { audience: string; isCu
   }, [queue, loadError, loadPage])
 
   // Refresh the page list once, when the reviewer closes.
+  const closedRef = useRef(false)
   useEffect(() => () => {
+    closedRef.current = true
     if ((queueRef.current?.reviewed || 0) > 0) {
       queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
       queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
@@ -90,8 +92,18 @@ function ReviewDialog({ audience, isCurrent, onClose }: { audience: string; isCu
     setBusy(true)
     try {
       await vision.reviewDetection(det.id, label)
+      if (closedRef.current) {
+        // Labelled after the reviewer closed: the page list must still learn about it.
+        queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
+        queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
+        return
+      }
       if (!isCurrent()) return
-      setQueue(prev => (prev ? labelItem(prev, det.id, label) : prev))
+      // Advance the ref in the same tick as the state: a key pressed before the next render must
+      // act on the NEXT detection, never label this one a second time.
+      const advanced = queueRef.current ? labelItem(queueRef.current, det.id, label) : queueRef.current
+      queueRef.current = advanced
+      setQueue(advanced)
       const msg = label === 'confirmed' ? 'Confirmed as a real failure' : 'Dismissed as a false alarm'
       setAnnounce(`${msg}: ${det.printer_nickname || det.printer_name || 'printer ' + det.printer_id}`)
       toast.success(msg)
