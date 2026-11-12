@@ -12,7 +12,7 @@ organization fence. Nothing here replaces the callers' own visibility predicates
 """
 from typing import Optional
 
-from fastapi import Query
+from fastapi import HTTPException, Query
 from sqlalchemy import text
 
 from core.rbac import check_org_access, get_org_scope, should_filter_org
@@ -42,6 +42,8 @@ class LibraryFilters:
         plates_max: Optional[int] = Query(None, ge=1, le=9999),
         printed_on_printer: Optional[int] = Query(None, ge=1, description="A completed job of the file ran on this printer"),
     ):
+        if plates_min is not None and plates_max is not None and plates_min > plates_max:
+            raise HTTPException(status_code=422, detail="plates_min cannot be greater than plates_max")
         self.q = (q or "").strip() or None
         self.material = (material or "").strip() or None
         self.printer_model = (printer_model or "").strip() or None

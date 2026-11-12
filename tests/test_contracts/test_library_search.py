@@ -115,7 +115,7 @@ def test_printed_ok_needs_a_visible_printer(lib, monkeypatch):
 
 
 def test_parameters_are_validated(lib):
-    for params in ({'plates_min': 0}, {'plates_max': 0}, {'printed_on_printer': 0}, {'q': 'x' * 101}):
+    for params in ({'plates_min': 0}, {'plates_max': 0}, {'printed_on_printer': 0}, {'q': 'x' * 101}, {'plates_min': 5, 'plates_max': 2}):
         for path in LISTS + ('/print-files',):
             assert lib.client.get(path, params=params, headers=lib.issue(['read:models'])).status_code == 422
 
