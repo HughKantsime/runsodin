@@ -77,7 +77,7 @@
     "frontend/src/pages/orders/Calculator.tsx": "2118ae924865760f62679ae3f7c84e57e7c1e2677f981fb036f395ef0c3d4ce3",
     "frontend/src/pages/orders/Orders.tsx": "2db3bd9aedb28e4c806d2bc656e68f475cd99bcbe717f3a1bb931b61fc33df02",
     "frontend/src/pages/orders/Products.tsx": "004cabca36e560657fadac0de0c86b4775a8e027137f26304caf5d8374c4f2bb",
-    "frontend/src/pages/printers/CameraDetail.tsx": "8fcd6c8eb3e47338da1d25cdcdfc1cf8ac015f45531c89054cb27afc1b279894",
+    "frontend/src/pages/printers/CameraDetail.tsx": "eaed3d199583256a468f08cbd80a2328537c8952d5687be1f3b5bf15823933f8",
     "frontend/src/pages/printers/Cameras.tsx": "b421eeb3c173998b13763ebb7e8515c7a64ced9710506dfd503a0ff61d5d4289",
     "frontend/src/pages/printers/Maintenance.tsx": "83bfebd3d05193fff1ca4b38e7a927f561ab4a495226c17e3217bbce61347a57",
     "frontend/src/pages/printers/PrinterDetail.tsx": "357a159419b2f7b171ccea7aefb209e0e817a44e31927aaca5ae690101c787f3",

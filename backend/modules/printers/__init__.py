@@ -7,6 +7,7 @@ ROUTES = [
     "printers.routes",           # aggregator
     "printers.camera_routes",
     "printers.routes_camera_snapshot",
+    "printers.routes_timelapse_status",
     "printers.routes_crud",
     "printers.routes_status",
     "printers.routes_controls",
@@ -60,9 +61,9 @@ DAEMONS = [
 def register(app, registry) -> None:
     """Register the printers module: routes and PrinterStateProvider."""
     import modules.printers as _self
-    from modules.printers import routes, camera_routes, routes_camera_snapshot
+    from modules.printers import routes, camera_routes, routes_camera_snapshot, routes_timelapse_status
 
-    for router in (routes.router, camera_routes.router, routes_camera_snapshot.router):
+    for router in (routes.router, camera_routes.router, routes_camera_snapshot.router, routes_timelapse_status.router):
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")
     # Loopback-only pinned relay for HTTP cameras (go2rtc/ffmpeg -> ODIN -> camera).
