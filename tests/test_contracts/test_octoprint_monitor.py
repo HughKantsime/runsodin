@@ -123,6 +123,72 @@ def test_pause_and_resume_keep_one_running_job(world):
     assert row(world.db, 'gcode_state')['gcode_state'] == 'PRINTING'
 
 
+@pytest.mark.parametrize('initial_state', [PRINTING, PAUSED], ids=['printing', 'paused'])
+@pytest.mark.parametrize('unread_job', [requests.exceptions.Timeout('slow'), Reply(200, job_body(name=None))],
+                         ids=['timeout', 'missing-filename'])
+def test_start_waits_for_identity_then_retries(world, initial_state, unread_job):
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(initial_state))
+    world.http.routes[('GET', '/api/job')] = unread_job
+    world.run(2)
+    assert jobs(world.db) == []
+    assert row(world.db, 'last_seen')['last_seen']  # monitoring continues while identity is unavailable
+
+    world.http.routes[('GET', '/api/job')] = Reply(200, job_body(name='recovered.gcode'))
+    world.run(1)
+    assert [j[0] for j in jobs(world.db)] == ['running']
+    assert world.db.execute(text('SELECT filename FROM print_jobs WHERE printer_id=501')).scalar_one() == 'recovered.gcode'
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(PRINTING))
+    world.run(2)
+    assert jobs(world.db) == [('running', 42)]
+
+
+def test_initial_pause_establishes_attempt_before_resume(world):
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(PAUSED))
+    world.run(1)
+    assert [j[0] for j in jobs(world.db)] == ['running']
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(PRINTING))
+    world.run(2)
+    assert jobs(world.db) == [('running', 42)]
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(IDLE))
+    world.http.routes[('GET', '/api/job')] = Reply(200, job_body(completion=100.0, left=0))
+    world.run(1)
+    assert jobs(world.db) == [('completed', 42)]
+
+
+def test_recovered_identity_reconciles_dispatched_job_and_claim(world, tmp_path, monkeypatch):
+    from core.registry import registry
+    from modules.orders.production import OrderFulfillmentService
+    from modules.printers import dispatch, support_levels
+    from modules.printers.models import Printer
+    from tests.test_contracts.dispatch_test_support import configure_dispatch
+
+    engine, _ = configure_dispatch(world.db, tmp_path, monkeypatch, protocol='octoprint')
+    monkeypatch.setitem(registry._providers, 'OrderFulfillmentProvider', OrderFulfillmentService())
+    support_levels.set_experimental_enabled(world.db, world.db.get(Printer, 59), True, 3)
+    world.db.commit()
+    names = []
+    monkeypatch.setattr(dispatch, '_dispatch_octoprint',
+                        lambda jid, path, name, creds: (names.append(name) or True, 'Synthetic accepted'))
+    assert dispatch.dispatch_job(59, 53)[0]
+    world.monitor.printer_id = 59
+    world.http.routes[('GET', '/api/job')] = requests.exceptions.Timeout('slow')
+    world.run(1)
+    world.http.routes[('GET', '/api/job')] = Reply(200, job_body(name=names[0]))
+    world.run(2)
+    with engine.connect() as conn:
+        attempt = conn.execute(text('SELECT id,scheduled_job_id,progress_percent FROM print_jobs WHERE printer_id=59')).one()
+        assert tuple(attempt)[1:] == (53, 42)
+        assert conn.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE job_id=53')).scalar_one() == attempt.id
+        assert conn.execute(text('SELECT COUNT(*) FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one() == 1
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == 'printing'
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(IDLE))
+    world.http.routes[('GET', '/api/job')] = Reply(200, job_body(name=names[0], completion=100.0, left=0))
+    world.run(1)
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == 'completed'
+        assert conn.execute(text('SELECT COUNT(*) FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one() == 0
+
+
 def test_offline_and_unknown_are_recorded_without_last_seen_or_job_events(world):
     def after(poll):
         if poll == 1:

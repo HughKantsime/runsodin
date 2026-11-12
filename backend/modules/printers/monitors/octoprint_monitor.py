@@ -167,31 +167,35 @@ class OctoPrintMonitorThread(threading.Thread):
         current_state = status.internal_state  # IDLE | PRINTING | PAUSED | ERROR
         current_file = status.filename
         first_look = not getattr(self, '_known_state_seen', False)
-        self._known_state_seen = True
         odin_state = _ODIN_STATE.get(current_state, "IDLE")
         remaining_min = status.time_remaining // 60 if status.time_remaining else None
 
         if current_state != "IDLE":
             self._unread_polls = 0
+        deferred = False
         if current_state != self._last_state:
             previous = self._last_state
-            deferred = False  # PRINTING -> IDLE waits for a readable /api/job
             if odin_state != "PAUSE":
                 from core.job_timeline import close_pause_episode
                 close_pause_episode(self.printer_id)
+            if current_state in ("PRINTING", "PAUSED") and previous not in ("PRINTING", "PAUSED"):
+                # Both states prove an active print, but identity comes from /api/job.
+                # Retry without advancing lifecycle state if that reading is unavailable.
+                if not status.job_read or not current_file:
+                    deferred = True
+                else:
+                    from core.physical_print import continuing_print_limit
+                    printer_events.on_print_start(
+                        self.printer_id,
+                        current_file,
+                        0,
+                        None,
+                        remaining_min,
+                        observed_elapsed=continuing_print_limit(status.time_printing, first_look=first_look),
+                    )
             if odin_state == "RUNNING" and previous == "PAUSED":
                 from core.job_timeline import for_printer
                 for_printer(self.printer_id, 'resumed')
-            elif odin_state == "RUNNING":
-                from core.physical_print import continuing_print_limit
-                printer_events.on_print_start(
-                    self.printer_id,
-                    current_file or "Unknown",
-                    0,
-                    None,
-                    remaining_min,
-                    observed_elapsed=continuing_print_limit(status.time_printing, first_look=first_look),
-                )
             elif odin_state == "IDLE" and previous in ("PRINTING", "PAUSED"):
                 # OctoPrint has no "finished" flag. Completed needs OctoPrint's own 100 % from a
                 # job reading that succeeded. A failed reading decides nothing: wait and retry,
@@ -251,11 +255,14 @@ class OctoPrintMonitorThread(threading.Thread):
                     )
                 except Exception as e:
                     log.debug(f"Failed to record OctoPrint error: {e}")
-            elif odin_state == "PAUSE":
+            elif odin_state == "PAUSE" and not deferred:
                 printer_events.on_print_paused(self.printer_id, current_file)
 
             if not deferred:
                 self._last_state = current_state
+
+        if not deferred:
+            self._known_state_seen = True
 
         if current_file:
             self._last_filename = current_file
@@ -263,7 +270,7 @@ class OctoPrintMonitorThread(threading.Thread):
         # ----------------------------------------------------------
         # 2. Progress (while printing): at most one write per PROGRESS_DB_INTERVAL
         # ----------------------------------------------------------
-        if status.state == OctoPrintState.PRINTING and status.progress_percent:
+        if not deferred and status.state == OctoPrintState.PRINTING and status.progress_percent:
             now = time.time()
             if (abs(status.progress_percent - self._last_progress) >= 0.1
                     and now - self._last_progress_write >= PROGRESS_DB_INTERVAL):

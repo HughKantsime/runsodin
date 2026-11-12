@@ -22,7 +22,10 @@ function OptInPanel({ printer }: { printer: PrinterSupportFields }) {
   const save = useMutation({
     mutationFn: (next: boolean) => printerSupport.setExperimentalActions(printer.id, next),
     retry: false,
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['printers'] }) },
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['printers'] })
+      client.invalidateQueries({ queryKey: ['printer', String(printer.id)] })
+    },
   })
   return (
     <div data-testid="experimental-opt-in" className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)] space-y-1">

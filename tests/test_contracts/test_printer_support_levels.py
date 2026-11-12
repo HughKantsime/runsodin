@@ -92,6 +92,29 @@ def test_deleting_a_printer_drops_its_opt_in(graph, monkeypatch):
     assert str(pid) not in (raw if isinstance(raw, dict) else __import__('json').loads(raw))
 
 
+def test_forget_printer_locks_shared_store_before_reading(graph):
+    """Compile the real read for PostgreSQL; exercise its mutation on local SQLite."""
+    from sqlalchemy.dialects import postgresql
+
+    opt_in(graph, 9)
+    opt_in(graph, 10)
+    reads = []
+    connection = graph.connection()
+
+    class CheckedConnection:
+        def execute(self, statement, *args, **kwargs):
+            compiled = str(statement.compile(dialect=postgresql.dialect()))
+            if compiled.lstrip().upper().startswith('SELECT'):
+                reads.append(compiled)
+                assert 'FOR UPDATE' in compiled, 'Deletion must lock before reading the shared opt-in store'
+            return connection.execute(statement, *args, **kwargs)
+
+    support_levels.forget_printer(CheckedConnection(), 9)
+    assert len(reads) == 1
+    assert not support_levels.experimental_enabled(graph, 9, 'bambu')
+    assert support_levels.experimental_enabled(graph, 10, 'bambu')
+
+
 # ---- printer list and detail ----
 
 def test_printer_list_and_detail_report_level_and_opt_in(graph, monkeypatch):

@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Deleting a printer locks the shared Experimental opt-in store before reading it, so a concurrent revocation for another printer cannot be overwritten on PostgreSQL.
+- OctoPrint monitoring retries start observation after an unreadable job or missing filename, and establishes an active attempt when first observed paused so resume and progress remain tracked.
+- Printer detail pages show the Experimental badge, warning and administrator opt-in, with immediate refresh after changing the setting.
+
 ### Added
 
 - Elegoo job sending (Experimental). For Elegoo printers that speak SDCP (Centauri Carbon and similar), a platform administrator can now turn on job sending for a printer (`PUT /api/printers/{id}/experimental-actions`, audited). ODIN uploads a `.gcode` file to the printer and then sends the start command, and counts a start only when the printer answers that it accepted it; a timeout after the upload or the start is reported as unknown and is never re-sent. Monitoring, pause, resume, speed and stop work as before and need no opt-in. This support is built from Elegoo's public SDCP documentation and has not been verified on real hardware. See [Elegoo](docs/printers/elegoo.md).
