@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { inspectFoundryLayout } from './layout_checks.mjs'
+import { inspectFoundryLayout, collectPhoneLayout, documentOverflow, clippedRight, overlapsBottomNav, activeTabHidden, smallTapTargets, judgePhoneLayout, phoneFindingCount, phoneFindingSummary, summarizePhoneLayout } from './layout_checks.mjs'
 const require = createRequire(new URL('../../frontend/package.json', import.meta.url))
 const { JSDOM } = require('jsdom')
 function fixture(html, width = 390) {
@@ -97,5 +97,96 @@ test('word checks skip spaces, mixed markup, multiple text nodes and hidden head
 test('single-line headings and cells do not flag wrapping', () => {
   const f = fixture('<h1>Orders</h1><h2>Stock</h2><h3>Spools</h3><table><thead><tr><th>Material</th></tr></thead><tbody><tr><td>508BCA</td></tr></tbody></table>')
   assert.equal(f.check().wrappedWords.length, 0)
+  f.close()
+})
+
+// ---- phone-width checks: judging functions take plain objects, no browser ----
+const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height })
+const baseData = (over = {}) => ({ viewport: { width: 390, height: 900 }, scrollWidth: 390, nav: null, elements: [], strips: [], targets: [], ...over })
+
+test('documentOverflow: only when scrollWidth exceeds viewport + 1', () => {
+  assert.equal(documentOverflow(baseData({ scrollWidth: 391 })), false)
+  assert.equal(documentOverflow(baseData({ scrollWidth: 392 })), true)
+})
+test('clippedRight: flags elements past the right edge unless inside a scroller', () => {
+  const data = baseData({ elements: [
+    { label: 'button Resume', position: 'static', rect: rect(360, 0, 90, 44), inScroller: false },
+    { label: 'td Job', position: 'static', rect: rect(900, 0, 40, 20), inScroller: true },
+    { label: 'span edge', position: 'static', rect: rect(350, 0, 41, 20), inScroller: false },
+  ] })
+  const found = clippedRight(data)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].element, 'button Resume')
+  assert.equal(found[0].right, 450)
+})
+test('overlapsBottomNav: fixed/sticky overlap only; nav, its descendants and touching edges are ignored', () => {
+  const nav = rect(0, 844, 390, 56)
+  const data = baseData({ nav, elements: [
+    { label: 'nav', position: 'fixed', rect: nav, isNav: true, inNav: false },
+    { label: 'a Home', position: 'static', rect: rect(0, 844, 78, 56), inNav: true },
+    { label: 'div pill', position: 'fixed', rect: rect(100, 820, 120, 40), isNav: false, inNav: false },
+    { label: 'div header', position: 'sticky', rect: rect(0, 0, 390, 60), isNav: false, inNav: false },
+    { label: 'div touching', position: 'fixed', rect: rect(0, 800, 100, 44), isNav: false, inNav: false },
+    { label: 'div static', position: 'static', rect: rect(0, 830, 100, 44), isNav: false, inNav: false },
+  ] })
+  const found = overlapsBottomNav(data)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].element, 'div pill')
+  assert.equal(found[0].height, 16)
+  assert.equal(overlapsBottomNav(baseData()).length, 0)
+})
+test('activeTabHidden: active tab must be fully inside the strip', () => {
+  const strip = rect(0, 100, 390, 44)
+  const data = baseData({ strips: [
+    { label: 'div strip', rect: strip, actives: [{ label: 'button Jobs', rect: rect(10, 100, 80, 44) }] },
+    { label: 'div strip2', rect: strip, actives: [{ label: 'button Spools', rect: rect(340, 100, 80, 44) }] },
+    { label: 'div strip3', rect: strip, actives: [{ label: 'button Left', rect: rect(-30, 100, 80, 44) }] },
+  ] })
+  assert.deepEqual(activeTabHidden(data).map(f => f.tab), ['button Spools', 'button Left'])
+})
+test('smallTapTargets: under 44 in either dimension, capped at 20', () => {
+  const targets = [
+    { label: 'a ok', area: 'nav', rect: rect(0, 0, 44, 44) },
+    { label: 'button narrow', area: 'nav', rect: rect(0, 0, 43, 56) },
+    { label: 'button short', area: 'action', rect: rect(0, 0, 80, 32) },
+  ]
+  const found = smallTapTargets(baseData({ targets }))
+  assert.deepEqual(found.map(t => t.element), ['button narrow', 'button short'])
+  assert.equal(found[1].height, 32)
+  const many = Array.from({ length: 30 }, (_, i) => ({ label: `button ${i}`, area: 'action', rect: rect(0, 0, 20, 20) }))
+  assert.equal(smallTapTargets(baseData({ targets: many })).length, 20)
+})
+test('judgePhoneLayout, counts, summaries and overlay mode', () => {
+  const nav = rect(0, 844, 390, 56)
+  const data = baseData({ scrollWidth: 500, nav,
+    elements: [{ label: 'div pill', position: 'fixed', rect: rect(100, 820, 120, 40), inScroller: false, isNav: false, inNav: false }],
+    strips: [{ label: 's', rect: rect(0, 0, 390, 44), actives: [{ label: 't', rect: rect(380, 0, 80, 44) }] }],
+    targets: [{ label: 'b', area: 'action', rect: rect(0, 0, 20, 20) }] })
+  const full = judgePhoneLayout(data)
+  assert.equal(full.documentOverflow, true)
+  assert.equal(phoneFindingCount(full), 4)   // overflow, nav overlap, hidden tab, small target; nothing is clipped
+  assert.match(phoneFindingSummary(full), /documentOverflow: 1, clippedRight: 0|documentOverflow: 1/)
+  const overlay = judgePhoneLayout(data, { overlay: true })
+  assert.equal(overlay.overlapsBottomNav.length, 0)
+  assert.equal(overlay.activeTabHidden.length, 0)
+  const summary = summarizePhoneLayout([{ theme: 'classic', ...full }, { theme: 'foundry', ...judgePhoneLayout(baseData()) }])
+  assert.equal(summary.captures, 2)
+  assert.equal(summary.withFindings, 1)
+  assert.equal(summary.byTheme.classic.smallTapTargets, 1)
+  assert.equal(summary.byTheme.foundry.documentOverflow, 0)
+})
+test('collectPhoneLayout gathers rectangles and flags without judging', () => {
+  const f = fixture(`<nav style="position:fixed" data-width="390" data-height="56"><button data-width="78" data-height="56">Home</button></nav>
+    <div style="position:fixed" data-width="120" data-height="40">Banner</div>
+    <span data-left="380" data-width="50">Wide</span>`)
+  f.window.innerHeight = 56
+  const data = f.window.eval(`(${collectPhoneLayout.toString()})()`)
+  assert.ok(data.nav)
+  assert.equal(data.viewport.width, 390)
+  const byLabel = label => Array.from(data.elements).find(e => e.label.includes(label))
+  assert.equal(byLabel('nav').isNav, true)
+  assert.equal(byLabel('Banner').position, 'fixed')
+  assert.equal(byLabel('Wide').inScroller, false)
+  assert.equal(Array.from(data.targets).filter(t => t.area === 'nav').length, 1)
   f.close()
 })

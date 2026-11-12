@@ -11,7 +11,7 @@ import net from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { comparePixels, volatilePass } from './pixel_compare.mjs'
-import { inspectFoundryLayout } from './layout_checks.mjs'
+import { inspectFoundryLayout, collectPhoneLayout, judgePhoneLayout, phoneFindingCount, phoneFindingSummary, summarizePhoneLayout } from './layout_checks.mjs'
 import { comparisonMaskDefinitions, measureComparisonMasks, comparisonMaskRectangles } from './comparison_masks.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(root, 'frontend/package.json'))
@@ -25,7 +25,12 @@ if (volatileFile && !baseline) throw new Error('--volatile requires --baseline')
 const volatility = volatileFile ? JSON.parse(await readFile(volatileFile, 'utf8')) : null
 if (volatility && (volatility.pixelTolerance !== 10 || !Array.isArray(volatility.classicDiffs))) throw new Error('Volatility report must be a base-vs-base report with pixelTolerance 10 and classicDiffs')
 const volatileCaptures = new Map((volatility?.classicDiffs || []).map(capture => [capture.filename, capture]))
+// Phone-width (<= 480 px) layout checks always run and are reported; findings only fail the run with
+// --phone-fail (or ODIN_FOUNDRY_PHONE_FAIL=1). Default is report-only because the product is not clean yet.
+const phoneFail = process.argv.includes('--phone-fail') || process.env.ODIN_FOUNDRY_PHONE_FAIL === '1'
 const report = { pixelTolerance: 10, maskDefinitions: comparisonMaskDefinitions, comparisonMasks: [], classicDiffs: [], volatilePasses: [], volatility: volatileFile || null, fixture: 'Disposable ODIN; synthetic DB seed; hardware transports unavailable', screenshots: [], axe: [], layout: [], failures: [], classicComparison: baseline ? 'pending' : 'not run: pass --baseline with a 2.0.42 capture' }
+report.phoneLayout = []
+report.phoneSummary = null
 const children = []
 const directory = await mkdtemp(path.join(tmpdir(), 'odin-foundry-review-'))
 await mkdir(output, { recursive: true })
@@ -70,7 +75,15 @@ async function gotoReady(page, url, theme) {
 }
 // The app scrolls inside #main-content. fullPage would stitch a tall, mostly
 // empty document. Capture the viewport and walk the actual scrolling surface.
+async function checkPhoneLayout(page, entry) {
+  const data = await page.evaluate(collectPhoneLayout)
+  const findings = judgePhoneLayout(data, { overlay: !!entry.overlay })
+  const count = phoneFindingCount(findings)
+  report.phoneLayout.push({ route: entry.route, theme: entry.theme, width: entry.width, filename: entry.filename, count, ...findings })
+  if (count && phoneFail) report.failures.push(`${entry.filename}: phone layout findings (${phoneFindingSummary(findings)})`)
+}
 async function checkLayout(page, entry) {
+  if (entry.width <= 480) await checkPhoneLayout(page, entry)
   if (entry.theme !== 'foundry') return
   const layout = await page.evaluate(inspectFoundryLayout)
   report.layout.push({ route: entry.route, width: entry.width, filename: entry.filename, ...layout })
@@ -133,6 +146,7 @@ try {
     const login = await context.request.post(app.url + '/api/auth/login', { form: { username: 'reviewer', password } })
     if (!login.ok()) throw new Error(`Disposable login failed: ${login.status()}`)
     const page = await context.newPage()
+    const drawerFamilies = new Set()
     for (const route of routes) {
       const name = `${theme}-${width}-${route === '/' ? 'floor' : route.slice(1).replaceAll('/', '-')}`
       try {
@@ -159,6 +173,30 @@ try {
           await capture(page, { route, theme, width, filename: `${name}-compact.png` })
           await page.getByRole('button', { name: 'Comfortable', exact: true }).click()
         }
+        if (width <= 480) {
+          // Extra phone captures are marked `extra` so --baseline (Classic pixel comparison) ignores them.
+          const family = new URL(page.url()).pathname.split('/')[1] || 'floor'
+          const menu = page.getByRole('button', { name: 'Open menu', exact: true })
+          if (!drawerFamilies.has(family) && await menu.isVisible()) {
+            drawerFamilies.add(family)
+            await menu.click()
+            const closeMenu = page.getByRole('button', { name: 'Close menu', exact: true })
+            await closeMenu.waitFor({ state: 'visible' })
+            await page.waitForTimeout(500)
+            await capture(page, { route, theme, width, filename: `${name}-drawer.png`, extra: true, overlay: true }, false)
+            await closeMenu.click()
+            await page.waitForTimeout(300)
+          }
+          if (route === '/jobs') {
+            const opener = page.getByRole('button', { name: 'New Job', exact: true })
+            if (await opener.isVisible()) {
+              await opener.click()
+              await page.getByRole('dialog', { name: 'Create New Job', exact: true }).waitFor()
+              await capture(page, { route: '/jobs#new-job', theme, width, filename: `${name}-new-job-dialog.png`, extra: true, overlay: true }, false)
+              await page.keyboard.press('Escape')
+            }
+          }
+        }
       } catch (error) { report.failures.push(`${name}: ${error.message}`) }
     }
     for (const tab of ['notifications', 'access', 'integrations', 'vision', 'branding', 'license', 'system', 'logs']) {
@@ -182,7 +220,7 @@ try {
         await page.getByRole('button', { name: opener, exact: true }).click()
         await page.getByRole('dialog', { name: title, exact: true }).waitFor()
         const dialogFile = `${theme}-${width}-project-dialog.png`
-        await capture(page, { route: '/projects#new-project', theme, width, filename: dialogFile }, false)
+        await capture(page, { route: '/projects#new-project', theme, width, filename: dialogFile, overlay: true }, false)
         if (theme === 'foundry') {
           const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
           report.axe.push({ route: route + '#new-project', width, violations: result.violations })
@@ -198,11 +236,11 @@ try {
     await page.addScriptTag({ content: `window.comparePixels = ${comparePixels.toString()}` })
     // Missing *and extra* scroll captures fail, even when all common PNGs match.
     const reference = JSON.parse(await readFile(path.join(baseline, 'report.json'), 'utf8'))
-    const currentNames = new Set(report.screenshots.filter(s => s.theme === 'classic').map(s => s.filename))
-    for (const referenceCapture of reference.screenshots.filter(s => s.theme === 'classic')) {
+    const currentNames = new Set(report.screenshots.filter(s => s.theme === 'classic' && !s.extra).map(s => s.filename))
+    for (const referenceCapture of reference.screenshots.filter(s => s.theme === 'classic' && !s.extra)) {
       if (!currentNames.has(referenceCapture.filename)) report.failures.push(`${referenceCapture.filename}: baseline capture missing from current run`)
     }
-    for (const capture of report.screenshots.filter(s => s.theme === 'classic')) {
+    for (const capture of report.screenshots.filter(s => s.theme === 'classic' && !s.extra)) {
       try {
         const referenceCapture = reference.screenshots.find(s => s.filename === capture.filename)
         report.comparisonMasks.push({ filename: capture.filename, actual: capture.comparisonMasks, baseline: referenceCapture?.comparisonMasks ?? null })
@@ -248,7 +286,9 @@ try {
     if (child.exitCode === null) child.kill('SIGKILL')
   }
   await rm(directory, { recursive: true, force: true })
+  report.phoneSummary = { failOnFindings: phoneFail, ...summarizePhoneLayout(report.phoneLayout) }
   await writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2))
 }
 console.log(`Saved ${report.screenshots.length} screenshots; ${report.failures.length} failures. ${path.join(output, 'report.json')}`)
+if (report.phoneSummary?.captures) console.log(`Phone layout: ${report.phoneSummary.withFindings} of ${report.phoneSummary.captures} captures have findings (${phoneFail ? 'failing the run' : 'report-only; pass --phone-fail to fail'}). ${JSON.stringify(report.phoneSummary.byTheme)}`)
 process.exitCode = report.failures.length ? 1 : 0

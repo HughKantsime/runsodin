@@ -138,7 +138,44 @@ Pure harness regressions (no browser or backend):
 node --test tests/foundry_browser/*.test.mjs
 ```
 
-Round 4 extends `wrappedWords` at 390/768 to `h1`–`h3`, `td` and `th`.
+## Phone-width checks (viewport width 480 or less)
+
+At 390 px (the only width at or under 480), every capture runs five checks for
+**both** Classic and Foundry, on every route, scroll part, Settings tab and dialog.
+`collectPhoneLayout` runs in the page and only gathers rectangles and flags; the
+pure functions in `layout_checks.mjs` judge them (unit tested with plain objects):
+
+- `documentOverflow`: document `scrollWidth` greater than viewport width + 1.
+- `clippedRight`: a visible element whose right edge is past the viewport and that
+  is not inside an in-viewport horizontally scrollable ancestor.
+- `overlapsBottomNav`: a visible `position: fixed` or `sticky` element (not the
+  fixed bottom `nav` or its descendants) whose rectangle intersects the nav's by
+  more than 1 px in each axis.
+- `activeTabHidden`: in a horizontally scrollable strip, an active tab
+  (`data-scrolltab-active="true"`, `aria-selected="true"`, `aria-pressed="true"`
+  or any `aria-current` other than `false`) not fully inside the strip rectangle.
+- `smallTapTargets`: buttons and links in the bottom nav and in row/card action
+  areas (inside `tr`, `li`, `article`, `[role=row]`, `[data-card]` or a
+  `[class*=card]` container; `nav`, `aside` and `header` are excluded) under 44 px
+  in either dimension. At most 20 are reported, with a selector hint.
+
+Findings go to `phoneLayout` (per capture) and `phoneSummary` (totals per theme) in
+`report.json`, and a line is printed at the end. They are **report-only by
+default**: they do not add to `failures`. Pass `--phone-fail` (or set
+`ODIN_FOUNDRY_PHONE_FAIL=1`) to make any finding fail the run. Desktop and tablet
+widths are unchanged. Dialog and drawer captures skip the nav-overlap and
+active-tab checks, since a modal is meant to cover the nav.
+
+Extra phone captures (`extra: true` in the manifest, ignored by `--baseline`):
+`*-drawer.png` (the "Open menu" button in `MobileHeader.tsx`, once per first path
+segment of the final URL, so once per route family and theme) and
+`*-new-job-dialog.png` (Jobs only: "New Job" opens the "Create New Job" dialog).
+
+Run at 390 px only (still slow; it runs all three widths):
+
+```sh
+ODIN_FOUNDRY_PYTHON=/path/to/venv/bin/python node tests/foundry_browser/screenshots.mjs \
+  --output=artifacts/phone-390 --phone-fail
 Candidates must contain exactly one text node and a single word/code (no internal
 whitespace); icons, child elements, multiple text nodes and prose are excluded.
 Rendered text must occupy more than one line to fail. Existing control/pill checks
