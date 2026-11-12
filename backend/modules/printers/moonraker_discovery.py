@@ -70,14 +70,30 @@ def _bounded(value, limit: int):
 
 
 def probe_klippy(ip: str, port: int):
-    """GET /printer/info, pinned, 2 s, no credentials. Dict on success, else None."""
+    """GET /printer/info, pinned, no credentials. Dict on success, else None.
+
+    The answer is read as a stream with a byte limit and one total deadline: a hostile
+    host that sends a huge body, or keeps trickling chunks, is dropped instead of being
+    buffered or holding a worker (httpx's own timeout is per read, not total).
+    """
+    import json
+    import time
     import httpx
-    from modules.printers.route_utils import pinned_device_get
+    from core.webhook_utils import pinned_device_destination
+    url = f"http://{ip}:{port}/printer/info"
+    deadline = time.monotonic() + PROBE_TIMEOUT_SECONDS
     try:
-        response = pinned_device_get(httpx, f"http://{ip}:{port}/printer/info", timeout=PROBE_TIMEOUT_SECONDS)
-        if response.status_code != 200 or len(response.content) > MAX_INFO_BYTES:
-            return None
-        result = response.json().get("result")
+        body = bytearray()
+        with pinned_device_destination(url):
+            with httpx.stream("GET", url, timeout=PROBE_TIMEOUT_SECONDS, trust_env=False,
+                              follow_redirects=False) as response:
+                if response.status_code != 200:
+                    return None
+                for chunk in response.iter_bytes():
+                    body += chunk
+                    if len(body) > MAX_INFO_BYTES or time.monotonic() > deadline:
+                        return None
+        result = json.loads(bytes(body)).get("result")
     except Exception:
         return None
     if not isinstance(result, dict):

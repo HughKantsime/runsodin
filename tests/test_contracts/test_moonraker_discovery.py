@@ -159,7 +159,7 @@ def test_candidates_and_names_are_bounded_and_printable():
         additionals += [rr(inst, 33, struct.pack("!HHH", 0, 0, 7125) + tgt), rr(tgt, 1, bytes((192, 168, 1, index + 1)))]
     packets = [("192.168.1.1", mdns.parse_packet(packet(answers[i:i + 15], additionals[2 * i:2 * i + 30]))) for i in range(0, 90, 15)]
     candidates = mdns.build_candidates(packets)
-    assert len(candidates) == mdns.MAX_CANDIDATES == 64
+    assert len(candidates) == 90 and mdns.MAX_CANDIDATES == 256   # every distinct endpoint reaches the caller's sort
     assert candidates[0]["name"].isprintable() and len(candidates[0]["name"]) <= mdns.MAX_DISPLAY
 
 
@@ -227,25 +227,77 @@ def test_policy_refuses_odins_own_service_ports(monkeypatch):
     assert [(c["ip"], c["port"]) for c in kept] == [("192.168.1.9", 7125)]
 
 
+def _stream(monkeypatch, status=200, chunks=(b'{"result": {"state": "ready\\u0007", "hostname": "voron"}}',), calls=None):
+    """Replace httpx.stream and the destination pin; returns the list of calls made."""
+    import contextlib
+    import httpx
+    import core.webhook_utils as webhook_utils
+    calls = [] if calls is None else calls
+
+    @contextlib.contextmanager
+    def fake_stream(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        yield SimpleNamespace(status_code=status, iter_bytes=lambda: iter(chunks))
+
+    @contextlib.contextmanager
+    def fake_pin(url):
+        calls.append(("pin", url, {}))
+        yield
+    monkeypatch.setattr(httpx, "stream", fake_stream)
+    monkeypatch.setattr(webhook_utils, "pinned_device_destination", fake_pin)
+    return calls
+
+
 def test_probe_is_pinned_credential_free_and_bounded(monkeypatch):
-    import modules.printers.route_utils as route_utils
-    calls = []
-
-    def fake_get(client, url, **kwargs):
-        calls.append((url, kwargs))
-        return SimpleNamespace(status_code=200, content=b"{}",
-                               json=lambda: {"result": {"state": "ready\x07", "hostname": "voron"}})
-    monkeypatch.setattr(route_utils, "pinned_device_get", fake_get)
+    calls = _stream(monkeypatch)
     assert discovery.probe_klippy("192.168.50.13", 7125) == {"klippy_state": "ready", "hostname": "voron"}
-    url, kwargs = calls[0]
-    assert url == "http://192.168.50.13:7125/printer/info"
-    assert kwargs == {"timeout": 2}   # no headers, auth, cookies or api key
+    assert calls[0] == ("pin", "http://192.168.50.13:7125/printer/info", {})   # inside the destination pin
+    method, url, kwargs = calls[1]
+    assert (method, url) == ("GET", "http://192.168.50.13:7125/printer/info")
+    assert kwargs == {"timeout": 2, "trust_env": False, "follow_redirects": False}   # no headers, auth, cookies or api key
 
-    monkeypatch.setattr(route_utils, "pinned_device_get",
-                        lambda *a, **k: SimpleNamespace(status_code=401, content=b"", json=lambda: {}))
+    _stream(monkeypatch, status=401, chunks=())
     assert discovery.probe_klippy("192.168.50.13", 7125) is None
-    monkeypatch.setattr(route_utils, "pinned_device_get", lambda *a, **k: (_ for _ in ()).throw(OSError("down")))
+
+    def down(*a, **k):
+        raise OSError("down")
+    import httpx
+    monkeypatch.setattr(httpx, "stream", down)
     assert discovery.probe_klippy("192.168.50.13", 7125) is None
+
+
+def test_probe_drops_an_oversized_or_endless_answer_without_buffering_it(monkeypatch):
+    """Codex sign-off 11-12: the whole body was buffered before the size check and nothing
+    bounded the total time."""
+    import time
+    read = []
+
+    def endless():
+        while True:
+            read.append(1)
+            yield b"x" * 8192
+    _stream(monkeypatch, chunks=endless())
+    assert discovery.probe_klippy("192.168.50.13", 7125) is None
+    assert len(read) <= discovery.MAX_INFO_BYTES // 8192 + 2          # stopped at the limit
+
+    def trickle():
+        yield b'{"result": '
+        time.sleep(discovery.PROBE_TIMEOUT_SECONDS + 0.2)
+        yield b'{"state": "ready"}}'
+    _stream(monkeypatch, chunks=trickle())
+    assert discovery.probe_klippy("192.168.50.13", 7125) is None       # past the total deadline
+
+
+def test_aliases_of_one_endpoint_are_one_candidate():
+    """Codex sign-off 11-12: several service names for one address and port used several slots."""
+    tgt = name("h1", "local")
+    answers, additionals = [], [rr(tgt, 1, bytes((192, 168, 1, 9)))]
+    for alias in ("alpha", "beta", "gamma"):
+        inst = name(alias, "_moonraker", "_tcp", "local")
+        answers.append(rr(SVC, 12, inst))
+        additionals.append(rr(inst, 33, struct.pack("!HHH", 0, 0, 7125) + tgt))
+    candidates = mdns.build_candidates([("192.168.1.9", mdns.parse_packet(packet(answers, additionals)))])
+    assert [(c["ip"], c["port"]) for c in candidates] == [("192.168.1.9", 7125)]
 
 
 # --- route ---------------------------------------------------------------------------
@@ -299,6 +351,11 @@ def test_route_requires_admin_with_printers_add(discovery_client, monkeypatch):
     assert client.post(url, headers=client.roles["viewer"]).status_code == 403
     assert client.post(url, headers=client.roles["operator"]).status_code == 403
     assert client.post(url, headers=client.roles["admin"]).status_code == 200
+    # Codex sign-off 11-12: admin only whatever the permissions matrix grants: the route carries
+    # its own admin-role dependency beside the action check.
+    from modules.printers import routes_discovery
+    import inspect
+    assert 'require_role("admin"' in inspect.getsource(routes_discovery.discover_moonraker_printers)
 
 
 def test_route_marks_configured_hosts_filters_policy_and_probes_only_self_announced(discovery_client, monkeypatch):

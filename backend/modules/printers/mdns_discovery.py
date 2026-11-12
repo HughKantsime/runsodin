@@ -30,7 +30,7 @@ MAX_DATAGRAMS = 128        # datagrams read per scan (accepted or not)
 MAX_RECORDS = 128          # records per packet, all sections together
 MAX_NAME_BYTES = 255
 MAX_POINTER_JUMPS = 8
-MAX_CANDIDATES = 64   # heard per scan; the caller keeps the 16 most useful
+MAX_CANDIDATES = 256  # distinct endpoints heard per scan; the caller keeps the 16 most useful
 MAX_ADDRESSES_PER_HOST = 4
 MAX_DISPLAY = 64
 
@@ -240,7 +240,10 @@ def build_candidates(packets) -> list:
                 found = addresses.setdefault(_key(record.name), [])
                 if len(found) < MAX_ADDRESSES_PER_HOST and all(ip != record.value for ip, _ in found):
                     found.append((record.value, sender))
-    candidates = []
+    # One candidate per endpoint: several service names for the same address and port would
+    # otherwise use up the limit, and already-added printers could crowd out a new one before
+    # the caller sorts them.
+    candidates, seen = [], set()
     for instance in instances:
         entry = srv.get(_key(instance))
         if entry is None:
@@ -251,6 +254,9 @@ def build_candidates(packets) -> list:
         host = _clean(".".join(target))
         name = _clean(".".join(instance[:-len(SERVICE)])) or host
         for ip, a_sender in addresses.get(_key(target), []):
+            if (ip, port) in seen:
+                continue
+            seen.add((ip, port))
             candidates.append({
                 "name": name, "host": host, "ip": ip, "port": port,
                 "self_announced": ip == a_sender and ip == srv_sender,

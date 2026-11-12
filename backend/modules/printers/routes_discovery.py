@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.dependencies import log_audit
 from core.rate_limit import limiter
-from core.rbac import require_action
+from core.rbac import require_action, require_role
 from modules.printers import moonraker_discovery
 
 log = logging.getLogger("odin.api")
@@ -19,6 +19,9 @@ router = APIRouter()
 def discover_moonraker_printers(
     request: Request,
     current_user: dict = Depends(require_action("printers.add", scope="write:printers")),
+    # Admin only, whatever the permissions matrix grants for printers.add: a scan makes the
+    # server talk to hosts on the local network.
+    _admin: dict = Depends(require_role("admin", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Find Klipper printers announcing _moonraker._tcp on the local network.
