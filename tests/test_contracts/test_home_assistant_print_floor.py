@@ -369,3 +369,18 @@ def test_maintenance_hold_reports_out_of_service_and_keeps_the_printer_listed(ha
     if before[10]['status'] != 'paused':
         assert after[10]['bench'] == {'state': 'out_of_service', 'reason': 'Heatbed fault, waiting on a part',
                                       'since': '2026-11-12T05:00:00+00:00', 'pause_cause': None}
+
+
+def test_day_totals_leave_out_another_organizations_job_on_a_shared_printer(ha_client, review_db):
+    client, issue = ha_client
+    before = _get(client, issue)['fleet']['today']
+    now = __import__('datetime').datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    review_db.execute(text("UPDATE printers SET shared=1 WHERE id=10"))
+    review_db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,printer_id) VALUES(590,'foreign plate','completed',2,10),"
+                           "(591,'own plate','completed',1,10)"))
+    review_db.execute(text("INSERT INTO print_jobs(printer_id,job_name,status,started_at,ended_at,scheduled_job_id) VALUES"
+                           "(10,'foreign','completed',:t,:t,590),(10,'own','completed',:t,:t,591),(10,'walk-up','failed',:t,:t,NULL)"), {'t': now})
+    review_db.commit()
+    after = _get(client, issue)['fleet']['today']
+    assert after['plates_done'] == before['plates_done'] + 1      # own job only
+    assert after['plates_failed'] == before['plates_failed'] + 1  # a print with no job counts with its printer

@@ -154,18 +154,20 @@ def day_start(now, zone=None):
     return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
 
-def day_totals(db, actor, controlled, printer_ids, now, zone=None):
+def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
     start = day_start(now, zone)
     result = {"plates_done": 0, "plates_failed": 0, "since": iso(start)}
     if not printer_ids:
         return result
     clauses = ["p.printer_id IN :pids", "p.status IN ('completed', 'failed')", "p.ended_at >= :since"]
     params = {"pids": list(printer_ids), "since": start.strftime("%Y-%m-%d %H:%M:%S")}
-    if controlled:
-        from core.controlled_parts import job_visibility
-        predicate, visibility_params = job_visibility(actor)
-        clauses.append("(p.scheduled_job_id IS NULL OR p.scheduled_job_id IN (SELECT jobs.id FROM jobs WHERE " + predicate + "))")
-        params.update(visibility_params)
+    # A print that belongs to a job counts only when the caller could list that job (the queue's
+    # own predicates: org, archived Education, controlled parts). A print with no job is the
+    # printer's own and counts with the printer.
+    job_clauses, job_params = visible_clauses(actor, scope, controlled)
+    clauses.append("(p.scheduled_job_id IS NULL OR p.scheduled_job_id IN (SELECT jobs.id FROM jobs WHERE "
+                   + " AND ".join(job_clauses) + "))")
+    params.update(job_params)
     sql = "SELECT p.status, count(*) FROM print_jobs p WHERE " + " AND ".join(clauses) + " GROUP BY p.status"
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
     for status, count in db.execute(text(sql).bindparams(bindparam("pids", expanding=True)), params).all():
@@ -320,7 +322,7 @@ class Floor:
         from core.printer_maintenance import enrich_maintenance
         self.maintenance = {p.id: getattr(p, "maintenance", None) or {}
                             for p in enrich_maintenance(db, list(printers))}
-        self.today = day_totals(db, actor, controlled, ids, now, zone or server_zone())
+        self.today = day_totals(db, actor, scope, controlled, ids, now, zone or server_zone())
         picked = _pick(db, actor, scope, controlled, states, ids)
         rows = _details(db, [job_id for job_id, _ in picked]) if picked else {}
         self.names = display_names(db, "job", list(rows), actor) if rows else {}
@@ -360,9 +362,12 @@ class Floor:
     def _describe(self, row, named, api_type):
         """(payload, mismatch reason) for one visible job; details withheld when not named."""
         hours = row["duration_hours"]
+        # The display-name rules have the last word: a job they give no name to is not named
+        # here from its raw item_name, and its details are withheld with it.
+        named = bool(named and self.names.get(row["id"]))
         payload = {
             "id": row["id"],
-            "name": (self.names.get(row["id"]) or row["item_name"]) if named else CONTROLLED_NAME,
+            "name": self.names.get(row["id"]) if named else CONTROLLED_NAME,
             "held": bool(row["hold"]),
             "est_minutes": round(hours * 60) if hours and hours > 0 else None,
             "copies_on_plate": row["quantity_on_bed"],
@@ -381,7 +386,9 @@ class Floor:
              "color": n["color"], "material": n["material"], "grams": n["grams"]} for n in needs]
         if row["plate_count"]:
             index = row["plate_index"] if type(row["plate_index"]) is int and row["plate_index"] >= 0 else 0
-            payload["plate"] = {"index": index + 1, "count": int(row["plate_count"])}
+            # A stale plate number beyond the file's plates is not reported ("plate 6 of 3").
+            if index < int(row["plate_count"]):
+                payload["plate"] = {"index": index + 1, "count": int(row["plate_count"])}
         payload["ams_check"], reason = self._ams_check(row, needs, exact, mapping, row["printer_id"], api_type)
         return payload, reason
 
@@ -446,7 +453,8 @@ class Floor:
         elif row is not None:
             refused = self.refusals.get(row["id"])
             if mismatch:
-                bench = {"state": "blocked", "reason": mismatch, "since": None, "pause_cause": None}
+                bench = {"state": "blocked", "reason": HIDDEN_ERROR_MESSAGE if redact else mismatch,
+                         "since": None, "pause_cause": None}
             elif next_job["held"]:
                 bench = {"state": "held", "reason": HELD_REASON, "since": None, "pause_cause": None}
             elif refused:
