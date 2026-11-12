@@ -39,6 +39,9 @@ EXPERIMENTAL_MESSAGE = (
     "administrator turns them on for this printer. Monitoring still works."
 )
 EXPERIMENTAL_REFUSAL = f'{EXPERIMENTAL_NOT_ENABLED}: {EXPERIMENTAL_MESSAGE}'
+UNSUPPORTED_NOT_ENABLED = 'printer_type_unsupported'
+UNSUPPORTED_REFUSAL = (f"{UNSUPPORTED_NOT_ENABLED}: ODIN has no support for this printer type, so job sending "
+                       "and printer controls are off. Pause and stop still work, and so does monitoring.")
 
 
 def normalize(api_type) -> str:
@@ -77,17 +80,26 @@ def _read_store(db) -> dict:
 
 
 def experimental_enabled(db, printer_id, api_type) -> bool:
-    """True only for a well-formed entry, enabled, recorded for this printer's current type."""
+    """True only for a well-formed entry, enabled, recorded for this printer's current type AND
+    name. The name binds the entry to this printer: a recycled id (bulk delete, raw SQL, cascade)
+    for a different printer never inherits an opt-in."""
     try:
         entry = _read_store(db).get(str(printer_id))
+        if not (isinstance(entry, dict) and entry.get('enabled') is True and entry.get('api_type') == normalize(api_type)):
+            return False
+        name = db.execute(text('SELECT name FROM printers WHERE id=:id'), {'id': printer_id}).scalar_one_or_none()
     except Exception:
         return False
-    return isinstance(entry, dict) and entry.get('enabled') is True and entry.get('api_type') == normalize(api_type)
+    return name is not None and entry.get('name') == name
 
 
 def experimental_refusal(db, printer_id, api_type) -> Optional[str]:
-    """Refusal text ('experimental_not_enabled: <plain words>') or None when allowed."""
-    if support_level(api_type) != EXPERIMENTAL:
+    """Refusal text or None when allowed. Fails closed: a type missing from the table is refused
+    outright (never opt-in-able); a manual printer (no type) is not a device and is untouched."""
+    level = support_level(api_type)
+    if level == UNSUPPORTED:
+        return UNSUPPORTED_REFUSAL
+    if level != EXPERIMENTAL:
         return None
     return None if experimental_enabled(db, printer_id, api_type) else EXPERIMENTAL_REFUSAL
 
@@ -104,7 +116,10 @@ def experimental_refusal_for_printer(db, printer_id) -> Optional[str]:
 def command_refusal(printer) -> Optional[str]:
     """Refusal for a printer object (ORM row or namespace) about to receive a device command."""
     api_type = getattr(printer, 'api_type', None)
-    if support_level(api_type) != EXPERIMENTAL:
+    level = support_level(api_type)
+    if level == UNSUPPORTED:
+        return UNSUPPORTED_REFUSAL
+    if level != EXPERIMENTAL:
         return None
     printer_id = getattr(printer, 'id', None)
     try:
@@ -141,11 +156,13 @@ def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:
     key = str(printer.id)
     api_type = normalize(printer.api_type)
     current = store.get(key)
-    was_enabled = isinstance(current, dict) and current.get('enabled') is True and current.get('api_type') == api_type
+    was_enabled = (isinstance(current, dict) and current.get('enabled') is True and current.get('api_type') == api_type
+                   and current.get('name') == printer.name)
     if enabled:
         if was_enabled:
             return {'changed': False, 'enabled': True}
-        store[key] = {'enabled': True, 'by': user_id, 'at': datetime.now(timezone.utc).isoformat(), 'api_type': api_type}
+        store[key] = {'enabled': True, 'by': user_id, 'at': datetime.now(timezone.utc).isoformat(), 'api_type': api_type,
+                      'name': printer.name}
     else:
         if key not in store:
             return {'changed': False, 'enabled': False}

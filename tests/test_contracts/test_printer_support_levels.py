@@ -270,3 +270,34 @@ def test_production_router_guards_every_control_route():
 def test_opt_in_route_is_registered_as_superadmin_only():
     from core.rbac_routes import write_exemption, _SUPERADMIN
     assert write_exemption('PUT', '/api/printers/{printer_id}/experimental-actions') == _SUPERADMIN
+
+
+# ---- review round 1: fail closed on unknown types; opt-in bound to the printer; every control route keyed by printer ----
+
+def test_a_type_missing_from_the_table_is_refused_but_pause_and_stop_work(graph, monkeypatch):
+    from modules.printers import route_utils, support_levels
+    monkeypatch.setattr(route_utils, '_bambu_command', lambda printer, action: True)
+    printer = graph.get(Printer, 9)
+    monkeypatch.setattr(printer, 'api_type', 'mystery_lan', raising=False)
+    assert support_levels.support_level('mystery_lan') == 'unsupported'
+    assert support_levels.command_refusal(printer).startswith('printer_type_unsupported')
+    assert route_utils._send_printer_command(printer, 'resume_print') is False
+    assert support_levels.experimental_refusal(graph, 9, None) is None  # a manual printer is not a device
+
+
+def test_an_opt_in_does_not_follow_a_recycled_id_to_another_printer(graph, monkeypatch):
+    from modules.printers import support_levels
+    experimental(monkeypatch, 'bambu')
+    opt_in(graph)
+    assert support_levels.experimental_refusal(graph, 9, 'bambu') is None
+    graph.execute(text("UPDATE printers SET name='A different printer' WHERE id=9")); graph.commit()
+    assert support_levels.experimental_refusal(graph, 9, 'bambu') is not None
+
+
+def test_every_controls_route_is_keyed_by_printer_id():
+    """The guard finds the printer from {printer_id}; a control route without it would skip the guard."""
+    from fastapi.routing import APIRoute
+    from modules.printers import routes_controls
+    for route in routes_controls.router.routes:
+        if isinstance(route, APIRoute) and route.methods - {'GET', 'HEAD', 'OPTIONS'}:
+            assert '{printer_id}' in route.path, route.path

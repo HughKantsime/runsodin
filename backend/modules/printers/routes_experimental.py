@@ -87,15 +87,16 @@ def experimental_controls_guard(
     printer = db.get(Printer, printer_id)
     if printer is None or not check_org_access(current_user, printer.org_id):
         return
-    if support_levels.experimental_refusal(db, printer.id, printer.api_type) is None:
+    refusal = support_levels.experimental_refusal(db, printer.id, printer.api_type)
+    if refusal is None:
         return
     from core.audit import log_audit
     log_audit(db, 'printer.experimental_control_refused', 'printer', printer.id,
               {'action': action, 'api_type': support_levels.normalize(printer.api_type),
                'actor_token_id': current_user.get('_token_id')})
     db.commit()
-    raise HTTPException(409, detail={'code': support_levels.EXPERIMENTAL_NOT_ENABLED,
-                                     'message': support_levels.EXPERIMENTAL_MESSAGE})
+    code, _, message = refusal.partition(': ')
+    raise HTTPException(409, detail={'code': code, 'message': message})
 
 
 # A recycled printer id must never inherit another printer's opt-in.
