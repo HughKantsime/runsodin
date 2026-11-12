@@ -22,7 +22,7 @@ from core.db import live_engine as engine
 from core.printer_utils import is_idle_state, is_printing_state
 from core.db_compat import execute_insert_returning_id, sql
 from modules.vision.inference_engine import VisionInferenceEngine
-from modules.vision import frame_storage
+from modules.vision import frame_storage, training_capture
 
 try:
     from core.ws_hub import push_event as ws_push
@@ -100,6 +100,13 @@ class PrinterVisionThread(threading.Thread):
         self._last_alert: Dict[str, float] = {}
         self._analyzed_frames = 0
         self._first_analysis_at = None
+        # Training capture: sampling clock, the previous tick's frame, and the post-detection burst.
+        self._sampler = training_capture.TrainingSampler()
+        self._previous_frame = None        # (job id, frame) of the last tick, only while collecting
+        self._burst_previous = None        # that frame, if it belongs to the current job
+        self._burst_after = 0              # frames still to save after a detection
+        self._burst_after_job = None
+        self._saved_this_tick = False
 
     def stop(self):
         self._running = False
@@ -117,6 +124,7 @@ class PrinterVisionThread(threading.Thread):
             self._analyzed_frames = 0
             self._first_analysis_at = None
             self._last_alert.clear()
+            self._reset_training_capture()
             for history in self._history.values():
                 history.clear()
         self.current_layer = layer
@@ -162,10 +170,16 @@ class PrinterVisionThread(threading.Thread):
         counted_frame = False
         collect = self.settings.get('collect_training_data', 0)
 
-        # Save training data if enabled (every frame, not just detections)
-        if collect and self._training_capture_allowed():
-            path = frame_storage.save_training_frame(self.printer_id, frame)
-            self._insert_training_sample(path)
+        # Training frames are sampled (every N seconds) plus a burst around each detection,
+        # not saved on every detection tick. Detection and review frames stay full size.
+        self._saved_this_tick = False
+        previous, self._previous_frame = self._previous_frame, ((analyzed_job, frame) if collect else None)
+        self._burst_previous = previous if previous is not None and previous[0] == analyzed_job else None
+        # Whether the tick before was itself saved (by the sampler or a burst): never save it twice.
+        self._burst_previous_saved = getattr(self, '_last_tick_saved', False)
+        if collect:
+            self._collect_training(frame)
+        self._last_tick_saved = self._saved_this_tick
 
         if not hasattr(self, '_history_generations'):
             self._history_generations = {}
@@ -348,6 +362,9 @@ class PrinterVisionThread(threading.Thread):
             detection_type, confidence, frame_path, bbox
         )
 
+        if detection_type != 'build_plate_empty' and self.settings.get('collect_training_data', 0):
+            self._detection_burst(frame)
+
         from core.base import AlertType, AlertSeverity
 
         # Map detection type to alert type
@@ -429,6 +446,115 @@ class PrinterVisionThread(threading.Thread):
             allowed = False
         self._training_allowed = (self.print_job_id, allowed, now)
         return allowed
+
+    def _reset_training_capture(self) -> None:
+        """A new print starts its own sampling clock; nothing carries over from the last job."""
+        self._sampler.reset()
+        self._previous_frame = None
+        self._burst_previous = None
+        self._burst_after = 0
+
+    def _training_settings(self) -> dict:
+        return self.settings.get('training_capture') or training_capture.resolve_config({}, None)
+
+    def _collect_training(self, frame: np.ndarray) -> None:
+        """Save the scheduled training frame (every N seconds) or the frame after a detection."""
+        config = self._training_settings()
+        after = self._burst_after if self._burst_after_job == self.print_job_id else 0
+        if after > 0:
+            self._burst_after = after - 1
+        elif not self._sampler.due(training_capture.training_interval(config.get('interval_sec'))):
+            return
+        self._save_training_frame(frame)
+
+    def _detection_burst(self, frame: np.ndarray) -> None:
+        """Up to BURST_FRAMES training frames around a detection: the tick before, this one, the next."""
+        try:
+            # Read before saving the earlier frame: that save also marks this tick as saved.
+            current_saved = self._saved_this_tick
+            if self._burst_previous is not None and not self._burst_previous_saved:
+                self._save_training_frame(self._burst_previous[1])
+            self._burst_previous = None
+            if not current_saved:
+                self._save_training_frame(frame)
+            self._burst_after = max(0, training_capture.BURST_FRAMES - 2)
+            self._burst_after_job = self.print_job_id
+        except Exception:
+            log.warning(f"[{self.printer_name}] Detection burst frames not saved", exc_info=True)
+
+    def _save_training_frame(self, frame: np.ndarray) -> bool:
+        """Save one training frame if every rule allows it; True when a frame was written.
+
+        Order matters: controlled work and excluded models are refused before the storage
+        guard runs, so they never raise a storage alert. The crop applies here only.
+        """
+        if not self._training_capture_allowed() or self._training_job_excluded():
+            return False
+        config = self._training_settings()
+        if config.get('crop_invalid'):
+            log.warning(f"[{self.printer_name}] Training crop is unusable; training frame not saved")
+            return False
+        minimum = config.get('min_free_bytes')
+        if type(minimum) is not int:
+            minimum = training_capture.min_free_bytes(None)
+        if not training_capture.STORAGE_GUARD.has_room(frame_storage.VISION_FRAMES_DIR, minimum, self._storage_alert):
+            return False
+        try:
+            path = frame_storage.save_training_frame(
+                self.printer_id, training_capture.crop_frame(frame, config.get('crop')))
+        except Exception as exc:
+            log.error(f"[{self.printer_name}] Training frame not saved: {exc}")
+            return False
+        self._insert_training_sample(path)
+        self._sampler.mark()
+        self._saved_this_tick = True
+        return True
+
+    def _training_job_excluded(self) -> bool:
+        """True when the running job's model has the category 'no-training'; fails closed.
+
+        models.category is used because jobs.required_tags is a scheduling constraint (a job
+        needing a tag only runs on printers that carry it), so tagging a job would block it.
+        Checked once a minute per print.
+        """
+        if self.print_job_id is None:
+            return False
+        now = time.monotonic()
+        cached = getattr(self, '_training_excluded', None)
+        if cached and cached[0] == self.print_job_id and now - cached[2] < 60:
+            return cached[1]
+        try:
+            with engine.connect() as conn:
+                category = conn.execute(text(
+                    "SELECT m.category FROM print_jobs pj JOIN jobs j ON j.id = pj.scheduled_job_id "
+                    "LEFT JOIN models m ON m.id = j.model_id WHERE pj.id = :pid"),
+                    {"pid": self.print_job_id}).scalar()
+            excluded = training_capture.excluded_category(category)
+        except Exception:
+            log.warning(f"[{self.printer_name}] Training exclusion check failed; training frame not saved")
+            excluded = True
+        self._training_excluded = (self.print_job_id, excluded, now)
+        return excluded
+
+    def _storage_alert(self, free: int, minimum: int) -> None:
+        """One in-app alert for platform admins when training capture stops for lack of disk space."""
+        from sqlalchemy.orm import Session
+        from core.base import AlertType, AlertSeverity
+        from modules.notifications.models import Alert
+        gib = 1024 ** 3
+        message = (f"Vigil stopped saving training frames: the frames volume has {free / gib:.1f} GB free, "
+                   f"below the {minimum / gib:.1f} GB minimum (Vigil AI settings: training_min_free_gb). "
+                   "Saving resumes by itself once space is freed.")
+        log.warning(message)
+        with engine.begin() as conn, Session(bind=conn) as db:
+            admin_ids = db.execute(text(
+                "SELECT id FROM users WHERE role = 'admin' AND group_id IS NULL AND is_active IS TRUE")).scalars().all()
+            for user_id in admin_ids:
+                db.add(Alert(user_id=user_id, alert_type=AlertType.PRINTER_ERROR, severity=AlertSeverity.WARNING,
+                             title='Vigil training capture paused: low disk space', message=message,
+                             metadata_json={'kind': 'vision_training_storage',
+                                            'free_bytes': free, 'minimum_bytes': minimum}))
+            db.flush()
 
     def _insert_training_sample(self, frame_path: str) -> None:
         """Index a collected frame for annotation; not a detection (status 'training')."""

@@ -35,6 +35,10 @@ export interface VisionSettings {
   auto_pause: number;
   capture_interval_sec: number;
   collect_training_data: number;
+  /** Bed crop for training frames only, as fractions 0..1 of the frame; null/absent = full frame. */
+  training_crop?: { x: number; y: number; w: number; h: number } | null;
+  /** Per-printer training capture interval override in seconds; null/absent = global default (120). */
+  training_interval_sec?: number | null;
   updated_at: string | null;
 }
 

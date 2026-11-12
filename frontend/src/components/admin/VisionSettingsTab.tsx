@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Save, Eye, CheckCircle } from 'lucide-react'
 import { vision, printers } from '../../api'
 import ModelUpload from './VisionModelUpload'
+import VisionTrainingCrop from './VisionTrainingCrop'
 import { getCurrentUser } from '../../permissions'
 
 export default function VisionSettingsTab() {
@@ -57,6 +58,14 @@ export default function VisionSettingsTab() {
         p.id === printerId ? { ...p, vision: { ...p.vision, ...data } } : p
       ))
     } catch (e) { console.error('Failed to save printer vision settings:', e) }
+  }
+
+  // Throws on failure so the crop panel can show it.
+  const saveTrainingCrop = async (printerId, crop) => {
+    await vision.updatePrinterSettings(printerId, { training_crop: crop })
+    setPrinterSettings(prev => prev.map(p =>
+      p.id === printerId ? { ...p, vision: { ...p.vision, training_crop: crop } } : p
+    ))
   }
 
   const activateModel = async (modelId) => {
@@ -230,6 +239,15 @@ export default function VisionSettingsTab() {
                         </select>
                       </div>
                     </div>
+                    {vs.collect_training_data === 1 && (
+                      <div className="col-span-2 md:col-span-4">
+                        <VisionTrainingCrop
+                          name={p.nickname || p.name}
+                          crop={vs.training_crop}
+                          onSave={crop => saveTrainingCrop(p.id, crop)}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

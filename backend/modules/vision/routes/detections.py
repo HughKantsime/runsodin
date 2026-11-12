@@ -24,6 +24,7 @@ from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
 from modules.vision.models import VisionDetection, VisionSettings, VisionModel
+from modules.vision import training_capture
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -269,9 +270,10 @@ async def get_printer_vision_settings(
 
     row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
     if row:
-        return _settings_to_dict(row)
+        return {**_settings_to_dict(row), **training_capture.printer_training_view(db, printer_id)}
     # Return defaults
     return {
+        **training_capture.printer_training_view(db, printer_id),
         "printer_id": printer_id,
         "enabled": 1,
         "spaghetti_enabled": 1, "spaghetti_threshold": 0.65,
@@ -306,7 +308,11 @@ async def update_printer_vision_settings(
         "auto_pause", "capture_interval_sec", "collect_training_data",
     }
     updates = {k: v for k, v in body.items() if k in allowed}
-    if not updates:
+    try:
+        training = training_capture.validate_printer_training(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    if not updates and not training:
         raise HTTPException(status_code=400, detail="No valid fields to update")
     for key in ("enabled", "spaghetti_enabled", "first_layer_enabled", "detachment_enabled",
                 "build_plate_empty_enabled", "auto_pause", "collect_training_data"):
@@ -330,7 +336,9 @@ async def update_printer_vision_settings(
             raise HTTPException(status_code=422, detail=f"capture_interval_sec must be a whole number from 1 to {MAX_CAPTURE_INTERVAL}")
 
     row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
-    if row:
+    if not updates:
+        pass  # training-only change: no vision_settings row is written
+    elif row:
         for k, v in updates.items():
             setattr(row, k, v)
         row.updated_at = sa_func.now()
@@ -338,8 +346,10 @@ async def update_printer_vision_settings(
         row = VisionSettings(printer_id=printer_id, **updates)
         db.add(row)
 
+    if training:
+        training_capture.save_printer_training(db, printer_id, training)
     db.commit()
-    return {"printer_id": printer_id, **updates}
+    return {"printer_id": printer_id, **updates, **training_capture.printer_training_view(db, printer_id)}
 
 
 # ============== Vigil AI: Global Vision Settings ==============
@@ -369,11 +379,15 @@ async def update_global_vision_settings(
 ):
     """Update global vision settings."""
     body = await request.json()
-    allowed = {"enabled", "retention_days", "max_threads"}
+    allowed = {"enabled", "retention_days", "max_threads",
+               training_capture.GLOBAL_INTERVAL_KEY, training_capture.GLOBAL_MIN_FREE_KEY}
     updates = {k: v for k, v in body.items() if k in allowed}
     if "max_threads" in updates and (type(updates["max_threads"]) is not int or not 1 <= updates["max_threads"] <= 256):
         # mirrors detection_thread.MAX_VISION_THREADS_LIMIT (no cv2 import here)
         raise HTTPException(status_code=422, detail="max_threads must be a whole number from 1 to 256")
+    problem = training_capture.global_setting_error(updates)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
     if "enabled" in updates and not isinstance(updates["enabled"], bool):
         raise HTTPException(status_code=422, detail="enabled must be a boolean")
     if "retention_days" in updates and (

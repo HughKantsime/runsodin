@@ -43,7 +43,7 @@ except ImportError:
 from core.db import live_engine as engine
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision.detection_thread import PrinterVisionThread, capture_interval, max_vision_threads
-from modules.vision import frame_storage
+from modules.vision import frame_storage, training_capture
 
 # Setup logging
 logging.basicConfig(
@@ -201,6 +201,14 @@ class VisionMonitorDaemon:
         if not self._globally_enabled():
             rows = []
 
+        global_settings = self._global_settings()
+        try:
+            with engine.connect() as conn:
+                printer_training = training_capture.load_printer_configs(conn)
+        except Exception as e:
+            log.error(f"Failed to read per-printer training capture settings: {e}")
+            printer_training = None  # no training frame is saved until they can be read
+
         active_ids = set()
         wanted = []
         for row in sorted(rows, key=lambda item: item['id']):
@@ -233,6 +241,8 @@ class VisionMonitorDaemon:
                 'auto_pause': flag('auto_pause', 0),
                 'capture_interval_sec': capture_interval(row['capture_interval_sec']),
                 'collect_training_data': flag('collect_training_data', 0),
+                'training_capture': training_capture.resolve_config(
+                    global_settings, (printer_training or {}).get(pid), failed=printer_training is None),
             }
             wanted.append((pid, row, settings))
 
