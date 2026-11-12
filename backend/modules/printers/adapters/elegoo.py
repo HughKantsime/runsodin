@@ -101,12 +101,22 @@ def _usable_name(name: str) -> bool:
             and not any(ord(c) < 32 or ord(c) == 127 for c in name))
 
 
-def _json_body(reply):
-    try:
-        if len(reply.content) > _MAX_BODY:
+def _json_body(reply, deadline):
+    if time.monotonic() >= deadline:
+        return None
+    body = bytearray()
+    # Read one byte at a time so a trickling peer cannot hold a large read open
+    # past the deadline. Transport failures propagate as an unknown outcome.
+    for chunk in reply.iter_content(chunk_size=1):
+        if time.monotonic() >= deadline:
             return None
-        return reply.json()
-    except Exception:
+        body.extend(chunk)
+        if len(body) > _MAX_BODY:
+            return None
+    try:
+        payload = json.loads(body)
+        return payload if time.monotonic() < deadline else None
+    except (ValueError, UnicodeError):
         return None
 
 
@@ -499,9 +509,10 @@ class ElegooPrinter:
     # return True once the frame is written. Only start_print waits for the printer's answer.
     # ------------------------------------------------------------------
     def _on_response(self, data: Dict):
-        """Hand a sdcp/response frame to the request waiting for that RequestID and command."""
+        """Match the configured board as well as the waiting RequestID and command."""
         parsed = parse_response(data)
-        if parsed is None:
+        if (parsed is None or data.get("Topic") != f"sdcp/response/{self.mainboard_id}"
+                or data["Data"].get("MainboardID") != self.mainboard_id):
             return
         with self._reply_lock:
             waiter = self._replies.get(parsed["request_id"])
@@ -615,7 +626,8 @@ class ElegooPrinter:
         deadline = time.monotonic() + UPLOAD_TOTAL_SECONDS
         with handle:
             while offset < total:
-                if time.monotonic() > deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     # Nothing was started: a partial upload is only an unused file on the printer.
                     log.error("Elegoo upload stopped: over %s s in total (%s, offset %s)", UPLOAD_TOTAL_SECONDS, self.host, offset)
                     return False
@@ -624,20 +636,22 @@ class ElegooPrinter:
                     log.error("Elegoo upload refused: file changed while reading")
                     return False
                 try:
-                    reply = http.post(
+                    with http.post(
                         url,
                         files={"File": (name, chunk, "application/octet-stream")},
                         data={"Check": "1", "Offset": str(offset), "Uuid": upload_id,
                               "TotalSize": str(total), "S-File-MD5": checksum},
-                        timeout=UPLOAD_TIMEOUT,
-                    )
+                        timeout=min(UPLOAD_TIMEOUT, remaining), stream=True,
+                    ) as reply:
+                        if reply.status_code != 200 or not parse_upload_reply(_json_body(reply, deadline)):
+                            log.error("Elegoo upload not confirmed (%s, HTTP %s, offset %s)", self.host, reply.status_code, offset)
+                            return False
                 except requests.exceptions.RequestException as exc:
                     raise ElegooOutcomeUnknown("no answer to an upload request") from exc
                 except Exception as exc:
                     raise ElegooOutcomeUnknown("upload request failed after it was sent") from exc
-                if reply.status_code != 200 or not parse_upload_reply(_json_body(reply)):
-                    log.error("Elegoo upload not confirmed (%s, HTTP %s, offset %s)", self.host, reply.status_code, offset)
-                    return False
                 offset += len(chunk)
+        if time.monotonic() >= deadline:
+            return False
         log.info("Uploaded %s to Elegoo at %s", name, self.host)
         return True
