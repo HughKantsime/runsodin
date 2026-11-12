@@ -96,6 +96,208 @@ def last_refresh(app):
     return app.routes.get_license_last_refresh(current_user={"id": 1})["last_refresh"]
 
 
+@pytest.mark.parametrize("status", ["renewed", "canceled", "not_renewed_yet", "not_entitled", None])
+@pytest.mark.parametrize("intervening", ["other_key", "same_key", "removed"])
+def test_refresh_rechecks_disk_identity_inside_installer(app, monkeypatch, status, intervening):
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    installed_key = KEY if intervening == "same_key" else "OTHER-KEY"
+    replacement = app.sign(**app.fields, key=installed_key, issued_at=iso(ago(hours=2)),
+                           expires_at=iso(ahead(days=40))).decode()
+    original_install = app.routes.install_portal_license
+
+    def concurrent_change(*args, **kwargs):
+        # After the route's candidate checks, immediately before installation.
+        if intervening == "removed":
+            app.lm.quarantine_installed_license()
+        else:
+            app.lm.install_portal_license(replacement)
+        return original_install(*args, **kwargs)
+
+    monkeypatch.setattr(app.routes, "install_portal_license", concurrent_change)
+    candidate = app.make(ago(hours=1), ago(minutes=30) if status == "not_entitled" else ahead(days=60))
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=candidate, **({"refresh_status": status} if status else {}))
+    assert exc.value.status_code in (400, 409)
+    if intervening == "removed":
+        assert not app.path.exists()
+    else:
+        assert app.path.read_text() == replacement
+    app.routes.log_audit.assert_not_called()
+    assert last_refresh(app) is None
+    app.restart()
+    assert app.lm.get_license().key == ("" if intervening == "removed" else installed_key)
+
+
+@pytest.mark.parametrize("status", ["not_renewed_yet", "canceled"])
+@pytest.mark.parametrize("same_key", [False, True])
+def test_no_file_answer_does_not_attach_to_a_concurrent_replacement(app, monkeypatch, status, same_key):
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    replacement = app.sign(**app.fields, key=KEY if same_key else "OTHER-KEY",
+                           issued_at=iso(ago(hours=2)), expires_at=iso(ahead(days=40))).decode()
+    request = app.routes.pinned_async_request
+
+    async def concurrent_upload(*args, **kwargs):
+        app.lm.install_portal_license(replacement)
+        return await request(*args, **kwargs)
+
+    monkeypatch.setattr(app.routes, "pinned_async_request", concurrent_upload)
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(refresh_status=status, ends_at=iso(ahead(days=2)))
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == replacement
+    app.routes.log_audit.assert_not_called()
+    assert last_refresh(app) is None
+
+
+@pytest.mark.parametrize("offline", [False, True])
+@pytest.mark.parametrize("same_key", [False, True])
+def test_unactivation_cannot_remove_an_intervening_replacement(app, monkeypatch, offline, same_key):
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    replacement = app.sign(**app.fields, key=KEY if same_key else "OTHER-KEY",
+                           issued_at=iso(ago(hours=2)), expires_at=iso(ahead(days=40))).decode()
+    if offline:
+        sign = app.routes.sign_license_challenge
+
+        def concurrent_upload(*args):
+            signature = sign(*args)
+            app.lm.install_portal_license(replacement)
+            return signature
+
+        monkeypatch.setattr(app.routes, "sign_license_challenge", concurrent_upload)
+    else:
+        request = app.routes.pinned_async_request
+
+        async def concurrent_upload(*args, **kwargs):
+            app.lm.install_portal_license(replacement)
+            return await request(*args, **kwargs)
+
+        monkeypatch.setattr(app.routes, "pinned_async_request", concurrent_upload)
+
+    with pytest.raises(HTTPException) as exc:
+        if offline:
+            app.routes.get_unactivation_request(
+                app.routes.OfflineUnactivationRequestBody(nonce="test-nonce"),
+                current_user={"id": 1}, db=app.db, license_mutation_allowed=None)
+        else:
+            asyncio.run(app.routes.unactivate_license(
+                current_user={"id": 1}, db=app.db, license_mutation_allowed=None))
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == replacement
+    app.routes.log_audit.assert_not_called()
+    app.restart()
+    assert app.lm.get_license().valid
+
+
+@pytest.mark.parametrize("phase", ["ordering", "rollback", "removal_rollback"])
+def test_concurrent_installs_serialize_checks_and_rollback(app, monkeypatch, phase):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    first = app.make(ago(hours=2), ahead(days=20))
+    newest = app.make(ago(hours=1), ahead(days=40))
+    paused, release, second_started, second_done = (Event() for _ in range(4))
+    original = app.lm._refuse_replacement_out_of_order
+
+    def pause():
+        paused.set()
+        assert release.wait(5), "test did not release the first installer"
+
+    def check(candidate, installed):
+        original(candidate, installed)
+        if candidate.issued_at == iso(ago(hours=2)):
+            pause()
+
+    def fail_audit(*_args, **_kwargs):
+        pause()
+        raise RuntimeError("synthetic audit failure")
+
+    if phase == "ordering":
+        monkeypatch.setattr(app.lm, "_refuse_replacement_out_of_order", check)
+    elif phase == "removal_rollback":
+        from core import license_lock
+        monkeypatch.setattr(license_lock, "enabled", lambda: False)
+        monkeypatch.setattr("core.audit.log_audit", fail_audit)
+
+    def install_second():
+        second_started.set()
+        try:
+            return app.lm.install_portal_license(newest)
+        finally:
+            second_done.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        if phase == "removal_rollback":
+            one = pool.submit(license_lock.remove_installed_license, app.db, 1, "license.removed")
+        else:
+            one = pool.submit(app.lm.install_portal_license, first,
+                              after_install=fail_audit if phase == "rollback" else None)
+        try:
+            assert paused.wait(5)
+            two = pool.submit(install_second)
+            assert second_started.wait(5)
+            overtook = second_done.wait(0.2)
+        finally:
+            release.set()
+        if phase != "ordering":
+            error = license_lock.LicenseLockError if phase == "removal_rollback" else HTTPException
+            with pytest.raises(error) as exc:
+                one.result(timeout=5)
+            assert exc.value.status_code == 503
+        else:
+            one.result(timeout=5)
+        assert two.result(timeout=5).valid
+    assert app.path.read_text() == newest
+    assert not overtook, "second installer bypassed the first install's check/write/recovery"
+
+
+def _install_from_another_worker(directory, public_key, content, connection):
+    """Spawned process: no inherited Python lock or test monkeypatches."""
+    import license_manager as lm
+    from core import db
+    lm.LICENSE_DIR = directory
+    lm.ODIN_PUBLIC_KEY = public_key
+    db.current_engine = lambda: None  # This worker uses only its temporary clock file.
+    connection.send("started")
+    lm.install_portal_license(content)
+    connection.send("saved")
+    connection.close()
+
+
+def test_installation_lock_also_serializes_other_processes(app):
+    import multiprocessing
+
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    first = app.make(ago(hours=2), ahead(days=20))
+    newest = app.make(ago(hours=1), ahead(days=40))
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe()
+    writer = context.Process(target=_install_from_another_worker,
+                             args=(str(app.path.parent), app.lm.ODIN_PUBLIC_KEY, newest, child))
+    overtook = []
+
+    def audit(_candidate):
+        writer.start()
+        assert parent.poll(10), "second worker did not start"
+        assert parent.recv() == "started"
+        overtook.append(parent.poll(0.2))
+
+    try:
+        app.lm.install_portal_license(first, after_install=audit)
+        assert parent.poll(10), "second worker did not finish after the installer released its lock"
+        assert parent.recv() == "saved"
+        writer.join(10)
+        assert writer.exitcode == 0
+        assert app.path.read_text() == newest
+        assert overtook == [False]
+    finally:
+        if writer.is_alive():
+            writer.terminate()
+            writer.join(5)
+        parent.close()
+        child.close()
+
+
 # ---- earlier expiry, newer issued_at ----
 
 def test_earlier_expiry_with_newer_issued_at_is_installed(app):
@@ -331,6 +533,19 @@ def test_last_refresh_is_hidden_once_another_license_file_is_installed(app):
     assert last_refresh(app) is not None
     app.lm.save_license_file(app.make(ago(hours=1), ahead(days=40)))
     assert last_refresh(app) is None
+
+
+def test_admin_refresh_answer_identifies_the_file_it_describes(app):
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    app.refresh(refresh_status="canceled")
+    result = app.routes.get_license_last_refresh(current_user={"id": 1})
+    assert result["license_sha256"] == app.lm.load_license().license_sha256
+    assert result["last_refresh"]["status"] == "canceled"
+    app.lm.save_license_file(app.make(ago(hours=1), ahead(days=40)))
+    changed = app.routes.get_license_last_refresh(current_user={"id": 1})
+    assert changed["license_sha256"] == app.lm.load_license().license_sha256
+    assert changed["license_sha256"] != result["license_sha256"]
+    assert changed["last_refresh"] is None
 
 
 # ---- review round 1: the answer and the file must agree; earlier stated end ----

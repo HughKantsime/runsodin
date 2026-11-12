@@ -92,7 +92,11 @@ export default function LicenseTab() {
       // answer; a superadmin reads it separately. Anyone else sees the expiry window only.
       let last_refresh = null
       if (isSuperadmin && data?.license_sha256) {
-        try { last_refresh = (await licenseRefresh.lastRefresh()).last_refresh } catch { last_refresh = null }
+        try {
+          const answer = await licenseRefresh.lastRefresh()
+          // A replacement between these reads must not attach another file's billing state.
+          if (answer.license_sha256 === data.license_sha256) last_refresh = answer.last_refresh
+        } catch { last_refresh = null }
       }
       if (seq !== loadSeq.current) return  // A newer load started (for example once the user resolved).
       setLicenseInfo({ ...data, last_refresh })

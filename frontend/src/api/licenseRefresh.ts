@@ -30,6 +30,6 @@ export const licenseRefresh = {
   /** "Refresh license": asks the license portal once. Superadmin only; the server enforces it. */
   reactivate: (): Promise<RefreshResult> => fetchAPI<RefreshResult>('/license/reactivate', { method: 'POST' }),
   /** What the portal said at the last refresh. Superadmin only: it shows billing state. */
-  lastRefresh: (): Promise<{ last_refresh: LastRefresh | null }> =>
-    fetchAPI<{ last_refresh: LastRefresh | null }>('/license/last-refresh'),
+  lastRefresh: (): Promise<{ last_refresh: LastRefresh | null; license_sha256: string }> =>
+    fetchAPI<{ last_refresh: LastRefresh | null; license_sha256: string }>('/license/last-refresh'),
 }

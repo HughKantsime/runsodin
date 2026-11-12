@@ -17,7 +17,9 @@ import uuid
 import tempfile
 import time
 import threading
+import fcntl
 import stat as stat_module
+from contextlib import contextmanager
 from datetime import datetime, date, time as datetime_time, timezone
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -474,8 +476,45 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
         return info
 
 
+_mutation_lock = threading.RLock()
+_mutation_locks_held = threading.local()
+
+
+@contextmanager
+def license_file_lock(directory=None):
+    """Serialize license checks, writes and recovery across threads and workers.
+
+    Lock a stable sidecar, not the license inode (which is atomically replaced).
+    Nested installer/removal calls in the owning thread share the lock.
+    """
+    from fastapi import HTTPException
+    target_dir = os.path.realpath(directory or LICENSE_DIR)
+    with _mutation_lock:
+        held = getattr(_mutation_locks_held, "directories", set())
+        if target_dir in held:
+            yield
+            return
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            fd = os.open(os.path.join(target_dir, ".odin-license.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError:
+            raise HTTPException(status_code=503, detail="Cannot lock the current license safely. The installed license is unchanged.") from None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            _mutation_locks_held.directories = held | {target_dir}
+            try:
+                yield
+            finally:
+                _mutation_locks_held.directories = held
+        finally:
+            os.close(fd)
+
+
 def save_license_file(content: str, directory: str = None) -> str:
-    """Save a license file to the data directory. Returns the path."""
+    """Atomically save bytes. Production mutations use install_portal_license
+    to serialize validation and recovery; staging itself supports concurrent saves.
+    Returns the path.
+    """
     target_dir = directory or LICENSE_DIR
     os.makedirs(target_dir, exist_ok=True)
     path = os.path.join(target_dir, LICENSE_FILENAME)
@@ -570,7 +609,8 @@ def _refuse_replacement_out_of_order(candidate, installed) -> None:
         raise HTTPException(status_code=409, detail=LICENSE_OLDER_THAN_INSTALLED)
 
 
-def install_portal_license(license_content, after_install=None, *, allow_expired=False) -> "LicenseInfo":
+def install_portal_license(license_content, after_install=None, *, allow_expired=False,
+                           expected_key=None, expected_sha256=None) -> "LicenseInfo":
     """Verify a portal-issued license and install it only if it is valid.
 
     The candidate is checked with the runtime rules (signature, binding,
@@ -580,8 +620,11 @@ def install_portal_license(license_content, after_install=None, *, allow_expired
     A different candidate for the same key not issued after the installed file is
     refused (see ``_refuse_replacement_out_of_order``). With ``allow_expired``
     (the portal refresh path only) a verified replacement that has already
-    ended is installed too. Every replacement on this path must be for the
-    installed license's key, including one still valid within the clock allowance.
+    ended is installed too. Refresh callers pass ``expected_key`` for EVERY
+    status. Under the file lock, both the candidate and the file on disk must
+    match it; an in-flight refresh cannot overwrite another key or undo removal.
+    ``expected_sha256`` also refuses an intervening replacement of the same key
+    (including a binding change), so the admin can retry against the new file.
     The file is persisted, so the server stays on Community across restarts.
     """
     from fastapi import HTTPException
@@ -591,57 +634,65 @@ def install_portal_license(license_content, after_install=None, *, allow_expired
     if not candidate.valid or candidate.error:
         if not (allow_expired and is_expired_replacement(candidate)):
             raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
-    target = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
-    try:
-        with open(target, "rb") as stream:
-            previous = stream.read()
-    except FileNotFoundError:
-        previous = None
-    except OSError:
-        raise HTTPException(status_code=503, detail="Cannot read the current license safely. Check storage permissions; the installed license is unchanged.")
-    installed = _installed_license(previous)
-    if allow_expired and not (
-        installed is not None and installed.license_sha256 and installed.key and installed.key == candidate.key
-    ):
-        raise HTTPException(status_code=400, detail="License server returned a license for a different key than the one installed. Your installed license is unchanged.")
-    _refuse_replacement_out_of_order(candidate, installed)
-    try:
-        save_license_file(license_content)
-        if after_install is not None:
-            after_install(candidate)
-    except Exception:
-        # save may fail its directory sync after replacement. Restore the old
-        # visible artifact as well; never intentionally discard a paid license.
+    with license_file_lock():
+        target = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
         try:
-            try:
-                with open(target, "rb") as stream:
-                    unchanged = stream.read() == previous
-            except FileNotFoundError:
-                unchanged = previous is None
-            if unchanged:
-                pass
-            elif previous is not None:
-                fd, recovery = tempfile.mkstemp(prefix=".odin-license-recovery-", dir=LICENSE_DIR)
-                try:
-                    with os.fdopen(fd, "wb") as stream:
-                        stream.write(previous)
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                    os.replace(recovery, target)
-                finally:
-                    if os.path.exists(recovery):
-                        os.unlink(recovery)
-            elif os.path.exists(target):
-                os.unlink(target)
+            with open(target, "rb") as stream:
+                previous = stream.read()
+        except FileNotFoundError:
+            previous = None
         except OSError:
-            raise HTTPException(status_code=503, detail="License recovery could not be confirmed. Check storage and restore the license from your secure host backup.")
-        finally:
-            global _cached_license
-            _cached_license = None
-        raise HTTPException(status_code=503, detail="License installation failed; the previous license was retained.")
-    return get_license()
+            raise HTTPException(status_code=503, detail="Cannot read the current license safely. Check storage permissions; the installed license is unchanged.")
+        installed = _installed_license(previous)
+        if (expected_key is not None or allow_expired) and not (
+            installed is not None and installed.license_sha256 and installed.key
+            and installed.key == candidate.key
+            and (expected_key is None or installed.key == expected_key)
+        ):
+            raise HTTPException(status_code=400, detail="License server returned a license for a different key than the one installed. Your installed license is unchanged.")
+        if expected_sha256 is not None and (
+            installed is None or not expected_sha256 or installed.license_sha256 != expected_sha256
+        ):
+            raise HTTPException(status_code=409, detail="The installed license changed during refresh. Refresh again for the current license.")
+        _refuse_replacement_out_of_order(candidate, installed)
+        try:
+            save_license_file(license_content)
+            if after_install is not None:
+                after_install(candidate)
+        except Exception:
+            # save may fail its directory sync after replacement. Restore the old
+            # visible artifact as well; never intentionally discard a paid license.
+            try:
+                try:
+                    with open(target, "rb") as stream:
+                        unchanged = stream.read() == previous
+                except FileNotFoundError:
+                    unchanged = previous is None
+                if unchanged:
+                    pass
+                elif previous is not None:
+                    fd, recovery = tempfile.mkstemp(prefix=".odin-license-recovery-", dir=LICENSE_DIR)
+                    try:
+                        with os.fdopen(fd, "wb") as stream:
+                            stream.write(previous)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        os.replace(recovery, target)
+                    finally:
+                        if os.path.exists(recovery):
+                            os.unlink(recovery)
+                elif os.path.exists(target):
+                    os.unlink(target)
+            except OSError:
+                raise HTTPException(status_code=503, detail="License recovery could not be confirmed. Check storage and restore the license from your secure host backup.")
+            finally:
+                global _cached_license
+                _cached_license = None
+            raise HTTPException(status_code=503, detail="License installation failed; the previous license was retained.")
+        return get_license()
 
 
+@license_file_lock()
 def quarantine_installed_license() -> Optional[str]:
     """Atomically move the installed license aside (offline unactivation hand-over).
 

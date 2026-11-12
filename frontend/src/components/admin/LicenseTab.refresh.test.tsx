@@ -17,7 +17,7 @@ beforeEach(() => {
   lastRefresh.mockImplementation(async () => {
     const latest = api.get.mock.results[api.get.mock.results.length - 1]
     const value = latest ? await latest.value : null
-    return { last_refresh: value?.last_refresh ?? null }
+    return { last_refresh: value?.last_refresh ?? null, license_sha256: value?.license_sha256 ?? '' }
   })
 })
 
@@ -155,4 +155,16 @@ test('an organization administrator gets no Refresh license button and never rea
   await waitFor(() => expect(api.get).toHaveBeenCalled())
   expect(screen.queryByRole('button', { name: 'Refresh license' })).not.toBeInTheDocument()
   expect(lastRefresh).not.toHaveBeenCalled()
+})
+
+test('a replacement between the two reads cannot attach another license\'s billing status', async () => {
+  api.get.mockResolvedValue(paid)
+  lastRefresh.mockResolvedValue({
+    license_sha256: 'b'.repeat(64),
+    last_refresh: answer('canceled').last_refresh,
+  })
+  renderTab()
+  await screen.findByRole('button', { name: 'Refresh license' })
+  expect(lastRefresh).toHaveBeenCalledTimes(1)
+  expect(screen.queryByTestId('license-renewal-banner')).not.toBeInTheDocument()
 })
