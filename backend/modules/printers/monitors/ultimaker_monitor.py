@@ -206,15 +206,16 @@ class UltimakerMonitorThread(threading.Thread):
                     physical_job_id=f"ultimaker_{status.job_uuid}" if status.job_uuid else None,
                 )
             elif odin_state == "IDLE" and previous in _ACTIVE:
-                # Completed needs the printer's own finished state (wait_cleanup) at 100 %. A job
-                # that vanished, or was aborted (cleanup reached short of 100 %), is cancelled.
-                finished = (status.finished and status.progress_percent is not None
+                # Only the tracked job can prove completion. Another job may have finished
+                # during a polling gap; its result and duration say nothing about this one.
+                finished = (self._job_uuid and status.job_uuid == self._job_uuid
+                            and status.finished and status.progress_percent is not None
                             and status.progress_percent >= 100.0)
-                name = current_file or self._last_filename or "Unknown"
                 if finished:
+                    name = current_file or self._last_filename or "Unknown"
                     printer_events.on_print_complete(self.printer_id, name, status.time_printing, None)
                 else:
-                    printer_events.on_print_cancelled(self.printer_id, name)
+                    printer_events.on_print_cancelled(self.printer_id, self._last_filename or "Unknown")
                 self._job_uuid = None
             elif odin_state == "FAILED":
                 error_msg = "Printer reported error state"

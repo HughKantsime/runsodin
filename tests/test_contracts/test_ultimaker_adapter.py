@@ -408,3 +408,94 @@ def test_a_body_that_dribbles_past_the_time_limit_is_dropped(monkeypatch):
     monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: next(ticks))
     reply = Slow()
     assert adapter_module._json_object(reply) is None and reply.closed
+
+
+@pytest.mark.parametrize('framing', ['length', 'chunked', 'gzip'])
+@pytest.mark.parametrize('slow', [True, False])
+def test_deadline_interrupts_a_buffered_body_read(monkeypatch, framing, slow):
+    """Real requests/urllib3/HTTP buffering, with an in-memory dribbling socket."""
+    import gzip
+    import http.client
+    import io
+    import threading
+    from urllib3.response import HTTPResponse
+
+    stopped = threading.Event()
+    body = json.dumps(system_body()).encode()
+    headers = {}
+    if framing == 'gzip':
+        body = gzip.compress(body)
+        headers['Content-Encoding'] = 'gzip'
+    if framing == 'chunked':
+        headers['Transfer-Encoding'] = 'chunked'
+        body = f'{len(body):x}\r\n'.encode() + body + b'\r\n0\r\n\r\n'
+    else:
+        headers['Content-Length'] = str(len(body))
+    head = ('HTTP/1.1 200 OK\r\n' + ''.join(f'{k}: {v}\r\n' for k, v in headers.items()) + '\r\n').encode()
+
+    class Dribble(io.RawIOBase):
+        offset = 0
+        header_sent = False
+
+        def readable(self):
+            return True
+
+        def readinto(self, buffer):
+            if not self.header_sent:
+                self.header_sent = True
+                buffer[:len(head)] = head
+                return len(head)
+            if self.offset == len(body) or stopped.wait(0.01 if slow else 0):
+                return 0
+            buffer[0] = body[self.offset]
+            self.offset += 1
+            return 1
+
+    class Socket:
+        def makefile(self, mode):
+            return io.BufferedReader(stream)
+
+        def shutdown(self, how):
+            stopped.set()
+
+    stream = Dribble()
+    stream._sock = Socket()
+    wire = http.client.HTTPResponse(stream._sock, method='GET')
+    wire.begin()
+    reply = requests.Response()
+    reply.status_code = 200
+    reply.raw = HTTPResponse(body=wire, original_response=wire, headers=headers, preload_content=False)
+    monkeypatch.setattr(adapter_module, '_BODY_SECONDS', 0.05 if slow else 10)
+    timers = []
+    timer = threading.Timer
+
+    def recording_timer(*args, **kwargs):
+        result = timer(*args, **kwargs)
+        timers.append(result)
+        return result
+
+    monkeypatch.setattr(adapter_module.threading, 'Timer', recording_timer)
+
+    result = adapter_module._json_object(reply)
+    if slow:
+        assert result is None
+        assert stream.offset < 30  # the old 8192-byte read consumes the entire response
+        assert stopped.is_set()
+    else:
+        assert result == system_body()
+        assert not stopped.is_set()
+    assert timers and all(not timer.is_alive() for timer in timers)
+    assert reply.raw.closed
+
+
+def test_uninterruptible_transport_fails_closed_without_reading():
+    reply = requests.Response()
+    reply.raw = SimpleNamespace(closed=False)
+
+    def close():
+        reply.raw.closed = True
+
+    reply.raw.close = close
+    reply.iter_content = lambda **kw: pytest.fail('read without a deadline interrupt')
+    assert adapter_module._json_object(reply) is None
+    assert reply.raw.closed

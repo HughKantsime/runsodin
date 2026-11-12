@@ -173,6 +173,33 @@ def test_a_new_job_uuid_ends_the_earlier_print_and_starts_the_new_one(world):
     assert [j[0] for j in jobs(world.db)] == ['cancelled', 'running']
 
 
+@pytest.mark.parametrize('active_state', ['printing', 'paused'])
+@pytest.mark.parametrize('same_uuid', [False, True])
+def test_completion_after_an_offline_gap_requires_the_tracked_uuid(world, monkeypatch, active_state, same_uuid):
+    import modules.notifications.event_dispatcher as printer_events
+    completed, cancelled = [], []
+    complete = printer_events.on_print_complete
+    cancel = printer_events.on_print_cancelled
+    monkeypatch.setattr(printer_events, 'on_print_complete',
+                        lambda *a, **kw: completed.append(a) or complete(*a, **kw))
+    monkeypatch.setattr(printer_events, 'on_print_cancelled',
+                        lambda *a, **kw: cancelled.append(a) or cancel(*a, **kw))
+    offline = requests.exceptions.ConnectionError('offline')
+    finished = job_body(state='wait_cleanup', progress=1.0, elapsed=1440,
+                        uuid=UUID if same_uuid else 'second-job-uuid', name='finished-job')
+    world.run(6, before_poll=script(world,
+        ('printing', job_body(state=active_state)),
+        (offline, None), (offline, None), (offline, None), ('idle', finished)))
+    assert [j[0] for j in jobs(world.db)] == ['completed' if same_uuid else 'cancelled']
+    if same_uuid:
+        assert len(completed) == 1 and completed[0][2] == 1440
+        assert cancelled == []
+    else:
+        assert completed == []
+        assert cancelled == [(501, 'gear')]
+    assert world.monitor._job_uuid is None
+
+
 def test_the_job_uuid_is_the_physical_job_id(world, monkeypatch):
     import modules.notifications.event_dispatcher as printer_events
     seen = []

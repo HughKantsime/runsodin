@@ -22,6 +22,8 @@ Fail closed:
 """
 
 import json
+import socket
+import threading
 import time
 import logging
 from dataclasses import dataclass, field
@@ -81,20 +83,45 @@ class UltimakerStatus:
 
 def _json_object(reply) -> Optional[dict]:
     """The reply body as a JSON object, read with a hard cap of _MAX_BODY bytes, else None."""
+    watchdog = None
+    expired = threading.Event()
     try:
         chunks, size = [], 0
         # The request timeout bounds each socket read, not the whole body: a device that
         # dribbles bytes must not hold a monitor thread or an API worker.
         deadline = time.monotonic() + _BODY_SECONDS
+        if getattr(reply, 'raw', None) is not None:
+            # requests -> urllib3 -> http.client -> BufferedReader -> SocketIO.
+            # Fail closed if this transport layout changes: without the socket we cannot
+            # interrupt buffering (including chunk framing and compressed bodies).
+            sock = reply.raw._fp.fp.raw._sock
+
+            def expire():
+                expired.set()
+                try:
+                    # close() alone can wait on the buffered reader's lock. shutdown()
+                    # wakes its pending recv without taking that lock.
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+            watchdog = threading.Timer(_BODY_SECONDS, expire)
+            watchdog.daemon = True
+            watchdog.start()
         for chunk in reply.iter_content(chunk_size=8192):
             size += len(chunk)
-            if size > _MAX_BODY or time.monotonic() > deadline:
+            if size > _MAX_BODY or expired.is_set() or time.monotonic() >= deadline:
                 return None
             chunks.append(chunk)
+        if expired.is_set() or time.monotonic() >= deadline:
+            return None
         value = json.loads(b"".join(chunks).decode("utf-8"))
     except Exception:
         return None
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
+            watchdog.join()  # no late shutdown after closing/releasing the response
         close = getattr(reply, "close", None)
         if callable(close):
             try:
