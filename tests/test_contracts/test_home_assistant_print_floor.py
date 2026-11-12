@@ -218,7 +218,8 @@ def test_vision_auto_pause_is_spaghetti(ha_client, review_db):
 
 
 @pytest.mark.parametrize('progress,layer', [(42.5, 12), (60, 16), (None, None)])
-def test_unlinked_vision_pause_cannot_explain_a_later_pause(ha_client, review_db, monkeypatch, progress, layer):
+@pytest.mark.parametrize('later_training', [False, True])
+def test_unlinked_vision_pause_cannot_explain_a_later_pause(ha_client, review_db, monkeypatch, progress, layer, later_training):
     """The real writer drops unlinked resumes; latest progress cannot date a pause."""
     from core.job_timeline import TimelineWriter, event as timeline_event
 
@@ -248,6 +249,11 @@ def test_unlinked_vision_pause_cannot_explain_a_later_pause(ha_client, review_db
         "SELECT count(*) FROM job_timeline_events WHERE printer_id=9 AND kind='resumed'"
     )).scalar_one() == 0
 
+    if later_training:
+        review_db.execute(text(
+            "INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+            "VALUES(9,:p,'training_sample',0,'training',:at)"
+        ), {'p': running, 'at': _stamp(600)})
     review_db.execute(text("UPDATE printers SET gcode_state='PAUSED' WHERE id=9"))
     review_db.execute(text("UPDATE print_jobs SET progress_percent=:progress,current_layer=:layer WHERE id=:p"),
                       {'progress': progress, 'layer': layer, 'p': running})
@@ -256,6 +262,33 @@ def test_unlinked_vision_pause_cannot_explain_a_later_pause(ha_client, review_db
     assert bench['state'] == 'paused'
     assert bench['pause_cause'] is None
     assert bench['reason'] == 'Paused (Vigil flagged this print earlier; cause of this pause unknown)'
+
+
+@pytest.mark.parametrize('scheduled', [False, True])
+@pytest.mark.parametrize('later_printer,later_status', [
+    (9, 'training'), (9, 'pending'), (10, 'auto_paused'),
+])
+def test_ineligible_vision_rows_do_not_hide_auto_pause(ha_client, review_db, scheduled, later_printer, later_status):
+    """Only auto-pauses for this print AND printer participate in latest selection."""
+    client, issue = ha_client
+    review_db.execute(text("UPDATE printers SET gcode_state='PAUSED' WHERE id=9"))
+    running = review_db.execute(text("SELECT id FROM print_jobs WHERE printer_id=9 AND status='running'")).scalar_one()
+    if scheduled:
+        review_db.execute(text("UPDATE print_jobs SET scheduled_job_id=13 WHERE id=:p"), {'p': running})
+    review_db.execute(text(
+        "INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+        "VALUES(9,:p,'spaghetti',0.9,'auto_paused',:at)"
+    ), {'p': running, 'at': _stamp(1800)})
+    review_db.execute(text(
+        "INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+        "VALUES(:printer,:p,:kind,0,:status,:at)"
+    ), {'printer': later_printer, 'p': running, 'status': later_status, 'at': _stamp(600),
+        'kind': 'training_sample' if later_status == 'training' else 'spaghetti'})
+    review_db.commit()
+    bench = _printers(_get(client, issue))[9]['bench']
+    assert bench['pause_cause'] == ('spaghetti' if scheduled else None)
+    assert bench['reason'] == ('Paused: possible spaghetti' if scheduled else
+                               'Paused (Vigil flagged this print earlier; cause of this pause unknown)')
 
 
 @pytest.mark.parametrize('hms,cause,reason', [

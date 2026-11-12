@@ -431,11 +431,14 @@ class Floor:
             self.paused_since = {pid: iso(at) for pid, at in db.execute(query, {"ids": paused}).all()}
             prints = [running[pid]["id"] for pid in paused if pid in running]
             if prints:
+                # Later training/pending rows are not pause evidence and must not hide it.
+                # Apply the same eligibility and printer identity inside the latest lookup.
                 query = text("SELECT d.print_job_id, d.printer_id, d.created_at, p.scheduled_job_id "
                              "FROM vision_detections d JOIN print_jobs p ON p.id = d.print_job_id AND p.printer_id = d.printer_id "
                              "WHERE d.print_job_id IN :ids "
                              "AND d.status = 'auto_paused' AND d.id = (SELECT MAX(x.id) FROM vision_detections x "
-                             "WHERE x.print_job_id = d.print_job_id)").bindparams(bindparam("ids", expanding=True))
+                             "WHERE x.print_job_id = d.print_job_id AND x.printer_id = d.printer_id "
+                             "AND x.status = 'auto_paused')").bindparams(bindparam("ids", expanding=True))
                 detections = db.execute(query, {"ids": prints}).all()
                 # The detection must belong to THIS pause: one from before the print was last
                 # resumed explains an earlier pause, not a planned pause reached afterwards.
