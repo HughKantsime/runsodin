@@ -168,6 +168,42 @@ function NetworkSection() {
   )
 }
 
+const MATERIAL_MODES = [
+  { value: 'require', label: 'Require', help: 'A job only goes to a printer whose loaded filament includes every material it needs; if no printer has it, the job stays queued and the scheduler run says which material is missing.' },
+  { value: 'prefer', label: 'Prefer', help: 'Printers with the right material are ranked ahead of colour matches, but a job can still go to any printer.' },
+  { value: 'off', label: 'Off', help: 'The scheduler ignores material and scores colour only.' },
+]
+
+function MaterialRoutingSetting({ saved }: { saved?: string }) {
+  const queryClient = useQueryClient()
+  const [mode, setMode] = useState(saved || 'require')
+  useEffect(() => { if (saved) setMode(saved) }, [saved])
+  const save = useMutation({
+    mutationFn: (next: string) => configApi.update({ scheduler_material_mode: next }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['config'] }),
+    onError: (err: any) => {
+      setMode(saved || 'require')
+      toast.error('Save failed: ' + (err?.message || 'Unknown error'))
+    },
+  })
+  return (
+    <div className="mt-4">
+      <label htmlFor="scheduler-material-mode" className="block text-sm font-medium mb-1">Filament routing</label>
+      <select id="scheduler-material-mode" value={mode} disabled={save.isPending}
+        className="bg-[var(--brand-input-bg)] text-[var(--brand-text-primary)] border border-[var(--brand-card-border)] rounded-md p-2"
+        onChange={(e) => { setMode(e.target.value); save.mutate(e.target.value) }}>
+        {MATERIAL_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+      </select>
+      <ul className="text-xs text-[var(--brand-text-muted)] mt-2 space-y-1">
+        {MATERIAL_MODES.map(m => <li key={m.value}><strong>{m.label}:</strong> {m.help}</li>)}
+      </ul>
+      <p className="text-xs text-[var(--brand-text-muted)] mt-2">
+        Saves automatically. A material that is not recorded for the job or the printer never blocks scheduling.
+      </p>
+    </div>
+  )
+}
+
 export default function GeneralTab() {
   const { locale, setLocale, t, LANGUAGES } = useTranslation()
   const [languageSaving, setLanguageSaving] = useState(false)
@@ -378,6 +414,7 @@ export default function GeneralTab() {
         <p className="text-xs text-[var(--brand-text-muted)] mt-2">
           Jobs will not be scheduled to start during blackout hours (currently {settings.blackout_start} - {settings.blackout_end})
         </p>
+        <MaterialRoutingSetting saved={configData?.scheduler_material_mode as string | undefined} />
       </div>
 
       {/* Job Approval Workflow */}

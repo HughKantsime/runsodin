@@ -114,6 +114,10 @@ class SchedulerPlanning:
             p.id: PrinterState(p, raw_authorities[p.id]) for p in printers
         }
         
+        # Material routing (scheduler_materials): one slots query and one jobs query per run.
+        from modules.jobs.scheduler_materials import MaterialPlan
+        material_plan = MaterialPlan.load(db, printer_states)
+
         # Track slot usage: {(printer_id, slot_index): job_id or "SETUP"}
         usage_map: Dict[Tuple[int, int], str] = {}
         
@@ -319,6 +323,7 @@ class SchedulerPlanning:
                     else job_model_requirements.get(job.model_id)
                 ),
                 required_printer_id=approved_printer_id,
+                material_plan=material_plan,
             )
             
             if best_fit:
@@ -397,9 +402,13 @@ class SchedulerPlanning:
                 ))
             else:
                 result.skipped_count += 1
-                skipped.append((job.id, "no_fit"))
+                fixed = printer_states.get(approved_printer_id) if approved_printer_id is not None else None
+                material_reason = material_plan.reason(job.id, fixed.name if fixed else None)
+                skipped.append((job.id, "material_mismatch" if material_reason else "no_fit"))
                 req = job_model_requirements.get(job.model_id)
-                if req:
+                if material_reason:
+                    result.errors.append(f"Could not schedule job {job.id} ({job.item_name}): {material_reason}")
+                elif req:
                     result.errors.append(f"Could not schedule job {job.id} ({job.item_name}): requires {req} printer, none available")
                 else:
                     result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")

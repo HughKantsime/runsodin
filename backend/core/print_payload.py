@@ -72,6 +72,24 @@ def source_filaments(filaments_json):
     return filaments
 
 
+def canonical_material(value):
+    """The gate's canonical label for a material, or None when it is not recognised."""
+    from core.material_identity import canonical_reported_material
+    return canonical_reported_material(value)
+
+
+def material_match(source, target):
+    """The single material-equivalence rule (AMS gate and scheduler).
+
+    True when both labels are recognised and equal, False when both are recognised and
+    differ, None when either is unrecognised. The gate treats None as a mismatch; the
+    scheduler treats it as unknown and never excludes on it."""
+    source_material, target_material = canonical_material(source), canonical_material(target)
+    if source_material is None or target_material is None:
+        return None
+    return source_material == target_material
+
+
 def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material=True):
     """Map one-based file IDs to a protocol vector indexed by ID minus one.
 
@@ -80,7 +98,6 @@ def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material
     Legacy zero-based positions are accepted only as a complete mapping for a
     file whose positions agree with its IDs. Never mix numbering conventions.
     """
-    from core.material_identity import canonical_reported_material
     if mapping is None:
         return None
     if api_type != 'bambu':
@@ -107,9 +124,7 @@ def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material
         target = item['target_slot']
         if target not in slots or not 1 <= target <= 16 or result[source - 1] != -1:
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
-        source_material = canonical_reported_material(by_id[source].get('type'))
-        target_material = canonical_reported_material(slots[target])
-        if check_material and (source_material is None or target_material is None or source_material != target_material):
+        if check_material and material_match(by_id[source].get('type'), slots[target]) is not True:
             raise MappingMaterialMismatch(target)
         result[source - 1] = target - 1
     return result

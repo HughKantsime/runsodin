@@ -106,6 +106,7 @@ class ConfigUpdate(BaseModel):
     spoolman_url: Optional[str] = None
     blackout_start: Optional[str] = None
     blackout_end: Optional[str] = None
+    scheduler_material_mode: Optional[str] = None
 
     @field_validator('spoolman_url')
     @classmethod
@@ -126,4 +127,12 @@ class ConfigUpdate(BaseModel):
         time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
         if not time_pattern.match(v):
             raise ValueError('Invalid time format. Use HH:MM (e.g., 22:30)')
+        return v
+
+    @field_validator('scheduler_material_mode')
+    @classmethod
+    def validate_material_mode(cls, v):
+        from modules.jobs.scheduler_materials import MODES
+        if v is not None and v not in MODES:
+            raise ValueError("scheduler_material_mode must be 'require', 'prefer' or 'off'")
         return v

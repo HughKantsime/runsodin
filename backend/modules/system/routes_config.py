@@ -593,12 +593,14 @@ async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewe
 def get_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current configuration."""
     from core.scheduler_settings import get_blackout
+    from modules.jobs.scheduler_materials import get_mode
     blackout_start, blackout_end = get_blackout(db)
     return {
         "spoolman_url": get_spoolman_url(db) or None,
         "spoolman_url_from_env": managed_by_environment(),
         "blackout_start": blackout_start,
         "blackout_end": blackout_end,
+        "scheduler_material_mode": get_mode(db),
     }
 
 
@@ -620,7 +622,12 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
         from core.scheduler_settings import set_blackout
         set_blackout(db, config.blackout_start, config.blackout_end)
 
-    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end"] if getattr(config, k) is not None]})
+    mode_change = {}
+    if config.scheduler_material_mode is not None:
+        from modules.jobs.scheduler_materials import get_mode, set_mode
+        mode_change["scheduler_material_mode"] = {"from": get_mode(db), "to": set_mode(db, config.scheduler_material_mode)}
+
+    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "scheduler_material_mode"] if getattr(config, k) is not None], **mode_change})
     db.commit()
     return {"success": True, "message": "Config updated."}
 
