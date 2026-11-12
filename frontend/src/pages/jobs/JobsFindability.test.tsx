@@ -199,4 +199,13 @@ it('the extra row of a deep-linked job shows that it is selected', async () => {
   fireEvent.click(box)
   await waitFor(() => expect((within(row('Far away job')).getByRole('checkbox') as HTMLInputElement).checked).toBe(true))
   expect(await screen.findByText('1 selected')).toBeInTheDocument()
+  // Third sign-off note: one listed row plus the extra row. Selecting only the extra row is
+  // not "all"; Select all then takes both, and again clears both.
+  const all = screen.getByRole('checkbox', { name: 'Select all jobs' }) as HTMLInputElement
+  expect(all.checked).toBe(false)
+  fireEvent.click(all)
+  expect(await screen.findByText('2 selected')).toBeInTheDocument()
+  expect((screen.getByRole('checkbox', { name: 'Select all jobs' }) as HTMLInputElement).checked).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select all jobs' }))
+  await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument())
 })

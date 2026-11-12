@@ -133,7 +133,9 @@ export default function Jobs() {
   const [dragOverId, setDragOverId] = useState(null)
 
   const toggleJobSelect = (id) => setSelectedJobs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const toggleSelectAll = (jobIds) => setSelectedJobs(prev => prev.size === jobIds.length ? new Set() : new Set(jobIds))
+  // Select all is judged by membership, not by count: the rows on screen (a linked job's extra
+  // row included) are all selected, or they are not.
+  const toggleSelectAll = (jobIds) => setSelectedJobs(prev => jobIds.length > 0 && jobIds.every(id => prev.has(id)) ? new Set() : new Set(jobIds))
 
   const bulkAction = useMutation({
     // The server takes at most 100 jobs per request and the Active view can hold more, so a
@@ -369,6 +371,7 @@ export default function Jobs() {
   const orderJobCount = (jobsData || []).filter(j => j.order_item_id != null).length
   const adhocJobCount = (jobsData || []).filter(j => j.order_item_id == null).length
 
+  const selectableIds = [...(deepExtra ? [deepExtra.id] : []), ...filteredJobs.map(j => j.id)]
   return (
     <div className="p-4 md:p-6">
       <PageHeader icon={Briefcase} title="Jobs" subtitle="Manage print queue">
@@ -486,8 +489,8 @@ export default function Jobs() {
             emptyText={jobTypeFilter === 'order' ? 'No order jobs found' : jobTypeFilter === 'adhoc' ? 'No ad-hoc jobs found' : 'No jobs found'}
             selectedIds={selectedJobs}
             onToggleSelect={toggleJobSelect}
-            onSelectAll={() => toggleSelectAll(filteredJobs.map(j => j.id))}
-            allSelected={filteredJobs.length > 0 && selectedJobs.size === filteredJobs.length}
+            onSelectAll={() => toggleSelectAll(selectableIds)}
+            allSelected={selectableIds.length > 0 && selectableIds.every(id => selectedJobs.has(id))}
             onAction={handleAction}
             dispatchFencedIds={dispatchFencedIds}
             dispatchingId={dispatchJob.isPending ? dispatchJob.variables : null}
@@ -505,8 +508,8 @@ export default function Jobs() {
               sortField={sortField}
               sortDirection={sortDirection}
               onSort={toggleSort}
-              allSelected={filteredJobs.length > 0 && selectedJobs.size === filteredJobs.length}
-              onSelectAll={() => toggleSelectAll(filteredJobs.map(j => j.id))}
+              allSelected={selectableIds.length > 0 && selectableIds.every(id => selectedJobs.has(id))}
+              onSelectAll={() => toggleSelectAll(selectableIds)}
             />
             <tbody>
               {deepExtra && (
