@@ -377,3 +377,24 @@ def sweep(db, limit: int = 5000) -> int:
                 shutil.rmtree(entry, ignore_errors=True)
                 removed += 1
     return removed
+
+
+# --------------------------------------------------------------------------- upload
+
+UPLOAD_TIMEOUT_SECONDS = 15
+
+
+async def cache_upload(path, file_hash, file_id) -> None:
+    """Best-effort per-plate cache of a committed upload.
+
+    Any failure is logged and swallowed: it must never fail or change the upload's outcome."""
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from modules.models_library.mesh_isolation import analyze_3mf_isolated
+        if read_facts(file_hash) is not None:
+            return
+        analysis = await analyze_3mf_isolated(path, mode="platefacts", timeout=UPLOAD_TIMEOUT_SECONDS)
+        await run_in_threadpool(store_analysis, file_hash, analysis)
+    except Exception as exc:
+        import logging
+        logging.getLogger("odin.api").warning("Plate cache not built for file %s (%s)", file_id, type(exc).__name__)

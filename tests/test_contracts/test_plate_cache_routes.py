@@ -43,6 +43,8 @@ def env(library, review_db, tmp_path):
     from modules.printers import routes_plate_thumbnail
     client, issue = library
     client.app.include_router(routes_plate_thumbnail.router)
+    from modules.models_library.routes import print_file_plates
+    client.app.include_router(print_file_plates.router)
     content = three_plate_package()
     body = _upload(client, issue(['write:models', 'read:models']), content)
     stored = review_db.execute(text('SELECT stored_path FROM print_files WHERE id=:id'), {'id': body['id']}).scalar_one()
@@ -339,7 +341,8 @@ def test_only_the_cache_routes_reference_the_cache_or_the_endpoint():
     # builds a status, event, overlay, Home Assistant or camera payload does.
     assert cache_users == {'modules/models_library/plate_cache.py', 'modules/models_library/mesh_isolation.py',
                            'modules/models_library/mesh_worker.py', 'modules/models_library/threemf_parser.py',
-                           'modules/models_library/routes/print_files.py', 'modules/printers/routes_plate_thumbnail.py',
+                           'modules/models_library/routes/print_files.py', 'modules/models_library/routes/print_file_plates.py',
+                           'modules/printers/routes_plate_thumbnail.py',
                            'modules/organizations/education_policy_inventory.py',
                            'core/app_maintenance.py'}  # the hourly sweep of orphaned entries
     assert endpoint_users == {'modules/printers/routes_plate_thumbnail.py',
