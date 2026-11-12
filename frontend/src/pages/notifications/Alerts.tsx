@@ -184,6 +184,7 @@ export default function Alerts() {
   }
 
   const handleDismiss = async (alertId) => {
+    if (groupBusyRef.current) return   // a group action is dismissing these: never count one twice
     try {
       await alertsApi.dismiss(alertId)
       setAlerts(prev => prev.filter(a => a.id !== alertId))

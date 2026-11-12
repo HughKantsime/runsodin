@@ -49,7 +49,7 @@ test('group dismiss calls the API once per member and keeps a failed member', as
   vi.mocked(api.dismiss).mockImplementation(async (id: number) => { if (id === 2) throw new Error('refused') })
   const notify = vi.spyOn(toast, 'error')
   show()
-  fireEvent.click(await screen.findByRole('button', { name: 'Dismiss all 3 alerts' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Dismiss 3 alerts' }))
   await waitFor(() => expect(notify).toHaveBeenCalledWith('Failed to dismiss 1 of 3 alerts'))
   expect(api.dismiss).toHaveBeenCalledTimes(3)
   expect(vi.mocked(api.dismiss).mock.calls.map(c => c[0])).toEqual([3, 2, 1])
@@ -62,8 +62,8 @@ test('group dismiss calls the API once per member and keeps a failed member', as
 test('group mark read calls the API only for unread members', async () => {
   vi.mocked(api.list).mockResolvedValue([mk(3, 12), mk(2, 11, { is_read: true }), mk(1, 10)] as any)
   show()
-  fireEvent.click(await screen.findByRole('button', { name: 'Mark all 3 alerts read' }))
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Mark all 3 alerts read' })).toBeNull())
+  fireEvent.click(await screen.findByRole('button', { name: 'Mark 3 alerts read' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Mark 3 alerts read' })).toBeNull())
   expect(vi.mocked(api.markRead).mock.calls.map(c => c[0])).toEqual([3, 1])
 })
 

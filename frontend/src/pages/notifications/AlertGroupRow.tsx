@@ -84,8 +84,8 @@ export default function AlertGroupRow({ group, icon, borderClass, busy, onMarkRe
               <button
                 onClick={() => onMarkRead(unreadIds)}
                 disabled={busy}
-                aria-label={`Mark all ${count} alerts read`}
-                title={`Mark all ${count} alerts read`}
+                aria-label={`Mark ${unreadIds.length} ${unreadIds.length === 1 ? 'alert' : 'alerts'} read`}
+                title={`Mark ${unreadIds.length} ${unreadIds.length === 1 ? 'alert' : 'alerts'} read`}
                 className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)] disabled:opacity-50"
               >
                 <Check size={14} />
@@ -95,8 +95,8 @@ export default function AlertGroupRow({ group, icon, borderClass, busy, onMarkRe
               <button
                 onClick={() => onDismiss(liveIds)}
                 disabled={busy}
-                aria-label={`Dismiss all ${count} alerts`}
-                title={`Dismiss all ${count} alerts`}
+                aria-label={`Dismiss ${liveIds.length} ${liveIds.length === 1 ? 'alert' : 'alerts'}`}
+                title={`Dismiss ${liveIds.length} ${liveIds.length === 1 ? 'alert' : 'alerts'}`}
                 className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400 disabled:opacity-50"
               >
                 <X size={14} />

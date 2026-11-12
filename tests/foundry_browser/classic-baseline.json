@@ -73,7 +73,7 @@
     "frontend/src/pages/models/ProfileHistory.tsx": "eff558628e11b85f42f2fa7e4ab73a42c4f22cbf455e793f9f990265adfaf90b",
     "frontend/src/pages/models/Profiles.tsx": "34f1c4dab3e829d3e1a7d7a376d25a4002380a9594a5cf4c3bbce6b33cdbc5ff",
     "frontend/src/pages/models/Projects.tsx": "c9b767d5c26e130c5507ed020a6ac80309196f37674a85ee725bfdbfabaca085",
-    "frontend/src/pages/notifications/Alerts.tsx": "a047cf02f9416b29b4c42d74cc580f804b6f4559665412889d9109b75b5e846b",
+    "frontend/src/pages/notifications/Alerts.tsx": "cc4364b03f3457b56baf6b2893eaa4f2975faf4d315e05076ac00413584e18ce",
     "frontend/src/pages/orders/Calculator.tsx": "2118ae924865760f62679ae3f7c84e57e7c1e2677f981fb036f395ef0c3d4ce3",
     "frontend/src/pages/orders/Orders.tsx": "2db3bd9aedb28e4c806d2bc656e68f475cd99bcbe717f3a1bb931b61fc33df02",
     "frontend/src/pages/orders/Products.tsx": "004cabca36e560657fadac0de0c86b4775a8e027137f26304caf5d8374c4f2bb",
