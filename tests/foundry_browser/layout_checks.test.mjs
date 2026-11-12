@@ -144,6 +144,15 @@ test('activeTabHidden: active tab must be fully inside the strip', () => {
   ] })
   assert.deepEqual(activeTabHidden(data).map(f => f.tab), ['button Spools', 'button Left'])
 })
+test('overlapsBottomNav ignores an empty click-through layer and sticky content that is not pinned to the bottom', () => {
+  const nav = rect(0, 844, 390, 56)
+  const over = rect(16, 16, 358, 868)
+  const data = baseData({ nav, elements: [
+    { label: 'div toast host', position: 'fixed', rect: over, inScroller: false, isNav: false, inNav: false, ignorable: true },
+    { label: 'div real bar', position: 'fixed', rect: over, inScroller: false, isNav: false, inNav: false, ignorable: false },
+  ] })
+  assert.deepEqual(overlapsBottomNav(data).map(o => o.element), ['div real bar'])
+})
 test('smallTapTargets: under 44 in either dimension, capped at 20', () => {
   const targets = [
     { label: 'a ok', area: 'nav', rect: rect(0, 0, 44, 44) },

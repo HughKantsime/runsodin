@@ -295,9 +295,9 @@ export default function Setup() {
   // === Render helpers ===
 
   const stepIndicator = () => (
-    <div className="flex items-center justify-center gap-2 mb-8">
+    <div className="flex items-center justify-center gap-2 max-sm:gap-1 mb-8">
       {STEPS.map((s, i) => (
-        <div key={s.id} className="flex items-center gap-2">
+        <div key={s.id} className="flex items-center gap-2 max-sm:gap-1">
           <div
             className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-300 ${
               i < step ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40' :
@@ -308,7 +308,7 @@ export default function Setup() {
             {i < step ? <CheckCircle2 size={16} /> : i + 1}
           </div>
           {i < STEPS.length - 1 && (
-            <div className={`w-8 h-px transition-colors duration-300 ${i < step ? 'bg-emerald-500/40' : 'bg-white/10'}`} />
+            <div className={`w-8 max-sm:w-3 h-px transition-colors duration-300 ${i < step ? 'bg-emerald-500/40' : 'bg-white/10'}`} />
           )}
         </div>
       ))}

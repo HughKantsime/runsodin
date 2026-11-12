@@ -95,7 +95,13 @@ export function collectPhoneLayout() {
     const pinned = position === 'fixed' || position === 'sticky'
     if (!pinned && rect.right <= innerWidth + 1) continue
     if (!visible(el)) continue
-    elements.push({ label: hint(el), position, rect, inScroller: inScroller(el), isNav: el === nav, inNav: !!nav && nav !== el && nav.contains(el) })
+    // An empty, click-through layer (a toast host that spans the viewport) covers nothing a person can see or tap.
+    const style = getComputedStyle(el)
+    const emptyLayer = pinned && style.pointerEvents === 'none' && !(el.textContent || '').trim() && !el.querySelector('img, svg, canvas, video')
+    // A sticky element only "sticks" over the bottom bar when it is pinned to the bottom; sticky headers and
+    // in-flow sticky content scrolling under the bar are ordinary content.
+    const stickyNotBottom = position === 'sticky' && (style.bottom === 'auto' || style.bottom === '')
+    elements.push({ label: hint(el), position, rect, inScroller: inScroller(el), isNav: el === nav, inNav: !!nav && nav !== el && nav.contains(el), ignorable: emptyLayer || stickyNotBottom })
   }
   const activeSelector = '[data-scrolltab-active="true"],[aria-selected="true"],[aria-pressed="true"],[aria-current]:not([aria-current="false"])'
   const strips = []
@@ -136,7 +142,7 @@ export function overlapsBottomNav(data) {
   if (!data.nav) return []
   const nav = data.nav
   return data.elements
-    .filter(e => (e.position === 'fixed' || e.position === 'sticky') && !e.isNav && !e.inNav)
+    .filter(e => (e.position === 'fixed' || e.position === 'sticky') && !e.isNav && !e.inNav && !e.ignorable)
     .map(e => ({
       element: e.label,
       width: Math.min(e.rect.right, nav.right) - Math.max(e.rect.left, nav.left),

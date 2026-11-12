@@ -48,6 +48,19 @@ export default function ScrollTabs({
     setFade(prev => (prev.left === left && prev.right === right ? prev : { left, right }))
   }, [])
 
+  // When the strip or its content changes size (fonts and icons arriving after the first paint
+  // widen the tabs), the tab scrolled into view on mount can end up cut off again: put it back.
+  const keepActiveVisible = useCallback(() => {
+    const el = scroller.current
+    const active = el?.querySelector(ACTIVE_TAB)
+    if (!el || !active || !isPhoneWidth()) return
+    const strip = el.getBoundingClientRect()
+    const tab = active.getBoundingClientRect()
+    if (tab.left < strip.left - 1 || tab.right > strip.right + 1) {
+      active.scrollIntoView?.({ inline: 'nearest', block: 'nearest', behavior: 'auto' })
+    }
+  }, [])
+
   // After every render: bring a newly active tab into view, then re-measure.
   useEffect(() => {
     const active = scroller.current?.querySelector(ACTIVE_TAB) ?? null
@@ -72,7 +85,7 @@ export default function ScrollTabs({
     window.addEventListener('resize', measure)
     let observer: ResizeObserver | undefined
     if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(measure)
+      observer = new ResizeObserver(() => { keepActiveVisible(); measure() })
       observer.observe(el)
       if (el.firstElementChild) observer.observe(el.firstElementChild)
     }
@@ -81,7 +94,7 @@ export default function ScrollTabs({
       window.removeEventListener('resize', measure)
       observer?.disconnect()
     }
-  }, [measure])
+  }, [measure, keepActiveVisible])
 
   const fadeBase = clsx('pointer-events-none absolute inset-y-0 w-8 to-transparent sm:hidden', fadeClassName)
 
