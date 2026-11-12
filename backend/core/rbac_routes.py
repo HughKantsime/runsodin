@@ -154,7 +154,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     "jobs.approve": [("POST", "/api/jobs/{job_id}/approve")],
     "jobs.reject": [("POST", "/api/jobs/{job_id}/reject")],
     "jobs.resubmit": [("POST", "/api/jobs/{job_id}/resubmit")],
-    "printers.add": [("POST", "/api/printers")],
+    "printers.add": [("POST", "/api/printers"), ("POST", "/api/printers/discover/moonraker")],
     "printers.edit": [
         ("PATCH", "/api/printers/{printer_id}"),
         ("POST", "/api/printers/test-connection"),

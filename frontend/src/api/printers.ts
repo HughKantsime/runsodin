@@ -48,6 +48,23 @@ export interface DispatchRecoveryDecision {
   refresh_required: boolean
 }
 
+export interface MoonrakerDiscoveryPrinter {
+  name: string
+  host: string
+  ip: string
+  port: number
+  address: string
+  already_configured: boolean
+  confirmed: boolean | null
+  klippy_state: string | null
+  hostname: string | null
+}
+
+export interface MoonrakerDiscoveryResult {
+  printers: MoonrakerDiscoveryPrinter[]
+  reason: string | null
+}
+
 export const printers = {
   recoverDispatch: (id: number, action: DispatchRecoveryAction, body: Record<string, unknown>): Promise<DispatchRecoveryDecision> => fetchAPI(`/printers/${id}/dispatch-recovery/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
@@ -78,6 +95,7 @@ export const printers = {
   confirmTrayIdentity: (printerId: number, slot: number, data: { observed_state: string; decision: 'same' | 'new'; spool_id?: number }): Promise<{ spool_id: number; replayed: boolean }> => fetchAPI(`/printers/${printerId}/slots/${slot}/confirm-identity`, { method: 'POST', body: JSON.stringify(data) }),
   assignSlotSpool: (printerId: number, slotNumber: number, spoolId: number): Promise<void> => fetchAPI(`/printers/${printerId}/slots/${slotNumber}/assign?spool_id=${spoolId}`, { method: 'POST' }),
   getCameras: (): Promise<Camera[]> => fetchAPI('/cameras'),
+  discoverMoonraker: (): Promise<MoonrakerDiscoveryResult> => fetchAPI('/printers/discover/moonraker', { method: 'POST' }),
 }
 
 export const printerTelemetry = {

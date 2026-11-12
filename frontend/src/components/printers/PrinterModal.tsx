@@ -5,6 +5,7 @@ import { printers, getPlugConfig } from '../../api'
 import type { PlugConfig } from '../../types'
 import { canDo } from '../../permissions'
 import { Modal } from '../ui'
+import MoonrakerDiscovery from './MoonrakerDiscovery'
 
 // TODO: type this properly — runtime printer has extra fields
 interface PrinterLike {
@@ -441,6 +442,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               <input type="text" value={formData.api_host} onChange={(e) => setFormData(prev => ({ ...prev, api_host: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., 192.168.1.100" />
               {formData.api_type === 'bambu' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Network settings</p>}
               {formData.api_type === 'moonraker' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Klipper printer running Moonraker</p>}
+              {formData.api_type === 'moonraker' && !printer && canDo('printers.add') && <MoonrakerDiscovery onPick={address => setFormData(prev => ({ ...prev, api_host: address }))} />}
               {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
               {formData.api_type === 'anycubic_lan' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enable LAN mode on the printer. IP only; credentials refresh automatically. Monitoring and ACE slots only.</p>}
               {formData.api_type === 'elegoo' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
