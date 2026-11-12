@@ -263,7 +263,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Failure reason dropdown (nozzle clog, adhesion failure, filament tangle, etc.) + free-text notes
 - Failure analytics (v1.2.0) — success/failure counts and failure rates by printer (ranked, with MTBF), model and filament type, top failure reasons, and HMS error frequency
 
-### 4.6 Job Approval Workflow (Education)
+### 4.6 Job Approval Workflow (Education, Enterprise)
 - "Job Approval Workflow" toggle in Settings → General (admin-only, Education or Enterprise license)
 - Viewers (students) submit jobs → Submitted status
 - Awaiting Approval tab with badge count visible to operators/admins
