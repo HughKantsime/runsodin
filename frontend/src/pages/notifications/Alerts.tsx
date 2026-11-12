@@ -87,9 +87,6 @@ export default function Alerts() {
   const [alerts, setAlerts] = useState([])
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const listGeneration = useRef(0)
-  // What is on screen now, for callbacks that finish after the list or its filter changed.
-  const shownAlerts = useRef<any[]>([])
-  shownAlerts.current = alerts
   const deletedIds = useRef(new Set<number>())
   const pendingDeletes = useRef(new Set<number>())
   const canDelete = ['operator', 'admin'].includes(getCurrentUser()?.role ?? '')
@@ -302,20 +299,21 @@ export default function Alerts() {
     }
   }
 
+  // After a group action the list is read again from the start, under whatever filter is on
+  // screen by then. Patching the loaded rows and the paging offset by hand went wrong whenever
+  // the filter changed mid-action, or when marking read removed rows from the Unread list.
+  const reloadRef = useRef<() => void>(() => {})
+  reloadRef.current = () => { void loadAlerts(true) }
+
   const handleGroupMarkRead = (ids: number[]) =>
-    runGroupAction(ids, id => alertsApi.markRead(id), 'mark read', done => {
-      const set = new Set(done)
-      setAlerts(prev => prev.map(a => set.has(a.id) ? { ...a, is_read: true } : a))
+    runGroupAction(ids, id => alertsApi.markRead(id), 'mark read', () => {
+      reloadRef.current()
+      window.dispatchEvent(new Event('odin:alerts-changed'))
     })
 
   const handleGroupDismiss = (ids: number[]) =>
-    runGroupAction(ids, id => alertsApi.dismiss(id), 'dismiss', done => {
-      const set = new Set(done)
-      // Only alerts still in the list on screen move the next page's offset: after a switch
-      // to another filter the dismissed ones were never part of that list.
-      const removed = shownAlerts.current.filter(a => set.has(a.id)).length
-      setAlerts(prev => prev.filter(a => !set.has(a.id)))
-      setOffset(prev => Math.max(0, prev - removed))
+    runGroupAction(ids, id => alertsApi.dismiss(id), 'dismiss', () => {
+      reloadRef.current()
       window.dispatchEvent(new Event('odin:alerts-changed'))
     })
 

@@ -45,22 +45,27 @@ test('a group shows the count and expands to its members', async () => {
 })
 
 test('group dismiss calls the API once per member and keeps a failed member', async () => {
-  vi.mocked(api.list).mockResolvedValue(trio() as any)
-  vi.mocked(api.dismiss).mockImplementation(async (id: number) => { if (id === 2) throw new Error('refused') })
+  // The list is read again after a group action, so the mock answers as the server would.
+  const gone = new Set<number>()
+  vi.mocked(api.list).mockImplementation(async () => trio().filter(a => !gone.has(a.id)) as any)
+  vi.mocked(api.dismiss).mockImplementation(async (id: number) => { if (id === 2) throw new Error('refused'); gone.add(id) })
   const notify = vi.spyOn(toast, 'error')
   show()
   fireEvent.click(await screen.findByRole('button', { name: 'Dismiss 3 alerts' }))
   await waitFor(() => expect(notify).toHaveBeenCalledWith('Failed to dismiss 1 of 3 alerts'))
   expect(api.dismiss).toHaveBeenCalledTimes(3)
   expect(vi.mocked(api.dismiss).mock.calls.map(c => c[0])).toEqual([3, 2, 1])
-  expect(screen.queryByText('x3')).toBeNull()
+  await waitFor(() => expect(screen.queryByText('x3')).toBeNull())
+  expect(api.list).toHaveBeenCalledTimes(2)   // once on load, once after the action
   expect(screen.getByText(TITLE)).toBeTruthy() // the failed member stays visible
   expect(screen.getAllByRole('button', { name: 'Dismiss' })).toHaveLength(1)
   notify.mockRestore()
 })
 
 test('group mark read calls the API only for unread members', async () => {
-  vi.mocked(api.list).mockResolvedValue([mk(3, 12), mk(2, 11, { is_read: true }), mk(1, 10)] as any)
+  const read = new Set<number>([2])
+  vi.mocked(api.list).mockImplementation(async () => [mk(3, 12), mk(2, 11), mk(1, 10)].map(a => ({ ...a, is_read: read.has(a.id) })) as any)
+  vi.mocked(api.markRead).mockImplementation(async (id: number) => { read.add(id) })
   show()
   fireEvent.click(await screen.findByRole('button', { name: 'Mark 2 alerts read' }))
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Mark 2 alerts read' })).toBeNull())
@@ -78,4 +83,22 @@ test('a single alert renders as before', async () => {
   expect(screen.getByRole('button', { name: 'Mark read' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Delete alert' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy()
+})
+
+test('a group action that finishes after the filter changed reloads the list on screen, not the old one', async () => {
+  // Codex sign-off 11-12: rows and the paging offset were patched by hand and went wrong when
+  // the filter changed mid-action. Now the current list is simply read again.
+  let release: () => void = () => {}
+  vi.mocked(api.list).mockResolvedValue(trio() as any)
+  vi.mocked(api.dismiss).mockImplementation(() => new Promise<void>(resolve => { release = resolve }) as any)
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: 'Dismiss 3 alerts' }))
+  await waitFor(() => expect(api.dismiss).toHaveBeenCalledTimes(1))
+  const before = vi.mocked(api.list).mock.calls.length
+  vi.mocked(api.dismiss).mockResolvedValue(undefined as any)
+  release()
+  await waitFor(() => expect(api.dismiss).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(vi.mocked(api.list).mock.calls.length).toBe(before + 1))
+  const last = vi.mocked(api.list).mock.calls.at(-1)![0] as any
+  expect(last.offset).toBe(0)
 })
