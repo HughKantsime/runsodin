@@ -78,7 +78,7 @@ class OdinCamera(OdinPrinterEntity, Camera):
             try:
                 async with self._request(aiohttp.ClientTimeout(total=SNAPSHOT_TIMEOUT), self._snapshot_url) as response:
                     if response.status == 200:
-                        if (response.content_length or 0) > SNAPSHOT_MAX_BYTES:
+                        if (getattr(response, "content_length", None) or 0) > SNAPSHOT_MAX_BYTES:
                             return None
                         frame = await response.read()
                         if frame.startswith(b"\xff\xd8") and len(frame) <= SNAPSHOT_MAX_BYTES:

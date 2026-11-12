@@ -1,4 +1,4 @@
-"""ODIN binary sensors: printer online (connectivity) and needs attention (problem)."""
+"""ODIN binary sensors: printer online (connectivity), needs attention (problem) and out of service."""
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
@@ -15,7 +15,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: OdinConfigEntry,
     coordinator = entry.runtime_data
     entry.async_on_unload(track_printers(
         coordinator, async_add_entities,
-        lambda pid: [OdinOnlineSensor(coordinator, pid), OdinProblemSensor(coordinator, pid)],
+        lambda pid: [OdinOnlineSensor(coordinator, pid), OdinProblemSensor(coordinator, pid),
+                     OdinOutOfServiceSensor(coordinator, pid)],
     ))
 
 
@@ -45,3 +46,19 @@ class OdinProblemSensor(OdinPrinterEntity, BinarySensorEntity):
         if not printer:
             return None
         return printer.get("status") == "error" or bool(printer.get("active_errors"))
+
+
+class OdinOutOfServiceSensor(OdinPrinterEntity, BinarySensorEntity):
+    """On while the printer is on a maintenance hold in ODIN (dispatch blocked, monitoring continues).
+
+    Unknown on an ODIN older than status schema 2, which has no such field.
+    """
+
+    def __init__(self, coordinator: OdinCoordinator, printer_id: int) -> None:
+        super().__init__(coordinator, printer_id, "out_of_service")
+
+    @property
+    def is_on(self) -> bool | None:
+        printer = self.printer
+        value = printer.get("out_of_service") if printer else None
+        return value if isinstance(value, bool) else None

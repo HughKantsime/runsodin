@@ -11,8 +11,12 @@ MIN_SCAN_INTERVAL = 10
 MAX_SCAN_INTERVAL = 120
 
 STATUS_PATH = "/api/v1/integrations/home-assistant/status"
-SUPPORTED_SCHEMA_VERSION = 1
+# Schema 2 adds the print-floor fields (next job, bench state, day totals, queue hours);
+# schema 1 (older ODIN) lacks them and its entities report unknown.
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
 
 PRINTER_STATUSES = ["printing", "paused", "error", "offline", "idle", "unknown"]
+# What the next job is waiting on; "nothing" stands for a null bench state.
+BENCH_STATES = ["nothing", "paused", "out_of_service", "clear_plate", "blocked", "held"]
 
 REQUEST_TIMEOUT = timedelta(seconds=10)

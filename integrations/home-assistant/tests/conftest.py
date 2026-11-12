@@ -25,6 +25,39 @@ STATUS = {
 }
 
 
+# Status schema 2 (print-floor fields), built on the schema 1 payload above.
+STATUS_V2 = copy.deepcopy(STATUS)
+STATUS_V2["schema_version"] = 2
+STATUS_V2["fleet"].update({
+    "today": {"plates_done": 7, "plates_failed": 1, "since": "2026-11-09T00:00:00Z"},
+    "queued_hours": 12.46,
+    "queued_unestimated": 2,
+    "next_unassigned": [
+        {"id": 31, "name": "Gear", "held": False, "est_minutes": 45, "copies_on_plate": 2, "filaments": [],
+         "plate": None, "ams_check": None, "scheduled_start": None, "candidate_printer_id": None},
+    ],
+})
+STATUS_V2["printers"][0].update({
+    "next_job": {
+        "id": 12, "name": "Lid", "held": False, "est_minutes": 95, "copies_on_plate": 4,
+        "filaments": [{"slot": 2, "color": "#FF0000", "material": "PLA", "grams": 12.5}],
+        "plate": {"index": 1, "count": 3},
+        "ams_check": {"status": "mismatch", "slots": [
+            {"slot": 2, "need": {"color": "#FF0000", "material": "PLA"},
+             "loaded": {"color": "#0000FF", "material": "PLA"}, "ok": False}]},
+        "scheduled_start": "2026-11-09T03:00:00Z",
+    },
+    "bench": None,
+    "out_of_service": False,
+})
+STATUS_V2["printers"][1].update({
+    "next_job": None,
+    "bench": {"state": "paused", "reason": "Paused: possible spaghetti", "since": "2026-11-09T00:40:00Z",
+              "pause_cause": "spaghetti"},
+    "out_of_service": False,
+})
+
+
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     yield
@@ -33,3 +66,8 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 @pytest.fixture
 def status():
     return copy.deepcopy(STATUS)
+
+
+@pytest.fixture
+def status_v2():
+    return copy.deepcopy(STATUS_V2)

@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import OdinConfigEntry
-from .const import PRINTER_STATUSES
+from .const import BENCH_STATES, PRINTER_STATUSES
 from .coordinator import OdinCoordinator
 from .entity import OdinPrinterEntity, fleet_device, track_printers
 
@@ -33,9 +33,79 @@ def _status(printer: dict[str, Any]) -> str:
     return status if status in PRINTER_STATUSES else "unknown"
 
 
+def _number(value: Any) -> int | float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _hours(value: Any) -> float | None:
+    number = _number(value)
+    return None if number is None else round(number, 1)
+
+
+def _today(fleet: dict[str, Any], key: str) -> int | float | None:
+    today = fleet.get("today")
+    return _number(today.get(key)) if isinstance(today, dict) else None
+
+
+def _next_job(printer: dict[str, Any]) -> str | None:
+    job = printer.get("next_job")
+    name = job.get("name") if isinstance(job, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
+def _next_job_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
+    job = printer.get("next_job")
+    if not isinstance(job, dict):
+        return None
+    plate = job.get("plate") if isinstance(job.get("plate"), dict) else {}
+    ams = job.get("ams_check") if isinstance(job.get("ams_check"), dict) else {}
+    filaments = job.get("filaments")
+    slots = ams.get("slots")
+    return {
+        "job_id": job.get("id"),
+        "held": job.get("held"),
+        "est_minutes": job.get("est_minutes"),
+        "copies_on_plate": job.get("copies_on_plate"),
+        "filaments": filaments if isinstance(filaments, list) else None,
+        "plate_index": plate.get("index"),
+        "plate_count": plate.get("count"),
+        "ams_status": ams.get("status"),
+        "ams_slots": slots if isinstance(slots, list) else None,
+        "scheduled_start": job.get("scheduled_start"),
+    }
+
+
+def _waiting_on(printer: dict[str, Any]) -> str | None:
+    """Unknown on an older ODIN (no bench key) or an unrecognised state; "nothing" for a null bench."""
+    if "bench" not in printer:
+        return None
+    bench = printer["bench"]
+    if bench is None:
+        return "nothing"
+    if not isinstance(bench, dict):
+        return None
+    state = bench.get("state")
+    if state is None:
+        return "nothing"
+    return state if state in BENCH_STATES else None
+
+
+def _waiting_on_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
+    bench = printer.get("bench")
+    if not isinstance(bench, dict):
+        return None
+    return {"reason": bench.get("reason"), "since": bench.get("since"), "pause_cause": bench.get("pause_cause")}
+
+
+def _next_unassigned_attrs(fleet: dict[str, Any]) -> dict[str, Any] | None:
+    jobs = fleet.get("next_unassigned")
+    return {"next_unassigned": jobs} if isinstance(jobs, list) else None
+
+
 @dataclass(frozen=True, kw_only=True)
 class OdinSensorDescription(SensorEntityDescription):
     value: Callable[[dict[str, Any]], Any]
+    attrs: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
 
 
 PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
@@ -55,6 +125,9 @@ PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
     OdinSensorDescription(key="total_layers", value=lambda p: p.get("total_layers")),
     OdinSensorDescription(key="active_errors", state_class=SensorStateClass.MEASUREMENT,
                           value=lambda p: p.get("active_errors")),
+    OdinSensorDescription(key="next_job", value=_next_job, attrs=_next_job_attrs),
+    OdinSensorDescription(key="waiting_on", device_class=SensorDeviceClass.ENUM, options=BENCH_STATES,
+                          value=_waiting_on, attrs=_waiting_on_attrs),
 )
 
 FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
@@ -67,7 +140,16 @@ FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
     OdinSensorDescription(key="fleet_offline", state_class=SensorStateClass.MEASUREMENT,
                           value=lambda f: f.get("offline")),
     OdinSensorDescription(key="queue_length", state_class=SensorStateClass.MEASUREMENT,
-                          value=lambda f: f.get("queue_length")),
+                          value=lambda f: f.get("queue_length"), attrs=_next_unassigned_attrs),
+    OdinSensorDescription(key="plates_done_today", state_class=SensorStateClass.TOTAL,
+                          value=lambda f: _today(f, "plates_done")),
+    OdinSensorDescription(key="plates_failed_today", state_class=SensorStateClass.TOTAL,
+                          value=lambda f: _today(f, "plates_failed")),
+    OdinSensorDescription(key="queued_hours", device_class=SensorDeviceClass.DURATION,
+                          native_unit_of_measurement=UnitOfTime.HOURS, state_class=SensorStateClass.MEASUREMENT,
+                          suggested_display_precision=1, value=lambda f: _hours(f.get("queued_hours"))),
+    OdinSensorDescription(key="queued_unestimated", state_class=SensorStateClass.MEASUREMENT,
+                          value=lambda f: _number(f.get("queued_unestimated"))),
 )
 
 
@@ -93,6 +175,12 @@ class OdinPrinterSensor(OdinPrinterEntity, SensorEntity):
         printer = self.printer
         return self.entity_description.value(printer) if printer else None
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        attrs = self.entity_description.attrs
+        printer = self.printer
+        return attrs(printer) if attrs and printer else None
+
 
 class OdinFleetSensor(CoordinatorEntity[OdinCoordinator], SensorEntity):
     _attr_has_entity_name = True
@@ -108,3 +196,8 @@ class OdinFleetSensor(CoordinatorEntity[OdinCoordinator], SensorEntity):
     @property
     def native_value(self) -> Any:
         return self.entity_description.value((self.coordinator.data or {}).get("fleet") or {})
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        attrs = self.entity_description.attrs
+        return attrs((self.coordinator.data or {}).get("fleet") or {}) if attrs else None

@@ -62,15 +62,32 @@
       "current_layer": {"name": "Current layer"},
       "total_layers": {"name": "Total layers"},
       "active_errors": {"name": "Active errors"},
+      "next_job": {"name": "Next job"},
+      "waiting_on": {
+        "name": "Waiting on",
+        "state": {
+          "nothing": "Nothing",
+          "paused": "Paused",
+          "out_of_service": "Out of service",
+          "clear_plate": "Clear plate",
+          "blocked": "Blocked",
+          "held": "Held"
+        }
+      },
       "fleet_printing": {"name": "Printers printing"},
       "fleet_paused": {"name": "Printers paused"},
       "fleet_error": {"name": "Printers in error"},
       "fleet_offline": {"name": "Printers offline"},
-      "queue_length": {"name": "Queue length"}
+      "queue_length": {"name": "Queue length"},
+      "plates_done_today": {"name": "Plates done today"},
+      "plates_failed_today": {"name": "Plates failed today"},
+      "queued_hours": {"name": "Queued hours"},
+      "queued_unestimated": {"name": "Queued jobs without estimate"}
     },
     "binary_sensor": {
       "online": {"name": "Online"},
-      "problem": {"name": "Needs attention"}
+      "problem": {"name": "Needs attention"},
+      "out_of_service": {"name": "Out of service"}
     },
     "event": {
       "last_error": {

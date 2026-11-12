@@ -10,7 +10,7 @@ from typing import Any
 
 import aiohttp
 
-from .const import REQUEST_TIMEOUT, STATUS_PATH, SUPPORTED_SCHEMA_VERSION
+from .const import REQUEST_TIMEOUT, STATUS_PATH, SUPPORTED_SCHEMA_VERSIONS
 
 
 class OdinError(Exception):
@@ -70,7 +70,7 @@ class OdinClient:
 
 
 def validate_status(data: Any) -> dict[str, Any]:
-    if not isinstance(data, dict) or data.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
+    if not isinstance(data, dict) or data.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         raise OdinSchemaError("Unsupported ODIN status schema")
     if not isinstance(data.get("printers"), list) or not isinstance(data.get("fleet"), dict):
         raise OdinSchemaError("ODIN status is missing printers or fleet")
