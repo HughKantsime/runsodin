@@ -42,7 +42,7 @@ def load_state(db):
             return {}
     if not isinstance(data, dict):
         return {}
-    return {str(k): v for k, v in data.items() if v in STAGE_RANK}
+    return {str(k): v for k, v in data.items() if isinstance(v, str) and v in STAGE_RANK}
 
 
 def save_state(db, state):
@@ -119,7 +119,10 @@ def check_maintenance(*, session_factory=None, now=None):
                     if STAGE_RANK[stage] <= STAGE_RANK.get(previous, 0):
                         seen[key] = stage  # unchanged, improved, or logged: remember it
                         continue
-                    if first_run and stage == "due_soon":
+                    # ...and the implicit default task is new with this version, so it never
+                    # alerts on the first run either (a farm that never logged service would
+                    # otherwise get one critical alert per printer).
+                    if first_run and (stage == "due_soon" or task.get("is_default")):
                         seen[key] = stage
                         continue
                     try:
@@ -135,6 +138,14 @@ def check_maintenance(*, session_factory=None, now=None):
                         log.warning("Maintenance alert could not be raised for printer %s", printer["printer_id"], exc_info=True)
                         if previous is not None:
                             seen[key] = previous  # retry next hour
+            # Keep the remembered stage of a task or printer that is only switched off, so
+            # switching it back on does not alert again; forget what no longer exists.
+            printer_ids = {str(i) for i in db.execute(text("SELECT id FROM printers")).scalars()}
+            task_ids = {str(i) for i in db.execute(text("SELECT id FROM maintenance_tasks")).scalars()}
+            for key, value in state.items():
+                printer_part, _, task_part = key.partition(":")
+                if key not in seen and printer_part in printer_ids and (task_part in task_ids or not task_part.isdigit()):
+                    seen[key] = value
             if seen != state or first_run:
                 save_state(db, seen)  # also drops tasks and printers that are gone
                 db.commit()

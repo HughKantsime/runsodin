@@ -57,6 +57,10 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
   })
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
+  const localNoon = (day: string) => {
+    const [y, m, d] = day.split('-').map(Number)
+    return new Date(y, m - 1, d, 12, 0, 0).toISOString()
+  }
   const handleSubmit = () => {
     onSave({
       printer_id: printer.printer_id,
@@ -67,7 +71,9 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
       downtime_minutes: parseInt(form.downtime_minutes) || 0,
       notes: form.notes || null,
       // Today (the default) is sent as nothing, so the server stamps the exact time.
-      ...(form.performed_on && form.performed_on !== today ? { performed_at: form.performed_on } : {}),
+      // A past day is sent as noon local time on that day, with the offset, so the
+      // server does not read a bare date as midnight UTC (up to a day off).
+      ...(form.performed_on && form.performed_on !== today ? { performed_at: localNoon(form.performed_on) } : {}),
     })
   }
   const dateOk = !form.performed_on || (form.performed_on <= today && form.performed_on >= MIN_SERVICE_DATE)

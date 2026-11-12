@@ -100,7 +100,9 @@ describe('log form date', () => {
     fireEvent.change(within(modal).getByLabelText('Date performed'), { target: { value: past } })
     fireEvent.click(within(modal).getByRole('button', { name: 'Log Service' }))
     await waitFor(() => expect(posted).toHaveLength(1))
-    expect(posted[0].performed_at).toBe(past)
+    // Noon local time on that day, sent with its offset (never a bare date read as UTC midnight).
+    const [y, m, d] = past.split('-').map(Number)
+    expect(posted[0].performed_at).toBe(new Date(y, m - 1, d, 12, 0, 0).toISOString())
   })
 
   it('refuses a future date and a date before 2020', async () => {

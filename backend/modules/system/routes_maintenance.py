@@ -134,25 +134,32 @@ def list_maintenance_tasks(
     } for t in tasks]
 
 
-def _hours_printed_since(db, printer_id, since) -> float:
-    """Print hours this printer has recorded since `since` (finished prints only)."""
+def _printed_since(db, printer_id, since):
+    """(hours, prints) this printer completed since `since`.
+
+    Only completed prints count, because only those are added to the printer's odometer
+    (printer_health.increment_care_counters); failed, cancelled and retired rows never were.
+    """
     from sqlalchemy import text
+    floor = since.astimezone(timezone.utc).replace(tzinfo=None) if since.tzinfo else since
     rows = db.execute(text(
-        "SELECT started_at, ended_at FROM print_jobs WHERE printer_id = :p "
+        "SELECT started_at, ended_at FROM print_jobs WHERE printer_id = :p AND status = 'completed' "
         "AND started_at IS NOT NULL AND ended_at IS NOT NULL AND ended_at > :since"),
-        {"p": printer_id, "since": since.replace(tzinfo=None) if since.tzinfo else since}).all()
-    total = 0.0
+        {"p": printer_id, "since": floor}).all()
+    hours, prints = 0.0, 0
     for started, ended in rows:
         try:
             if isinstance(started, str): started = datetime.fromisoformat(started.replace("Z", "+00:00"))
             if isinstance(ended, str): ended = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-            started = started.replace(tzinfo=None); ended = ended.replace(tzinfo=None)
-            begin = max(started, since.replace(tzinfo=None))
+            started = started.astimezone(timezone.utc).replace(tzinfo=None) if started.tzinfo else started
+            ended = ended.astimezone(timezone.utc).replace(tzinfo=None) if ended.tzinfo else ended
+            begin = max(started, floor)
             if ended > begin:
-                total += (ended - begin).total_seconds() / 3600.0
+                hours += (ended - begin).total_seconds() / 3600.0
+                prints += 1
         except (ValueError, TypeError, AttributeError):
             continue
-    return total
+    return hours, prints
 
 
 @router.post("/maintenance/tasks", tags=["Maintenance"])
@@ -247,7 +254,8 @@ def create_maintenance_log(
     if data.performed_at is not None:
         # A back-dated service happened at an earlier odometer reading: take off the
         # hours printed since then, so hour-based tasks don't restart from today.
-        total_hours = max(0.0, total_hours - _hours_printed_since(db, printer.id, data.performed_at))
+        since_hours, since_prints = _printed_since(db, printer.id, data.performed_at)
+        total_hours = max(0.0, total_hours - since_hours)
 
     if is_dry_run(request):
         return dry_run_preview(
@@ -289,10 +297,18 @@ def create_maintenance_log(
     # Completing maintenance resets the printer's care counters in the same
     # transaction as the log (the task's own next-due point is recomputed from
     # this log's print_hours_at_service / performed_at by the status endpoint).
-    # A back-dated entry records the past; it does not zero today's counters.
+    # A back-dated entry that is now the printer's newest service sets the counters to
+    # what has been printed since that date; an older one leaves them alone.
     if data.performed_at is None:
         printer.hours_since_maintenance = 0
         printer.prints_since_maintenance = 0
+    else:
+        newest = db.query(MaintenanceLog.performed_at).filter(
+            MaintenanceLog.printer_id == printer.id).order_by(MaintenanceLog.performed_at.desc()).first()
+        mine = data.performed_at.astimezone(timezone.utc).replace(tzinfo=None) if data.performed_at.tzinfo else data.performed_at
+        if newest is None or newest[0] is None or newest[0].replace(tzinfo=None) <= mine:
+            printer.hours_since_maintenance = round(since_hours, 2)
+            printer.prints_since_maintenance = since_prints
     db.commit()
     db.refresh(log_entry)
     return {

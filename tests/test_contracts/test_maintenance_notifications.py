@@ -272,7 +272,8 @@ def test_back_dated_log_takes_off_hours_printed_since(maintenance_client, review
     _hours(review_db, 200)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     review_db.execute(text("INSERT INTO print_jobs(printer_id,job_name,status,started_at,ended_at) VALUES"
-                           "(9,'after','completed',:s1,:e1),(9,'before','completed',:s2,:e2),(9,'straddles','completed',:s3,:e3)"),
+                           "(9,'after','completed',:s1,:e1),(9,'before','completed',:s2,:e2),(9,'straddles','completed',:s3,:e3),"
+                           "(9,'failed after','failed',:s1,:e1),(9,'cancelled after','cancelled',:s1,:e1)"),
                       {'s1': now - timedelta(days=2, hours=3), 'e1': now - timedelta(days=2),
                        's2': now - timedelta(days=9, hours=5), 'e2': now - timedelta(days=9),
                        's3': now - timedelta(days=5, hours=1), 'e3': now - timedelta(days=5) + timedelta(hours=1)})
@@ -283,6 +284,31 @@ def test_back_dated_log_takes_off_hours_printed_since(maintenance_client, review
     stored = review_db.execute(text('SELECT print_hours_at_service FROM maintenance_logs WHERE id=:i'), {'i': done.json()['id']}).scalar_one()
     assert abs(stored - 196.0) < 0.05           # 200 - 3 h after - 1 h of the straddling print
     assert abs(_task(client, 101)['hours_since_service'] - 4.0) < 0.11
+    review_db.expire_all()   # newest service: 2 completed prints, 4 h since
+    prints, hours = review_db.execute(text('SELECT prints_since_maintenance,hours_since_maintenance FROM printers WHERE id=9')).one()
+    assert prints == 2 and abs(hours - 4.0) < 0.05
+
+
+def test_switching_a_task_off_and_on_does_not_alert_again(maintenance_client, review_db, checker):
+    _hours(review_db, 95); checker()
+    _hours(review_db, 101); checker()
+    count = len(_alerts(review_db))
+    assert count
+    review_db.execute(text('UPDATE maintenance_tasks SET is_active=0 WHERE id=101')); review_db.commit()
+    checker()
+    assert _state(review_db).get('9:101') == 'overdue'
+    review_db.execute(text('UPDATE maintenance_tasks SET is_active=1 WHERE id=101')); review_db.commit()
+    checker()
+    assert len(_alerts(review_db)) == count
+
+
+def test_corrupt_state_values_are_ignored(maintenance_client, review_db, checker):
+    _hours(review_db, 95); checker()
+    review_db.execute(text("UPDATE system_config SET value=:v WHERE key='maintenance_alert_state'"),
+                      {'v': json.dumps({'9:101': ['overdue'], '9:999': {'a': 1}})})
+    review_db.commit()
+    checker()                                   # must not raise
+    assert _state(review_db)['9:101'] == 'ok'
 
 
 def test_state_is_dropped_for_tasks_that_no_longer_exist(maintenance_client, review_db, checker):
@@ -309,7 +335,7 @@ def test_future_and_pre_2020_service_dates_are_refused(maintenance_client, revie
     assert review_db.execute(text('SELECT count(*) FROM maintenance_logs')).scalar_one() == before
 
 
-def test_back_dated_log_anchors_status_and_keeps_current_counters(maintenance_client, review_db):
+def test_back_dated_log_anchors_status_and_sets_counters_only_when_newest(maintenance_client, review_db):
     client, _ = maintenance_client
     review_db.execute(text("UPDATE maintenance_logs SET performed_at='2020-02-01 00:00:00' WHERE printer_id=9"))
     review_db.execute(text('UPDATE printers SET prints_since_maintenance=7, hours_since_maintenance=12 WHERE id=9'))
@@ -321,11 +347,15 @@ def test_back_dated_log_anchors_status_and_keeps_current_counters(maintenance_cl
     stored = review_db.execute(text('SELECT performed_at FROM maintenance_logs WHERE id=:i'), {'i': done.json()['id']}).scalar_one()
     assert str(stored).startswith(when.strftime('%Y-%m-%d %H:%M'))
     review_db.expire_all()
-    assert tuple(review_db.execute(text('SELECT prints_since_maintenance,hours_since_maintenance FROM printers WHERE id=9')).one()) == (7, 12)
+    # Now the newest service: the counters become what was printed since (nothing here).
+    assert tuple(review_db.execute(text('SELECT prints_since_maintenance,hours_since_maintenance FROM printers WHERE id=9')).one()) == (0, 0)
+    review_db.execute(text('UPDATE printers SET prints_since_maintenance=7, hours_since_maintenance=12 WHERE id=9')); review_db.commit()
     # An older back-dated entry does not move the anchor: the latest performed_at wins.
     older = datetime.now(timezone.utc) - timedelta(days=20)
     assert client.post(LOGS, json={'printer_id': 9, 'task_id': 101, 'task_name': 'Synthetic service', 'performed_at': older.isoformat()}).status_code == 200
     assert _task(client, 101)['days_since_service'] == 10
+    review_db.expire_all()   # an older entry is not the newest service: counters untouched
+    assert tuple(review_db.execute(text('SELECT prints_since_maintenance,hours_since_maintenance FROM printers WHERE id=9')).one()) == (7, 12)
 
 
 def test_date_only_service_date_is_accepted(maintenance_client, review_db):
@@ -403,7 +433,10 @@ def test_checker_alerts_on_the_default_task(maintenance_client, review_db, check
     client, _ = maintenance_client
     client.delete('/api/v1/maintenance/tasks/101')
     _hours(review_db, 2100)
-    checker()
+    checker()                                   # first run: the new default task never alerts
+    assert _alerts(review_db) == [] and _state(review_db)['9:default'] == 'overdue'
+    review_db.execute(text("UPDATE system_config SET value='{}' WHERE key='maintenance_alert_state'")); review_db.commit()
+    checker()                                   # any later run: it does
     alerts = _alerts(review_db)
     assert alerts and all(a['meta']['default'] is True and a['meta']['stage'] == 'overdue' for a in alerts)
     assert 'General service (every 2000 print hours; 2100 since last service)' in alerts[0]['message']
