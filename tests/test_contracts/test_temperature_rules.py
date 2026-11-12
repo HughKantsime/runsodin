@@ -179,7 +179,7 @@ def test_fast_telemetry_must_still_violate_for_the_whole_period():
     # A monitor writing every 5 seconds: 30 low samples cover two and a half minutes, not 5.
     fast = [Sample(NOW - timedelta(seconds=5 * (29 - i)), 60.0, 190.0, 60.0, 220.0) for i in range(30)]
     assert keys(evaluate(fast, LONG_AGO, NOW)) == set()
-    long_enough = [Sample(NOW - timedelta(seconds=5 * (59 - i)), 60.0, 190.0, 60.0, 220.0) for i in range(60)]
+    long_enough = [Sample(NOW - timedelta(seconds=5 * (60 - i)), 60.0, 190.0, 60.0, 220.0) for i in range(61)]  # 300 s
     assert keys(evaluate(long_enough, LONG_AGO, NOW)) == {(NOZZLE, NOT_REACHING_TARGET)}
 
 
