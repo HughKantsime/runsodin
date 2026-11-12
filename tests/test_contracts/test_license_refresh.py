@@ -108,6 +108,38 @@ def test_earlier_expiry_with_newer_issued_at_is_installed(app):
     assert info.valid and info.expires_at == iso(ahead(days=3))
 
 
+@pytest.mark.parametrize("status", ["renewed", "canceled", "not_renewed_yet", "not_entitled", None])
+@pytest.mark.parametrize("key", ["OTHER-KEY", ""])
+@pytest.mark.parametrize("bound", [True, False])
+def test_every_refresh_status_requires_the_installed_key(app, status, key, bound):
+    fields = app.fields if bound else {}
+    installed = app.sign(**fields, key=KEY, issued_at=iso(ago(days=30)),
+                         expires_at=iso(ahead(days=5))).decode()
+    app.lm.save_license_file(installed)
+    app.refresh(refresh_status="not_renewed_yet")
+    previous_refresh = last_refresh(app)
+    app.routes.log_audit.reset_mock()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    candidate = app.sign(**fields, key=key, issued_at=iso(now - timedelta(seconds=1)),
+                         expires_at=iso(now + timedelta(minutes=5))).decode()
+    assert app.lm.verify_license_text(candidate).verification_state == "verified_current"
+    body = {"license_file": candidate}
+    if status is not None:
+        body["refresh_status"] = status
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(**body)
+    assert exc.value.status_code == 400
+    assert app.path.read_text() == installed
+    app.routes.log_audit.assert_not_called()
+    assert last_refresh(app) == previous_refresh
+    for restart in (False, True):
+        if restart:
+            app.restart()
+        info = app.lm.get_license()
+        assert info.valid and info.key == KEY and info.expires_at == iso(ahead(days=5))
+        assert last_refresh(app) == previous_refresh
+
+
 @pytest.mark.parametrize("expires", [ahead(days=60), ahead(days=3), ago(days=1)])
 def test_older_issued_at_is_refused_whatever_the_expiry(app, expires):
     installed = app.make(ago(hours=1), ahead(days=20))

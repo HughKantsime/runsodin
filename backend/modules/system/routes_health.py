@@ -667,6 +667,9 @@ async def reactivate_license(
         candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
         if candidate is None:
             raise HTTPException(status_code=502, detail="The license portal sent a license file that could not be read. Your installed license is unchanged; contact support.")
+        # Every refresh is for the requested key, regardless of status or expiry.
+        if candidate.key != current_license.key:
+            raise HTTPException(status_code=400, detail="License server returned a license for a different key than the one installed. Your installed license is unchanged.")
         # The answer and the file must agree: an ended file only with not_entitled,
         # and not_entitled only with a file that has ended (or ends within the clock
         # allowance: the portal signs it to end at once, and this server's clock may
