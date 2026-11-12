@@ -6,6 +6,7 @@ packets or dispatch authority. No schema changes or printer reads are needed.
 import json
 import math
 from datetime import datetime, timezone
+from datetime import timedelta
 from sqlalchemy import bindparam, text
 from core.rbac import check_org_access, is_scoped_token, token_scope_granted
 
@@ -107,11 +108,20 @@ def plate_clear_times(db, printer_ids, actor):
     # A confirmation stands only until the next print starts: a plate cleared several prints
     # ago says nothing about the bed now.
     from modules.printers.plate_clear import as_utc
-    started = db.execute(text("SELECT printer_id, MAX(actual_start) FROM jobs WHERE printer_id IN :ids "
-        "AND actual_start IS NOT NULL GROUP BY printer_id").bindparams(bindparam('ids', expanding=True)), {'ids': list(result)})
-    for printer_id, latest in started:
-        confirmed, begun = as_utc(result.get(printer_id)), as_utc(latest)
-        if confirmed is not None and begun is not None and begun > confirmed:
+    # Compared as parsed instants: stored times mix naive UTC and ISO forms, which do not
+    # sort correctly as text. Only jobs started on or after the day before the oldest
+    # confirmation can matter (the date prefix is the same in every form).
+    confirmed = {printer_id: as_utc(at) for printer_id, at in result.items()}
+    known = [at for at in confirmed.values() if at is not None]
+    if not known:
+        return result
+    day = (min(known) - timedelta(days=1)).strftime('%Y-%m-%d')
+    started = db.execute(text("SELECT printer_id, actual_start FROM jobs WHERE printer_id IN :ids "
+        "AND actual_start IS NOT NULL AND actual_start >= :day").bindparams(bindparam('ids', expanding=True)),
+        {'ids': list(result), 'day': day})
+    for printer_id, raw in started:
+        begun, at = as_utc(raw), confirmed.get(printer_id)
+        if printer_id in result and at is not None and begun is not None and begun > at:
             del result[printer_id]
     return result
 

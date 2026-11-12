@@ -42,17 +42,25 @@ def record_plate_clear(db, printer, actor) -> Optional[datetime]:
     if db.execute(text("SELECT 1 FROM jobs WHERE printer_id=:p AND status IN ('printing','paused') LIMIT 1"),
                   {"p": printer.id}).first():
         return None
-    job = db.execute(text(
+    # Stored times mix forms (naive UTC, ISO with "T" or an offset), so they are compared as
+    # parsed instants, never as text: the newest of the printer's recent finished prints.
+    recent = db.execute(text(
         f"SELECT id, charged_to_org_id, actual_end FROM jobs WHERE printer_id=:p AND status IN {_ENDED} "
-        "AND actual_end IS NOT NULL ORDER BY actual_end DESC, id DESC LIMIT 1"), {"p": printer.id}).first()
-    if job is None or not check_org_access(actor, job[1]):
+        "AND actual_end IS NOT NULL ORDER BY id DESC LIMIT 50"), {"p": printer.id}).all()
+    dated = [(as_utc(row[2]), row[0], row) for row in recent if as_utc(row[2]) is not None]
+    if not dated:
         return None
-    ended = as_utc(job[2])
+    ended, _, job = max(dated, key=lambda item: (item[0], item[1]))
+    # Written only against a job this caller may read: its organization and, for controlled
+    # work, its audience (the job routes' own rule).
+    from core.controlled_parts import allowed
+    if not check_org_access(actor, job[1]) or not allowed(db, "job", job[0], actor):
+        return None
     for (at,) in db.execute(text(
             "SELECT occurred_at FROM job_timeline_events WHERE job_id=:j AND printer_id=:p "
             "AND kind='bed_clear_confirmed' ORDER BY occurred_at DESC"), {"j": job[0], "p": printer.id}):
         known = as_utc(at)
-        if known is not None and (ended is None or known >= ended):
+        if known is not None and known >= ended:
             return known  # already confirmed after this print ended: one row per print
     now = datetime.now(timezone.utc)
     user_id = actor.get("id") if isinstance(actor, dict) and type(actor.get("id")) is int else None

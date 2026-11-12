@@ -113,3 +113,37 @@ def test_read_only_tokens_still_cannot_confirm(floor):
     finished(db, 802)
     assert client.post('/printers/199/plate-cleared', headers=issue(['read'])).status_code == 403
     assert events(db) == []
+
+
+# ---------------------------------------------------------------- Codex sign-off 11-12
+def test_times_are_compared_as_instants_not_as_text(floor):
+    """'10:00+02:00' (08:00 UTC) sorts after a naive '09:30' as text. A confirmation at 09:00 UTC
+    must not survive a print that started at 09:30 UTC, and the last finished print is the one
+    that really ended last."""
+    client, issue, db = floor
+    finished(db, 811, start='2026-11-12 06:00:00', end='2026-11-12T10:00:00+02:00')   # ended 08:00 UTC
+    finished(db, 812, start='2026-11-12 08:10:00', end='2026-11-12 08:45:00')         # ended later
+    assert client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()['message'] == 'Plate clear recorded'
+    assert [row.job_id for row in events(db)] == [812]
+
+
+def test_a_confirmation_written_with_an_offset_does_not_outlive_a_later_naive_start(floor):
+    client, issue, db = floor
+    finished(db, 812, start='2026-11-12 08:10:00', end='2026-11-12 08:45:00')
+    db.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,detail,occurred_at) "
+                    "VALUES('offset',812,199,1,'bed_clear_confirmed','{}','2026-11-12T11:00:00+02:00')"))   # 09:00 UTC
+    db.commit()
+    assert confirmed_at(client, issue) is not None
+    db.execute(text("INSERT INTO jobs(id,item_name,printer_id,charged_to_org_id,status,actual_start) "
+                    "VALUES(813,'Next',199,1,'printing','2026-11-12 09:30:00')"))                              # 09:30 UTC
+    db.commit()
+    assert confirmed_at(client, issue) is None
+
+
+def test_a_controlled_job_outside_the_callers_audience_is_never_written_to(floor, monkeypatch):
+    from core import controlled_parts
+    client, issue, db = floor
+    finished(db, 802)
+    monkeypatch.setattr(controlled_parts, 'allowed', lambda db_, kind, identifier, actor: not (kind == 'job' and identifier == 802))
+    body = client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()
+    assert body == {'success': True, 'message': 'No jobs waiting for plate clear'} and events(db) == []
