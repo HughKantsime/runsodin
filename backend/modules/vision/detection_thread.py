@@ -437,10 +437,14 @@ class PrinterVisionThread(threading.Thread):
                     allowed = False
                 else:
                     # An empty policy list also means an absent job link, not proof that
-                    # the print is uncontrolled. Verify its job and printer first.
+                    # the print is uncontrolled. The monitor may still hold the previous
+                    # print ID: require this to be the printer's only running print.
                     job_id = db.execute(text(
                         'SELECT j.id FROM print_jobs pj JOIN jobs j ON j.id=pj.scheduled_job_id '
-                        'WHERE pj.id=:pid AND pj.printer_id=:printer'),
+                        "WHERE pj.id=:pid AND pj.printer_id=:printer AND pj.status='running' "
+                        "AND NOT EXISTS (SELECT 1 FROM print_jobs other "
+                        "WHERE other.printer_id=pj.printer_id AND other.status='running' "
+                        'AND other.id<>pj.id)'),
                         {'pid': self.print_job_id, 'printer': self.printer_id}).scalar()
                     allowed = job_id is not None and not policies(db, 'job', job_id)
         except Exception:

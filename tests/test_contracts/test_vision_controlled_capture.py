@@ -21,10 +21,12 @@ def capture(review_db, tmp_path, monkeypatch):
     return run
 
 
-def _print(db, print_id, job_id):
-    db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id) VALUES(:j,'part','printing',9)"), {'j': job_id})
+def _print(db, print_id, job_id, printer_id=9):
+    db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id) VALUES(:j,'part','printing',:printer)"),
+               {'j': job_id, 'printer': printer_id})
     db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at,scheduled_job_id) "
-                    "VALUES(:p,9,'part','running','2026-11-12 00:00:00',:j)"), {'p': print_id, 'j': job_id})
+                    "VALUES(:p,:printer,'part','running','2026-11-12 00:00:00',:j)"),
+               {'p': print_id, 'j': job_id, 'printer': printer_id})
     db.commit()
 
 
@@ -49,9 +51,20 @@ def test_controlled_print_is_not_collected_and_leaves_no_row(capture, review_db)
 
 def test_another_jobs_mark_does_not_stop_collection_for_open_work(capture, review_db):
     _print(review_db, 9001, 8001)
-    _print(review_db, 9002, 8002)
+    _print(review_db, 9002, 8002, printer_id=10)
     _mark(review_db, 8002)
     assert capture(9001) == 1
+
+
+@pytest.mark.parametrize('status', ['completed', 'cancelled', 'failed'])
+def test_finished_print_is_refused_before_replacement_is_recorded(capture, review_db, status):
+    _print(review_db, 9001, 8001)
+    _print(review_db, 9002, 8002, printer_id=10)
+    _mark(review_db, 8002)
+    review_db.execute(text('UPDATE print_jobs SET status=:status WHERE id=9001'), {'status': status})
+    review_db.commit()
+    assert capture(9001) == 0
+    assert review_db.execute(text("SELECT COUNT(*) FROM vision_detections WHERE status='training'")).scalar() == 0
 
 
 def test_a_print_with_no_job_is_not_collected_once_controlled_work_exists(capture, review_db):

@@ -60,16 +60,17 @@ def _scalar(db, sql, **params):
     return db.execute(text(sql), params).scalar()
 
 
-def _print(db, print_id, job_id, category=None, tags=None):
+def _print(db, print_id, job_id, category=None, tags=None, printer_id=9):
     model_id = None
     if category is not None:
         model_id = 100000 + job_id
         db.execute(text("INSERT INTO models(id,name,category) VALUES(:m,'part',:c)"), {'m': model_id, 'c': category})
     db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id,model_id,required_tags) "
-                    "VALUES(:j,'part','printing',9,:m,:t)"),
-               {'j': job_id, 'm': model_id, 't': json.dumps(tags or [])})
+                    "VALUES(:j,'part','printing',:printer,:m,:t)"),
+               {'j': job_id, 'm': model_id, 't': json.dumps(tags or []), 'printer': printer_id})
     db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at,scheduled_job_id) "
-                    "VALUES(:p,9,'part','running','2026-11-12 00:00:00',:j)"), {'p': print_id, 'j': job_id})
+                    "VALUES(:p,:printer,'part','running','2026-11-12 00:00:00',:j)"),
+               {'p': print_id, 'j': job_id, 'printer': printer_id})
     db.commit()
 
 
@@ -376,7 +377,7 @@ def test_controlled_work_is_never_collected_by_any_new_path(env):
 
 def test_uncontrolled_work_next_to_controlled_work_is_still_collected(env):
     _print(env.db, 9001, 8001)
-    _print(env.db, 9002, 8002)
+    _print(env.db, 9002, 8002, printer_id=10)
     _mark_controlled(env.db, 8002)
     env.make(9001)._capture_and_analyze()
     assert len(env.training()) == 1
@@ -388,7 +389,7 @@ def test_controlled_status_is_rechecked_before_each_training_write(env, monkeypa
     from core import controlled_parts
     from modules.vision import detection_thread
     _print(env.db, 9001, 8001)
-    _print(env.db, 9002, 8002)
+    _print(env.db, 9002, 8002, printer_id=10)
     if change == 'relink':
         _mark_controlled(env.db, 8002)
     # No wall time passes: an earlier allowance must never authorize another write.
@@ -418,6 +419,43 @@ def test_controlled_status_is_rechecked_before_each_training_write(env, monkeypa
     else:
         thread.clock.now += 120 if path == 'sample' else 10
         thread._capture_and_analyze()
+    assert len(env.training()) == before
+    assert _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'") == rows_before
+
+
+@pytest.mark.parametrize('old_status', ['completed', 'cancelled', 'failed', 'running'])
+@pytest.mark.parametrize('path', ['sample', 'burst', 'after'])
+def test_stale_print_identity_cannot_authorize_training_after_transition(env, old_status, path):
+    _print(env.db, 9001, 8001)
+    thread = env.make(9001)
+    thread._capture_and_analyze()
+    thread.clock.now += 10
+    thread._capture_and_analyze()
+    if path == 'after':
+        thread._detection_burst(thread.frame)
+    before = len(env.training())
+    rows_before = _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'")
+
+    # The printer monitor has advanced, but Vigil still holds the old print ID.
+    # Leaving both rows running is ambiguous and must also fail closed.
+    env.db.execute(text('UPDATE print_jobs SET status=:status WHERE id=9001'),
+                   {'status': old_status})
+    _print(env.db, 9002, 8002)
+    _mark_controlled(env.db, 8002)
+    assert thread.print_job_id == 9001
+    if path == 'burst':
+        thread._burst_previous = (9001, thread.frame)
+        thread._burst_previous_saved = False
+        thread._detection_burst(thread.frame)
+    else:
+        thread.clock.now += 120 if path == 'sample' else 10
+        thread._capture_and_analyze()
+    assert len(env.training()) == before
+    assert _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'") == rows_before
+
+    # Refreshing Vigil's identity must not allow the controlled replacement either.
+    thread.update_layer(0, 9002, 'RUNNING')
+    thread._capture_and_analyze()
     assert len(env.training()) == before
     assert _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'") == rows_before
 
