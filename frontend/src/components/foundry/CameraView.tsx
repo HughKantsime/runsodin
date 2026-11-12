@@ -37,7 +37,8 @@ export default function CameraView({ cameras, printers = [], prints = [], initia
       if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return
       const box = strip.getBoundingClientRect()
       const tab = active.getBoundingClientRect()
-      if (tab.left < box.left) strip.scrollLeft += tab.left - box.left
+      // A button wider than the strip is lined up by its start, so its name reads from the beginning.
+      if (tab.left < box.left || tab.width > box.width) strip.scrollLeft += tab.left - box.left
       else if (tab.right > box.right) strip.scrollLeft += tab.right - box.right
     }
     keepVisible()
@@ -46,7 +47,11 @@ export default function CameraView({ cameras, printers = [], prints = [], initia
     let width = window.innerWidth
     const onResize = () => { if (window.innerWidth !== width) { width = window.innerWidth; keepVisible() } }
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    // The chosen button changes width when its label does (" · paused") or when fonts arrive.
+    const active = tabs.current?.querySelector('[aria-pressed="true"]')
+    const observer = active && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(keepVisible) : null
+    if (active) observer?.observe(active)
+    return () => { window.removeEventListener('resize', onResize); observer?.disconnect() }
   }, [selected, cameras.length])
   async function fullscreen() {
     try {

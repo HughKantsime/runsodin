@@ -170,6 +170,9 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
     .emergency-controls-panel { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); right: 16px; max-width: calc(100vw - 32px); }
   }
   @media (max-width: 600px) {
+    /* The chooser gets the whole row and Full screen drops below it, so a long camera name fits in view. */
+    .f-camera-toolbar { flex-wrap: wrap; }
+    .f-camera-tabs { flex-basis: 100%; }
     .f-page { padding: 16px; gap: 16px; }
     .f-fleet[data-density="compact"] > .f-comfortable { display: grid; }
     .f-fleet[data-density="compact"] > .f-compact { display: none; }
