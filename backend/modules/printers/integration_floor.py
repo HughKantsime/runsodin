@@ -257,6 +257,19 @@ def _details(db, job_ids):
     return {row["id"]: dict(row) for row in rows}
 
 
+def _instant(value):
+    """A stored time (naive UTC, or ISO text with or without an offset) as an aware UTC instant."""
+    from datetime import datetime, timezone
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
 def _clear_plate(db, actor, scope, controlled, printer_ids):
     clauses, params = visible_clauses(actor, scope, controlled, "j")
     params["pids"] = list(printer_ids)
@@ -301,7 +314,8 @@ def _needs(row):
     requirements = _json(row["color_requirements"])
     if isinstance(requirements, dict):
         return [{"file_slot": index + 1, "color": value.get("color"),
-                 "material": value.get("type") or value.get("material"), "grams": _grams(value.get("grams"))}
+                 "material": value.get("type") or value.get("material") or value.get("filament_type"),
+                 "grams": _grams(value.get("grams"))}
                 for index, value in enumerate(requirements.values()) if isinstance(value, dict)], False
     return [], False
 
@@ -400,10 +414,23 @@ class Floor:
             self.paused_since = {pid: iso(at) for pid, at in db.execute(query, {"ids": paused}).all()}
             prints = [running[pid]["id"] for pid in paused if pid in running]
             if prints:
-                query = text("SELECT d.print_job_id FROM vision_detections d WHERE d.print_job_id IN :ids "
+                query = text("SELECT d.print_job_id, d.printer_id, d.created_at FROM vision_detections d WHERE d.print_job_id IN :ids "
                              "AND d.status = 'auto_paused' AND d.id = (SELECT MAX(x.id) FROM vision_detections x "
                              "WHERE x.print_job_id = d.print_job_id)").bindparams(bindparam("ids", expanding=True))
-                self.vision_paused = {row[0] for row in db.execute(query, {"ids": prints}).all()}
+                detections = db.execute(query, {"ids": prints}).all()
+                # The detection must belong to THIS pause: one from before the print was last
+                # resumed explains an earlier pause, not a planned pause reached afterwards.
+                query = text("SELECT printer_id, occurred_at FROM job_timeline_events WHERE kind = 'resumed' "
+                             "AND printer_id IN :ids").bindparams(bindparam("ids", expanding=True))
+                resumed = {}
+                for pid, at in db.execute(query, {"ids": paused}).all():
+                    moment = _instant(at)
+                    if moment is not None and (pid not in resumed or moment > resumed[pid]):
+                        resumed[pid] = moment
+                for print_id, pid, created in detections:
+                    seen, last_resume = _instant(created), resumed.get(pid)
+                    if last_resume is None or (seen is not None and seen > last_resume):
+                        self.vision_paused.add(print_id)
         return self
 
     # -- jobs ---------------------------------------------------------------
@@ -494,7 +521,9 @@ class Floor:
             cause, reason = self._pause(printer, running, error_unresolved, redact)
             bench = {"state": "paused", "reason": reason, "since": self.paused_since.get(printer.id), "pause_cause": cause}
         elif held_out:
-            bench = {"state": "out_of_service", "reason": (care.get("note") or "Maintenance hold")[:200],
+            # A free-text note can name the work on the bed: withheld like every other reason.
+            bench = {"state": "out_of_service",
+                     "reason": "Maintenance hold" if redact else (care.get("note") or "Maintenance hold")[:200],
                      "since": care.get("set_at"), "pause_cause": None}
         elif printer.id in self.clear_plate:
             bench = {"state": "clear_plate", "reason": "Plate not cleared", "since": iso(self.clear_plate[printer.id]),

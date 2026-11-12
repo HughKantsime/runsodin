@@ -417,3 +417,46 @@ def test_a_unit_without_a_humidity_sensor_is_not_recorded_as_dry():
     assert parse_ams_env(lite) == []
     real = {'ams': [{'id': '0', 'humidity': '2', 'humidity_raw': '44', 'temp': '23.4'}, {'id': '1', 'humidity': '5', 'temp': '21.0'}]}
     assert parse_ams_env(real) == [{'unit_idx': 0, 'humidity': 2, 'temperature': 23.4}, {'unit_idx': 1, 'humidity': 5, 'temperature': 21.0}]
+
+
+# ---------------------------------------------------------------- Codex sign-off 11-12
+def test_a_maintenance_note_is_withheld_while_controlled_work_is_hidden(ha_client, review_db):
+    """The free-text hold note went out even when every other reason was redacted."""
+    import json
+    client, issue = ha_client
+    review_db.execute(text("INSERT INTO system_config(key,value) VALUES('printer.maintenance.10',:v)"),
+                      {'v': json.dumps({'state': 'hold', 'note': 'Waiting on secret-bracket rework', 'set_by': 3,
+                                        'set_by_name': 'admin', 'set_at': '2026-11-12T05:00:00+00:00'})})
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['bench']['reason'] == 'Waiting on secret-bracket rework'
+    _job(review_db, 401, 'secret-bracket', 'printing', printer=9)
+    _mark_controlled(review_db, 401)  # the caller is not in the audience
+    review_db.commit()
+    bench = _printers(_get(client, issue))[10]['bench']
+    assert bench['state'] == 'out_of_service' and bench['reason'] == 'Maintenance hold'
+
+
+def test_a_vision_pause_from_before_the_last_resume_does_not_explain_this_pause(ha_client, review_db):
+    """An old auto_paused detection made a later planned pause read as spaghetti."""
+    client, issue = ha_client
+    review_db.execute(text("UPDATE printers SET gcode_state='PAUSED' WHERE id=9"))
+    running = review_db.execute(text("SELECT id FROM print_jobs WHERE printer_id=9 AND status='running'")).scalar_one()
+    _job(review_db, 402, 'plain-part', 'printing', printer=9)
+    job = 402
+    review_db.execute(text("INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+                           "VALUES(9,:p,'spaghetti',0.9,'auto_paused','2026-11-12 08:00:00')"), {'p': running})
+    review_db.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,detail,occurred_at) "
+                           "VALUES('resume-after',:j,9,NULL,'resumed','{}','2026-11-12T08:30:00+00:00')"), {'j': job})
+    review_db.commit()
+    assert _printers(_get(client, issue))[9]['bench']['pause_cause'] != 'spaghetti'
+    review_db.execute(text("INSERT INTO vision_detections(printer_id,print_job_id,detection_type,confidence,status,created_at) "
+                           "VALUES(9,:p,'spaghetti',0.9,'auto_paused','2026-11-12 09:00:00')"), {'p': running})
+    review_db.commit()
+    assert _printers(_get(client, issue))[9]['bench']['pause_cause'] == 'spaghetti'
+
+
+def test_the_model_fallback_reads_filament_type():
+    from modules.printers.integration_floor import _needs
+    needs, from_file = _needs({'filaments_json': None,
+                               'color_requirements': '{"1": {"color": "black", "filament_type": "PETG", "grams": 40}}'})
+    assert from_file is False and needs[0]['material'] == 'PETG'
