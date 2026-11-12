@@ -10,6 +10,7 @@ import { canDo } from '../../permissions'
 import type { User } from '../../types'
 import TrainingDataset from '../../components/vision/TrainingDataset'
 import BoundedVisionImage from '../../components/vision/BoundedVisionImage'
+import PendingReview from '../../components/vision/PendingReview'
 import { maintenanceAudience, imageBudget } from '../../components/vision/maintenanceMedia'
 import { formatDate } from '../../utils/shared'
 import { EmptyState } from '../../components/ui'
@@ -296,7 +297,7 @@ export default function Detections() {
       </div>
 
       <p>Historical owner unknown. These records are available only to platform maintenance.</p>
-      <div className="flex gap-2 my-3"><button aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}>Grid view</button><button aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>List view</button><button onClick={() => { if (current()) setDataset({ audience }) }}>Training dataset</button></div>
+      <div className="flex gap-2 my-3"><button aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}>Grid view</button><button aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>List view</button><button onClick={() => { if (current()) setDataset({ audience }) }}>Training dataset</button><PendingReview audience={audience} current={current} /></div>
       <StatBar stats={statsData} />
 
       {/* Filters */}

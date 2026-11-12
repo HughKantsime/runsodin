@@ -82,7 +82,7 @@
     "frontend/src/pages/printers/Maintenance.tsx": "83bfebd3d05193fff1ca4b38e7a927f561ab4a495226c17e3217bbce61347a57",
     "frontend/src/pages/printers/PrinterDetail.tsx": "357a159419b2f7b171ccea7aefb209e0e817a44e31927aaca5ae690101c787f3",
     "frontend/src/pages/printers/Printers.tsx": "f5a4d2440446692f6805180d4b0a527e5f549cb1bc74e5b3308dbdf5d16fb94d",
-    "frontend/src/pages/vision/Detections.tsx": "30ed0d0d171685fa0da32d4a1ccdeb519c4d3cea9e99fc89a3534dc8b9f6c7bc"
+    "frontend/src/pages/vision/Detections.tsx": "9777883cfa54127f0fc323e69ddf4be046add405a18bcce9c78ecdc4e1cc1348"
   },
   "repinned": {
     "release": "2.0.43",
