@@ -574,3 +574,51 @@ def test_detections_on_back_to_back_ticks_never_save_a_frame_twice(env):
     thread._capture_and_analyze()                        # the frame after the detection (4)
     thread._detection_burst(thread.frame)                # the tick before was saved by the first burst
     assert len(env.training()) == 4
+
+
+# ---------------------------------------------------------------- Codex third sign-off 11-12
+def test_a_frame_captured_under_a_controlled_print_is_never_saved_under_the_next_one(env, monkeypatch):
+    """The camera request can outlast a print: a frame requested during controlled print A came
+    back after the monitor had moved the thread to uncontrolled print B, and was saved as B's."""
+    _print(env.db, 9001, 8001)
+    _mark_controlled(env.db, 8001)
+    env.db.execute(text("UPDATE print_jobs SET status='completed' WHERE id=9001"))
+    _print(env.db, 9002, 8002)
+    env.db.commit()
+    thread = env.make(9001)
+
+    def slow_camera():
+        thread.print_job_id = 9002          # the monitor switches prints while the request is out
+        return thread.frame
+    monkeypatch.setattr(thread, '_capture_frame', slow_camera)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 0
+    assert _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'") == 0
+    monkeypatch.setattr(thread, '_capture_frame', lambda: thread.frame)
+    thread._capture_and_analyze()            # the next frame belongs to B from the start
+    assert len(env.training()) == 1
+    assert _scalar(env.db, "SELECT print_job_id FROM vision_detections WHERE status='training'") == 9002
+
+
+def test_a_frame_is_dropped_when_the_print_changes_while_it_is_prepared(env, monkeypatch):
+    from modules.vision import training_capture
+    _print(env.db, 9001, 8001)
+    thread = env.make(9001)
+    real = training_capture.crop_frame
+
+    def slow_crop(frame, crop):
+        thread.print_job_id = 9002
+        return real(frame, crop)
+    monkeypatch.setattr(training_capture, 'crop_frame', slow_crop)
+    assert thread._save_training_frame(thread.frame, 9001) is False
+    assert len(env.training()) == 0
+
+
+def test_the_frame_before_a_detection_is_only_saved_under_its_own_print(env):
+    _print(env.db, 9001, 8001)
+    thread = env.make(9001)
+    thread._burst_previous = (9000, thread.frame)        # buffered under an earlier print
+    thread._burst_previous_saved = False
+    thread._saved_this_tick = True
+    thread._detection_burst(thread.frame)
+    assert len(env.training()) == 0
