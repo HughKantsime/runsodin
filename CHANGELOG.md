@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-11
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: Hotfix: the iPhone/iPad Queue could fail to load after a Kobra/Moonraker print finished. Job dates are now stored and sent in one form. -->
+
 ### Fixed
 
 - The iPhone/iPad app's Queue could fail to load ("The data couldn't be read because it isn't in the correct format") after a Kobra/Moonraker print finished, because that print's start and end times were stored with a timezone. O.D.I.N. now stores Moonraker times in the same form as every other printer, and the job list and job detail endpoints send every job date in one form (`YYYY-MM-DDTHH:MM:SS`, UTC), including for rows already stored the old way. Stored rows are not rewritten. A print that started before the upgrade and finishes after it still gets its duration in the print history.
