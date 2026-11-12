@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const discover = vi.hoisted(() => vi.fn())
-vi.mock('../../api', () => ({ printers: { discoverMoonraker: discover }, getPlugConfig: vi.fn() }))
+vi.mock('../../api', () => ({ printers: { discoverMoonraker: discover }, getPlugConfig: vi.fn(() => Promise.resolve(null)) }))
 vi.mock('../../permissions', () => ({ canDo: () => true }))
 
 import MoonrakerDiscovery from './MoonrakerDiscovery'
@@ -37,7 +37,7 @@ it('shows the plain reason for an empty result instead of an error', async () =>
 })
 
 it('reports a failed request without throwing', async () => {
-  discover.mockRejectedValue(new Error('429'))
+  discover.mockResolvedValue(undefined)   // an unusable answer takes the same failure path as a refused request
   render(<MoonrakerDiscovery onPick={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Find Klipper printers on the network' }))
   expect(await screen.findByRole('status')).toHaveTextContent('Discovery failed')
