@@ -1,17 +1,19 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
-// Runs `close` on every navigation (back/forward, search result, programmatic, same-path query or hash change).
-// location.key changes on each history entry; pathname alone misses same-page navigation.
+// Runs `close` when the user moves to another page (back/forward, a search result, programmatic navigation).
+// Compares against the previous path: never fires on first render (also under StrictMode's double effect),
+// and a page that only rewrites its own query string (a tab or filter) does not close anything.
 export function useCloseOnNavigate(close: () => void) {
-  const { key } = useLocation()
+  const { pathname } = useLocation()
   const closeRef = useRef(close)
+  const previous = useRef(pathname)
   useEffect(() => {
     closeRef.current = close
   }, [close])
-  const first = useRef(true)
   useEffect(() => {
-    if (first.current) { first.current = false; return }   // only a CHANGE of location closes
+    if (previous.current === pathname) return
+    previous.current = pathname
     closeRef.current()
-  }, [key])
+  }, [pathname])
 }
