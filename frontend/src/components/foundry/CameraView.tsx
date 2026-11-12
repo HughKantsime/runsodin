@@ -31,13 +31,18 @@ export default function CameraView({ cameras, printers = [], prints = [], initia
   // On a narrow screen the chooser scrolls sideways: keep the chosen camera's button in view.
   // Moves the strip only, never the page.
   useEffect(() => {
-    const strip = tabs.current
-    const active = strip?.querySelector<HTMLElement>('[aria-pressed="true"]')
-    if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return
-    const left = active.offsetLeft - strip.offsetLeft
-    const right = left + active.offsetWidth
-    if (left < strip.scrollLeft) strip.scrollLeft = left
-    else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth
+    const keepVisible = () => {
+      const strip = tabs.current
+      const active = strip?.querySelector<HTMLElement>('[aria-pressed="true"]')
+      if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return
+      const box = strip.getBoundingClientRect()
+      const tab = active.getBoundingClientRect()
+      if (tab.left < box.left) strip.scrollLeft += tab.left - box.left
+      else if (tab.right > box.right) strip.scrollLeft += tab.right - box.right
+    }
+    keepVisible()
+    window.addEventListener('resize', keepVisible)
+    return () => window.removeEventListener('resize', keepVisible)
   }, [selected, cameras.length])
   async function fullscreen() {
     try {

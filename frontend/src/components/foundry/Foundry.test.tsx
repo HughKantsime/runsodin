@@ -148,14 +148,17 @@ it('switches cameras, labels paused printers, opens wall and requests fullscreen
 })
 it('keeps the chosen camera button in view by moving the chooser strip only', () => {
   const cameras = [{ id: 1, name: 'Press' }, { id: 2, name: 'Far press' }] as Camera[]
-  const size = (prop: string, value: (el: HTMLElement) => number) =>
-    vi.spyOn(HTMLElement.prototype, prop as any, 'get').mockImplementation(function (this: HTMLElement) { return value(this) })
-  const isStrip = (el: HTMLElement) => el.classList.contains('f-camera-tabs')
-  const spies = [
-    size('scrollWidth', el => isStrip(el) ? 600 : 0), size('clientWidth', el => isStrip(el) ? 200 : 0),
-    size('offsetLeft', el => isStrip(el) ? 10 : el.textContent === 'Far press' ? 410 : 10),
-    size('offsetWidth', el => el.textContent === 'Far press' ? 120 : 80),
-  ]
+  const isStrip = (el: Element) => el.classList.contains('f-camera-tabs')
+  const size = (prop: string, value: number) =>
+    vi.spyOn(HTMLElement.prototype, prop as any, 'get').mockImplementation(function (this: HTMLElement) { return isStrip(this) ? value : 0 })
+  const spies = [size('scrollWidth', 600), size('clientWidth', 200)]
+  // The strip shows x 10..210; "Press" sits at 10..90 and "Far press" at 410..530, both shifted by the scroll.
+  const rects = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const strip = this.closest('.f-camera-tabs') as HTMLElement | null
+    const shift = strip && !isStrip(this) ? strip.scrollLeft : 0
+    const [left, width] = isStrip(this) ? [10, 200] : this.textContent === 'Far press' ? [410 - shift, 120] : [10 - shift, 80]
+    return { left, right: left + width, top: 0, bottom: 30, width, height: 30, x: left, y: 0, toJSON: () => ({}) } as DOMRect
+  })
   const scrollIntoView = vi.fn(); const original = Element.prototype.scrollIntoView
   Element.prototype.scrollIntoView = scrollIntoView
   try {
@@ -163,11 +166,14 @@ it('keeps the chosen camera button in view by moving the chooser strip only', ()
     const strip = screen.getByRole('group', { name: 'Choose camera' })
     expect(strip.scrollLeft).toBe(0)                       // the first camera is already in view
     fireEvent.click(screen.getByRole('button', { name: 'Far press' }))
-    expect(strip.scrollLeft).toBe(320)                     // right edge 400 + 120 - visible 200
+    expect(strip.scrollLeft).toBe(320)                     // its right edge (530) meets the strip's (210)
     fireEvent.click(screen.getByRole('button', { name: 'Press' }))
     expect(strip.scrollLeft).toBe(0)
+    strip.scrollLeft = 150                                 // the user swiped away, then the window is resized
+    fireEvent(window, new Event('resize'))
+    expect(strip.scrollLeft).toBe(0)
     expect(scrollIntoView).not.toHaveBeenCalled()          // the page itself is never scrolled
-  } finally { spies.forEach(spy => spy.mockRestore()); Element.prototype.scrollIntoView = original }
+  } finally { spies.forEach(spy => spy.mockRestore()); rects.mockRestore(); Element.prototype.scrollIntoView = original }
 })
 it('camera chip waits for MJPEG frames and never calls snapshots live', async () => {
   mocks.fallback = true; mocks.status = 'error'

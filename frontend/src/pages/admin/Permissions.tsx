@@ -92,7 +92,7 @@ function Toggle({ checked, onChange, disabled, locked }: { checked: boolean; onC
     )
   }
   return (
-    <button onClick={onChange} disabled={disabled}
+    <button onClick={onChange} disabled={disabled} role="switch" aria-checked={checked}
       className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${
         checked ? 'bg-green-500/80' : 'bg-[var(--brand-input-bg)]'
       } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-90'}`}>

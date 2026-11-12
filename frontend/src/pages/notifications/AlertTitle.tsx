@@ -19,10 +19,11 @@ export default function AlertTitle({ title }: { title: string }) {
       aria-expanded={open}
       title={title}
       onClick={() => setOpen(value => !value)}
-      className={`block w-full text-left text-sm font-semibold break-words ${open ? '' : 'line-clamp-2'}`}
+      className="w-full text-left text-sm font-semibold"
       style={style}
     >
-      {title}
+      {/* The clamp sits on a span: a button cannot be the clamped box itself. */}
+      <span data-alert-title className={`break-words ${open ? 'block' : 'line-clamp-2'}`}>{title}</span>
     </button>
   )
 }

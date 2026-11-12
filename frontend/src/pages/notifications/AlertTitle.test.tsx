@@ -16,12 +16,14 @@ describe('AlertTitle', () => {
     render(<AlertTitle title={title} />)
     const button = screen.getByRole('button')
     expect(button.textContent).toBe(title)
-    expect(button.className).toContain('line-clamp-2')
+    const text = button.querySelector('[data-alert-title]') as HTMLElement
+    expect(text.className).toContain('line-clamp-2')
+    expect(text.className.split(' ')).not.toContain('block')   // never two display rules on the clamped box
     expect(button.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(button)
-    expect(button.className).not.toContain('line-clamp-2')
+    expect(text.className).not.toContain('line-clamp-2')
     expect(button.getAttribute('aria-expanded')).toBe('true')
     fireEvent.click(button)
-    expect(button.className).toContain('line-clamp-2')
+    expect(text.className).toContain('line-clamp-2')
   })
 })
