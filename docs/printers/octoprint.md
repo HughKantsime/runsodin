@@ -12,7 +12,7 @@ O.D.I.N. can monitor an OctoPrint server and, once a platform administrator allo
 4. Paste the application key into **API Key**, then use **Test connection**.
 5. To send jobs or resume from O.D.I.N., a platform administrator turns on **Experimental actions** for that printer. Read the warning first.
 
-After you add the first OctoPrint printer, restart the O.D.I.N. container once so the OctoPrint monitor process starts with it.
+The OctoPrint monitor reads its printer list when it starts. Restart the O.D.I.N. container after you add an OctoPrint printer, change its address or application key, or deactivate it. (PrusaLink behaves the same way. When the license fleet lock is on, the monitor starts new printers by itself and restarts to pick up changed or removed ones.)
 
 ## What O.D.I.N. does
 
@@ -36,5 +36,6 @@ State is read from OctoPrint's flags and fails closed: printing, pausing and can
 - G-code (`.gcode`) files only.
 - One tool and the heated bed are read. Multiple tools, SD card files and OctoPrint plugins are not used.
 - O.D.I.N. never guesses the printer model; OctoPrint does not report one.
-- The camera is found only when OctoPrint's settings give a full `http://` or `https://` stream URL on the printer's own address. A relative address such as `/webcam/?action=stream` is not guessed; set the camera URL by hand instead.
-- OctoPrint has no "finished" flag. A print is recorded as completed only when OctoPrint reports 100 % completion; if it does not, the print is recorded as cancelled rather than guessed to have succeeded.
+- The camera is found only when OctoPrint's settings give a full `http://` or `https://` stream URL whose host is the printer's configured address (any port). A URL on another host, or a relative address such as `/webcam/?action=stream`, is not used or guessed; set the camera URL by hand instead.
+- OctoPrint has no "finished" flag. A print is recorded as completed only when OctoPrint reports 100 % completion; if it does not, the print is recorded as cancelled rather than guessed to have succeeded. If OctoPrint's job report cannot be read when a print ends, O.D.I.N. waits and retries for 10 polls; if it still cannot be read, the print is recorded as cancelled and the printer's error history says the result could not be read.
+- If an upload gets no answer (timeout), O.D.I.N. cannot know whether the print started. It reports the outcome as unknown and does not send again; check the printer before retrying.

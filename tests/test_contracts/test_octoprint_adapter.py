@@ -118,7 +118,7 @@ def test_finished_job_keeps_its_100_percent(octo):
     octo.routes[('GET', '/api/printer')] = Reply(200, printer_body(flags(operational=True, ready=True)))
     octo.routes[('GET', '/api/job')] = Reply(200, job_body(completion=100.0, left=0, state='Operational'))
     status = client().get_status()
-    assert status.state is OctoPrintState.IDLE and status.progress_percent == 100.0
+    assert status.state is OctoPrintState.IDLE and status.progress_percent == 100.0 and status.job_read is True
 
 
 def test_not_operational_is_offline_and_reads_no_job(octo):
@@ -153,6 +153,7 @@ def test_job_failures_do_not_change_the_state(octo):
         octo.routes[('GET', '/api/job')] = job
         status = client().get_status()
         assert status.state is OctoPrintState.IDLE and status.filename == '' and status.progress_percent is None
+        assert status.job_read is False
 
 
 def test_odd_numbers_are_dropped_not_guessed(octo):
@@ -239,11 +240,18 @@ def test_upload_success_on_201_done_true_with_the_documented_request(octo, gcode
     Reply(201, {'done': 1}), Reply(201, raw=b'{'), Reply(201, raw=b'[]'),
     Reply(400, {'error': 'No file included'}), Reply(409, {'error': 'Printer is not operational'}),
     Reply(415, {'error': 'Unsupported media type'}), Reply(500, {}),
-    requests.exceptions.Timeout('slow'), requests.exceptions.ConnectionError('refused'),
 ])
 def test_upload_refused_unless_201_done_true(octo, gcode, reply):
     octo.routes[('POST', '/api/files/local')] = reply
     assert client().upload_and_print(str(gcode), 'gear.gcode') is False
+
+
+@pytest.mark.parametrize('failure', [requests.exceptions.Timeout('slow'), requests.exceptions.ConnectionError('reset')])
+def test_upload_with_no_answer_is_unknown_not_refused(octo, gcode, failure):
+    octo.routes[('POST', '/api/files/local')] = failure
+    with pytest.raises(adapter_module.OctoPrintOutcomeUnknown):
+        client().upload_and_print(str(gcode), 'gear.gcode')
+    assert [r.path for r in octo.requests] == ['/api/files/local']
 
 
 def test_upload_name_is_a_basename_and_control_characters_are_refused(octo, gcode):
@@ -254,7 +262,7 @@ def test_upload_name_is_a_basename_and_control_characters_are_refused(octo, gcod
     assert client().upload_and_print(str(gcode), 'a\nb.gcode') is False
     assert client().upload_and_print(str(gcode), '') is False  # falls back to nothing usable only if empty path
     assert client().upload_and_print(str(gcode) + '.missing', 'a.gcode') is False
-    assert [r.path for r in octo.requests] == ['/api/files/local'] * 1 or octo.requests == []
+    assert octo.requests == []  # every one of the three was refused before any request was made
 
 
 # ---- controls ----
@@ -292,6 +300,15 @@ def settings(stream):
     return Reply(200, {'webcam': {'streamUrl': stream, 'webcamEnabled': True}})
 
 
+@pytest.mark.parametrize('host,stream', [
+    ('192.0.2.60:5000', 'http://192.0.2.60:8080/?action=stream'),
+    ('fd00::5', 'http://[fd00::5]:8080/?action=stream'),
+])
+def test_webcam_host_must_equal_the_configured_host(octo, host, stream):
+    octo.routes[('GET', '/api/settings')] = settings(stream)
+    assert OctoPrintPrinter(host, api_key=KEY).get_webcam_url() == stream
+
+
 def test_webcam_url_comes_only_from_settings(octo):
     octo.routes[('GET', '/api/settings')] = settings('http://192.0.2.60:8080/?action=stream')
     assert client().get_webcam_url() == 'http://192.0.2.60:8080/?action=stream'
@@ -302,6 +319,9 @@ def test_webcam_url_comes_only_from_settings(octo):
     settings('/webcam/?action=stream'), settings(''), settings(None), settings(5),
     settings('http://user:pw@192.0.2.60/stream'), settings('file:///etc/passwd'),
     settings('http://192.0.2.60/a b'), settings('http://'),
+    settings('http://192.0.2.99:8080/?action=stream'),            # another host
+    settings('http://169.254.169.254/latest/meta-data/'),         # link-local
+    settings('http://octopi.example/?action=stream'),
     Reply(200, {'webcam': {}}), Reply(200, {}), Reply(200, raw=b'{'), Reply(403, {}), Reply(404, {}),
     requests.exceptions.Timeout('slow'),
 ])
@@ -393,3 +413,31 @@ def test_octoprint_command_uses_the_decrypted_key_and_only_allowed_commands(monk
     assert route_utils._octoprint_command(printer, 'pause_print') is True
     assert seen == [(f'http://{HOST}:5000', 'decrypted-enc')]
     assert route_utils._octoprint_command(printer, 'set_print_speed') is False
+
+
+def test_octoprint_command_falls_back_to_the_stored_key_when_decrypt_fails(monkeypatch):
+    from modules.printers import route_utils
+
+    def broken(value):
+        raise ValueError('not encrypted')
+    monkeypatch.setattr(route_utils.crypto, 'decrypt', broken)
+    seen = []
+    monkeypatch.setattr(adapter_module.OctoPrintPrinter, 'stop_print',
+                        lambda self: seen.append(self.api_key) or True)
+    printer = SimpleNamespace(id=7, api_type='octoprint', api_host=HOST, api_key='plain-stored-key')
+    assert route_utils._octoprint_command(printer, 'stop_print') is True
+    assert seen == ['plain-stored-key']
+
+
+def test_connection_test_builds_its_url_with_the_adapter_origin(monkeypatch):
+    from modules.printers import route_utils
+    seen = []
+    monkeypatch.setattr(route_utils, 'pinned_device_get',
+                        lambda client, url, **kw: seen.append((url, kw['headers'])) or 'reply')
+    assert route_utils.octoprint_test_get('fd00::5', 'k') == 'reply'
+    assert route_utils.octoprint_test_get('192.0.2.60:5000', 'k') == 'reply'
+    assert seen == [('http://[fd00::5]:80/api/version', {'X-Api-Key': 'k'}),
+                    ('http://192.0.2.60:5000/api/version', {'X-Api-Key': 'k'})]
+    with pytest.raises(ValueError):
+        route_utils.octoprint_test_get('user:pw@192.0.2.60', 'k')
+    assert len(seen) == 2

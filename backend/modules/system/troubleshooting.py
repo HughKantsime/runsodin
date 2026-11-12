@@ -246,14 +246,13 @@ def printer_checks(printer,transfer=False):
                                 '' if response.status_code==200 else 'Check printer API configuration and saved API key.',http_status=response.status_code))
         except Exception as error: checks.append(failure('http_status',error))
     elif protocol=='octoprint':
-        import httpx
+        from modules.printers.adapters.octoprint import OctoPrintPrinter
         try:
             key=crypto.decrypt(printer.api_key) if printer.api_key else ''
             if not key: raise ValueError('missing application key')
-            target=('['+host+']') if ':' in host else host
-            target+=(':'+str(port or 80))
-            with httpx.Client(timeout=5,trust_env=False,follow_redirects=False) as client:
-                response=client.get('http://'+target+'/api/version',headers={'X-Api-Key':key})
+            # The adapter's transport: ITAR check, device destination policy, pinned address, no redirects or proxies.
+            response=OctoPrintPrinter(printer.api_host,port=port or 80,api_key=key)._call('get','/api/version',timeout=5)
+            if response is None: raise ConnectionError('no answer')
             ok=response.status_code==200
             checks.append(check('http_status','pass' if ok else 'fail',
                                 'Printer status endpoint responded.' if ok else 'Printer status endpoint rejected the request.',

@@ -91,7 +91,7 @@ def script(world, *steps):
 
 def test_start_progress_and_completion_through_the_shared_path(world):
     world.run(3, before_poll=script(world, (PRINTING, job_body(completion=80.0, left=300)), (IDLE, job_body(completion=100.0, left=0, state='Operational'))))
-    assert jobs(world.db) == [('completed', 80)] or jobs(world.db)[0][0] == 'completed'
+    assert jobs(world.db) == [('completed', 80)]
     r = row(world.db, 'gcode_state,last_seen')
     assert r['gcode_state'] == 'IDLE' and r['last_seen']
     printing = [p for kind, p in world.events if kind == 'printer_telemetry' and p['state'] == 'PRINTING']
@@ -198,3 +198,56 @@ def test_daemon_selects_only_active_octoprint_printers_and_decrypts_the_key(worl
     assert world.module._credentials('') == ''
     assert world.module._credentials(crypto.encrypt('abc')) == 'abc'
     assert world.module._credentials('plain-key') == 'plain-key'
+
+
+def test_idle_with_an_unreadable_job_waits_then_decides_from_the_real_reading(world):
+    def after(poll):
+        if poll == 1:
+            world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(IDLE))
+            world.http.routes[('GET', '/api/job')] = requests.exceptions.Timeout('slow')
+    world.run(2, before_poll=after)
+    assert jobs(world.db) == [('running', 42)] and world.monitor._last_state == 'PRINTING'
+    world.http.routes[('GET', '/api/job')] = Reply(200, job_body(completion=100.0, left=0, state='Operational'))
+    world.run(1)
+    assert jobs(world.db) == [('completed', 42)]
+
+
+def test_ten_unreadable_job_readings_record_cancelled_with_the_reason(world):
+    def after(poll):
+        if poll == 1:
+            world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(IDLE))
+            world.http.routes[('GET', '/api/job')] = Reply(500, {})
+    world.run(10, before_poll=after)  # polls 2..10: nine failed readings
+    assert jobs(world.db) == [('running', 42)]
+    world.run(1)                      # the tenth
+    assert jobs(world.db) == [('cancelled', 42)]
+    world.db.expire_all()
+    history = world.db.execute(text('SELECT code,message,severity,source FROM hms_error_history WHERE printer_id=501')).all()
+    assert len(history) == 1 and history[0][0] == 'OCTOPRINT_RESULT_UNREADABLE'
+    assert 'could not be read' in history[0][1] and tuple(history[0][2:]) == ('warning', 'octoprint')
+
+
+def test_a_return_to_unknown_after_offline_is_written(world):
+    world.http.routes[('GET', '/api/printer')] = Reply(500, {})
+    world.run(1)
+    assert row(world.db, 'gcode_state')['gcode_state'] == 'UNKNOWN'
+    world.http.routes[('GET', '/api/printer')] = requests.exceptions.ConnectionError('refused')
+    world.run(5)
+    assert row(world.db, 'gcode_state')['gcode_state'] == 'OFFLINE'
+    world.http.routes[('GET', '/api/printer')] = Reply(500, {})
+    world.run(1)
+    assert row(world.db, 'gcode_state')['gcode_state'] == 'UNKNOWN'
+
+
+def test_error_with_no_print_running_fails_nothing_and_dispatches_nothing(world, monkeypatch):
+    import modules.notifications.event_dispatcher as printer_events
+    monkeypatch.setattr(printer_events, 'on_print_failed', lambda *a, **k: pytest.fail('no print was running'))
+    started = []
+    monkeypatch.setattr(world.module.threading, 'Thread',
+                        lambda *a, **kw: started.append(kw.get('target')) or SimpleNamespace(start=lambda: None))
+    world.http.routes[('GET', '/api/printer')] = Reply(200, printer_body(ERROR))
+    world.run(2)
+    assert jobs(world.db) == [] and started == []
+    world.db.expire_all()
+    history = world.db.execute(text('SELECT code FROM hms_error_history WHERE printer_id=501')).all()
+    assert [h[0] for h in history] == ['OCTOPRINT_ERROR']

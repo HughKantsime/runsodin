@@ -42,6 +42,12 @@ _MAX_NAME = 255
 _KEY = re.compile(r"[\x21-\x7e]+")
 
 
+class OctoPrintOutcomeUnknown(RuntimeError):
+    """The request may have reached OctoPrint but no answer came back (timeout, connection lost).
+
+    Distinct from a refusal: the server may have acted on it."""
+
+
 class OctoPrintState(Enum):
     IDLE = "IDLE"
     PRINTING = "PRINTING"
@@ -70,6 +76,7 @@ class OctoPrintStatus:
     current_layer: int = 0
     total_layers: int = 0
     job_state: str = ""
+    job_read: bool = False       # True only when GET /api/job answered 200 with a JSON object
 
     raw_data: Dict[str, Any] = field(default_factory=dict)  # the GET /api/printer body
 
@@ -120,11 +127,12 @@ class OctoPrintPrinter:
     # ------------------------------------------------------------------
     # transport
     # ------------------------------------------------------------------
-    def _call(self, verb: str, path: str, **kwargs):
+    def _call(self, verb: str, path: str, *, raise_unknown: bool = False, **kwargs):
         """One device request, or None when it cannot or must not be made.
 
         Needs a key and a valid origin; passes the ITAR destination check; goes through the
-        pinned device policy (no redirects, no proxies, no DNS rebinding)."""
+        pinned device policy (no redirects, no proxies, no DNS rebinding). With raise_unknown, a
+        request that was sent but got no answer raises OctoPrintOutcomeUnknown instead of None."""
         if self.base_url is None or not self.api_key:
             return None
         url = self.base_url + path
@@ -143,6 +151,8 @@ class OctoPrintPrinter:
             log.debug("OctoPrint connection failed: %s", self.host)
         except Exception as exc:
             log.warning("OctoPrint request error: %s", type(exc).__name__)
+        if raise_unknown:
+            raise OctoPrintOutcomeUnknown("no answer after the request was sent")
         return None
 
     # ------------------------------------------------------------------
@@ -191,13 +201,16 @@ class OctoPrintPrinter:
         status.time_printing = job["time_printing"]
         status.time_remaining = job["time_remaining"]
         status.job_state = job["job_state"]
+        status.job_read = True
 
     def get_webcam_url(self) -> Optional[str]:
         """The stream URL OctoPrint itself reports in GET /api/settings (webcam.streamUrl).
 
-        Only an absolute http(s) URL with a host and no credentials is returned. A relative
-        path is not resolved against the configured address (that would be inventing a URL),
-        and nothing is probed when the setting is absent."""
+        Only an absolute http(s) URL with no credentials whose host equals the printer's
+        configured host (case-insensitive, trailing dot ignored, any port) is returned. A
+        relative path is not resolved against the configured address (that would be inventing
+        a URL), another host is never followed, and nothing is probed when the setting is
+        absent."""
         reply = self._call("get", "/api/settings")
         if reply is None or reply.status_code != 200:
             return None
@@ -217,6 +230,9 @@ class OctoPrintPrinter:
         if parts.scheme not in ("http", "https") or not hostname or parts.username is not None \
                 or parts.password is not None:
             return None
+        configured = (urlsplit(self.base_url).hostname or "").rstrip(".").lower()
+        if hostname.rstrip(".").lower() != configured:
+            return None
         return url
 
     # ------------------------------------------------------------------
@@ -225,8 +241,10 @@ class OctoPrintPrinter:
     def upload_and_print(self, local_path: str, remote_filename: str = None) -> bool:
         """POST /api/files/local (multipart file, select=true, print=true): upload and start.
 
-        Success only on HTTP 201 whose JSON says done=true. Anything else (400, 409, 415,
-        a malformed body, a timeout) is a refusal."""
+        Success only on HTTP 201 whose JSON says done=true. Anything else that was answered
+        (400, 409, 415, a malformed body) or never sent (no key, bad origin, ITAR block) returns
+        False. A request that was sent but got no answer (timeout, connection lost) raises
+        OctoPrintOutcomeUnknown: OctoPrint may have started the print."""
         raw_name = remote_filename if remote_filename is not None else local_path
         name = os.path.basename(str(raw_name).replace("\\", "/"))
         if not name or len(name) > _MAX_NAME or any(ord(c) < 32 or ord(c) == 127 for c in name):
@@ -235,7 +253,7 @@ class OctoPrintPrinter:
         try:
             with open(local_path, "rb") as handle:
                 reply = self._call(
-                    "post", "/api/files/local",
+                    "post", "/api/files/local", raise_unknown=True,
                     files={"file": (name, handle, "application/octet-stream")},
                     data={"select": "true", "print": "true"},
                     timeout=120,
@@ -244,7 +262,7 @@ class OctoPrintPrinter:
             log.error("OctoPrint upload refused: local file unreadable")
             return False
         if reply is None:
-            log.error("OctoPrint upload failed (%s): no answer", self.host)
+            log.error("OctoPrint upload not sent (%s): no key, unusable address or blocked destination", self.host)
             return False
         if reply.status_code != 201:
             log.error("OctoPrint upload returned %s (%s)", reply.status_code, self.host)

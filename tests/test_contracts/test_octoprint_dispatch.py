@@ -118,6 +118,20 @@ def test_octoprint_dispatch_refuses_non_gcode_and_unconfirmed_uploads(monkeypatc
     assert ok is False and 'not confirmed' in message and uploads == ['a.gcode']
 
 
+def test_octoprint_upload_with_no_answer_takes_the_shared_unconfirmed_outcome(monkeypatch, tmp_path):
+    from modules.printers import dispatch
+    from modules.printers.adapters import octoprint as adapter
+    monkeypatch.setattr(dispatch, '_ws', lambda *a: None)
+    monkeypatch.setattr('modules.printers.maintenance_gate.check_command', lambda: None)
+
+    def no_answer(self, path, name=None):
+        raise adapter.OctoPrintOutcomeUnknown('no answer')
+    monkeypatch.setattr(adapter.OctoPrintPrinter, 'upload_and_print', no_answer)
+    with pytest.raises(dispatch.DispatchOutcomeUncertain):
+        dispatch._dispatch_octoprint(1, str(tmp_path / 'a.gcode'), 'a.gcode',
+                                     {'ip': HOST, 'port': 80, 'api_key': 'k'})
+
+
 def test_resume_needs_the_opt_in_but_pause_and_stop_never_do(graph, monkeypatch):
     from modules.printers import route_utils
     printer = graph.get(Printer, 9)

@@ -42,6 +42,7 @@ POLL_INTERVAL = 5            # seconds between polls
 HEARTBEAT_INTERVAL = 10      # seconds between telemetry + last_seen writes
 PROGRESS_DB_INTERVAL = 5     # at most one progress write per this many seconds
 MAX_CONSECUTIVE_FAILURES = 5  # Treat as disconnect after this many failures
+MAX_UNREAD_JOB_POLLS = 10     # PRINTING -> IDLE waits this many polls for a readable /api/job
 
 _ODIN_STATE = {"PRINTING": "RUNNING", "PAUSED": "PAUSE", "ERROR": "FAILED"}
 
@@ -64,7 +65,9 @@ class OctoPrintMonitorThread(threading.Thread):
         self._last_progress_write = 0
         self._last_telemetry_insert = 0
         self._marked_offline = False
+        self._offline_written = False  # OFFLINE is in the row now (distinct from the heartbeat flag)
         self._gap_state = None
+        self._unread_polls = 0
         self._status_lock = threading.RLock()
         self._retired = False
 
@@ -91,10 +94,12 @@ class OctoPrintMonitorThread(threading.Thread):
             except Exception:
                 self._consecutive_failures += 1
                 with self._status_lock:
+                    self._gap_state = None  # a later UNKNOWN/OFFLINE reading must be written again
                     if not self._retired:
-                        if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES and not self._marked_offline:
+                        if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES and not self._offline_written:
                             if self._persist_state("OFFLINE", "Offline"):
                                 self._marked_offline = True
+                                self._offline_written = True
                 log.warning("Printer poll failed (%s consecutive failures)", self._consecutive_failures)
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] OctoPrint monitor stopped")
@@ -152,6 +157,7 @@ class OctoPrintMonitorThread(threading.Thread):
                 if self._persist_state(gstate, stage):
                     self._gap_state = gstate
                     self._marked_offline = True  # the next real reading writes its heartbeat at once
+                    self._offline_written = gstate == "OFFLINE"
             return
         self._gap_state = None
 
@@ -165,8 +171,11 @@ class OctoPrintMonitorThread(threading.Thread):
         odin_state = _ODIN_STATE.get(current_state, "IDLE")
         remaining_min = status.time_remaining // 60 if status.time_remaining else None
 
+        if current_state != "IDLE":
+            self._unread_polls = 0
         if current_state != self._last_state:
             previous = self._last_state
+            deferred = False  # PRINTING -> IDLE waits for a readable /api/job
             if odin_state != "PAUSE":
                 from core.job_timeline import close_pause_episode
                 close_pause_episode(self.printer_id)
@@ -184,30 +193,53 @@ class OctoPrintMonitorThread(threading.Thread):
                     observed_elapsed=continuing_print_limit(status.time_printing, first_look=first_look),
                 )
             elif odin_state == "IDLE" and previous in ("PRINTING", "PAUSED"):
-                # OctoPrint has no "finished" flag. Completed needs OctoPrint's own 100 %;
-                # anything else (including no figure at all) is cancelled, never a success.
-                finished = status.progress_percent is not None and status.progress_percent >= 100.0
-                if finished:
-                    printer_events.on_print_complete(
-                        self.printer_id,
-                        current_file or self._last_filename or "Unknown",
-                        status.time_printing,
-                        None,
-                    )
+                # OctoPrint has no "finished" flag. Completed needs OctoPrint's own 100 % from a
+                # job reading that succeeded. A failed reading decides nothing: wait and retry,
+                # up to MAX_UNREAD_JOB_POLLS polls, then record cancelled with that reason.
+                if not status.job_read:
+                    self._unread_polls += 1
+                if status.job_read or self._unread_polls >= MAX_UNREAD_JOB_POLLS:
+                    finished = (status.job_read and status.progress_percent is not None
+                                and status.progress_percent >= 100.0)
+                    if finished:
+                        printer_events.on_print_complete(
+                            self.printer_id,
+                            current_file or self._last_filename or "Unknown",
+                            status.time_printing,
+                            None,
+                        )
+                    else:
+                        printer_events.on_print_cancelled(
+                            self.printer_id,
+                            current_file or self._last_filename or "Unknown",
+                        )
+                        if not status.job_read:
+                            try:
+                                printer_events.record_error(
+                                    self.printer_id,
+                                    error_code="OCTOPRINT_RESULT_UNREADABLE",
+                                    error_message="The print result could not be read from OctoPrint; recorded as cancelled",
+                                    source="octoprint",
+                                    severity="warning",
+                                    history=True,
+                                )
+                            except Exception as e:
+                                log.debug(f"Failed to record OctoPrint unreadable result: {e}")
+                    self._unread_polls = 0
+                    threading.Thread(target=self._try_dispatch, daemon=True).start()
                 else:
-                    printer_events.on_print_cancelled(
-                        self.printer_id,
-                        current_file or self._last_filename or "Unknown",
-                    )
-                threading.Thread(target=self._try_dispatch, daemon=True).start()
+                    deferred = True
             elif odin_state == "FAILED":
                 error_msg = "Printer reported error state"
-                printer_events.on_print_failed(
-                    self.printer_id,
-                    current_file or self._last_filename or "Unknown",
-                    error_msg,
-                )
-                threading.Thread(target=self._try_dispatch, daemon=True).start()
+                # An error with no print running (idle printer, serial port gone) ends nothing and
+                # must not start an auto-dispatch; the error itself is still recorded below.
+                if previous in ("PRINTING", "PAUSED"):
+                    printer_events.on_print_failed(
+                        self.printer_id,
+                        current_file or self._last_filename or "Unknown",
+                        error_msg,
+                    )
+                    threading.Thread(target=self._try_dispatch, daemon=True).start()
                 try:
                     printer_events.record_error(
                         self.printer_id,
@@ -222,7 +254,8 @@ class OctoPrintMonitorThread(threading.Thread):
             elif odin_state == "PAUSE":
                 printer_events.on_print_paused(self.printer_id, current_file)
 
-            self._last_state = current_state
+            if not deferred:
+                self._last_state = current_state
 
         if current_file:
             self._last_filename = current_file
@@ -293,6 +326,7 @@ class OctoPrintMonitorThread(threading.Thread):
                 live_state_allowed = True
                 self._last_heartbeat = time.time()
                 self._marked_offline = False
+                self._offline_written = False
 
                 payload = {
                     'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,

@@ -90,8 +90,12 @@ def prusalink_test_get(host: str, credential: Optional[str]):
 def octoprint_test_get(host: str, credential: Optional[str]):
     """GET /api/version with the application key, pinned to the device destination policy."""
     import httpx
+    from modules.printers.adapters.octoprint import _origin
+    origin = _origin(host, 80)  # the adapter's own parsing: host:port and bare IPv6 hosts
+    if origin is None:
+        raise ValueError("Invalid OctoPrint host")
     options = {"headers": {"X-Api-Key": credential}} if credential else {}
-    return pinned_device_get(httpx, f"http://{host}/api/version", timeout=5, **options)
+    return pinned_device_get(httpx, origin + "/api/version", timeout=5, **options)
 
 from modules.printers.camera_urls import (
     _url_endpoint, _validate_camera_url, get_camera_url, effective_camera_url, split_url_userinfo,
@@ -589,7 +593,10 @@ def _octoprint_command(printer, action: str) -> bool:
     """Send pause, resume or stop to an OctoPrint server (POST /api/job; success only on 204)."""
     from modules.printers.adapters.octoprint import OctoPrintPrinter
     try:
-        key = crypto.decrypt(printer.api_key) if printer.api_key else ""
+        try:
+            key = crypto.decrypt(printer.api_key) if printer.api_key else ""
+        except Exception:
+            key = printer.api_key  # not encrypted or decrypt failed: use the stored value, as dispatch does
         adapter = OctoPrintPrinter(printer.api_host, api_key=key)
         return _call_adapter_method(adapter, action)
     except Exception as e:

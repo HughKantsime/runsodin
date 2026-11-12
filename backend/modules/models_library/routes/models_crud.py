@@ -284,7 +284,8 @@ def schedule_from_model(
             if api_type not in {"bambu", "moonraker", "prusalink", "octoprint"} or not printer.is_active:
                 raise HTTPException(400, "Selected printer does not support dispatch")
             allowed = [v.strip() for v in (file.compatible_api_types or "").split(",") if v.strip()]
-            if (api_type != "bambu" and suffix == ".3mf") or (allowed and api_type not in allowed):
+            from modules.models_library.queue_payload import PRINTER_PAYLOAD_SUFFIXES
+            if suffix not in PRINTER_PAYLOAD_SUFFIXES[api_type] or (allowed and api_type not in allowed):
                 raise HTTPException(400, "Print file is incompatible with the selected printer API")
             if all(v is not None for v in (file.bed_x_mm, file.bed_y_mm, printer.bed_x_mm, printer.bed_y_mm)):
                 if file.bed_x_mm > printer.bed_x_mm + 2 or file.bed_y_mm > printer.bed_y_mm + 2:

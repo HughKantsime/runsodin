@@ -20,6 +20,9 @@ FILE_FIELDS = (
 )
 TARGET_FIELDS = ('id', 'org_id', 'shared', 'api_type', 'is_active', 'machine_type',
                  'bed_x_mm', 'bed_y_mm')
+# File types each printer type can print: the one map for queue-time and schedule-time checks.
+PRINTER_PAYLOAD_SUFFIXES = {'bambu': ('.3mf',), 'moonraker': ('.gcode',),
+                            'prusalink': ('.gcode', '.bgcode'), 'octoprint': ('.gcode',)}
 
 
 def lock_queue_reference(db, table, identifier, fields):
@@ -89,8 +92,7 @@ def verified_queue_payload(row, target):
         if api not in ('bambu', 'moonraker', 'prusalink', 'octoprint') or not target.is_active:
             raise HTTPException(400, 'Selected printer does not support dispatch')
         allowed = [value.strip() for value in (row.compatible_api_types or '').split(',') if value.strip()]
-        compatible = {'bambu': ('.3mf',), 'moonraker': ('.gcode',), 'prusalink': ('.gcode', '.bgcode'), 'octoprint': ('.gcode',)}
-        if suffix not in compatible[api] or (allowed and api not in allowed):
+        if suffix not in PRINTER_PAYLOAD_SUFFIXES[api] or (allowed and api not in allowed):
             raise HTTPException(400, 'Print file is incompatible with the selected printer API')
         if all(value is not None for value in (row.bed_x_mm, row.bed_y_mm, target.bed_x_mm, target.bed_y_mm)):
             if row.bed_x_mm > target.bed_x_mm + 2 or row.bed_y_mm > target.bed_y_mm + 2:
