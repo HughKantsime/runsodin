@@ -122,3 +122,23 @@ def test_snapshot_view_is_audited(frames, review_db):
     review_db.commit()
     again = review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='camera.viewed' AND entity_id=9")).scalar()
     assert again == rows                                # polling does not flood the audit log
+
+
+def test_the_second_authorization_does_not_reuse_a_cached_no_controlled_work_answer(frames, monkeypatch):
+    """Regression (Codex sign-off 11-12): work marked controlled while the frame was awaited was
+    missed, because the request had cached "no controlled work" before the wait."""
+    from core.controlled_cache import request_cache
+    from modules.printers import camera_routes
+    client, tokens, _, _, _ = frames
+    real, seen = camera_routes.overlay_camera_principal, []
+
+    def principal(db, token, printer):
+        cache = request_cache(db)
+        seen.append(None if cache is None else '_controlled_present' in cache)
+        result = real(db, token, printer)
+        if cache is not None:
+            cache['_controlled_present'] = False     # what the first check leaves behind
+        return result
+    monkeypatch.setattr(camera_routes, 'overlay_camera_principal', principal)
+    assert client.get("/overlay/9/snapshot", params={"token": tokens["camera"]}).status_code == 200
+    assert len(seen) == 2 and seen[1] is False

@@ -80,7 +80,16 @@ class OdinCamera(OdinPrinterEntity, Camera):
                     if response.status == 200:
                         if (getattr(response, "content_length", None) or 0) > SNAPSHOT_MAX_BYTES:
                             return None
-                        frame = await response.read()
+                        # Read in pieces and stop at the limit: a body with no Content-Length
+                        # must not be buffered whole before it is judged.
+                        body = bytearray()
+                        async for chunk in response.content.iter_chunked(65536):
+                            body += chunk
+                            if len(body) > SNAPSHOT_MAX_BYTES:
+                                break
+                        if len(body) > SNAPSHOT_MAX_BYTES:
+                            return None
+                        frame = bytes(body)
                         if frame.startswith(b"\xff\xd8") and len(frame) <= SNAPSHOT_MAX_BYTES:
                             self._snapshot_route = True   # only a real JPEG proves the route exists
                             return frame

@@ -668,6 +668,13 @@ async def overlay_camera_snapshot(printer_id: int, token: Optional[str] = Query(
         except _RelayHasNoStream:
             raise HTTPException(status_code=502, detail="Camera snapshot unavailable") from None
     # The frame may have been read for another caller: authorize again before releasing it.
+    # The first check cached "no controlled work" on this request; work marked while the frame
+    # was awaited must be seen, so that answer is dropped as well as the loaded rows.
+    from core.controlled_cache import request_cache
+    cache = request_cache(db)
+    if cache is not None:
+        for key in ('_controlled_present', '_controlled_any', '_controlled_history'):
+            cache.pop(key, None)
     db.expire_all()
     await run_in_threadpool(authorize)
     await run_in_threadpool(audit_view, db, 'camera.viewed', 'printer', printer_id, 'snapshot')

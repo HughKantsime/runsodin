@@ -62,3 +62,17 @@ async def test_a_missing_camera_on_a_new_server_does_not_fall_back(hass, aioclie
     with pytest.raises(HomeAssistantError):
         await async_get_image(hass, "camera.x1c_camera")
     assert not _calls(aioclient_mock, "/api/overlay/1/camera")
+
+
+async def test_an_oversized_snapshot_with_no_length_is_dropped_before_it_is_buffered_whole(hass, aioclient_mock, status):
+    """Regression (Codex sign-off 11-12): the whole body was read before the size was judged."""
+    import pytest
+    from homeassistant.exceptions import HomeAssistantError
+    from custom_components.odin import camera
+    await _camera(hass, aioclient_mock, status)
+    aioclient_mock.get(SNAPSHOT, content=JPEG)
+    assert (await async_get_image(hass, "camera.x1c_camera")).content == JPEG      # the route is known to exist
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(SNAPSHOT, content=b"\xff\xd8" + b"x" * (camera.SNAPSHOT_MAX_BYTES + 200_000))
+    with pytest.raises(HomeAssistantError):
+        await async_get_image(hass, "camera.x1c_camera")
