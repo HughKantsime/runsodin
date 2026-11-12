@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
-- Phone browsers, Classic theme: every button in a page, pop-up or stand-alone page is at least 44 px to the finger (switches keep their size and get a larger invisible touch area); a printer card's action buttons move to their own row instead of squeezing the printer's name. Desktop and tablet layouts are unchanged.
+- Phone browsers, Classic theme: every button in a page, pop-up or stand-alone page is at least 44 px to the finger (switches look the same and take 44 px of space; small buttons inside a text field keep their size); a printer card's action buttons move to their own row instead of squeezing the printer's name. Desktop and tablet layouts are unchanged.
 - Alerts: a long title on a single alert is shown on two lines and expands when pressed (grouped alerts already did this).
 - Foundry cameras on a phone: the chosen camera's button is kept in view in the chooser strip.
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
