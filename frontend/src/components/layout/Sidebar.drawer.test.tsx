@@ -80,10 +80,10 @@ test('programmatic navigation to another page closes the open drawer', () => {
   expect(drawer()).toHaveAttribute('data-drawer-open', 'false')
 })
 
-test('navigation that keeps the pathname (search result with a query, hash) closes it too', () => {
+test('a page rewriting its own query string does not close the drawer', () => {
   showOwner()
-  act(() => { navigate('/jobs?q=benchy') })
-  expect(drawer()).toHaveAttribute('data-drawer-open', 'false')
+  act(() => { navigate('/jobs?q=benchy', { replace: true }) })
+  expect(drawer()).toHaveAttribute('data-drawer-open', 'true')
 })
 
 test('browser back closes a reopened drawer', () => {
