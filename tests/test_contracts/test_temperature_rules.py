@@ -201,5 +201,7 @@ def test_a_burst_of_rows_never_shortens_the_sustained_time():
     assert evaluate(burst, LONG_AGO, NOW).findings == ()
     nearly = [Sample(NOW - timedelta(seconds=10 * i), 60.0, 190.0, 60.0, 220.0) for i in range(29)]   # 4 min 40 s
     assert evaluate(nearly, LONG_AGO, NOW).findings == ()
+    almost = [Sample(NOW - timedelta(seconds=5 * i), 60.0, 190.0, 60.0, 220.0) for i in range(60)]     # 4 min 55 s
+    assert evaluate(almost, LONG_AGO, NOW).findings == ()
     full = [Sample(NOW - timedelta(seconds=10 * i), 60.0, 190.0, 60.0, 220.0) for i in range(31)]     # 5 min
     assert keys(evaluate(full, LONG_AGO, NOW)) == {(NOZZLE, NOT_REACHING_TARGET)}
