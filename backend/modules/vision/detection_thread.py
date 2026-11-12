@@ -172,14 +172,14 @@ class PrinterVisionThread(threading.Thread):
 
         # Training frames are sampled (every N seconds) plus a burst around each detection,
         # not saved on every detection tick. Detection and review frames stay full size.
+        # Whether the tick before was itself saved (by the sampler or a burst, which runs later in
+        # the tick): read it before the reset so that frame is never saved twice.
+        self._burst_previous_saved = self._saved_this_tick
         self._saved_this_tick = False
         previous, self._previous_frame = self._previous_frame, ((analyzed_job, frame) if collect else None)
         self._burst_previous = previous if previous is not None and previous[0] == analyzed_job else None
-        # Whether the tick before was itself saved (by the sampler or a burst): never save it twice.
-        self._burst_previous_saved = getattr(self, '_last_tick_saved', False)
         if collect:
             self._collect_training(frame)
-        self._last_tick_saved = self._saved_this_tick
 
         if not hasattr(self, '_history_generations'):
             self._history_generations = {}
@@ -511,7 +511,12 @@ class PrinterVisionThread(threading.Thread):
         return True
 
     def _training_job_excluded(self) -> bool:
-        """True when the running job's model has the category 'no-training'; fails closed.
+        """True when the running job's model has the category 'no-training'.
+
+        Fails closed when the check itself fails. A print with no ODIN job or model (started at
+        the printer, or not yet linked in the first moments of a print) has no category to read
+        and is collected; controlled work is refused separately and earlier, and that check does
+        fail closed for an unidentified print once controlled work exists.
 
         models.category is used because jobs.required_tags is a scheduling constraint (a job
         needing a tag only runs on printers that carry it), so tagging a job would block it.

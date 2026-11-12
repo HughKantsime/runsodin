@@ -458,3 +458,17 @@ def test_burst_saves_the_unsaved_tick_before_the_detection(env):
     thread._capture_and_analyze()                        # not due; the tick before it is unsaved
     thread._detection_burst(thread.frame)
     assert len(env.training()) == 3                      # scheduled + the tick before + this tick
+
+
+def test_detections_on_back_to_back_ticks_never_save_a_frame_twice(env):
+    thread = env.make()
+    thread._capture_and_analyze()                        # scheduled frame (1)
+    thread.clock.now += 10
+    thread._capture_and_analyze()                        # not due, not saved
+    thread.clock.now += 10
+    thread._capture_and_analyze()
+    thread._detection_burst(thread.frame)                # saves the tick before and this tick (3)
+    thread.clock.now += 10
+    thread._capture_and_analyze()                        # the frame after the detection (4)
+    thread._detection_burst(thread.frame)                # the tick before was saved by the first burst
+    assert len(env.training()) == 4
