@@ -83,7 +83,8 @@ def cancel_job(
     """Cancel queued work; write:jobs authority is limited to never-dispatched work."""
     job = _get_job_or_raise(db, job_id, current_user)
     assert_generic_job_mutation_allowed(db, job_id)
-    if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
+    # Awaiting-approval (submitted) work cancels too, as in bulk cancel (bulk_actions.py).
+    if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED, JobStatus.SUBMITTED]:
         raise OdinError(
             ErrorCode.invalid_state_transition,
             f"Can only cancel pending or scheduled jobs (current: {job.status})",
@@ -118,7 +119,7 @@ def cancel_job(
     assert_cancel_allowed(db, job, current_user)
     from modules.jobs.state_machine import transition_job
     if not transition_job(db, job_id, JobStatus.CANCELLED, "operator",
-                          from_states=(JobStatus.PENDING, JobStatus.SCHEDULED),
+                          from_states=(JobStatus.PENDING, JobStatus.SCHEDULED, JobStatus.SUBMITTED),
                           extra_fields={"is_locked": True}):
         db.rollback()
         raise OdinError(ErrorCode.invalid_state_transition,

@@ -2,10 +2,10 @@
 
 from core.rbac import should_filter_org, require_action
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -300,11 +300,15 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
 def list_jobs(
     status: Optional[List[JobStatus]] = Query(None, description="Repeat for several statuses (status=pending&status=scheduled)."),
     printer_id: Optional[int] = None,
-    finished_since: Optional[datetime] = Query(None, description="Only jobs that ended at or after this time (actual_end; for a finished job that never started, its last update). Send an offset or Z; a time without one is UTC."),
-    order: Literal["queue", "recent"] = Query("queue", description="queue: queue order (default). recent: newest first by end time, then last update, for jobs without an end."),
+    finished_since: Annotated[Optional[datetime], Query(description="Only jobs that ended at or after this time (actual_end; for a finished job that never started, its last update). Send an offset or Z; a time without one is UTC.")] = None,
+    order: Annotated[Literal["queue", "recent"], Query(description="queue: queue order (default). recent: newest first by end time, then last update, for jobs without an end.")] = "queue",
     org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
+    q: Optional[str] = None,
+    held: Optional[bool] = None,
+    unassigned: bool = False,
+    response: Response = None,
     # Stacked auth (Phase 2 canonical read shape).
     current_user: dict = Depends(require_role("viewer")),
     _agent_scope: dict = Depends(
@@ -316,39 +320,16 @@ def list_jobs(
 
     The apps' Queue loads active statuses and, separately, jobs finished since local
     midnight (finished_since, order=recent), so neither is cut off by the default limit.
+    q finds a job by number ("218", "#218", "job 218"), name, printer name or nickname, or order
+    number, among the jobs the caller may see. unassigned and held filter the queue. The body is
+    always the plain list; the number of matching jobs is in the X-Total-Count header.
     """
-    query = db.query(Job).filter(text("NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"))
-
-    from core.controlled_parts import any_controlled_data, job_visibility
-    if any_controlled_data(db):
-        controlled, controlled_params = job_visibility(current_user)
-        query = query.filter(text(controlled)).params(**controlled_params)
-    if status:
-        query = query.filter(Job.status == status[0]) if len(status) == 1 else query.filter(Job.status.in_(status))
-    if printer_id:
-        query = query.filter(Job.printer_id == printer_id)
-    if finished_since is not None:
-        # Stored job times are naive UTC.
-        since = finished_since.astimezone(timezone.utc).replace(tzinfo=None) if finished_since.tzinfo else finished_since
-        # A job that ended without ever starting (cancelled or rejected while queued) has no
-        # actual_end; its last update is when it ended.
-        from sqlalchemy import and_, or_
-        ended_unstarted = and_(Job.actual_end.is_(None), Job.updated_at >= since,
-                               Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.REJECTED]))
-        query = query.filter(or_(and_(Job.actual_end.isnot(None), Job.actual_end >= since), ended_unstarted))
-
-    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if should_filter_org(current_user, effective_org):
-        query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
-
-    # Priority first; drag-and-drop queue_position orders jobs within a
-    # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
-    if order == "recent":
-        from sqlalchemy import func
-        ordering = (func.coalesce(Job.actual_end, Job.updated_at, Job.created_at).desc(), Job.id.desc())
-    else:
-        ordering = (Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id)
-    rows = query.order_by(*ordering).offset(offset).limit(limit).all()
+    from modules.jobs.list_query import list_job_rows
+    rows, total = list_job_rows(
+        db, current_user, statuses=status, printer_id=printer_id, unassigned=unassigned, held=held,
+        finished_since=finished_since, order=order, org_id=org_id, q=q, limit=limit, offset=offset)
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
     from core.display_names import name_jobs
     from modules.jobs.display_facts import enrich_job_facts
     return enrich_job_facts(db, name_jobs(db, rows, current_user), current_user)

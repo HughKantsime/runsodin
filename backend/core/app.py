@@ -77,6 +77,8 @@ def _setup_middleware(app: FastAPI) -> None:
             "X-Idempotent-Replay",
             "X-ODIN-Export-Truncated",
             "X-ODIN-Export-Row-Limit",
+            # GET /jobs: number of jobs matching the filters (the body stays a plain list).
+            "X-Total-Count",
             # Printer DELETE stays 204; training scope warnings ride here.
             "X-ODIN-Training-Warnings",
         ],

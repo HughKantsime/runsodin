@@ -20,9 +20,42 @@ import type {
 
 const API_BASE = '/api'
 
+export interface JobListParams {
+  limit?: number
+  offset?: number
+  order?: 'queue' | 'recent'
+  q?: string
+  printerId?: number | null
+  unassigned?: boolean
+  held?: boolean
+}
+
+/** Query string for GET /jobs. With nothing set it is empty, which is the call the dashboard and the apps make. */
+export function buildJobsQuery(status?: string | string[] | null, orgId: number | null = null, params: JobListParams = {}): string {
+  const query = new URLSearchParams()
+  const statuses = Array.isArray(status) ? status : status ? [status] : []
+  statuses.forEach(value => query.append('status', value))
+  if (orgId != null) query.set('org_id', String(orgId))
+  if (params.printerId != null) query.set('printer_id', String(params.printerId))
+  if (params.unassigned) query.set('unassigned', 'true')
+  if (params.held) query.set('held', 'true')
+  if (params.q) query.set('q', params.q)
+  if (params.order === 'recent') query.set('order', 'recent')
+  if (params.limit != null) query.set('limit', String(params.limit))
+  if (params.offset) query.set('offset', String(params.offset))
+  const text = query.toString()
+  return text ? '?' + text : ''
+}
+
 export const jobs = {
   recentTerminal: (orgId: number | null = null): Promise<RecentTerminalJob[]> => fetchAPI('/jobs/recent-terminal' + (orgId != null ? '?org_id=' + orgId : '')),
-  list: (status?: string, orgId: number | null = null): Promise<Job[]> => fetchAPI('/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')),
+  // onTotal receives the X-Total-Count header (null when the server sends none).
+  list: (status?: string | string[] | null, orgId: number | null = null, params: JobListParams = {}, onTotal?: (total: number | null) => void): Promise<Job[]> =>
+    fetchAPI('/jobs' + buildJobsQuery(status, orgId, params), onTotal ? { onResponse: (response: Response) => {
+      const header = response.headers.get('X-Total-Count')
+      const total = header == null ? NaN : Number(header)
+      onTotal(Number.isInteger(total) && total >= 0 ? total : null)
+    } } : {}),
   get: (id: number): Promise<Job> => fetchAPI('/jobs/' + id),
   create: (data: JobCreate): Promise<Job> => fetchAPI('/jobs', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: JobUpdate): Promise<Job> => fetchAPI('/jobs/' + id, { method: 'PATCH', body: JSON.stringify(data) }),

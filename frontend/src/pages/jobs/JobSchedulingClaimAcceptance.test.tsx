@@ -44,9 +44,9 @@ it('F04-4.3-02 actual tabs filter order versus ad-hoc rows and persist type in U
   fireEvent.click(screen.getByRole('button', { name: /Order Jobs/ })); expect(screen.getByText('Order scheduled')).toBeInTheDocument(); expect(screen.queryByText('Adhoc pending')).not.toBeInTheDocument(); expect(screen.getByTestId('query')).toHaveTextContent('type=order')
   fireEvent.click(screen.getByRole('button', { name: /Ad-hoc/ })); expect(screen.getByText('Adhoc pending')).toBeInTheDocument(); expect(screen.queryByText('Order scheduled')).not.toBeInTheDocument()
 })
-it('F04-4.3-02 status query preserves organization scope and case-insensitive name search filters visible rows', async () => {
-  await queue(); fireEvent.change(screen.getByRole('combobox', { name: 'Filter jobs by status' }), { target: { value: 'pending' } }); await waitFor(() => expect(api.list).toHaveBeenCalledWith('pending',17))
-  fireEvent.change(screen.getByPlaceholderText('Search jobs...'), { target: { value: 'ADHOC' } }); expect(screen.getByText('Adhoc pending')).toBeInTheDocument(); expect(screen.queryByText('Order scheduled')).not.toBeInTheDocument()
+it('F04-4.3-02 status query preserves organization scope and the search is sent to the server (debounced), not filtered in the browser', async () => {
+  await queue(); fireEvent.change(screen.getByRole('combobox', { name: 'Filter jobs by status' }), { target: { value: 'pending' } }); await waitFor(() => expect(api.list).toHaveBeenCalledWith(['pending'], 17, expect.objectContaining({ limit: 500, offset: 0 }), expect.any(Function)))
+  fireEvent.change(screen.getByPlaceholderText('Search jobs...'), { target: { value: 'ADHOC' } }); await waitFor(() => expect(api.list).toHaveBeenCalledWith(['pending'], 17, expect.objectContaining({ q: 'ADHOC' }), expect.any(Function)))
 })
 it('F04-4.3-01 operator drags a pending job onto scheduled job and submits exact reordered IDs', async () => {
   await queue(); const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }

@@ -1,7 +1,7 @@
 import type { JobStatus } from '../../types'
 
 interface StatusOption {
-  value: JobStatus | ''
+  value: JobStatus | '' | 'history' | 'all'
   label: string
 }
 
@@ -11,7 +11,9 @@ interface PriorityOption {
 }
 
 export const statusOptions: StatusOption[] = [
-  { value: '', label: 'All Status' },
+  { value: '', label: 'Active' },
+  { value: 'history', label: 'History' },
+  { value: 'all', label: 'All Status' },
   { value: 'pending', label: 'Pending' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'printing', label: 'Printing' },
@@ -30,6 +32,24 @@ export const priorityOptions: PriorityOption[] = [
 ]
 
 export const statusOrder: Record<string, number> = { printing: 0, paused: 1, scheduled: 2, pending: 3, failed: 4, cancelled: 5, completed: 6 }
+
+// The queue: everything still waiting for, or on, a printer.
+export const ACTIVE_STATUSES = ['submitted', 'rejected', 'pending', 'scheduled', 'printing', 'paused'] as const
+export const HISTORY_STATUSES = ['completed', 'failed', 'cancelled'] as const
+
+/** Statuses to request for a status-filter value (null = every status). '' and unknown values mean Active. */
+export function statusesFor(filter: string): string[] | null {
+  if (filter === 'all') return null
+  if (filter === 'history') return [...HISTORY_STATUSES]
+  if (!filter || !statusOptions.some(option => option.value === filter)) return [...ACTIVE_STATUSES]
+  return [filter]
+}
+
+/** Queue order for the active views; newest end first for anything that includes finished jobs. */
+export function orderFor(filter: string): 'queue' | 'recent' {
+  const statuses = statusesFor(filter)
+  return statuses && statuses.every(status => (ACTIVE_STATUSES as readonly string[]).includes(status)) ? 'queue' : 'recent'
+}
 
 type QueueOrdered = { queue_position?: number | null; priority?: number | null; created_at?: string | null; id?: number }
 

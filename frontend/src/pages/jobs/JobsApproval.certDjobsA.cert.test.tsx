@@ -28,7 +28,7 @@ function installFetch() {
     if (url === '/api/auth/me') return reply(200, wire.me[principal])
     if (url === '/api/permissions') return reply(200, wire.permissions)
     if (url === '/api/config/require-job-approval') return reply(200, wire.approval_setting)
-    if (method === 'GET' && url === '/api/jobs') return reply(200, jobsQueue.length > 1 ? jobsQueue.shift() : jobsQueue[0])
+    if (method === 'GET' && (url === '/api/jobs' || url.startsWith('/api/jobs?'))) return reply(200, jobsQueue.length > 1 ? jobsQueue.shift() : jobsQueue[0])
     for (const step of [wire.approve, wire.reject, wire.resubmit, wire.correct]) {
       if (method === step.method && url === '/api' + step.path) return reply(step.status, step.body)
     }

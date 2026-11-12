@@ -67,7 +67,7 @@
     "frontend/src/pages/education/EducationWorkbench.tsx": "c4aaa1605fb96000b973bed54f2773339825823660418fd6417622ea2e4b0436",
     "frontend/src/pages/inventory/Consumables.tsx": "13cfa27352e1d24a11f71e159c19d6d3aef520b91e8f603940b0e682b9d5c906",
     "frontend/src/pages/inventory/Spools.tsx": "fa610e9c9b35b4180f3b83f0f61803a525b49ab03fb7e83552375bb9c9498d8e",
-    "frontend/src/pages/jobs/Jobs.tsx": "4ffb6b6b87ff7a673aa09124a9abec83ba9de1cb4a426d61df592ff081ae362c",
+    "frontend/src/pages/jobs/Jobs.tsx": "c49e270cccb874b2a01a38295b15a3e8dae5bea898a44cba4691106d8fe70ec3",
     "frontend/src/pages/jobs/Timeline.tsx": "10e7a561cfef37374ceb3dc9811547622236d513067598a3fb0c7f7eb47dab68",
     "frontend/src/pages/models/Models.tsx": "9237dbdf3eb7bff10ffe099660145e762c3c2f83c508e2aabc572c9d4e681a29",
     "frontend/src/pages/models/ProfileHistory.tsx": "eff558628e11b85f42f2fa7e4ab73a42c4f22cbf455e793f9f990265adfaf90b",

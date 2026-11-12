@@ -42,12 +42,14 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   )
 }
 
-export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
+export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean }) {
   return (
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
+          highlight && 'ring-2 ring-inset ring-[var(--brand-primary)]',
           job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
         )}
+        data-job-id={job.id}
         {...(dragProps || {})}>
       <td className="px-2 py-3 w-10">
         <div className="flex items-center gap-1">
@@ -56,16 +58,22 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           )}
           <CheckTarget><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
           {job.queue_position != null && ['pending', 'scheduled'].includes(job.status) && (
-            <span className="text-xs font-mono text-[var(--brand-text-muted)]" title="Queue position">#{job.queue_position + 1}</span>
+            <span className="text-xs font-mono whitespace-nowrap text-[var(--brand-text-muted)]" title="Queue position">{`Queue ${job.queue_position + 1}`}</span>
           )}
         </div>
       </td>
       <td className="px-3 md:px-4 py-3">
         <StatusBadge status={job.status} />
+        {job.hold === true && !['completed', 'failed', 'cancelled', 'rejected'].includes(job.status) && (
+          <div className="mt-1">
+            <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
+          </div>
+        )}
         <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{displayName(job)}</div>
+        <div className="text-xs font-mono text-[var(--brand-text-muted)]">{`Job ${job.id}`}</div>
         {(job.quantity == null || job.hold == null || job.is_locked == null) && (
           <div className="text-xs text-[var(--brand-text-muted)]">
             {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
@@ -172,7 +180,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
             job.status === 'rejected' && correctionPrincipal?.role === 'viewer' && Number.isInteger(correctionPrincipal.id) && correctionPrincipal.id > 0 && correctionPrincipal.id === job.submitted_by && Number.isInteger(correctionPrincipal.group_id) && correctionPrincipal.group_id > 0 && correctionPrincipal.group_id === job.charged_to_org_id) && (
             <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Edit job" />
           )}
-          {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
+          {canDo('jobs.cancel') && ['pending', 'submitted', 'scheduled', 'printing'].includes(job.status) && (
             <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
           )}
           {job.status === 'failed' && (
