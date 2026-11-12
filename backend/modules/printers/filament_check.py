@@ -52,6 +52,7 @@ _WHY = {
     'slot_unknown': "it is unclear which slot this printer will use",
     'slot_missing': 'the printer has no such slot',
     'spool_change_pending': 'a spool change is waiting to be confirmed',
+    'other_plate': 'the weight on file is for the first plate and this job prints another one',
 }
 
 
@@ -269,8 +270,13 @@ def evaluate(conn, *, job, printer_id, mapping=None, settings=None, derive=True)
         source = next(iter(indexed))  # the same derivation dispatch applies to a single-source file
         mapping = [-1] * source + [source]
 
+    # The stored estimate (file and model) describes the first plate only. A job that prints
+    # another plate is unknown, never judged with the first plate's grams (unknown never holds).
+    other_plate = job.get('plate_index') not in (None, 0)
     grouped, order = {}, []
     for demand in _demands(mapping, indexed, model_grams, slots):
+        if other_plate and demand['reason'] is None:
+            demand.update(grams=None, reason='other_plate')
         key = demand['slot'] if demand['slot'] is not None else ('none', len(order))
         if key not in grouped:
             grouped[key] = []
