@@ -15,8 +15,8 @@ from tests.test_contracts.test_education_review_workflow import review_db  # noq
 DDL = (
     'CREATE TABLE system_config(key TEXT PRIMARY KEY, value TEXT)',
     'CREATE TABLE models(id INTEGER PRIMARY KEY, color_requirements TEXT)',
-    'CREATE TABLE jobs(id INTEGER PRIMARY KEY, quantity INTEGER, model_id INTEGER)',
-    'CREATE TABLE printers(id INTEGER PRIMARY KEY, api_type TEXT)',
+    'CREATE TABLE jobs(id INTEGER PRIMARY KEY, quantity INTEGER, model_id INTEGER, charged_to_org_id INTEGER)',
+    'CREATE TABLE printers(id INTEGER PRIMARY KEY, api_type TEXT, org_id INTEGER)',
     'CREATE TABLE spools(id INTEGER PRIMARY KEY, remaining_weight_g REAL)',
     'CREATE TABLE filament_slots(id INTEGER PRIMARY KEY, printer_id INTEGER, slot_number INTEGER, '
     'filament_type TEXT, color TEXT, tray_observation TEXT, assigned_spool_id INTEGER)',
@@ -223,6 +223,36 @@ def test_hold_refuses_with_filament_short_numbers_and_is_audited(engine, recorde
     assert outcome.warning is None
     assert outcome.refusal.startswith('filament_short: Slot 2 (black PLA) has about 40 g left; this print needs about 55 g')
     assert [kind for kind, _ in recorded] == ['audit', 'hold'] and recorded[0][1] == 'job.filament_hold'
+
+
+@pytest.mark.parametrize('mode', ['hold', 'warn'])
+def test_a_job_on_another_organizations_shared_printer_gets_no_spool_weight_in_the_gate_text(engine, monkeypatch, mode):
+    seed(engine, slots=AMS, spools={1: 900, 2: 40}, mode=mode)
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE printers SET org_id = 7'))
+        conn.execute(text('UPDATE jobs SET charged_to_org_id = 9'))
+    seen = []
+    monkeypatch.setattr(fc, '_record_audit', lambda engine, action, the_job, result: seen.append(result))
+    monkeypatch.setattr(fc, '_report_hold', lambda the_job, refusal, detail: seen.append(detail))
+    monkeypatch.setattr(fc, '_raise_alert', lambda engine, the_job, result, message: seen.extend([result, message]))
+    outcome = fc.dispatch_gate(engine, job(BLACK_PLA, mapping=[1]), [1])
+    outcome.announce(engine, job(BLACK_PLA, mapping=[1]))
+    said = outcome.refusal or outcome.warning
+    assert 'Slot 2 (black PLA) does not have enough filament; this print needs about 55 g' in said
+    assert seen and '40' not in json.dumps([said, seen]) and '"spool_id": 2' not in json.dumps(seen)
+    assert (outcome.refusal is not None) == (mode == 'hold')
+
+
+def test_a_job_in_the_printers_own_organization_keeps_the_numbers(engine, recorded):
+    seed(engine, slots=AMS, spools={1: 900, 2: 40}, mode='hold')
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE printers SET org_id = 7'))
+        conn.execute(text('UPDATE jobs SET charged_to_org_id = 7'))
+    assert 'has about 40 g left' in fc.dispatch_gate(engine, job(BLACK_PLA, mapping=[1]), [1]).refusal
+
+
+def test_an_unreadable_owner_counts_as_not_the_owner(engine):
+    assert fc._job_owns_printer(engine, {'id': 1, 'printer_id': 1}) is False  # no such job row yet
 
 
 def test_a_dispatch_with_no_ams_mapping_is_never_held_against_an_ams_slot(engine, recorded):
