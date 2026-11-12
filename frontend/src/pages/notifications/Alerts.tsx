@@ -12,6 +12,8 @@ import { formatDate } from '../../utils/shared'
 import { PageHeader, Button, EmptyState } from '../../components/ui'
 import ScrollTabs from '../../components/ui/ScrollTabs'
 import type { AlertListParams } from '../../types/notification'
+import AlertGroupRow from './AlertGroupRow'
+import { groupAlerts } from './alertGroups'
 
 interface DigestStatusEntry {
   window_ended_at: string
@@ -263,6 +265,161 @@ export default function Alerts() {
     }
   }
 
+  // Group-level actions: sequential, per-alert API calls. Only members whose call
+  // succeeded change state, so failed members stay visible; a partial failure is
+  // reported with the page's toast pattern.
+  const [groupBusy, setGroupBusy] = useState(false)
+  const groupBusyRef = useRef(false)
+  const runGroupAction = async (
+    ids: number[],
+    call: (id: number) => Promise<unknown>,
+    verb: string,
+    onDone: (done: number[]) => void,
+  ) => {
+    if (groupBusyRef.current) return
+    groupBusyRef.current = true
+    setGroupBusy(true)
+    try {
+      const done: number[] = []
+      for (const id of ids) {
+        try {
+          await call(id)
+          done.push(id)
+        } catch { /* counted below */ }
+      }
+      if (done.length > 0) onDone(done)
+      if (done.length < ids.length) {
+        toast.error(`Failed to ${verb} ${ids.length - done.length} of ${ids.length} alerts`)
+      }
+    } finally {
+      groupBusyRef.current = false
+      setGroupBusy(false)
+    }
+  }
+
+  const handleGroupMarkRead = (ids: number[]) =>
+    runGroupAction(ids, id => alertsApi.markRead(id), 'mark read', done => {
+      const set = new Set(done)
+      setAlerts(prev => prev.map(a => set.has(a.id) ? { ...a, is_read: true } : a))
+    })
+
+  const handleGroupDismiss = (ids: number[]) =>
+    runGroupAction(ids, id => alertsApi.dismiss(id), 'dismiss', done => {
+      const set = new Set(done)
+      setAlerts(prev => prev.filter(a => !set.has(a.id)))
+      // The server no longer lists them: keep the next page's offset aligned.
+      setOffset(prev => Math.max(0, prev - done.length))
+      window.dispatchEvent(new Event('odin:alerts-changed'))
+    })
+
+  // Per-alert action buttons, shared by single rows and group members.
+  const renderActions = (alert) => (
+    <div className="flex items-center gap-1 shrink-0">
+      {alert.alert_type === 'job_submitted' && !alert.is_read && alert.job_id && (
+        <>
+          <button
+            onClick={() => handleApproveFromAlert(alert)}
+            disabled={actionLoading === alert.id}
+            className="p-1.5 rounded-md transition-colors hover:bg-green-900/50 text-green-400"
+            title="Approve Job"
+          >
+            <CheckCircle size={14} />
+          </button>
+          <button
+            onClick={() => setRejectingAlertJobId(rejectingAlertJobId === alert.id ? null : alert.id)}
+            disabled={actionLoading === alert.id}
+            className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-red-400"
+            title="Reject Job"
+          >
+            <XCircle size={14} />
+          </button>
+        </>
+      )}
+      {getActionLink(alert) && alert.alert_type !== 'job_submitted' && (
+        <a
+          href={getActionLink(alert).path}
+          className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
+          title={getActionLink(alert).label}
+        >
+          <ExternalLink size={14} />
+        </a>
+      )}
+      {/* v1.8.8: one-click "false alarm — resume" on
+          vision auto-pause alerts. */}
+      {VISION_ALERT_TYPES.has(alert.alert_type) && !alert.is_read && alert.printer_id && (
+        <button
+          onClick={() => handleResumeFromAlert(alert)}
+          disabled={actionLoading === alert.id}
+          className="p-1.5 rounded-md transition-colors hover:bg-green-900/40 text-green-400"
+          title="False alarm — resume print"
+        >
+          <CheckCircle size={14} />
+        </button>
+      )}
+      {!alert.is_read && (
+        <button
+          onClick={() => handleMarkRead(alert.id)}
+          className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
+          title="Mark read"
+        >
+          <Check size={14} />
+        </button>
+      )}
+      {canDelete && (
+        <button
+          onClick={() => handleDelete(alert.id)}
+          disabled={deletingIds.has(alert.id)}
+          aria-label="Delete alert"
+          title="Delete alert"
+          className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400 disabled:opacity-50"
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
+      {!alert.is_dismissed && (
+        <button
+          onClick={() => handleDismiss(alert.id)}
+          className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400"
+          title="Dismiss"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  )
+
+  const renderRejectForm = (alert) => rejectingAlertJobId === alert.id && (
+    <div className="mt-3 pt-3 px-4 pb-4 border-t border-[var(--brand-card-border)]">
+      <label className="block text-xs text-[var(--brand-text-muted)] mb-1">Rejection reason (required):</label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          placeholder="e.g., Too much filament — please re-slice with 10% infill"
+          className="flex-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm text-white"
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && rejectReason.trim() && handleRejectFromAlert(alert)}
+        />
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => handleRejectFromAlert(alert)}
+          disabled={!rejectReason.trim() || actionLoading === alert.id}
+        >
+          Reject
+        </Button>
+        <Button
+          variant="tertiary"
+          size="sm"
+          onClick={() => { setRejectingAlertJobId(null); setRejectReason('') }}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+
   const unreadCount = alerts.filter(a => !a.is_read).length
 
   return (
@@ -307,9 +464,28 @@ export default function Alerts() {
             title="No alerts to show"
           />
         ) : (
-          alerts.map(alert => {
+          // Grouping runs on the rows loaded so far only (this page paginates with
+          // "Load more"); repeats that sit on a page not yet loaded are not merged.
+          groupAlerts(alerts).map(group => {
+            if (group.alerts.length > 1) {
+              const groupSev = SEVERITY_STYLES[group.newest.severity] || SEVERITY_STYLES.info
+              const GroupIcon = SEVERITY_ICONS[group.newest.severity] || Info
+              return (
+                <AlertGroupRow
+                  key={group.newest.id}
+                  group={group}
+                  icon={<GroupIcon size={18} className={`shrink-0 ${SEVERITY_ICON_COLORS[group.newest.severity] || 'text-green-500'}`} />}
+                  borderClass={groupSev.bg}
+                  busy={groupBusy}
+                  onMarkRead={handleGroupMarkRead}
+                  onDismiss={handleGroupDismiss}
+                  renderActions={renderActions}
+                  renderExtra={renderRejectForm}
+                />
+              )
+            }
+            const alert = group.alerts[0]
             const sev = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.info
-            const action = getActionLink(alert)
 
             return (
               <div
@@ -351,111 +527,10 @@ export default function Alerts() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      {alert.alert_type === 'job_submitted' && !alert.is_read && alert.job_id && (
-                        <>
-                          <button
-                            onClick={() => handleApproveFromAlert(alert)}
-                            disabled={actionLoading === alert.id}
-                            className="p-1.5 rounded-md transition-colors hover:bg-green-900/50 text-green-400"
-                            title="Approve Job"
-                          >
-                            <CheckCircle size={14} />
-                          </button>
-                          <button
-                            onClick={() => setRejectingAlertJobId(rejectingAlertJobId === alert.id ? null : alert.id)}
-                            disabled={actionLoading === alert.id}
-                            className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-red-400"
-                            title="Reject Job"
-                          >
-                            <XCircle size={14} />
-                          </button>
-                        </>
-                      )}
-                      {action && alert.alert_type !== 'job_submitted' && (
-                        <a
-                          href={action.path}
-                          className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
-                          title={action.label}
-                        >
-                          <ExternalLink size={14} />
-                        </a>
-                      )}
-                      {/* v1.8.8: one-click "false alarm — resume" on
-                          vision auto-pause alerts. */}
-                      {VISION_ALERT_TYPES.has(alert.alert_type) && !alert.is_read && alert.printer_id && (
-                        <button
-                          onClick={() => handleResumeFromAlert(alert)}
-                          disabled={actionLoading === alert.id}
-                          className="p-1.5 rounded-md transition-colors hover:bg-green-900/40 text-green-400"
-                          title="False alarm — resume print"
-                        >
-                          <CheckCircle size={14} />
-                        </button>
-                      )}
-                      {!alert.is_read && (
-                        <button
-                          onClick={() => handleMarkRead(alert.id)}
-                          className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
-                          title="Mark read"
-                        >
-                          <Check size={14} />
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => handleDelete(alert.id)}
-                          disabled={deletingIds.has(alert.id)}
-                          aria-label="Delete alert"
-                          title="Delete alert"
-                          className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400 disabled:opacity-50"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                      {!alert.is_dismissed && (
-                        <button
-                          onClick={() => handleDismiss(alert.id)}
-                          className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400"
-                          title="Dismiss"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
+                    {renderActions(alert)}
                   </div>
                 </div>
-                  {rejectingAlertJobId === alert.id && (
-                    <div className="mt-3 pt-3 px-4 pb-4 border-t border-[var(--brand-card-border)]">
-                      <label className="block text-xs text-[var(--brand-text-muted)] mb-1">Rejection reason (required):</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={rejectReason}
-                          onChange={(e) => setRejectReason(e.target.value)}
-                          placeholder="e.g., Too much filament — please re-slice with 10% infill"
-                          className="flex-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm text-white"
-                          autoFocus
-                          onKeyDown={(e) => e.key === 'Enter' && rejectReason.trim() && handleRejectFromAlert(alert)}
-                        />
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => handleRejectFromAlert(alert)}
-                          disabled={!rejectReason.trim() || actionLoading === alert.id}
-                        >
-                          Reject
-                        </Button>
-                        <Button
-                          variant="tertiary"
-                          size="sm"
-                          onClick={() => { setRejectingAlertJobId(null); setRejectReason('') }}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                  {renderRejectForm(alert)}
               </div>
             )
           })
