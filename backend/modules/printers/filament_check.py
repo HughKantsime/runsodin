@@ -244,11 +244,13 @@ def _judge(slot_no, parts, row, prints, margin) -> dict:
     return item
 
 
-def evaluate(conn, *, job, printer_id, mapping=None, settings=None) -> dict:
+def evaluate(conn, *, job, printer_id, mapping=None, settings=None, derive=True) -> dict:
     """Per-slot result for ``job`` on ``printer_id``.
 
     ``job`` is the dict from dispatch._load_job (ams_mapping, filaments_json).
     ``mapping`` is the validated or derived AMS vector the dispatch will use.
+    ``derive`` False (the dispatch path): the mapping given is final, so a job sent with no AMS
+    mapping (external spool) is never judged against an AMS slot it will not use.
     """
     settings = settings or read_settings(conn)
     row = conn.execute(text(
@@ -261,8 +263,8 @@ def evaluate(conn, *, job, printer_id, mapping=None, settings=None) -> dict:
     indexed = indexed_materials(_as_json(job.get('filaments_json')))
     api_type = conn.execute(text('SELECT api_type FROM printers WHERE id = :id'), {'id': printer_id}).scalar()
     slots = _printer_slots(conn, printer_id)
-    mapping = _mapping(mapping if mapping is not None else job.get('ams_mapping'))
-    if (mapping is None and str(api_type or '').lower() == 'bambu' and len(slots) > 1
+    mapping = _mapping(mapping if mapping is not None or not derive else job.get('ams_mapping'))
+    if (derive and mapping is None and str(api_type or '').lower() == 'bambu' and len(slots) > 1
             and indexed and len(indexed) == 1):
         source = next(iter(indexed))  # the same derivation dispatch applies to a single-source file
         mapping = [-1] * source + [source]
@@ -326,8 +328,8 @@ def _report_hold(job, refusal, detail) -> None:
     try:
         dispatch._notify_start_outcome(job, 'adapter_rejected',
                                        gate_refusal=GateRefusal(REFUSAL_CODE, detail), message=detail)
-    except Exception:
-        pass
+    except Exception as error:
+        log.warning('[dispatch] job_id=%s filament hold could not be reported (%s)', job.get('id'), type(error).__name__)
     # No websocket 'failed' here: like the other pre-admission refusals, the dispatch worker
     # reports the refused result once.
 
@@ -369,7 +371,7 @@ def dispatch_gate(engine, job, mapping=None) -> GateOutcome:
             settings = read_settings(conn)
             if settings['mode'] == 'off':
                 return GateOutcome()
-            result = evaluate(conn, job=job, printer_id=job['printer_id'], mapping=mapping, settings=settings)
+            result = evaluate(conn, job=job, printer_id=job['printer_id'], mapping=mapping, settings=settings, derive=False)
     except Exception:
         log.warning('[dispatch] job_id=%s filament check could not run; dispatch continues', job.get('id'))
         return GateOutcome()

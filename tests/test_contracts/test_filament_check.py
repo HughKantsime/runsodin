@@ -202,6 +202,13 @@ def test_hold_refuses_with_filament_short_numbers_and_is_audited(engine, recorde
     assert [kind for kind, _ in recorded] == ['audit', 'hold'] and recorded[0][1] == 'job.filament_hold'
 
 
+def test_a_dispatch_with_no_ams_mapping_is_never_held_against_an_ams_slot(engine, recorded):
+    # Sent from the external spool: the nearly empty AMS tray is not what feeds this print.
+    seed(engine, slots=AMS, spools={1: 5, 2: 5}, mode='hold')
+    outcome = fc.dispatch_gate(engine, job([{'slot': 2, 'type': 'PLA', 'used_grams': 50}]), None)
+    assert outcome.refusal is None and outcome.warning is None and recorded == []
+
+
 def test_unknown_never_holds_and_raises_nothing(engine, recorded):
     seed(engine, slots=((2, 'PLA', 'black', None),), mode='hold')
     outcome = fc.dispatch_gate(engine, job(BLACK_PLA, mapping=[1]), [1])
