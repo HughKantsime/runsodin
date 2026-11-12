@@ -147,6 +147,25 @@ def test_ordering_rule_edges(app):
     assert lm.install_portal_license(other).valid
 
 
+@pytest.mark.parametrize("path", ["upload", "refresh"])
+@pytest.mark.parametrize("ended", [False, True])
+def test_different_file_with_equal_issue_time_cannot_restore_entitlement(app, path, ended):
+    issued = ago(hours=2)
+    installed = app.make(issued, ago(hours=1) if ended else ahead(days=3))
+    app.lm.save_license_file(installed)
+    longer = app.make(issued, ahead(days=90))
+    with pytest.raises(HTTPException) as exc:
+        if path == "upload":
+            app.upload(longer.encode())
+        else:
+            app.refresh(license_file=longer, refresh_status="renewed")
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == installed
+    assert last_refresh(app) is None
+    app.restart()
+    assert app.lm.get_license().expires_at == iso(ago(hours=1) if ended else ahead(days=3))
+
+
 # ---- already-expired replacement ----
 
 def test_expired_replacement_is_installed_and_persists_across_restart(app):
@@ -332,6 +351,41 @@ def test_not_entitled_file_ending_within_the_clock_allowance_is_installed(app):
     assert last_refresh(app)["status"] == "not_entitled"
 
 
+@pytest.mark.parametrize("issue_offset", [0, 1])
+def test_clock_allowance_refuses_unverified_timestamp_order(app, issue_offset):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    end = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=5)
+    candidate = app.make(end + timedelta(seconds=issue_offset), end)
+    info = app.lm.verify_license_text(candidate)
+    # Compatibility validity alone is insufficient evidence for a replacement.
+    assert info.valid and info.verification_state == "verification_unavailable"
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=candidate, refresh_status="not_entitled")
+    assert exc.value.status_code == 502
+    assert app.path.read_text() == installed
+    assert last_refresh(app) is None
+    app.restart()
+    assert app.lm.get_license().valid
+
+
+@pytest.mark.parametrize("key", ["OTHER-KEY", ""])
+def test_clock_allowance_replacement_requires_the_installed_key(app, key):
+    installed = app.make(ago(days=30), ahead(days=5))
+    app.lm.save_license_file(installed)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    candidate = app.sign(**app.fields, key=key, issued_at=iso(now - timedelta(seconds=1)),
+                         expires_at=iso(now + timedelta(minutes=5))).decode()
+    assert app.lm.verify_license_text(candidate).verification_state == "verified_current"
+    with pytest.raises(HTTPException) as exc:
+        app.refresh(license_file=candidate, refresh_status="not_entitled")
+    assert exc.value.status_code == 400
+    assert app.path.read_text() == installed
+    assert last_refresh(app) is None
+    app.restart()
+    assert app.lm.get_license().valid and app.lm.get_license().key == KEY
+
+
 def test_not_entitled_file_ending_after_the_allowance_is_refused(app):
     installed = app.make(ago(days=30), ahead(days=5))
     app.lm.save_license_file(installed)
@@ -373,8 +427,10 @@ def test_clock_allowance_uses_the_trusted_clock_not_the_wall_clock(app, monkeypa
     from types import SimpleNamespace as NS
     trusted_now = datetime.now(timezone.utc) + timedelta(hours=3)  # trusted clock ahead of the wall clock
     monkeypatch.setattr(app.lm, "license_clock", lambda: NS(sample=lambda *a, **k: (trusted_now, False)))
-    near = SimpleNamespace(valid=True, trial=False, expires_at=iso(trusted_now + timedelta(minutes=10)))
-    far = SimpleNamespace(valid=True, trial=False, expires_at=iso(trusted_now + timedelta(hours=2)))
+    near = SimpleNamespace(valid=True, trial=False, verification_state="verified_current",
+                           issued_at=iso(ago(hours=1)), expires_at=iso(trusted_now + timedelta(minutes=10)))
+    far = SimpleNamespace(valid=True, trial=False, verification_state="verified_current",
+                          issued_at=iso(ago(hours=1)), expires_at=iso(trusted_now + timedelta(hours=2)))
     assert license_refresh.ends_within_clock_allowance(near) is True
     assert license_refresh.ends_within_clock_allowance(far) is False
 
@@ -383,5 +439,6 @@ def test_clock_allowance_refuses_when_the_clock_fails(app, monkeypatch):
     def broken():
         raise RuntimeError("clock state unreadable")
     monkeypatch.setattr(app.lm, "license_clock", broken)
-    ending = SimpleNamespace(valid=True, trial=False, expires_at=iso(ahead(seconds=30)))
+    ending = SimpleNamespace(valid=True, trial=False, verification_state="verified_current",
+                             issued_at=iso(ago(hours=1)), expires_at=iso(ahead(seconds=30)))
     assert license_refresh.ends_within_clock_allowance(ending) is False

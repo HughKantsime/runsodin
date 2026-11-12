@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: License refresh
+
+- No-entitlement replacements require verified evidence and the installed key, including within the clock allowance. A different file for the same key requires a newer issue time, preventing equal-time uploads from restoring a canceled entitlement.
+
 ## Prepared: Education funding and program reports
 
 - Class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks, with small-cell suppression. The Perkins worksheet stays off until a school's reporting fields are confirmed.

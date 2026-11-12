@@ -10,6 +10,10 @@ All notable changes to O.D.I.N. are documented here.
 - Settings > License has a **Refresh license** button (administrators). One click asks the O.D.I.N. license portal once for your latest license file and says in plain words what it found: renewed, not renewed yet, canceled, or no longer active. From 7 days before a license file ends, a "Renewal due" banner reminds administrators to click it. After a refresh the banner keeps showing the portal's answer until the next refresh, including "Pro features stop on {date}" for a canceled subscription and "Pro has ended" with a link to support@runsodin.com. O.D.I.N. still never contacts the license portal on its own. Superadmins can read that answer from `GET /api/license/last-refresh` (`status`, `at`, `expires_at`); the public `GET /api/license` does not include it, because it shows billing state. If the portal's answer and the license file it sends disagree (for example "renewed" with a license that has already ended), nothing is installed.
 - O.D.I.N. now installs a signed replacement license that ends earlier than the installed one (for example after a cancellation), or, through Refresh license only, one that has already ended (a refund or chargeback: the server drops to Community and stays there after a restart, and the next refresh installs a valid file again if entitlement returns), as long as the portal issued it after the installed file. A signed license for the same key that was issued before the installed one is refused with a clear message, including when it is uploaded as a file.
 
+### Fixed
+
+- License refresh refuses no-entitlement replacements with unverified evidence or a different key, including files ending within the clock allowance. Different files for the same key must have a newer issue time; equal issue times allow only the identical file. Refused replacements leave the installed license unchanged.
+
 ## [2.1.0] - 2026-11-10
 
 

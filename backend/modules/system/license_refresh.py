@@ -55,7 +55,11 @@ def ends_within_clock_allowance(candidate, now: Optional[datetime] = None) -> bo
     "Now" is the trusted license clock, the same one validity is judged on.
     """
     from license_manager import _license_expiry_deadline
-    if not getattr(candidate, "valid", False) or getattr(candidate, "trial", False) or not candidate.expires_at:
+    # Compatibility validity alone does not establish signed evidence. In
+    # particular, verified_current requires expires_at strictly after issued_at.
+    if (not getattr(candidate, "valid", False) or getattr(candidate, "trial", False)
+            or getattr(candidate, "verification_state", None) != "verified_current"
+            or not getattr(candidate, "issued_at", None) or not candidate.expires_at):
         return False
     try:
         if now is None:
