@@ -63,6 +63,7 @@
       "total_layers": {"name": "Total layers"},
       "active_errors": {"name": "Active errors"},
       "next_job": {"name": "Next job"},
+      "ams_humidity": {"name": "AMS humidity"},
       "waiting_on": {
         "name": "Waiting on",
         "state": {

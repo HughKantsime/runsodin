@@ -96,6 +96,16 @@ def parse_ams_env(ams_raw: dict) -> list:
                     temperature = None
             except (ValueError, TypeError, OverflowError):
                 temperature = None
+        # A unit with no humidity sensor (AMS lite) still reports a level ("5") next to a raw
+        # reading of 0 and a temperature of 0: that is "no sensor", not "dry at 0 degrees".
+        try:
+            no_sensor = unit.get('humidity_raw') is not None and float(unit.get('humidity_raw')) == 0
+        except (ValueError, TypeError):
+            no_sensor = False
+        if no_sensor:
+            humidity = None
+            if temperature == 0:
+                temperature = None
         if humidity is not None or temperature is not None:
             results.append({'unit_idx': unit_idx, 'humidity': humidity, 'temperature': temperature})
     return results

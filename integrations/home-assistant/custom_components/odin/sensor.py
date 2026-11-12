@@ -97,6 +97,27 @@ def _waiting_on_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
     return {"reason": bench.get("reason"), "since": bench.get("since"), "pause_cause": bench.get("pause_cause")}
 
 
+def _ams_humidity(printer: dict[str, Any]) -> int | None:
+    """The wettest AMS unit's humidity index: 1 (dry) to 5 (wet), as on the printer's A-E scale.
+    Unknown on an older ODIN, with no AMS, or when no unit has a humidity sensor."""
+    units = printer.get("ams")
+    if not isinstance(units, list):
+        return None
+    values = [u.get("humidity_index") for u in units if isinstance(u, dict) and isinstance(u.get("humidity_index"), int)]
+    return max(values) if values else None
+
+
+def _ams_humidity_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
+    units = printer.get("ams")
+    if not isinstance(units, list) or not units:
+        return None
+    wettest = max((u for u in units if isinstance(u, dict) and isinstance(u.get("humidity_index"), int)),
+                  key=lambda u: u["humidity_index"], default=None)
+    return {"grade": wettest.get("grade") if wettest else None,
+            "wettest_unit": wettest.get("unit") if wettest else None,
+            "units": [u for u in units if isinstance(u, dict)]}
+
+
 def _next_unassigned_attrs(fleet: dict[str, Any]) -> dict[str, Any] | None:
     jobs = fleet.get("next_unassigned")
     return {"next_unassigned": jobs} if isinstance(jobs, list) else None
@@ -126,6 +147,8 @@ PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
     OdinSensorDescription(key="active_errors", state_class=SensorStateClass.MEASUREMENT,
                           value=lambda p: p.get("active_errors")),
     OdinSensorDescription(key="next_job", value=_next_job, attrs=_next_job_attrs),
+    OdinSensorDescription(key="ams_humidity", state_class=SensorStateClass.MEASUREMENT,
+                          value=_ams_humidity, attrs=_ams_humidity_attrs),
     OdinSensorDescription(key="waiting_on", device_class=SensorDeviceClass.ENUM, options=BENCH_STATES,
                           value=_waiting_on, attrs=_waiting_on_attrs),
 )

@@ -49,8 +49,15 @@ STATUS_V2["printers"][0].update({
     },
     "bench": None,
     "out_of_service": False,
+    "ams": [
+        {"unit": 0, "humidity_index": 4, "grade": "D", "bambu_level": 2, "humidity_percent": None, "temperature_c": 23.4,
+         "drying": None, "recorded_at": "2026-11-09T00:57:00Z", "age_seconds": 180},
+        {"unit": 1, "humidity_index": 2, "grade": "B", "bambu_level": 4, "humidity_percent": None, "temperature_c": 23.1,
+         "drying": None, "recorded_at": "2026-11-09T00:57:00Z", "age_seconds": 180}],
 })
 STATUS_V2["printers"][1].update({
+    "ams": [{"unit": 0, "humidity_index": None, "grade": None, "bambu_level": None, "humidity_percent": None,
+             "temperature_c": 30.0, "drying": None, "recorded_at": "2026-11-09T00:57:00Z", "age_seconds": 180}],
     "next_job": None,
     "bench": {"state": "paused", "reason": "Paused: possible spaghetti", "since": "2026-11-09T00:40:00Z",
               "pause_cause": "spaghetti"},

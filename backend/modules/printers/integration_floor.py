@@ -10,7 +10,7 @@ selected, so it cannot be named, counted or described.
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import bindparam, text
 
@@ -130,6 +130,54 @@ def queue_totals(db, actor, scope, controlled, states):
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
     count, hours, unestimated = db.execute(text(sql).bindparams(bindparam("states", expanding=True)), params).one()
     return {"count": int(count or 0), "hours": round(float(hours or 0), 2), "unestimated": int(unestimated or 0)}
+
+
+# ---------------------------------------------------------------------------
+# AMS humidity (latest stored reading per unit)
+# ---------------------------------------------------------------------------
+
+AMS_READING_MAX_AGE = timedelta(hours=24)
+_GRADES = "ABCDE"
+
+
+def ams_environment(db, printer_ids, now):
+    """{printer_id: [unit, ...]} from the monitors' five-minute AMS readings (ams_telemetry).
+
+    Bambu reports a level from 5 (driest) to 1 (wettest); `humidity_index` turns it round
+    (1 = dry ... 5 = wet) to match the A-E scale on the printer's screen, and `grade` is that
+    letter. Percent humidity and drying state are not stored yet, so they are null rather
+    than guessed. A unit with no sensor (AMS lite), or a reading older than a day, has no
+    humidity (null, never 0).
+    """
+    if not printer_ids:
+        return {}
+    rows = db.execute(text(
+        "SELECT t.printer_id, t.ams_unit, t.humidity, t.temperature, t.recorded_at FROM ams_telemetry t "
+        "JOIN (SELECT printer_id, ams_unit, MAX(id) AS latest FROM ams_telemetry WHERE printer_id IN :pids "
+        "GROUP BY printer_id, ams_unit) m ON m.latest = t.id ORDER BY t.printer_id, t.ams_unit"
+    ).bindparams(bindparam("pids", expanding=True)), {"pids": list(printer_ids)}).all()
+    result = {}
+    for printer_id, unit, humidity, temperature, recorded_at in rows:
+        at = to_utc(recorded_at)
+        if at is None or now - at > AMS_READING_MAX_AGE:
+            continue
+        level = int(humidity) if isinstance(humidity, (int, float)) and 1 <= humidity <= 5 else None
+        # Rows stored before the no-sensor rule: level 5 at exactly 0 degrees is an AMS lite placeholder.
+        if level == 5 and temperature == 0:
+            level, temperature = None, None
+        index = 6 - level if level is not None else None
+        result.setdefault(printer_id, []).append({
+            "unit": int(unit),
+            "humidity_index": index,
+            "grade": _GRADES[index - 1] if index else None,
+            "bambu_level": level,
+            "humidity_percent": None,
+            "temperature_c": round(float(temperature), 1) if isinstance(temperature, (int, float)) else None,
+            "drying": None,
+            "recorded_at": iso(at),
+            "age_seconds": max(0, int((now - at).total_seconds())),
+        })
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +365,7 @@ class Floor:
         self = cls()
         ids = [printer.id for printer in printers]
         self.queue = queue_totals(db, actor, scope, controlled, states)
+        self.ams = ams_environment(db, ids, now)
         # Maintenance hold (Printer detail > Set maintenance state): dispatch is blocked, the
         # monitor and camera keep running. One read for all printers.
         from core.printer_maintenance import enrich_maintenance
@@ -460,7 +509,8 @@ class Floor:
             elif refused:
                 bench = {"state": "blocked", "reason": HIDDEN_ERROR_MESSAGE if redact else refusal_words(refused[0]),
                          "since": iso(refused[1]), "pause_cause": None}
-        return {"next_job": next_job, "bench": bench, "out_of_service": held_out}
+        return {"next_job": next_job, "bench": bench, "out_of_service": held_out,
+                "ams": self.ams.get(printer.id, [])}
 
     def _pause(self, printer, running, error_unresolved, redact):
         stored = _json(printer.hms_errors)

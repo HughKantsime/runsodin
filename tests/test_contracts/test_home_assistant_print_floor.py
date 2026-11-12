@@ -384,3 +384,36 @@ def test_day_totals_leave_out_another_organizations_job_on_a_shared_printer(ha_c
     after = _get(client, issue)['fleet']['today']
     assert after['plates_done'] == before['plates_done'] + 1      # own job only
     assert after['plates_failed'] == before['plates_failed'] + 1  # a print with no job counts with its printer
+
+
+def test_ams_humidity_is_the_latest_reading_per_unit_and_never_zero_for_no_sensor(ha_client, review_db):
+    client, issue = ha_client
+    now = __import__('datetime').datetime.utcnow()
+    fmt = lambda minutes: (now - __import__('datetime').timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
+    rows = [(9, 0, 4, 22.0, fmt(30)), (9, 0, 2, 23.4, fmt(3)),      # latest wins: Bambu level 2
+            (9, 1, 5, 21.0, fmt(3)),                                # driest
+            (10, 0, 5, 0.0, fmt(3)),                                # AMS lite placeholder: no sensor
+            (10, 1, None, 30.0, fmt(3)),                            # temperature only
+            (12, 0, 1, 25.0, fmt(60 * 30))]                         # older than a day: not reported
+    for printer, unit, humidity, temperature, at in rows:
+        review_db.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,temperature,recorded_at) VALUES(:p,:u,:h,:t,:a)"),
+                          {'p': printer, 'u': unit, 'h': humidity, 't': temperature, 'a': at})
+    review_db.commit()
+    printers = {p['id']: p for p in _get(client, issue)['printers']}
+    nine = {u['unit']: u for u in printers[9]['ams']}
+    assert (nine[0]['bambu_level'], nine[0]['humidity_index'], nine[0]['grade'], nine[0]['temperature_c']) == (2, 4, 'D', 23.4)
+    assert (nine[1]['bambu_level'], nine[1]['humidity_index'], nine[1]['grade']) == (5, 1, 'A')
+    assert 150 <= nine[0]['age_seconds'] <= 260 and nine[0]['recorded_at'].endswith('Z')
+    assert nine[0]['humidity_percent'] is None and nine[0]['drying'] is None      # not stored yet: null, not guessed
+    ten = {u['unit']: u for u in printers[10]['ams']}
+    assert ten[0]['humidity_index'] is None and ten[0]['grade'] is None and ten[0]['temperature_c'] is None
+    assert ten[1]['humidity_index'] is None and ten[1]['temperature_c'] == 30.0
+    assert printers[12]['ams'] == []
+
+
+def test_a_unit_without_a_humidity_sensor_is_not_recorded_as_dry():
+    from modules.printers.monitors.mqtt_telemetry import parse_ams_env
+    lite = {'ams': [{'id': '0', 'humidity': '5', 'humidity_raw': '0', 'temp': '0.0'}]}
+    assert parse_ams_env(lite) == []
+    real = {'ams': [{'id': '0', 'humidity': '2', 'humidity_raw': '44', 'temp': '23.4'}, {'id': '1', 'humidity': '5', 'temp': '21.0'}]}
+    assert parse_ams_env(real) == [{'unit_idx': 0, 'humidity': 2, 'temperature': 23.4}, {'unit_idx': 1, 'humidity': 5, 'temperature': 21.0}]

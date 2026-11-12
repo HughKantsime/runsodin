@@ -142,3 +142,19 @@ async def test_malformed_floor_fields_report_unknown(hass, aioclient_mock, statu
     queue = hass.states.get("sensor.odin_fleet_queue_length")
     assert queue.state == "4"
     assert "next_unassigned" not in queue.attributes
+
+
+async def test_ams_humidity_is_the_wettest_unit_and_unknown_without_a_sensor(hass, aioclient_mock, status_v2):
+    aioclient_mock.get(STATUS_URL, json=status_v2)
+    await _setup(hass)
+    wet = hass.states.get("sensor.x1c_ams_humidity")
+    assert wet.state == "4" and wet.attributes["grade"] == "D" and wet.attributes["wettest_unit"] == 0
+    assert [u["unit"] for u in wet.attributes["units"]] == [0, 1]
+    none = hass.states.get("sensor.kobra_s1_ams_humidity")
+    assert none.state == "unknown" and none.attributes["grade"] is None    # no sensor: unknown, never 0
+
+
+async def test_ams_humidity_is_unknown_on_an_older_odin(hass, aioclient_mock, status):
+    aioclient_mock.get(STATUS_URL, json=status)
+    await _setup(hass)
+    assert hass.states.get("sensor.x1c_ams_humidity").state == "unknown"

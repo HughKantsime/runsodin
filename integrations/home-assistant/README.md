@@ -22,6 +22,7 @@ Each printer gets one device with these entities:
 - Active errors.
 - Next job: the name of the next queued job for this printer, unknown when nothing is queued. Attributes: `job_id`, `held`, `est_minutes`, `copies_on_plate`, `filaments` (slot, color, material, grams), `plate_index`, `plate_count`, `ams_status` (match, mismatch or unknown), `ams_slots`, `scheduled_start`.
 - Waiting on: what is holding the printer back, one of `nothing`, `paused`, `out_of_service`, `clear_plate`, `blocked`, `held`. Attributes: `reason`, `since`, `pause_cause` (set when paused).
+- AMS humidity: the wettest AMS unit's humidity index, 1 (dry) to 5 (wet), the same order as the A-E scale on the printer. Attributes: `grade` (A-E), `wettest_unit`, `units` (each unit's index, grade, temperature and reading age). Unknown when no unit has a humidity sensor (AMS lite).
 - Online (connectivity), Needs attention (problem) and Out of service (the printer is on a maintenance hold in ODIN).
 - An Error event that fires when ODIN records a new printer error.
 - Camera, only when a camera token is set and the printer has a camera.
