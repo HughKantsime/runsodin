@@ -7,6 +7,8 @@ import { PageHeader, SearchInput, Button, EmptyState, Select } from '../../compo
 import toast from 'react-hot-toast'
 import type { User } from '../../types'
 import { useLicense } from '../../LicenseContext'
+import { RowCard, RowCardList } from '../../components/ui/RowCard'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 
 const ACTION_COLORS = {
   create: 'text-green-400',
@@ -36,8 +38,31 @@ function summarizeDetails(details: any) {
   return parts.length > 0 ? parts.join(' \u2022 ') : null
 }
 
+// Phone layout (< 640 px): same fields as the table row, stacked.
+function AuditCard({ log, expanded, onToggle }: { log: any; expanded: boolean; onToggle: () => void }) {
+  const summary = summarizeDetails(log.details)
+  return (
+    <RowCard
+      title={<><span className={ACTION_COLORS[log.action] || 'text-[var(--brand-text-secondary)]'}>{log.action || 'Unknown'}</span>{' '}{log.entity_type || 'Unknown'} {log.entity_id ?? 'Unknown'}</>}
+      fields={[
+        ['Time', log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown'],
+        ['User', log.auth_kind === 'legacy_global_api_key' ? 'Service API key' : log.username || 'Unknown'],
+        ['Details', log.details !== null && log.details !== undefined ? (
+          <button type="button" onClick={onToggle} className="min-h-11 text-left hover:text-[var(--brand-text-primary)] transition-colors">
+            {expanded
+              ? <pre className="text-xs whitespace-pre-wrap font-mono">{JSON.stringify(log.details, null, 2)}</pre>
+              : <span className="block break-words">{summary || JSON.stringify(log.details)}</span>}
+          </button>
+        ) : 'Unknown'],
+        ['IP', log.ip_address || 'Unknown'],
+      ]}
+    />
+  )
+}
+
 export default function AuditLogs() {
   const queryClient = useQueryClient()
+  const compact = useMediaQuery('(max-width: 639px)')
   const [entityType, setEntityType] = useState('')
   const [action, setAction] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -161,6 +186,25 @@ export default function AuditLogs() {
       {exportTruncated && <p role="status" className="mb-3 text-sm">This export was truncated at 5,000 entries. Narrow the dates to get the rest.</p>}
 
       {/* Table */}
+      {compact ? (
+        <div>
+          {principal && !ready ? (
+            <p role="alert" className="py-6 text-sm">Audit history requires platform administrator access.</p>
+          ) : isError ? (
+            <p role="alert" className="py-6 text-sm">Audit logs unavailable. <button type="button" className="min-h-11 underline" onClick={() => { void refetch() }} disabled={isFetching}>Retry</button></p>
+          ) : isLoading ? (
+            <p className="text-center py-8 text-sm text-[var(--brand-text-muted)]">Loading...</p>
+          ) : logs.length === 0 ? (
+            <EmptyState icon={FileText} title={searchText ? 'No matching entries' : 'No audit log entries'} />
+          ) : (
+            <RowCardList label="Audit logs">
+              {logs.map(log => (
+                <AuditCard key={log.id} log={log} expanded={expandedId === log.id} onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)} />
+              ))}
+            </RowCardList>
+          )}
+        </div>
+      ) : (
       <div tabIndex={0} role="region" aria-label="Audit logs" className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
         <Table className="w-full text-sm min-w-[700px]">
           <thead>
@@ -219,6 +263,7 @@ export default function AuditLogs() {
           </tbody>
         </Table>
       </div>
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (

@@ -217,7 +217,7 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
                   </div>
                 </div>
                 <div className="shrink-0 pt-0.5">
-                  <StatusBadge status={item.status} size="sm" />
+                  <StatusBadge status={item.status} size="sm" kind="job" />
                 </div>
               </div>
             </Card>

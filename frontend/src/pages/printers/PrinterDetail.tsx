@@ -292,7 +292,7 @@ export default function PrinterDetail() {
                     {job.duration ? ` \u2022 ${formatDuration(job.duration)}` : ''}
                   </p>
                 </div>
-                <StatusBadge status={job.status || 'pending'} size="sm" />
+                <StatusBadge status={job.status || 'pending'} size="sm" kind="job" />
               </div>
             ))}
           </div>

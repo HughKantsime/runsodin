@@ -10,6 +10,8 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import OutcomeCorrection from '../../components/jobs/OutcomeCorrection'
+import { RowCard, RowCardList } from '../../components/ui/RowCard'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { canDo } from '../../permissions'
 const ModelViewer = lazy(() => import('../../components/models/ModelViewer'))
 import { Archive, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw, Box } from 'lucide-react'
@@ -372,6 +374,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
 
 export default function ArchivesPage() {
   const queryClient = useQueryClient()
+  const compact = useMediaQuery('(max-width: 639px)')
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [page, _setPage] = useState(() => {
@@ -540,6 +543,38 @@ export default function ArchivesPage() {
         />
       ) : (
         <>
+          {compact ? (
+            <RowCardList label="Archives">
+              {items.map(item => (
+                <RowCard
+                  key={item.id}
+                  title={displayName(item)}
+                  onOpen={() => setSelected(item)}
+                  leading={
+                    <CheckTarget><input
+                      type="checkbox"
+                      aria-label={`Select ${displayName(item)} for comparison`}
+                      checked={compareIds.has(item.id)}
+                      onChange={() => toggleCompare(item.id)}
+                      disabled={!compareIds.has(item.id) && compareIds.size >= 2}
+                      className="h-6 w-6 mt-2 shrink-0 accent-[var(--brand-primary)]"
+                    /></CheckTarget>
+                  }
+                  status={<SharedStatusBadge status={item.status} size="sm" kind="job" />}
+                  fields={[
+                    ['Printer', item.printer_display],
+                    ['Duration', formatDuration(item.actual_duration_seconds)],
+                    ['Filament', item.filament_used_grams != null ? `${item.filament_used_grams.toFixed(1)}g` : '--'],
+                    ['Date', formatDate(item.completed_at)],
+                  ]}
+                >
+                  {item.tags && item.tags.length > 0 && (
+                    <TagChips tags={item.tags} onTagClick={t => { setFilterTag(t); setPage(1) }} />
+                  )}
+                </RowCard>
+              ))}
+            </RowCardList>
+          ) : (
           <div tabIndex={0} role="region" aria-label="Archives" className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
             <Table className="w-full text-sm">
               <thead>
@@ -590,7 +625,7 @@ export default function ArchivesPage() {
                     </td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3">
-                      <SharedStatusBadge status={item.status} size="sm" />
+                      <SharedStatusBadge status={item.status} size="sm" kind="job" />
                     </td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
                       <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(item.actual_duration_seconds)}</span>
@@ -604,6 +639,7 @@ export default function ArchivesPage() {
               </tbody>
             </Table>
           </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (

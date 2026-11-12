@@ -16,6 +16,8 @@ interface StatusBadgeProps {
   testId?: string
   size?: 'sm' | 'md'
   variant?: 'inline' | 'badge'
+  /** 'job' labels finished jobs Completed / Failed / Cancelled in Foundry (printers keep Ready / Needs you). */
+  kind?: 'job'
 }
 
 const statusStyles: Record<string, StatusStyle> = {
@@ -54,6 +56,13 @@ const foundryStates: Record<string, [string, string]> = {
   awaitingapproval: ['waitingOnYou', 'Waiting on you'], awaitingclearance: ['waitingOnYou', 'Waiting on you'],
 }
 
+/** Finished-job labels. Same colour categories as above, honest words. */
+const jobFinishedStates: Record<string, [string, string]> = {
+  completed: ['ready', 'Completed'], complete: ['ready', 'Completed'], done: ['ready', 'Completed'],
+  failed: ['needsYou', 'Failed'],
+  cancelled: ['neutral', 'Cancelled'], canceled: ['neutral', 'Cancelled'],
+}
+
 /** Connectivity is authoritative; never show an offline printer as ready/printing. */
 export function printerBadgeStatus(printer: { gcode_state?: string | null; hms_errors?: unknown[] }, online: boolean) {
   if (!online) return 'offline'
@@ -61,11 +70,11 @@ export function printerBadgeStatus(printer: { gcode_state?: string | null; hms_e
   return printer.gcode_state || 'unknown'
 }
 
-export default function StatusBadge({ status, size = 'sm', variant = 'inline', classic, testId }: StatusBadgeProps) {
+export default function StatusBadge({ status, size = 'sm', variant = 'inline', classic, testId, kind }: StatusBadgeProps) {
   const foundry = useFoundry()
   if (foundry) {
     const key = normalizeStatus(status || 'unknown')
-    const [category, label] = foundryStates[key] || ['neutral', status.trim() || 'Unknown']
+    const [category, label] = (kind === 'job' && jobFinishedStates[key]) || foundryStates[key] || ['neutral', status.trim() || 'Unknown']
     return <span className="foundry-status" data-status={category} data-testid={testId}>{label}</span>
   }
   if (classic !== undefined) return <>{classic}</>

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { maintenance } from '../../api'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, Button, EmptyState, ProgressBar as SharedProgressBar, TabBar } from '../../components/ui'
 import { DialogSurface } from '../../components/ui'
@@ -190,11 +191,12 @@ function TaskForm({ task, onSave, onCancel, saving }: { task?: Awaited<ReturnTyp
 
 function PrinterCard({ printer, onLogMaintenance }) {
   const [expanded, setExpanded] = useState(printer.overall_status !== 'ok')
+  const compact = useMediaQuery('(max-width: 639px)')
   const colors = STATUS_COLORS[printer.overall_status] || STATUS_COLORS.ok
 
   return (
-    <div className={`border ${colors.border} rounded-md overflow-hidden`}>
-      <div className={`flex items-center justify-between p-4 cursor-pointer hover:bg-[var(--brand-input-bg)]/50 ${colors.bg}`}
+    <div data-layout={compact ? 'stacked' : 'row'} className={`border ${colors.border} rounded-md overflow-hidden`}>
+      <div className={`flex ${compact ? 'flex-col items-start gap-2' : 'items-center justify-between'} p-4 cursor-pointer hover:bg-[var(--brand-input-bg)]/50 ${colors.bg}`}
         onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-3">
           {expanded ? <ChevronDown size={16} className="text-[var(--brand-text-secondary)]" /> : <ChevronRight size={16} className="text-[var(--brand-text-secondary)]" />}
@@ -203,7 +205,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
             {printer.printer_model && <span className="text-[var(--brand-text-muted)] text-sm ml-2">{printer.printer_model}</span>}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className={compact ? 'flex flex-wrap items-center gap-x-3 gap-y-1 pl-7' : 'flex items-center gap-3'}>
           <span className="text-xs text-[var(--brand-text-secondary)] font-mono">{printer.total_print_hours}h printed</span>
           {printer.total_print_count != null && (
             <span className="text-xs text-[var(--brand-text-secondary)] font-mono hidden sm:inline">{printer.total_print_count} prints</span>
@@ -220,7 +222,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
       {expanded && printer.tasks.length > 0 && (
         <div className="border-t border-[var(--brand-card-border)] divide-y divide-[var(--brand-card-border)]/50">
           {printer.tasks.map(task => (
-            <div key={task.task_id} className="flex items-center justify-between px-4 py-3">
+            <div key={task.task_id} className={compact ? 'flex flex-col items-stretch gap-2 px-4 py-3' : 'flex items-center justify-between px-4 py-3'}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[task.status]?.dot || 'bg-[var(--brand-text-muted)]'}`} />
@@ -259,7 +261,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
                 variant="secondary"
                 size="sm"
                 icon={CheckCircle}
-                className="ml-3 shrink-0"
+                className={compact ? 'min-h-11 self-start' : 'ml-3 shrink-0'}
                 onClick={e => { e.stopPropagation(); onLogMaintenance(printer, task) }}
               >
                 Log Service

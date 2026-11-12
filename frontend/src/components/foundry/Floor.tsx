@@ -9,7 +9,8 @@ import { Fleet } from './PrinterRows'
 import NeedsYouBanner from './NeedsYouBanner'
 import CameraView from './CameraView'
 import { Schedule } from './ScheduleLane'
-import { useFloorData, useFleet, useNow, needsYou, state } from './data'
+import { useFloorData, useFleet, useNow } from './data'
+import { fleetCounts } from '../../utils/fleetCounts'
 
 export function FleetSummary() {
   return useFoundry() ? <Summary /> : null
@@ -18,10 +19,7 @@ function Summary() {
   const fleet = useFleet()
   useNow()
   if (!fleet.data || fleet.isError) return null
-  const printers = fleet.data.filter(p => p.is_active)
-  const printing = printers.filter(p => state(p) === 'printing').length
-  const ready = printers.filter(p => ['idle', 'ready', 'finish', 'finished', 'complete', 'completed'].includes(state(p).toLowerCase())).length
-  const attention = printers.filter(needsYou).length
+  const { printing, ready, attention } = fleetCounts(fleet.data.filter(p => p.is_active))
   return <div className="f-fleet-summary f-mono"><span>{printing} printing · {ready} ready</span>{attention > 0 && canAccessPage('dashboard') && <Link to="/#needs-you">{attention} needs you</Link>}</div>
 }
 export default function Floor() {

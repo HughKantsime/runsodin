@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import { ClipboardList, Search, Download, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDurationSecs as formatDuration, formatDate } from '../../utils/shared'
+import { RowCard, RowCardList } from '../../components/ui/RowCard'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 
 const STATUS_BADGES = {
   completed: 'bg-green-600/20 text-green-400',
@@ -18,6 +20,7 @@ const STATUS_BADGES = {
 export default function PrintLog() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [exporting, setExporting] = useState(false)
+  const compact = useMediaQuery('(max-width: 639px)')
 
   const [page, setPage] = useState(() => {
     const p = parseInt(searchParams.get('page'), 10)
@@ -173,6 +176,28 @@ export default function PrintLog() {
         </div>
       ) : (
         <>
+          {compact ? (
+            <RowCardList label="Print log">
+              {items.map(item => (
+                <RowCard
+                  key={item.id}
+                  title={displayName(item)}
+                  status={
+                    <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGES[item.status] || 'bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]'}`}>
+                      {item.status}
+                    </span>
+                  }
+                  fields={[
+                    ['Date', formatDate(item.completed_at)],
+                    ['Printer', item.printer_display],
+                    ['User', item.user_name || '--'],
+                    ['Duration', formatDuration(item.actual_duration_seconds)],
+                    ['Filament', item.filament_used_grams ? `${item.filament_used_grams.toFixed(1)}g` : '--'],
+                  ]}
+                />
+              ))}
+            </RowCardList>
+          ) : (
           <div tabIndex={0} role="region" aria-label="Print log" className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
             <Table className="w-full text-sm">
               <thead>
@@ -209,6 +234,7 @@ export default function PrintLog() {
               </tbody>
             </Table>
           </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (

@@ -178,7 +178,7 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <StatusBadge status={job.status} />
+        <StatusBadge status={job.status} kind="job" />
         <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
       </div>
       <div className="mt-2 text-sm">
@@ -242,8 +242,10 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         </div>
       </td>
       <td className="px-3 md:px-4 py-3">
-        <StatusBadge status={job.status} />
-        <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <StatusBadge status={job.status} kind="job" />
+          <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
+        </div>
       </td>
       <td className="px-3 md:px-4 py-3">
         <JobItemDetails job={job} />

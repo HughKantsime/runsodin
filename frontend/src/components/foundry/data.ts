@@ -1,10 +1,10 @@
-import { hmsFaults } from '../../utils/hms'
+import { needsYou, state, fleetCounts } from '../../utils/fleetCounts'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { printers, printJobs, alerts } from '../../api'
 import { fetchAPI } from '../../api/client'
 import { canAccessPage } from '../../permissions'
-import { isOnline, isPausedState, isPrintingState } from '../../utils/shared'
+export { needsYou, state, fleetCounts }
 import type { Printer, PrintJob, Job } from '../../types'
 
 export const number = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -17,20 +17,7 @@ export function useNow() {
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   return now
 }
-export function needsYou(printer: Printer) {
-  // HMS is a JSON string on HTTP and an array on websocket updates. '[]' is not an error.
-  let errors: unknown = printer.hms_errors
-  if (typeof errors === 'string') { try { errors = JSON.parse(errors) } catch { errors = [] } }
-  return isPausedState(printer.gcode_state) || ['ERROR', 'FAILED', 'RUNOUT'].includes((printer.gcode_state || '').toUpperCase())
-    || hmsFaults(errors).length > 0
-}
-export function state(printer: Printer) {
-  if (!printer.gcode_state || printer.gcode_state.trim().toUpperCase() === 'UNKNOWN') return 'unknown'
-  if (!isOnline(printer)) return 'offline'
-  if (needsYou(printer)) return 'needs you'
-  if (isPrintingState(printer.gcode_state)) return 'printing'
-  return printer.gcode_state || 'unknown'
-}
+// needsYou, state and fleetCounts live in utils/fleetCounts (shared with the sidebar summary).
 export function activePrint(printer: Printer, prints: PrintJob[]) {
   return prints.filter(job => job.printer_id === printer.id && job.status === 'running').sort((a, b) => b.id - a.id)[0]
 }

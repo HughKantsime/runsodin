@@ -18,7 +18,10 @@ import {
   Monitor, Printer, Calendar, Video, Package,
   ArrowRight, ArrowLeft, X, Sparkles, Check,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '../ui'
+import { printers as printersApi } from '../../api'
+import { getCurrentUser } from '../../permissions'
 
 interface TourStep {
   id: string
@@ -73,7 +76,15 @@ const TOUR_STEPS: TourStep[] = [
   },
 ]
 
+// Legacy browser-wide flag: still honoured so nobody who already closed the tour sees it again.
 const TOUR_STORAGE_KEY = 'odin_onboarding_complete'
+const tourKeyFor = (userId: number | string) => `${TOUR_STORAGE_KEY}:${userId}`
+
+/** Dismissed per user (and by the legacy flag). An unknown user counts as dismissed: never show blind. */
+function tourDismissed(userId: number | string | null | undefined): boolean {
+  if (userId == null) return true
+  try { return !!localStorage.getItem(TOUR_STORAGE_KEY) || !!localStorage.getItem(tourKeyFor(userId)) } catch { return true }
+}
 
 export default function OnboardingTour() {
   const [isVisible, setIsVisible] = useState(false)
@@ -81,21 +92,30 @@ export default function OnboardingTour() {
   const [isMinimized, setIsMinimized] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
+  const userId = getCurrentUser()?.id ?? null
+
+  // The tour is for installs with no printers yet. An error reading the list (e.g. no access) means no tour.
+  const { data: fleet } = useQuery({
+    queryKey: ['onboarding-printers'],
+    queryFn: () => printersApi.list(),
+    enabled: userId != null && !tourDismissed(userId),
+    staleTime: 60_000,
+    retry: false,
+  })
 
   useEffect(() => {
-    // Show tour if not completed and on dashboard
-    const completed = localStorage.getItem(TOUR_STORAGE_KEY)
-    if (!completed && location.pathname === '/') {
-      // Small delay so dashboard renders first
-      const timer = setTimeout(() => setIsVisible(true), 1500)
-      return () => clearTimeout(timer)
-    }
-  }, [location.pathname])
+    // Show tour once: dashboard, not dismissed by this user, and the install has no printers.
+    // Only the decision to open is gated; a tour already open stays open when the user adds a printer in step 2.
+    if (location.pathname !== '/' || tourDismissed(userId) || !fleet || fleet.length > 0) return
+    // Small delay so dashboard renders first
+    const timer = setTimeout(() => setIsVisible(true), 1500)
+    return () => clearTimeout(timer)
+  }, [location.pathname, userId, fleet])
 
   const completeTour = useCallback(() => {
-    localStorage.setItem(TOUR_STORAGE_KEY, 'true')
+    try { localStorage.setItem(userId != null ? tourKeyFor(userId) : TOUR_STORAGE_KEY, 'true') } catch { /* storage unavailable */ }
     setIsVisible(false)
-  }, [])
+  }, [userId])
 
   const nextStep = useCallback(() => {
     if (currentStep < TOUR_STEPS.length - 1) {
@@ -225,6 +245,8 @@ export default function OnboardingTour() {
  * Reset the tour — call from Settings > Help.
  */
 export function resetOnboardingTour() {
+  const userId = getCurrentUser()?.id
+  if (userId != null) localStorage.removeItem(tourKeyFor(userId))
   localStorage.removeItem(TOUR_STORAGE_KEY)
   window.location.href = '/'
 }
