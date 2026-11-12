@@ -109,6 +109,16 @@ export interface ModelCostResult {
   [key: string]: unknown;
 }
 
+// Server-side library search (GET /models-with-pricing query parameters).
+export interface ModelLibraryFilters {
+  q?: string;
+  material?: string;
+  printer_model?: string;
+  plates_min?: number;
+  plates_max?: number;
+  printed_on_printer?: number;
+}
+
 export interface ModelWithPricing extends Model {
   job_statistics: { completed_job_count: number; actual_print_hours: number; unknown_timing_job_count: number } | null;
   suggested_price?: number;
@@ -157,7 +167,14 @@ export const models = {
   getVariants: (id: number): Promise<{ model_id: number; model_name: string; variants: ModelVariant[] }> => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId: number, variantId: number): Promise<void> => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
   list: (orgId: number | null = null): Promise<Model[]> => fetchAPI('/models' + (orgId != null && typeof orgId !== 'object' ? '?org_id=' + orgId : '')),
-  listWithPricing: (category?: string, orgId: number | null = null): Promise<ModelWithPricing[]> => fetchAPI('/models-with-pricing' + (category ? '?category=' + category : '') + (orgId != null ? (category ? '&' : '?') + 'org_id=' + orgId : '')),
+  listWithPricing: (category?: string | null, orgId: number | null = null, filters: ModelLibraryFilters = {}): Promise<ModelWithPricing[]> => {
+    const query = new URLSearchParams()
+    if (category) query.set('category', category)
+    if (orgId != null) query.set('org_id', String(orgId))
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    const qs = query.toString()
+    return fetchAPI('/models-with-pricing' + (qs ? '?' + qs : ''))
+  },
   get: (id: number): Promise<Model> => fetchAPI('/models/' + id),
   create: (data: ModelCreate): Promise<Model> => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: ModelUpdate): Promise<Model> => fetchAPI('/models/' + id, { method: 'PATCH', body: JSON.stringify(data) }),

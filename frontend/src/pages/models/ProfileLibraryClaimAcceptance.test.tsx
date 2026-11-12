@@ -25,7 +25,7 @@ beforeEach(() => { vi.clearAllMocks(); api.list.mockResolvedValue({ profiles, to
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.restoreAllMocks() })
 it('F05-5.2-03 actual model summary counts models, favorites, categories and costed models', async () => {
   await models(); expect(stat('Models')).toHaveTextContent('2'); expect(stat('Favorites')).toHaveTextContent('1'); expect(stat('Categories')).toHaveTextContent('2'); expect(stat('Costed')).toHaveTextContent('1')
-  expect(api.models).toHaveBeenCalledWith(null,17)
+  expect(api.models).toHaveBeenCalledWith(null,17,{})
 })
 it.each(['Total Print Hours','Most Printed'])('F05-5.2-03 CLAIM GAP: summary includes advertised %s stat', async label => {
   await models(); expect(screen.getByText(label, { selector: 'span', exact: true })).toBeInTheDocument()

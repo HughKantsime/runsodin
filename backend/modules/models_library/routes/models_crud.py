@@ -27,6 +27,7 @@ from modules.models_library.schemas import (
     ModelCreate, ModelUpdate, ModelResponse, ModelScheduleOptions,
 )
 from .pricing import calculate_job_cost
+from modules.models_library.library_search import LibraryFilters, apply_model_filters
 from ._models_helpers import (  # noqa: F401
     _locked_revision_model, _new_revision_file, _next_revision_number, _plate_summaries, _revision_directory,
     _require_viewer_submission, _stage_submission_alert,
@@ -45,6 +46,7 @@ router = APIRouter(prefix="/models", tags=["Models"])
 def list_models(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
+    filters: LibraryFilters = Depends(),
     current_user: dict = Depends(require_role("viewer", scope="read:models")),
     db: Session = Depends(get_db)
 ):
@@ -57,6 +59,7 @@ def list_models(
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
+    query = apply_model_filters(query, db, current_user, filters, effective_org)
 
     from core.controlled_parts import model_visibility
     visible, values = model_visibility(current_user)
@@ -67,12 +70,13 @@ def list_models(
 def list_models_with_pricing(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
+    filters: LibraryFilters = Depends(),
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:models"))
 ):
     from .pricing import list_models_with_pricing as priced_models
     return priced_models(category=category, org_id=org_id, db=db, current_user=current_user,
-                         variant_rows=_accessible_model_variant_rows)
+                         variant_rows=_accessible_model_variant_rows, filters=filters)
 
 
 @router.post("", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)

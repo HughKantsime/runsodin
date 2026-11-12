@@ -1,13 +1,13 @@
 import ModelPlates from './ModelPlates'
 import { useState, useEffect, useRef } from 'react'
-import { Pencil, Trash2, Clock, Scale, Star, Package, CalendarPlus, History, X, ChevronDown, Palette, DollarSign, EyeOff } from 'lucide-react'
+import { Pencil, Trash2, Clock, Scale, Star, Package, CalendarPlus, History, X, ChevronDown, Palette, DollarSign, EyeOff, Layers } from 'lucide-react'
 import clsx from 'clsx'
 import { canDo } from '../../permissions'
 import { fetchAPI } from '../../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 
-export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, submitForApproval = false }) {
+export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, onPlates = undefined, submitForApproval = false }) {
   const queryClient = useQueryClient()
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden hover:border-[var(--brand-card-border)] transition-colors">
@@ -87,6 +87,13 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
               }
               catch (error) { toast.error(error instanceof Error ? error.message : 'Hide failed') }
             }}><EyeOff size={14} /></button>}
+            {onPlates && <button
+              onClick={() => onPlates(model)}
+              className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
+              aria-label="View plates"
+            >
+              <Layers size={14} />
+            </button>}
             {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
               className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
