@@ -536,3 +536,19 @@ def test_a_first_alert_that_fails_is_retried(maintenance_client, review_db, chec
     monkeypatch.setattr(maintenance_alerts, '_stage', real)
     checker()
     assert {a['meta']['stage'] for a in _alerts(review_db)} == {'overdue'}
+
+
+def test_printing_more_hours_never_starts_a_new_cycle(maintenance_client, review_db, checker):
+    """Second sign-off: the cycle marker used the computed next-due point, which moves with
+    rounding as lifetime hours grow (service at 1.15 h, 100 h interval: 101.2 then 101.1)."""
+    review_db.execute(text('UPDATE maintenance_tasks SET interval_print_hours=100 WHERE id=101'))
+    review_db.execute(text('UPDATE maintenance_logs SET print_hours_at_service=1.15 WHERE task_id=101'))
+    review_db.commit()
+    _hours(review_db, 250)
+    checker()
+    raised = len(_alerts(review_db))
+    assert raised
+    for hours in (260, 260.05, 271.3, 300):
+        _hours(review_db, hours)
+        checker()
+    assert len(_alerts(review_db)) == raised

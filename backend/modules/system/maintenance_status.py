@@ -182,8 +182,12 @@ def _entry(task, last_log, printer, total_hours, now):
     }
 
 
-def compute_status(db, user=None, *, include_failure_rate=True, now=None):
-    """Per-printer maintenance health for the printers `user` may see (all when None)."""
+def compute_status(db, user=None, *, include_failure_rate=True, now=None, service_cycle=False):
+    """Per-printer maintenance health for the printers `user` may see (all when None).
+
+    ``service_cycle`` (the hourly notifier only) adds ``service_cycle`` to each task: the id of
+    the service entry the status is measured from plus the task's intervals, all stored values.
+    """
     printers = (visible_printer_query(db.query(Printer), user)
                 .filter(Printer.is_active.is_(True)).order_by(Printer.name).all())
     if not printers:
@@ -225,6 +229,9 @@ def compute_status(db, user=None, *, include_failure_rate=True, now=None):
         worst_status = "ok"
         for task, last_log in entries:
             entry = _entry(task, last_log, printer, total_hours, now)
+            if service_cycle:
+                entry["service_cycle"] = "|".join(str(v if v is not None else "") for v in (
+                    getattr(last_log, "id", None), task.interval_print_hours, task.interval_days))
             if entry["status"] == "overdue":
                 worst_status = "overdue"
             elif entry["status"] == "due_soon" and worst_status == "ok":

@@ -59,9 +59,9 @@ def load_service_markers(db):
 
 
 def service_marker(task):
-    """Identifies the service cycle a task is in: the last service and where the next one falls
-    (two entries logged in the same second differ by their print hours)."""
-    return "|".join(str(task.get(field) or "") for field in ("last_serviced", "next_due_print_hours", "next_due_date"))
+    """Identifies the service cycle a task is in, from stored values only (the service entry's
+    id and the task's intervals): computed figures such as the next due point move with rounding."""
+    return str(task.get("service_cycle") or "")
 
 
 def save_state(db, state, markers=None):
@@ -133,7 +133,7 @@ def check_maintenance(*, session_factory=None, now=None):
             state = load_state(db)
             markers = load_service_markers(db)
             seen, seen_markers = {}, {}
-            for printer in compute_status(db, None, include_failure_rate=False, now=now):
+            for printer in compute_status(db, None, include_failure_rate=False, now=now, service_cycle=True):
                 for task in printer["tasks"]:
                     key = task_key(printer["printer_id"], task)
                     stage = task["status"]
