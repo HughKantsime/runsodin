@@ -371,6 +371,19 @@ def _raise_alert(engine, job, result, message) -> None:
         log.warning('[dispatch] job_id=%s filament warning alert could not be raised', job.get('id'))
 
 
+def _job_owns_printer(engine, job) -> bool:
+    """True when the job is charged to the printer's own organization (or the printer has none).
+    Anything unreadable counts as not the owner, so the wording stays the hidden one."""
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                'SELECT p.org_id, j.charged_to_org_id FROM jobs j JOIN printers p ON p.id = :printer '
+                'WHERE j.id = :job'), {'printer': job['printer_id'], 'job': job['id']}).first()
+    except Exception:
+        return False
+    return row is not None and (row[0] is None or row[0] == row[1])
+
+
 @dataclass
 class GateOutcome:
     refusal: Optional[str] = None
@@ -395,6 +408,10 @@ def dispatch_gate(engine, job, mapping=None) -> GateOutcome:
     except Exception:
         log.warning('[dispatch] job_id=%s filament check could not run; dispatch continues', job.get('id'))
         return GateOutcome()
+    if not _job_owns_printer(engine, job):
+        # A job sent to another organization's shared printer: its people get the verdict in the
+        # refusal, warning and alert, never the owner's spool id or remaining weight.
+        result = hide_spool_details(result)
     shorts = result['warnings']
     if not shorts:  # enough or unknown: unknown never holds and raises nothing
         return GateOutcome(result=result)
