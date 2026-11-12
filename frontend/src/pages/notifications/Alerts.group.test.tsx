@@ -62,8 +62,8 @@ test('group dismiss calls the API once per member and keeps a failed member', as
 test('group mark read calls the API only for unread members', async () => {
   vi.mocked(api.list).mockResolvedValue([mk(3, 12), mk(2, 11, { is_read: true }), mk(1, 10)] as any)
   show()
-  fireEvent.click(await screen.findByRole('button', { name: 'Mark 3 alerts read' }))
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Mark 3 alerts read' })).toBeNull())
+  fireEvent.click(await screen.findByRole('button', { name: 'Mark 2 alerts read' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Mark 2 alerts read' })).toBeNull())
   expect(vi.mocked(api.markRead).mock.calls.map(c => c[0])).toEqual([3, 1])
 })
 
