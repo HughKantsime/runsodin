@@ -622,3 +622,21 @@ def test_the_frame_before_a_detection_is_only_saved_under_its_own_print(env):
     thread._saved_this_tick = True
     thread._detection_burst(thread.frame)
     assert len(env.training()) == 0
+
+
+def test_a_detections_own_frame_is_saved_only_under_the_print_it_was_captured_for(env):
+    """Fourth sign-off: the burst saved the detection frame with no bound print, so a switch to
+    another print while the detection was recorded stored A's picture under B's rules."""
+    _print(env.db, 9001, 8001)
+    _mark_controlled(env.db, 8001)
+    env.db.execute(text("UPDATE print_jobs SET status='completed' WHERE id=9001"))
+    _print(env.db, 9002, 8002)
+    env.db.commit()
+    thread = env.make(9001)
+    thread._frame_job = 9001                 # this tick's frame was captured under print A
+    thread.print_job_id = 9002               # ...and the monitor has since moved to print B
+    thread._saved_this_tick = False
+    thread._burst_previous = None
+    thread._detection_burst(thread.frame)
+    assert len(env.training()) == 0
+    assert thread._burst_after_job == 9001   # the follow-up frame is not credited to B either

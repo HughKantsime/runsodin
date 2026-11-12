@@ -174,6 +174,7 @@ class PrinterVisionThread(threading.Thread):
 
         layer = self.current_layer
         analyzed_job = job_at_capture
+        self._frame_job = job_at_capture     # the print this tick's frame belongs to (burst saves use it)
         counted_frame = False
         collect = self.settings.get('collect_training_data', 0)
 
@@ -487,10 +488,13 @@ class PrinterVisionThread(threading.Thread):
             if self._burst_previous is not None and not self._burst_previous_saved:
                 self._save_training_frame(self._burst_previous[1], self._burst_previous[0])
             self._burst_previous = None
+            # The detection's own frame is saved under the print it was captured for, never the
+            # one the thread may have moved to while the detection was being recorded.
+            frame_job = getattr(self, '_frame_job', self.print_job_id)
             if not current_saved:
-                self._save_training_frame(frame)
+                self._save_training_frame(frame, frame_job)
             self._burst_after = max(0, training_capture.BURST_FRAMES - 2)
-            self._burst_after_job = self.print_job_id
+            self._burst_after_job = frame_job
         except Exception:
             log.warning(f"[{self.printer_name}] Detection burst frames not saved", exc_info=True)
 
