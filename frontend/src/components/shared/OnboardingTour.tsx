@@ -96,7 +96,7 @@ export default function OnboardingTour() {
 
   // The tour is for installs with no printers yet. An error reading the list (e.g. no access) means no tour.
   const { data: fleet } = useQuery({
-    queryKey: ['onboarding-printers'],
+    queryKey: ['onboarding-printers', userId],
     queryFn: () => printersApi.list(),
     enabled: userId != null && !tourDismissed(userId),
     staleTime: 60_000,
@@ -106,7 +106,7 @@ export default function OnboardingTour() {
   useEffect(() => {
     // Show tour once: dashboard, not dismissed by this user, and the install has no printers.
     // Only the decision to open is gated; a tour already open stays open when the user adds a printer in step 2.
-    if (location.pathname !== '/' || tourDismissed(userId) || !fleet || fleet.length > 0) return
+    if (location.pathname !== '/' || tourDismissed(userId) || !Array.isArray(fleet) || fleet.length > 0) return
     // Small delay so dashboard renders first
     const timer = setTimeout(() => setIsVisible(true), 1500)
     return () => clearTimeout(timer)

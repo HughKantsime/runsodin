@@ -15,7 +15,7 @@ export function state(printer: Printer) {
   if (!isOnline(printer)) return 'offline'
   if (needsYou(printer)) return 'needs you'
   if (isPrintingState(printer.gcode_state)) return 'printing'
-  return printer.gcode_state || 'unknown'
+  return printer.gcode_state.trim() || 'unknown'
 }
 
 const READY_STATES = new Set(['idle', 'ready', 'finish', 'finished', 'complete', 'completed'])
@@ -23,8 +23,10 @@ const READY_STATES = new Set(['idle', 'ready', 'finish', 'finished', 'complete',
 /**
  * One definition of the fleet counts, used by the Foundry header and the sidebar summary.
  * A printer that needs you (paused, errored, runout, HMS fault) is never counted as printing.
+ * Deactivated printers are left out here, so every caller counts the same fleet.
  */
-export function fleetCounts(printers: Printer[]) {
+export function fleetCounts(all: Printer[]) {
+  const printers = all.filter(printer => printer.is_active !== false)
   let printing = 0, ready = 0, attention = 0, offline = 0
   for (const printer of printers) {
     const s = state(printer).toLowerCase()
