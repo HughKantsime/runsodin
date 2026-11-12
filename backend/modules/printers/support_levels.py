@@ -29,6 +29,7 @@ SUPPORT_TABLE: dict[str, tuple[str, str]] = {
     'prusalink': (SUPPORTED, 'PrusaLink REST API; verified on real hardware'),
     'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring plus pause, resume and stop; no job sending'),
     'anycubic_lan': (SUPPORTED, 'Anycubic LAN mode; monitoring and ACE slots only'),
+    'octoprint': (EXPERIMENTAL, "OctoPrint's public REST API documentation (docs.octoprint.org); built from the documentation, not verified on real hardware"),
 }
 
 CONFIG_KEY = 'experimental_printer_actions'

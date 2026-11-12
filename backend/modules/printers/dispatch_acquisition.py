@@ -128,7 +128,7 @@ def _cleanup_owned_process(process):
 
 
 def bounded_http_status_is_idle(creds: dict, deadline: float) -> bool:
-    if not isinstance(creds,dict) or creds.get('api_type') not in ('moonraker','prusalink'):
+    if not isinstance(creds,dict) or creds.get('api_type') not in ('moonraker','prusalink','octoprint'):
         return False
     return bounded_status_is_idle(creds,deadline)
 
@@ -147,7 +147,7 @@ def bounded_status_is_idle(creds: dict, deadline: float, *, _report=False):
     receiver = sender = process = None
     accepted = False
     try:
-        if not isinstance(creds, dict) or creds.get('api_type') not in ('bambu','moonraker', 'prusalink'):
+        if not isinstance(creds, dict) or creds.get('api_type') not in ('bambu','moonraker', 'prusalink', 'octoprint'):
             return refuse('unsupported_printer')
         if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
             return refuse('invalid_deadline')

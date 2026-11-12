@@ -87,6 +87,12 @@ def prusalink_test_get(host: str, credential: Optional[str]):
             "auth": httpx.DigestAuth("maker", "")}
     return pinned_device_get(httpx, f"http://{host}/api/version", timeout=5, **options)
 
+def octoprint_test_get(host: str, credential: Optional[str]):
+    """GET /api/version with the application key, pinned to the device destination policy."""
+    import httpx
+    options = {"headers": {"X-Api-Key": credential}} if credential else {}
+    return pinned_device_get(httpx, f"http://{host}/api/version", timeout=5, **options)
+
 from modules.printers.camera_urls import (
     _url_endpoint, _validate_camera_url, get_camera_url, effective_camera_url, split_url_userinfo,
     camera_url_has_credentials, sanitize_camera_url, masked_camera_url,
@@ -579,6 +585,17 @@ def _prusalink_command(printer, action: str) -> bool:
         log.error(f"PrusaLink {action} failed for printer {printer.id}: {e}")
     return False
 
+def _octoprint_command(printer, action: str) -> bool:
+    """Send pause, resume or stop to an OctoPrint server (POST /api/job; success only on 204)."""
+    from modules.printers.adapters.octoprint import OctoPrintPrinter
+    try:
+        key = crypto.decrypt(printer.api_key) if printer.api_key else ""
+        adapter = OctoPrintPrinter(printer.api_host, api_key=key)
+        return _call_adapter_method(adapter, action)
+    except Exception as e:
+        log.error(f"OctoPrint {action} failed for printer {printer.id}: {type(e).__name__}")
+    return False
+
 def _elegoo_command(printer, action: str) -> bool:
     """Send a command to an Elegoo printer."""
     from modules.printers.adapters.elegoo import ElegooPrinter
@@ -612,6 +629,8 @@ def _send_printer_command(printer, action: str) -> bool:
         return _call_adapter_method(adapter, action)
     elif printer.api_type == "prusalink":
         return _prusalink_command(printer, action)
+    elif printer.api_type == "octoprint":
+        return _octoprint_command(printer, action)
     elif printer.api_type == "elegoo":
         return _elegoo_command(printer, action)
     else:

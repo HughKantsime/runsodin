@@ -23,6 +23,13 @@ it('labels an Experimental type in the add-printer list (table marked in the tes
   expect(printerTypeLabel(moonraker)).toBe('Klipper / Moonraker — Experimental')
 })
 
+it('lists OctoPrint as an enabled Experimental option', () => {
+  const octoprint = PRINTER_TYPE_OPTIONS.find(o => o.value === 'octoprint')!
+  expect(octoprint.disabled).toBeUndefined()
+  expect(supportLevelOfType('octoprint')).toBe('experimental')
+  expect(printerTypeLabel(octoprint)).toBe('OctoPrint — Experimental')
+})
+
 it('uses the spec warning for OctoPrint and a generic one otherwise', () => {
   expect(experimentalWarning('octoprint')).toBe("Built from OctoPrint's public API and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong.")
   expect(experimentalWarning('other')).toMatch(/^Built from public documentation and not yet verified on real hardware\./)

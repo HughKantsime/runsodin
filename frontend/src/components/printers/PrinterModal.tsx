@@ -443,6 +443,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               {formData.api_type === 'bambu' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Network settings</p>}
               {formData.api_type === 'moonraker' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Klipper printer running Moonraker</p>}
               {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
+              {formData.api_type === 'octoprint' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Address of your OctoPrint server. Add the port if it is not 80, for example 192.168.1.40:5000</p>}
               {formData.api_type === 'anycubic_lan' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enable LAN mode on the printer. IP only; credentials refresh automatically. Monitoring and ACE slots only.</p>}
               {formData.api_type === 'elegoo' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
             </div>
@@ -460,11 +461,12 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Settings &rarr; Network &rarr; Access Code</p>
             </div>
             )}
-            {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink') && (
+            {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink' || formData.api_type === 'octoprint') && (
             <div>
-              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">API Key {formData.api_type === 'prusalink' ? '' : '(optional)'}</label>
-              <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key or username|password' : 'Moonraker API key (if required)'} />
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">API Key {formData.api_type === 'prusalink' || formData.api_type === 'octoprint' ? '' : '(optional)'}</label>
+              <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key or username|password' : formData.api_type === 'octoprint' ? 'OctoPrint application key' : 'Moonraker API key (if required)'} />
               {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enter the API key from PrusaLink Settings, or username|password for Digest authentication. Leave blank to keep the saved credential.</p>}
+              {formData.api_type === 'octoprint' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Create an application key in OctoPrint (Settings, Application Keys) and paste it here. Leave blank to keep the saved key.</p>}
             </div>
             )}
 

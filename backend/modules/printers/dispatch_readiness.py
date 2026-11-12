@@ -60,7 +60,8 @@ def fresh_http_status_is_idle(creds: dict, deadline: float) -> bool:
             return False
         protocol = creds.get('api_type')
         endpoint = {'moonraker':'/printer/objects/query?webhooks&print_stats&virtual_sdcard',
-                    'prusalink':'/api/v1/status'}.get(protocol)
+                    'prusalink':'/api/v1/status',
+                    'octoprint':'/api/printer'}.get(protocol)
         if endpoint is None:
             return False
         host, port = creds.get('ip'), creds.get('port', 80)
@@ -79,6 +80,8 @@ def fresh_http_status_is_idle(creds: dict, deadline: float) -> bool:
             return False
         headers = {'X-Api-Key':api_key} if api_key else {}
         auth = None
+        if protocol == 'octoprint' and not api_key:
+            return False  # an OctoPrint upload needs the key, so admission needs it too
         if protocol == 'prusalink' and not api_key:
             username, password = creds.get('username', 'maker'), creds.get('password', '')
             if not isinstance(username, str) or not isinstance(password, str):
@@ -151,4 +154,9 @@ def raw_status_is_idle(protocol: str, payload: object) -> bool:
         job = payload.get('job')
         return (isinstance(printer, dict) and printer.get('state') in ('IDLE', 'READY')
                 and (job is None or isinstance(job, dict) and not job))
+    if protocol == 'octoprint':
+        # GET /api/printer state.flags: operational and ready with nothing else set. A 409
+        # (not operational) never reaches here: only HTTP 200 is parsed.
+        from modules.printers.parsing.octoprint import printer_state
+        return printer_state(payload) == 'IDLE'
     return False

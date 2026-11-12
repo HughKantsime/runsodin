@@ -52,6 +52,7 @@ DAEMONS = [
     "printers.monitors.mqtt_monitor",
     "printers.monitors.moonraker_monitor",
     "printers.monitors.prusalink_monitor",
+    "printers.monitors.octoprint_monitor",
     "printers.monitors.elegoo_monitor",
     "printers.monitors.anycubic_lan_monitor",
 ]

@@ -86,10 +86,10 @@ def verified_queue_payload(row, target):
     if suffix not in ('.3mf', '.gcode', '.bgcode'):
         raise HTTPException(400, 'Unsupported print payload format')
     if target is not None:
-        if api not in ('bambu', 'moonraker', 'prusalink') or not target.is_active:
+        if api not in ('bambu', 'moonraker', 'prusalink', 'octoprint') or not target.is_active:
             raise HTTPException(400, 'Selected printer does not support dispatch')
         allowed = [value.strip() for value in (row.compatible_api_types or '').split(',') if value.strip()]
-        compatible = {'bambu': ('.3mf',), 'moonraker': ('.gcode',), 'prusalink': ('.gcode', '.bgcode')}
+        compatible = {'bambu': ('.3mf',), 'moonraker': ('.gcode',), 'prusalink': ('.gcode', '.bgcode'), 'octoprint': ('.gcode',)}
         if suffix not in compatible[api] or (allowed and api not in allowed):
             raise HTTPException(400, 'Print file is incompatible with the selected printer API')
         if all(value is not None for value in (row.bed_x_mm, row.bed_y_mm, target.bed_x_mm, target.bed_y_mm)):

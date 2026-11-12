@@ -8,6 +8,7 @@ export const SUPPORT_LEVELS: Record<string, SupportLevel> = {
   prusalink: 'supported',
   elegoo: 'supported',
   anycubic_lan: 'supported',
+  octoprint: 'experimental',
 }
 
 const OCTOPRINT_WARNING = "Built from OctoPrint's public API and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong."
@@ -39,7 +40,7 @@ export const PRINTER_TYPE_OPTIONS: PrinterTypeOption[] = [
   { value: 'prusalink', label: 'Prusa (PrusaLink)' },
   { value: 'elegoo', label: 'Elegoo (SDCP)' },
   { value: 'anycubic_lan', label: 'Anycubic LAN (monitor only)' },
-  { value: 'octoprint', label: 'OctoPrint (coming soon)', disabled: true },
+  { value: 'octoprint', label: 'OctoPrint' },
 ]
 
 export function printerTypeLabel(option: PrinterTypeOption): string {

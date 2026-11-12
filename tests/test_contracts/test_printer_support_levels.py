@@ -1,6 +1,6 @@
 """Printer support levels: the table, the superadmin opt-in, and fail-closed enforcement.
 
-No type is Experimental in production yet. Tests mark one by monkeypatching
+OctoPrint is the only Experimental type. Tests mark another by monkeypatching
 support_levels.SUPPORT_TABLE (TEST-ONLY; there is no production flag).
 """
 import re
@@ -39,7 +39,7 @@ def test_table_levels_sources_and_current_types():
     assert all(level in support_levels.LEVELS and source for level, source in support_levels.SUPPORT_TABLE.values())
     assert {t: v[0] for t, v in support_levels.SUPPORT_TABLE.items()} == {
         'bambu': 'supported', 'moonraker': 'supported', 'prusalink': 'supported',
-        'elegoo': 'supported', 'anycubic_lan': 'supported'}
+        'elegoo': 'supported', 'anycubic_lan': 'supported', 'octoprint': 'experimental'}
 
 
 def test_unknown_manual_and_case_handling():
