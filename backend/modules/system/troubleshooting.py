@@ -258,6 +258,16 @@ def printer_checks(printer,transfer=False):
                                 'Printer status endpoint responded.' if ok else 'Printer status endpoint rejected the request.',
                                 '' if ok else 'Check the OctoPrint address and the saved application key.',http_status=response.status_code))
         except Exception as error: checks.append(failure('http_status',error))
+    elif protocol=='ultimaker':
+        from modules.printers.adapters.ultimaker import UltimakerPrinter
+        try:
+            # GET /api/v1/system through the adapter's transport (ITAR check, pinned destination); no credentials.
+            info=UltimakerPrinter(printer.api_host,port=port or 80).get_system()
+            ok=info is not None
+            checks.append(check('http_status','pass' if ok else 'fail',
+                                'Printer system endpoint responded.' if ok else 'Printer system endpoint did not answer like an Ultimaker printer.',
+                                '' if ok else 'Check the saved printer address; reading needs no credentials.'))
+        except Exception as error: checks.append(failure('http_status',error))
     else: checks.append(check('protocol','unsupported','This protocol has no guided diagnostic yet.','Use the existing printer connection test and report the protocol to support.'))
     return envelope(checks)
 

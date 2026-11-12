@@ -630,6 +630,8 @@ def _send_printer_command(printer, action: str) -> bool:
         return False
     if printer.api_type == "anycubic_lan":
         return False  # Monitor-only: never fall through to the Bambu command path.
+    if str(printer.api_type or "").strip().lower() == "ultimaker":
+        return False  # Part 1 is monitoring only: no write of any kind (pause and stop included) is sent; never the Bambu fallback.
     if printer.api_type == "moonraker":
         from modules.printers.adapters.moonraker import MoonrakerPrinter
         adapter = MoonrakerPrinter(printer.api_host)

@@ -248,7 +248,8 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
       if (result.success) {
         setTestStatus('success')
-        setTestMessage(`Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots`)
+        const detail = (result as unknown as { detail?: string }).detail
+        setTestMessage(detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots`)
         if (result.ams_slots != null && result.ams_slots > 0) {
           setFormData(prev => ({ ...prev, slot_count: result.ams_slots }))
         }
@@ -444,6 +445,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               {formData.api_type === 'moonraker' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Klipper printer running Moonraker</p>}
               {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
               {formData.api_type === 'octoprint' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Address of your OctoPrint server. Add the port if it is not 80, for example 192.168.1.40:5000</p>}
+              {formData.api_type === 'ultimaker' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Ultimaker S-series or Ultimaker 3 (shown in the printer's network settings). No password or key needed. Monitoring and camera only for now.</p>}
               {formData.api_type === 'anycubic_lan' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enable LAN mode on the printer. IP only; credentials refresh automatically. Monitoring and ACE slots only.</p>}
               {formData.api_type === 'elegoo' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
             </div>

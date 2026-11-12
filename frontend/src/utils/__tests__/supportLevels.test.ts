@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { SUPPORT_LEVELS, PRINTER_TYPE_OPTIONS, experimentalWarning, printerTypeLabel, supportLevelOfPrinter, supportLevelOfType } from '../supportLevels'
+import { SUPPORT_LEVELS, PRINTER_TYPE_OPTIONS, experimentalWarning, isMonitorOnlyType, printerTypeLabel, supportLevelOfPrinter, supportLevelOfType } from '../supportLevels'
 
 const original = { ...SUPPORT_LEVELS }
 afterEach(() => { for (const key of Object.keys(SUPPORT_LEVELS)) delete SUPPORT_LEVELS[key]; Object.assign(SUPPORT_LEVELS, original) })
@@ -28,6 +28,16 @@ it('lists OctoPrint as an enabled Experimental option', () => {
   expect(octoprint.disabled).toBeUndefined()
   expect(supportLevelOfType('octoprint')).toBe('experimental')
   expect(printerTypeLabel(octoprint)).toBe('OctoPrint — Experimental')
+})
+
+it('lists Ultimaker as an enabled, monitoring-only Experimental option', () => {
+  const ultimaker = PRINTER_TYPE_OPTIONS.find(o => o.value === 'ultimaker')!
+  expect(ultimaker.disabled).toBeUndefined()
+  expect(supportLevelOfType('ultimaker')).toBe('experimental')
+  expect(printerTypeLabel(ultimaker)).toBe('Ultimaker — Experimental')
+  expect(isMonitorOnlyType(' Ultimaker ')).toBe(true)
+  expect(isMonitorOnlyType('octoprint')).toBe(false)
+  expect(experimentalWarning('ultimaker')).toMatch(/not available for this printer type yet/)
 })
 
 it('uses the spec warning for OctoPrint and a generic one otherwise', () => {
