@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Maintenance: ODIN now checks every hour and tells the people who can see a printer when a maintenance task is due soon or overdue, once per stage and not every hour; logging the service resets it, and alert preferences and quiet hours apply. A service can be logged for an earlier date (from 2020-01-01, not in the future). A printer with no maintenance task gets a default "General service" every 2000 print hours until you add one. The Maintenance page also shows each printer's failed-print rate for the last 30 and 90 days; cancelled prints are not counted.
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
 
 ## [2.1.0] - 2026-11-10

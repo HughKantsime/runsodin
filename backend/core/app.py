@@ -519,6 +519,9 @@ def create_app() -> FastAPI:
         outbox_task = asyncio.create_task(run_sweeper())
         from modules.system.audit_integrity_job import run as audit_maintenance
         audit_task = asyncio.create_task(audit_maintenance())
+        # Raises maintenance due-soon / overdue alerts once per stage change (hourly).
+        from modules.system.maintenance_alerts import run as maintenance_alerts
+        maintenance_alert_task = asyncio.create_task(maintenance_alerts())
         from modules.printers.dispatch_background import startup, drain
         startup()
         try:
@@ -532,7 +535,8 @@ def create_app() -> FastAPI:
         cleanup_task.cancel()
         outbox_task.cancel()
         audit_task.cancel()
-        await asyncio.gather(audit_task, return_exceptions=True)
+        maintenance_alert_task.cancel()
+        await asyncio.gather(audit_task, maintenance_alert_task, return_exceptions=True)
         app.state.branding_assets.close()
 
     # FastAPI instance

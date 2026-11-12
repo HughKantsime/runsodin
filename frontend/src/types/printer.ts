@@ -269,6 +269,8 @@ export interface MaintenanceLogCreate {
   cost?: number;
   downtime_minutes?: number;
   print_hours_at_service?: number;
+  /** Back-dated service time (ISO date or datetime). Omit for now. Not in the future, not before 2020-01-01. */
+  performed_at?: string;
 }
 
 // ---- Smart Plug ----

@@ -39,9 +39,17 @@ function MaintenanceProgressBar({ percent, status }) {
 
 /* ======================== Log Maintenance Modal ======================== */
 
+function localDateString(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+const MIN_SERVICE_DATE = '2020-01-01'
+
 function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
+  const today = localDateString()
   const [form, setForm] = useState({
     task_name: task?.task_name || '',
+    performed_on: today,
     performed_by: '',
     cost: '',
     downtime_minutes: '',
@@ -58,8 +66,11 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
       cost: parseFloat(form.cost) || 0,
       downtime_minutes: parseInt(form.downtime_minutes) || 0,
       notes: form.notes || null,
+      // Today (the default) is sent as nothing, so the server stamps the exact time.
+      ...(form.performed_on && form.performed_on !== today ? { performed_at: form.performed_on } : {}),
     })
   }
+  const dateOk = !form.performed_on || (form.performed_on <= today && form.performed_on >= MIN_SERVICE_DATE)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -79,6 +90,13 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
                 value={form.task_name} onChange={e => set('task_name', e.target.value)} placeholder="e.g. Nozzle Change" />
             </div>
           )}
+          <div>
+            <label htmlFor="log-maintenance-date" className="block text-xs text-[var(--brand-text-secondary)] mb-1">Date performed</label>
+            <input id="log-maintenance-date" type="date" min={MIN_SERVICE_DATE} max={today}
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
+              value={form.performed_on} onChange={e => set('performed_on', e.target.value)} />
+            {!dateOk && <p className="text-xs text-red-400 mt-1">Pick a date from 2020-01-01 up to today.</p>}
+          </div>
           <div>
             <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Performed By</label>
             <input className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
@@ -104,7 +122,7 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
         </div>
         <div className="flex gap-2 mt-5">
           <button onClick={onClose} className="flex-1 bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] px-4 py-2 rounded-md text-sm hover:bg-[var(--brand-card-border)]">Cancel</button>
-          <button onClick={handleSubmit} disabled={!form.task_name || saving}
+          <button onClick={handleSubmit} disabled={!form.task_name || saving || !dateOk}
             className="flex-1 bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md text-sm hover:brightness-110 disabled:opacity-40">
             {saving ? 'Saving...' : 'Log Service'}
           </button>
@@ -188,6 +206,15 @@ function TaskForm({ task, onSave, onCancel, saving }: { task?: Awaited<ReturnTyp
 
 /* ======================== Printer Status Card ======================== */
 
+// "30d: 1 of 4 failed (25%) · 90d: 3 of 6 failed (50%)". Cancelled prints are not counted.
+function failureSummary(rate) {
+  const part = (label, w) => {
+    const total = w.completed + w.failed
+    return total === 0 ? `${label}: no prints` : `${label}: ${w.failed} of ${total} failed (${w.rate_percent}%)`
+  }
+  return `${part('30d', rate.last_30_days)} · ${part('90d', rate.last_90_days)}`
+}
+
 function PrinterCard({ printer, onLogMaintenance }) {
   const [expanded, setExpanded] = useState(printer.overall_status !== 'ok')
   const colors = STATUS_COLORS[printer.overall_status] || STATUS_COLORS.ok
@@ -213,6 +240,12 @@ function PrinterCard({ printer, onLogMaintenance }) {
               {printer.prints_since_maintenance} prints · {printer.hours_since_maintenance ?? 0}h since service
             </span>
           )}
+          {printer.failure_rate && (
+            <span className="text-xs text-[var(--brand-text-secondary)] font-mono hidden md:inline"
+              title="Failed / (completed + failed) prints. Cancelled prints are not counted.">
+              {failureSummary(printer.failure_rate)}
+            </span>
+          )}
           <StatusBadge status={printer.overall_status} />
         </div>
       </div>
@@ -220,11 +253,15 @@ function PrinterCard({ printer, onLogMaintenance }) {
       {expanded && printer.tasks.length > 0 && (
         <div className="border-t border-[var(--brand-card-border)] divide-y divide-[var(--brand-card-border)]/50">
           {printer.tasks.map(task => (
-            <div key={task.task_id} className="flex items-center justify-between px-4 py-3">
+            <div key={task.task_id ?? 'default'} className="flex items-center justify-between px-4 py-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[task.status]?.dot || 'bg-[var(--brand-text-muted)]'}`} />
                   <span className="text-sm text-[var(--brand-text-primary)]">{task.task_name}</span>
+                  {task.is_default && (
+                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
+                      title="Applies until a maintenance task is added for this printer">default</span>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 ml-4">
                   {task.interval_print_hours != null && (
