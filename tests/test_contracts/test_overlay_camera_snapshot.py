@@ -22,7 +22,8 @@ def frames(overlay_client, monkeypatch):
     from httpx._client import AsyncClient as real   # the fixture above already replaced httpx.AsyncClient
     monkeypatch.setattr(camera_routes.httpx, "AsyncClient",
                         lambda *a, **k: real(*a, **{**k, "transport": httpx.MockTransport(go2rtc)}))
-    camera_routes._snapshot_frames.clear(); camera_routes._snapshot_locks.clear()
+    for store in (camera_routes._snapshot_frames, camera_routes._snapshot_locks, camera_routes._snapshot_failures, camera_routes._snapshot_synced):
+        store.clear()
     synced = []
     monkeypatch.setattr(camera_routes, "sync_go2rtc_config", lambda db: synced.append(1))
     return client, tokens, calls, answer, synced
@@ -74,13 +75,40 @@ def test_a_cached_frame_is_never_released_to_a_revoked_token(frames, review_db, 
     assert len(calls) == 1
 
 
-def test_missing_stream_syncs_the_relay_once_then_reports_unavailable(frames):
+def test_missing_stream_syncs_the_relay_once_a_minute_and_failures_are_remembered(frames, monkeypatch):
+    from modules.printers import camera_routes
     client, tokens, calls, answer, synced = frames
+    get = lambda: client.get("/overlay/9/snapshot", params={"token": tokens["camera"]}).status_code
     answer["status"] = 404
-    assert client.get("/overlay/9/snapshot", params={"token": tokens["camera"]}).status_code == 502
-    assert synced == [1] and len(calls) == 2
+    assert get() == 502
+    assert synced == [1] and len(calls) == 2           # one sync, one retry
+    assert get() == 502 and get() == 502
+    assert synced == [1] and len(calls) == 2           # remembered: the relay is not asked or synced again
+    monkeypatch.setattr(camera_routes, "OVERLAY_SNAPSHOT_FAILURE_SECONDS", 0)
+    assert get() == 502
+    assert synced == [1] and len(calls) == 3           # asked again, but no second sync inside the minute
+    answer["status"] = 200
+    assert get() == 200                                # recovers as soon as the relay has a frame
+
+
+def test_a_body_that_is_not_a_picture_is_refused_without_syncing_the_relay(frames):
+    client, tokens, calls, answer, synced = frames
     answer.update(status=200, body=b"<html>not a picture</html>")
     assert client.get("/overlay/9/snapshot", params={"token": tokens["camera"]}).status_code == 502
+    assert synced == [] and len(calls) == 1
+
+
+def test_concurrent_callers_share_one_upstream_read(frames, review_db, monkeypatch):
+    import asyncio
+    from sqlalchemy.orm import Session
+    from modules.printers import camera_routes
+    _, tokens, calls, _, _ = frames
+    monkeypatch.setattr(camera_routes, "OVERLAY_SNAPSHOT_SHARE_SECONDS", 60)
+
+    async def run():
+        return await asyncio.gather(*[camera_routes._overlay_frame(9) for _ in range(6)])
+    results = asyncio.run(run())
+    assert all(r == JPEG for r in results) and len(calls) == 1
 
 
 def test_snapshot_view_is_audited(frames, review_db):
@@ -89,3 +117,8 @@ def test_snapshot_view_is_audited(frames, review_db):
     review_db.commit()
     rows = review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='camera.viewed' AND entity_id=9")).scalar()
     assert rows >= 1
+    for _ in range(3):
+        assert client.get("/overlay/9/snapshot", params={"token": tokens["camera"]}).status_code == 200
+    review_db.commit()
+    again = review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='camera.viewed' AND entity_id=9")).scalar()
+    assert again == rows                                # polling does not flood the audit log
