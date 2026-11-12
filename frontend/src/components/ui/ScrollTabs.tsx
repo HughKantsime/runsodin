@@ -10,6 +10,11 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)')?.matches === true
 }
 
+function isPhoneWidth(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
+  return window.matchMedia('not all and (min-width: 640px)')?.matches !== false
+}
+
 interface ScrollTabsProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
   /** Classes for the outer (positioning) wrapper. `className` stays on the scroll container. */
@@ -21,8 +26,8 @@ interface ScrollTabsProps extends HTMLAttributes<HTMLDivElement> {
 /**
  * Horizontally scrolling tab strip behaviour: the active tab is scrolled into view
  * on mount and whenever it changes, and edge fades show only while there is more
- * to scroll. The nowrap/shrink rules apply below `sm` only, so >= 640 px layout is
- * exactly what the wrapped content already did.
+ * to scroll. All of it (auto-scroll, fades, nowrap/shrink rules) applies below `sm`
+ * only, so >= 640 px layout and behaviour are exactly what the wrapped content already did.
  */
 export default function ScrollTabs({
   children,
@@ -46,7 +51,9 @@ export default function ScrollTabs({
   // After every render: bring a newly active tab into view, then re-measure.
   useEffect(() => {
     const active = scroller.current?.querySelector(ACTIVE_TAB) ?? null
-    if (active && active !== lastActive.current) {
+    // Phone widths only (the same breakpoint as the max-sm rules below): at 640 px and
+    // above nothing scrolls on its own and no fade is drawn, so desktop is unchanged.
+    if (active && active !== lastActive.current && isPhoneWidth()) {
       const firstTime = lastActive.current === null
       lastActive.current = active
       active.scrollIntoView?.({
@@ -76,7 +83,7 @@ export default function ScrollTabs({
     }
   }, [measure])
 
-  const fadeBase = clsx('pointer-events-none absolute inset-y-0 w-8 to-transparent', fadeClassName)
+  const fadeBase = clsx('pointer-events-none absolute inset-y-0 w-8 to-transparent sm:hidden', fadeClassName)
 
   return (
     <div className={clsx('relative', wrapperClassName)}>

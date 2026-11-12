@@ -4,6 +4,7 @@ import ScrollTabs from './ScrollTabs'
 
 const scrollIntoView = vi.fn()
 let reduced = false
+let phone = true
 
 function strip(active: 'a' | 'b') {
   return (
@@ -22,10 +23,11 @@ function geometry(el: HTMLElement, g: { scrollLeft: number; clientWidth: number;
 
 beforeEach(() => {
   reduced = false
+  phone = true
   scrollIntoView.mockClear()
   Element.prototype.scrollIntoView = scrollIntoView
   vi.stubGlobal('matchMedia', (q: string) => ({
-    matches: q.includes('prefers-reduced-motion') ? reduced : false,
+    matches: q.includes('prefers-reduced-motion') ? reduced : q.includes('min-width: 640px') ? phone : false,
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
   }))
 })
@@ -61,6 +63,13 @@ describe('ScrollTabs active tab', () => {
     scrollIntoView.mockClear()
     rerender(strip('b'))
     expect(scrollIntoView).toHaveBeenCalledWith({ inline: 'nearest', block: 'nearest', behavior: 'auto' })
+  })
+
+  it('never scrolls on its own at 640 px and above, and its fades are hidden there', () => {
+    phone = false
+    const { container } = render(strip('b'))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    for (const fade of container.querySelectorAll('[data-scrolltabs-fade]')) expect(fade.className).toContain('sm:hidden')
   })
 
   it('also recognises aria-pressed (Foundry TabBar)', () => {
