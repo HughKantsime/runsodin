@@ -1,5 +1,6 @@
 """Plate facts/thumbnail routes, the printer-card endpoint and the payload census."""
 import hashlib
+import os
 import io
 import json
 import shutil
@@ -49,6 +50,9 @@ def env(library, review_db, tmp_path):
     body = _upload(client, issue(['write:models', 'read:models']), content)
     stored = review_db.execute(text('SELECT stored_path FROM print_files WHERE id=:id'), {'id': body['id']}).scalar_one()
     review_db.commit()
+    # The cache is built on first need, not at upload: read the facts once so it exists.
+    primed = client.get(f"/print-files/{body['id']}/plates", headers=issue(['read:models']))
+    assert primed.status_code == 200, primed.text
     return type('Env', (), {'client': client, 'issue': issue, 'file_id': body['id'], 'stored': stored,
                             'digest': hashlib.sha256(content).hexdigest(), 'db': review_db, 'tmp': tmp_path})
 
@@ -176,20 +180,47 @@ def test_education_file_needs_an_available_policy_provider(env, monkeypatch):
     assert env.client.get('/print-files/11/plates/1/thumbnail', headers=principal_headers(env.issue, env.db, 1)).status_code == 404
 
 
-def test_upload_survives_a_cache_failure_and_builds_the_cache_when_healthy(library, review_db, tmp_path, monkeypatch):
+def test_upload_never_parses_for_the_cache_and_first_read_builds_it(library, review_db):
     client, issue = library
-    healthy = three_plate_package()
-    body = _upload(client, issue(['write:models']), healthy)
-    assert body['id'] and plate_cache.read_facts(hashlib.sha256(healthy).hexdigest())['plate_count'] == 3
+    from modules.models_library.routes import print_file_plates
+    client.app.include_router(print_file_plates.router)
+    content = three_plate_package()
+    body = _upload(client, issue(['write:models']), content)
+    digest = hashlib.sha256(content).hexdigest()
+    assert body['id'] and plate_cache.read_facts(digest) is None          # upload is not slowed by a second parse
+    assert client.get(f"/print-files/{body['id']}/plates", headers=issue(['read:models'])).json()['plate_count'] == 3
+    assert plate_cache.read_facts(digest)['plate_count'] == 3
 
-    def failing(*args, **kwargs):
-        raise RuntimeError('cache exploded')
-    monkeypatch.setattr(plate_cache, 'store_analysis', failing)
-    other = sliced_3mf(plates=2, project='Another part')
-    upload = client.post('/print-files/upload', headers=issue(['write:models']),
-                         files={'file': ('Another part.3mf', other, 'application/octet-stream')})
-    assert upload.status_code == 200, upload.text
-    assert plate_cache.read_facts(hashlib.sha256(other).hexdigest()) is None
+
+def test_printer_card_builds_a_missing_cache_in_the_background(library, review_db, tmp_path):
+    import time
+    from modules.printers import routes_plate_thumbnail
+    from modules.models_library.routes import print_file_plates
+    client, issue = library
+    client.app.include_router(routes_plate_thumbnail.router)
+    client.app.include_router(print_file_plates.router)
+    content = three_plate_package()
+    body = _upload(client, issue(['write:models']), content)
+    review_db.commit()
+    env = type('Env', (), {'client': client, 'issue': issue, 'db': review_db})
+    start_print(env, body['id'], plate_index=0)
+    first = thumb(env)
+    assert first.status_code == 404                                        # never waits for a parse
+    deadline = time.time() + 30
+    while time.time() < deadline and plate_cache.read_facts(hashlib.sha256(content).hexdigest()) is None:
+        time.sleep(0.2)
+    assert thumb(env).status_code == 200
+
+
+def test_a_rejected_file_is_remembered_and_not_parsed_again(monkeypatch, tmp_path):
+    import types
+    monkeypatch.setenv('PLATE_CACHE_ROOT', str(tmp_path / 'plate_cache'))
+    digest = 'ab' * 32
+    calls = []
+    plate_cache.store_analysis(digest, types.SimpleNamespace(status='failed', facts=None))
+    assert plate_cache.is_unavailable(digest)
+    monkeypatch.setattr(plate_cache, 'FAILED_RETRY_SECONDS', 0)
+    assert not plate_cache.is_unavailable(digest)                          # looked at again after the wait
 
 
 # ------------------------------------------------------------------ printer card endpoint
@@ -341,7 +372,7 @@ def test_only_the_cache_routes_reference_the_cache_or_the_endpoint():
     # builds a status, event, overlay, Home Assistant or camera payload does.
     assert cache_users == {'modules/models_library/plate_cache.py', 'modules/models_library/mesh_isolation.py',
                            'modules/models_library/mesh_worker.py', 'modules/models_library/threemf_parser.py',
-                           'modules/models_library/routes/print_files.py', 'modules/models_library/routes/print_file_plates.py',
+                           'modules/models_library/routes/print_file_plates.py',
                            'modules/printers/routes_plate_thumbnail.py',
                            'modules/organizations/education_policy_inventory.py',
                            'core/app_maintenance.py'}  # the hourly sweep of orphaned entries
@@ -355,6 +386,12 @@ def test_sweep_removes_the_cache_of_a_file_that_no_longer_exists(env):
     assert env.client.get(f'/print-files/{env.file_id}/plates', headers=headers).status_code == 200
     entry = plate_cache.entry_dir(env.digest)
     assert entry.is_dir() and plate_cache.sweep(env.db) == 0          # a present file keeps its cache
+    env.db.execute(text("UPDATE print_files SET blob_state='retired' WHERE id=:id"), {'id': env.file_id})
+    env.db.commit()
+    assert plate_cache.sweep(env.db) == 0 and entry.is_dir()          # written within the hour: left for the next pass
+    env.db.execute(text("UPDATE print_files SET blob_state='present' WHERE id=:id"), {'id': env.file_id})
+    env.db.commit()
+    os.utime(entry, (1, 1))                                           # now an old entry
     # Something this module did not name is never touched.
     stranger = plate_cache.cache_root() / 'zz' / 'not-a-hash'
     stranger.mkdir(parents=True)
@@ -371,4 +408,5 @@ def test_sweep_keeps_a_cache_another_present_file_shares(env):
                         "VALUES(990,'twin.3mf','twin.3mf','/opaque/twin.3mf',:h,'present')"), {'h': env.digest})
     env.db.execute(text("DELETE FROM print_files WHERE id=:id"), {'id': env.file_id})
     env.db.commit()
+    os.utime(plate_cache.entry_dir(env.digest), (1, 1))
     assert plate_cache.sweep(env.db) == 0 and plate_cache.entry_dir(env.digest).is_dir()

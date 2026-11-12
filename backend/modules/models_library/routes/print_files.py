@@ -302,9 +302,6 @@ async def upload_3mf(
             commit_started = True
             db.commit()
 
-            # Row committed: derive per-plate facts and thumbnails. Never raises.
-            from modules.models_library import plate_cache
-            await plate_cache.cache_upload(tmp_path, file_hash, file_id)
 
             return {
                 "id": file_id,

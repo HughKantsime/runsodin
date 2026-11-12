@@ -838,6 +838,8 @@ def _parse_slice_info_facts(zf):
         if weight is None:
             grams = [f["grams"] for f in filaments if f["grams"] is not None]
             weight = round(sum(grams), 2) if grams else None
+            if weight is not None and not 0 <= weight <= 1e7:
+                weight = None  # an absurd total is 'not available', not a reason to reject the file
         plates[number] = {"filaments": filaments, "print_time_seconds": None if seconds is None else int(seconds),
                           "weight_grams": weight, "warnings": warnings}
     return {"header": header, "plates": plates}

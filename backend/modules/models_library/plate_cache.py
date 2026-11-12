@@ -40,6 +40,9 @@ _REFUSALS = frozenset({"bad_zip", "too_large", "too_many_members"})   # determin
 _PLATE_KEYS = {"index", "filaments", "print_time_seconds", "weight_grams", "layer_height", "warnings", "thumbnail_b64"}
 
 CachedImage = namedtuple("CachedImage", "content media_type")
+MAX_BACKGROUND_BUILDS = 2
+_BUILDING: set = set()
+_BUILD_LOCK = __import__("threading").Lock()
 
 
 # --------------------------------------------------------------------------- paths
@@ -49,7 +52,10 @@ def cache_root() -> Path:
     if configured:
         root = Path(configured)
     else:
-        root = Path(os.environ.get("PRINT_FILE_STORAGE_ROOT") or "/data/print_files").parent / "plate_cache"
+        storage = Path(os.environ.get("PRINT_FILE_STORAGE_ROOT") or "/data/print_files")
+        # Beside the upload storage; inside it when that storage is itself a volume root
+        # (its parent would be outside the persistent volume).
+        root = (storage / ".plate_cache") if storage.parent == storage.parent.parent else storage.parent / "plate_cache"
     if not root.is_absolute():
         raise ValueError("plate cache root must be an absolute path")
     return root
@@ -236,7 +242,12 @@ def store(file_hash, facts: dict) -> dict:
                        "layer_height": plate["layer_height"], "warnings": plate["warnings"]})
     document = {"version": FACTS_VERSION, "file_hash": file_hash, "slicer": facts["slicer"],
                 "plate_count": len(plates), "plates": plates}
-    _atomic_write(directory, "facts.json", json.dumps(document, sort_keys=True, allow_nan=False).encode())
+    encoded = json.dumps(document, sort_keys=True, allow_nan=False).encode()
+    if len(encoded) > MAX_FACTS_BYTES:
+        # Could never be read back: record it as unavailable rather than re-parse on every request.
+        mark_unavailable(file_hash, "facts_too_large")
+        return None
+    _atomic_write(directory, "facts.json", encoded)
     try:
         os.unlink(directory / "unavailable.json")
     except OSError:
@@ -250,10 +261,24 @@ def mark_unavailable(file_hash, reason: str) -> None:
     _atomic_write(directory, "unavailable.json", json.dumps({"version": FACTS_VERSION, "reason": reason}).encode())
 
 
+UNAVAILABLE_RETRY_SECONDS = 7 * 86400  # a refused file is looked at again after a week (limits change)
+FAILED_RETRY_SECONDS = 3600            # a failed parse (which can be a crash or timeout) after an hour
+
+
 def is_unavailable(file_hash) -> bool:
+    import time
     try:
-        return _read_regular(entry_dir(file_hash) / "unavailable.json", 4096) is not None
-    except ValueError:
+        marker = entry_dir(file_hash) / "unavailable.json"
+        raw = _read_regular(marker, 4096)
+        if raw is None:
+            return False
+        try:
+            reason = json.loads(raw).get("reason")
+        except (ValueError, AttributeError):
+            reason = None
+        wait = FAILED_RETRY_SECONDS if reason in ("failed", "invalid") else UNAVAILABLE_RETRY_SECONDS
+        return time.time() - marker.stat().st_mtime < wait
+    except (ValueError, OSError):
         return False
 
 
@@ -296,7 +321,9 @@ def store_analysis(file_hash, analysis):
         status = getattr(analysis, "status", None)
         if status == "ok" and getattr(analysis, "facts", None) is not None:
             return store(file_hash, analysis.facts)
-        if status in _REFUSALS:
+        if status in _REFUSALS or status in ("failed", "invalid"):
+            # A file the parser or the validator rejects will be rejected again: remember it, so a
+            # caller cannot make ODIN re-parse it on every request. Busy and timeouts are not recorded.
             mark_unavailable(file_hash, status)
     except (OSError, ValueError) as exc:
         log.warning("Plate cache write failed (%s)", type(exc).__name__)
@@ -343,33 +370,40 @@ def thumbnail_for_row(row, plate):
 
 # --------------------------------------------------------------------------- cleanup
 
-def sweep(db, limit: int = 5000) -> int:
+SWEEP_GRACE_SECONDS = 3600  # an entry written in the last hour may belong to a row not committed yet
+
+
+def sweep(db) -> int:
     """Delete cache entries no present print file refers to any more. Returns how many went.
 
     The cache is derived data keyed by file hash and shared by every row with that hash, so it is
     removed here, in one place, whichever way the last row went (delete, Education term cleanup,
-    organization deletion, controlled-part retention). Nothing is served from an orphaned entry
-    in the meantime: every read goes through a present row first.
+    organization deletion, controlled-part retention). Every entry is visited on every pass.
+    Nothing is served from an orphaned entry in the meantime: every read goes through a present
+    row first. An entry touched within the last hour is left for the next pass.
     """
     import shutil
+    import time
     from sqlalchemy import text
     try:
         root = cache_root()
         shards = sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink())
     except (OSError, ValueError):
         return 0
-    removed = seen = 0
+    removed = 0
     for shard in shards:
         try:
             entries = sorted(p for p in shard.iterdir() if p.is_dir() and not p.is_symlink())
         except OSError:
             continue
         for entry in entries:
-            if seen >= limit:
-                return removed
-            seen += 1
             if not _valid_hash(entry.name) or entry.name[:2] != shard.name:
                 continue  # not ours: never delete what this module did not name
+            try:
+                if time.time() - entry.stat().st_mtime < SWEEP_GRACE_SECONDS:
+                    continue
+            except OSError:
+                continue
             alive = db.execute(text(
                 "SELECT 1 FROM print_files WHERE file_hash = :h AND blob_state = 'present' LIMIT 1"),
                 {"h": entry.name}).first()
@@ -379,22 +413,29 @@ def sweep(db, limit: int = 5000) -> int:
     return removed
 
 
-# --------------------------------------------------------------------------- upload
+# --------------------------------------------------------------------------- background build
 
-UPLOAD_TIMEOUT_SECONDS = 15
+def build_in_background(row) -> bool:
+    """Start building a missing cache for an already-authorized row; returns at once.
 
+    Used by the printer-card route, which never waits for a parse. True when a build was started.
+    One build per hash at a time; failures are logged, never raised."""
+    import threading
+    if not eligible(row) or read_facts(row.file_hash) is not None or is_unavailable(row.file_hash):
+        return False
+    with _BUILD_LOCK:
+        if row.file_hash in _BUILDING or len(_BUILDING) >= MAX_BACKGROUND_BUILDS:
+            return False
+        _BUILDING.add(row.file_hash)
+    snapshot = type("Row", (), {"file_hash": row.file_hash, "stored_path": row.stored_path, "blob_state": row.blob_state})()
 
-async def cache_upload(path, file_hash, file_id) -> None:
-    """Best-effort per-plate cache of a committed upload.
-
-    Any failure is logged and swallowed: it must never fail or change the upload's outcome."""
-    try:
-        from starlette.concurrency import run_in_threadpool
-        from modules.models_library.mesh_isolation import analyze_3mf_isolated
-        if read_facts(file_hash) is not None:
-            return
-        analysis = await analyze_3mf_isolated(path, mode="platefacts", timeout=UPLOAD_TIMEOUT_SECONDS)
-        await run_in_threadpool(store_analysis, file_hash, analysis)
-    except Exception as exc:
-        import logging
-        logging.getLogger("odin.api").warning("Plate cache not built for file %s (%s)", file_id, type(exc).__name__)
+    def run():
+        try:
+            facts_for_row(snapshot)
+        except Exception as exc:
+            log.warning("Plate cache background build failed (%s)", type(exc).__name__)
+        finally:
+            with _BUILD_LOCK:
+                _BUILDING.discard(snapshot.file_hash)
+    threading.Thread(target=run, name="plate-cache-build", daemon=True).start()
+    return True

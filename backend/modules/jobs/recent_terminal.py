@@ -1,10 +1,6 @@
 """Bounded recent terminal projection with file/tenant/Education audience proof."""
-import base64
 import re
 from datetime import datetime,timezone
-from io import BytesIO
-import warnings
-from PIL import Image
 from fastapi import APIRouter,Depends,Query,HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text

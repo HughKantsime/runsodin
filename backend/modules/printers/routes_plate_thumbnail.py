@@ -60,6 +60,9 @@ def get_current_plate_thumbnail(
     plate = int(selected.plate_index or 0) + 1                  # jobs.plate_index is zero-based; default plate 1
     image = plate_cache.thumbnail_for_row(row, plate)
     if image is None:
+        # A file stored before this feature has no cache yet: build it in the background (this
+        # request never waits for a parse), so the next poll has the picture.
+        plate_cache.build_in_background(row)
         raise _not_found()
     return Response(content=image.content, media_type=image.media_type,
                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

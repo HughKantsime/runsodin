@@ -397,7 +397,7 @@ export default function Printers() {
                 onEdit={handleEdit}
                 onSyncAms={handleSyncAms}
                 hasCamera={cameraIds.has(printer.id)}
-                showPlatePicture={showPlatePicture}
+                showPlatePicture={!foundry && showPlatePicture}
                 onCameraClick={setCameraTarget}
                 isDragging={draggedId === printer.id}
                 onDragStart={isFiltered ? undefined : (e) => handleDragStart(e, printer.id)}
