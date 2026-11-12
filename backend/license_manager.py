@@ -643,7 +643,18 @@ def install_portal_license(license_content, after_install=None, *, allow_expired
             previous = None
         except OSError:
             raise HTTPException(status_code=503, detail="Cannot read the current license safely. Check storage permissions; the installed license is unchanged.")
-        installed = _installed_license(previous)
+        # Identity and issue order are judged against the license that is actually in force,
+        # which may live in a supported fallback location; `previous` is only the destination's
+        # own content, kept for rollback.
+        effective = _find_license_file()
+        in_force = previous
+        if effective and os.path.realpath(effective) != os.path.realpath(target):
+            try:
+                with open(effective, "rb") as stream:
+                    in_force = stream.read()
+            except OSError:
+                raise HTTPException(status_code=503, detail="Cannot read the current license safely. Check storage permissions; the installed license is unchanged.")
+        installed = _installed_license(in_force)
         if (expected_key is not None or allow_expired) and not (
             installed is not None and installed.license_sha256 and installed.key
             and installed.key == candidate.key

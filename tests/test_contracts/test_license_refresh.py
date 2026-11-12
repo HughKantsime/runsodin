@@ -689,3 +689,25 @@ def test_clock_allowance_refuses_when_the_clock_fails(app, monkeypatch):
     ending = SimpleNamespace(valid=True, trial=False, verification_state="verified_current",
                              issued_at=iso(ago(hours=1)), expires_at=iso(ahead(seconds=30)))
     assert license_refresh.ends_within_clock_allowance(ending) is False
+
+
+def test_a_license_in_force_from_a_fallback_location_can_still_be_refreshed(app, monkeypatch, tmp_path):
+    """Fourth sign-off: the installer judged identity against LICENSE_DIR/odin.license only, so
+    a license loaded from a supported fallback location made every refresh fail with 400."""
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=20)))
+    fallback = tmp_path / "elsewhere" / "odin.license"
+    fallback.parent.mkdir()
+    fallback.write_text(app.path.read_text())
+    app.path.unlink()                                  # the license in force is only at the fallback
+    real = app.lm._find_license_file
+    monkeypatch.setattr(app.lm, "_find_license_file", lambda: str(app.path) if app.path.exists() else str(fallback))
+    app.restart()
+    assert app.lm.get_license().valid
+    replacement = app.make(ago(hours=1), ahead(days=40))
+    result = app.refresh(license_file=replacement, refresh_status="renewed")
+    assert app.path.read_text() == replacement and result["expires_at"] == iso(ahead(days=40))
+    # ...and the same rules still hold against it: an older file for that key is refused.
+    monkeypatch.setattr(app.lm, "_find_license_file", real)
+    with pytest.raises(HTTPException) as refused:
+        app.refresh(license_file=app.make(ago(hours=5), ahead(days=90)), refresh_status="renewed")
+    assert refused.value.status_code == 409 and app.path.read_text() == replacement
