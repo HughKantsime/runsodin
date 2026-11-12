@@ -46,6 +46,9 @@ def many_jobs(bom_client, review_db, monkeypatch):  # noqa: F811
         for index, status in enumerate(['completed', 'completed', 'failed', 'cancelled']):
             _insert(connection, 6200 + index, status, created=NOW - timedelta(hours=5),
                     actual_end=NOW - timedelta(minutes=30 + index))
+        # Cancelled while still queued today (no actual_end), and one cancelled last month.
+        _insert(connection, 6300, 'cancelled', created=NOW - timedelta(minutes=20))
+        _insert(connection, 6301, 'cancelled', created=NOW - timedelta(days=30))
     return bom_client
 
 
@@ -88,3 +91,10 @@ def test_default_order_is_unchanged(many_jobs):
 
 def test_an_unknown_order_is_refused(many_jobs):
     assert many_jobs.get('/jobs', params={'order': 'oldest'}).status_code == 422
+
+
+def test_finished_since_includes_a_job_cancelled_before_it_started(many_jobs):
+    since = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+    today = ids(many_jobs.get('/jobs', params={'finished_since': since, 'order': 'recent'}))
+    assert 6300 in today and 6301 not in today
+    assert not set(range(6000, 6012)) & set(today)  # still-pending jobs never count as finished

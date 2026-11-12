@@ -300,7 +300,7 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
 def list_jobs(
     status: Optional[List[JobStatus]] = Query(None, description="Repeat for several statuses (status=pending&status=scheduled)."),
     printer_id: Optional[int] = None,
-    finished_since: Optional[datetime] = Query(None, description="Only jobs that ended at or after this time (actual_end). Send an offset or Z; a time without one is UTC."),
+    finished_since: Optional[datetime] = Query(None, description="Only jobs that ended at or after this time (actual_end; for a finished job that never started, its last update). Send an offset or Z; a time without one is UTC."),
     order: Literal["queue", "recent"] = Query("queue", description="queue: queue order (default). recent: newest first by end time, then last update, for jobs without an end."),
     org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
@@ -330,7 +330,12 @@ def list_jobs(
     if finished_since is not None:
         # Stored job times are naive UTC.
         since = finished_since.astimezone(timezone.utc).replace(tzinfo=None) if finished_since.tzinfo else finished_since
-        query = query.filter(Job.actual_end.isnot(None), Job.actual_end >= since)
+        # A job that ended without ever starting (cancelled or rejected while queued) has no
+        # actual_end; its last update is when it ended.
+        from sqlalchemy import and_, or_
+        ended_unstarted = and_(Job.actual_end.is_(None), Job.updated_at >= since,
+                               Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.REJECTED]))
+        query = query.filter(or_(and_(Job.actual_end.isnot(None), Job.actual_end >= since), ended_unstarted))
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
