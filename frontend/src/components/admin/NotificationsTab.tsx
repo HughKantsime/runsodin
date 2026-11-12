@@ -7,6 +7,7 @@ import { getCurrentUser } from '../../permissions'
 import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
 import { Button, Input, Card } from '../ui'
+import TemperatureAlertsCard from './TemperatureAlertsCard'
 
 export default function NotificationsTab() {
   const lic = useLicense()
@@ -377,6 +378,8 @@ export default function NotificationsTab() {
           </>
         )}
       </Card>
+
+      {isSuperadmin && <TemperatureAlertsCard />}
 
       {/* SMTP Email Configuration — merged into Notifications tab */}
       {lic.isPro && <>

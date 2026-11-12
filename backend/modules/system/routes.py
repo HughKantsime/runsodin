@@ -38,6 +38,8 @@ router.include_router(routes_health.router)
 from modules.system import routes_license_selection  # noqa: E402
 router.include_router(routes_license_selection.router)
 router.include_router(routes_config.router)
+from modules.system import routes_temperature_alerts  # noqa: E402
+router.include_router(routes_temperature_alerts.router)
 router.include_router(routes_setup.router)
 router.include_router(routes_backup.router)
 router.include_router(routes_settings.router)

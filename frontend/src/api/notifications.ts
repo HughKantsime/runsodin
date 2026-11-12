@@ -68,6 +68,26 @@ export const pushTest = {
   send: (): Promise<PushTestResult> => fetchAPI('/push/test', { method: 'POST' }),
 };
 
+export interface TemperatureAlertSettings {
+  enabled: boolean
+  under_c: number
+  over_c: number
+  sustain_minutes: number
+  warmup_minutes: number
+  idle_hot_nozzle_c: number
+  idle_hot_bed_c: number
+  disabled_printer_ids: number[]
+}
+
+export const temperatureAlerts = {
+  /** Platform admin: temperature-anomaly alert settings. */
+  get: (): Promise<TemperatureAlertSettings> => fetchAPI('/config/temperature-alerts', { quiet: true }),
+  update: (data: TemperatureAlertSettings): Promise<TemperatureAlertSettings> => fetchAPI('/config/temperature-alerts', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+};
+
 const PUSH_TEST_COPY: Record<PushTestStatus, string> = {
   sent: 'Sent. Check the phone.',
   not_configured: 'Not sent: phone push is unavailable or not set up on this server.',

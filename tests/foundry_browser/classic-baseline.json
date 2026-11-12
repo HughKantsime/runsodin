@@ -7,7 +7,7 @@
     "frontend/src/components/admin/DataRetentionSettings.tsx": "7b3b98016aa8b0db4eeb292fb6150e6005ee741b82e50cd94e8ddf914047321c",
     "frontend/src/components/admin/GroupManager.tsx": "051bc0eecb0134b17bc96ac646dd8141e5fef779b52b204a875a001d61ec7c92",
     "frontend/src/components/admin/IPAllowlistSettings.tsx": "0116efdb6ea9e67b06e445d7a4263eec85fdc05a2bce13eefdc664c8422442ac",
-    "frontend/src/components/admin/NotificationsTab.tsx": "e44b7ccaafcde6bae4952e7c76b02e95582bfbd5785faaa25581b1ff0ee94320",
+    "frontend/src/components/admin/NotificationsTab.tsx": "acdc9a3ae98b67e81b43251acc1015f19b4cbdaf48bd307c7ddba5766ab3d3c1",
     "frontend/src/components/admin/OIDCSettings.tsx": "cc8a63446506f97b7b386ec00d622aa3e42698375a06c7d709c41986e4a60309",
     "frontend/src/components/admin/OrgManager.tsx": "cae1bd518201351617404e95840d81dcc22258fdd64a293aa6dddf3747a3aefe",
     "frontend/src/components/admin/QuotaManager.tsx": "85effd2f4b75c5fffc120ec8c1ee4e8a2818bc8d481dfc3eddb611b3787e2c62",

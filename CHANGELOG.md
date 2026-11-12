@@ -6,6 +6,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Temperature-anomaly alerts: while a print runs, O.D.I.N. now warns you when a nozzle or bed stays well below its target (default 15 C for 5 minutes, after an 8 minute warm-up), overshoots it, heats with no target set, or reads an impossible or frozen value. The warning is a printer error alert, so it follows your existing alert preferences and quiet hours. It is on by default and only alerts: it never pauses or stops a print. Platform admins can switch it off, or switch off single printers and change the thresholds, under Settings > Notifications > Temperature anomaly alerts (or `PUT /api/config/temperature-alerts` with `{"enabled": false}`).
+
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
 
 ## [2.1.0] - 2026-11-10
