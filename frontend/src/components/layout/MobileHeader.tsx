@@ -1,3 +1,4 @@
+import { useInRouterContext, useLocation } from 'react-router-dom'
 import { useFoundry } from '../../hooks/themePreferences'
 import { useEffect, useRef, useState } from 'react'
 import { Menu, Search } from 'lucide-react'
@@ -6,6 +7,13 @@ import { useBranding } from '../../BrandingContext'
 import GlobalSearch from '../shared/GlobalSearch'
 import ThemeToggle from './ThemeToggle'
 import AlertBell from '../notifications/AlertBell'
+
+/** Runs `onChange` when the route changes (rendered only inside a router). */
+function OnRouteChange({ onChange }: { onChange: () => void }) {
+  const { pathname } = useLocation()
+  useEffect(() => { onChange() }, [pathname])  // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
 
 export default function MobileHeader({ onMenuClick }) {
   const branding = useBranding()
@@ -20,6 +28,9 @@ export default function MobileHeader({ onMenuClick }) {
   useEffect(() => {
     if (expanded) searchBox.current?.querySelector('input')?.focus()
   }, [expanded])
+  // Picking a result navigates: collapse the field again, and never re-open it after a rotation.
+  const inRouter = useInRouterContext()
+  useEffect(() => { setSearchOpen(false) }, [phone])
   useEffect(() => {
     if (!searchOpen && refocusButton.current) {
       refocusButton.current = false
@@ -35,6 +46,7 @@ export default function MobileHeader({ onMenuClick }) {
         borderBottom: '1px solid var(--brand-sidebar-border)',
       }}
     >
+      {inRouter && <OnRouteChange onChange={() => setSearchOpen(false)} />}
       <div className={(foundry ? 'flex items-center gap-3 min-w-0 shrink-0 max-w-[28%]' : 'flex items-center gap-3') + (expanded ? ' hidden' : '')}>
         {branding.logo_url && (
           <img src={branding.logo_url} alt={branding.app_name} className={foundry ? 'h-6 max-w-8 object-contain shrink-0' : 'h-6 object-contain'} />

@@ -56,9 +56,9 @@ export default function ScrollTabs({
     if (!el || !active || !isPhoneWidth()) return
     const strip = el.getBoundingClientRect()
     const tab = active.getBoundingClientRect()
-    if (tab.left < strip.left - 1 || tab.right > strip.right + 1) {
-      active.scrollIntoView?.({ inline: 'nearest', block: 'nearest', behavior: 'auto' })
-    }
+    // Move the strip only (never the page), and only as far as needed.
+    if (tab.left < strip.left - 1) el.scrollLeft -= strip.left - tab.left
+    else if (tab.right > strip.right + 1) el.scrollLeft += tab.right - strip.right
   }, [])
 
   // After every render: bring a newly active tab into view, then re-measure.
