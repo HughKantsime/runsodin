@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Deleting a printer locks the shared Experimental opt-in store before reading it, so a concurrent revocation for another printer cannot be overwritten on PostgreSQL.
+- OctoPrint monitoring retries start observation after an unreadable job or missing filename, and establishes an active attempt when first observed paused so resume and progress remain tracked.
+- Printer detail pages show the Experimental badge, warning and administrator opt-in, with immediate refresh after changing the setting.
+
 ### Added
 
 - Ultimaker S-series and Ultimaker 3 printers (Experimental, monitoring only). Add an Ultimaker printer (type Ultimaker, address only, no password or key) to monitor its state, bed and nozzle temperatures, job progress and camera; "Test connection" shows the printer's own variant and firmware. ODIN only reads from the printer (HTTP GET); sending jobs, pause, resume and stop are not available for this printer type yet, and the scheduler never assigns work to it. The camera URL defaults to `http://<printer>:8080/?action=stream` when the printer has its camera enabled and no camera URL set. The support is built from Ultimaker's public local API documentation and has not been verified on real hardware. Restart the container after adding an Ultimaker printer, changing its address, or deactivating it, so the new monitor process reads the new list (with the license fleet lock on, new printers start by themselves). See [Ultimaker](docs/printers/ultimaker.md).

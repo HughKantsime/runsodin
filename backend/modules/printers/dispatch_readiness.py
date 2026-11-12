@@ -127,7 +127,7 @@ def fresh_sdcp_status_is_idle(creds: dict, deadline: float) -> bool:
 
     Sends Cmd 0 (status request, id used by this repo) and accepts only a status frame on
     ``sdcp/status/<MainboardID>`` whose own MainboardID matches the configured one. Idle only when
-    the repo's parser says IDLE (CurrentStatus 0 and PrintInfo.Status 0). A finished-but-not-reset
+    explicit integer states say idle (CurrentStatus 0 and PrintInfo.Status 0). A finished-but-not-reset
     print, an unknown state, a mismatched board, silence or any error is not idle. The WebSocket
     connects to the policy-validated IP literal (device_connect_ip)."""
     conn = None
@@ -143,7 +143,6 @@ def fresh_sdcp_status_is_idle(creds: dict, deadline: float) -> bool:
         import websocket
         from core.webhook_utils import device_connect_ip
         from modules.printers.adapters.elegoo import SDCPCommand, sdcp_request_frame
-        from modules.printers.parsing.elegoo import parse_status
         address = device_connect_ip(host, port)
         shown = f'[{address}]' if ':' in address else address
         remaining = deadline - time.monotonic()
@@ -162,12 +161,22 @@ def fresh_sdcp_status_is_idle(creds: dict, deadline: float) -> bool:
             frame = json.loads(message)
             if not isinstance(frame, dict) or frame.get('Topic') != f'sdcp/status/{mainboard}':
                 continue
-            parsed = parse_status(frame)
-            if not parsed:
-                continue
-            if parsed.get('mainboard_id') != mainboard:
+            if frame.get('MainboardID') != mainboard:
                 return False
-            return time.monotonic() < deadline and parsed.get('internal_state') == 'IDLE'
+            status = frame.get('Status')
+            if not isinstance(status, dict) or not status:
+                nested = frame.get('Data')
+                status = nested.get('Status') if isinstance(nested, dict) else None
+            if not isinstance(status, dict):
+                return False
+            current = status.get('CurrentStatus')
+            if isinstance(current, list) and len(current) == 1:
+                current = current[0]
+            print_info = status.get('PrintInfo')
+            print_state = print_info.get('Status') if isinstance(print_info, dict) else None
+            # Monitoring defaults are not affirmative evidence that a printer is idle.
+            return (time.monotonic() < deadline and type(current) is int and current == 0
+                    and type(print_state) is int and print_state == 0)
     except Exception:
         return False
     finally:

@@ -327,9 +327,123 @@ def test_status_read_respects_the_deadline_and_a_blocked_destination(sdcp_socket
 
 def test_the_whole_upload_has_a_time_limit(octo, gcode, monkeypatch):
     monkeypatch.setattr(adapter_module, 'UPLOAD_CHUNK_BYTES', 4)
-    clock = iter([0.0, 1.0, 5.0, 10_000.0, 10_001.0])
-    monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: next(clock))
+    clock = [0.0]
+    monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: clock[0])
     seen = []
-    octo.routes[UPLOAD] = lambda request: seen.append(request.kwargs['data']['Offset']) or Reply(200, UPLOAD_OK)
+
+    def upload(request):
+        seen.append(request.kwargs['data']['Offset'])
+        clock[0] += 700
+        return Reply(200, UPLOAD_OK)
+    octo.routes[UPLOAD] = upload
     assert printer().upload_file(str(gcode), 'gear.gcode') is False   # stopped, never reported as sent
     assert seen == ['0', '4']
+
+
+@pytest.mark.parametrize('nested', [False, True])
+@pytest.mark.parametrize('status', [
+    {'TempOfNozzle': 220}, {'CurrentStatus': [0]}, {'PrintInfo': {'Status': 0}},
+    {'CurrentStatus': [0], 'PrintInfo': {}},
+    *[{'CurrentStatus': value, 'PrintInfo': {'Status': 0}}
+      for value in (False, 0.0, [False], [0.0], [], [0, 1], '0', None)],
+    *[{'CurrentStatus': [0], 'PrintInfo': {'Status': value}}
+      for value in (False, 0.0, '0', None)],
+])
+def test_readiness_requires_explicit_valid_idle_states(sdcp_socket, nested, status):
+    frame = status_frame(BOARD)
+    frame.pop('Status')
+    frame.update({'Data': {'Status': status}} if nested else {'Status': status})
+    conn, _ = sdcp_socket([frame])
+    assert dispatch_readiness.fresh_http_status_is_idle(creds(), soon()) is False
+    assert conn.closed
+
+
+@pytest.mark.parametrize('nested', [False, True])
+@pytest.mark.parametrize('current', [0, [0]])
+def test_readiness_accepts_explicit_idle_states(sdcp_socket, nested, current):
+    frame = status_frame(BOARD)
+    frame['Status']['CurrentStatus'] = current
+    if nested:
+        frame['Data'] = {'Status': frame.pop('Status')}
+    sdcp_socket([frame])
+    assert dispatch_readiness.fresh_http_status_is_idle(creds(), soon()) is True
+
+
+@pytest.mark.parametrize('topic,board', [
+    ('sdcp/response/OTHER', 'OTHER'), ('sdcp/response/OTHER', BOARD),
+    (f'sdcp/response/{BOARD}', 'OTHER'), (f'sdcp/response/{BOARD}', None),
+    (f'prefix/sdcp/response/{BOARD}', BOARD),
+])
+def test_start_requires_both_response_board_identifiers(topic, board):
+    p = printer()
+    p.command_timeout = 0.001
+
+    def wrong_board(frame):
+        reply = response(frame, 0, MainboardID=board)
+        reply['Topic'] = topic
+        return [reply]
+    ws = attach(p, wrong_board)
+    with pytest.raises(ElegooOutcomeUnknown):
+        p.start_print('gear.gcode')
+    assert len(ws.sent) == 1 and not p._replies
+
+
+@pytest.mark.parametrize('elapsed', [1200, 1201])
+@pytest.mark.parametrize('stage', ['headers', 'body', 'eof'])
+def test_upload_rejects_a_late_final_response(octo, gcode, monkeypatch, elapsed, stage):
+    clock = [0.0]
+    monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: clock[0])
+    closed = []
+
+    class SlowReply(Reply):
+        def iter_content(self, chunk_size=4096):
+            assert chunk_size == 1  # a trickle must not block waiting to fill a large buffer
+            if stage == 'body':
+                clock[0] = elapsed
+            yield self.content
+            if stage == 'body':
+                pytest.fail('must stop consuming an expired response')
+            if stage == 'eof':
+                clock[0] = elapsed
+
+        def __exit__(self, *exc):
+            closed.append(True)
+            return False
+
+    def upload(request):
+        if stage == 'headers':
+            clock[0] = elapsed
+        return SlowReply(200, UPLOAD_OK)
+    octo.routes[UPLOAD] = upload
+    assert printer().upload_file(str(gcode), 'gear.gcode') is False
+    assert len(octo.requests) == 1 and closed == [True]
+    assert octo.requests[0].kwargs['stream'] is True
+
+
+def test_upload_body_read_failure_is_unknown(octo, gcode):
+    class BrokenReply(Reply):
+        def iter_content(self, chunk_size=4096):
+            yield b'{'
+            raise requests.exceptions.ConnectionError('interrupted response')
+    octo.routes[UPLOAD] = BrokenReply(200, UPLOAD_OK)
+    with pytest.raises(ElegooOutcomeUnknown):
+        printer().upload_file(str(gcode), 'gear.gcode')
+
+
+def test_upload_bounds_each_request_by_the_remaining_time(octo, gcode, monkeypatch):
+    monkeypatch.setattr(adapter_module, 'UPLOAD_CHUNK_BYTES', 6)
+    clock = [0.0]
+    monkeypatch.setattr(adapter_module.time, 'monotonic', lambda: clock[0])
+
+    def upload(request):
+        clock[0] = 1180
+        return Reply(200, UPLOAD_OK)
+    octo.routes[UPLOAD] = upload
+    assert printer().upload_file(str(gcode), 'gear.gcode') is True
+    assert [r.kwargs['timeout'] for r in octo.requests] == [60, 20]
+
+
+def test_upload_bounds_the_streamed_response_size(octo, gcode, monkeypatch):
+    monkeypatch.setattr(adapter_module, '_MAX_BODY', 16)
+    octo.routes[UPLOAD] = Reply(200, UPLOAD_OK)
+    assert printer().upload_file(str(gcode), 'gear.gcode') is False

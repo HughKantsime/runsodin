@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: OctoPrint Experimental support
+
+- Local review fixes cover concurrent opt-in deletion, retrying print identity after a failed job poll, recovery while paused, and the detail-page warning and opt-in. Real-hardware verification remains pending.
+
 ## Prepared: Education funding and program reports
 
 - Class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks, with small-cell suppression. The Perkins worksheet stays off until a school's reporting fields are confirmed.
