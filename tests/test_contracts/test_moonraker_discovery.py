@@ -297,6 +297,14 @@ def test_probe_drops_oversized_trickled_and_compressed_answers(monkeypatch):
     assert discovery.probe_klippy("127.0.0.1", port) is None
     assert time.monotonic() - began < discovery.PROBE_TIMEOUT_SECONDS + 1.0     # one total deadline
 
+    # Third pass: headers over the limit are refused even when their end arrives in the same read.
+    big = b"X-Pad: " + b"a" * 12000 + b"\r\n"
+    port, _ = _device(monkeypatch, lambda conn: conn.sendall(_answer(GOOD, extra=big)))
+    assert discovery.probe_klippy("127.0.0.1", port) is None
+    ok = b"X-Pad: " + b"a" * 4000 + b"\r\n"
+    port, _ = _device(monkeypatch, lambda conn: conn.sendall(_answer(GOOD, extra=ok)))
+    assert discovery.probe_klippy("127.0.0.1", port) == {"klippy_state": "ready", "hostname": "voron"}
+
     packed = gzip.compress(b'{"result": {"state": "ready"}}' + b" " * (8 * 1024 * 1024))
     port, _ = _device(monkeypatch, lambda conn: conn.sendall(_answer(packed, extra=b"Content-Encoding: gzip\r\n")))
     assert discovery.probe_klippy("127.0.0.1", port) is None                    # never decompressed

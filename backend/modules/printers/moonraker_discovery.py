@@ -105,17 +105,17 @@ def _read_info(ip: str, port: int, deadline: float):
                 return None
             data += chunk
             head, found, body = bytes(data).partition(b"\r\n\r\n")
+            if len(head) > MAX_HEADER_BYTES:
+                return None                      # with or without the end of the headers in sight
             if found:
                 length = _header(head, b"content-length")
                 if length is not None and length.isdigit() and len(body) >= int(length):
                     break
-            elif len(data) > MAX_HEADER_BYTES:
-                return None
     finally:
         sock.close()
     head, found, body = bytes(data).partition(b"\r\n\r\n")
     status = head.split(b"\r\n", 1)[0].split()
-    if not found or len(status) < 2 or not status[0].startswith(b"HTTP/1.") or status[1] != b"200":
+    if not found or len(head) > MAX_HEADER_BYTES or len(status) < 2 or not status[0].startswith(b"HTTP/1.") or status[1] != b"200":
         return None
     if (_header(head, b"content-encoding") or b"identity").lower() != b"identity" or _header(head, b"transfer-encoding"):
         return None
