@@ -89,12 +89,18 @@ export default function Jobs() {
 
   // The box types freely; the server is asked (and the URL updated) once typing pauses.
   const [searchInput, setSearchInput] = useState(searchQuery)
+  const pushedSearch = useRef(searchQuery)
+  // A search set from elsewhere (the URL, a reset) replaces what is in the box...
+  useEffect(() => {
+    if (searchQuery !== pushedSearch.current) { pushedSearch.current = searchQuery; setSearchInput(searchQuery) }
+  }, [searchQuery])
+  // ...and typing is the only thing that pushes the box into the search.
   useEffect(() => {
     const next = searchInput.trim()
-    if (next === searchQuery) return
-    const timer = setTimeout(() => setSearchQuery(next), 300)
+    if (next === pushedSearch.current) return
+    const timer = setTimeout(() => { pushedSearch.current = next; setSearchQuery(next) }, 300)
     return () => clearTimeout(timer)
-  }, [searchInput, searchQuery, setSearchQuery])
+  }, [searchInput, setSearchQuery])
 
   const [printerFilter, _setPrinterFilter] = useState(() => searchParams.get('printer') || '')
   const [heldOnly, _setHeldOnly] = useState(() => searchParams.get('held') === '1')
@@ -190,7 +196,12 @@ export default function Jobs() {
   useEffect(() => { setSelectedJobs(new Set()) }, [statusFilter, searchQuery, printerFilter, heldOnly, org.orgId])
 
   // Deep link: the job is opened even when the current filter does not list it.
-  const deepListed = deepLinkId != null && (jobsData || []).some(job => job.id === deepLinkId)
+  const onTab = (job: { status: string; order_item_id?: number | null }) =>
+    jobTypeFilter === 'approval' ? job.status === 'submitted'
+      : jobTypeFilter === 'order' ? job.order_item_id != null
+        : jobTypeFilter === 'adhoc' ? job.order_item_id == null : true
+  // "Listed" means drawn: loaded AND on the current tab; otherwise the job is fetched and shown on its own row.
+  const deepListed = deepLinkId != null && (jobsData || []).some(job => job.id === deepLinkId && onTab(job))
   const { data: deepFetched, isError: deepMissing } = useQuery({
     queryKey: ['jobs', 'detail', deepLinkId, org.orgId],
     queryFn: () => jobs.get(deepLinkId as number),
@@ -316,12 +327,7 @@ export default function Jobs() {
   }
 
   // Filter by job type (all, order, adhoc, approval)
-  const typeFilteredJobs = (jobsData || []).filter(job => {
-    if (jobTypeFilter === 'approval') return job.status === 'submitted'
-    if (jobTypeFilter === 'order') return job.order_item_id != null
-    if (jobTypeFilter === 'adhoc') return job.order_item_id == null
-    return true
-  })
+  const typeFilteredJobs = (jobsData || []).filter(onTab)
 
   // Then filter by search and sort
   // Search already ran on the server; only the sort is local (and keeps the server's order for history).
@@ -495,7 +501,9 @@ export default function Jobs() {
       </div>
 
       <div className="flex items-center gap-3 mt-3 mb-4 text-sm text-[var(--brand-text-secondary)]">
-        {jobsTotal != null && <span>{`Showing ${jobsData?.length ?? 0} of ${jobsTotal}`}</span>}
+        {jobsTotal != null && <span>{jobTypeFilter === 'all'
+          ? `Showing ${jobsData?.length ?? 0} of ${jobsTotal}`
+          : `Showing ${typeFilteredJobs.length} on this tab (${jobsData?.length ?? 0} of ${jobsTotal} jobs loaded)`}</span>}
         {jobsQuery.hasNextPage && (
           <Button variant="secondary" size="sm" onClick={() => { void jobsQuery.fetchNextPage() }} disabled={jobsQuery.isFetchingNextPage} loading={jobsQuery.isFetchingNextPage}>Load more</Button>
         )}
