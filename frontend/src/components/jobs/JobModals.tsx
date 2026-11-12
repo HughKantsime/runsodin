@@ -354,7 +354,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
   if (!job) return null
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Job" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={`Edit Job (Job ${job.id})`} size="lg">
       {isOpen && job.ams_mapping !== undefined && <JobAmsMappingPanel jobId={job.id} />}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

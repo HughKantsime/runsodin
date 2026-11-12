@@ -48,6 +48,7 @@ function JobItemDetails({ job, nameClassName = 'font-medium text-sm' }: { job: a
   return (
     <>
       <div className={nameClassName}>{displayName(job)}</div>
+      <div className="text-xs font-mono text-[var(--brand-text-muted)]">{`Job ${job.id}`}</div>
       {(job.quantity == null || job.hold == null || job.is_locked == null) && (
         <div className="text-xs text-[var(--brand-text-muted)]">
           {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
@@ -143,7 +144,7 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
         job.status === 'rejected' && correctionPrincipal?.role === 'viewer' && Number.isInteger(correctionPrincipal.id) && correctionPrincipal.id > 0 && correctionPrincipal.id === job.submitted_by && Number.isInteger(correctionPrincipal.group_id) && correctionPrincipal.group_id > 0 && correctionPrincipal.group_id === job.charged_to_org_id) && (
         <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Edit job" />
       )}
-      {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
+      {canDo('jobs.cancel') && ['pending', 'submitted', 'scheduled', 'printing'].includes(job.status) && (
         <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
       )}
       {job.status === 'failed' && (
@@ -161,11 +162,12 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
 
 // Phone layout (< 640 px): one stacked card per job. Order: name (wraps by words),
 // status, printer, priority/time, then the same row actions.
-function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
+function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean }) {
   const overdue = job.due_date && new Date(job.due_date) < new Date() && !['completed', 'cancelled', 'failed'].includes(job.status)
   return (
-    <li data-testid="job-card" className={clsx(
+    <li data-testid="job-card" data-job-id={job.id} className={clsx(
       'px-3 py-3 border-b border-[var(--brand-card-border)] last:border-b-0',
+      highlight && 'ring-2 ring-inset ring-[var(--brand-primary)]',
       overdue && 'bg-red-950/30 border-l-2 border-l-red-500'
     )}>
       <div className="flex items-start gap-2">
@@ -179,6 +181,9 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <StatusBadge status={job.status} kind="job" />
+        {job.hold === true && !['completed', 'failed', 'cancelled', 'rejected'].includes(job.status) && (
+          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
+        )}
         <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
       </div>
       <div className="mt-2 text-sm">
@@ -196,25 +201,33 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
   )
 }
 
-export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleSelect, onSelectAll, allSelected, onAction, dispatchFencedIds, dispatchingId, correctionPrincipal, printers }: {
+export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleSelect, onSelectAll, allSelected, onAction, dispatchFencedIds, dispatchingId, correctionPrincipal, printers, extraJob, highlightId }: {
   jobs: any[]; isLoading: boolean; emptyText: string; selectedIds: Set<number>; onToggleSelect: (id: number) => void; onSelectAll: () => void; allSelected: boolean
   onAction: (...args: any[]) => void; dispatchFencedIds?: Set<number>; dispatchingId?: number | null; correctionPrincipal?: any; printers: any[]
+  // A job opened by link that is not in the loaded list is shown first, like the table's extra row.
+  extraJob?: any; highlightId?: number | null
 }) {
+  const extra = extraJob ? (
+    <ul aria-label="Linked job">
+      <JobCard key={`deep-${extraJob.id}`} job={extraJob} highlight onAction={onAction} isSelected={false} onToggleSelect={onToggleSelect} correctionPrincipal={correctionPrincipal} />
+    </ul>
+  ) : null
   if (isLoading) {
-    return <PageState kind="loading" className="flex items-center justify-center gap-2 px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><RefreshCw size={14} className="animate-spin" />Loading...</PageState>
+    return <>{extra}<PageState kind="loading" className="flex items-center justify-center gap-2 px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><RefreshCw size={14} className="animate-spin" />Loading...</PageState></>
   }
   if (jobs.length === 0) {
-    return <div className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm">{emptyText}</div>
+    return <>{extra}<div className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm">{emptyText}</div></>
   }
   return (
     <div>
+      {extra}
       <div className="flex items-center gap-2 px-3 py-2 bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)] text-xs text-[var(--brand-text-secondary)]">
         <CheckTarget touch><input type="checkbox" checked={allSelected} onChange={onSelectAll} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" /></CheckTarget>
         <span>Select all</span>
       </div>
       <ul aria-label="Jobs list">
         {jobs.map(job => (
-          <JobCard key={job.id} job={job} onAction={onAction} isSelected={selectedIds.has(job.id)} onToggleSelect={onToggleSelect}
+          <JobCard key={job.id} job={job} highlight={highlightId === job.id} onAction={onAction} isSelected={selectedIds.has(job.id)} onToggleSelect={onToggleSelect}
             correctionPrincipal={correctionPrincipal} dispatchFenced={dispatchFencedIds?.has(job.id)} isDispatching={dispatchingId === job.id}
             pinnedPrinterName={job.pinned_printer_id != null ? printers.find(p => p.id === job.pinned_printer_id)?.name : undefined} />
         ))}
@@ -223,12 +236,14 @@ export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleS
   )
 }
 
-export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
+export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean }) {
   return (
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
+          highlight && 'ring-2 ring-inset ring-[var(--brand-primary)]',
           job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
         )}
+        data-job-id={job.id}
         {...(dragProps || {})}>
       <td className="px-2 py-3 w-10">
         <div className="flex items-center gap-1">
@@ -237,13 +252,16 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           )}
           <CheckTarget><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
           {job.queue_position != null && ['pending', 'scheduled'].includes(job.status) && (
-            <span className="text-xs font-mono text-[var(--brand-text-muted)]" title="Queue position">#{job.queue_position + 1}</span>
+            <span className="text-xs font-mono whitespace-nowrap text-[var(--brand-text-muted)]" title="Queue position">{`Queue ${job.queue_position + 1}`}</span>
           )}
         </div>
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <StatusBadge status={job.status} kind="job" />
+          {job.hold === true && !['completed', 'failed', 'cancelled', 'rejected'].includes(job.status) && (
+            <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
+          )}
           <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
         </div>
       </td>

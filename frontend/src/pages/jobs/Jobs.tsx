@@ -3,9 +3,9 @@ import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { Plus, Filter, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
 import { jobs, models, printers as printersApi, scheduler, getApprovalSetting, presets, bulkOps } from '../../api'
 import { canDo } from '../../permissions'
@@ -20,7 +20,7 @@ import ScrollTabs from '../../components/ui/ScrollTabs'
 import TraceabilityPanel from '../../components/jobs/TraceabilityPanel'
 import RecentlyCompleted from '../../components/jobs/RecentlyCompleted'
 import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs/JobModals'
-import { statusOptions, statusOrder, queueCompare } from '../../components/jobs/jobUtils'
+import { statusOptions, statusOrder, queueCompare, statusesFor, orderFor } from '../../components/jobs/jobUtils'
 import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
 import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
@@ -89,6 +89,36 @@ export default function Jobs() {
     _setJobTypeFilter(value)
     updateSearchParams({ type: value })
   }, [updateSearchParams])
+
+  // The box types freely; the server is asked (and the URL updated) once typing pauses.
+  const [searchInput, setSearchInput] = useState(searchQuery)
+  const pushedSearch = useRef(searchQuery)
+  // A search set from elsewhere (the URL, a reset) replaces what is in the box...
+  useEffect(() => {
+    if (searchQuery !== pushedSearch.current) { pushedSearch.current = searchQuery; setSearchInput(searchQuery) }
+  }, [searchQuery])
+  // ...and typing is the only thing that pushes the box into the search.
+  useEffect(() => {
+    const next = searchInput.trim()
+    if (next === pushedSearch.current) return
+    const timer = setTimeout(() => { pushedSearch.current = next; setSearchQuery(next) }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput, setSearchQuery])
+
+  const [printerFilter, _setPrinterFilter] = useState(() => searchParams.get('printer') || '')
+  const [heldOnly, _setHeldOnly] = useState(() => searchParams.get('held') === '1')
+  const setPrinterFilter = useCallback((value: string) => {
+    _setPrinterFilter(value)
+    updateSearchParams({ printer: value })
+  }, [updateSearchParams])
+  const setHeldOnly = useCallback((value: boolean) => {
+    _setHeldOnly(value)
+    updateSearchParams({ held: value ? '1' : '' })
+  }, [updateSearchParams])
+
+  // /jobs?job=218 and /jobs/218 both name a job to open.
+  const deepLinkParam = searchParams.get('job') ?? ''
+  const deepLinkId = /^[1-9]\d{0,14}$/.test(deepLinkParam) ? Number(deepLinkParam) : null
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [rejectingJobId, setRejectingJobId] = useState(null)
   const [failureModal, setFailureModal] = useState(null)
@@ -136,12 +166,72 @@ export default function Jobs() {
   const { data: recentPrincipal } = useQuery<{ id: number; group_id: number | null; role: string }>({ queryKey: ['auth', 'me'], enabled: false })
   const recentReady = Number.isInteger(recentPrincipal?.id) && (recentPrincipal?.id ?? 0) > 0
   const { data: recentJobs, isLoading: recentLoading, isError: recentError, refetch: retryRecent } = useQuery({ queryKey: ['jobs', 'recent-terminal', recentPrincipal?.id ?? null, recentPrincipal?.group_id ?? null, recentPrincipal?.role ?? null, org.orgId], enabled: recentReady, queryFn: () => jobs.recentTerminal(org.orgId) })
-  const { data: jobsData, isLoading } = useQuery({ queryKey: ['jobs', statusFilter, org.orgId], queryFn: () => jobs.list(statusFilter || null, org.orgId) })
+  // The server does the filtering and the searching: the browser never sees a silently cut-off list.
+  const requestedStatuses = statusesFor(statusFilter)
+  const serverOrder = orderFor(statusFilter)
+  // The queue loads whole (the server's largest page); history pages 50 at a time.
+  const pageSize = serverOrder === 'queue' ? 500 : 50
+  const printerParam = /^\d+$/.test(printerFilter) ? Number(printerFilter) : null
+  const listParams = { order: serverOrder, q: searchQuery, printerId: printerParam, unassigned: printerFilter === 'unassigned', held: heldOnly }
+  const jobsQuery = useInfiniteQuery({
+    queryKey: ['jobs', 'list', statusFilter, org.orgId, searchQuery, printerFilter, heldOnly],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const box: { total: number | null } = { total: null }
+      const items = await jobs.list(requestedStatuses, org.orgId, { ...listParams, limit: pageSize, offset: pageParam }, value => { box.total = value })
+      return { items: items ?? [], total: box.total }
+    },
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + page.items.length, 0)
+      if (last.items.length === 0) return undefined
+      if (last.total != null) return loaded < last.total ? loaded : undefined
+      return last.items.length >= pageSize ? loaded : undefined
+    },
+  })
+  const isLoading = jobsQuery.isLoading
+  const jobsData = useMemo(() => {
+    if (!jobsQuery.data) return undefined
+    const seen = new Set<number>()
+    return jobsQuery.data.pages.flatMap(page => page.items).filter(job => !seen.has(job.id) && seen.add(job.id))
+  }, [jobsQuery.data])
+  const jobsTotal = jobsQuery.data?.pages[jobsQuery.data.pages.length - 1]?.total ?? null
+  // A selection must not survive a change of what is on screen.
+  useEffect(() => { setSelectedJobs(new Set()) }, [statusFilter, searchQuery, printerFilter, heldOnly, org.orgId])
+
+  // Deep link: the job is opened even when the current filter does not list it.
+  const onTab = (job: { status: string; order_item_id?: number | null }) =>
+    jobTypeFilter === 'approval' ? job.status === 'submitted'
+      : jobTypeFilter === 'order' ? job.order_item_id != null
+        : jobTypeFilter === 'adhoc' ? job.order_item_id == null : true
+  // "Listed" means drawn: loaded AND on the current tab; otherwise the job is fetched and shown on its own row.
+  const deepListed = deepLinkId != null && (jobsData || []).some(job => job.id === deepLinkId && onTab(job))
+  const { data: deepFetched, isError: deepMissing } = useQuery({
+    queryKey: ['jobs', 'detail', deepLinkId, org.orgId],
+    queryFn: () => jobs.get(deepLinkId as number),
+    enabled: deepLinkId != null && jobsData !== undefined && !deepListed,
+    retry: false,
+  })
+  const deepJob = deepLinkId == null ? null : ((jobsData || []).find(job => job.id === deepLinkId) ?? deepFetched ?? null)
+  const deepExtra = deepFetched && !deepListed ? deepFetched : null
+  const openEditor = (job) => {
+    const actor = recentPrincipal
+    if (actor?.role === 'viewer' && Number.isInteger(actor.id) && actor.id > 0 && Number.isInteger(actor.group_id) && actor.group_id > 0 && actor.group_id === job.charged_to_org_id && actor.id === job.submitted_by && job.status === 'rejected') setCorrectingJob({ job, actor, orgId: org.orgId })
+    else if (['operator','admin'].includes(actor?.role) && canDo('jobs.edit')) setEditingJob(job)
+  }
+  const openedDeepLink = useRef<number | null>(null)
+  // No dependency list on purpose: it runs after every render and the ref makes it fire once per link.
+  useEffect(() => {
+    if (deepLinkId == null) { openedDeepLink.current = null; return }
+    if (!deepJob || !recentPrincipal || openedDeepLink.current === deepLinkId) return
+    openedDeepLink.current = deepLinkId
+    document.querySelector(`[data-job-id="${deepLinkId}"]`)?.scrollIntoView?.({ block: 'center' })
+    if (['pending', 'scheduled', 'submitted', 'rejected'].includes(deepJob.status)) openEditor(deepJob)
+  })
   useEffect(() => {
     if (!correctingJob) return
-    const current = jobsData?.find(job => job.id === correctingJob.job.id)
+    const current = jobsData?.find(job => job.id === correctingJob.job.id) ?? (deepJob?.id === correctingJob.job.id ? deepJob : undefined)
     if (org.orgId !== correctingJob.orgId || jobsData && (!current || current.status !== 'rejected' || current.submitted_by !== correctingJob.actor.id)) closeCorrection()
-  }, [jobsData, org.orgId, correctingJob, closeCorrection])
+  }, [jobsData, deepJob, org.orgId, correctingJob, closeCorrection])
   const { data: modelsData } = useQuery({ queryKey: ['models', org.orgId], queryFn: () => models.list(org.orgId) })
   const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printersApi.list() })
   const { data: presetsData } = useQuery({ queryKey: ['presets'], queryFn: () => presets.list() })
@@ -181,12 +271,8 @@ export default function Jobs() {
         setConfirmAction({ action: 'delete', jobId, title: 'Delete Job', message: 'Permanently delete this job? This cannot be undone.', confirmText: 'Delete', confirmVariant: 'danger' })
         break
       case 'edit': {
-        const job = (jobsData || []).find(j => j.id === jobId)
-        if (job) {
-          const actor = recentPrincipal
-          if (actor?.role === 'viewer' && Number.isInteger(actor.id) && actor.id > 0 && Number.isInteger(actor.group_id) && actor.group_id > 0 && actor.group_id === job.charged_to_org_id && actor.id === job.submitted_by && job.status === 'rejected') setCorrectingJob({ job, actor, orgId: org.orgId })
-          else if (['operator','admin'].includes(actor?.role) && canDo('jobs.edit')) setEditingJob(job)
-        }
+        const job = (jobsData || []).find(j => j.id === jobId) ?? (deepJob?.id === jobId ? deepJob : null)
+        if (job) openEditor(job)
         break
       }
       case 'dispatch': {
@@ -244,22 +330,17 @@ export default function Jobs() {
   }
 
   // Filter by job type (all, order, adhoc, approval)
-  const typeFilteredJobs = (jobsData || []).filter(job => {
-    if (jobTypeFilter === 'approval') return job.status === 'submitted'
-    if (jobTypeFilter === 'order') return job.order_item_id != null
-    if (jobTypeFilter === 'adhoc') return job.order_item_id == null
-    return true
-  })
+  const typeFilteredJobs = (jobsData || []).filter(onTab)
 
   // Then filter by search and sort
+  // Search already ran on the server; only the sort is local (and keeps the server's order for history).
   const filteredJobs = typeFilteredJobs
-    .filter(job => !searchQuery || displayName(job).toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       const dir = sortDirection === 'asc' ? 1 : -1
       switch (sortField) {
         case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
         case 'item_name': return dir * displayName(a).localeCompare(displayName(b))
-        case 'queue': return dir * queueCompare(a, b)
+        case 'queue': return serverOrder === 'queue' ? dir * queueCompare(a, b) : 0
         case 'priority': return dir * ((a.priority ?? 99) - (b.priority ?? 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
         case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
@@ -338,8 +419,8 @@ export default function Jobs() {
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4 md:mb-6">
         <SearchInput
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search jobs..."
           className="flex-1 sm:max-w-md"
         />
@@ -351,6 +432,17 @@ export default function Jobs() {
             ))}
           </select>
         </div>
+        <select aria-label="Filter jobs by printer" value={printerFilter} onChange={(e) => setPrinterFilter(e.target.value)} className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+          <option value="">All printers</option>
+          <option value="unassigned">Unassigned</option>
+          {(printersData || []).map(p => (
+            <option key={p.id} value={String(p.id)}>{p.name}</option>
+          ))}
+        </select>
+        <label className="flex items-center gap-2 text-sm text-[var(--brand-text-secondary)]">
+          <input type="checkbox" checked={heldOnly} onChange={(e) => setHeldOnly(e.target.checked)} className="h-4 w-4 rounded" />
+          Held only
+        </label>
       </div>
 
       {selectedJobs.size > 0 && (
@@ -386,6 +478,8 @@ export default function Jobs() {
             dispatchingId={dispatchJob.isPending ? dispatchJob.variables : null}
             correctionPrincipal={recentPrincipal}
             printers={printersData || []}
+            extraJob={deepExtra}
+            highlightId={deepLinkId}
           />
         </div>
       ) : (
@@ -400,6 +494,9 @@ export default function Jobs() {
               onSelectAll={() => toggleSelectAll(filteredJobs.map(j => j.id))}
             />
             <tbody>
+              {deepExtra && (
+                <JobRow key={`deep-${deepExtra.id}`} job={deepExtra} highlight correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={false} onToggleSelect={toggleJobSelect} />
+              )}
               {isLoading ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><PageState kind="loading" className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</PageState></td></tr>
               ) : filteredJobs.length === 0 ? (
@@ -409,9 +506,9 @@ export default function Jobs() {
                 </td></tr>
               ) : (
                 filteredJobs.map(job => (
-                  <JobRow key={job.id} job={job} pinnedPrinterName={job.pinned_printer_id != null ? (printersData || []).find(p => p.id === job.pinned_printer_id)?.name : undefined} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} dispatchFenced={dispatchFencedIds?.has(job.id)} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
+                  <JobRow key={job.id} job={job} pinnedPrinterName={job.pinned_printer_id != null ? (printersData || []).find(p => p.id === job.pinned_printer_id)?.name : undefined} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} highlight={job.id === deepLinkId} onToggleSelect={toggleJobSelect} dispatchFenced={dispatchFencedIds?.has(job.id)} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
                     // Drag only in queue order: positions written from another sort would be meaningless.
-                    dragProps={canDo('jobs.edit') && sortField === 'queue' && (job.status === 'pending' || job.status === 'scheduled') ? {
+                    dragProps={canDo('jobs.edit') && sortField === 'queue' && serverOrder === 'queue' && (job.status === 'pending' || job.status === 'scheduled') ? {
                       draggable: true,
                       onDragStart: (e) => handleDragStart(e, job.id),
                       onDragEnd: handleDragEnd,
@@ -427,6 +524,17 @@ export default function Jobs() {
       </div>
 
       )}
+      <div className="flex items-center gap-3 mt-3 mb-4 text-sm text-[var(--brand-text-secondary)]">
+        {jobsTotal != null && <span>{jobTypeFilter === 'all'
+          ? `Showing ${jobsData?.length ?? 0} of ${jobsTotal}`
+          : `Showing ${typeFilteredJobs.length} on this tab (${jobsData?.length ?? 0} of ${jobsTotal} jobs loaded)`}</span>}
+        {jobsQuery.hasNextPage && (
+          <Button variant="secondary" size="sm" onClick={() => { void jobsQuery.fetchNextPage() }} disabled={jobsQuery.isFetchingNextPage} loading={jobsQuery.isFetchingNextPage}>Load more</Button>
+        )}
+        {deepLinkId != null && deepMissing && (
+          <div role="status" className="text-amber-400">{`Job ${deepLinkId} was not found, or you cannot see it.`}</div>
+        )}
+      </div>
 
       <RecentlyCompleted jobs={recentJobs} loading={recentLoading} error={recentError} onRetry={() => { void retryRecent() }} />
 

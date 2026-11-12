@@ -85,6 +85,7 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
     onResponse?.(response)
     return csv as T
   }
+  onResponse?.(response)
   return response.json()
 }
 
