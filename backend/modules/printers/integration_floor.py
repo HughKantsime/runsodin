@@ -315,6 +315,11 @@ class Floor:
         self = cls()
         ids = [printer.id for printer in printers]
         self.queue = queue_totals(db, actor, scope, controlled, states)
+        # Maintenance hold (Printer detail > Set maintenance state): dispatch is blocked, the
+        # monitor and camera keep running. One read for all printers.
+        from core.printer_maintenance import enrich_maintenance
+        self.maintenance = {p.id: getattr(p, "maintenance", None) or {}
+                            for p in enrich_maintenance(db, list(printers))}
         self.today = day_totals(db, actor, controlled, ids, now, zone or server_zone())
         picked = _pick(db, actor, scope, controlled, states, ids)
         rows = _details(db, [job_id for job_id, _ in picked]) if picked else {}
@@ -427,9 +432,14 @@ class Floor:
         row = self.next_rows.get(printer.id)
         next_job, mismatch = (self._describe(row, names_allowed, printer.api_type) if row is not None else (None, None))
         bench = None
+        care = self.maintenance.get(printer.id) or {}
+        held_out = care.get("state") == "hold"
         if status == "paused":
             cause, reason = self._pause(printer, running, error_unresolved, redact)
             bench = {"state": "paused", "reason": reason, "since": self.paused_since.get(printer.id), "pause_cause": cause}
+        elif held_out:
+            bench = {"state": "out_of_service", "reason": (care.get("note") or "Maintenance hold")[:200],
+                     "since": care.get("set_at"), "pause_cause": None}
         elif printer.id in self.clear_plate:
             bench = {"state": "clear_plate", "reason": "Plate not cleared", "since": iso(self.clear_plate[printer.id]),
                      "pause_cause": None}
@@ -442,7 +452,7 @@ class Floor:
             elif refused:
                 bench = {"state": "blocked", "reason": HIDDEN_ERROR_MESSAGE if redact else refusal_words(refused[0]),
                          "since": iso(refused[1]), "pause_cause": None}
-        return {"next_job": next_job, "bench": bench}
+        return {"next_job": next_job, "bench": bench, "out_of_service": held_out}
 
     def _pause(self, printer, running, error_unresolved, redact):
         stored = _json(printer.hms_errors)

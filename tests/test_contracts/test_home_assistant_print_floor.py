@@ -349,3 +349,23 @@ def test_response_is_database_only_and_read_only(ams, review_db):
         event.remove(engine, 'before_cursor_execute', watch)
     touched = ('jobs', 'printers', 'print_jobs', 'job_timeline_events', 'filament_slots', 'vision_detections')
     assert not [s for s in writes if any(f' {t} ' in s or f' {t}(' in s for t in touched)]
+
+
+def test_maintenance_hold_reports_out_of_service_and_keeps_the_printer_listed(ha_client, review_db):
+    import json
+    client, issue = ha_client
+    before = {p['id']: p for p in _get(client, issue)['printers']}
+    assert all(p['out_of_service'] is False for p in before.values())
+    review_db.execute(text("INSERT INTO system_config(key,value) VALUES('printer.maintenance.10',:v)"),
+                      {'v': json.dumps({'state': 'hold', 'note': 'Heatbed fault, waiting on a part', 'set_by': 3,
+                                        'set_by_name': 'admin', 'set_at': '2026-11-12T05:00:00+00:00'})})
+    review_db.execute(text("INSERT INTO system_config(key,value) VALUES('printer.maintenance.12',:v)"),
+                      {'v': json.dumps({'state': 'warn', 'note': 'Nozzle wearing', 'set_by': 3, 'set_by_name': 'admin', 'set_at': None})})
+    review_db.commit()
+    after = {p['id']: p for p in _get(client, issue)['printers']}
+    assert set(after) == set(before)                                  # still listed, camera flag untouched
+    assert after[10]['camera_available'] == before[10]['camera_available']
+    assert after[10]['out_of_service'] is True and after[12]['out_of_service'] is False
+    if before[10]['status'] != 'paused':
+        assert after[10]['bench'] == {'state': 'out_of_service', 'reason': 'Heatbed fault, waiting on a part',
+                                      'since': '2026-11-12T05:00:00+00:00', 'pause_cause': None}
