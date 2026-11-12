@@ -40,6 +40,8 @@ ENDPOINTS = [
     ("POST", "/api/config/mqtt-republish/test", _admin_only(), None, "Test MQTT republish — admin after patch"),
     ("GET", "/api/config/quiet-hours", _admin_only(), None, "Quiet hours — admin after patch"),
     ("PUT", "/api/config/quiet-hours", _admin_only(), {}, "Update quiet hours"),
+    ("GET", "/api/config/filament-check", _admin_only(), None, "Filament check setting — superadmin"),
+    ("PUT", "/api/config/filament-check", _admin_only(), {"mode": "warn"}, "Update filament check setting"),
 
     # =========================================================================
     # 30. Backups (AFTER PATCH: list requires admin)

@@ -11,6 +11,7 @@ Sub-router responsibilities:
   routes_smart_plug.py  — Smart plug power control
   routes_nozzle.py      — Nozzle lifecycle tracking
   routes_integrations.py — Read-only database status for Home Assistant
+  routes_filament_check.py — Pre-dispatch filament check: per-job result, superadmin setting
 """
 
 import logging
@@ -33,6 +34,7 @@ from modules.printers import (  # noqa: E402
     routes_dispatch_recovery,
     routes_start_next,
     routes_maintenance_state,
+    routes_filament_check,
     routes_integrations,
 )
 
@@ -47,6 +49,7 @@ router.include_router(routes_nozzle.router)
 router.include_router(routes_dispatch_recovery.router)
 router.include_router(routes_start_next.router)
 router.include_router(routes_maintenance_state.router)
+router.include_router(routes_filament_check.router)
 router.include_router(routes_integrations.router)
 # Phase 2 agent-surface: POST /filament-slots for MCP assign_spool.
 router.include_router(routes_filament_slots.router)

@@ -108,6 +108,7 @@ ENDPOINTS = [
     ("POST", "/api/jobs/bulk", _op_write(), [{"item_name": "RBAC Bulk 1"}], "Bulk create"),
     ("PATCH", "/api/jobs/reorder", _op_write(), {"job_ids": []}, "Reorder jobs"),
     ("GET",  "/api/jobs/{job_id}", _api_read(), None, "Get job"),
+    ("GET",  "/api/jobs/{job_id}/filament-check", _api_read(), None, "Job filament check"),
     ("PATCH", "/api/jobs/{job_id}", _op_write(), {"notes": "rbac test"}, "Update job"),
     ("DELETE", "/api/jobs/{job_id}", _op_write(), None, "Delete job — SKIP actual"),
     ("POST", "/api/jobs/{job_id}/start", _op_write(), None, "Start job"),
