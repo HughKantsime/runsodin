@@ -50,6 +50,7 @@ class OdinCamera(OdinPrinterEntity, Camera):
         OdinPrinterEntity.__init__(self, coordinator, printer_id, "camera")
         Camera.__init__(self)
         self._token = token
+        self._snapshot_route: bool | None = None  # None = not yet known
 
     @property
     def available(self) -> bool:
@@ -59,11 +60,39 @@ class OdinCamera(OdinPrinterEntity, Camera):
     def _stream_url(self) -> str:
         return f"{self.coordinator.client.url}/api/overlay/{self.printer_id}/camera"
 
-    def _request(self, timeout: aiohttp.ClientTimeout | None = None):
+    @property
+    def _snapshot_url(self) -> str:
+        return f"{self.coordinator.client.url}/api/overlay/{self.printer_id}/snapshot"
+
+    def _request(self, timeout: aiohttp.ClientTimeout | None = None, url: str | None = None):
         session = async_get_clientsession(self.hass)
-        return session.get(self._stream_url, params={"token": self._token}, timeout=timeout)
+        return session.get(url or self._stream_url, params={"token": self._token}, timeout=timeout)
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
+        """One still. ODIN 2.2.0+ serves a single JPEG that opens no stream; an older
+        server has no such route (404), so the first frame of the stream is used instead."""
+        if self._snapshot_route is not False:
+            try:
+                async with self._request(aiohttp.ClientTimeout(total=SNAPSHOT_TIMEOUT), self._snapshot_url) as response:
+                    if response.status == 200:
+                        self._snapshot_route = True
+                        if (response.content_length or 0) > SNAPSHOT_MAX_BYTES:
+                            return None
+                        frame = await response.read()
+                        return frame if frame.startswith(b"\xff\xd8") and len(frame) <= SNAPSHOT_MAX_BYTES else None
+                    if response.status != 404 or self._snapshot_route:
+                        return None
+                    # ODIN answers "Printer not found" / "Camera not found" itself; only the
+                    # framework's bare "Not Found" means the route does not exist (older ODIN).
+                    try:
+                        detail = (await response.json(content_type=None)).get("detail")
+                    except (ValueError, AttributeError, aiohttp.ClientError):
+                        detail = None
+                    if detail != "Not Found":
+                        return None
+                    self._snapshot_route = False  # remember, and use the stream's first frame
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                return None
         buffer = b""
         try:
             async with self._request(aiohttp.ClientTimeout(total=SNAPSHOT_TIMEOUT)) as response:
