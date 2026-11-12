@@ -499,3 +499,40 @@ def test_status_scope_and_write_roles_unchanged(maintenance_client, review_db):
     day = (datetime.now(timezone.utc) - timedelta(days=2)).date().isoformat()
     assert client.post(LOGS, json={'printer_id': 9, 'task_name': 'Denied', 'performed_at': day}).status_code == 403
     assert review_db.execute(text('SELECT count(*) FROM maintenance_logs')).scalar_one() == before
+
+
+# ---------------------------------------------------------------- Codex sign-off 11-12
+def test_service_then_overdue_again_between_two_checks_alerts_again(maintenance_client, review_db, checker):
+    """The stage stayed 'overdue' when a task was serviced and ran overdue again before the next
+    check (downtime), so the new cycle never alerted."""
+    client, _ = maintenance_client
+    _hours(review_db, 101)
+    checker()
+    raised = len(_alerts(review_db))
+    assert raised
+    assert client.post(LOGS, json={'printer_id': 9, 'task_id': 101, 'task_name': 'Synthetic service'}).status_code == 200
+    _hours(review_db, 112)                      # overdue again; no check ran in between
+    checker()
+    assert len(_alerts(review_db)) > raised
+    again = len(_alerts(review_db))
+    checker()                                   # and still once per cycle
+    assert len(_alerts(review_db)) == again
+    assert _state(review_db)['svc:9:101']
+
+
+def test_a_first_alert_that_fails_is_retried(maintenance_client, review_db, checker, monkeypatch):
+    """A task with no remembered stage whose alert failed was remembered as alerted and never retried."""
+    from modules.system import maintenance_alerts
+    _hours(review_db, 95)
+    checker()                                   # not the first run any more
+    review_db.execute(text("UPDATE system_config SET value='{}' WHERE key='maintenance_alert_state'"))
+    review_db.commit()
+    _hours(review_db, 120)
+    real = maintenance_alerts._stage
+    monkeypatch.setattr(maintenance_alerts, '_stage', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('database busy')))
+    checker()
+    assert _alerts(review_db) == []
+    assert '9:101' not in (_state(review_db) or {})
+    monkeypatch.setattr(maintenance_alerts, '_stage', real)
+    checker()
+    assert {a['meta']['stage'] for a in _alerts(review_db)} == {'overdue'}

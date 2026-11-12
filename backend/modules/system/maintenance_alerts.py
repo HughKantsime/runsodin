@@ -28,7 +28,10 @@ STARTUP_DELAY_SECONDS = 60
 LOCK_PATH = Path(tempfile.gettempdir()) / "odin-maintenance-alerts.lock"
 
 
-def load_state(db):
+SERVICE_PREFIX = "svc:"  # state entries "svc:<printer>:<task>" hold the last service the stage was judged against
+
+
+def _load(db):
     row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": STATE_KEY}).first()
     if row is None:
         return {}
@@ -40,13 +43,31 @@ def load_state(db):
             data = json.loads(config_text(value))
         except ValueError:
             return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(k): v for k, v in data.items() if isinstance(v, str) and v in STAGE_RANK}
+    return data if isinstance(data, dict) else {}
 
 
-def save_state(db, state):
-    write_config_text(db, STATE_KEY, json.dumps(state, sort_keys=True))
+def load_state(db):
+    """{"<printer>:<task>": stage} as last remembered."""
+    return {str(k): v for k, v in _load(db).items()
+            if isinstance(v, str) and v in STAGE_RANK and not str(k).startswith(SERVICE_PREFIX)}
+
+
+def load_service_markers(db):
+    """{"<printer>:<task>": last service time the remembered stage belongs to}."""
+    return {str(k)[len(SERVICE_PREFIX):]: v for k, v in _load(db).items()
+            if isinstance(v, str) and str(k).startswith(SERVICE_PREFIX)}
+
+
+def service_marker(task):
+    """Identifies the service cycle a task is in: the last service and where the next one falls
+    (two entries logged in the same second differ by their print hours)."""
+    return "|".join(str(task.get(field) or "") for field in ("last_serviced", "next_due_print_hours", "next_due_date"))
+
+
+def save_state(db, state, markers=None):
+    data = dict(state)
+    data.update({SERVICE_PREFIX + key: marker for key, marker in (markers or {}).items() if key in state})
+    write_config_text(db, STATE_KEY, json.dumps(data, sort_keys=True))
 
 
 def _num(value):
@@ -110,12 +131,20 @@ def check_maintenance(*, session_factory=None, now=None):
             # farm gets alerts only for what is actually overdue instead of a burst.
             first_run = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": STATE_KEY}).first() is None
             state = load_state(db)
-            seen = {}
+            markers = load_service_markers(db)
+            seen, seen_markers = {}, {}
             for printer in compute_status(db, None, include_failure_rate=False, now=now):
                 for task in printer["tasks"]:
                     key = task_key(printer["printer_id"], task)
                     stage = task["status"]
                     previous = state.get(key)
+                    # A new service entry (or a changed interval) starts a new cycle: a task
+                    # serviced and due again between two checks (downtime, a back-dated entry)
+                    # alerts again. A state row with no marker yet is taken as this cycle.
+                    marker = service_marker(task)
+                    seen_markers[key] = marker
+                    if key in markers and markers[key] != marker:
+                        previous = None
                     if STAGE_RANK[stage] <= STAGE_RANK.get(previous, 0):
                         seen[key] = stage  # unchanged, improved, or logged: remember it
                         continue
@@ -129,15 +158,18 @@ def check_maintenance(*, session_factory=None, now=None):
                         plan = _stage(db, printer, task, stage)
                         seen[key] = stage
                         # The alert rows and the remembered stage commit together.
-                        save_state(db, {**state, **seen})
+                        save_state(db, {**state, **seen}, {**markers, **seen_markers})
                         db.commit()
                         if plan is not None:
                             plans.append(plan)
                     except Exception:
                         db.rollback()
                         log.warning("Maintenance alert could not be raised for printer %s", printer["printer_id"], exc_info=True)
+                        # Retry next hour: forget the stage that was not raised.
                         if previous is not None:
-                            seen[key] = previous  # retry next hour
+                            seen[key] = previous
+                        else:
+                            seen.pop(key, None)
             # Keep the remembered stage of a task or printer that is only switched off, so
             # switching it back on does not alert again; forget what no longer exists.
             printer_ids = {str(i) for i in db.execute(text("SELECT id FROM printers")).scalars()}
@@ -146,8 +178,11 @@ def check_maintenance(*, session_factory=None, now=None):
                 printer_part, _, task_part = key.partition(":")
                 if key not in seen and printer_part in printer_ids and (task_part in task_ids or not task_part.isdigit()):
                     seen[key] = value
-            if seen != state or first_run:
-                save_state(db, seen)  # also drops tasks and printers that are gone
+                    if key in markers:
+                        seen_markers[key] = markers[key]
+            kept_markers = {key: marker for key, marker in seen_markers.items() if key in seen}
+            if seen != state or kept_markers != markers or first_run:
+                save_state(db, seen, kept_markers)  # also drops tasks and printers that are gone
                 db.commit()
         # After the lock: delivery can wait on the network and the rows are already safe.
         for plan in plans:
