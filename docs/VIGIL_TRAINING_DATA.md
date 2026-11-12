@@ -10,7 +10,7 @@ Vigil can save camera frames from your own prints so that a detection model can 
 
 ## What is never saved
 
-- **Controlled work.** No training frame is saved while a controlled job prints. If O.D.I.N. cannot tell, it saves nothing.
+- **Controlled work.** No training frame is saved while a controlled job prints. This is checked before every training-frame write. Once controlled data exists, a print must have a verified O.D.I.N. job link; if O.D.I.N. cannot tell, it saves nothing.
 - **Models you exclude.** Give a model the category `no-training` and its prints are left out. The category is re-read once a minute, so a change takes up to a minute to apply. A print started at the printer, with no O.D.I.N. job or model, has no category and is collected (controlled work is still refused).
 - **When the disk is nearly full.** Collection stops when the volume holding the frames has less than 2 GB free, platform administrators get one alert, and it resumes when space returns. Detection and alerts are not affected.
 
@@ -20,7 +20,7 @@ Platform administrators only, and for controlled work only those inside its audi
 
 ## How long they are kept
 
-Unlabelled frames follow the Vigil retention setting (30 days by default). Frames you have labelled are kept until you delete them.
+Both labelled and unlabelled frames follow the Vigil retention setting (30 days by default). Labelling a frame does not extend its retention; cleanup deletes expired frame files even when they have annotations.
 
 ## Keeping the frames on another disk or a NAS
 

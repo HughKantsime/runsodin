@@ -75,11 +75,14 @@ function ReviewDialog({ audience, isCurrent, onClose }: { audience: string; isCu
 
   // Refresh the page list once, when the reviewer closes.
   const closedRef = useRef(false)
-  useEffect(() => () => {
-    closedRef.current = true
-    if ((queueRef.current?.reviewed || 0) > 0) {
-      queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
-      queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
+  useEffect(() => {
+    closedRef.current = false
+    return () => {
+      closedRef.current = true
+      if ((queueRef.current?.reviewed || 0) > 0) {
+        queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
+        queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
+      }
     }
   }, [queryClient])
 

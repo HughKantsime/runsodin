@@ -69,3 +69,20 @@ def test_a_failed_check_saves_nothing(capture, review_db, monkeypatch):
         raise RuntimeError('database unavailable')
     monkeypatch.setattr(controlled_parts, 'any_controlled_data', broken)
     assert capture(9001) == 0
+
+
+@pytest.mark.parametrize('provenance', ['unlinked', 'missing_print', 'missing_job', 'wrong_printer'])
+def test_unknown_print_provenance_is_refused(capture, review_db, provenance):
+    _print(review_db, 9002, 8002)
+    _mark(review_db, 8002)
+    if provenance != 'missing_print':
+        _print(review_db, 9001, 8001)
+        if provenance == 'unlinked':
+            review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=NULL WHERE id=9001'))
+        elif provenance == 'missing_job':
+            review_db.execute(text('DELETE FROM jobs WHERE id=8001'))
+        else:
+            review_db.execute(text('UPDATE print_jobs SET printer_id=10 WHERE id=9001'))
+        review_db.commit()
+    assert capture(9001) == 0
+    assert review_db.execute(text("SELECT COUNT(*) FROM vision_detections WHERE status='training'")).scalar() == 0

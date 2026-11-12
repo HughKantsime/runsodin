@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Vigil training capture now verifies a print's job link when controlled data exists and rechecks controlled status before every sampled or burst frame write. Pending review advances correctly under React StrictMode. The training guide now correctly states that labelled frames also expire under the retention setting.
+
 ### Changed
 
 - Vigil's training-data collection is now sampled and bounded. It saves one frame every 120 seconds per printer instead of one on every detection tick (global `training_capture_interval_sec`, per-printer `training_interval_sec`), plus up to three frames around each confirmed detection. An optional per-printer bed crop (Settings, Vigil AI) is applied to training frames only; detection frames stay full size. Collection pauses, with one alert to platform administrators, while the frames volume has less than `training_min_free_gb` (default 2 GB) free, and resumes by itself. Prints of a model whose category is `no-training` are never collected.

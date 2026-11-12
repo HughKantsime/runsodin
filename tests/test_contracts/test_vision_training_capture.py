@@ -382,6 +382,70 @@ def test_uncontrolled_work_next_to_controlled_work_is_still_collected(env):
     assert len(env.training()) == 1
 
 
+@pytest.mark.parametrize('change', ['mark', 'relink', 'check_failure'])
+@pytest.mark.parametrize('path', ['sample', 'burst', 'after'])
+def test_controlled_status_is_rechecked_before_each_training_write(env, monkeypatch, change, path):
+    from core import controlled_parts
+    from modules.vision import detection_thread
+    _print(env.db, 9001, 8001)
+    _print(env.db, 9002, 8002)
+    if change == 'relink':
+        _mark_controlled(env.db, 8002)
+    # No wall time passes: an earlier allowance must never authorize another write.
+    monkeypatch.setattr(detection_thread.time, 'monotonic', lambda: 1000.0)
+    thread = env.make(9001)
+    thread._capture_and_analyze()
+    thread.clock.now += 10
+    thread._capture_and_analyze()
+    if path == 'after':
+        thread._detection_burst(thread.frame)
+    before = len(env.training())
+    rows_before = _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'")
+    if change == 'mark':
+        _mark_controlled(env.db, 8001)
+    elif change == 'relink':
+        env.db.execute(text('UPDATE print_jobs SET scheduled_job_id=8002 WHERE id=9001'))
+        env.db.commit()
+    else:
+        def broken(db):
+            raise RuntimeError('database unavailable')
+        monkeypatch.setattr(controlled_parts, 'any_controlled_data', broken)
+    if path == 'burst':
+        # Include an unsaved earlier frame as well as the detection frame.
+        thread._burst_previous = (thread.print_job_id, thread.frame)
+        thread._burst_previous_saved = False
+        thread._detection_burst(thread.frame)
+    else:
+        thread.clock.now += 120 if path == 'sample' else 10
+        thread._capture_and_analyze()
+    assert len(env.training()) == before
+    assert _scalar(env.db, "SELECT COUNT(*) FROM vision_detections WHERE status='training'") == rows_before
+
+
+@pytest.mark.parametrize('expiry', ['record_age', 'file_age'])
+def test_documented_retention_includes_labelled_training_frames(env, monkeypatch, expiry):
+    import os
+    import time
+    from pathlib import Path
+    from modules.vision import frame_storage
+    monkeypatch.setattr(frame_storage, 'engine', env.db.get_bind())
+    env.make()._capture_and_analyze()
+    frame, = env.training()
+    env.db.execute(text('UPDATE vision_detections SET metadata_json=:metadata'),
+                   {'metadata': json.dumps({'training_annotation': {'version': 1, 'class': 'spaghetti'}})})
+    if expiry == 'record_age':
+        env.db.execute(text("UPDATE vision_detections SET created_at='2000-01-01 00:00:00'"))
+    else:
+        expired = time.time() - 31 * 86400
+        os.utime(frame, (expired, expired))
+    env.db.commit()
+    frame_storage.cleanup_old_frames(str(env.root))
+    assert not frame.exists(), 'Labels do not exempt frames from either cleanup path'
+    guide = (Path(__file__).resolve().parents[2] / 'docs/VIGIL_TRAINING_DATA.md').read_text()
+    retention = guide.split('## How long they are kept\n', 1)[1].split('\n## ', 1)[0]
+    assert 'Both labelled and unlabelled frames follow the Vigil retention setting (30 days by default).' in retention
+
+
 # ------------------------------------------------------------------ stored config and API
 
 def test_printer_config_round_trip_through_system_config(review_db):

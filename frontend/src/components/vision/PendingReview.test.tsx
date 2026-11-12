@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -36,6 +37,18 @@ async function open() {
   return btn
 }
 const key = (k: string, extra: object = {}, target: Element | Document = document.body) => fireEvent.keyDown(target, { key: k, ...extra })
+
+test('StrictMode reviews advance and subsequent actions label the next detection', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<StrictMode><QueryClientProvider client={client}><PendingReview audience="a" current={() => true} /></QueryClientProvider></StrictMode>)
+  await open()
+  key('f')
+  await screen.findByRole('img', { name: /Printer 2/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  await screen.findByRole('img', { name: /Printer 3/ })
+  expect(api.review.mock.calls).toEqual([[1, 'confirmed'], [2, 'dismissed']])
+  expect(screen.getByText('2 of 3 reviewed this session, 1 left')).toBeInTheDocument()
+})
 
 test('F confirms the shown detection once and advances', async () => {
   mount(); await open()

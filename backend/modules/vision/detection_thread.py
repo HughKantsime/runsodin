@@ -423,13 +423,9 @@ class PrinterVisionThread(threading.Thread):
         """No training frame is written for controlled work.
 
         Viewing these frames is already restricted, but a saved picture of a controlled part
-        would still sit on disk for the retention period. Checked once a minute per print;
-        if the check cannot be made, nothing is saved.
+        would still sit on disk for the retention period. Rechecked before every write;
+        if the check or the running print's job link cannot be verified, nothing is saved.
         """
-        now = time.monotonic()
-        cached = getattr(self, '_training_allowed', None)
-        if cached and cached[0] == self.print_job_id and now - cached[2] < 60:
-            return cached[1]
         try:
             from sqlalchemy.orm import Session
             from core.controlled_parts import any_controlled_data, policies
@@ -440,11 +436,16 @@ class PrinterVisionThread(threading.Thread):
                     # A print ODIN cannot tie to a job cannot be shown to be uncontrolled.
                     allowed = False
                 else:
-                    allowed = not policies(db, 'print_job', self.print_job_id)
+                    # An empty policy list also means an absent job link, not proof that
+                    # the print is uncontrolled. Verify its job and printer first.
+                    job_id = db.execute(text(
+                        'SELECT j.id FROM print_jobs pj JOIN jobs j ON j.id=pj.scheduled_job_id '
+                        'WHERE pj.id=:pid AND pj.printer_id=:printer'),
+                        {'pid': self.print_job_id, 'printer': self.printer_id}).scalar()
+                    allowed = job_id is not None and not policies(db, 'job', job_id)
         except Exception:
             log.warning(f"[{self.printer_name}] Controlled-work check failed; training frame not saved")
             allowed = False
-        self._training_allowed = (self.print_job_id, allowed, now)
         return allowed
 
     def _reset_training_capture(self) -> None:
