@@ -356,6 +356,16 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
         log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.")
 
 
+def env_configured_urls() -> list[str]:
+    """Outbound destinations set by environment variable, for the boot audit.
+
+    ODIN_GO2RTC_API_URL: the go2rtc clients (cameras, snapshots, timelapse, vision) are
+    treated as local, so the address they are given must be loopback or on the local
+    network. modules/printers/go2rtc_access.py refuses it again at each use.
+    """
+    return [(os.getenv("ODIN_GO2RTC_API_URL") or "").strip()]
+
+
 def collect_db_configured_urls() -> list[str]:
     """Pull every DB-backed outbound destination that would be called at runtime.
 

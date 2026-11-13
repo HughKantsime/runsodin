@@ -14,15 +14,42 @@ none.
 import hashlib
 import hmac
 import ipaddress
+import logging
 import os
 from urllib.parse import urlsplit
+
+from fastapi import HTTPException
+
+from core.itar import ItarOutboundBlocked, enforce_request_destination
+
+log = logging.getLogger("odin.go2rtc")
 
 DEFAULT_API_URL = "http://127.0.0.1:1984"
 API_USERNAME = "odin"
 
 
+ITAR_REFUSAL = ("Cameras are turned off: ITAR mode is on and ODIN_GO2RTC_API_URL points outside "
+                "the local network.")
+
+
+class Go2rtcUrlRefused(ItarOutboundBlocked, HTTPException):
+    """ITAR mode is on and the go2rtc address is not loopback or on the local network."""
+
+    def __init__(self):
+        HTTPException.__init__(self, 409, ITAR_REFUSAL)
+
+
 def go2rtc_api_url() -> str:
-    return (os.environ.get("ODIN_GO2RTC_API_URL") or DEFAULT_API_URL).strip().rstrip("/")
+    """The go2rtc API base URL. Every go2rtc client gets its address here, so this is
+    where ITAR mode is enforced: a URL that is not loopback or on the local network
+    (names are resolved) is refused and no client is handed it."""
+    url = (os.environ.get("ODIN_GO2RTC_API_URL") or DEFAULT_API_URL).strip().rstrip("/")
+    try:
+        enforce_request_destination(url)
+    except ItarOutboundBlocked as exc:
+        log.error("go2rtc address refused; no request was sent: %s", exc)
+        raise Go2rtcUrlRefused() from None
+    return url
 
 
 def _is_loopback_host(host) -> bool:

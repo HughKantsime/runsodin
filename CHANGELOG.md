@@ -62,6 +62,7 @@ All notable changes to O.D.I.N. are documented here.
 - Mapping a product to a Square variation that Square tracks by availability now says what to change ("Track by stock count" for that location) instead of a generic inventory-tracking message; the mapping panel says the same.
 - ITAR mode now also covers Square: with `ODIN_ITAR_MODE=1` every Square call is refused before any network use, and ODIN refuses to start while a Square connection is stored. Previously an administrator could connect Square on such a server.
 - ITAR mode now refuses to start when single sign-on uses the built-in Microsoft or Google preset without being on the allowed identity-provider list. The sign-in itself was already blocked; the problem now shows at start-up instead of at the first sign-in.
+- ITAR mode now covers three more paths. The printer troubleshooting check and the Bambu chamber camera no longer contact, or send saved credentials to, a printer address outside the local network; the troubleshooting check reports that it was skipped. A go2rtc address (`ODIN_GO2RTC_API_URL`) outside the local network is refused at start-up and at every use, so cameras, snapshots, timelapses and vision never contact it.
 
 ## [2.1.1] - 2026-11-11
 <!-- summary: Hotfix: the iPhone/iPad Queue could fail to load after a Kobra/Moonraker print finished. Job dates are now stored and sent in one form. -->
