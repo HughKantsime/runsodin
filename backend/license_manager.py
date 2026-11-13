@@ -551,6 +551,21 @@ LICENSE_OLDER_THAN_INSTALLED = (
 )
 
 
+LICENSE_MANAGED_OUTSIDE = (
+    "This server's license file is managed outside O.D.I.N.: the ODIN_LICENSE_FILE setting points to it, "
+    "so it cannot be replaced from here. Replace the file that ODIN_LICENSE_FILE points to. "
+    "Your installed license is unchanged."
+)
+
+
+def _directory_entry(path: str) -> str:
+    """The path with its folder resolved but its own name not followed (a link stays a link).
+
+    This is the entry ``save_license_file`` replaces.
+    """
+    return os.path.join(os.path.realpath(os.path.dirname(path) or "."), os.path.basename(path))
+
+
 def is_expired_replacement(candidate) -> bool:
     """True for a signature-verified license whose end has already passed.
 
@@ -651,6 +666,11 @@ def install_portal_license(license_content, after_install=None, *, allow_expired
             # The loader reads only that file; a replacement saved here would never take
             # effect, and reporting success would be false (a cancelled plan would stay active).
             raise HTTPException(status_code=409, detail="This server reads its license from the file set in ODIN_LICENSE_FILE, so it cannot be replaced from here. Replace that file, or remove the setting and upload the license. Your installed license is unchanged.")
+        if explicit and _directory_entry(target) not in (os.path.realpath(explicit), _directory_entry(explicit)):
+            # The destination is only a link to the file ODIN_LICENSE_FILE selects. Saving
+            # replaces the link, not that file, so the loader would keep reading the old
+            # license while this call reported success (a refunded plan would stay active).
+            raise HTTPException(status_code=409, detail=LICENSE_MANAGED_OUTSIDE)
         effective = _find_license_file()
         in_force = previous
         if effective and os.path.realpath(effective) != os.path.realpath(target):

@@ -10,7 +10,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from modules.system import license_refresh
+import license_manager
+from modules.system import license_refresh, routes_license
 from tests.test_contracts.test_license_offline_import import owned_import  # noqa: F401  (fixture)
 from tests.test_contracts.test_paid_license_binding import device, portal  # noqa: F401  (fixtures)
 
@@ -18,6 +19,7 @@ from core.schema.bootstrap import import_all_models
 
 import_all_models()  # Every mapper registered, so the SystemConfig query works when this file runs alone.
 
+REAL_FIND_LICENSE_FILE = license_manager._find_license_file  # Before any fixture replaces it.
 KEY = "REFRESH-TEST"
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -70,6 +72,7 @@ def app(portal, monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(license_refresh, "_session", lambda: db)
     monkeypatch.setattr(routes, "get_license", lm.get_license)
+    monkeypatch.setattr(routes_license, "get_license", lm.get_license)
 
     def make(issued, expires, **extra):
         return sign(**fields, key=KEY, issued_at=iso(issued), expires_at=iso(expires), **extra).decode()
@@ -84,7 +87,7 @@ def app(portal, monkeypatch):
     def refresh(**body):
         response.clear()
         response.update(status=200, body=body)
-        return asyncio.run(routes.reactivate_license(current_user={"id": 1}, db=db, license_mutation_allowed=None))
+        return asyncio.run(routes_license.reactivate_license(current_user={"id": 1}, db=db, license_mutation_allowed=None))
 
     return SimpleNamespace(lm=lm, routes=routes, path=path, make=make, refresh=refresh, restart=restart,
                            upload=upload, sign=sign, fields=fields, db=db, calls=calls)
@@ -93,7 +96,7 @@ def app(portal, monkeypatch):
 def last_refresh(app):
     """The admin-only answer; the public license answer never carries it."""
     assert "last_refresh" not in app.routes.get_license_info()
-    return app.routes.get_license_last_refresh(current_user={"id": 1})["last_refresh"]
+    return routes_license.get_license_last_refresh(current_user={"id": 1})["last_refresh"]
 
 
 @pytest.mark.parametrize("status", ["renewed", "canceled", "not_renewed_yet", "not_entitled", None])
@@ -103,7 +106,7 @@ def test_refresh_rechecks_disk_identity_inside_installer(app, monkeypatch, statu
     installed_key = KEY if intervening == "same_key" else "OTHER-KEY"
     replacement = app.sign(**app.fields, key=installed_key, issued_at=iso(ago(hours=2)),
                            expires_at=iso(ahead(days=40))).decode()
-    original_install = app.routes.install_portal_license
+    original_install = routes_license.install_portal_license
 
     def concurrent_change(*args, **kwargs):
         # After the route's candidate checks, immediately before installation.
@@ -113,7 +116,7 @@ def test_refresh_rechecks_disk_identity_inside_installer(app, monkeypatch, statu
             app.lm.install_portal_license(replacement)
         return original_install(*args, **kwargs)
 
-    monkeypatch.setattr(app.routes, "install_portal_license", concurrent_change)
+    monkeypatch.setattr(routes_license, "install_portal_license", concurrent_change)
     candidate = app.make(ago(hours=1), ago(minutes=30) if status == "not_entitled" else ahead(days=60))
     with pytest.raises(HTTPException) as exc:
         app.refresh(license_file=candidate, **({"refresh_status": status} if status else {}))
@@ -134,13 +137,13 @@ def test_no_file_answer_does_not_attach_to_a_concurrent_replacement(app, monkeyp
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
     replacement = app.sign(**app.fields, key=KEY if same_key else "OTHER-KEY",
                            issued_at=iso(ago(hours=2)), expires_at=iso(ahead(days=40))).decode()
-    request = app.routes.pinned_async_request
+    request = routes_license.pinned_async_request
 
     async def concurrent_upload(*args, **kwargs):
         app.lm.install_portal_license(replacement)
         return await request(*args, **kwargs)
 
-    monkeypatch.setattr(app.routes, "pinned_async_request", concurrent_upload)
+    monkeypatch.setattr(routes_license, "pinned_async_request", concurrent_upload)
     with pytest.raises(HTTPException) as exc:
         app.refresh(refresh_status=status, ends_at=iso(ahead(days=2)))
     assert exc.value.status_code == 409
@@ -538,11 +541,11 @@ def test_last_refresh_is_hidden_once_another_license_file_is_installed(app):
 def test_admin_refresh_answer_identifies_the_file_it_describes(app):
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
     app.refresh(refresh_status="canceled")
-    result = app.routes.get_license_last_refresh(current_user={"id": 1})
+    result = routes_license.get_license_last_refresh(current_user={"id": 1})
     assert result["license_sha256"] == app.lm.load_license().license_sha256
     assert result["last_refresh"]["status"] == "canceled"
     app.lm.save_license_file(app.make(ago(hours=1), ahead(days=40)))
-    changed = app.routes.get_license_last_refresh(current_user={"id": 1})
+    changed = routes_license.get_license_last_refresh(current_user={"id": 1})
     assert changed["license_sha256"] == app.lm.load_license().license_sha256
     assert changed["license_sha256"] != result["license_sha256"]
     assert changed["last_refresh"] is None
@@ -730,3 +733,66 @@ def test_a_refresh_is_refused_when_the_license_path_is_set_by_configuration(app,
     assert refused.value.status_code == 409 and "ODIN_LICENSE_FILE" in refused.value.detail
     assert pinned.read_text() == before and app.path.read_text() == before
     assert app.lm.get_license().valid
+
+
+@pytest.mark.parametrize("action", ["renewed", "not_entitled", "upload"])
+def test_a_license_folder_link_to_the_configured_file_is_refused_not_replaced(app, monkeypatch, tmp_path, action):
+    """Review finding: LICENSE_DIR/odin.license was a link to the file ODIN_LICENSE_FILE selects.
+    The paths compared equal, the save replaced the link and not that file, and the loader kept
+    reading the old license while the refresh (for example after a refund) reported success."""
+    import os
+    before = app.make(ago(days=30), ahead(days=20))
+    external = tmp_path / "managed-elsewhere" / "customer.license"
+    external.parent.mkdir()
+    external.write_text(before)
+    if app.path.exists():
+        app.path.unlink()
+    app.path.symlink_to(external)
+    monkeypatch.setenv("ODIN_LICENSE_FILE", str(external))
+    monkeypatch.setattr(app.lm, "_find_license_file", REAL_FIND_LICENSE_FILE)  # the real loader
+    app.restart()
+    in_force = app.lm.get_license()
+    assert in_force.valid and in_force.key == KEY and in_force.expires_at == iso(ahead(days=20))
+
+    def folder():
+        return sorted(name for name in os.listdir(app.path.parent) if name != ".odin-license.lock")
+
+    listed = folder()
+    app.routes.log_audit.reset_mock()
+    ends = ago(minutes=1) if action == "not_entitled" else ahead(days=40)
+    candidate = app.make(ago(hours=1), ends)
+    with pytest.raises(HTTPException) as refused:  # No answer is returned, so nothing claims success.
+        if action == "upload":
+            app.upload(candidate.encode())
+        else:
+            app.refresh(license_file=candidate, refresh_status=action)
+    assert refused.value.status_code == 409
+    assert refused.value.detail == app.lm.LICENSE_MANAGED_OUTSIDE
+    assert "managed outside" in refused.value.detail and "ODIN_LICENSE_FILE" in refused.value.detail
+    # Nothing was written: the link is still that link, the file it points to is untouched,
+    # and no staging or recovery file was left in the license folder.
+    assert app.path.is_symlink() and os.readlink(app.path) == str(external)
+    assert external.read_text() == before and folder() == listed
+    app.routes.log_audit.assert_not_called()
+    assert last_refresh(app) is None
+    # The loader still reads what it read before, in this process and after a restart.
+    for _ in range(2):
+        now_in_force = app.lm.get_license()
+        assert now_in_force.valid and now_in_force.license_sha256 == in_force.license_sha256
+        assert app.lm.load_license().license_sha256 == in_force.license_sha256
+        app.restart()
+
+
+def test_a_configured_file_that_is_the_license_folder_file_is_still_replaced(app, monkeypatch):
+    """The ordinary layouts are unchanged: ODIN_LICENSE_FILE naming the license folder's own
+    file (no link) installs as before, and the loader reads the new file."""
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=20)))
+    monkeypatch.setenv("ODIN_LICENSE_FILE", str(app.path))
+    monkeypatch.setattr(app.lm, "_find_license_file", REAL_FIND_LICENSE_FILE)
+    app.restart()
+    replacement = app.make(ago(hours=1), ahead(days=40))
+    result = app.refresh(license_file=replacement, refresh_status="renewed")
+    assert result["status"] == "reactivated" and result["expires_at"] == iso(ahead(days=40))
+    assert not app.path.is_symlink() and app.path.read_text() == replacement
+    app.restart()
+    assert app.lm.get_license().expires_at == iso(ahead(days=40))

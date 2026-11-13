@@ -13,6 +13,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - License refresh refuses no-entitlement replacements with unverified evidence or a different key, including files ending within the clock allowance. Different files for the same key must have a newer issue time; equal issue times allow only the identical file. Refused replacements leave the installed license unchanged.
+- When the license folder's `odin.license` is only a link to the file set in `ODIN_LICENSE_FILE`, refreshing, activating or uploading a license is now refused with a message that the license file is managed outside O.D.I.N. and must be replaced there. Before, the link was replaced, the server kept reading the old file, and the refresh reported success.
 
 ## [2.1.0] - 2026-11-10
 
