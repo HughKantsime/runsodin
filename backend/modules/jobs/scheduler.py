@@ -370,6 +370,7 @@ class Scheduler(SchedulerPlanning):
             'printer_dispatch_unsupported': KOBRA_DISPATCH_DETAIL,
             "unknown_quantity": "Set the job quantity before scheduling. The job remains queued.",
             "no_fit": "No compatible printer has capacity within the scheduling horizon. Check job requirements and printer availability.",
+            "material_mismatch": "No eligible printer has the filament this job needs loaded (a job pinned to one printer only counts that printer). Load that material, or change Filament routing under Settings > General > Scheduler Settings; the job remains queued.",
             "no_active_printers": "No active printers are available. Check which printers are enabled; the job remains queued.",
             "policy_unavailable": "The Education scheduling policy is unavailable. Check server diagnostics before scheduling.",
             "policy_context_unavailable": "The Education approval context could not be validated. Review the submission before scheduling.",
@@ -416,6 +417,7 @@ class Scheduler(SchedulerPlanning):
         total_slots: int,
         required_printer_model: Optional[str] = None,
         required_printer_id: Optional[int] = None,
+        material_plan=None,
     ) -> Optional[Dict]:
         """
         Find the best printer and time slot for a job.
@@ -480,6 +482,10 @@ class Scheduler(SchedulerPlanning):
                 if printer_protocol.lower() != job_target_filter.lower():
                     continue
 
+            # Material routing (scheduler_materials): `require` drops a known mismatch.
+            if material_plan is not None and material_plan.excludes(job.id, printer_id):
+                continue
+
             # Calculate color match score (0-100)
             color_score = self._calculate_color_score(state.colors, required_colors)
             requires_setup = self._requires_setup(state.colors, required_colors)
@@ -513,6 +519,10 @@ class Scheduler(SchedulerPlanning):
             
             # Color match bonus (0-100 points)
             score += color_score
+
+            # Material match (`prefer` only; 0 otherwise)
+            if material_plan is not None:
+                score += material_plan.bonus(job.id, printer_id)
             
             # No setup needed bonus
             if not requires_setup:
