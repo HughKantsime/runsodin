@@ -27,13 +27,8 @@ log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Analytics"])
 
-# A print that ODIN dispatched is both a job (status printing/completed) and a tracked print
-# (print_jobs, linked by scheduled_job_id). The dashboard totals add the two tables, so a
-# tracked print already counted as its job must not be counted again. The status is one of two
-# literals written in this module, never user input.
-_NOT_AN_ODIN_JOB = (" AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = pj.scheduled_job_id "
-                    "AND j.status = '{status}')")
-
+# A dispatched print is a job AND a tracked print: count it once (test_stats_counts_a_dispatched_print_once.py). {status} is a literal written here.
+_NOT_AN_ODIN_JOB = " AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = pj.scheduled_job_id AND j.status = '{status}')"
 
 # ============== Stats ==============
 
@@ -69,9 +64,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     ).count()
 
     # Include MQTT-tracked jobs
-    # A datetime, not an ISO string: SQLite stores "2026-11-12 14:57:45" (a space), and comparing
-    # that as text with "2026-11-12T00:00:00+00:00" is never true on the same day, so tracked
-    # prints finished today were never counted.
+    # A datetime, not an ISO string: SQLite stores a space where ISO has "T", so text never compared equal-day.
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
     if should_filter_org(current_user, org):
         mqtt_printing = db.execute(text(
