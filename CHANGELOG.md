@@ -16,6 +16,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Models and Upload now say which of your printers a file runs on: "Runs on 3 of your printers" on the upload result and on each model card, with the printer names when you press it. When none fits, it says which printer the file was sliced for. The count uses the same checks as scheduling (printer type, file type, bed size, the printer model the file was sliced for, and a file uploaded for one printer), and only counts printers you can see. When exactly one printer fits, the Schedule Print dialog selects it for you; a printer you pick yourself, or Auto-assign, is kept. The same places also show what the file states about itself: nozzle size, layer height, plate type, supports on or off and filament colour. A detail the file does not state is left out instead of guessed (a new upload no longer records 0.2 mm layers or "supports off" when the file does not say). This is information only: nothing new is refused.
 - Phone browsers, Classic theme: every button in a page, pop-up or stand-alone page is at least 44 px to the finger (switches look the same and take 44 px of space; small buttons inside a text field keep their size); a printer card's action buttons move to their own row instead of squeezing the printer's name. Desktop and tablet layouts are unchanged.
 - Alerts: a long title on a single alert is shown on two lines and expands when pressed (grouped alerts already did this).
 - Foundry cameras on a phone: the chosen camera's button is kept in view in the chooser strip.

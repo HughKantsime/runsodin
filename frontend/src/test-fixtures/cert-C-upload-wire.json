@@ -100,6 +100,21 @@
       }
     },
     "duplicate": null,
-    "target_printer_id": null
+    "target_printer_id": null,
+    "printer_fit": {
+      "count": 0,
+      "printers": [],
+      "sliced_for": "A1"
+    },
+    "file_facts": {
+      "nozzle_diameter": 0.4,
+      "layer_height": 0.2,
+      "plate_type": "textured_plate",
+      "supports": false,
+      "filament_colors": [
+        "#FF0000",
+        "#000000"
+      ]
+    }
   }
 }

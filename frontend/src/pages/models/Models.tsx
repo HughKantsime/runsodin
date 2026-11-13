@@ -3,6 +3,7 @@ import { supportsFilamentMapping } from '../../utils/printerMapping'
 import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { Model } from '../../api/models'
 import { ModelCard, ColorSlotInput } from '../../components/models/ModelLibraryFields'
+import { fileFactLabels } from '../../components/models/FileFacts'
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -177,11 +178,14 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
   }, [payloadOptions])
   const boundPrinter = plateData?.target_printer_id
   const [selectedPrinter, setSelectedPrinter] = useState(null)
+  // True once the person picks a printer or Auto-assign: a single fitting printer is then never put back.
+  const [printerChosen, setPrinterChosen] = useState(false)
   const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1 as number | string, due_date: '', notes: '', hold: false, plate_index: null })
 
   useEffect(() => {
     if (isOpen) {
       setSelectedPrinter(null)
+      setPrinterChosen(false)
       setScheduleOpts({ priority: 3, quantity: 1 as number | string, due_date: '', notes: '', hold: false, plate_index: model?.selectedPlateIndex ?? null })
     }
   }, [isOpen, model?.id, model?.selectedPlateIndex])
@@ -191,8 +195,18 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
   }, [boundPrinter, isOpen, model?.id])
   const activePrinters = printersData?.filter(p => p.is_active && (!boundPrinter || p.id === boundPrinter)) || []
   const variants = variantsData?.variants || []
+  // The printers this file runs on, as the server counts them with the scheduler's checks.
+  const fit = variantsData?.printer_fit
+  const onlyFit = fit?.count === 1 && fit.printers.length === 1 ? fit.printers[0].id : null
+  useEffect(() => {
+    // Exactly one printer fits and nothing has been chosen: select it.
+    if (!isOpen || printerChosen || boundPrinter || selectedPrinter !== null || onlyFit === null) return
+    if (printersData?.some(p => p.is_active && p.id === onlyFit)) setSelectedPrinter(onlyFit)
+  }, [isOpen, printerChosen, boundPrinter, selectedPrinter, onlyFit, printersData])
+  const choosePrinter = (id) => { setPrinterChosen(true); setSelectedPrinter(id) }
   const variantProfiles = new Set(variants.map(v => v.printer_model?.toLowerCase()).filter(p => p && p !== 'unknown'))
   const hasMatch = (printer) => {
+    if (fit) return fit.printers.some(p => p.id === printer.id)
     if (!printer.model) return false
     const pm = printer.model.toLowerCase()
     for (const profile of variantProfiles) {
@@ -231,6 +245,9 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
                 ) : v.compatible_api_types ? (
                   <span className="px-2 py-0.5 bg-green-600/20 text-green-400 rounded-md text-xs">Moonraker / PrusaLink</span>
                 ) : null}
+                {fileFactLabels(v.file_facts).map(label => (
+                  <span key={label} className="px-2 py-0.5 bg-[var(--brand-card-border)]/60 text-[var(--brand-text-secondary)] rounded-md text-xs">{label}</span>
+                ))}
                 {v.bed_x_mm == null && !v.compatible_api_types && (
                   <span title="No slicer metadata — re-upload to enable bed checks" className="text-yellow-500 flex items-center">
                     <AlertTriangle size={12} />
@@ -326,7 +343,7 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
         <div className="flex flex-wrap gap-2 mb-6">
           <button
             disabled={!!boundPrinter}
-            onClick={() => setSelectedPrinter(null)}
+            onClick={() => choosePrinter(null)}
             className={clsx('px-3 py-1.5 rounded-md border text-sm transition-colors',
               selectedPrinter === null ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-card-border)]'
             )}
@@ -338,11 +355,11 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
             return (
               <button
                 key={p.id}
-                onClick={() => setSelectedPrinter(p.id)}
+                onClick={() => choosePrinter(p.id)}
                 className={clsx('px-3 py-1.5 rounded-md border text-sm transition-colors flex items-center gap-1.5',
                   selectedPrinter === p.id ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-card-border)]',
                 )}
-                title={compat ? 'Has matching variant' : variants.length > 0 ? 'No matching variant' : ''}
+                title={fit ? (compat ? 'This file runs on this printer' : 'This file does not fit this printer') : compat ? 'Has matching variant' : variants.length > 0 ? 'No matching variant' : ''}
               >
                 {compat && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
                 {p.name}

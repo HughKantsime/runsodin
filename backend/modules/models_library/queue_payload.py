@@ -26,6 +26,26 @@ PRINTER_PAYLOAD_SUFFIXES = {'bambu': ('.3mf',), 'moonraker': ('.gcode',),
                             'elegoo': ('.gcode',)}
 
 
+def printer_payload_refusal(row, target):
+    """Why this stored file cannot be queued on this printer, or None when it can.
+
+    The one file-against-printer check for queue time, schedule time and the
+    "runs on N of your printers" count: printer type and state, the file type that
+    printer type prints, the printer types the file itself allows, and the bed.
+    """
+    suffix = Path(row.stored_path or '').suffix.lower()
+    api = target.api_type
+    if api not in PRINTER_PAYLOAD_SUFFIXES or not target.is_active:
+        return 'Selected printer does not support dispatch'
+    allowed = [value.strip() for value in (row.compatible_api_types or '').split(',') if value.strip()]
+    if suffix not in PRINTER_PAYLOAD_SUFFIXES[api] or (allowed and api not in allowed):
+        return 'Print file is incompatible with the selected printer API'
+    if all(value is not None for value in (row.bed_x_mm, row.bed_y_mm, target.bed_x_mm, target.bed_y_mm)):
+        if row.bed_x_mm > target.bed_x_mm + 2 or row.bed_y_mm > target.bed_y_mm + 2:
+            return 'Print file exceeds the selected printer bed'
+    return None
+
+
 def lock_queue_reference(db, table, identifier, fields):
     """Called after the file writer fence; later locks never wait on PostgreSQL."""
     if table not in ('models', 'printers'):
@@ -90,14 +110,9 @@ def verified_queue_payload(row, target):
     if suffix not in ('.3mf', '.gcode', '.bgcode'):
         raise HTTPException(400, 'Unsupported print payload format')
     if target is not None:
-        if api not in ('bambu', 'moonraker', 'prusalink', 'octoprint', 'elegoo') or not target.is_active:
-            raise HTTPException(400, 'Selected printer does not support dispatch')
-        allowed = [value.strip() for value in (row.compatible_api_types or '').split(',') if value.strip()]
-        if suffix not in PRINTER_PAYLOAD_SUFFIXES[api] or (allowed and api not in allowed):
-            raise HTTPException(400, 'Print file is incompatible with the selected printer API')
-        if all(value is not None for value in (row.bed_x_mm, row.bed_y_mm, target.bed_x_mm, target.bed_y_mm)):
-            if row.bed_x_mm > target.bed_x_mm + 2 or row.bed_y_mm > target.bed_y_mm + 2:
-                raise HTTPException(400, 'Print file exceeds the selected printer bed')
+        refusal = printer_payload_refusal(row, target)
+        if refusal:
+            raise HTTPException(400, refusal)
     try:
         digest = hash_regular_payload(path)
         if row.file_hash is not None:

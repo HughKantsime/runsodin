@@ -79,7 +79,24 @@ export interface ModelUpdate {
   is_favorite?: boolean;
 }
 
+// The caller's printers a print file runs on, counted by the server with the scheduler's checks.
+export interface PrinterFit {
+  count: number;
+  printers: { id: number; name: string }[];
+  sliced_for: string | null;
+}
+
+// What a print file says about how it was sliced; a fact the file does not state is null.
+export interface FileFacts {
+  nozzle_diameter: number | null;
+  layer_height: number | null;
+  plate_type: string | null;
+  supports: boolean | null;
+  filament_colors: string[];
+}
+
 export interface ModelVariant {
+  file_facts?: FileFacts | null;
   bed_x_mm: number | null;
   bed_y_mm: number | null;
   plate_count: number;
@@ -123,6 +140,8 @@ export interface ModelWithPricing extends Model {
   job_statistics: { completed_job_count: number; actual_print_hours: number; unknown_timing_job_count: number } | null;
   suggested_price?: number;
   estimated_cost?: number;
+  printer_fit?: PrinterFit | null;
+  file_facts?: FileFacts | null;
 }
 
 // ---- Slicer Profile types ----
@@ -164,7 +183,7 @@ export interface ProfileListParams {
 }
 
 export const models = {
-  getVariants: (id: number): Promise<{ model_id: number; model_name: string; variants: ModelVariant[] }> => fetchAPI(`/models/${id}/variants`),
+  getVariants: (id: number): Promise<{ model_id: number; model_name: string; printer_fit?: PrinterFit | null; variants: ModelVariant[] }> => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId: number, variantId: number): Promise<void> => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
   list: (orgId: number | null = null): Promise<Model[]> => fetchAPI('/models' + (orgId != null && typeof orgId !== 'object' ? '?org_id=' + orgId : '')),
   listWithPricing: (category?: string | null, orgId: number | null = null, filters: ModelLibraryFilters = {}): Promise<ModelWithPricing[]> => {

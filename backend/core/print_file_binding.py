@@ -20,6 +20,26 @@ def target_printer(db, file_id):
     return int(value)
 
 
+def target_printers(db, file_ids):
+    """{file id: bound printer id} for the bound files among these, in one query.
+
+    For display only: an unreadable binding is left out here and still refuses
+    in target_printer when the file is scheduled.
+    """
+    from sqlalchemy import bindparam
+    keys = {f"print_file_target:{file_id}": file_id for file_id in file_ids if file_id is not None}
+    if not keys:
+        return {}
+    rows = db.execute(text("SELECT key, value FROM system_config WHERE key IN :keys")
+                      .bindparams(bindparam("keys", expanding=True)), {"keys": list(keys)})
+    bound = {}
+    for key, raw in rows:
+        value = config_text(raw)
+        if value.isdecimal() and int(value) > 0:
+            bound[keys[key]] = int(value)
+    return bound
+
+
 def bind_file(db, file_id, printer_id):
     if printer_id is None:
         return

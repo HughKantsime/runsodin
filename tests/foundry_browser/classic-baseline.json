@@ -69,7 +69,7 @@
     "frontend/src/pages/inventory/Spools.tsx": "fa610e9c9b35b4180f3b83f0f61803a525b49ab03fb7e83552375bb9c9498d8e",
     "frontend/src/pages/jobs/Jobs.tsx": "6c17815ef95c61b2a261d13439c7a86e4c8b10b2da1a92d73a743ea475fd24c2",
     "frontend/src/pages/jobs/Timeline.tsx": "b93c89ed5558384d94969aeef7048437b3e1f358351af8c608d99311eb409cf1",
-    "frontend/src/pages/models/Models.tsx": "15994592ba9eb4327b172ececc6543af54ef59fa190f1f08e5994dd6882c93e2",
+    "frontend/src/pages/models/Models.tsx": "6be96815970f8f3806f1af27cfcc765f9111afd0d1bd94f98c4124bff41a1cc0",
     "frontend/src/pages/models/ProfileHistory.tsx": "eff558628e11b85f42f2fa7e4ab73a42c4f22cbf455e793f9f990265adfaf90b",
     "frontend/src/pages/models/Profiles.tsx": "310ff1e5f29047c7d3287c4ef5f963fd6426257eb6dcf8b3051878c6783b675f",
     "frontend/src/pages/models/Projects.tsx": "930a1eae9f7960fdc174dddf23cfc4cf16dd39636d382b583fdb526cfa88d277",
