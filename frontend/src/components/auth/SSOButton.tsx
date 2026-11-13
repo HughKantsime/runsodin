@@ -6,7 +6,7 @@ import { Shield } from 'lucide-react';
  */
 interface SSOConfig { enabled: boolean; display_name?: string }
 
-export default function SSOButton(): React.ReactElement | null {
+export default function SSOButton({ divider = false }: { divider?: boolean } = {}): React.ReactElement | null {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,6 +32,12 @@ export default function SSOButton(): React.ReactElement | null {
 
   return (
     <div>
+      {/* The "or" only makes sense when there is a second way to sign in. */}
+      {divider && <div className="flex items-center gap-3 my-6">
+        <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
+        <span className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>or</span>
+        <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
+      </div>}
       <button
         onClick={handleSSO}
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5

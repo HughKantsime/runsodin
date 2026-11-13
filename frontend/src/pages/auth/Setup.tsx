@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { User, Lock, Mail, Server, Wifi, CheckCircle2, ChevronRight, ChevronLeft, Loader2, AlertCircle, Printer, Tag, Hash, KeyRound, MonitorSmartphone, ArrowRight, Sparkles, Gift, FileKey, UploadCloud } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
 import { useLicense } from '../../LicenseContext'
+import { BAMBU_LAN_NOTE, connectionFailureHelp } from '../../utils/shared'
 
 const STEPS = [
   { id: 'welcome', title: 'Welcome' },
@@ -18,19 +19,25 @@ export const TRIAL_URL = 'https://runsodin.com/portal/trial'
 
 const PRINTER_MODELS = {
   bambu: [
+    // Same models as the Add Printer dialog on the Printers page.
     { value: 'X1C', label: 'X1 Carbon', slots: 4 },
     { value: 'X1E', label: 'X1E', slots: 4 },
+    { value: 'X1', label: 'X1', slots: 4 },
     { value: 'P1S', label: 'P1S', slots: 4 },
     { value: 'P1P', label: 'P1P', slots: 1 },
+    { value: 'P2S', label: 'P2S', slots: 4 },
     { value: 'A1', label: 'A1', slots: 4 },
     { value: 'A1 Mini', label: 'A1 Mini', slots: 4 },
     { value: 'H2D', label: 'H2D', slots: 4 },
+    { value: 'H2D Pro', label: 'H2D Pro', slots: 4 },
+    { value: 'H2S', label: 'H2S', slots: 4 },
+    { value: 'H2C', label: 'H2C', slots: 4 },
   ],
   moonraker: [
-    { value: 'Kobra S1', label: 'Anycubic Kobra S1', slots: 1 },
-    { value: 'Ender 3', label: 'Creality Ender 3', slots: 1 },
     { value: 'Voron', label: 'Voron', slots: 1 },
+    { value: 'Ender 3', label: 'Creality Ender 3', slots: 1 },
     { value: 'Other', label: 'Other Klipper Printer', slots: 1 },
+    { value: 'Kobra S1', label: 'Anycubic Kobra S1 (monitoring only)', slots: 1 },
   ],
   prusalink: [
     { value: 'MK4S', label: 'Prusa MK4S', slots: 1 },
@@ -766,6 +773,7 @@ export default function Setup() {
                 <Wifi size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                 <input type="text" value={printerIp} onChange={e => setPrinterIp(e.target.value)} placeholder="192.168.1.100" className={inputClass + " pl-10"} />
               </div>
+              {printerType === 'moonraker' && <p className="text-xs text-white/50 mt-1">Add the port if Moonraker is not on port 80, for example 192.168.1.50:7125.</p>}
             </div>
 
             {/* Bambu-specific: serial + access code */}
@@ -784,6 +792,8 @@ export default function Setup() {
                     <KeyRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                     <input type="text" value={accessCode} onChange={e => setAccessCode(e.target.value)} placeholder="8-digit code from printer" className={inputClass + " pl-10"} />
                   </div>
+                  <p className="text-xs text-white/50 mt-1">On the printer screen: Settings, Network, Access Code. The serial number is under Settings, Device Info.</p>
+                  <p className="text-xs text-white/60 mt-2" data-testid="bambu-lan-note">{BAMBU_LAN_NOTE}</p>
                 </div>
               </>
             )}
@@ -813,7 +823,7 @@ export default function Setup() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <AlertCircle size={16} />
-                    <span>{errorText(testResult.error) || errorText(testResult.message) || 'Connection failed'}</span>
+                    <span>{errorText(testResult.error) || errorText(testResult.message) || 'Connection failed'} {connectionFailureHelp(printerType)}</span>
                   </div>
                 )}
               </div>

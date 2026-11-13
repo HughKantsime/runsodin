@@ -257,7 +257,7 @@ export default function GeneralTab() {
       <section className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <label htmlFor="interface-language" className="block font-semibold mb-2">{t('settings.language')}</label>
         <p className="text-sm text-[var(--brand-text-muted)] mb-3">{t('settings.language_desc')}</p>
-        <p className="text-xs text-[var(--brand-text-muted)] mb-3">Shared interface language for this O.D.I.N. instance. Only a platform administrator can change it.</p>
+        <p className="text-xs text-[var(--brand-text-muted)] mb-3">One language for everyone who uses this ODIN.</p>
         <select id="interface-language" value={locale} disabled={!canSaveLanguage || languageSaving}
           className="bg-[var(--brand-input-bg)] text-[var(--brand-text-primary)] border border-[var(--brand-card-border)] rounded-md p-2"
           onChange={async event => {

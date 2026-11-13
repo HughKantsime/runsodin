@@ -169,13 +169,13 @@ test('a failed connection test shows its sentence and never renders the error ob
   ? {ok:false,status:403,json:async()=>({detail:'Not allowed here',error:{code:'permission_denied',detail:'Not allowed here',retriable:false}})} as Response
   : original(url,opts))
  fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
- expect(await screen.findByText('Not allowed here')).toBeInTheDocument()
+ expect(await screen.findByText(/^Not allowed here Check that ODIN and the printer are on the same network/)).toBeInTheDocument()
  expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument()
  vi.mocked(fetch).mockImplementation(async(url,opts)=>url==='/api/printers/test-connection'
   ? {ok:true,status:200,json:async()=>({success:false,error:{code:'x',detail:'Printer refused',retriable:false}})} as Response
   : original(url,opts))
  fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
- expect(await screen.findByText('Printer refused')).toBeInTheDocument()
+ expect(await screen.findByText(/^Printer refused /)).toBeInTheDocument()
 })
 
 test('reopening setup on a claimed install resumes at the tier step when signed in, and goes to sign in otherwise', async () => {

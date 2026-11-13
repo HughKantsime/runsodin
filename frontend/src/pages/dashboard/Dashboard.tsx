@@ -519,7 +519,9 @@ function ClassicDashboard() {
               ))}
               {(!printersData || printersData.length === 0) && (
                 <div className="col-span-full bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
-                  <EmptyState title="No printers configured." />
+                  <EmptyState title="No printers yet" description="Add your first printer to see it here.">
+                    {canDo('printers.add') && <Button onClick={() => navigate('/printers')}>Add a printer</Button>}
+                  </EmptyState>
                 </div>
               )}
             </div>

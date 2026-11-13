@@ -25,7 +25,7 @@ import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
-import { models, filaments, printers, printFiles, getApprovalSetting } from '../../api'
+import { models, filaments, printers, printFiles, getApprovalSetting, pricingConfig } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 
@@ -408,6 +408,10 @@ export default function Models() {
   }, [updateSearchParams])
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
+  // Costs and prices are shown only once someone has saved pricing settings; before that they
+  // are generic defaults (an older server that does not say is treated as configured).
+  const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
+  const pricingConfigured = (pricingSettings as { configured?: boolean } | undefined)?.configured !== false
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
   // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
@@ -450,7 +454,7 @@ export default function Models() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleModel(null)
-      toast.success(submitForApproval ? 'Job submitted for approval' : 'Print job scheduled')
+      toast.success(submitForApproval ? 'Job submitted for approval' : 'Job created. Find it on the Jobs page.')
     },
     onError: (err) => toast.error('Schedule failed: ' + err.message),
   })
@@ -546,16 +550,16 @@ export default function Models() {
           <StatCard label="Models" value={modelsData.length} icon={Box} color="blue" />
           <StatCard label="Favorites" value={modelsData.filter(m => m.is_favorite).length} icon={Star} color="amber" />
           <StatCard label="Categories" value={categories.length} color="green" />
-          <StatCard label="Costed" value={modelsData.filter(m => m.estimated_cost).length} color="purple" />
+          {pricingConfigured && <StatCard label="Costed" value={modelsData.filter(m => m.estimated_cost).length} color="purple" />}
           <StatCard label="Total Print Hours" value={!libraryStatsAvailable ? 'Unavailable' : libraryUnknown && libraryHours === 0 ? 'Unknown' : `${libraryHours.toFixed(1)}h`} icon={Clock} color="blue" />
           <StatCard label="Most Printed" value={!libraryStatsAvailable ? 'Unavailable' : mostPrinted ? <span className="block break-words text-sm" title={mostPrinted.name}>{mostPrinted.name}</span> : 'None'} subtitle={mostPrinted ? `${mostPrinted.job_statistics.completed_job_count} completed jobs` : undefined} icon={PrinterIcon} color="green" />
         </div>
       )}
-      {modelsData?.length > 0 && <p className="text-xs text-[var(--brand-muted)] mb-4">Totals for the current library view use measured time and completed generic jobs visible to you. Education jobs are excluded; most printed is ranked by completed job count.{libraryStatsAvailable && libraryUnknown > 0 ? ` Timing is unknown for ${libraryUnknown} completed jobs.` : ''}</p>}
+      {modelsData?.length > 0 && <p className="text-xs text-[var(--brand-muted)] mb-4">Totals count the finished prints you can see, using measured print time. Education jobs are not counted.{libraryStatsAvailable && libraryUnknown > 0 ? ` Timing is unknown for ${libraryUnknown} completed jobs.` : ''}</p>}
 
       {modelsData?.length > 0 && (
         <div className="mb-6" aria-label="Selected model job statistics">
-          <p className="text-xs text-[var(--brand-muted)] mb-2">Generic visible jobs for selected models; Education jobs excluded.</p>
+          <p className="text-xs text-[var(--brand-muted)] mb-2">Finished prints for the models shown below; Education jobs excluded.</p>
           <div className="grid grid-cols-2 gap-2 md:gap-3">
             <StatCard label="Completed jobs" value={statisticsAvailable ? selectedStats.jobs : 'Unavailable'} icon={PrinterIcon} color="green" />
             <StatCard label="Actual print hours" value={!statisticsAvailable ? 'Unavailable' : selectedStats.unknown > 0 && selectedStats.hours === 0 ? 'Unknown' : `${selectedStats.hours.toFixed(1)}h`} icon={Clock} color="blue" />
@@ -582,7 +586,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {filteredModels?.map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} submitForApproval={submitForApproval} />
+            <ModelCard key={model.id} pricingConfigured={pricingConfigured} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} submitForApproval={submitForApproval} />
           ))}
         </div>
       )}

@@ -202,3 +202,21 @@ export function filamentSlotGroup(apiType: string | null | undefined, slotNumber
   }
   return null
 }
+
+/** Shown wherever a Bambu printer is added: the usual reason a connection fails. */
+export const BAMBU_LAN_NOTE = "Current Bambu firmware only accepts ODIN with LAN Only mode and Developer Mode turned on (printer screen: Settings, WLAN). Developer Mode disconnects the printer from Bambu's cloud."
+
+/** What to check when a connection test fails, by printer type. */
+export function connectionFailureHelp(apiType: string): string {
+  if (apiType === 'bambu') return 'Check that ODIN and the printer are on the same network, that the IP address is the printer\'s current one, that the serial number and access code match the printer screen, and that LAN Only mode and Developer Mode are on.'
+  if (apiType === 'moonraker') return 'Check the address (add the port if Moonraker is not on 80, for example 192.168.1.50:7125) and that this ODIN server is allowed in moonraker.conf (trusted_clients).'
+  if (apiType === 'prusalink') return 'Check the address and the PrusaLink API key or username|password from the printer\'s settings.'
+  if (apiType === 'elegoo') return 'Check the address and that the printer is on the same network as ODIN.'
+  return 'Check the address and that the printer is on the same network as ODIN.'
+}
+
+/** Grams for display: one decimal under 10 g (a 0.3 g print is not "0g"), whole grams above. */
+export function formatGrams(grams: number | null | undefined): string {
+  if (grams == null || !Number.isFinite(grams)) return '\u2014'
+  return grams < 10 ? `${Math.round(grams * 10) / 10}g` : `${Math.round(grams)}g`
+}

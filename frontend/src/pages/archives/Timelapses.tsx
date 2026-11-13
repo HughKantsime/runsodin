@@ -20,7 +20,7 @@ function durationLabel(seconds: number | null | undefined) {
   const whole = Math.floor(seconds)
   return `${Math.floor(whole / 60)}m ${whole % 60}s`
 }
-const provenance = 'Historical recordings without verified lifetime provenance cannot be played or deleted. Editing supports verified CFR30 recordings; originals are retained.'
+const provenance = 'Older recordings that ODIN cannot verify cannot be played or deleted. Trimming works on standard 30 fps recordings, and the original is always kept.'
 type Selection = { row: Timelapse; etag: string; owner: string; epoch: number }
 export default function Timelapses() {
   const foundry = useFoundry()
@@ -83,7 +83,7 @@ export default function Timelapses() {
   const active = selection?.owner === owner && selection.epoch === generation.current ? selection : null
   return <div className="p-4 md:p-6 space-y-4">
     <Link to="/cameras">Back to Cameras</Link><h1 className="text-xl flex items-center gap-2"><Film />Timelapses</h1>
-    <p className="text-sm text-[var(--brand-text-muted)]">{provenance}</p>
+    {total > 0 && <p className="text-sm text-[var(--brand-text-muted)]">{provenance}</p>}
     {user?.role === 'admin' && user.group_id == null && <TimelapseFactsRecheck key={owner} current={current} onComplete={() => { client.invalidateQueries({ queryKey: ['timelapses', owner] }) }} />}
     <div className="flex gap-3"><select aria-label="Printer filter" value={printer} onChange={e => { retire(); setPrinter(e.target.value); setOffset(0) }}><option value="">All printers</option>{(printerRows.data || []).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
       <select aria-label="Status filter" value={status} onChange={e => { retire(); setStatus(e.target.value); setOffset(0) }}><option value="">All statuses</option>{['ready', 'capturing', 'encoding', 'failed', 'deleting'].map(value => <option key={value}>{value}</option>)}</select></div>

@@ -29,10 +29,11 @@ router = APIRouter(tags=["Pricing"])
 def get_pricing_config(current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """Get system pricing configuration."""
     config = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    # `configured` tells the screens whether anyone has saved pricing: until then, costs and
+    # prices come from generic defaults and are not shown as if they were the owner's numbers.
     if not config:
-        # Return defaults if not configured
-        return DEFAULT_PRICING_CONFIG
-    return config.value
+        return {**DEFAULT_PRICING_CONFIG, "configured": False}
+    return {**config.value, "configured": True}
 
 
 class PricingConfigRequest(PydanticBaseModel):
@@ -95,7 +96,8 @@ def update_pricing_config(
     db.commit()
     db.refresh(config)
 
-    return config.value
+    # Same shape as GET; `configured` is reported, never stored.
+    return {**config.value, "configured": True}
 
 
 @router.get("/models/{model_id}/cost")

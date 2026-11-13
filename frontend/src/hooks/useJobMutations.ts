@@ -3,6 +3,22 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { jobs, approveJob, rejectJob, resubmitJob, bulkOps } from '../api'
 import toast from 'react-hot-toast'
 
+
+const REFUSAL_NEXT_STEP: Record<string, string> = {
+  ams_mapping_required: 'To fix it: open the job with the pencil button and choose a filament slot for each colour.',
+  printer_maintenance_hold: 'To fix it: release the maintenance hold on the printer page.',
+  printer_busy: 'Wait for the printer to finish, then try again.',
+}
+
+/** A refusal arrives as "some_code: sentence". Show the sentence, and where to fix it when known. */
+export function plainRefusal(message: string | null | undefined): string {
+  if (!message) return ''
+  const match = /^([a-z][a-z0-9_]{2,60}): ([\s\S]+)$/.exec(message.trim())
+  if (!match) return message.trim()
+  const next = REFUSAL_NEXT_STEP[match[1]]
+  return next ? `${match[2].trim()} ${next}` : match[2].trim()
+}
+
 export function useJobMutations() {
   const queryClient = useQueryClient()
   const [dispatchFencedIds, setDispatchFencedIds] = useState<Set<number>>(() => new Set())
@@ -73,12 +89,12 @@ export function useJobMutations() {
     onSuccess: (result, id) => {
       setDispatchFencedIds(previous => new Set(previous).add(id))
       inv()
-      if (['refused', 'needs_reconciliation'].includes(result.status?.phase || '')) toast.error(result.status?.message || 'Dispatch refused. Review the printer before trying again.')
+      if (['refused', 'needs_reconciliation'].includes(result.status?.phase || '')) toast.error(plainRefusal(result.status?.message) || 'Dispatch refused. Review the printer before trying again.', { duration: 15000 })
       else if (result.confirmation === 'accepted' || result.status?.phase === 'start_accepted') toast.success('Start accepted. Waiting for printer progress.')
       else if (result.status?.phase === 'layer_observed') toast('Printer layer progress was observed for this attempt.')
       else toast('Dispatch is unconfirmed. Check the printer and recorded attempt before trying again.', { duration: 10000 })
     },
-    onError: (err) => toast.error('Dispatch failed: ' + (err.message || 'Unknown error')),
+    onError: (err) => toast.error('Not sent: ' + (plainRefusal(err.message) || 'Unknown error'), { duration: 15000 }),
   })
 
   const approveJobMut = useMutation({

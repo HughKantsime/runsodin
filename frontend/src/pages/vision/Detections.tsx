@@ -295,7 +295,7 @@ export default function Detections() {
         </div>
       </div>
 
-      <p>Historical owner unknown. These records are available only to platform maintenance.</p>
+      {total > 0 && <p className="text-xs text-[var(--brand-text-muted)]">Detections recorded before ODIN tracked who owns them are shown only to platform administrators.</p>}
       <div className="flex gap-2 my-3"><button aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}>Grid view</button><button aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>List view</button><button onClick={() => { if (current()) setDataset({ audience }) }}>Training dataset</button></div>
       <StatBar stats={statsData} />
 

@@ -157,12 +157,7 @@ const handleSubmit = async (e) => {
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
               </form>
-              <div className="flex items-center gap-3 my-6">
-                <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
-                <span className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>or</span>
-                <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
-              </div>
-              <SSOButton />
+              <SSOButton divider />
               <div className="text-center text-xs mt-6" style={{ color: 'var(--brand-text-muted)' }}>
                 {smtpEnabled ? (
                   showForgot ? (

@@ -40,7 +40,8 @@ it.each(['refused', 'needs_reconciliation'] as const)('shows the server nozzle m
   const wrapper = ({children}:any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
   const {result} = renderHook(() => useJobMutations(), {wrapper})
   act(() => result.current.dispatchJob.mutate(53))
-  await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message))
+  // The server's reason is shown as a sentence (its code prefix dropped) and stays up long enough to read.
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('left nozzle requires Standard; installed High Flow', { duration: 15000 }))
   expect(toast.success).not.toHaveBeenCalled()
   client.clear()
 })

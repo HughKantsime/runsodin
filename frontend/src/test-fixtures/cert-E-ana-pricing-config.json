@@ -1,4 +1,5 @@
 {
+  "configured": true,
   "default_margin": 25.0,
   "electricity_rate": 1.0,
   "failure_rate": 10.0,

@@ -23,7 +23,7 @@ import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
 import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
 import { PageHeader, Button, SearchInput, TabBar } from '../../components/ui'
-import { parseServerDate } from '../../utils/shared'
+import { parseServerDate, isOnline } from '../../utils/shared'
 
 
 const jobTypeTabs = [
@@ -189,11 +189,13 @@ export default function Jobs() {
       }
       case 'dispatch': {
         const printerLabel = existingReason || 'the printer'
+        const target = (printersData || []).find(p => p.id === (jobsData || []).find(j => j.id === jobId)?.printer_id)
+        const offline = target && !isOnline(target)
         setConfirmAction({
           action: 'dispatch',
           jobId,
           title: 'Dispatch to Printer',
-          message: `"${jobName}" will be uploaded to ${printerLabel} via FTP and the print will start automatically.\n\nMake sure the bed is clear before confirming.`,
+          message: `${offline ? `${printerLabel} looks offline right now, so this will probably be refused.\n\n` : ''}"${jobName}" will be uploaded to ${printerLabel} and the print will start automatically.\n\nMake sure the bed is clear before confirming.`,
           confirmText: 'Dispatch',
           confirmVariant: 'confirm',
         })

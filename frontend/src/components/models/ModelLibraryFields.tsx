@@ -6,8 +6,9 @@ import { canDo } from '../../permissions'
 import { fetchAPI } from '../../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
+import { formatGrams } from '../../utils/shared'
 
-export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, submitForApproval = false }) {
+export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, submitForApproval = false, pricingConfigured = true }) {
   const queryClient = useQueryClient()
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden hover:border-[var(--brand-card-border)] transition-colors">
@@ -107,14 +108,14 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
           {model.total_filament_grams > 0 && (
             <div className="flex items-center gap-1">
               <Scale size={12} />
-              <span>{model.total_filament_grams.toFixed(0)}g</span>
+              <span>{formatGrams(model.total_filament_grams)}</span>
             </div>
           )}
         </div>
 
         {canDo('models.plates') && <ModelPlates model={model} onSchedule={onSchedule} />}
 
-        {(model.estimated_cost > 0 || model.suggested_price > 0) && (
+        {pricingConfigured && (model.estimated_cost > 0 || model.suggested_price > 0) && (
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--brand-card-border)]">
             <div className="text-xs text-[var(--brand-muted)]">
               Cost: <span className="text-[var(--brand-text-secondary)]">${model.estimated_cost?.toFixed(2) || '—'}</span>
