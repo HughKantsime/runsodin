@@ -539,3 +539,8 @@ html.light .setup-wizard textarea {
 .mobile-header { position: relative; }
 .mobile-header .theme-settings { position: static; }
 .mobile-header .theme-settings-panel { right: 1rem; }
+
+/* Native checkboxes follow the theme and the accent colour, instead of rendering as white
+   squares on dark surfaces (seen on the Jobs table and the printer list). */
+html:not(.light) input[type="checkbox"] { color-scheme: dark; }
+input[type="checkbox"] { accent-color: var(--brand-primary); }

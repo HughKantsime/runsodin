@@ -50,7 +50,7 @@
     "frontend/src/components/ui/TabBar.tsx": "773eb003f877549e838d5e8d746a31d66228ec362c3324c7b200a72119cf3551",
     "frontend/src/components/ui/Textarea.tsx": "921af889b57978d451b3f918db7794dc101d647b8f1a838a23891775d8e0079b",
     "frontend/src/components/ui/index.ts": "5376e84a86966f795e14ff2eea75d947bd5d44c482164f5e27ae6eecd1b997eb",
-    "frontend/src/index.css": "850581bcf65b0173996804348bc5425863c031c3cefdf8889c9b2f7b112778fd",
+    "frontend/src/index.css": "f2dadb77954a42d7268a2ae0acccb203fd2db222588b75c36403259ba64341ed",
     "frontend/src/pages/admin/Admin.tsx": "87b39c49ac9e24518e728e3f9b13dda30c86eeefe9181ed9f4e13584d254d6c5",
     "frontend/src/pages/admin/AuditLogs.tsx": "38f760feaff41a9bb5ef380e2b96decfc41eed3c603939a0ad68163d61a175c5",
     "frontend/src/pages/admin/Branding.tsx": "1fd65fc3c86ac8f3332938ee3bd966302aa354501cc664e7c57c1ce793a2f58a",
