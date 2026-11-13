@@ -11,7 +11,9 @@ Computed on read; nothing is stored. Three kinds of numbers, never mixed without
 
 The failure allowance of the estimate is not added: real failures are already in the total
 through their attempts. A fact that was not recorded stays unknown and makes the total partial
-("at least"); it is never filled in from current prices or sliced figures.
+("at least"); it is never filled in from current prices. Where an attempt fed several spools
+the per-spool grams come from the sliced file (the printer reports one total); those lines
+count, and are labelled "from the sliced file" in the breakdown.
 
 This is not an order ledger and not a profit figure (measured-order-costs.md owns those).
 """
