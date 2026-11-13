@@ -66,6 +66,8 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{displayName(job)}</div>
+        {/* Below wide screens the priority has no column of its own: it sits under the name. */}
+        <div className="xl:hidden text-xs text-[var(--brand-text-muted)]" aria-hidden="true">Priority {job.priority}</div>
         {(job.quantity == null || job.hold == null || job.is_locked == null) && (
           <div className="text-xs text-[var(--brand-text-muted)]">
             {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
@@ -91,7 +93,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           </div>
         )}
       </td>
-      <td className="px-3 md:px-4 py-3">
+      <td className="px-3 md:px-4 py-3 hidden xl:table-cell">
         <span className={clsx(
           'px-2 py-0.5 rounded-md text-xs font-medium',
           job.priority <= 2 ? 'bg-red-900/50 text-red-400' :
@@ -105,14 +107,15 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         {job.printer?.name || '—'}
         {job.pinned_printer_id != null && (
           <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
-            Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
+            {/* Same printer already named above: say only that it is pinned, not its name twice. */}
+            {pinnedPrinterName && pinnedPrinterName === job.printer?.name ? 'Pinned' : `Pinned: ${pinnedPrinterName || `printer #${job.pinned_printer_id}`}`}
           </div>
         )}
         {job.pinned_printer_issue && (
           <div className="text-xs text-red-400" role="status">{PIN_ISSUE_TEXT[job.pinned_printer_issue] ?? 'Pinned printer is unavailable — job stays queued'}</div>
         )}
       </td>
-      <td className="px-3 md:px-4 py-3 hidden lg:table-cell">
+      <td className="px-3 md:px-4 py-3 hidden xl:table-cell">
         {job.colors_list?.length > 0 ? (
           <div className="flex gap-1 flex-wrap">
             {job.colors_list.map((color, i) => (
@@ -135,8 +138,8 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden lg:table-cell">
         <span className="font-mono">{job.scheduled_start ? format(parseServerDate(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
       </td>
-      <td className="px-3 md:px-4 py-3">
-        <div className="flex items-center gap-1">
+      <td className="px-3 md:px-4 py-3 min-w-[9.5rem]">
+        <div className="flex flex-wrap items-center gap-1 max-w-[8.5rem] xl:max-w-none">
           {job.status === 'submitted' && canDo('jobs.approve') && (
             <>
               <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('approve', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Approve job" />
@@ -152,7 +155,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               icon={isDispatching ? Loader2 : Send}
               loading={isDispatching}
               onClick={() => !isDispatching && onAction('dispatch', job.id, displayName(job), job.printer?.name)}
@@ -160,7 +163,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
               title={dispatchFenced ? 'Dispatch requires verification. Check the printer before any further dispatch.' : isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
               aria-label={dispatchFenced ? 'Dispatch requires verification' : isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
               disabled={isDispatching || dispatchFenced}
-            />
+            >Dispatch</Button>
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (
             <>

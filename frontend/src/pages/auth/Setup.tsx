@@ -399,19 +399,6 @@ export default function Setup() {
 
       <div className="space-y-4">
         <div>
-          <label className={labelClass}>Instance Name</label>
-          <div className="relative">
-            <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-            <input type="text" aria-label="Instance Name" value={brandingLicensed ? siteName : 'O.D.I.N.'} onChange={e => setSiteName(e.target.value)}
-              placeholder="O.D.I.N." disabled={!brandingLicensed} aria-describedby="instance-name-note"
-              className={inputClass + " pl-10" + (brandingLicensed ? "" : " opacity-50 cursor-not-allowed")} />
-          </div>
-          <p id="instance-name-note" className="text-white/30 text-xs mt-1">
-            {brandingLicensed ? 'Shown in header and login page' : 'Pro feature: a custom instance name needs a Pro license (set it later in Settings > Branding)'}
-          </p>
-        </div>
-
-        <div className="border-t border-white/5 pt-4">
           <label className={labelClass}>Username</label>
           <div className="relative">
             <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
@@ -450,6 +437,20 @@ export default function Setup() {
             <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat password" className={inputClass + " pl-10"}
               onKeyDown={e => e.key === 'Enter' && handleCreateAdmin()} />
           </div>
+        </div>
+
+        {/* Last: on the free tier this is a locked Pro option, and it should not be the first thing asked. */}
+        <div className="border-t border-white/5 pt-4">
+          <label className={labelClass}>Instance Name</label>
+          <div className="relative">
+            <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+            <input type="text" aria-label="Instance Name" value={brandingLicensed ? siteName : 'O.D.I.N.'} onChange={e => setSiteName(e.target.value)}
+              placeholder="O.D.I.N." disabled={!brandingLicensed} aria-describedby="instance-name-note"
+              className={inputClass + " pl-10" + (brandingLicensed ? "" : " opacity-50 cursor-not-allowed")} />
+          </div>
+          <p id="instance-name-note" className="text-white/30 text-xs mt-1">
+            {brandingLicensed ? 'Shown in header and login page' : 'Pro feature: a custom instance name needs a Pro license (set it later in Settings > Branding)'}
+          </p>
         </div>
       </div>
 

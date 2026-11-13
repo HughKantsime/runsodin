@@ -126,7 +126,7 @@ function NetworkSection() {
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
         <Wifi size={18} className="text-[var(--brand-primary)]" />
-        <h2 className="text-lg md:text-xl font-display font-semibold">Network & Camera Streaming</h2>
+        <h2 id="settings-camera-network" className="text-lg md:text-xl font-display font-semibold scroll-mt-4">Network & Camera Streaming</h2>
       </div>
       <p className="text-[var(--brand-text-muted)] text-sm mb-4">
         Configure the host IP address for WebRTC camera streaming. This should be the LAN IP of the server running O.D.I.N., reachable from your browser.
@@ -254,6 +254,16 @@ export default function GeneralTab() {
   return (
     <div className="max-w-4xl">
 
+      {/* This page is long: say what is on it and let people jump. Links that point at a section
+          this install does not show simply do nothing. */}
+      <nav aria-label="On this page" className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--brand-text-muted)]">
+        <span>On this page:</span>
+        {[['interface-language', 'Language'], ['settings-spoolman', 'Spoolman'], ['settings-scheduler', 'Quiet hours'], ['settings-interface', 'Interface mode'], ['settings-education', 'Education mode'], ['settings-camera-network', 'Camera network']].map(([id, label]) => (
+          <a key={id} href={`#${id}`} className="underline hover:text-[var(--brand-text-primary)]"
+            onClick={e => { const target = document.getElementById(id); if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }}>{label}</a>
+        ))}
+      </nav>
+
       <section className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <label htmlFor="interface-language" className="block font-semibold mb-2">{t('settings.language')}</label>
         <p className="text-sm text-[var(--brand-text-muted)] mb-3">{t('settings.language_desc')}</p>
@@ -318,7 +328,7 @@ export default function GeneralTab() {
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4 flex-wrap">
           <Database size={18} className="text-[var(--brand-primary)]" />
-          <h2 className="text-lg md:text-xl font-display font-semibold">Spoolman Integration</h2>
+          <h2 id="settings-spoolman" className="text-lg md:text-xl font-display font-semibold scroll-mt-4">Spoolman Integration</h2>
           {statsData?.spoolman_connected ? (
             <span className="flex items-center gap-1 text-xs md:text-sm text-green-400 bg-green-900/30 px-2 py-0.5 rounded-md">
               <CheckCircle size={14} /> Connected
@@ -369,7 +379,7 @@ export default function GeneralTab() {
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Clock size={18} className="text-[var(--brand-primary)]" />
-          <h2 className="text-lg md:text-xl font-display font-semibold">Scheduler Settings</h2>
+          <h2 id="settings-scheduler" className="text-lg md:text-xl font-display font-semibold scroll-mt-4">Scheduler Settings</h2>
         </div>
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Configure when the scheduler should avoid scheduling prints (e.g., overnight quiet hours).
@@ -403,7 +413,7 @@ export default function GeneralTab() {
       {lic.hasFeature('job_approval') && <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <CheckCircle size={18} className="text-[var(--brand-primary)]" />
-          <h2 className="text-lg md:text-xl font-display font-semibold">Job Approval Workflow</h2>
+          <h2 id="settings-approval" className="text-lg md:text-xl font-display font-semibold scroll-mt-4">Job Approval Workflow</h2>
         </div>
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           When enabled, viewer-role users (students) must have their print jobs approved by an operator or admin (teacher) before they can be scheduled. Operators and admins bypass approval.
@@ -416,7 +426,7 @@ export default function GeneralTab() {
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <SettingsIcon size={18} className="text-[var(--brand-primary)]" />
-          <h2 className="text-lg md:text-xl font-display font-semibold">Interface Mode</h2>
+          <h2 id="settings-interface" className="text-lg md:text-xl font-display font-semibold scroll-mt-4">Interface Mode</h2>
         </div>
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Simple mode hides advanced features like Orders, Products, Analytics, and Maintenance for a cleaner sidebar.
@@ -451,7 +461,7 @@ export default function GeneralTab() {
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <SettingsIcon size={18} className="text-blue-400" />
-          <h2 className="text-lg md:text-xl font-display font-semibold">Education Mode</h2>
+          <h2 id="settings-education" className="text-lg md:text-xl font-display font-semibold scroll-mt-4">Education Mode</h2>
         </div>
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           When enabled, commerce features (Orders, Products, Consumables) are hidden from the sidebar and UI. Ideal for educational environments that don't need e-commerce functionality.

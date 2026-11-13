@@ -28,6 +28,7 @@ import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } 
 import { models, filaments, printers, printFiles, getApprovalSetting, pricingConfig } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
+import { formatHours } from '../../utils/shared'
 
 function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   const [formData, setFormData] = useState({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1 as number | string, markup_percent: 300 as number | string })
@@ -247,7 +248,7 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
           {model.build_time_hours && (
             <div className="flex items-center gap-1">
               <Clock size={14} />
-              <span>{model.build_time_hours}h</span>
+              <span>{formatHours(model.build_time_hours)}</span>
             </div>
           )}
           {model.total_filament_grams > 0 && (
@@ -310,7 +311,7 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
                         : 'border-[var(--brand-card-border)] text-[var(--brand-muted)] hover:border-[var(--brand-card-border)]'
                     )}
                   >
-                    Plate {i + 1} — {plate.is_sliced ? `${plate.print_time_seconds != null ? Math.round(plate.print_time_seconds / 60) + ' min' : 'Time unknown'} · ${plate.filament_grams != null ? plate.filament_grams + ' g' : 'Filament unknown'}` : 'Requires slicing'}
+                    Plate {i + 1} — {plate.is_sliced ? `${plate.print_time_seconds != null ? formatHours(plate.print_time_seconds / 3600) : 'Time unknown'} · ${plate.filament_grams != null ? plate.filament_grams + ' g' : 'Filament unknown'}` : 'Requires slicing'}
                   </button>
                 )})}
               </div>
@@ -411,6 +412,7 @@ export default function Models() {
   // Costs and prices are shown only once someone has saved pricing settings; before that they
   // are generic defaults (an older server that does not say is treated as configured).
   const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
+  const [statsOpen, setStatsOpen] = useState(() => { try { return localStorage.getItem('odin.models.stats') === '1' } catch { return false } })
   const pricingConfigured = (pricingSettings as { configured?: boolean } | undefined)?.configured !== false
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
@@ -544,6 +546,11 @@ export default function Models() {
         </div>
       )}
 
+      {/* Library statistics sit behind a fold so the page opens on the models themselves. The
+          choice is remembered. */}
+      {modelsData?.length > 0 && (
+        <details className="mb-4" open={statsOpen} onToggle={e => { const open = (e.currentTarget as HTMLDetailsElement).open; setStatsOpen(open); try { localStorage.setItem('odin.models.stats', open ? '1' : '0') } catch { /* not remembered */ } }}>
+          <summary className="cursor-pointer text-sm text-[var(--brand-text-secondary)] mb-3">Library statistics</summary>
       {/* Model Library Summary */}
       {modelsData?.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
@@ -568,6 +575,9 @@ export default function Models() {
             <p className="text-xs text-[var(--brand-muted)] mt-2">Timing unknown for {selectedStats.unknown} completed {selectedStats.unknown === 1 ? 'job' : 'jobs'}; hours include measured time only.</p>
           )}
         </div>
+      )}
+
+        </details>
       )}
 
       {isLoading ? (

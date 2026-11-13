@@ -282,6 +282,7 @@ export default function ProjectsPage() {
           <div>
             <h1 className="text-xl md:text-2xl font-display font-bold">Projects</h1>
             <p className="text-[var(--brand-muted)] text-sm mt-1">{items.length} project{items.length !== 1 ? 's' : ''}</p>
+            <p className="text-[var(--brand-muted)] text-xs mt-1" data-testid="page-purpose">A project groups archived prints that belong together, such as one order or one build.</p>
           </div>
         </div>
         {canDo('printers.edit') && (

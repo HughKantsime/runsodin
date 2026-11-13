@@ -28,9 +28,9 @@ export default function JobTableHeader({ sortField, sortDirection, onSort, allSe
         </th>
         <SortTh label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
         <SortTh label="Item" field="item_name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
-        <SortTh label="Pri" field="priority" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+        <SortTh label="Pri" field="priority" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden xl:table-cell" />
         <SortTh label="Printer" field="printer" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
-        <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-semibold text-[var(--brand-text-secondary)] tracking-wide hidden lg:table-cell">Colors</th>
+        <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-semibold text-[var(--brand-text-secondary)] tracking-wide hidden xl:table-cell">Colors</th>
         <SortTh label="Duration" field="duration_hours" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden md:table-cell" />
         <SortTh label="Scheduled" field="scheduled_start" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden lg:table-cell" />
         <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-semibold text-[var(--brand-text-secondary)] tracking-wide">Actions</th>

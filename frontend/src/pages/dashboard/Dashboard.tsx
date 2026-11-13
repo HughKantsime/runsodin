@@ -104,15 +104,16 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
 
         <div className="grid grid-cols-4 gap-1.5 md:gap-2">
           {slots.map((slot, idx) => (
-            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1.5 md:p-2 text-center min-w-0 flex flex-col items-center gap-1">
+            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1 text-center min-w-0 flex flex-col items-center gap-1 overflow-hidden">
               <SpoolRing
                 color={slot.color_hex ? `#${slot.color_hex}` : '#888'}
                 material=""
                 level={slot.remaining != null ? slot.remaining : 100}
                 empty={!slot.color_hex && !slot.material_type && !slot.type}
+                bare
                 size={20}
               />
-              <span title={slotFullName(slot)} className="text-[10px] md:text-xs text-[var(--brand-text-muted)] truncate block w-full min-w-0">{getShortName(slot)}</span>
+              <span title={slotFullName(slot)} className="text-[10px] leading-tight tracking-tight text-[var(--brand-text-muted)] truncate block w-full min-w-0">{getShortName(slot)}</span>
             </div>
           ))}
         </div>

@@ -19,6 +19,8 @@ export default function InventoryConflicts({ audience }: { audience: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const ids = [...new Set([...(query.data?.duplicates || []), ...(query.data?.contradictions || [])].map(row => row.spool_id))]
+  // Nothing to resolve (the usual case): the Spools page starts with spools, not an empty warning box.
+  if (!query.isLoading && !query.error && !error && !ids.length) return null
   return <Card>
     <h2 className="text-lg font-semibold">Resolve inventory conflicts</h2>
     <p className="text-sm">Choose the true loaded slot or explicitly clear the spool. Each choice is audited.</p>

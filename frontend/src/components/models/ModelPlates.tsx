@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { models } from '../../api'
 import Button from '../ui/Button'
+import { formatHours } from '../../utils/shared'
 
 export default function ModelPlates({ model, onSchedule }) {
   const [open, setOpen] = useState(false)
@@ -19,7 +20,7 @@ export default function ModelPlates({ model, onSchedule }) {
       {data?.target_printer_id && <p>Bound to printer {data.target_printer_id}</p>}
       {data?.plates.map(plate => <div key={plate.plate_index} className="flex flex-wrap items-center gap-2">
         <span>Plate {plate.plate_index + 1}</span>
-        <span>{plate.print_time_seconds == null ? 'Time unknown' : `${Math.round(plate.print_time_seconds / 60)} min`} · {plate.filament_grams == null ? 'Filament unknown' : `${plate.filament_grams} g`}</span>
+        <span>{plate.print_time_seconds == null ? 'Time unknown' : formatHours(plate.print_time_seconds / 3600)} · {plate.filament_grams == null ? 'Filament unknown' : `${plate.filament_grams} g`}</span>
         {plate.is_sliced
           ? <Button size="sm" onClick={() => onSchedule({ ...model, selectedPlateIndex: plate.plate_index })}>Schedule plate {plate.plate_index + 1}</Button>
           : <span>Requires slicing</span>}

@@ -102,6 +102,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
         className
       )}
       {...rest}
+      // An icon-only button says what it does on hover: its accessible name, unless a title is given.
+      title={rest.title ?? (isIconOnly && typeof rest['aria-label'] === 'string' ? rest['aria-label'] : undefined)}
     >
       {isIconOnly ? (
         renderIcon() || children

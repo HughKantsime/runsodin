@@ -6,7 +6,7 @@ import { canDo } from '../../permissions'
 import { fetchAPI } from '../../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { formatGrams } from '../../utils/shared'
+import { formatGrams, formatHours } from '../../utils/shared'
 
 export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, submitForApproval = false, pricingConfigured = true }) {
   const queryClient = useQueryClient()
@@ -47,7 +47,7 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             <button
               onClick={() => onView3D(model)}
               className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
-              aria-label="View 3D preview"
+              aria-label="View 3D preview" title="View 3D preview"
             >
               <Package size={14} />
             </button>
@@ -55,32 +55,26 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
               onClick={() => onToggleFavorite(model)}
               className={clsx("p-1.5 md:p-2 rounded-md transition-colors", model.is_favorite ? "text-yellow-400" : "text-[var(--brand-muted)] hover:text-yellow-400")}
               aria-label={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
+              title={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
             >
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
             </button>
 
-            {(canDo('models.create') || submitForApproval) && <button
-              onClick={() => onSchedule(model)}
-              className="p-1.5 md:p-2 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
-              aria-label={submitForApproval ? 'Submit for approval' : 'Schedule print job'}
-            >
-              <CalendarPlus size={14} />
-            </button>}
             {canDo('models.edit') && <button
               onClick={() => onEdit(model)}
               className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
-              aria-label="Edit model"
+              aria-label="Edit model" title="Edit model"
             >
               <Pencil size={14} />
             </button>}
             <button
               onClick={() => onRevisions(model)}
               className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
-              aria-label="View revisions"
+              aria-label="View revisions" title="View revisions"
             >
               <History size={14} />
             </button>
-            {canDo('models.edit') && <button aria-label="Hide from library" onClick={async () => {
+            {canDo('models.edit') && <button aria-label="Hide from library" title="Hide from library" onClick={async () => {
               try {
                 const result = await fetchAPI<{ hidden: boolean }>(`/models/${model.id}/hide`, { method: 'POST' })
                 toast.success(result.hidden ? 'Hidden from library' : 'Model remains visible while Education work is live')
@@ -91,7 +85,7 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
               className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
-              aria-label="Delete model"
+              aria-label="Delete model" title="Delete model"
             >
               <Trash2 size={14} />
             </button>}
@@ -102,7 +96,7 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
           {model.build_time_hours > 0 && (
             <div className="flex items-center gap-1">
               <Clock size={12} />
-              <span>{model.build_time_hours < 1 ? `${Math.round(model.build_time_hours * 60)}m` : `${model.build_time_hours.toFixed(1)}h`}</span>
+              <span>{formatHours(model.build_time_hours)}</span>
             </div>
           )}
           {model.total_filament_grams > 0 && (
@@ -114,6 +108,14 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
         </div>
 
         {canDo('models.plates') && <ModelPlates model={model} onSchedule={onSchedule} />}
+
+        {(canDo('models.create') || submitForApproval) && <button
+          onClick={() => onSchedule(model)}
+          className="mt-3 w-full flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium bg-[var(--brand-primary)] text-[var(--brand-on-primary)] hover:bg-[var(--brand-accent)] transition-colors"
+          aria-label={submitForApproval ? 'Submit for approval' : 'Schedule print job'}
+        >
+          <CalendarPlus size={14} />{submitForApproval ? 'Submit for approval' : 'Schedule print'}
+        </button>}
 
         {pricingConfigured && (model.estimated_cost > 0 || model.suggested_price > 0) && (
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--brand-card-border)]">
