@@ -362,8 +362,16 @@ def env_configured_urls() -> list[str]:
     ODIN_GO2RTC_API_URL: the go2rtc clients (cameras, snapshots, timelapse, vision) are
     treated as local, so the address they are given must be loopback or on the local
     network. modules/printers/go2rtc_access.py refuses it again at each use.
+
+    ODIN_CAMERA_RELAY_BASE_URL: go2rtc is given this address, with a camera token, to
+    fetch HTTP cameras through ODIN. modules/printers/camera_relay.py refuses it again
+    each time the go2rtc configuration is built.
     """
-    return [(os.getenv("ODIN_GO2RTC_API_URL") or "").strip()]
+    urls = [(os.getenv("ODIN_GO2RTC_API_URL") or "").strip()]
+    relay = (os.getenv("ODIN_CAMERA_RELAY_BASE_URL") or "").strip()
+    if relay:
+        urls.append(relay)
+    return urls
 
 
 def collect_db_configured_urls() -> list[str]:
@@ -679,7 +687,7 @@ def pin_for_request(url: str):
     wrapping an AsyncClient request in this context does not pin its DNS.
     """
     if not is_itar_mode() or not url:
-        yield
+        yield None
         return
 
     parsed = urlparse(url)
@@ -753,7 +761,39 @@ def pin_for_request(url: str):
     # pin + socket.getaddrinfo override installed by webhook_utils.
     from core.webhook_utils import _pin_dns
     with _pin_dns(host, port, validated_ips):
-        yield
+        yield validated_ips
+
+
+def pinned_literal_url(url: str) -> tuple[str, Optional[str]]:
+    """`url` with its host name replaced by the address that passed the ITAR check.
+
+    For a connection the ContextVar pin cannot cover: an AsyncClient, a client that
+    outlives the call, or another program (go2rtc, ffmpeg) that connects on ODIN's
+    behalf. The name is looked up once, by pin_for_request, with its rule (every
+    address on the local network, a mixed answer refused, an unresolvable name
+    refused); the URL then carries one of those addresses, so nothing looks the name
+    up again. An IPv4 address is preferred: ODIN's API and go2rtc listen on IPv4.
+
+    Returns (url, host). `host` is the original `name[:port]` for a Host header, or
+    None when the URL was not changed: ITAR mode off, an empty URL, or a URL that
+    already holds an IP address. Raises ItarOutboundBlocked.
+    """
+    if not is_itar_mode() or not url:
+        return url, None
+    with pin_for_request(url) as addresses:
+        pass
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    try:
+        ipaddress.ip_address(host)
+        return url, None
+    except ValueError:
+        pass
+    address = next((ip for ip in addresses if ":" not in ip), addresses[0])
+    authority = parsed.netloc.rsplit("@", 1)
+    shown = f"[{address}]" if ":" in address else address
+    netloc = "@".join(authority[:-1] + [shown + (f":{parsed.port}" if parsed.port else "")])
+    return parsed._replace(netloc=netloc).geturl(), authority[-1]
 
 
 def enforce_request_destination(url: str) -> None:

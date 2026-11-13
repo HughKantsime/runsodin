@@ -16,11 +16,12 @@ import hmac
 import ipaddress
 import logging
 import os
+from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
-from core.itar import ItarOutboundBlocked, enforce_request_destination
+from core.itar import ItarOutboundBlocked, is_itar_mode, pinned_literal_url, should_trust_env
 
 log = logging.getLogger("odin.go2rtc")
 
@@ -39,17 +40,11 @@ class Go2rtcUrlRefused(ItarOutboundBlocked, HTTPException):
         HTTPException.__init__(self, 409, ITAR_REFUSAL)
 
 
-def go2rtc_api_url() -> str:
-    """The go2rtc API base URL. Every go2rtc client gets its address here, so this is
-    where ITAR mode is enforced: a URL that is not loopback or on the local network
-    (names are resolved) is refused and no client is handed it."""
-    url = (os.environ.get("ODIN_GO2RTC_API_URL") or DEFAULT_API_URL).strip().rstrip("/")
-    try:
-        enforce_request_destination(url)
-    except ItarOutboundBlocked as exc:
-        log.error("go2rtc address refused; no request was sent: %s", exc)
-        raise Go2rtcUrlRefused() from None
-    return url
+class Go2rtcTarget(NamedTuple):
+    """Where one go2rtc request goes, from one check of the address."""
+    url: str             # base URL to send to
+    client_kwargs: dict  # httpx keyword arguments for the client or the call
+    remote: bool         # go2rtc is a separate service (not on this container's loopback)
 
 
 def _is_loopback_host(host) -> bool:
@@ -63,6 +58,56 @@ def _is_loopback_host(host) -> bool:
         return False
 
 
+def _checked_address():
+    """(base URL, Host header or None, remote). Every go2rtc client gets its address here,
+    so this is where ITAR mode is enforced.
+
+    Under ITAR mode a URL that is not loopback or on the local network is refused and no
+    client is handed it. A name is looked up once and the URL returned carries the address
+    that passed (core.itar.pinned_literal_url), so the client never looks the name up
+    again; the name goes in the Host header. With ITAR mode off the URL is returned as
+    configured and nothing is looked up.
+    """
+    url = (os.environ.get("ODIN_GO2RTC_API_URL") or DEFAULT_API_URL).strip().rstrip("/")
+    try:
+        remote = not _is_loopback_host(urlsplit(url).hostname)
+        pinned, host = pinned_literal_url(url)
+        if host is not None and urlsplit(url).scheme.lower() == "https":
+            # The certificate names the host and the connection goes to its address.
+            raise ItarOutboundBlocked(
+                "https to a go2rtc host name is not supported in ITAR mode; use http on the "
+                "internal network, or the IP address")
+    except (ItarOutboundBlocked, ValueError) as exc:
+        if not is_itar_mode():
+            raise
+        log.error("go2rtc address refused; no request was sent: %s", exc)
+        raise Go2rtcUrlRefused() from None
+    return pinned, host, remote
+
+
+def go2rtc_target() -> Go2rtcTarget:
+    """The address and httpx settings for a request to go2rtc's API, from one check.
+
+    Callers build the request from this one value: `target.url` plus the path, and
+    `**target.client_kwargs` on the client (or on httpx.get/post/stream).
+    With ITAR mode off the settings are the per-boot credentials off loopback and nothing on
+    loopback. Under ITAR mode they also turn environment proxies off (trust_env) and, when
+    the URL names a host, carry that name as the Host header.
+    """
+    url, host, remote = _checked_address()
+    kwargs = {"auth": go2rtc_api_credentials()} if remote else {}
+    if is_itar_mode():
+        kwargs["trust_env"] = should_trust_env()
+        if host is not None:
+            kwargs["headers"] = {"Host": host}
+    return Go2rtcTarget(url, kwargs, remote)
+
+
+def go2rtc_api_url() -> str:
+    """The go2rtc API base URL (see go2rtc_target, which request code uses)."""
+    return _checked_address()[0]
+
+
 def go2rtc_api_host() -> str:
     return urlsplit(go2rtc_api_url()).hostname or "127.0.0.1"
 
@@ -73,13 +118,14 @@ def go2rtc_api_port() -> int:
 
 def go2rtc_is_remote() -> bool:
     """True when go2rtc is a separate service (not on this container's loopback)."""
-    return not _is_loopback_host(urlsplit(go2rtc_api_url()).hostname)
+    return _checked_address()[2]
 
 
 def go2rtc_api_listen() -> str:
     """go2rtc's api.listen: loopback beside the API, the service network otherwise."""
-    port = go2rtc_api_port()
-    return f":{port}" if go2rtc_is_remote() else f"127.0.0.1:{port}"
+    url, _host, remote = _checked_address()
+    port = urlsplit(url).port or 1984
+    return f":{port}" if remote else f"127.0.0.1:{port}"
 
 
 def _derive(secret: str, purpose: bytes) -> str:
@@ -105,5 +151,5 @@ def go2rtc_restart_credential_candidates():
 
 
 def go2rtc_client_kwargs() -> dict:
-    """httpx keyword arguments for a request to go2rtc's API ({} on loopback)."""
-    return {"auth": go2rtc_api_credentials()} if go2rtc_is_remote() else {}
+    """httpx keyword arguments for a request to go2rtc's API (see go2rtc_target)."""
+    return go2rtc_target().client_kwargs

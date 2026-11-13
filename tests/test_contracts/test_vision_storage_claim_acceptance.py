@@ -14,7 +14,7 @@ from tests.test_contracts.test_education_review_workflow import review_db
 def test_owned_printer_thread_captures_and_decodes_exact_go2rtc_stream(monkeypatch):
     import httpx
     from modules.vision import detection_thread as module
-    monkeypatch.setattr(module,'GO2RTC_BASE','http://127.0.0.1:1984')
+    monkeypatch.delenv('ODIN_GO2RTC_API_URL',raising=False)
     ok,encoded=cv2.imencode('.jpg',np.full((20,30,3),70,dtype=np.uint8));assert ok
     calls=[];frames=[]
     def get(url,**kwargs):calls.append((url,kwargs));return SimpleNamespace(status_code=200,content=encoded.tobytes())

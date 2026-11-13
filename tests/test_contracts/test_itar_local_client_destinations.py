@@ -100,25 +100,35 @@ def test_the_printer_check_still_runs_on_the_local_network_and_without_itar(monk
 
 def test_the_default_go2rtc_address_is_unchanged_with_and_without_itar(monkeypatch):
     monkeypatch.delenv("ODIN_GO2RTC_API_URL", raising=False)
-    for mode in ("", "1"):
+    for mode, settings in (("", {}), ("1", {"trust_env": False})):  # ITAR mode: no environment proxy
         monkeypatch.setenv("ODIN_ITAR_MODE", mode)
         assert go2rtc_access.go2rtc_api_url() == "http://127.0.0.1:1984"
-        assert go2rtc_access.go2rtc_client_kwargs() == {}
+        assert go2rtc_access.go2rtc_client_kwargs() == settings
     assert itar.audit_boot_config(itar.env_configured_urls()) == []
 
 
-@pytest.mark.parametrize("url", ["http://10.0.0.5:1984", "http://[fd00::5]:1984", "http://localhost:1984/"])
+@pytest.mark.parametrize("url", ["http://10.0.0.5:1984", "http://[fd00::5]:1984", "http://127.0.0.1:1984/"])
 def test_itar_allows_a_loopback_or_local_go2rtc_address(monkeypatch, url):
     monkeypatch.setenv("ODIN_ITAR_MODE", "1")
     monkeypatch.setenv("ODIN_GO2RTC_API_URL", url)
     assert go2rtc_access.go2rtc_api_url() == url.rstrip("/")
 
 
+def test_itar_allows_localhost_and_sends_to_its_loopback_address(monkeypatch):
+    # A name is replaced by the address that was checked (test_itar_go2rtc_destinations.py).
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://localhost:1984/")
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("127.0.0.1", 0))])
+    assert go2rtc_access.go2rtc_api_url() == "http://127.0.0.1:1984"
+    assert go2rtc_access.go2rtc_is_remote() is False
+
+
 def test_itar_allows_a_go2rtc_name_that_resolves_to_the_local_network(monkeypatch):
     monkeypatch.setenv("ODIN_ITAR_MODE", "1")
     monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://go2rtc:1984")
     monkeypatch.setattr(socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("172.18.0.4", 0))])
-    assert go2rtc_access.go2rtc_api_url() == "http://go2rtc:1984"
+    # The client is handed the address that was checked, never the name.
+    assert go2rtc_access.go2rtc_api_url() == "http://172.18.0.4:1984"
     assert go2rtc_access.go2rtc_is_remote() is True
 
 

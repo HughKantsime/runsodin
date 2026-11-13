@@ -86,7 +86,7 @@ GUARD_NAMES = frozenset({
     "is_private_destination", "is_itar_mode",
     # built on core.itar: pinned HTTP, the webhook posts, Square, Spoolman, go2rtc
     "pinned_async_request", "safe_post", "trusted_post", "refuse_under_itar",
-    "spoolman_request", "go2rtc_api_url",
+    "spoolman_request", "go2rtc_api_url", "go2rtc_target",
 })
 
 
@@ -133,7 +133,8 @@ ITAR_FILES = (
     "modules/printers/moonraker_discovery.py",
     "modules/printers/telemetry/bambu/adapter.py", "modules/printers/telemetry/bambu/ams_acquisition_session.py",
     "modules/printers/telemetry/bambu/commands.py", "modules/printers/telemetry/bambu/ftp_upload.py",
-    # go2rtc (ODIN_GO2RTC_API_URL): every address comes from go2rtc_access.go2rtc_api_url
+    # go2rtc (ODIN_GO2RTC_API_URL): every address and client setting comes from
+    # go2rtc_access.go2rtc_target (tests/test_contracts/test_itar_go2rtc_destinations.py)
     "modules/archives/timelapse_capture.py", "modules/printers/camera_routes.py",
     "modules/printers/mjpeg_relay.py", "modules/printers/routes_camera_snapshot.py",
     "modules/vision/detection_thread.py",
