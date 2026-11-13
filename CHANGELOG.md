@@ -17,6 +17,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Quiet hours now follow your farm's clock. Settings > General saves a time zone with the quiet hours (taken from your browser when you save, and you can pick another), and the scheduler keeps to those clock times all year, including across daylight-saving changes. Quiet hours you saved before this update, and the server defaults, are still applied in UTC exactly as before: Settings says so and offers "Use my time zone (keeps the same clock hours)", which changes nothing until you press it and save. Quiet hours that are off stay off. `GET`/`PUT /api/config` carry the zone as `blackout_timezone`; an unknown zone name is refused.
 - Phone browsers, Classic theme: every button in a page, pop-up or stand-alone page is at least 44 px to the finger (switches look the same and take 44 px of space; small buttons inside a text field keep their size); a printer card's action buttons move to their own row instead of squeezing the printer's name. Desktop and tablet layouts are unchanged.
 - Alerts: a long title on a single alert is shown on two lines and expands when pressed (grouped alerts already did this).
 - Foundry cameras on a phone: the chosen camera's button is kept in view in the chooser strip.
