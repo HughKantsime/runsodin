@@ -19,12 +19,13 @@ from core.db import get_db
 from core.display_names import display_names
 from core.hms_state import display_entries
 from core.rbac import get_org_scope, require_role, require_scope, should_filter_org
+from modules.printers.integration_floor import HIDDEN_ERROR_MESSAGE, Floor, iso as _iso, to_utc as _utc
 from modules.printers.models import Printer
 from modules.printers.route_utils import get_camera_url
 
 router = APIRouter()
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 # Matches the web UI (frontend/src/utils/shared.ts ONLINE_THRESHOLD_MS).
 ONLINE_SECONDS = 90
 PRINTING_STATES = frozenset({"RUNNING", "PRINTING"})
@@ -32,24 +33,10 @@ PAUSED_STATES = frozenset({"PAUSE", "PAUSED"})
 ERROR_STATES = frozenset({"FAILED", "ERROR"})
 QUEUED_JOB_STATES = ("pending", "submitted", "scheduled")
 STATUSES = ("printing", "paused", "error", "offline", "idle")
-HIDDEN_ERROR_MESSAGE = "Details hidden (controlled work)"
+# HIDDEN_ERROR_MESSAGE comes from integration_floor (imported above).
 
 
-def _utc(value):
-    """Database timestamps without a zone are UTC."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-
-
-def _iso(value):
-    value = _utc(value)
-    return value.isoformat().replace("+00:00", "Z") if value else None
+# _utc and _iso (database timestamps are UTC) live in integration_floor, imported above.
 
 
 def active_hms_count(stored) -> int:
@@ -167,6 +154,8 @@ def home_assistant_status(
     # same controlled-work rules as the printer cards (core.display_names).
     names = display_names(db, "print_job", [row["id"] for row in running.values()], current_user)
     hidden_details = controlled and _caller_has_hidden_work(db, current_user)
+    # Next job, bench state, day totals and queue hours: database only (integration_floor).
+    floor = Floor.load(db, current_user, scope, controlled, printers, running, now, QUEUED_JOB_STATES)
 
     items = []
     counts = {name: 0 for name in STATUSES}
@@ -209,15 +198,16 @@ def home_assistant_status(
             "last_error": last_error,
             "last_seen": _iso(printer.last_seen),
             "camera_available": bool(printer.camera_enabled and get_camera_url(printer)),
+            **floor.for_printer(printer, status, job, names_allowed, hidden_details or not names_allowed, error_unresolved),
         })
 
-    queue_length = _queue_length(db, current_user, scope, controlled)
+    fleet_floor = floor.fleet()
 
     return {
         "schema_version": SCHEMA_VERSION,
         "odin_version": _odin_version(),
         "generated_at": _iso(now),
-        "fleet": {**counts, "total": len(items), "queue_length": queue_length},
+        "fleet": {**counts, "total": len(items), "queue_length": floor.queue["count"], **fleet_floor},
         "printers": items,
     }
 
@@ -228,19 +218,5 @@ def _caller_has_hidden_work(db, actor) -> bool:
     return any(denied_ids(db, actor).values())
 
 
-def _queue_length(db, actor, scope, controlled) -> int:
-    """Queued jobs the caller could list in GET /api/jobs (the same predicates)."""
-    clauses = ["jobs.status IN :states",
-               "NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"]
-    params = {"states": list(QUEUED_JOB_STATES)}
-    if controlled:
-        from core.controlled_parts import job_visibility
-        predicate, visibility_params = job_visibility(actor)
-        clauses.append("(" + predicate + ")")
-        params.update(visibility_params)
-    if should_filter_org(actor, scope):
-        clauses.append("(jobs.charged_to_org_id = :org OR jobs.charged_to_org_id IS NULL)")
-        params["org"] = scope
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
-    query = text("SELECT count(*) FROM jobs WHERE " + " AND ".join(clauses)).bindparams(bindparam("states", expanding=True))
-    return int(db.execute(query, params).scalar_one() or 0)
+# The caller-visible queue (queue_length, queued_hours) is computed by
+# integration_floor.queue_totals, with the same predicates as every job surfaced.
