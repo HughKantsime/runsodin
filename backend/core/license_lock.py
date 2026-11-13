@@ -1127,7 +1127,7 @@ def mark_community_selected(db, actor):
     _write(db, EVIDENCE_KEY, {'schema_version': 1, 'community_selected': True})
 
 
-def remove_installed_license(db, actor, action, *, details=None):
+def remove_installed_license(db, actor, action, *, details=None, expected_key=None, expected_sha256=None):
     """Journal intent durably, then quarantine and commit policy/audit together.
 
     A failed transaction restores the active file. A process crash after rename
@@ -1135,36 +1135,43 @@ def remove_installed_license(db, actor, action, *, details=None):
     """
     import license_manager as lm
     from core.audit import log_audit
-    journal = 'license_lock_removal_intent'
-    original = lm._find_license_file()
-    quarantined = None
-    try:
-        if enabled():
-            _lock(db)
-            _write(db, journal, {'community_selected': True})
-            db.commit()
-        mark_community_selected(db, actor)
-        quarantined = lm.quarantine_installed_license()
-        log_audit(db, action, 'system', details=details or {'quarantined': os.path.basename(quarantined or '')})
-        if enabled():
-            db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
-        db.commit()
-        lm._cached_license = None
-        return quarantined
-    except Exception as exc:
-        db.rollback()
-        if quarantined and original:
-            os.replace(quarantined, original)
-        lm._cached_license = None
-        if enabled():
-            try:
-                db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+    with lm.license_file_lock():
+        if expected_key is not None or expected_sha256 is not None:
+            installed = lm.load_license()
+            if (not installed.license_sha256 or installed.key != expected_key
+                    or installed.license_sha256 != expected_sha256):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=409, detail="The installed license changed during unactivation. The current license was retained.")
+        journal = 'license_lock_removal_intent'
+        original = lm._find_license_file()
+        quarantined = None
+        try:
+            if enabled():
+                _lock(db)
+                _write(db, journal, {'community_selected': True})
                 db.commit()
-            except Exception:
-                db.rollback()
-        if isinstance(exc, LicenseLockError):
-            raise
-        raise LicenseLockError('license_policy_unavailable', status=503) from None
+            mark_community_selected(db, actor)
+            quarantined = lm.quarantine_installed_license()
+            log_audit(db, action, 'system', details=details or {'quarantined': os.path.basename(quarantined or '')})
+            if enabled():
+                db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+            db.commit()
+            lm._cached_license = None
+            return quarantined
+        except Exception as exc:
+            db.rollback()
+            if quarantined and original:
+                os.replace(quarantined, original)
+            lm._cached_license = None
+            if enabled():
+                try:
+                    db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+                    db.commit()
+                except Exception:
+                    db.rollback()
+            if isinstance(exc, LicenseLockError):
+                raise
+            raise LicenseLockError('license_policy_unavailable', status=503) from None
 
 
 def install_membership_hooks():

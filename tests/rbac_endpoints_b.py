@@ -228,6 +228,7 @@ ENDPOINTS = [
     # =========================================================================
     ("GET",  "/api/system/license-server-status", _admin_read(), None, "Admin-initiated license reachability probe"),
     ("GET",  "/api/license/installation-id",    _admin_read(), None, "Get installation ID"),
+    ("GET",  "/api/license/last-refresh",       _admin_read(), None, "Last Refresh license answer (billing state)"),
     ("POST", "/api/license/activation-request", _admin_only(), {"key": "x", "nonce": "x"}, "Create signed offline activation request"),
     ("POST", "/api/license/unactivation-request", _admin_only(), {"nonce": "x"}, "Create signed offline unactivation request"),
     ("POST", "/api/license/activate",           _admin_only(), {},   "Activate license online"),

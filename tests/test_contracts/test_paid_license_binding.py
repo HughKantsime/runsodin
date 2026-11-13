@@ -268,7 +268,8 @@ def test_exact_portal_outbound_keys(portal, bound):
     activate_keys = {'key', 'installation_id', 'device_pubkey', 'nonce', 'bootstrap_signature'}
     offline_keys = {'installation_id', 'hostname', 'odin_version', 'generated_at',
                     'device_pubkey', 'nonce', 'bootstrap_signature'}
-    refresh_keys = {'key', 'installation_id', 'nonce', 'signature'}
+    # current_expires_at: the unsigned held-expiry hint the portal uses for renewed vs not_renewed_yet (B3).
+    refresh_keys = {'key', 'installation_id', 'nonce', 'signature', 'current_expires_at'}
     if bound:
         activate_keys.add('paid_binding')
         offline_keys.add('paid_binding')
