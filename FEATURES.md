@@ -667,8 +667,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Theme settings persist across devices via user account (not just localStorage)
 
 ### 16.2 Navigation
-- Sidebar with all page links; collapses to hamburger on mobile
-- Fleet status widget in sidebar (printer counts by state)
+- Sidebar grouped as Print, Farm, Materials, History and Insights (History and Insights fold, remembered per browser), with waiting-job and unread-alert counts; the audit log is reached from Settings > System; collapses to hamburger on mobile
+- Fleet status on the sidebar Printers row (printers online; counts by state on hover and for screen readers)
 - Global search (Cmd+K or /) with result highlighting across printers, jobs, models, spools, orders, products
 
 ### 16.3 Keyboard Shortcuts
@@ -685,7 +685,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Installable web app (v1.2.0)
 
 ### 16.5 Internationalization
-- Multi-language: EN, DE, JA, ES, IT (181 keys)
+- Multi-language: EN, DE, JA, ES, IT (184 keys)
 
 ### 16.6 Dashboard Layout
 - Responsive printer card grid that adapts to the screen width

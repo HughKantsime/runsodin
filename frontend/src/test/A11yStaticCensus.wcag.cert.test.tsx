@@ -160,7 +160,7 @@ it('F12-12.7-06 census: scope="col" exists only on a minority of table headers',
 
 it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {
   expect(summary.progressbar_role_elements.map(p => p.split(':')[0]).sort()).toEqual([
-    'components/foundry/PrinterCard.tsx', 'components/jobs/TimelineJobDetail.tsx', 'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
+    'components/foundry/PrinterCard.tsx', 'components/jobs/TimelineJobDetail.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
     'components/shared/OnboardingTour.tsx', 'components/ui/ProgressBar.tsx', 'pages/dashboard/Overlay.tsx',
     'pages/dashboard/TVDashboard.tsx', 'pages/jobs/Upload.tsx',
   ])

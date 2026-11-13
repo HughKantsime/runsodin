@@ -12,7 +12,7 @@
     "frontend/src/components/admin/OrgManager.tsx": "cae1bd518201351617404e95840d81dcc22258fdd64a293aa6dddf3747a3aefe",
     "frontend/src/components/admin/QuotaManager.tsx": "85effd2f4b75c5fffc120ec8c1ee4e8a2818bc8d481dfc3eddb611b3787e2c62",
     "frontend/src/components/admin/SystemNoticesBanner.tsx": "c741ba0429ed49f7e28801e0cb93de6e3805826a232fb6e189de242d1cfb2bed",
-    "frontend/src/components/admin/SystemTab.tsx": "c2ba2e3f7ffa0d72f564ba782942f2fbeee80c05891edbbdc773d7d589840163",
+    "frontend/src/components/admin/SystemTab.tsx": "780e8624543f2e6144aab486267a62862a31b38d14a3644ff519e227bb8b3ab6",
     "frontend/src/components/admin/WebhookSettings.tsx": "6ce6e1f438b01eac430903d3cc5b2487ad7fc7b4ce483a49b77f7e121825a63c",
     "frontend/src/components/auth/APITokenManager.tsx": "bb1f618050c00fcf8ce9cb439dca653017d5e22067ee03abb53d5aa3de12ca5f",
     "frontend/src/components/auth/OIDCBootstrap.tsx": "e72a818bcdd797523dcd1ba0de371150d844e185c75ea09514296b86bfa9332d",

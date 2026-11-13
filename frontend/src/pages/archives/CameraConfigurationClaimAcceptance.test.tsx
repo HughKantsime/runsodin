@@ -65,6 +65,7 @@ it('F02-2.7-05 bulk deletion remains unavailable rather than bypassing lifetime 
 it('F02-2.7-06 main navigation exposes Timelapses with Film icon', async () => {
   show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
   const nav = screen.getByRole('navigation', { name: 'Main navigation' }); await within(nav).findByRole('link', { name: 'Orders' })
+  fireEvent.click(within(nav).getByRole('button', { name: /history/i }))   // History is folded until opened
   const link = within(nav).getByRole('link', { name: 'Timelapses' }); expect(link).toHaveAttribute('href', '/timelapses'); expect(link.querySelector('.lucide-film')).not.toBeNull()
 })
 it('F02-2.7-07 editor uses verified stream, bounded range inputs and six speed presets', async () => {
