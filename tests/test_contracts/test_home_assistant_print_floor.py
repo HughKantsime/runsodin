@@ -409,7 +409,8 @@ def test_day_totals_start_at_local_midnight(ha_client, review_db, monkeypatch):
     from modules.printers import integration_floor
     client, issue = ha_client
     zone = timezone(timedelta(hours=-5))
-    monkeypatch.setattr(integration_floor, 'server_zone', lambda: zone)
+    from core import farm_time
+    monkeypatch.setattr(farm_time, 'farm_zone_source', lambda db: ('Etc/GMT+5', 'setting'))  # fixed UTC-5
     start = integration_floor.day_start(datetime.now(timezone.utc), zone)
     minute = timedelta(minutes=1)
     rows = [(9, 'completed', start - minute), (9, 'completed', start + minute), (10, 'failed', start + 2 * minute),

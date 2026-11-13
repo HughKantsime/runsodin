@@ -120,7 +120,8 @@ def get_timeline(
 ):
     """Get timeline view data for the scheduler."""
     if start_date is None:
-        start_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        from core.farm_time import farm_day_start
+        start_date = farm_day_start(db, datetime.now(timezone.utc))  # the farm's local midnight, as UTC
 
     end_date = start_date + timedelta(days=days)
     slot_duration = 30  # minutes

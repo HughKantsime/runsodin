@@ -10,6 +10,8 @@ import { useLicense } from '../../LicenseContext'
 import { getApprovalSetting, setApprovalSetting } from '../../api'
 import { getEducationMode, setEducationMode } from '../../api'
 import { Button, Input } from '../ui'
+import FarmTimeZoneSetting from './FarmTimeZoneSetting'
+import { browserTimeZone, timeZoneChoices } from '../../utils/farmTime'
 
 function ApprovalToggle() {
   const queryClient = useQueryClient()
@@ -184,17 +186,7 @@ export function quietHoursSummary(start: string, end: string, zone?: string | nu
   return `The scheduler will not start jobs between ${start} and ${end} UTC (${local(start)} to ${local(end)} your time, standard time). Save to apply.`
 }
 
-/** The IANA time zone this browser is set to. */
-export function browserTimeZone(): string {
-  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
-}
-
-/** Time zones offered for quiet hours: what the browser knows, plus any the caller needs listed. */
-export function timeZoneChoices(...always: string[]): string[] {
-  let known: string[] = []
-  try { known = (Intl as any).supportedValuesOf?.('timeZone') ?? [] } catch { known = [] }
-  return Array.from(new Set([...always.filter(Boolean), 'UTC', ...known])).sort()
-}
+export { browserTimeZone, timeZoneChoices }
 
 const MATERIAL_MODES = [
   { value: 'require', label: 'Require', help: 'A job only goes to a printer whose loaded filament includes every material it needs; if no printer has it, the job stays queued and the scheduler run says which material is missing.' },
@@ -303,6 +295,8 @@ export default function GeneralTab() {
 
   // SPOOLMAN_URL in the server environment overrides the saved URL; the server refuses to change it.
   const spoolmanFromEnv = configData?.spoolman_url_from_env === true
+  // The saved farm time zone, when there is one: what a quiet-hours window with no zone is offered.
+  const farmZone = (configData?.farm_timezone as string | null | undefined) || ''
   const handleSave = () => {
     const { spoolman_url, blackout_timezone, ...times } = settings
     const scheduling = blackout_timezone ? { ...times, blackout_timezone } : times
@@ -316,7 +310,7 @@ export default function GeneralTab() {
           this install does not show simply do nothing. */}
       <nav aria-label="On this page" className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--brand-text-muted)]">
         <span>On this page:</span>
-        {[['interface-language', 'Language'], ['settings-spoolman', 'Spoolman'], ['settings-scheduler', 'Quiet hours'], ['settings-interface', 'Interface mode'], ['settings-education', 'Education mode'], ['settings-camera-network', 'Camera network']].map(([id, label]) => (
+        {[['interface-language', 'Language'], ['settings-spoolman', 'Spoolman'], ['settings-farm-timezone', 'Farm time zone'], ['settings-scheduler', 'Quiet hours'], ['settings-interface', 'Interface mode'], ['settings-education', 'Education mode'], ['settings-camera-network', 'Camera network']].map(([id, label]) => (
           <a key={id} href={`#${id}`} className="underline hover:text-[var(--brand-text-primary)]"
             onClick={e => { const target = document.getElementById(id); if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }}>{label}</a>
         ))}
@@ -433,6 +427,8 @@ export default function GeneralTab() {
         )}
       </div>
 
+      <FarmTimeZoneSetting config={configData} />
+
       {/* Scheduler Settings */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
@@ -462,7 +458,7 @@ export default function GeneralTab() {
             className="w-full bg-[var(--brand-input-bg)] text-[var(--brand-text-primary)] border border-[var(--brand-card-border)] rounded-md p-2"
             onChange={(e) => setSettings(s => ({ ...s, blackout_timezone: e.target.value }))}>
             {!settings.blackout_timezone && <option value="">UTC (no time zone saved)</option>}
-            {timeZoneChoices(settings.blackout_timezone, browserTimeZone()).map(z => <option key={z} value={z}>{z}</option>)}
+            {timeZoneChoices(settings.blackout_timezone, browserTimeZone(), farmZone).map(z => <option key={z} value={z}>{z}</option>)}
           </select>
         </div>
         {configData && !settings.blackout_timezone && settings.blackout_start !== settings.blackout_end && (
@@ -472,8 +468,8 @@ export default function GeneralTab() {
               Nothing changes unless you choose a time zone.
             </p>
             <button type="button" className="mt-1 underline"
-              onClick={() => setSettings(s => ({ ...s, blackout_timezone: browserTimeZone() }))}>
-              Use my time zone (keeps the same clock hours)
+              onClick={() => setSettings(s => ({ ...s, blackout_timezone: farmZone || browserTimeZone() }))}>
+              {farmZone ? `Use the farm time zone, ${farmZone} (keeps the same clock hours)` : 'Use my time zone (keeps the same clock hours)'}
             </button>
           </div>
         )}

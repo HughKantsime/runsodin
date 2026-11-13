@@ -594,7 +594,9 @@ def get_config(current_user: dict = Depends(require_role("viewer")), db: Session
     """Get current configuration."""
     from core.scheduler_settings import get_blackout, get_blackout_timezone
     from modules.jobs.services import scheduler_material_mode as get_mode
+    from core.farm_time import farm_zone_source, get_farm_timezone
     blackout_start, blackout_end = get_blackout(db)
+    effective_zone, effective_source = farm_zone_source(db)
     return {
         "spoolman_url": get_spoolman_url(db) or None,
         "spoolman_url_from_env": managed_by_environment(),
@@ -603,6 +605,10 @@ def get_config(current_user: dict = Depends(require_role("viewer")), db: Session
         # null: the window was never saved with a time zone, so its clock times are UTC
         "blackout_timezone": get_blackout_timezone(db),
         "scheduler_material_mode": get_mode(db),
+        # null: no admin has set it. The effective zone is what "today" follows and which rule gave it
+        # (setting, quiet_hours, server = the TZ environment variable, utc).
+        "farm_timezone": get_farm_timezone(db),
+        "farm_timezone_effective": {"zone": effective_zone, "source": effective_source},
     }
 
 
@@ -625,11 +631,14 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
         set_blackout(db, config.blackout_start, config.blackout_end, config.blackout_timezone)
 
     mode_change = {}
+    if config.farm_timezone is not None:
+        from core.farm_time import get_farm_timezone, set_farm_timezone
+        mode_change["farm_timezone"] = {"from": get_farm_timezone(db), "to": set_farm_timezone(db, config.farm_timezone)}
     if config.scheduler_material_mode is not None:
         from modules.jobs.services import scheduler_material_mode as get_mode, set_scheduler_material_mode as set_mode
         mode_change["scheduler_material_mode"] = {"from": get_mode(db), "to": set_mode(db, config.scheduler_material_mode)}
 
-    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "blackout_timezone", "scheduler_material_mode"] if getattr(config, k) is not None], **mode_change})
+    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "blackout_timezone", "scheduler_material_mode", "farm_timezone"] if getattr(config, k) is not None], **mode_change})
     db.commit()
     return {"success": True, "message": "Config updated."}
 

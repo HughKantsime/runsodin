@@ -13,6 +13,7 @@ import httpx
 
 from core.db import get_db
 from core.db_compat import as_utc_datetime
+from core.farm_time import farm_day_start
 from core.rbac import require_role, get_org_scope, check_org_access
 from core.config import settings
 from core.base import JobStatus
@@ -58,14 +59,12 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     pending_jobs = job_query.filter(Job.status == JobStatus.PENDING).count()
     scheduled_jobs = job_query.filter(Job.status == JobStatus.SCHEDULED).count()
     printing_jobs = job_query.filter(Job.status == JobStatus.PRINTING).count()
-    completed_today = job_query.filter(
-        Job.status == JobStatus.COMPLETED,
-        Job.actual_end >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
-    ).count()
+    farm_today = farm_day_start(db, datetime.now(timezone.utc))  # the farm's local midnight (core.farm_time), as UTC
+    completed_today = job_query.filter(Job.status == JobStatus.COMPLETED, Job.actual_end >= farm_today).count()
 
     # Include MQTT-tracked jobs
     # A datetime, not an ISO string: SQLite stores a space where ISO has "T", so text never compared equal-day.
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    today_start = farm_today.replace(tzinfo=None)
     if should_filter_org(current_user, org):
         mqtt_printing = db.execute(text(
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "

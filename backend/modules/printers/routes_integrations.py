@@ -159,7 +159,10 @@ def home_assistant_status(
     names = display_names(db, "print_job", [row["id"] for row in running.values()], current_user)
     hidden_details = controlled and _caller_has_hidden_work(db, current_user)
     # Next job, bench state, day totals and queue hours: database only (integration_floor).
-    floor = Floor.load(db, current_user, scope, controlled, printers, running, now, QUEUED_JOB_STATES)
+    from zoneinfo import ZoneInfo
+    from core.farm_time import farm_zone_source
+    farm_timezone = farm_zone_source(db)[0]  # where the day totals' "today" starts
+    floor = Floor.load(db, current_user, scope, controlled, printers, running, now, QUEUED_JOB_STATES, ZoneInfo(farm_timezone))
 
     items = []
     counts = {name: 0 for name in STATUSES}
@@ -213,6 +216,7 @@ def home_assistant_status(
         "schema_version": SCHEMA_VERSION,
         "odin_version": _odin_version(),
         "generated_at": _iso(now),
+        "timezone": farm_timezone,
         "fleet": {**counts, "total": len(items), "queue_length": floor.queue["count"], **fleet_floor},
         "printers": items,
     }
