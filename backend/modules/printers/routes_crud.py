@@ -590,6 +590,21 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             log.warning("OctoPrint test-connection failed")
             return {"success": False, "error": "Connection failed. Check printer IP and OctoPrint configuration."}
 
+    elif api_type == "ultimaker":
+        from modules.printers.adapters.ultimaker import UltimakerPrinter
+        # GET /api/v1/system only: no credential, no write. The adapter's transport applies the ITAR
+        # check and the pinned device destination policy.
+        try:
+            info = UltimakerPrinter(request.api_host).get_system()
+        except Exception:
+            log.warning("Ultimaker test-connection failed")
+            info = None
+        if info is None:
+            return {"success": False, "error": "Connection failed. Check the printer address; the printer must answer http://<address>/api/v1/system."}
+        detail = ", ".join(part for part in (info["variant"], f"firmware {info['firmware']}" if info["firmware"] else "") if part)
+        return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None,
+                "variant": info["variant"], "firmware": info["firmware"], "detail": detail}
+
     elif api_type == "anycubic_lan":
         from modules.printers.route_utils import test_anycubic_lan_connection
         return test_anycubic_lan_connection(request.api_host)

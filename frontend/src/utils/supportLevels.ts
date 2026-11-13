@@ -9,13 +9,25 @@ export const SUPPORT_LEVELS: Record<string, SupportLevel> = {
   elegoo: 'supported',
   anycubic_lan: 'supported',
   octoprint: 'experimental',
+  ultimaker: 'experimental',
 }
 
 const OCTOPRINT_WARNING = "Built from OctoPrint's public API and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong."
 const GENERIC_WARNING = 'Built from public documentation and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong.'
 
+const ULTIMAKER_WARNING = "Built from Ultimaker's public local API and not yet verified on real hardware. Monitoring and the camera only for now: sending jobs and controls are not available for this printer type yet. Send printer diagnostics if something is wrong."
+
+// Mirror of backend support_levels.MONITOR_ONLY: Experimental types with no job sending or controls yet.
+export const MONITOR_ONLY_TYPES: ReadonlySet<string> = new Set(['ultimaker'])
+
+export function isMonitorOnlyType(apiType?: string | null): boolean {
+  return MONITOR_ONLY_TYPES.has((apiType ?? '').trim().toLowerCase())
+}
+
 export function experimentalWarning(apiType?: string | null): string {
-  return (apiType ?? '').trim().toLowerCase() === 'octoprint' ? OCTOPRINT_WARNING : GENERIC_WARNING
+  const key = (apiType ?? '').trim().toLowerCase()
+  if (key === 'ultimaker') return ULTIMAKER_WARNING
+  return key === 'octoprint' ? OCTOPRINT_WARNING : GENERIC_WARNING
 }
 
 /** Level for a type; null for a manual printer, 'unsupported' for an unknown type. */
@@ -41,6 +53,7 @@ export const PRINTER_TYPE_OPTIONS: PrinterTypeOption[] = [
   { value: 'elegoo', label: 'Elegoo (SDCP)' },
   { value: 'anycubic_lan', label: 'Anycubic LAN (monitor only)' },
   { value: 'octoprint', label: 'OctoPrint' },
+  { value: 'ultimaker', label: 'Ultimaker' },
 ]
 
 export function printerTypeLabel(option: PrinterTypeOption): string {

@@ -16,8 +16,8 @@ from modules.printers.models import Printer
 
 router = APIRouter(tags=['Printers'])
 
-# Never blocked: queue bookkeeping (plate-cleared), and the safety actions that stop or hold a
-# print (pause, stop). Refusing those would leave a running print uncontrollable.
+# Queue bookkeeping (plate-cleared) is always allowed. Safety actions (pause, stop)
+# bypass opt-in only for types that implement controls, never monitoring-only types.
 _EXEMPT_SUFFIXES = frozenset({'plate-cleared', 'pause', 'stop'})
 _SAFE_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS'})
 
@@ -78,7 +78,7 @@ def experimental_controls_guard(
         return
     route = request.scope.get('route')
     action = (getattr(route, 'path', '') or '').rsplit('/', 1)[-1]
-    if action in _EXEMPT_SUFFIXES:
+    if action == 'plate-cleared':
         return
     try:
         printer_id = int(request.path_params.get('printer_id'))
@@ -86,6 +86,8 @@ def experimental_controls_guard(
         return
     printer = db.get(Printer, printer_id)
     if printer is None or not check_org_access(current_user, printer.org_id):
+        return
+    if action in _EXEMPT_SUFFIXES and not support_levels.is_monitor_only(printer.api_type):
         return
     refusal = support_levels.control_refusal(db, printer.id, printer.api_type, action)
     if refusal is None:

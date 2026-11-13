@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { getCurrentUser } from '../../permissions'
 import { printerSupport } from '../../api/printerSupport'
-import { experimentalWarning, supportLevelOfPrinter } from '../../utils/supportLevels'
+import { experimentalWarning, isMonitorOnlyType, supportLevelOfPrinter } from '../../utils/supportLevels'
 
 type PrinterSupportFields = { id: number; api_type?: string | null; support_level?: unknown; experimental_actions_enabled?: boolean }
 
@@ -51,5 +51,13 @@ function OptInPanel({ printer }: { printer: PrinterSupportFields }) {
 /** Warning and opt-in toggle. Renders nothing (and uses no query client) unless the printer is Experimental. */
 export function ExperimentalOptIn({ printer }: { printer: PrinterSupportFields }) {
   if (supportLevelOfPrinter(printer) !== 'experimental') return null
+  if (isMonitorOnlyType(printer.api_type)) {
+    return (
+      <div data-testid="experimental-monitor-only" className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)] space-y-1">
+        <p role="note" className="text-xs text-amber-400">{experimentalWarning(printer.api_type)}</p>
+        <p className="text-xs text-[var(--brand-text-secondary)]">Monitoring only for now. Job sending and controls are not available for this printer type yet.</p>
+      </div>
+    )
+  }
   return <OptInPanel printer={printer} />
 }

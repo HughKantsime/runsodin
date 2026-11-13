@@ -70,6 +70,10 @@ def observe_status(engine, printer_id, status, protocol, *, owner=None):
         # Evidence only from a real reading: documented state.flags present and classified.
         if status.internal_state in ('IDLE', 'PRINTING', 'PAUSED', 'ERROR') and _mapping(_mapping(raw.get('state')).get('flags')):
             state = status.internal_state
+    elif protocol == 'ultimaker':
+        # Evidence only from a real reading: a classified state from a body that carried a printer status.
+        if status.internal_state in ('IDLE', 'PRINTING', 'PAUSED', 'ERROR') and isinstance(raw.get('status'), str):
+            state = status.internal_state
     elif protocol == 'elegoo':
         reported = _mapping(raw.get('Status') or _mapping(raw.get('Data')).get('Status'))
         if 'CurrentStatus' in reported or 'Status' in _mapping(reported.get('PrintInfo')):

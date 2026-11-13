@@ -30,6 +30,7 @@ SUPPORT_TABLE: dict[str, tuple[str, str]] = {
     'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring, pause, resume, speed and stop; job sending is Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in'),
     'anycubic_lan': (SUPPORTED, 'Anycubic LAN mode; monitoring and ACE slots only'),
     'octoprint': (EXPERIMENTAL, "OctoPrint's public REST API documentation (docs.octoprint.org); built from the documentation, not verified on real hardware"),
+    'ultimaker': (EXPERIMENTAL, "Ultimaker's public local REST API documentation; monitoring only for now (no job sending, no controls); built from the documentation, not verified on hardware"),
 }
 
 CONFIG_KEY = 'experimental_printer_actions'
@@ -43,6 +44,14 @@ EXPERIMENTAL_REFUSAL = f'{EXPERIMENTAL_NOT_ENABLED}: {EXPERIMENTAL_MESSAGE}'
 UNSUPPORTED_NOT_ENABLED = 'printer_type_unsupported'
 UNSUPPORTED_REFUSAL = (f"{UNSUPPORTED_NOT_ENABLED}: ODIN has no support for this printer type, so job sending "
                        "and printer controls are off. Pause and stop still work, and so does monitoring.")
+
+# Experimental types that only monitor: job sending and every control are not built for them yet, so
+# the per-printer opt-in means nothing and is never read for them. Pause and stop are refused too
+# (there is no way to send them); the scheduler and dispatch refuse through dispatch_unsupported_reason.
+MONITOR_ONLY = frozenset({'ultimaker'})
+MONITOR_ONLY_NOT_AVAILABLE = 'printer_type_monitoring_only'
+MONITOR_ONLY_DETAIL = "Job sending and printer controls are not available for this printer type yet. Monitoring works."
+MONITOR_ONLY_REFUSAL = f'{MONITOR_ONLY_NOT_AVAILABLE}: {MONITOR_ONLY_DETAIL}'
 
 
 def normalize(api_type) -> str:
@@ -67,6 +76,10 @@ def is_experimental(api_type) -> bool:
     return support_level(api_type) == EXPERIMENTAL
 
 
+def is_monitor_only(api_type) -> bool:
+    return normalize(api_type) in MONITOR_ONLY
+
+
 # Capabilities that need the per-printer opt-in on a type whose OVERALL level stays Supported:
 # monitoring and the controls that already shipped are unchanged and are never gated.
 DISPATCH = 'dispatch'
@@ -84,7 +97,7 @@ def gated_capabilities(api_type) -> frozenset:
 
 def opt_in_applies(api_type) -> bool:
     """True when the per-printer opt-in means anything for this type."""
-    return support_level(api_type) == EXPERIMENTAL or bool(gated_capabilities(api_type))
+    return not is_monitor_only(api_type) and (support_level(api_type) == EXPERIMENTAL or bool(gated_capabilities(api_type)))
 
 
 def _coerce(raw) -> dict:
@@ -104,6 +117,8 @@ def experimental_enabled(db, printer_id, api_type) -> bool:
     """True only for a well-formed entry, enabled, recorded for this printer's current type AND
     name. The name binds the entry to this printer: a recycled id (bulk delete, raw SQL, cascade)
     for a different printer never inherits an opt-in."""
+    if is_monitor_only(api_type):
+        return False  # nothing to opt in to yet: a hand-written store entry enables nothing
     try:
         entry = _read_store(db).get(str(printer_id))
         if not (isinstance(entry, dict) and entry.get('enabled') is True and entry.get('api_type') == normalize(api_type)):
@@ -122,6 +137,8 @@ def experimental_refusal(db, printer_id, api_type) -> Optional[str]:
         return UNSUPPORTED_REFUSAL
     if level != EXPERIMENTAL:
         return None
+    if is_monitor_only(api_type):
+        return MONITOR_ONLY_REFUSAL
     return None if experimental_enabled(db, printer_id, api_type) else EXPERIMENTAL_REFUSAL
 
 
@@ -161,6 +178,8 @@ def command_refusal(printer, action=None) -> Optional[str]:
     level = support_level(api_type)
     if level == UNSUPPORTED:
         return UNSUPPORTED_REFUSAL
+    if level == EXPERIMENTAL and is_monitor_only(api_type):
+        return MONITOR_ONLY_REFUSAL
     if level != EXPERIMENTAL:
         gated = gated_capabilities(api_type)
         if not gated or (action is not None and ACTION_CAPABILITY.get(action) not in gated):

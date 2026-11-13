@@ -11,7 +11,11 @@ def dispatch_unsupported_reason(printer):
     def field(name):
         return printer.get(name) if isinstance(printer, Mapping) else getattr(printer, name, None)
 
-    if str(field('api_type') or '').strip().casefold() != 'moonraker':
+    api_type = str(field('api_type') or '').strip().casefold()
+    from modules.printers.support_levels import MONITOR_ONLY, MONITOR_ONLY_DETAIL
+    if api_type in MONITOR_ONLY:
+        return 'printer_dispatch_unsupported: ' + MONITOR_ONLY_DETAIL
+    if api_type != 'moonraker':
         return None
     for name in ('model', 'machine_type'):
         identity = str(field(name) or '').casefold()

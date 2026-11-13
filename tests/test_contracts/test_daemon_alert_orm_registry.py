@@ -57,7 +57,8 @@ DAEMONS = _daemon_modules()
 
 
 def test_daemon_inventory_is_complete():
-    assert len(DAEMONS) == 10 and 'modules.printers.monitors.mqtt_monitor' in DAEMONS
+    assert len(DAEMONS) == 11 and 'modules.printers.monitors.mqtt_monitor' in DAEMONS
+    assert 'modules.printers.monitors.ultimaker_monitor' in DAEMONS
 
 
 @pytest.mark.parametrize('module', DAEMONS)
