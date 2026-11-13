@@ -10,7 +10,7 @@ only through the same joins and org checks that build the display name, and ever
 import re
 from datetime import timezone
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import and_, case, func, or_, text
 
 from core.base import JobStatus
 from core.printer_display_facts import may_read
@@ -93,15 +93,19 @@ def search_filter(user, q):
 def _instant(db, column):
     """`column` in a form that orders and compares correctly as stored.
 
-    On SQLite job times are text, in two shapes: naive UTC 'YYYY-MM-DD HH:MM:SS[.ffffff]' and,
-    in rows written by older versions, ISO 'YYYY-MM-DDTHH:MM:SS[.ffffff]+00:00'. As text the
-    two do not sort together ('T' sorts after a space, so an older ISO row of the same day
-    ranked above a newer naive one). Both are UTC, so their first 19 characters with 'T'
-    replaced by a space are the same instant to the second. PostgreSQL stores real timestamps.
+    On SQLite job times are text, in more than one shape: naive UTC 'YYYY-MM-DD HH:MM:SS[.ffffff]'
+    and, in rows written by older versions, ISO 'YYYY-MM-DDTHH:MM:SS[.ffffff]+00:00'. As text they
+    do not sort together ('T' sorts after a space, so an older ISO row of the same day ranked
+    above a newer naive one). SQLite's own strftime reads every shape, including a trailing Z
+    or an offset (which it converts to UTC), and gives the second; the six fraction digits are
+    taken from the stored text so sub-second order is kept. The result is always
+    'YYYY-MM-DD HH:MM:SS.ffffff', or NULL for NULL or unreadable text. PostgreSQL stores real
+    timestamps and is left alone.
     """
     if db.get_bind().dialect.name != 'sqlite':
         return column
-    return func.replace(func.substr(column, 1, 19), 'T', ' ')
+    fraction = case((func.substr(column, 20, 1) == '.', func.substr(column, 21, 6)), else_='000000')
+    return func.strftime('%Y-%m-%d %H:%M:%S', column).concat('.').concat(fraction)
 
 
 def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, finished_since,
@@ -128,7 +132,7 @@ def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, f
         # A job that ended without ever starting (cancelled or rejected while queued) has no
         # actual_end; its last update is when it ended.
         if db.get_bind().dialect.name == 'sqlite':
-            since = since.strftime('%Y-%m-%d %H:%M:%S')   # compared with _instant's text form
+            since = since.strftime('%Y-%m-%d %H:%M:%S.%f')   # the text form _instant produces
         ended_unstarted = and_(Job.actual_end.is_(None), _instant(db, Job.updated_at) >= since,
                                Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.REJECTED]))
         query = query.filter(or_(and_(Job.actual_end.isnot(None), _instant(db, Job.actual_end) >= since), ended_unstarted))
