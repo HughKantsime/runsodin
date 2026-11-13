@@ -33,7 +33,7 @@
     "frontend/src/components/printers/HmsHistoryPanel.tsx": "c35c77014b2b078b801e7d95f1e3236dc14845e6c186fe31c1280657b7b87b46",
     "frontend/src/components/printers/InstalledNozzles.tsx": "8bb1dde1b28dae6f00b310f09ce0b4fd0a3001b8cb9347ed2d0d58b2f6c59374",
     "frontend/src/components/printers/NozzleStatusCard.tsx": "64cdb7ee583295d159bc039f4fd3d103a176b4b84352284e02de76a17d6f004d",
-    "frontend/src/components/printers/PrinterCard.tsx": "4e04d696a38d40d69c9f04461136d2a6d09f3843846a0bb85175da729b7db325",
+    "frontend/src/components/printers/PrinterCard.tsx": "1bc2d53c01da03e40a41b011a67085a79ef9d95f446dfab715e19a53d814f996",
     "frontend/src/components/printers/PrinterPanels.tsx": "55e612b5566e387873c4b11014186344d130d7cb5122ed8c3fc4aaf02e867dd1",
     "frontend/src/components/printers/PrinterTelemetryChart.tsx": "59a6c64648c4db3d19266190e94ff05b9d8646b57abe6bd28e8e49e31e343d7e",
     "frontend/src/components/reporting/EnergyWidget.tsx": "eace03a2e2fddde104cdc7dfbe5f0e5f07a626b9700b008e51e2e7a3b4be5605",
@@ -80,8 +80,8 @@
     "frontend/src/pages/printers/CameraDetail.tsx": "8fcd6c8eb3e47338da1d25cdcdfc1cf8ac015f45531c89054cb27afc1b279894",
     "frontend/src/pages/printers/Cameras.tsx": "b421eeb3c173998b13763ebb7e8515c7a64ced9710506dfd503a0ff61d5d4289",
     "frontend/src/pages/printers/Maintenance.tsx": "83bfebd3d05193fff1ca4b38e7a927f561ab4a495226c17e3217bbce61347a57",
-    "frontend/src/pages/printers/PrinterDetail.tsx": "357a159419b2f7b171ccea7aefb209e0e817a44e31927aaca5ae690101c787f3",
-    "frontend/src/pages/printers/Printers.tsx": "f5a4d2440446692f6805180d4b0a527e5f549cb1bc74e5b3308dbdf5d16fb94d",
+    "frontend/src/pages/printers/PrinterDetail.tsx": "a446cfdd0eec2e276d912a59a0b5023d1c4fc4fa4608639dcaf671d909becd56",
+    "frontend/src/pages/printers/Printers.tsx": "01ca08a430c3eaa5438003a9a38aa6ff07e33178eab5f0b9cb250acb4137a448",
     "frontend/src/pages/vision/Detections.tsx": "30ed0d0d171685fa0da32d4a1ccdeb519c4d3cea9e99fc89a3534dc8b9f6c7bc"
   },
   "repinned": {

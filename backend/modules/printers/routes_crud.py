@@ -574,6 +574,22 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             log.warning("PrusaLink test-connection failed")
             return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
 
+    elif api_type == "octoprint":
+        from modules.printers.route_utils import octoprint_test_get
+        if not request.api_key:
+            return {"success": False, "error": "OctoPrint needs an application key."}
+        try:
+            r = octoprint_test_get(request.api_host, request.api_key)
+            if r.status_code == 200:
+                # GET /api/version identifies the server, not the printer: never guess a model.
+                return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None}
+            if r.status_code in (401, 403):
+                return {"success": False, "error": "OctoPrint rejected the application key."}
+            return {"success": False, "error": f"OctoPrint returned HTTP {r.status_code}"}
+        except Exception:
+            log.warning("OctoPrint test-connection failed")
+            return {"success": False, "error": "Connection failed. Check printer IP and OctoPrint configuration."}
+
     elif api_type == "anycubic_lan":
         from modules.printers.route_utils import test_anycubic_lan_connection
         return test_anycubic_lan_connection(request.api_host)

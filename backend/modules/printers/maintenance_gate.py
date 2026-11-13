@@ -1,4 +1,4 @@
-"""Maintenance checks at preparation and the final physical-command boundary."""
+"""Maintenance and Experimental-opt-in checks at preparation and the final physical-command boundary."""
 from contextlib import contextmanager
 from contextvars import ContextVar
 from core.printer_maintenance import hold_reason
@@ -28,15 +28,36 @@ class MaintenanceHold(RuntimeError):
     pass
 
 
+class ExperimentalNotEnabled(MaintenanceHold):
+    """An Experimental printer's job sending was switched off before the print command. Handled as a hold."""
+
+
 def refusal(engine, printer_id):
     with engine.connect() as conn:
         return hold_reason(conn, printer_id)
+
+
+def experimental_refusal(engine, printer_id):
+    from modules.printers.support_levels import experimental_refusal_for_printer
+    try:
+        with engine.connect() as conn:
+            return experimental_refusal_for_printer(conn, printer_id)
+    except Exception:
+        from modules.printers.support_levels import EXPERIMENTAL_REFUSAL
+        return EXPERIMENTAL_REFUSAL
 
 
 def report(job, reason):
     from modules.printers.dispatch import _notify_start_outcome
     _notify_start_outcome(job, 'adapter_rejected',
         gate_refusal=GateRefusal('printer_maintenance_hold', reason), message=reason)
+
+
+def report_experimental(job):
+    from modules.printers.dispatch import _notify_start_outcome
+    from modules.printers.support_levels import EXPERIMENTAL_MESSAGE, EXPERIMENTAL_NOT_ENABLED
+    _notify_start_outcome(job, 'adapter_rejected',
+        gate_refusal=GateRefusal(EXPERIMENTAL_NOT_ENABLED, EXPERIMENTAL_MESSAGE), message=EXPERIMENTAL_MESSAGE)
 
 
 @contextmanager
@@ -56,6 +77,10 @@ def check_command():
         if reason:
             report(job, reason)
             raise MaintenanceHold(reason)
+        reason = experimental_refusal(engine, job['printer_id'])
+        if reason:
+            report_experimental(job)
+            raise ExperimentalNotEnabled(reason)
 
 
 def start_gate(engine, printer_id):

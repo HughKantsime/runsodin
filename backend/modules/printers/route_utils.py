@@ -87,6 +87,16 @@ def prusalink_test_get(host: str, credential: Optional[str]):
             "auth": httpx.DigestAuth("maker", "")}
     return pinned_device_get(httpx, f"http://{host}/api/version", timeout=5, **options)
 
+def octoprint_test_get(host: str, credential: Optional[str]):
+    """GET /api/version with the application key, pinned to the device destination policy."""
+    import httpx
+    from modules.printers.adapters.octoprint import _origin
+    origin = _origin(host, 80)  # the adapter's own parsing: host:port and bare IPv6 hosts
+    if origin is None:
+        raise ValueError("Invalid OctoPrint host")
+    options = {"headers": {"X-Api-Key": credential}} if credential else {}
+    return pinned_device_get(httpx, origin + "/api/version", timeout=5, **options)
+
 from modules.printers.camera_urls import (
     _url_endpoint, _validate_camera_url, get_camera_url, effective_camera_url, split_url_userinfo,
     camera_url_has_credentials, sanitize_camera_url, masked_camera_url,
@@ -496,6 +506,7 @@ def sync_go2rtc_config_raw():
 # ====================================================================
 
 _ALLOWED_COMMANDS = frozenset({"pause_print", "resume_print", "stop_print", "cancel_print"})
+_SAFETY_COMMANDS = frozenset({"pause_print", "stop_print", "cancel_print"})
 
 def _call_adapter_method(adapter, action: str, *args):
     """Dispatch an allowed command to an adapter via explicit allowlist."""
@@ -578,6 +589,20 @@ def _prusalink_command(printer, action: str) -> bool:
         log.error(f"PrusaLink {action} failed for printer {printer.id}: {e}")
     return False
 
+def _octoprint_command(printer, action: str) -> bool:
+    """Send pause, resume or stop to an OctoPrint server (POST /api/job; success only on 204)."""
+    from modules.printers.adapters.octoprint import OctoPrintPrinter
+    try:
+        try:
+            key = crypto.decrypt(printer.api_key) if printer.api_key else ""
+        except Exception:
+            key = printer.api_key  # not encrypted or decrypt failed: use the stored value, as dispatch does
+        adapter = OctoPrintPrinter(printer.api_host, api_key=key)
+        return _call_adapter_method(adapter, action)
+    except Exception as e:
+        log.error(f"OctoPrint {action} failed for printer {printer.id}: {type(e).__name__}")
+    return False
+
 def _elegoo_command(printer, action: str) -> bool:
     """Send a command to an Elegoo printer."""
     from modules.printers.adapters.elegoo import ElegooPrinter
@@ -597,6 +622,12 @@ def _send_printer_command(printer, action: str) -> bool:
     if action not in _ALLOWED_COMMANDS:
         log.error(f"Rejected unknown printer command: {action}")
         return False
+    from modules.printers.support_levels import command_refusal
+    # Pausing or stopping a print is always allowed (Vigil auto-pause, operator stop): refusing a
+    # safety action on an Experimental printer would leave its print uncontrollable.
+    if action not in _SAFETY_COMMANDS and command_refusal(printer):
+        log.warning("Printer command %s refused: Experimental printer without opt-in", action)
+        return False
     if printer.api_type == "anycubic_lan":
         return False  # Monitor-only: never fall through to the Bambu command path.
     if printer.api_type == "moonraker":
@@ -605,6 +636,8 @@ def _send_printer_command(printer, action: str) -> bool:
         return _call_adapter_method(adapter, action)
     elif printer.api_type == "prusalink":
         return _prusalink_command(printer, action)
+    elif printer.api_type == "octoprint":
+        return _octoprint_command(printer, action)
     elif printer.api_type == "elegoo":
         return _elegoo_command(printer, action)
     else:

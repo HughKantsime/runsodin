@@ -513,6 +513,17 @@ class PrinterVisionThread(threading.Thread):
                 if jrow and jrow[0] and self._live_printing():
                     success = adapter.pause_print(int(jrow[0]))
 
+            elif api_type == 'octoprint':
+                from modules.printers.adapters.octoprint import OctoPrintPrinter
+                from core.crypto import decrypt as _decrypt_key
+                try:
+                    octo_key = _decrypt_key(api_key) if api_key else ''
+                except Exception:
+                    octo_key = api_key or ''
+                adapter = OctoPrintPrinter(api_host, api_key=octo_key)
+                if self._live_printing():
+                    success = adapter.pause_print()
+
             elif api_type == 'elegoo':
                 from modules.printers.adapters.elegoo import ElegooPrinter
                 adapter = ElegooPrinter(api_host)

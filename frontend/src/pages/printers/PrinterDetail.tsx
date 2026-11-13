@@ -9,6 +9,7 @@ import InstalledNozzles from '../../components/printers/InstalledNozzles'
 import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
 import TraySettings from '../../components/printers/TraySettings'
 import PauseCause from '../../components/printers/PauseCause'
+import { SupportLevelBadge, ExperimentalOptIn } from '../../components/printers/SupportLevel'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
@@ -112,9 +113,11 @@ export default function PrinterDetail() {
 
       {/* Header */}
       <PageHeader icon={Printer} title={printer.name} subtitle={`${printer.type || 'Printer'} ${printer.ip ? '@ ' + printer.ip : ''}`}>
+        <SupportLevelBadge printer={printer} />
         {foundry ? <StatusBadge status={state(printer)} /> : <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />}
       </PageHeader>
 
+      <ExperimentalOptIn printer={printer} />
       <PauseCause printer={printer} />
       <ActiveHms printer={printer} />
       {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}

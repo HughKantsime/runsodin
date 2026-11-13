@@ -217,7 +217,7 @@ def test_dispatch_progress_and_telemetry_latency_under_writer_lock(engine,monkey
 
 def test_all_runtime_entrypoints_register_before_monitor_work():
     import ast
-    for filename in ('mqtt_monitor','anycubic_lan_monitor','prusalink_monitor','elegoo_monitor','moonraker_monitor'):
+    for filename in ('mqtt_monitor','anycubic_lan_monitor','prusalink_monitor','octoprint_monitor','elegoo_monitor','moonraker_monitor'):
         source=Path(f'backend/modules/printers/monitors/{filename}.py').read_text()
         tree=ast.parse(source)
         calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='start' and node.args and isinstance(node.args[0],ast.Constant) and node.args[0].value==filename]

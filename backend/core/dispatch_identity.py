@@ -60,7 +60,7 @@ def build_identity(creds,key,*,_recipe=False):
         if not isinstance(creds,dict) or not isinstance(key,bytes) or len(key)<32:
             return None
         protocol=creds.get('api_type')
-        if protocol not in ('bambu','moonraker','prusalink'):
+        if protocol not in ('bambu','moonraker','prusalink','octoprint'):
             return None
         host=_host(creds.get('ip'))
         port=creds.get('port',80)

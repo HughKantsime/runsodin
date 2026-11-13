@@ -13,7 +13,7 @@ export function mayResume(printer: Printer) {
   const user = getCurrentUser()
   return !!user && ['operator', 'admin'].includes(user.role) && canDo('printers.edit') && isPausedState(printer.gcode_state) && isOnline(printer)
     && printer.org_id !== undefined && ((user.role === 'admin' && !user.group_id) || printer.org_id === null || printer.org_id === user.group_id)
-    && !!printer.api_host && ['bambu', 'moonraker', 'prusalink', 'elegoo'].includes(printer.api_type || '')
+    && !!printer.api_host && ['bambu', 'moonraker', 'prusalink', 'octoprint', 'elegoo'].includes(printer.api_type || '')
     && (printer.api_type === 'moonraker' || printer.api_type === 'elegoo' || printer.has_api_key)
 }
 function Resume({ printer }: { printer: Printer }) {

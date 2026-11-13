@@ -191,7 +191,7 @@ def request_observed_task_resume(printer, print_job_id: int) -> str:
     if (printer.api_type or '').lower() == 'bambu':
         from modules.printers.monitor_commands import request_command
         return request_command(printer.id, 'resume', print_job_id=print_job_id)
-    if printer.api_type not in ('moonraker', 'prusalink', 'elegoo'):
+    if printer.api_type not in ('moonraker', 'prusalink', 'octoprint', 'elegoo'):
         return 'refused'  # Never inherit the legacy helper's default Bambu fallback.
     from modules.printers.route_utils import _send_printer_command
     return 'accepted' if _send_printer_command(printer, 'resume_print') else 'unknown'

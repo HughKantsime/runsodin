@@ -288,6 +288,28 @@ def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, cre
     return True, "Print started"
 
 
+def _dispatch_octoprint(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None) -> tuple[bool, str]:
+    """Dispatch to an OctoPrint server: one multipart upload that selects and starts the file."""
+    from modules.printers.adapters.octoprint import OctoPrintPrinter
+
+    if not str(remote_filename).lower().endswith(".gcode"):
+        return False, "OctoPrint printers accept .gcode files only; no print command was sent"
+    printer = OctoPrintPrinter(
+        host=creds["ip"],
+        port=creds["port"],
+        api_key=creds.get("api_key", ""),
+    )
+
+    # OctoPrint uploads and starts in one request, so the gate runs before it.
+    if not _prepare_post_upload_gate(before_start) or not _post_upload_gate(before_start):
+        return False, _gate_refusal_message(before_start)
+    _ws(job_id, "uploading", f"Uploading {remote_filename} to OctoPrint...")
+    log.info(f"[dispatch] OctoPrint upload+start: {remote_filename} → {creds['ip']}")
+    if not _submit_print_command(printer.upload_and_print, stored_path, remote_filename):
+        return False, "OctoPrint upload or print start was not confirmed — check host and application key"
+    return True, "Print started"
+
+
 # ──────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────
@@ -381,6 +403,15 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     if unsupported:
         return False, unsupported
 
+    # Experimental types send nothing until a superadmin opts the printer in. Checked before
+    # any power, claim or device step. (Named import: a later local `engine` import in this function.)
+    from core.db import engine as _experimental_engine
+    from modules.printers.support_levels import experimental_refusal
+    with _experimental_engine.connect() as experimental_conn:
+        experimental = experimental_refusal(experimental_conn, printer_id, creds.get("api_type"))
+    if experimental:
+        return False, experimental
+
     from core.dispatch_identity import ownership_refusal
     ownership_error=ownership_refusal(job,creds)
     if ownership_error:return False,ownership_error
@@ -389,7 +420,7 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
 
     api_type = creds["api_type"]
 
-    if api_type not in {"bambu", "moonraker", "prusalink"}:
+    if api_type not in {"bambu", "moonraker", "prusalink", "octoprint"}:
         return False, f"Dispatch not supported for printer type '{api_type}'"
 
     # Validate options once, against the owned staged snapshot in dispatch_prepared.
@@ -472,9 +503,15 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
         elif api_type == "moonraker":
             success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds,
                                                    **({"before_start": before_start} if before_start is not None else {}))
-        else:
+        elif api_type == "octoprint":
+            success, message = _dispatch_octoprint(job_id, stored_path, remote_filename, creds,
+                                                   **({"before_start": before_start} if before_start is not None else {}))
+        elif api_type == "prusalink":
             success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds,
                                                    **({"before_start": before_start} if before_start is not None else {}))
+        else:
+            # Never a default adapter: a type with no explicit branch touches no device.
+            success, message = False, f"Dispatch not supported for printer type '{api_type}'; no command was sent"
     except MaintenanceHold as exc:
         success, message = False, str(exc)
     except Exception:

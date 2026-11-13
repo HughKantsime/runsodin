@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Literal, Optional, List
-from pydantic import BaseModel, Field, ConfigDict, field_validator, field_serializer, model_validator
+from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
 
 from core.base import FilamentType
 
@@ -209,6 +209,15 @@ class PrinterResponse(PrinterBase):
     # camera_url is the camera actually streamed: the configured URL, or the one
     # generated from credentials (Bambu RTSPS or a credential-free chamber marker). Always masked.
     camera_source: Optional[str] = None  # 'configured' | 'auto' | None
+    # Job sending and controls on an Experimental printer type are off until a superadmin opts the printer in.
+    experimental_actions_enabled: bool = False
+
+    @computed_field
+    @property
+    def support_level(self) -> Optional[str]:
+        """'supported' | 'experimental' | 'unsupported'; None for a manual printer."""
+        from modules.printers.support_levels import support_level as level_of
+        return level_of(self.api_type)
 
     @model_validator(mode='before')
     @classmethod
@@ -223,6 +232,8 @@ class PrinterResponse(PrinterBase):
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''
         values['camera_url'] = url
         values['camera_source'] = None if not url else ('configured' if data.camera_url else 'auto')
+        from modules.printers.support_levels import enabled_for_printer
+        values['experimental_actions_enabled'] = bool(values.get('experimental_actions_enabled')) or enabled_for_printer(data)
         return values
 
     @field_validator('camera_enabled', mode='before')

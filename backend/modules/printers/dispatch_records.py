@@ -127,6 +127,15 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
             except Exception:
                 info["api_key"] = api_key_raw
 
+    elif api_type == "octoprint":
+        # api_key is the OctoPrint application key: Fernet-encrypted, or a plain legacy key
+        info["api_key"] = ""
+        if api_key_raw:
+            try:
+                info["api_key"] = crypto.decrypt(api_key_raw)
+            except Exception:
+                info["api_key"] = api_key_raw
+
     return info
 
 

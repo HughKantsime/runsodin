@@ -59,7 +59,7 @@ class TimelineWriter:
         if not 1 <= capacity <= 4096 or not 1 <= busy_timeout_ms <= 250:raise ValueError('Invalid timeline bounds')
         from core.database_config import create_database_engine
         role = {'mqtt_monitor':'monitor-bambu', 'moonraker_monitor':'monitor-moonraker',
-                'prusalink_monitor':'monitor-prusalink', 'elegoo_monitor':'monitor-elegoo',
+                'prusalink_monitor':'monitor-prusalink', 'octoprint_monitor':'monitor-octoprint', 'elegoo_monitor':'monitor-elegoo',
                 'anycubic_lan_monitor':'monitor-anycubic-lan', 'vision_monitor':'vision'}.get(process_name, 'api')
         self.engine=create_database_engine(url, role=role, poolclass=NullPool,
                                            sqlite_busy_timeout_ms=busy_timeout_ms)

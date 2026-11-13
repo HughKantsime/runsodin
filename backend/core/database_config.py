@@ -23,6 +23,7 @@ APPLICATION_NAMES = {
     "monitor-bambu": "odin-monitor-bambu",
     "monitor-moonraker": "odin-monitor-moonraker",
     "monitor-prusalink": "odin-monitor-prusalink",
+    "monitor-octoprint": "odin-monitor-octoprint",
     "monitor-elegoo": "odin-monitor-elegoo",
     "monitor-anycubic-lan": "odin-monitor-anycubic-lan",
     "vision": "odin-vision",
