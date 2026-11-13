@@ -1,4 +1,5 @@
 import ActiveHms from '../../components/printers/ActiveHms'
+import PrinterDetectionLink from '../../components/printers/PrinterDetectionLink'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import { state } from '../../components/foundry/data'
@@ -121,6 +122,7 @@ export default function PrinterDetail() {
       <ExperimentalOptIn printer={printer} />
       <PauseCause printer={printer} />
       <ActiveHms printer={printer} />
+      <PrinterDetectionLink printer={printer} />
       {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
       {foundry && <PrinterDetailOverview printer={printer} />}
 

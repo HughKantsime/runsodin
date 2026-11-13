@@ -321,7 +321,10 @@ def test_stats_have_no_time_series_trend_output(vision_http, seeded_detections):
     """Records the exact stats contract: windowed aggregates only, no per-period trend series."""
     client, _ = vision_http
     body = client.get('/api/vision/stats', params={'days': 7}).json()
-    assert set(body) == {'days', 'by_type', 'by_status', 'by_printer', 'accuracy_pct', 'total_reviewed'}
+    assert set(body) == {'days', 'by_type', 'by_status', 'by_source', 'by_printer', 'accuracy_pct', 'total_reviewed'}
+    # Per-source totals with review outcomes are windowed aggregates too (scorecard groundwork).
+    assert body['by_source'] == {'printer': {'total': 0, 'confirmed': 0, 'dismissed': 0},
+                                 'vigil': {'total': 5, 'confirmed': 1, 'dismissed': 1}}
     assert body['by_type'] == {'spaghetti': 2, 'detachment': 2, 'first_layer': 1}
     assert body['accuracy_pct'] == 50.0 and body['total_reviewed'] == 2
 

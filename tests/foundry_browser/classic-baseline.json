@@ -80,9 +80,9 @@
     "frontend/src/pages/printers/CameraDetail.tsx": "eaed3d199583256a468f08cbd80a2328537c8952d5687be1f3b5bf15823933f8",
     "frontend/src/pages/printers/Cameras.tsx": "b421eeb3c173998b13763ebb7e8515c7a64ced9710506dfd503a0ff61d5d4289",
     "frontend/src/pages/printers/Maintenance.tsx": "be32a137618c1b35b25eda531cc862dda4639ff9aeeae38416b80b58c8a7f500",
-    "frontend/src/pages/printers/PrinterDetail.tsx": "766ea5d0278205ada7fbf3d9eb55f0e0003a82fa630ac70636ed01617c37b3e4",
+    "frontend/src/pages/printers/PrinterDetail.tsx": "16192a3e9de50e42ee5da57041344005ba8393c0bf9d328bd4a8d37d20ea2059",
     "frontend/src/pages/printers/Printers.tsx": "54c8e115be9f9c7d0c73675bad30a1dfa1e16b756793847502e04906159e682b",
-    "frontend/src/pages/vision/Detections.tsx": "8fdb4d333d009dd53dbd64c9eaafbe20d6698a03716ec0e3d6fb98584d2cea24"
+    "frontend/src/pages/vision/Detections.tsx": "951594e6c4d548de5c3a1173bbc0023e1620d191362ce2fb53a2cce58ca954eb"
   },
   "repinned": {
     "release": "2.0.43",

@@ -16,6 +16,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- New: when a Bambu printer's own camera reports a problem (spaghetti, first-layer defects, nozzle clumping, air printing, a shifted or collapsed print, a full waste chute), ODIN now raises an alert and lists it under Detections. Nothing leaves your network, and ODIN does not pause the print itself: the printer follows its own setting. Detections shows a Printer / Vigil source marker and filter; `GET /api/vision/detections` accepts `source`, and `GET /api/vision/stats` adds `by_source` with confirmed and dismissed counts.
 - Phone browsers, Classic theme: every button in a page, pop-up or stand-alone page is at least 44 px to the finger (switches look the same and take 44 px of space; small buttons inside a text field keep their size); a printer card's action buttons move to their own row instead of squeezing the printer's name. Desktop and tablet layouts are unchanged.
 - Alerts: a long title on a single alert is shown on two lines and expands when pressed (grouped alerts already did this).
 - Foundry cameras on a phone: the chosen camera's button is kept in view in the chooser strip.
