@@ -82,7 +82,7 @@ export default function SquareInventory({ products }: Props) {
             <label className="block text-sm">Square location<select aria-label="Square location" className={input} value={location} disabled={busy} onChange={e => setLocation(e.target.value)}><option value="">Choose location</option>{locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
             <label className="block text-sm">Square variation<select aria-label="Square variation" className={input} value={variation} disabled={busy} onChange={e => setVariation(e.target.value)}><option value="">Choose variation</option>{catalog.items.map(v => <option key={v.variation_id} value={v.variation_id}>{v.item_name} / {v.variation_name}{v.sku ? ` (${v.sku})` : ''}</option>)}</select></label>
             <div className="flex flex-wrap gap-2">{catalog.cursor && <button className={button} type="button" disabled={busy} onClick={more}>Load more items</button>}<button className={button} type="submit" disabled={busy || !product || !location || !variation}>Save explicit mapping</button></div>
-            <p className="text-xs text-[var(--brand-muted)]">ODIN verifies that inventory is tracked at this location. Matching a SKU alone never maps a product.</p>
+            <p className="text-xs text-[var(--brand-muted)]">The variation must be set to Track by stock count in Square for this location; one set to Track by availability cannot be mapped. Matching a SKU alone never maps a product.</p>
           </form>}
         </div>}
         <div className="space-y-3">{status.mappings.length === 0 && <p className="text-sm">No products mapped yet.</p>}

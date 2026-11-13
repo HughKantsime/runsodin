@@ -12,6 +12,7 @@ All notable changes to O.D.I.N. are documented here.
 - Vigil's training-data collection is now sampled and bounded. It saves one frame every 120 seconds per printer instead of one on every detection tick (global `training_capture_interval_sec`, per-printer `training_interval_sec`), plus up to three frames around each confirmed detection. An optional per-printer bed crop (Settings, Vigil AI) is applied to training frames only; detection frames stay full size. Collection pauses, with one alert to platform administrators, while the frames volume has less than `training_min_free_gb` (default 2 GB) free, and resumes by itself. Prints of a model whose category is `no-training` are never collected.
 ### Security
 - Vigil no longer saves training-data frames while a controlled job is printing. Viewing those frames was already limited to platform administrators inside the job's audience, but the pictures were still written to disk for the retention period. If the check cannot be made, no frame is saved.
+- Mapping a product to a Square variation that Square tracks by availability now says what to change ("Track by stock count" for that location) instead of a generic inventory-tracking message; the mapping panel says the same.
 
 ### Added
 
