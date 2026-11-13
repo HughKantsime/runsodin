@@ -47,7 +47,12 @@ def record_plate_clear(db, printer, actor) -> Optional[datetime]:
     # columns; an old low-numbered job can be the one that finished last).
     recent = db.execute(text(
         f"SELECT id, charged_to_org_id, actual_end FROM jobs WHERE printer_id=:p AND status IN {_ENDED} "
-        "AND actual_end IS NOT NULL"), {"p": printer.id}).all()
+        "AND actual_end IS NOT NULL "
+        # The printer read hides confirmations on jobs of archived Education submissions
+        # (core.printer_display_facts.plate_clear_times); one written there would be reported
+        # as recorded and never shown, so such a job is never the one written to.
+        "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id AND s.archived_at IS NOT NULL)"),
+        {"p": printer.id}).all()
     dated = [(as_utc(row[2]), row[0], row) for row in recent if as_utc(row[2]) is not None]
     if not dated:
         return None
@@ -57,12 +62,18 @@ def record_plate_clear(db, printer, actor) -> Optional[datetime]:
     from core.controlled_parts import allowed
     if not check_org_access(actor, job[1]) or not allowed(db, "job", job[0], actor):
         return None
+    # A print that started after an earlier confirmation voids it for the printer read, even if
+    # that print never got an end time (printer went offline): the earlier confirmation must not
+    # be handed back as the answer then, or the plate could never be confirmed again.
+    starts = [begun for begun in (as_utc(row[0]) for row in db.execute(text(
+        "SELECT actual_start FROM jobs WHERE printer_id=:p AND actual_start IS NOT NULL"), {"p": printer.id}))
+        if begun is not None]
     for (at,) in db.execute(text(
             "SELECT occurred_at FROM job_timeline_events WHERE job_id=:j AND printer_id=:p "
             "AND kind='bed_clear_confirmed' ORDER BY occurred_at DESC"), {"j": job[0], "p": printer.id}):
         known = as_utc(at)
-        if known is not None and known >= ended:
-            return known  # already confirmed after this print ended: one row per print
+        if known is not None and known >= ended and not any(begun > known for begun in starts):
+            return known  # already confirmed after this print ended and nothing started since: one row
     now = datetime.now(timezone.utc)
     user_id = actor.get("id") if isinstance(actor, dict) and type(actor.get("id")) is int else None
     db.execute(text(

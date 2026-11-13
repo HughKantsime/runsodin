@@ -3,6 +3,9 @@
 Regression: on a farm that clears plates by hand, POST /printers/{id}/plate-cleared answered
 "No jobs waiting for plate clear", wrote nothing, and plate_clear_confirmed_at stayed empty.
 """
+import time
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_printer_offline_behavior import offline_store, review_db  # noqa: F401
@@ -28,6 +31,18 @@ def finished(db, job_id, *, org=1, start='2026-11-12 10:00:00', end='2026-11-12 
     db.execute(text("INSERT INTO jobs(id,item_name,printer_id,charged_to_org_id,status,actual_start,actual_end) "
                     "VALUES(:id,'Finished print',199,:org,:status,:start,:end)"),
                {'id': job_id, 'org': org, 'status': status, 'start': start, 'end': end})
+    db.commit()
+
+
+def archive_submission(db, job_id):
+    """An archived Education submission for `job_id`; other required columns get placeholder values."""
+    values = {'job_id': job_id, 'archived_at': '2026-11-12 12:00:00'}
+    for _, name, kind, notnull, default, primary in db.execute(text("PRAGMA table_info(education_submissions)")):
+        if name in values or primary or not notnull or default is not None:
+            continue
+        values[name] = 'x' if 'CHAR' in kind.upper() or 'TEXT' in kind.upper() else 1
+    db.execute(text("PRAGMA foreign_keys=OFF"))
+    db.execute(text(f"INSERT INTO education_submissions({','.join(values)}) VALUES({','.join(':' + k for k in values)})"), values)
     db.commit()
 
 
@@ -171,3 +186,46 @@ def test_an_old_job_that_finished_last_is_the_one_confirmed(floor):
     finished(db, 805, start='2026-11-12 08:00:00', end='2026-11-12 12:00:00')     # lowest id, latest end
     assert client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()['message'] == 'Plate clear recorded'
     assert [row.job_id for row in events(db)] == [805]
+
+
+def test_an_earlier_confirmation_is_not_reused_after_a_later_print_that_never_got_an_end_time(floor):
+    # 802 finishes and is confirmed; 803 then starts and fails with no end time (printer went offline).
+    # The printer read drops the old confirmation; confirming again must record a new one, not hand
+    # the old one back as "recorded".
+    client, issue, db = floor
+    finished(db, 802, start='2020-01-01 10:00:00', end='2020-01-01 11:00:00')
+    first = client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()
+    assert first['message'] == 'Plate clear recorded' and confirmed_at(client, issue) is not None
+    db.execute(text("INSERT INTO jobs(id,item_name,printer_id,charged_to_org_id,status,actual_start) "
+                    "VALUES(803,'Lost print',199,1,'failed',:start)"),
+               {'start': (datetime.now(timezone.utc) + timedelta(seconds=1)).replace(tzinfo=None)})
+    db.commit()
+    time.sleep(1.2)
+    assert confirmed_at(client, issue) is None
+    again = client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()
+    assert again['message'] == 'Plate clear recorded' and len(events(db)) == 2
+    assert confirmed_at(client, issue) is not None
+
+
+def test_a_job_of_an_archived_education_submission_is_never_the_one_confirmed(floor):
+    # The printer read hides confirmations on such jobs, so one written there would be reported as
+    # recorded and never shown.
+    client, issue, db = floor
+    finished(db, 801, start='2026-11-12 08:00:00', end='2026-11-12 09:00:00')
+    finished(db, 802)
+    columns = {row[1] for row in db.execute(text("PRAGMA table_info(education_submissions)"))}
+    assert {'job_id', 'archived_at'} <= columns
+    archive_submission(db, 802)
+    body = client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()
+    assert body['message'] == 'Plate clear recorded'
+    assert [row.job_id for row in events(db)] == [801]
+    assert confirmed_at(client, issue) is not None
+
+
+def test_nothing_is_recorded_when_the_only_finished_print_is_an_archived_education_submission(floor):
+    client, issue, db = floor
+    finished(db, 802)
+    archive_submission(db, 802)
+    body = client.post('/printers/199/plate-cleared', headers=issue(WRITE)).json()
+    assert body['message'] != 'Plate clear recorded' and events(db) == []
+    assert confirmed_at(client, issue) is None
