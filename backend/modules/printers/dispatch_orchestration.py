@@ -113,6 +113,9 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
         return False, 'deploy_window: ' + deploy_freeze.MESSAGE
     from modules.printers.dispatch_support import S1_BED_CLEAR_REQUIRED, is_kobra_s1
     if is_kobra_s1(creds):
+        from modules.printers.dispatch_support import dispatch_unsupported_reason
+        if dispatch_unsupported_reason(creds):
+            return False, dispatch_unsupported_reason(creds)
         # Before any claim, smart plug or device contact. Admission still rechecks the binding.
         from modules.printers.start_next import start_requested
         if not start_requested(job):

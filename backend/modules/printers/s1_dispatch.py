@@ -56,6 +56,9 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
     from modules.printers.adapters.moonraker import MoonrakerPrinter
     from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
     from modules.printers import dispatch as common
+    from modules.printers.dispatch_support import s1_sending_enabled, S1_SENDING_OFF_DETAIL
+    if not s1_sending_enabled():   # last line of defence; admission refuses long before this
+        return False, common.NoStartMessage('printer_dispatch_unsupported: ' + S1_SENDING_OFF_DETAIL)
     authority = getattr(print_options, 's1_gate', gate)
     if not callable(gate) or not hasattr(authority, 'engine'):
         return False, 's1_gate_required: S1 dispatch requires admitted authority'

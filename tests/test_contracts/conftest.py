@@ -323,3 +323,16 @@ def pytest_runtest_teardown(item, nextitem):
 def _audit_evidence_directory(tmp_path, monkeypatch):
     """Contracts own their audit keys/anchors; never use the installation volume."""
     monkeypatch.setenv('ODIN_AUDIT_KEY_DIR', str(tmp_path / 'audit-evidence'))
+
+
+@pytest.fixture(autouse=True)
+def _kobra_s1_sending(request, monkeypatch):
+    """Kobra S1 sending is off by default in the product. The S1 suites test it switched on;
+    every other test (and `test_kobra_s1_sending_switch.py`) runs with the product default."""
+    name = request.module.__name__.rsplit('.', 1)[-1]
+    on = name.startswith(('test_kobra_s1_', 'test_kobra_dispatch_support', 'test_anycubic_lan')) \
+        or '_s1_' in request.node.name
+    if on and name != 'test_kobra_s1_sending_switch':
+        monkeypatch.setenv('ODIN_KOBRA_S1_SENDING', '1')
+    else:
+        monkeypatch.delenv('ODIN_KOBRA_S1_SENDING', raising=False)
