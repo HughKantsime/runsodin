@@ -564,3 +564,17 @@ def test_identical_ams_reports_do_not_reset_backoff_and_dropped_report_is_not_re
     sock.deliver(changed)  # new contents: a fresh attempt
     assert len(calls) == mqtt_printer.AMS_SYNC_MAX_ATTEMPTS + 1
 
+
+
+@pytest.mark.parametrize("unit,expected", [
+    ({"humidity": "5", "humidity_raw": "0", "temp": "23.7"}, (5, 23.7)),   # captured X1C unit: a reading
+    ({"humidity": "5", "humidity_raw": "0", "temp": "0.0"}, None),         # AMS lite placeholder
+    ({"humidity": "5", "humidity_raw": "0"}, None),                        # no temperature at all
+    ({"humidity": "5", "humidity_raw": "0", "temp": None}, None),
+    ({"humidity": "5", "humidity_raw": "0", "temp": "warm"}, None),        # unreadable temperature
+    ({"humidity": "3", "humidity_raw": "41", "temp": "0.0"}, (3, 0.0)),    # a real raw reading stands
+])
+def test_a_raw_zero_humidity_is_a_reading_only_next_to_a_live_temperature(unit, expected):
+    from modules.printers.monitors.mqtt_telemetry import parse_ams_env
+    out = parse_ams_env({"ams": [{"id": "0", **unit}]})
+    assert [(r["humidity"], r["temperature"]) for r in out] == ([expected] if expected else [])

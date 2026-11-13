@@ -67,18 +67,18 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     # A datetime, not an ISO string: SQLite stores a space where ISO has "T", so text never compared equal-day.
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
     if should_filter_org(current_user, org):
-        mqtt_printing = db.execute(text(
+        mqtt_printing = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static SQL; the only variable part is the module constant _NOT_AN_ODIN_JOB formatted with a literal status; org is bound
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
             "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)" + _NOT_AN_ODIN_JOB.format(status="printing")
         ), {"org": org}).scalar() or 0
-        mqtt_completed_today = db.execute(text(
+        mqtt_completed_today = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static SQL; the only variable part is the module constant _NOT_AN_ODIN_JOB formatted with a literal status; org and day start are bound
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
             "WHERE pj.status = 'completed' AND pj.ended_at >= :today "
             "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)" + _NOT_AN_ODIN_JOB.format(status="completed")
         ), {"today": today_start, "org": org}).scalar() or 0
     else:
-        mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status = 'running'" + _NOT_AN_ODIN_JOB.format(status="printing"))).scalar() or 0
-        mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status = 'completed' AND pj.ended_at >= :today" + _NOT_AN_ODIN_JOB.format(status="completed")), {"today": today_start}).scalar() or 0
+        mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status = 'running'" + _NOT_AN_ODIN_JOB.format(status="printing"))).scalar() or 0  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static SQL; the only variable part is the module constant _NOT_AN_ODIN_JOB formatted with a literal status; no input at all
+        mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status = 'completed' AND pj.ended_at >= :today" + _NOT_AN_ODIN_JOB.format(status="completed")), {"today": today_start}).scalar() or 0  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static SQL; the only variable part is the module constant _NOT_AN_ODIN_JOB formatted with a literal status; day start is bound
 
     printing_jobs += mqtt_printing
     completed_today += mqtt_completed_today

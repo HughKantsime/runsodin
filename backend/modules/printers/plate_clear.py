@@ -45,6 +45,7 @@ def record_plate_clear(db, printer, actor) -> Optional[datetime]:
     # Stored times mix forms (naive UTC, ISO with "T" or an offset), so they are compared as
     # parsed instants, never as text, across every finished print on this printer (three small
     # columns; an old low-numbered job can be the one that finished last).
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static SQL; the only interpolated part is the module constant _ENDED (a literal status list); the printer id is bound
     recent = db.execute(text(
         f"SELECT id, charged_to_org_id, actual_end FROM jobs WHERE printer_id=:p AND status IN {_ENDED} "
         "AND actual_end IS NOT NULL "

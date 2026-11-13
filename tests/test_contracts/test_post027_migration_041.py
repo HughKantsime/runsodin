@@ -13,7 +13,8 @@ def test_fresh_and_repeat_boot(tmp_path):
         first = bootstrap_database(engine)
         start = first['applied'].index('python:040-job-foundation')
         assert first['applied'][start:start + 3] == ['python:040-job-foundation', M.MIGRATION_ID, 'python:042-dispatch-capability']
-        assert inspect(engine).get_columns('printers')[-1]['name'] == 'installed_nozzles'
+        # 057 (2.2.0) appends ace_status to the printer model after the nozzle column.
+        assert [c['name'] for c in inspect(engine).get_columns('printers')][-2:] == ['installed_nozzles', 'ace_status']
         assert bootstrap_database(engine)['applied'] == []
         with engine.begin() as conn:
             M.validate(conn)

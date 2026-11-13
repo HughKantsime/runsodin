@@ -305,7 +305,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
                 <NavLink to="/printers" onClick={handleNavClick}
                   aria-label={`Fleet status: ${onlinePrinters.length} of ${printersData.length} printers online`}
                   title={`Printing: ${printingCount} · Idle: ${idleCount} · Offline: ${offlineCount}${otherCount > 0 ? ` · Other: ${otherCount}` : ''}`}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1.5 text-[10px] font-mono leading-4 hover:opacity-80"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex min-h-6 min-w-8 items-center justify-center rounded-full px-1.5 text-[10px] font-mono leading-4 hover:opacity-80"
                   style={{ backgroundColor: 'var(--brand-sidebar-active-bg)', color: offlineCount > 0 ? 'var(--brand-sidebar-text)' : 'var(--status-completed)' }}>
                   {onlinePrinters.length}/{printersData.length}
                   <span className="sr-only"> Printing: {printingCount} Idle: {idleCount} Offline: {offlineCount}{otherCount > 0 ? ` Other: ${otherCount}` : ''}</span>

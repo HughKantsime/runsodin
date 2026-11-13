@@ -655,6 +655,11 @@ def _bootstrap_database_contract(
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
             acquire_schema_writer_lock(connection)
+        elif connection.dialect.name == "sqlite" and not connection.connection.driver_connection.in_transaction:
+            # 052's validator compares against fixed-name tables and its source is checksummed in
+            # the ledger. Outside a write transaction SQLite commits that DDL at once, so a second
+            # starter met "table _validate_traceability_records already exists".
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
         # 037 rebuilds SQLite tables in its dedicated transaction. Install039's
         # forward references only afterwards: before optional025 adoption its
         # purchase trigger is intentionally unresolved and SQLite cannot rename

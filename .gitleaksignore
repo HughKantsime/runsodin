@@ -37,3 +37,5 @@ c97cb0ee31ea3a98aaad40a0af3b9133d15a0d9f:frontend/src/api.js:generic-api-key:4
 d6fbccb45ebf703d02d910cb0e3857820df95f7b:frontend/src/pages/Printers.jsx:generic-api-key:8
 # Synthetic Anycubic LAN handshake token in test_anycubic_lan.py (no real printer credential).
 cfdcbf64dcfd85cd4d90ab7c2ca4ac999968555e:tests/test_contracts/test_anycubic_lan.py:generic-api-key:290
+# 'branding_amber_default_2_2': the system_config marker name of a one-time step, in a SQL "WHERE key='...'"; a config key, not a credential.
+88830b135d78e0f65bb0b3a7c5d677d7caf48fbb:tests/test_contracts/test_branding_amber_default.py:generic-api-key:78

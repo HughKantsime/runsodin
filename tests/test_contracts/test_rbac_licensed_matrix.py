@@ -59,7 +59,13 @@ def test_rbac_matrix_passes_on_a_licensed_server(tmp_path_factory, tier):
     # Every non-loopback attempt is refused by the harness. Expected ones only: the matrix's
     # test-connection bodies (192.168.99.99) and route_utils._get_lan_ip's UDP connect to
     # 8.8.8.8:80 (outbound-address probe; no packet is sent). Anything else is a phone-home.
+    # The matrix also calls POST /api/printers/discover/moonraker as the two principals allowed
+    # to (admin and the API key). That route's job is a local-network scan, which opens a UDP
+    # socket on any free port (mdns_discovery.scan). One socket per allowed call and no more:
+    # a socket opened at start-up or by any other route would be an extra entry and fail here.
+    scan_socket = ["bind", "('', 0)"]
     unexpected = [a for a in out["_net_attempts"]
-                  if "192.168.99.99" not in str(a) and a != ["connect", "('8.8.8.8', 80)"]]
+                  if "192.168.99.99" not in str(a) and a not in (["connect", "('8.8.8.8', 80)"], scan_socket)]
     assert unexpected == [], unexpected
+    assert out["_net_attempts"].count(scan_socket) <= 2, out["_net_attempts"]
     assert ROOT.exists()

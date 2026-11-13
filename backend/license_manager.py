@@ -603,7 +603,8 @@ def _refuse_replacement_out_of_order(candidate, installed) -> None:
     later issue may legitimately end earlier (a cancellation) or already have
     ended (a refund). A file with no issue time cannot be shown to be newer
     than an installed file that has one. Licenses for different keys are not
-    compared.
+    compared. An installed trial is not compared with a valid paid license: the
+    purchase always replaces the trial, whatever the two issue times are.
 
     Equal issue times: the license server signs a key that has no subscription
     with the key's own stored issue time on every re-issue, so a plan upgrade
@@ -617,6 +618,12 @@ def _refuse_replacement_out_of_order(candidate, installed) -> None:
     from core.license_clock import instant
     if installed is None or not installed.license_sha256 or not installed.key or installed.key != candidate.key:
         return
+    if candidate.trial and not installed.trial:
+        # Never back to a trial, however new: a later trial would otherwise reopen the pass below
+        # and let an older paid file return after a refund.
+        raise HTTPException(status_code=409, detail=LICENSE_OLDER_THAN_INSTALLED)
+    if installed.trial and candidate.valid and not candidate.trial:
+        return  # A trial is always replaceable by a valid paid license; a trial never gets this pass.
     if not installed.issued_at:
         return
     try:

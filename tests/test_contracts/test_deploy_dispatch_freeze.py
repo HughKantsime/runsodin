@@ -430,8 +430,10 @@ def test_s1_window_opened_during_preparation_is_refused_at_admission(s1_case, wi
     assert_recorded(engine)
 
 
-def test_s1_start_proceeds_once_the_window_closes(s1_case, window):
+def test_s1_start_proceeds_once_the_window_closes(s1_case, window, monkeypatch):
     """Positive control: the freeze is what stopped the attempt, and it leaves nothing behind."""
+    from tests.test_contracts.s1_preflight_test_support import passing_preflight
+    passing_preflight(monkeypatch)
     engine, client, device = s1_case
     path, _, write = window
     write()

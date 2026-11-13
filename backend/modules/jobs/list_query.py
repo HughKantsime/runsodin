@@ -87,6 +87,7 @@ def search_filter(user, q):
         "EXISTS (SELECT 1 FROM order_items qoi JOIN orders qo ON qo.id=qoi.order_id "
         f"WHERE qoi.id=jobs.order_item_id AND LOWER(COALESCE(qo.order_number,'')) {like} "
         f"AND {_org_ok(user, 'qo.org_id')})")
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- every fragment is a literal of this function (fixed columns, _org_ok's fixed predicates); the search text, job id and org are bound
     return text('(' + ' OR '.join(parts) + ')').bindparams(**params)
 
 

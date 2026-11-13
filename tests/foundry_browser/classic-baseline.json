@@ -28,7 +28,7 @@
     "frontend/src/components/orders/OrderTable.tsx": "8382832e1f24ef962ffe0978df4946ec3c78b5a9c3c20a0be0377a9682627564",
     "frontend/src/components/printers/AmsEnvironmentChart.tsx": "8a7fc754cedbe5685eff6e0ce968b82cae3f97080fb31e79d7b36825903f012a",
     "frontend/src/components/printers/CameraModal.tsx": "35ee3d40eaebcf87f9e2d148e863d2adaf33cc9c0c9b2b73dade5055895a82c8",
-    "frontend/src/components/printers/EmergencyStop.tsx": "54c4a42c8a1b765aee0cd4fbe439e5a3e03444f16c027b01f5e02dd765c6c4c0",
+    "frontend/src/components/printers/EmergencyStop.tsx": "6cb8b068eac11dd8df4d8415e70a0b7bfa40e4bb27685783655d487923fc75ef",
     "frontend/src/components/printers/FilamentSlotEditor.tsx": "94fe335dcba13794a0dd73f1179ce464a57c96536c249ea65b5dc80d63246d34",
     "frontend/src/components/printers/HmsHistoryPanel.tsx": "22a8ed4d79706e50261e3807f189d0664cc5ac5feb651cdeb5fcc8d42d587a95",
     "frontend/src/components/printers/InstalledNozzles.tsx": "489832f30b03fe057125a9902dc5a1a5ac9bb409292e28d27565256f004647f4",

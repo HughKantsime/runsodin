@@ -90,7 +90,7 @@ export default function EmergencyStop() {
         className={`emergency-controls-toggle fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.75rem)] md:bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
           showPanel
             ? 'bg-[var(--brand-card-bg)] text-white'
-            : 'border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white'
+            : 'bg-[var(--brand-content-bg)] border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white'
         }`}
         aria-label={showPanel ? "Close emergency controls" : `Emergency controls, ${activePrinting} active prints`}
       >

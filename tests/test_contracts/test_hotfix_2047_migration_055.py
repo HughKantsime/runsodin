@@ -207,7 +207,8 @@ engine.dispose()
             assert str(next(col['type'] for col in inspect(c).get_columns('print_jobs')
                             if col['name'] == 'job_id')) == 'TEXT'
         assert bootstrap_database(engine)['applied'] == [PARTS.MIGRATION_ID, HISTORY.MIGRATION_ID,
-                                                         'python:056-dispatch-recovery-global']
+                                                         'python:056-dispatch-recovery-global',
+                                                         'python:057-slot-feed-policy']
         assert bootstrap_database(engine)['applied'] == []
         with engine.connect() as c:
             PARTS.validate(c)
