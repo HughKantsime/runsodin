@@ -19,7 +19,7 @@ from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, require_scope, handler_enforces_token_scope, require_interactive_session, require_action
 from core.auth_helpers import (
-    _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
+    _validate_password, _check_rate_limit, _record_login_attempt, _record_password_accepted, _is_locked_out
 )
 import core.auth as auth_module
 from core.auth import hash_password, create_access_token, verify_password, decode_token
@@ -53,8 +53,6 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     if not user or not verify_password(form_data.password, user.password_hash):
         if _record_login_attempt(db, client_ip, form_data.username, False) is not True:
             raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
-        log_audit(db, "auth.login_failed", "user", details={"username": form_data.username}, ip=client_ip)
-        db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account disabled")
@@ -68,14 +66,28 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     from core.mfa_login import login_mfa_response
     continuation = login_mfa_response(db, user.id, expected_password_hash=user.password_hash)
     if continuation is not None:
+        if _record_password_accepted(db, client_ip, form_data.username) is not True:
+            raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
         return continuation
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
-    bind_verified_actor(db, dict(user._mapping), "password_login")
-    log_audit(db, "auth.login", "user", user.id, details={"username": user.username}, ip=client_ip)
-    db.commit()
+    try:
+        bind_verified_actor(db, dict(user._mapping), "password_login")
+        log_audit(db, "auth.login", "user", user.id, details={"username": user.username}, ip=client_ip)
+        db.commit()
+    except Exception:
+        # The one sign-in row could not be written: withdraw the session, issue nothing.
+        try:
+            db.rollback()
+            import jwt as _jwt
+            jti = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])["jti"]
+            db.execute(text("DELETE FROM active_sessions WHERE token_jti = :jti"), {"jti": jti})
+            db.commit()
+        except Exception:
+            log.warning("Unissued session could not be withdrawn")
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})

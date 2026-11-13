@@ -52,7 +52,7 @@
     "frontend/src/components/ui/index.ts": "5376e84a86966f795e14ff2eea75d947bd5d44c482164f5e27ae6eecd1b997eb",
     "frontend/src/index.css": "ac6d2567b5b6f31a4b52fe848dd341c9c7ff8fb0ec5d66e88f4af48f06dd657e",
     "frontend/src/pages/admin/Admin.tsx": "1656dadf84ba097aa3174067bbd59f3f628797a9fbe91806622cf0229e295022",
-    "frontend/src/pages/admin/AuditLogs.tsx": "3aa15406dd3ac71a2ae9286eed03cea5b462d161c5af5aec4d16d48d2abf4572",
+    "frontend/src/pages/admin/AuditLogs.tsx": "d5857555715ee0d0ac6570bc54361a5d7deec0b6ece1274d27a4fe968053be51",
     "frontend/src/pages/admin/Branding.tsx": "1fd65fc3c86ac8f3332938ee3bd966302aa354501cc664e7c57c1ce793a2f58a",
     "frontend/src/pages/admin/Permissions.tsx": "888d8eda59d85b4303c253f237bd6db00d83360929f3400608d3405e81abc605",
     "frontend/src/pages/analytics/Analytics.tsx": "36d18ec2adc4eb777a610e7bff76c25ef8e0e5b44008c7633d900f81675fc0d7",

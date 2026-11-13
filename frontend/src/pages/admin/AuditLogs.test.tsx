@@ -4,8 +4,8 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import AuditLogs from './AuditLogs'
 import { MemoryRouter } from 'react-router-dom'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), exportCsv: vi.fn(), error: vi.fn() }))
-vi.mock('../../api', () => ({ auditLogs: { list: api.list, exportCsv: api.exportCsv }, auth: { me: vi.fn() } }))
+const api = vi.hoisted(() => ({ list: vi.fn(), exportCsv: vi.fn(), error: vi.fn(), printers: vi.fn(async () => [] as { id: number; name: string }[]) }))
+vi.mock('../../api', () => ({ auditLogs: { list: api.list, exportCsv: api.exportCsv }, auth: { me: vi.fn() }, printers: { list: api.printers } }))
 vi.mock('react-hot-toast', () => ({ default: { error: api.error } }))
 // Audit CSV export is an Enterprise entitlement; the export tests run with an Enterprise license.
 const lic = vi.hoisted(() => ({ features: ['audit_export'] as string[] }))
@@ -22,6 +22,7 @@ beforeEach(() => {
   lic.features = ['audit_export']
   api.list.mockResolvedValue({ logs: [row], total: 1, limit: 50, offset: 0 })
   api.exportCsv.mockResolvedValue('ID,Action\n1,create\n')
+  api.printers.mockResolvedValue([])
   class OwnedURL extends URL {
     static createObjectURL = vi.fn(() => 'blob:owned-audit')
     static revokeObjectURL = vi.fn()
@@ -120,16 +121,51 @@ test.each([0, false])('preserves recorded scalar details %s and discloses the CS
   expect(screen.getByText('CSV export includes up to 5,000 matching entries.')).toBeVisible()
 })
 
-test('below Enterprise the audit log is viewable but CSV export is locked and never requested', async () => {
+test('below Enterprise the audit log is viewable and no export control is shown', async () => {
   lic.features = []
   show()
   await screen.findByText('create')
-  const locked = screen.getByRole('button', { name: 'Export CSV (Enterprise)' })
-  expect(locked).toBeDisabled()
-  expect(locked).toHaveAttribute('title', 'Audit log CSV export requires an Enterprise license')
-  expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument()
-  fireEvent.click(locked)
+  expect(screen.queryByRole('button', { name: /Export CSV/ })).not.toBeInTheDocument()
+  expect(screen.queryByText(/CSV export includes/)).not.toBeInTheDocument()
   expect(api.exportCsv).not.toHaveBeenCalled()
+})
+
+test('with the audit_export feature the export control is shown and enabled', async () => {
+  show()
+  await screen.findByText('create')
+  expect(screen.getByRole('button', { name: 'Export CSV' })).toBeEnabled()
+})
+
+test('a known action reads as one sentence, with the raw action and details behind a disclosure', async () => {
+  api.printers.mockResolvedValue([{ id: 3, name: 'Test X1C' }])
+  api.list.mockResolvedValue({ logs: [{ ...row, id: 7, username: 'newowner', action: 'job.dispatched', entity_id: 1, details: { printer_id: 3 } }], total: 1 })
+  show()
+  expect(await screen.findByText('newowner sent job 1 to Test X1C')).toBeVisible()
+  expect(screen.queryByText('job.dispatched')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('audit-raw')).not.toBeInTheDocument()
+  const disclosure = screen.getByRole('button', { name: 'Raw record' })
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(disclosure)
+  const raw = JSON.parse(screen.getByTestId('audit-raw').textContent!)
+  expect(raw).toEqual({ action: 'job.dispatched', entity_type: 'job', entity_id: 1, details: { printer_id: 3 } })
+  fireEvent.click(screen.getByRole('button', { name: 'Hide raw record' }))
+  expect(screen.queryByTestId('audit-raw')).not.toBeInTheDocument()
+})
+
+test('a printer whose name is not available is named by its number', async () => {
+  api.printers.mockRejectedValue(new Error('Owned refusal'))
+  api.list.mockResolvedValue({ logs: [{ ...row, username: 'newowner', action: 'job.dispatched', entity_id: 1, details: { printer_id: 3 } }], total: 1 })
+  show()
+  expect(await screen.findByText('newowner sent job 1 to printer 3')).toBeVisible()
+})
+
+test('an action without a sentence keeps the raw action, type, id and details', async () => {
+  api.list.mockResolvedValue({ logs: [{ ...row, action: 'square.stock_baseline', entity_type: 'product', entity_id: 4, details: { name: 'Owned widget' } }], total: 1 })
+  show()
+  expect(await screen.findByText('square.stock_baseline')).toBeVisible()
+  expect(screen.getByText('product')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Owned widget' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Raw record' })).not.toBeInTheDocument()
 })
 
 

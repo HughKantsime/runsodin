@@ -74,7 +74,7 @@ def test_record_commits_failure_and_audit_visible_in_independent_session(clock,r
     clock._record_login_attempt(review_db,'192.0.2.1','student',False)
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts WHERE success=0')).scalar_one()==1
-        assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='login_failed'")).scalar_one()==1
+        assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='auth.login_failed'")).scalar_one()==1
 
 
 def test_record_attempt_and_audit_are_atomic_under_audit_write_failure(clock,review_db,monkeypatch):
@@ -119,6 +119,34 @@ def test_http_login_success_has_persisted_attempt(login_client,review_db):
     assert bool(response.json().get('access_token'))
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts WHERE success=1')).scalar_one()==1
+
+
+def _sign_in_rows(review_db):
+    import json
+    with Session(review_db.get_bind()) as fresh:
+        return [(r.action,r.entity_type,r.entity_id,json.loads(r.details)) for r in fresh.execute(text(
+            "SELECT action,entity_type,entity_id,CAST(details AS TEXT) AS details FROM audit_logs "
+            "WHERE action IN ('login_success','login_failed','auth.login','auth.login_failed') ORDER BY id"))]
+
+
+def test_password_sign_in_success_writes_exactly_one_identified_row(login_client,review_db):
+    assert login_client.request().status_code==200
+    assert _sign_in_rows(review_db)==[('auth.login','user',1,{'username':'student'})]
+
+
+def test_password_sign_in_failure_writes_exactly_one_row(login_client,review_db):
+    assert login_client.request(False).status_code==401
+    assert _sign_in_rows(review_db)==[('auth.login_failed','user',None,{'username':'student'})]
+
+
+def test_correct_password_awaiting_second_step_keeps_its_one_record(login_client,review_db):
+    review_db.execute(text('UPDATE users SET mfa_enabled=1 WHERE id=1'))
+    review_db.commit()
+    response=login_client.request()
+    assert response.status_code==200 and response.json().get('mfa_required') is True
+    rows=_sign_in_rows(review_db)
+    assert [row[:3] for row in rows]==[('login_success','user',None)]
+    assert rows[0][3].startswith('Login: student from ')
 
 
 @pytest.mark.parametrize('valid',[True,False])
@@ -181,7 +209,7 @@ def test_http_ambiguous_attempt_commit_does_not_issue_session(login_client,revie
 def test_http_audit_staging_failure_does_not_issue_session(login_client,review_db,monkeypatch):
     original=Session.add
     def fail_login_audit(self,entry,*args,**kwargs):
-        if getattr(entry,'action',None)=='login_success':
+        if getattr(entry,'action',None)=='auth.login':
             raise RuntimeError('synthetic login audit failure')
         return original(self,entry,*args,**kwargs)
     monkeypatch.setattr(Session,'add',fail_login_audit)
@@ -204,7 +232,7 @@ def test_cleanup_failure_does_not_undo_confirmed_record(clock,review_db,monkeypa
     assert confirmed is True
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one()==1
-        assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='login_failed'")).scalar_one()==1
+        assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='auth.login_failed'")).scalar_one()==1
 
 
 def test_http_session_insert_failure_does_not_issue_untracked_token(login_client,review_db,monkeypatch):

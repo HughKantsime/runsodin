@@ -75,21 +75,23 @@ def _check_rate_limit(db: Session, ip: str) -> bool:
 
 
 def _record_login_attempt(db: Session, ip: str, username: str, success: bool) -> bool:
-    """Confirm atomic attempt/audit persistence before login can continue."""
+    """Confirm atomic attempt/audit persistence before login can continue.
+
+    One audit row per outcome. A failure writes its row (auth.login_failed)
+    here, in the attempt's own transaction. A success writes none here: the
+    caller writes the identified row once it knows how the sign-in ended
+    (auth.login, or _record_password_accepted when a second step follows).
+    """
     try:
-        from core.models import AuditLog
         db.execute(
             text("INSERT INTO login_attempts (ip, username, attempted_at, success) "
                  "VALUES (:ip, :username, :attempted_at, :success)"),
             {"ip": ip, "username": username, "attempted_at": _time.time(),
              "success": 1 if success else 0},
         )
-        db.add(AuditLog(
-            action="login_success" if success else "login_failed",
-            entity_type="user",
-            details=f"{'Login' if success else 'Failed login'}: {username} from {ip}",
-            ip_address=ip,
-        ))
+        if not success:
+            from core.audit import log_audit
+            log_audit(db, "auth.login_failed", "user", details={"username": username}, ip=ip)
         db.commit()
     except Exception:
         try:
@@ -115,6 +117,31 @@ def _record_login_attempt(db: Session, ip: str, username: str, success: bool) ->
                 pass
             log.debug("Login attempt cleanup failed")
     return True
+
+
+def _record_password_accepted(db: Session, ip: str, username: str) -> bool:
+    """Record a correct password whose sign-in still needs a second step.
+
+    No auth.login row exists until that step completes, so this row is the
+    only evidence that the password was right. Same row as before.
+    """
+    try:
+        from core.models import AuditLog
+        db.add(AuditLog(
+            action="login_success",
+            entity_type="user",
+            details=f"Login: {username} from {ip}",
+            ip_address=ip,
+        ))
+        db.commit()
+        return True
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log.warning("Login accounting could not be confirmed")
+        return False
 
 
 def _is_locked_out(db: Session, username: str) -> bool:
