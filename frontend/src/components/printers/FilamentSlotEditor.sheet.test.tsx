@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import FilamentSlotEditor from './FilamentSlotEditor'
 
 vi.mock('../../api', () => ({ printers: { assignSlotSpool: vi.fn(), confirmTrayIdentity: vi.fn() }, spools: { create: vi.fn() } }))
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ role: 'operator' }) }))
 afterEach(cleanup)
 const desktop = (cls: string) => cls.split(/\s+/).filter(t => t && !t.startsWith('max-sm:')).join(' ')
 const slot = { id: 1, slot_number: 1, color_hex: 'FFFFFF', material_type: 'PLA', remaining: 50, assigned_spool_id: null, spool_confirmed: false }

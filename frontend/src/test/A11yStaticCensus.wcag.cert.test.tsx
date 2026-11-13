@@ -119,7 +119,8 @@ it('F12-12.7-03 census: at least 50 icon-only buttons carry aria-label (exact co
   expect(summary.icon_only_with_aria_label).toBeGreaterThanOrEqual(50)
   // 2.2.0 phone pass: four more named icon-only buttons (header search, phone sheet and stray pop-up close buttons).
   // Design pass: two became labelled buttons (Schedule print on the model card, Dispatch on the job row).
-  expect(summary.icon_only_with_aria_label).toBe(112)
+  // 2.2.0 release merge: two more named icon-only buttons come in with the other 2.2.0 branches.
+  expect(summary.icon_only_with_aria_label).toBe(114)
 })
 
 it('F12-12.7-03 census: every icon-only button has an accessible name (aria-label, aria-labelledby or title)', () => {
@@ -134,10 +135,11 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
   // Super Admin restore adds one named, focus-trapped confirmation dialog.
   // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
-  expect(summary.custom_dialog_role_elements).toHaveLength(22)
+  // 2.2.0 release merge: the model plates panel and the Vigil pending-review panel are two more named dialogs.
+  expect(summary.custom_dialog_role_elements).toHaveLength(24)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
-  expect(dialogOnly).toBe(20)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(56)
+  expect(dialogOnly).toBe(22)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(58)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 
