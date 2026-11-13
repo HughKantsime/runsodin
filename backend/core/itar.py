@@ -449,6 +449,16 @@ def collect_db_configured_urls() -> list[str]:
         except Exception as exc:
             log.debug("ITAR audit: system_config not queryable: %s", exc)
 
+        # -------- 2b. a stored Square connection --------
+        # Square is a fixed public host. The clients refuse under ITAR mode; a stored
+        # connection is reported here so the install fails at boot, not at first use.
+        try:
+            if db.execute(sa_text(
+                    "SELECT 1 FROM system_config WHERE key LIKE 'square_readonly:%' LIMIT 1")).first():
+                urls.append("https://connect.squareup.com")
+        except Exception as exc:
+            log.debug("ITAR audit: Square connection not queryable: %s", exc)
+
         # -------- 3. oidc_config.discovery_url (only when enabled) --------
         # Codex pass 15 (2026-04-15): OIDC login unconditionally
         # reaches out to discovery_url; under ITAR it must be private
@@ -458,12 +468,15 @@ def collect_db_configured_urls() -> list[str]:
         try:
             rows = db.execute(
                 sa_text(
-                    "SELECT discovery_url FROM oidc_config "
-                    "WHERE is_enabled IS TRUE AND discovery_url IS NOT NULL"
+                    "SELECT discovery_url, provider_type, tenant_id FROM oidc_config "
+                    "WHERE is_enabled IS TRUE"
                 )
             ).fetchall()
             for row in rows:
-                url = row[0] if row else None
+                # The built-in Microsoft and Google presets store no discovery_url; the
+                # handler derives a public one at sign-in. Audit the address it would use.
+                from modules.organizations.oidc_handler import effective_discovery_url
+                url = effective_discovery_url(row[0], row[1], row[2])
                 if url and not idp_discovery_url_allowed(str(url)):
                     urls.append(str(url))
         except Exception as exc:

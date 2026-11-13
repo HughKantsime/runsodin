@@ -75,6 +75,8 @@ def exchange(environment, token, path, raw, *, tenant_enabled=False):
     if path.endswith('batch-create') and (not LIVE_WRITES_ENABLED or tenant_enabled is not True):
         raise HTTPException(503,'Square stock writes require both activation keys')
     if path.endswith('batch-create'):validate_request(raw)
+    from modules.orders.square_client import refuse_under_itar
+    refuse_under_itar()
     try:
         with requests.Session() as session:
             session.trust_env=False

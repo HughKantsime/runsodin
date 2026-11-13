@@ -8,6 +8,11 @@ All notable changes to O.D.I.N. are documented here.
 
 - ITAR mode can now allow a named identity provider for single sign-on: set `ODIN_ITAR_ALLOWED_IDP_HOSTS` to the exact host names (for example `login.microsoftonline.us,graph.microsoft.us` for Microsoft Entra ID in GCC High, at most 8, no wildcards or IP addresses). Only O.D.I.N.'s sign-in client may reach those hosts; webhooks, the license server, Spoolman, email and every other outbound connection still refuse public addresses. Every allowed sign-in request is recorded in the audit log, an identity provider whose endpoints point at an unlisted host is refused, and O.D.I.N. refuses to start in ITAR mode if SSO is enabled with an identity provider that is neither on the local network nor allowed. See [ITAR mode](docs/ITAR_MODE.md).
 
+### Security
+
+- ITAR mode now also covers Square: with `ODIN_ITAR_MODE=1` every Square call is refused before any network use, and ODIN refuses to start while a Square connection is stored. Previously an administrator could connect Square on such a server.
+- ITAR mode now refuses to start when single sign-on uses the built-in Microsoft or Google preset without being on the allowed identity-provider list. The sign-in itself was already blocked; the problem now shows at start-up instead of at the first sign-in.
+
 ## [2.1.0] - 2026-11-10
 
 
