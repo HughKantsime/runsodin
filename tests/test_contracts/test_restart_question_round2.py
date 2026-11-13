@@ -80,7 +80,7 @@ def test_answer_before_restarted_monitor_first_packet_is_honoured(case, decision
     assert case.question() is None
 
 
-def test_investigation_visible_and_idle_stops_packet_work(case, monkeypatch):
+def test_investigation_visible_and_idle_keeps_one_fingerprint_read(case, monkeypatch):
     with case.engine.begin() as db:
         db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at) SELECT 242,9,job_name,status,started_at FROM print_jobs WHERE id=241"))
     monitor = start(case)
@@ -93,7 +93,9 @@ def test_investigation_visible_and_idle_stops_packet_work(case, monkeypatch):
     before = case.rows()
     calls = trace_connections(case, monkeypatch)
     for _ in range(6): packet(monitor, gcode_state='IDLE')
-    assert calls == []
+    sql = [s for s in calls if s != 'CONNECT']
+    assert len(sql) == 6 and all(s.lstrip().upper().startswith('SELECT') for s in sql)
+    assert case.rows() == before
     packet(monitor, gcode_state='RUNNING', subtask_name='other-print')
     assert len(case.rows()) == len(before) + 1
 

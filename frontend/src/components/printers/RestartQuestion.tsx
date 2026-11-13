@@ -20,7 +20,7 @@ export default function RestartQuestion({ printerId, question, canAnswer, onNoti
     },
   })
   function answer(value: 'same' | 'new') {
-    if (submitting.current) return
+    if (!canAnswer || submitting.current) return
     submitting.current = true
     mutation.mutate(value)
   }
@@ -35,10 +35,11 @@ export default function RestartQuestion({ printerId, question, canAnswer, onNoti
     <p>Live readings continue while ODIN waits for your answer. Choosing a new print closes the earlier record with its outcome unknown.</p>
     <p>A linked scheduled job stays marked as printing if you choose a new print or this print ends unanswered. An administrator must review that job before releasing the retained dispatch.</p>
     <p>Your answer is saved even if ODIN restarts before recording resumes. After recording resumes, another restart may need a new confirmation.</p>
-    {canAnswer ? <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      <Button className="min-h-[44px] whitespace-normal" disabled={mutation.isPending} onClick={() => answer('same')}>Yes, same print: keep recording on it</Button>
-      <Button className="min-h-[44px] whitespace-normal" variant="secondary" disabled={mutation.isPending} onClick={() => answer('new')}>No, it is a new print</Button>
-    </div> : <p>An authorized operator or administrator can answer this question in Dispatch Recovery.</p>}
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <Button className="min-h-[44px] whitespace-normal" disabled={!canAnswer || mutation.isPending} onClick={() => answer('same')}>Yes, same print: keep recording on it</Button>
+      <Button className="min-h-[44px] whitespace-normal" variant="secondary" disabled={!canAnswer || mutation.isPending} onClick={() => answer('new')}>No, it is a new print</Button>
+    </div>
+    {!canAnswer && <p>An authorized operator or administrator can answer this question in Dispatch Recovery.</p>}
     {notice && <p role="status">{notice}</p>}
   </section>
 }

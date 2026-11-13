@@ -72,6 +72,16 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
     printer = db.execute(text('SELECT org_id FROM printers WHERE id=:id'), {'id':printer_id}).first()
     if printer is None or not check_org_access(current_user, printer.org_id):
         raise HTTPException(404, {'code':'not_found','message':'Printer not found'})
+    from core.restart_questions import visible as restart_question
+    from core.rbac import is_scoped_token, token_scope_granted
+    from core.rbac_policy import action_roles
+    question = restart_question(db, printer_id, current_user)
+    can_answer = (current_user.get('role') in ('admin', 'operator')
+                  and (current_user.get('role') == 'admin' and current_user.get('group_id') is None
+                       or current_user.get('role') in action_roles(db, 'printers.answer_restart_question'))
+                  and (not is_scoped_token(current_user) or token_scope_granted(current_user.get('_token_scopes', []), 'write:printers')))
+    confirmation = {'restart_question': question,
+                    'answer_restart_question': bool(can_answer and question and question['state'] == 'pending')}
     try:
         evidence = capture(db,printer_id,current_user,lambda conn,pid=printer_id:configured_identity(pid,conn))
     except HTTPException as error:
@@ -87,13 +97,11 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
                     if printer.org_id is None else
                     'ODIN has no start record to show you for this printer. If a print start looks stuck, ask an '
                     'administrator to investigate; a missing record is not permission to send the print again. ')
-        return {'state':'investigation_required','refresh_required':False,'release_available':False,
+        return {**confirmation, 'state':'investigation_required','refresh_required':False,'release_available':False,
                 'actions':{'hold':False,'reconcile_retain':False,'release':False},
                 'blockers':['evidence_authority_unavailable'],'guidance':guidance+GUIDANCE}
     claim,job = evidence['claim'],evidence['job']
     visible = evidence['visible']
-    from core.rbac import is_scoped_token, token_scope_granted
-    from core.rbac_policy import action_roles
     can_write = (current_user.get('role')=='admin'
                  and (current_user.get('group_id') is None or 'admin' in action_roles(db,'printers.dispatch_recovery'))
                  and (not is_scoped_token(current_user) or token_scope_granted(current_user.get('_token_scopes',[]),'write:printers')))
@@ -151,16 +159,7 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         'refresh':{'method':'GET','endpoint':f'/api/printers/{printer_id}/dispatch-recovery'}}
     if result['refresh_required']:
         result['guidance'] = 'Wait for fresh monitor telemetry, then use Refresh evidence or GET '+result['refresh']['endpoint']+'. '+GUIDANCE
-    from core.restart_questions import visible as restart_question
-    result['restart_question'] = restart_question(db, printer_id, current_user)
-    can_answer = (current_user.get('role') in ('admin', 'operator')
-                  and (current_user.get('role') == 'admin' and current_user.get('group_id') is None
-                       or current_user.get('role') in action_roles(db, 'printers.answer_restart_question'))
-                  and (not is_scoped_token(current_user) or token_scope_granted(current_user.get('_token_scopes', []), 'write:printers')))
-    if can_answer:
-        try: authorized(db, evidence, current_user)
-        except HTTPException: can_answer = False
-    result['answer_restart_question'] = bool(can_answer and result['restart_question'] and result['restart_question']['state'] == 'pending')
+    result.update(confirmation)
     if visible:
         result.update(attempt_handle=evidence['attempt'],snapshot_handle=evidence['snapshot'])
     return result

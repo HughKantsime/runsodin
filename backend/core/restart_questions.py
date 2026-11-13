@@ -263,15 +263,26 @@ def visible(db, printer_id, actor):
     if not question or question['state'] not in ('pending', 'investigation'):
         return None
     printer, claim = context(view, printer_id)
+    if (not printer or question['org_id'] != printer['org_id']
+            or not check_org_access(actor, printer['org_id'])
+            or not allowed(db, 'printer', printer_id, actor)):
+        return None
     if question['state'] == 'pending':
         try:
             check_question(view, question, printer, claim)
         except ValueError:
             return None
-    elif any(not allowed(db, 'print_job', identifier, actor) for identifier in question['candidate_ids']):
-        return None
-    if not check_org_access(actor, question['org_id']) or not allowed(db, 'print_job', question['print_job_id'], actor):
-        return None
+    for identifier in question.get('candidate_ids', [question['print_job_id']]):
+        row = read_row(view, identifier)
+        if (not row or row['printer_id'] != printer_id
+                or any(reserved_name(row[k]) for k in ('filename', 'job_name'))
+                or not allowed(db, 'print_job', identifier, actor)):
+            return None
+        if row['scheduled_job_id'] is not None:
+            owner = db.execute(text('SELECT charged_to_org_id FROM jobs WHERE id=:id'), {'id': row['scheduled_job_id']}).first()
+            if (not owner or not check_org_access(actor, owner[0])
+                    or db.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'), {'id': row['scheduled_job_id']}).first()):
+                return None
     return {k: question[k] for k in ('id', 'state', 'print_job_id', 'raised_at', 'print_name', 'reported_name', 'candidate_ids', 'message') if k in question}
 
 
@@ -279,7 +290,6 @@ def answer(db, printer_id, actor, question_id, decision):
     from fastapi import HTTPException
     from core.audit import log_audit
     from core.rbac import check_org_access
-    from core.controlled_parts import allowed
     try:
         db.rollback()
         if db.get_bind().dialect.name == 'sqlite':
@@ -296,15 +306,12 @@ def answer(db, printer_id, actor, question_id, decision):
                                    (' FOR UPDATE NOWAIT' if view.dialect.name == 'postgresql' else '')), {'id': actor['id']}).first()
             if not live or live[0] not in ('admin', 'operator') or live[1] != actor.get('group_id') or not live[2]:
                 raise HTTPException(403, 'An authorized operator or administrator must answer this question.')
-            from core.dispatch_recovery import capture, authorized
-            evidence = capture(db, printer_id, actor)
-            if evidence is None:
+            # Print confirmation uses printer and print-row visibility. It does
+            # not grant authority over the separately retained dispatch claim.
+            if visible(db, printer_id, actor) is None:
                 raise HTTPException(404, 'Print question not found.')
-            authorized(db, evidence, actor)
             printer, claim = context(view, printer_id)
             row = check_question(view, question, printer, claim)
-            if not allowed(db, 'printer', printer_id, actor) or not allowed(db, 'print_job', row['id'], actor):
-                raise HTTPException(404, 'Print question not found.')
             answered_at = now()
             active_id = row['id']
             if decision == 'new':

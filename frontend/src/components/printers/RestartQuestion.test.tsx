@@ -19,7 +19,7 @@ beforeEach(() => {
   vi.mocked(printers.dispatchRecovery).mockResolvedValue(evidence)
   vi.mocked(printers.answerRestartQuestion).mockResolvedValue({ outcome: 'same', print_job_id: 241 })
 })
-afterEach(() => { cleanup(); vi.resetAllMocks(); document.documentElement.removeAttribute('data-theme-family') })
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
 it.each(['classic', 'foundry'])('shows the question and both answers in %s with phone wrapping', async family => {
   document.documentElement.dataset.themeFamily = family
   mount()
@@ -39,11 +39,17 @@ it.each([['Yes, same print: keep recording on it', 'same'], ['No, it is a new pr
   expect(button).toBeDisabled()
   expect(printers.recoverDispatch).not.toHaveBeenCalled()
 })
-it('requires the server and client recovery permission', async () => {
-  vi.mocked(canDo).mockReturnValue(false)
+it.each(['client', 'server'])('requires the %s answer permission', async permission => {
+  if (permission === 'client') vi.mocked(canDo).mockReturnValue(false)
+  else vi.mocked(printers.dispatchRecovery).mockResolvedValue({ ...evidence, answer_restart_question: false })
   mount()
   await screen.findByRole('region', { name: 'Confirm print after restart' })
-  expect(screen.queryByRole('button', { name: /Yes, same print/ })).toBeNull()
+  const yes = screen.getByRole('button', { name: /Yes, same print/ })
+  const no = screen.getByRole('button', { name: /No, it is a new print/ })
+  expect(yes).toBeDisabled()
+  expect(no).toBeDisabled()
+  fireEvent.click(yes); fireEvent.click(no)
+  expect(printers.answerRestartQuestion).not.toHaveBeenCalled()
   expect(screen.getByText(/An authorized operator or administrator can answer/)).toBeTruthy()
 })
 it('refreshes after an uncertain response without retrying the answer', async () => {
@@ -84,6 +90,33 @@ it('operators answer using their own permission without claim controls', async (
  expect(await screen.findByRole('button', { name: /Yes, same print/ })).toBeVisible()
  expect(screen.queryByRole('button', { name: 'Release fence' })).toBeNull()
  expect(screen.queryByRole('button', { name: 'Record decision and retain fence' })).toBeNull()
+})
+it.each([
+  ['classic', 'operator'], ['classic', 'viewer'],
+  ['foundry', 'operator'], ['foundry', 'viewer'],
+])('renders both answers at phone width in %s for %s', async (family, role) => {
+  vi.stubGlobal('innerWidth', 375)
+  document.documentElement.dataset.themeFamily = family
+  vi.mocked(canDo).mockImplementation(action => role === 'operator' && action === 'printers.answer_restart_question')
+  vi.mocked(printers.dispatchRecovery).mockResolvedValue({
+    ...evidence, state: 'investigation_required', attempt_handle: undefined,
+    answer_restart_question: role === 'operator',
+    actions: { hold: false, reconcile_retain: false, release: false },
+  })
+  mount()
+  const yes = await screen.findByRole('button', { name: /Yes, same print/ })
+  const no = screen.getByRole('button', { name: /No, it is a new print/ })
+  expect(window.innerWidth).toBe(375)
+  for (const button of [yes, no]) {
+    expect(button).toBeVisible()
+    expect(button).toHaveClass('whitespace-normal', 'min-h-[44px]')
+    if (role === 'operator') expect(button).toBeEnabled()
+    else expect(button).toBeDisabled()
+    if (family === 'foundry') expect(button).toHaveAttribute('data-foundry-ui', 'button')
+  }
+  expect(yes.parentElement).toHaveClass('flex-col', 'sm:flex-row')
+  expect(screen.queryByTestId('dispatch-recovery-quiet')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Release fence' })).not.toBeInTheDocument()
 })
 it('shows investigation records and repair instructions without answer buttons', async () => {
  vi.mocked(printers.dispatchRecovery).mockResolvedValue({ ...evidence, restart_question: { ...question, state: 'investigation', candidate_ids: [241, 242], message: 'Review records 241, 242 and close the records that are no longer running.' } } as any)

@@ -9,7 +9,6 @@ def initialize(monitor, runtime):
     monitor._restart_blocks_rows = False
     monitor._restart_snapshot = None
     monitor._restart_observation = None
-    monitor._restart_idle_investigation = False
     try:
         from core.dispatch_observation_executor import TransactionView
         from core.restart_questions import load, context, eligible
@@ -39,9 +38,6 @@ def handle(monitor, runtime):
     if runtime.time.time() < monitor._restart_retry_at:
         return True
     observation = (monitor._state.get('gcode_state'), monitor._state.get('subtask_name') or monitor._state.get('gcode_file'))
-    if monitor._restart_idle_investigation and observation[0] == 'IDLE':
-        return True
-    monitor._restart_idle_investigation = False
     try:
         from core.restart_questions import observe, fingerprint
         from core.dispatch_observation_executor import TransactionView
@@ -54,7 +50,6 @@ def handle(monitor, runtime):
             if question and question['state'] in ('pending', 'investigation'):
                 monitor._restart_snapshot = fingerprint(TransactionView(conn), monitor.printer_id)
                 monitor._restart_observation = observation
-                monitor._restart_idle_investigation = question['state'] == 'investigation' and observation[0] == 'IDLE'
             else:
                 monitor._restart_snapshot = None
             conn.commit()
