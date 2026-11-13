@@ -147,7 +147,7 @@ def map_product(product_id: int, data: Mapping, user=Depends(admin), db: Session
         raise HTTPException(409, 'Choose an active Square location for this account')
     meta = reader.variation(variation, location)
     if not meta['tracked']:
-        raise HTTPException(409, 'Enable inventory tracking for this variation at the selected Square location first')
+        raise HTTPException(409, 'Square is not tracking a stock count for this variation at this location. In Square, open the item, set this variation to "Track by stock count" (not "Track by availability") for this location, then map it again.')
     db.rollback()
     store.lock_owner(db, owner, user)
     store.own_product(db, owner, product_id, lock=True)
