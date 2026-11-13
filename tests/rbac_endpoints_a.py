@@ -31,6 +31,7 @@ ENDPOINTS = [
     ("POST", "/api/printers", _admin_only(),
      {"name": "RBAC Temp Printer", "api_type": "bambu"}, "Create printer — printers.add (admin by default)"),
     ("POST", "/api/printers/reorder", _op_write(), {"order": {}}, "Reorder printers"),
+    ("POST", "/api/printers/discover/moonraker", _admin_only(), None, "Moonraker network discovery — printers.add (admin by default)"),
     ("POST", "/api/printers/test-connection", _op_write(),
      {"api_type": "bambu", "api_host": "192.168.99.99"}, "Test connection"),
     ("GET", "/api/printers/{printer_id}/next-suggestion", _api_read(), None, "Recomputed next job"),

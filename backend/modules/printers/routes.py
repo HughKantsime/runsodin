@@ -36,6 +36,7 @@ from modules.printers import (  # noqa: E402
     routes_maintenance_state,
     routes_filament_check,
     routes_integrations,
+    routes_discovery,
 )
 
 router.include_router(routes_crud.router)
@@ -51,6 +52,7 @@ router.include_router(routes_start_next.router)
 router.include_router(routes_maintenance_state.router)
 router.include_router(routes_filament_check.router)
 router.include_router(routes_integrations.router)
+router.include_router(routes_discovery.router)
 # Phase 2 agent-surface: POST /filament-slots for MCP assign_spool.
 router.include_router(routes_filament_slots.router)
 
