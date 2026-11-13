@@ -17,6 +17,7 @@ ROUTES = [
     "printers.routes_smart_plug",
     "printers.routes_nozzle",
     "printers.routes_filament_slots",
+    "printers.routes_plate_thumbnail",
 ]
 
 TABLES = [

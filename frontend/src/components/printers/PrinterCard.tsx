@@ -22,6 +22,7 @@ import PauseCause from './PauseCause'
 import { displayName } from '../../utils/displayName'
 import { isOnline, isActivePrintState, filamentSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
+import { usePlatePicture } from '../../hooks/usePlatePicture'
 
 // TODO: type this properly — runtime printer shape has extra MQTT/telemetry fields
 interface PrinterLike {
@@ -73,6 +74,7 @@ interface PrinterCardProps {
   plugStates?: Record<number, boolean | undefined>
   plugPending?: boolean
   plugOutcome?: string
+  showPlatePicture?: boolean
 }
 
 function LedgerFilamentSlot({ slot }: { slot: any }) {
@@ -123,7 +125,7 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
   }
 }
 
-export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome }: PrinterCardProps) {
+export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome, showPlatePicture }: PrinterCardProps) {
   const externallyManagedFilament = printer.filament_source === 'filament-ledger'
 
   const [syncing, setSyncing] = useState(false)
@@ -135,6 +137,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
   const mounted = useRef(false)
   const currentPrinter = useRef(printer)
   currentPrinter.current = printer
+  // Opt-in plate picture: nothing is requested unless the user turned it on and a print is active.
+  const platePictureUrl = usePlatePicture(printer.id, !!showPlatePicture && isOnline(printer) && isActivePrintState(printer.gcode_state), `${printer.gcode_file ?? ''}|${printer.current_print_display_name ?? ''}`)
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
@@ -412,7 +416,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         })()}
       </div>
       {isOnline(printer) && isActivePrintState(printer.gcode_state) && (
-        <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
+        <div className={clsx("px-3 md:px-4 py-2 border-t border-[var(--brand-border)]", platePictureUrl && "relative pr-[76px] md:pr-[84px] min-h-[72px]")}>
+          {platePictureUrl && <img data-testid="plate-picture" src={platePictureUrl} alt="Plate preview of the running print" width={56} height={56} className="absolute top-2 right-3 md:right-4 w-14 h-14 object-contain rounded bg-[var(--brand-content-bg)]" />}
           <p className="text-sm font-medium truncate mb-1">{displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file })}</p>
           <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
         </div>

@@ -15,6 +15,7 @@ from pathlib import Path
 from sqlalchemy.exc import OperationalError
 from core.dependencies import log_audit
 from modules.models_library.schemas import FileScheduleOptions
+from modules.models_library.library_search import LibraryFilters
 
 from core.quota import charge_job_quota
 from core.display_names import filename_stem, display_names
@@ -301,6 +302,7 @@ async def upload_3mf(
             db.flush()
             commit_started = True
             db.commit()
+
 
             return {
                 "id": file_id,
@@ -633,10 +635,10 @@ async def submit_studio_print(
 
 
 @router.get("/print-files")
-def list_print_files(limit: int = Query(default=20, ge=1, le=100), include_scheduled: bool = False,
+def list_print_files(limit: int = Query(default=20, ge=1, le=100), include_scheduled: bool = False, filters: LibraryFilters = Depends(),
                      current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import list_generic_files
-    return list_generic_files(db, current_user, limit, include_scheduled)
+    return list_generic_files(db, current_user, limit, include_scheduled, filters)
 
 
 @router.get("/print-files/{file_id}")

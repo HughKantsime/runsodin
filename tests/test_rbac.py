@@ -134,6 +134,7 @@ def _resolve_path(path_template, test_data):
         "{schedule_id}": str(test_data.get("schedule_id", 1)),
         "{preset_id}": str(test_data.get("preset_id", 1)),
         "{file_id}": str(test_data.get("file_id", 1)),
+        "{plate}": "1",
         "{nozzle_id}": str(test_data.get("nozzle_id", 1)),
         "{profile_id}": str(test_data.get("profile_id", 1)),
         "{slot_number}": str(test_data.get("slot_number", 1)),

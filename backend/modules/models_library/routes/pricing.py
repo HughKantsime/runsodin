@@ -189,7 +189,7 @@ def calculate_model_cost(
     }
 
 
-def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows):
+def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows, filters=None):
     """List all print models with calculated cost and suggested price."""
     from modules.models_library.education_retention import visible_models
     query = visible_models(db)
@@ -198,6 +198,8 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
+    from modules.models_library.library_search import apply_model_filters
+    query = apply_model_filters(query, db, current_user, filters, effective_org)
     from core.controlled_parts import model_visibility
     visible, values = model_visibility(current_user)
     models = query.filter(text(visible)).params(**values).order_by(Model.name).all()

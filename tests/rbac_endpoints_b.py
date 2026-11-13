@@ -269,6 +269,8 @@ ENDPOINTS = [
     # =========================================================================
     ("GET",    "/api/print-files/{file_id}",          _api_read(), None, "Get print file (template)"),
     ("GET",    "/api/print-files/{file_id}/mesh",     _api_read(), None, "Get print file mesh"),
+    ("GET",    "/api/print-files/{file_id}/plates",   _api_read(), None, "Get print file plate facts"),
+    ("GET",    "/api/print-files/{file_id}/plates/{plate}/thumbnail", _api_read(), None, "Get print file plate thumbnail"),
     ("DELETE", "/api/print-files/{file_id}",          _op_write(), None, "Delete print file (template)"),
     ("POST",   "/api/print-files/upload",             _op_write(), None, "Upload print file"),
     ("POST",   "/api/print-files/{file_id}/schedule", _op_write(), {},   "Schedule print file"),
@@ -279,6 +281,7 @@ ENDPOINTS = [
     ("GET",    "/api/printers/tags",                                         _api_read(),   None, "List printer tags"),
     ("GET",    "/api/printers/{printer_id}/hms-history",                     _api_read(),   None, "HMS history"),
     ("GET",    "/api/printers/{printer_id}/nozzle-status",                   _api_read(),   None, "Nozzle status (H2D dual-nozzle aware)"),
+    ("GET",    "/api/printers/{printer_id}/current-plate-thumbnail",         _api_read(),   None, "Current plate thumbnail"),
     ("GET",    "/api/printers/{printer_id}/nozzle",                          _api_read(),   None, "Get current nozzle"),
     ("GET",    "/api/printers/{printer_id}/nozzle/history",                  _api_read(),   None, "Nozzle history"),
     ("POST",   "/api/printers/{printer_id}/nozzle",                          _op_write(),   {},   "Install nozzle"),

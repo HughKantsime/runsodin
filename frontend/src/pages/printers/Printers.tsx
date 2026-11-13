@@ -23,6 +23,7 @@ import PrinterCard from '../../components/printers/PrinterCard'
 import PrinterModal from '../../components/printers/PrinterModal'
 import { isOnline, isActivePrintState } from '../../utils/shared'
 import { PageHeader, Button, SearchInput, EmptyState } from '../../components/ui'
+import { usePlatePicturePreference } from '../../hooks/usePlatePicturePreference'
 
 export default function Printers() {
   const foundry = useFoundry()
@@ -83,6 +84,7 @@ export default function Printers() {
   }
   const [editingPrinter, setEditingPrinter] = useState(null)
   const [cardSize, setCardSize] = useState(() => localStorage.getItem('printerCardSize') || 'M')
+  const [showPlatePicture, setShowPlatePicture] = usePlatePicturePreference()
   const [orderedPrinters, setOrderedPrinters] = useState([])
   const [draggedId, setDraggedId] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
@@ -315,6 +317,10 @@ export default function Printers() {
               Showing {filteredPrinters.length} of {orderedPrinters.length} printers
             </span>
           )}
+          {!foundry && <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--brand-text-secondary)' }}>
+            <input type="checkbox" checked={showPlatePicture} onChange={(e) => setShowPlatePicture(e.target.checked)} className="rounded border-[var(--brand-card-border)]" />
+            Show plate picture on printer cards
+          </label>}
           {!foundry && <div className="flex items-center gap-0.5 ml-auto border border-[var(--brand-card-border)] rounded-md overflow-hidden">
             {['S', 'M', 'L', 'XL'].map(size => (
               <button
@@ -391,6 +397,7 @@ export default function Printers() {
                 onEdit={handleEdit}
                 onSyncAms={handleSyncAms}
                 hasCamera={cameraIds.has(printer.id)}
+                showPlatePicture={!foundry && showPlatePicture}
                 onCameraClick={setCameraTarget}
                 isDragging={draggedId === printer.id}
                 onDragStart={isFiltered ? undefined : (e) => handleDragStart(e, printer.id)}

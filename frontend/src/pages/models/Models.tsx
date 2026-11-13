@@ -20,6 +20,8 @@ import {
   Star, Box, History, Upload, AlertTriangle, Package } from 'lucide-react'
 const ModelViewer = lazy(() => import('../../components/models/ModelViewer'))
 import ModelRevisionPanel from '../../components/models/ModelRevisionPanel'
+import ModelPlatesPanel from '../../components/models/ModelPlatesPanel'
+import ModelSearchFilters, { EMPTY_FILTERS, activeFilterCount } from '../../components/models/ModelSearchFilters'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
@@ -378,6 +380,8 @@ export default function Models() {
   const [revisionModel, setRevisionModel] = useState(null)
   const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [libraryFilters, setLibraryFilters] = useState(EMPTY_FILTERS)
+  const [platesModel, setPlatesModel] = useState(null)
 
   const updateSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams(prev => {
@@ -408,7 +412,7 @@ export default function Models() {
     updateSearchParams({ q: value })
   }, [updateSearchParams])
 
-  const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
+  const { data: modelsData, isLoading, error: modelsError, refetch } = useQuery({ queryKey: ['models', categoryFilter, org.orgId, libraryFilters], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId, libraryFilters) })
   // Costs and prices are shown only once someone has saved pricing settings; before that they
   // are generic defaults (an older server that does not say is treated as configured).
   const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
@@ -521,6 +525,8 @@ export default function Models() {
         className="max-w-md mb-4"
       />
 
+      <ModelSearchFilters value={libraryFilters} onChange={setLibraryFilters} resultCount={isLoading || modelsError ? null : (modelsData?.length ?? null)} />
+
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4 md:mb-6 items-center">
           <TabBar
@@ -582,7 +588,12 @@ export default function Models() {
 
       {isLoading ? (
         <PageState kind="loading" className="text-center py-12 text-[var(--brand-muted)] text-sm">Loading models...</PageState>
-      ) : modelsData?.length === 0 ? (
+      ) : modelsError ? (
+        <PageState kind="error" role="alert" className="text-center py-12 text-sm">
+          <p>Could not load models: {modelsError.message}</p>
+          <Button onClick={() => refetch()} className="mt-3">Retry</Button>
+        </PageState>
+      ) : modelsData?.length === 0 && activeFilterCount(libraryFilters) === 0 ? (
         <EmptyState
           icon={Upload}
           title="No models defined yet"
@@ -596,7 +607,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {filteredModels?.map((model) => (
-            <ModelCard key={model.id} pricingConfigured={pricingConfigured} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} submitForApproval={submitForApproval} />
+            <ModelCard key={model.id} pricingConfigured={pricingConfigured} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} onPlates={(m) => setPlatesModel(m)} submitForApproval={submitForApproval} />
           ))}
         </div>
       )}
@@ -619,6 +630,10 @@ export default function Models() {
             onClose={() => { setViewerModelId(null); setViewerModelName('') }}
           />
         </Suspense>
+      )}
+
+      {platesModel && (
+        <ModelPlatesPanel modelId={platesModel.id} modelName={platesModel.name} onClose={() => setPlatesModel(null)} />
       )}
 
       {revisionModel && (

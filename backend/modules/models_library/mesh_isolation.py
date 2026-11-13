@@ -88,6 +88,7 @@ class Analysis:
     file_meta: Optional[dict] = None
     mesh: Optional[dict] = None
     plates: Optional[list] = None
+    facts: Optional[dict] = None      # mode "platefacts": validated per-plate facts, thumbnails decoded
 
 
 # --------------------------------------------------------------------------- mesh wire format
@@ -487,6 +488,12 @@ def _decode(blob: bytes, mode: str, clean_exit: bool) -> Analysis:
             if not clean_exit or b"P" not in frames or len(frames[b"P"]) > ANALYSIS_LIMIT_BYTES:
                 return Analysis(status="failed")
             return validate_plates(json.loads(frames[b"P"]))
+        if mode == "platefacts":
+            if not clean_exit or b"F" not in frames or len(frames[b"F"]) > ANALYSIS_LIMIT_BYTES:
+                return Analysis(status="failed")
+            from modules.models_library.plate_cache import validate_wire
+            status, facts = validate_wire(json.loads(frames[b"F"]))
+            return Analysis(status=status, facts=facts)
         if mode == "mesh":
             analysis = Analysis(status="ok")
         elif b"A" in frames and len(frames[b"A"]) <= ANALYSIS_LIMIT_BYTES:
@@ -582,6 +589,12 @@ def plate_summaries_blocking(path, *, timeout: float = TIMEOUT_SECONDS) -> Analy
     """Per-plate summaries of a stored package, parsed in the bounded child (same pool,
     admission and deadline as uploads). Blocking: for sync routes. Raises Busy."""
     return analyze_blocking(path, mode="plates", timeout=timeout)
+
+
+def plate_facts_blocking(path, *, timeout: float = TIMEOUT_SECONDS) -> Analysis:
+    """Per-plate facts and thumbnails of a package, parsed in the bounded child (same pool,
+    admission and deadline as uploads). Blocking: for sync routes. Raises Busy."""
+    return analyze_blocking(path, mode="platefacts", timeout=timeout)
 
 
 def quick_print_readiness(plate1_gcode: bool) -> dict:

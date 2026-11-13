@@ -10,6 +10,10 @@ Updated - see CHANGELOG for current version.
 
 - Local review fixes cover concurrent opt-in deletion, retrying print identity after a failed job poll, recovery while paused, and the detail-page warning and opt-in. Real-hardware verification remains pending.
 
+## Prepared: Model library plate pictures
+
+- Printer cards retry missing plate pictures while the background cache builds, with a bounded retry count and cancellation when the active print or display preference changes.
+
 ## Prepared: Education funding and program reports
 
 - Class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks, with small-cell suppression. The Perkins worksheet stays off until a school's reporting fields are confirmed.

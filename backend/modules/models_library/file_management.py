@@ -59,13 +59,15 @@ def _file_has_active_jobs(db, file_id):
                            {'id': file_id}).first())
 
 
-def list_generic_files(db, actor, limit, include_scheduled):
+def list_generic_files(db, actor, limit, include_scheduled, filters=None):
     files, offset = [], 0
     while len(files) < limit:
         from core.controlled_parts import file_visibility
         visible, values = file_visibility(actor, 'print_files.id')
-        predicate = ' WHERE (' + visible + ')' + ('' if include_scheduled else ' AND NOT ' + _ACTIVE_FILE_JOBS)
-        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {**values, 'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from the closed set {'', ' WHERE NOT ' + _ACTIVE_FILE_JOBS}; values are bound
+        from modules.models_library.library_search import file_clause
+        search_sql, search_values = file_clause(db, actor, filters)
+        predicate = ' WHERE (' + visible + ')' + ('' if include_scheduled else ' AND NOT ' + _ACTIVE_FILE_JOBS) + search_sql
+        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {**values, **search_values, 'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- source-built fragments only (visibility, _ACTIVE_FILE_JOBS, library_search.file_clause); every user value is a bound parameter
         if not candidates:
             break
         offset += len(candidates)
