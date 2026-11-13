@@ -3,7 +3,7 @@ import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import { displayName } from '../../utils/displayName'
 import { Thermometer, Wind, Activity } from 'lucide-react'
-import { getShortName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
+import { slotFullName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
 import { SpoolRing } from '../ui'
 import PrintProgress from './PrintProgress'
 
@@ -94,7 +94,7 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
         {slots.map((slot: any, idx: number) => (
           <div key={idx} className="flex items-center gap-3">
             <SpoolRing color={slot.color_hex ? `#${slot.color_hex}` : slot.color} material={slot.material_type || slot.type} level={slot.remaining ?? null} empty={!slot.color} size={20} />
-            <span className="text-sm text-[var(--brand-text-secondary)] flex-1 truncate">{getShortName(slot)}</span>
+            <span title={slotFullName(slot)} className="text-sm text-[var(--brand-text-secondary)] flex-1 min-w-0 truncate">{slotFullName(slot)}</span>
             {slot.remaining == null && <span className="text-xs text-[var(--brand-text-muted)]">Remaining unknown</span>}
             {slot.spool_change_pending && <a href="/printers" className="text-xs text-amber-400">Spool may have changed? Confirm on Printers</a>}
             {slot.remaining_weight != null && (

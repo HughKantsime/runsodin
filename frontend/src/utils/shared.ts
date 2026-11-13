@@ -51,21 +51,50 @@ export function fanSpeedDisplay(apiType: string | null | undefined, raw: number 
   return { value: percent, unit: '%', text: `${percent}%` }
 }
 
-export function getShortName(slot: string | FilamentSlot | null): string {
-  const color = typeof slot === 'string' ? slot : slot?.color
-  const ft = typeof slot === 'string' ? '' : (slot?.filament_type || '')
-  const fallback = (!ft || ft === 'empty') ? 'Empty' : ft
-  if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return fallback
-  const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
-  let short = color
-  for (const brand of brands) {
-    if (color.startsWith(brand + ' ')) {
-      short = color.slice(brand.length + 1)
-      break
-    }
+const MATERIAL_NAMES: Record<string, string> = {
+  PLA_SUPPORT: 'PLA Support', PETG_SUPPORT: 'PETG Support', PA_SUPPORT: 'PA Support', SUPPORT: 'Support',
+  PLA_CF: 'PLA-CF', PETG_CF: 'PETG-CF', PA_CF: 'PA-CF', PA_GF: 'PA-GF', PET_CF: 'PET-CF', ABS_GF: 'ABS-GF', ASA_CF: 'ASA-CF',
+  PLA_AERO: 'PLA Aero', ASA_AERO: 'ASA Aero', PLA_SILK: 'PLA Silk', PLA_MATTE: 'PLA Matte', TPU_95A: 'TPU 95A', OTHER: 'Other',
+}
+const FILAMENT_BRANDS = ['Bambu Lab', 'Bambu', 'Polymaker', 'Hatchbox', 'eSun', 'eSUN', 'Prusament', 'Overture', 'Elegoo', 'Sunlu', 'SUNLU', 'Anycubic', 'Creality', 'Generic']
+
+/** A material code as people write it: "PLA_SUPPORT" is "PLA Support", "PETG_CF" is "PETG-CF". */
+export function materialLabel(type: string | null | undefined): string {
+  const code = (type || '').trim()
+  if (!code || code.toLowerCase() === 'empty') return 'Empty'
+  const known = MATERIAL_NAMES[code.toUpperCase()]
+  if (known) return known
+  return code.replace(/_(CF|GF)$/i, (_, fibre) => `-${fibre.toUpperCase()}`).replace(/_/g, ' ')
+}
+
+/** The colour or product name on a slot, without the "preset:" prefix, the brand, or a bare hex code. */
+export function slotColorName(slot: string | FilamentSlot | null): string {
+  let name = ((typeof slot === 'string' ? slot : slot?.color) || '').trim().replace(/^preset:\s*/i, '')
+  if (!name || /^#?[0-9a-fA-F]{6,8}$/.test(name)) return ''
+  for (const brand of FILAMENT_BRANDS) {
+    if (name.toLowerCase().startsWith(brand.toLowerCase() + ' ')) { name = name.slice(brand.length + 1).trim(); break }
   }
-  if (short.length > 12) return short.slice(0, 10) + '...'
-  return short
+  return name
+}
+
+/** What a small slot tile shows: the material ("PLA", "PLA Support"). The ring beside it shows the
+ *  colour, so the colour name goes in the tooltip (slotFullName), not squeezed into the tile.
+ *  With no material recorded, the colour name stands in. Never cut in code: the tile truncates. */
+export function getShortName(slot: string | FilamentSlot | null): string {
+  if (typeof slot === 'string') return slotColorName(slot) || 'Empty'
+  const material = slot?.filament_type || (slot as { material_type?: string } | null)?.material_type || ''
+  if (material && material.toLowerCase() !== 'empty') return materialLabel(material)
+  return slotColorName(slot) || 'Empty'
+}
+
+/** Material and colour name together, for tooltips and wide rows: "PLA · Galaxy Black". */
+export function slotFullName(slot: string | FilamentSlot | null): string {
+  const short = getShortName(slot)
+  const name = slotColorName(slot)
+  if (!name || name.toLowerCase() === short.toLowerCase() || short === 'Empty') return short === 'Empty' && name ? name : short
+  // "Support for PLA" beside "PLA Support" says the same thing twice
+  const words = (text: string) => text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w && w !== 'for').sort().join(' ')
+  return words(name) === words(short) ? short : `${short} \u00B7 ${name}`
 }
 
 /** Format a duration given in minutes to "Xh Ym" display. */

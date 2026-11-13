@@ -35,7 +35,7 @@ import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
-import { getShortName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
+import { getShortName, slotFullName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
 
 export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
   const foundry = useFoundry()
@@ -112,7 +112,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
                 empty={!slot.color_hex && !slot.material_type && !slot.type}
                 size={20}
               />
-              <span className="text-[10px] md:text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
+              <span title={slotFullName(slot)} className="text-[10px] md:text-xs text-[var(--brand-text-muted)] truncate block w-full min-w-0">{getShortName(slot)}</span>
             </div>
           ))}
         </div>
