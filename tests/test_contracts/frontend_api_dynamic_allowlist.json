@@ -31,25 +31,13 @@
   },
   {
     "file": "api/jobs.ts",
-    "expression": "'/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')",
-    "options": "",
-    "reason": "Repeated condition correlates ? and & branches; all variants address this route with optional query parameters.",
+    "expression": "'/jobs' + buildJobsQuery(status, orgId, params)",
+    "options": "onTotal ? { onResponse: (response: Response) => {\n      const header = response.headers.get('X-Total-Count')\n      const total = header == null ? NaN : Number(header)\n      onTotal(Number.isInteger(total) && total >= 0 ? total : null)\n    } } : {}",
+    "reason": "The options object is chosen by a condition and sets only a response callback (no method), so this is always GET /api/jobs with optional query parameters built by buildJobsQuery.",
     "routes": [
       [
         "GET",
         "/api/jobs"
-      ]
-    ]
-  },
-  {
-    "file": "api/models.ts",
-    "expression": "'/models-with-pricing' + (category ? '?category=' + category : '') + (orgId != null ? (category ? '&' : '?') + 'org_id=' + orgId : '')",
-    "options": "",
-    "reason": "Repeated condition correlates ? and & branches; all variants address this route with optional query parameters.",
-    "routes": [
-      [
-        "GET",
-        "/api/models-with-pricing"
       ]
     ]
   },
