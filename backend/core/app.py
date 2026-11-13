@@ -22,7 +22,7 @@ _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.1.1"
+    __version__ = "2.2.0"
 
 
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster

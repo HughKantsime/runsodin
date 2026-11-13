@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.2.0] - 2026-11-13
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: ODIN works on a phone, sets itself up faster, and checks filament before it prints. New: Jobs search, model library plates, maintenance and temperature alerts, material routing, Home Assistant print floor, timelapse status, more printers (OctoPrint, Elegoo, Ultimaker and Kobra S1 as Experimental), a license refresh button, and ITAR mode now covers the Square connection. -->
 
