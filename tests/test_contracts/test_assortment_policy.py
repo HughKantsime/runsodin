@@ -41,16 +41,106 @@ def test_policy_unconfigured_explicit_inactive_trial_and_no_remote_reads(batch):
     assert len(calls)==count
 
 
-@pytest.mark.parametrize('kind,floor,minimum',[('multicolor_character',5,5),('dragon_jumbo',15,1),('dragon_half',15,1),('dragon_other',5,1),('other',5,1)])
+OLD_KINDS=[('multicolor_character',5,5),('dragon_jumbo',15,1),('dragon_half',15,1),('dragon_other',5,1),('other',5,1)]
+
+
+def legacy(batch,kind,mode='active',pid=101):
+    """Store a row exactly as releases before owner-set numbers wrote it: a category and no numbers."""
+    doc,prior=assortment.load(batch[3],1);doc['products'][str(pid)]={'assortment':mode,'kind':kind}
+    assortment.save(batch[3],1,doc,prior);batch[3].commit()
+
+
+@pytest.mark.parametrize('kind,floor,minimum',OLD_KINDS)
 def test_rule_threshold_is_separate_from_batch_minimum(batch,kind,floor,minimum):
     answer=policy(batch,kind=kind).json();entry=next(p for p in answer['products'] if p['id']==101)
-    assert entry['rules']=={'trigger_below':floor,'minimum_main_batch':minimum,'routine_replenishment':True}
+    assert entry['rules']=={'trigger_below':floor,'minimum_main_batch':minimum,'routine_replenishment':True,
+                            'reorder_point':floor,'target':floor,'minimum_batch':minimum}
+
+
+@pytest.mark.parametrize('kind,floor,minimum',OLD_KINDS)
+@pytest.mark.parametrize('mode',['active','trial','inactive'])
+def test_old_saved_kinds_read_back_with_their_old_numbers(batch,kind,floor,minimum,mode):
+    legacy(batch,kind,mode)
+    entry=next(p for p in batch[0].get(BASE).json()['products'] if p['id']==101)
+    assert entry['policy']=={'assortment':mode,'kind':kind,'reorder_point':floor,'target':floor,'minimum_batch':minimum}
+    assert entry['rules']=={'trigger_below':floor,'minimum_main_batch':minimum,'routine_replenishment':mode=='active',
+                            'reorder_point':floor,'target':floor,'minimum_batch':minimum}
+    # Reading never rewrites the stored row.
+    assert assortment.load(batch[3],1)[0]['products']['101']=={'assortment':mode,'kind':kind}
+
+
+@pytest.mark.parametrize('kind,floor,minimum',OLD_KINDS)
+def test_old_saved_kinds_keep_their_trigger_in_the_stock_check(batch,monkeypatch,kind,floor,minimum):
+    ready(batch,yield_count=5);legacy(batch,kind)
+    stock(monkeypatch,str(floor-1));assert batch[0].post(f'{BASE}/101/preview').json()['status']=='candidate'
+    stock(monkeypatch,str(floor));assert batch[0].post(f'{BASE}/101/preview').json()['status']=='enough'
+
+
+def test_first_save_writes_explicit_numbers_and_drops_the_category(batch):
+    legacy(batch,'dragon_jumbo');revision=batch[0].get(BASE).json()['revision']
+    # Same status, no numbers sent: the row keeps what it produced, now written out.
+    answer=batch[0].put(f'{BASE}/101',json={'revision':revision,'assortment':'active'});assert answer.status_code==200
+    assert assortment.load(batch[3],1)[0]['products']['101']=={'assortment':'active','reorder_point':15,'target':15,'minimum_batch':1}
+    answer=batch[0].put(f'{BASE}/101',json={'revision':answer.json()['revision'],'assortment':'active','reorder_point':4,'target':12,'minimum_batch':3})
+    entry=next(p for p in answer.json()['products'] if p['id']==101)
+    assert entry['policy']=={'assortment':'active','reorder_point':4,'target':12,'minimum_batch':3}
+    assert entry['rules']['trigger_below']==4 and entry['rules']['minimum_main_batch']==3 and entry['rules']['target']==12
+    stored=assortment.load(batch[3],1)[0]['products']['101'];assert 'kind' not in stored and stored['target']==12
+
+
+def test_new_policy_needs_numbers_and_target_defaults_to_the_reorder_point(batch):
+    assert batch[0].put(f'{BASE}/101',json={'revision':None,'assortment':'active'}).status_code==422
+    answer=batch[0].put(f'{BASE}/101',json={'revision':None,'assortment':'active','reorder_point':7,'minimum_batch':2})
+    assert answer.status_code==200
+    assert assortment.load(batch[3],1)[0]['products']['101']=={'assortment':'active','reorder_point':7,'target':7,'minimum_batch':2}
+
+
+@pytest.mark.parametrize('numbers',[{'reorder_point':10,'target':9,'minimum_batch':1},{'reorder_point':-1,'target':5,'minimum_batch':1},
+    {'reorder_point':5,'target':5,'minimum_batch':0},{'reorder_point':'5','target':5,'minimum_batch':1},{'reorder_point':5.5,'target':6,'minimum_batch':1}])
+def test_target_below_reorder_point_and_invalid_numbers_are_refused(batch,numbers):
+    assert batch[0].put(f'{BASE}/101',json={'revision':None,'assortment':'active',**numbers}).status_code==422
+    assert assortment.load(batch[3],1)[1] is None
+
+
+def test_target_below_an_existing_reorder_point_is_refused(batch):
+    revision=policy(batch,kind='dragon_jumbo').json()['revision']
+    assert batch[0].put(f'{BASE}/101',json={'revision':revision,'assortment':'active','target':9}).status_code==422
+    assert assortment.load(batch[3],1)[0]['products']['101']['target']==15
+
+
+def test_owner_numbers_drive_the_stock_check_and_the_batch_rule(batch,monkeypatch):
+    ready(batch,yield_count=3)
+    assert batch[0].put(f'{BASE}/101',json={'revision':None,'assortment':'active','reorder_point':8,'target':20,'minimum_batch':3}).status_code==200
+    stock(monkeypatch,'7');assert batch[0].post(f'{BASE}/101/preview').json()['status']=='candidate'
+    stock(monkeypatch,'8');assert batch[0].post(f'{BASE}/101/preview').json()['status']=='enough'
+    revision=batch[0].get(BASE).json()['revision']
+    batch[0].put(f'{BASE}/101',json={'revision':revision,'assortment':'active','minimum_batch':4})
+    stock(monkeypatch,'7');assert batch[0].post(f'{BASE}/101/preview').json()['status']=='recipe_needed'
+
+
+def test_rule_logic_names_no_product_kind():
+    import inspect
+    source=inspect.getsource(assortment.rule)
+    for word in ('kind','dragon','multicolor','character',*assortment.LEGACY):assert word not in source
+    # The old categories exist only as read-only compatibility data.
+    module=inspect.getsource(assortment)
+    for name in assortment.LEGACY:assert module.count(f"'{name}'")==2,name  # the table and the stored-row type
+
+
+@pytest.mark.parametrize('entry',[{'assortment':'active'},{'assortment':'active','reorder_point':5},
+    {'assortment':'active','reorder_point':5,'target':4,'minimum_batch':1},{'assortment':'active','kind':'unicorn'}])
+def test_incomplete_stored_policy_is_retained_for_review_not_guessed(batch,entry):
+    from core.models import SystemConfig
+    def store(value):
+        batch[3].merge(SystemConfig(key=assortment.key(1),value=batches.packed({'version':1,'owner':1,'revision':'r','products':{'101':value}})));batch[3].commit()
+    store({'assortment':'active','kind':'other'});assert batch[0].get(BASE).status_code==200  # the same document shape is otherwise readable
+    store(entry);assert batch[0].get(BASE).status_code==503
 
 
 def test_stale_edit_refuses_and_preserves_other_products(batch):
     first=policy(batch).json();revision=first['revision'];policy(batch,pid=104,kind='other')
     r=policy(batch,assortment='inactive',revision=revision);assert r.status_code==409
-    saved=batch[0].get(BASE).json()['products'];assert saved[0]['policy']['assortment']=='active' and saved[1]['policy']['kind']=='other'
+    saved=batch[0].get(BASE).json()['products'];assert saved[0]['policy']['assortment']=='active' and saved[1]['policy']['reorder_point']==5 and 'kind' not in saved[1]['policy']
 
 
 @pytest.mark.parametrize('role,auth,group,status',[('viewer','jwt',1,403),('operator','jwt',1,403),('admin','user_api_token',1,403),('admin','jwt',2,403)])

@@ -29,3 +29,19 @@ def assert_job_history_deletable(db, job_id):
     db.execute(text("UPDATE jobs SET id=id WHERE id=:id"), {"id":job_id})
     if db.execute(text('SELECT 1 FROM production_acceptances a JOIN jobs j ON j.economic_uid=a.job_uid WHERE j.id=:id LIMIT 1'),{'id':job_id}).first():
         raise HTTPException(409, 'Job has a retained production inspection; retain its timeline with that business record')
+
+
+def print_next_count(db, user):
+    """Products that need a plate, from recorded stock only: database reads, no Square call.
+
+    None when the caller has no production organization or the feature is not licensed.
+    """
+    from fastapi import HTTPException
+    from license_manager import get_license
+    if not get_license().has_feature('products'):
+        return None
+    from modules.orders.replenishment import print_next_count as count
+    try:
+        return count(db, user)
+    except HTTPException:
+        return None

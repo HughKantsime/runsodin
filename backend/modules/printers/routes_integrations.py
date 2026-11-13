@@ -211,6 +211,11 @@ def home_assistant_status(
         })
 
     fleet_floor = floor.fleet()
+    # Pro: how many products need a plate. Recorded stock only; this payload never contacts Square.
+    from modules.orders.services import print_next_count
+    print_next = print_next_count(db, current_user)
+    if print_next is not None:
+        fleet_floor = {**fleet_floor, "print_next_count": print_next}
 
     return {
         "schema_version": SCHEMA_VERSION,

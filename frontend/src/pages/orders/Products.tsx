@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import OperationsWorkbench from '../../components/orders/OperationsWorkbench'
 import Finishing from '../../components/orders/Finishing'
 import AssortmentPolicyPanel from '../../components/orders/AssortmentPolicy'
+import PrintNext from '../../components/orders/PrintNext'
 import { useState, useEffect, useRef, Fragment } from 'react'
 import SquareInventory from '../../components/orders/SquareInventory'
 import ProductionBatches from '../../components/orders/ProductionBatches'
@@ -229,6 +230,7 @@ export default function Products() {
       </div>
 
 
+      <PrintNext />
       <SquareInventory products={productList} />
       <ProductionBatches inspectJobId={inspectJobId} products={productList} />
       <Finishing products={productList} />

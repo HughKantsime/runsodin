@@ -33,6 +33,7 @@ import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../com
 import SectionErrorBoundary from './SectionErrorBoundary'
 import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
 import GettingStartedChecklist from '../../components/shared/GettingStartedChecklist'
+import PrintNextCard from '../../components/orders/PrintNextCard'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance, fetchAPI } from '../../api'
 import { browserTimeZone, farmDayNote } from '../../utils/farmTime'
@@ -498,6 +499,10 @@ function ClassicDashboard() {
 
       <SectionErrorBoundary>
         <AlertsWidget />
+      </SectionErrorBoundary>
+
+      <SectionErrorBoundary>
+        <PrintNextCard />
       </SectionErrorBoundary>
 
       <SectionErrorBoundary>
