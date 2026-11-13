@@ -1,4 +1,4 @@
-"""Stock Anycubic LAN monitor with one restricted, one-shot S1 start method.
+"""Stock Anycubic LAN monitor with guarded S1 starts and missing-file checks.
 
 Handshake/MQTT sequence adapted from this project's Phase A s1_capture.py.
 Self-signed printer TLS requires verification disabled, as in the capture.
@@ -26,6 +26,10 @@ from modules.printers.parsing.anycubic_lan import parse_report, valid_report
 log = logging.getLogger(__name__)
 PREFIX = 'anycubic/anycubicCloud/v1'
 KOBRA_S1_MODEL_ID = '20025'  # /info on the S1; 20029 is the S1 Max, which is a different printer.
+# Provisional: mode A (stale handler) is not yet captured. Any print/report
+# after the decoy is evidence of processing, not proof that a real start works.
+S1_PROVISIONAL_ANY_PRINT_REPORT = True
+DECOY_REPORT_SECONDS = 3.0
 ALLOWED_ACTIONS = frozenset({'query', 'getInfo'})
 DEFAULTS = dict(internal_state='OFFLINE', bed_temp=0, bed_target=0, nozzle_temp=0,
                 nozzle_target=0, box_temp=0, model_fan=0, filename='', progress_percent=0,
@@ -80,6 +84,22 @@ class AnycubicLANPrinter:
         return creds
 
     def send_start(self, payload, *, before_publish, timeout=12):
+        from modules.printers.kobra_s1 import DECOY_FILENAME
+        if (payload.get('data') or {}).get('filename') == DECOY_FILENAME:
+            raise ValueError('The preflight file cannot be used for a real start')
+        return self._send_start(payload, before_publish=before_publish, timeout=timeout)
+
+    def send_decoy(self, payload, *, before_publish, timeout=12):
+        """Only the absent, zero-byte sentinel may use the retryable preflight path."""
+        from modules.printers.kobra_s1 import DECOY_FILENAME
+        data = payload.get('data') or {}
+        if (data.get('filename') != DECOY_FILENAME or data.get('filepath') != '/'
+                or data.get('md5') != '0' * 32 or type(data.get('filesize')) is not int
+                or data['filesize'] != 0 or data.get('filetype') != 1):
+            raise ValueError('Only the missing preflight file is allowed')
+        return self._send_start(payload, before_publish=before_publish, timeout=timeout, decoy=True)
+
+    def _send_start(self, payload, *, before_publish, timeout, decoy=False):
         """Fresh TLS handshake, one QoS0 print/start, no reconnect or republish.
 
         A missing correlated report after publish is normal. Exceptions after
@@ -88,8 +108,12 @@ class AnycubicLANPrinter:
         """
         if payload.get('type') != 'print' or payload.get('action') != 'start' or not callable(before_publish):
             raise ValueError('Only guarded print/start is allowed')
+        from modules.printers.dispatch_support import s1_sending_enabled, S1_SENDING_OFF_DETAIL
+        if not s1_sending_enabled():
+            return dict(processed=False) if decoy else dict(published=False, uncertain=False, message=S1_SENDING_OFF_DETAIL)
         client = None
         entered = published = False
+        decoy_deadline = None
         answer = {}
         def after_publish():
             """A missing report is normal; an explicit non-200 means the printer refused."""
@@ -105,6 +129,9 @@ class AnycubicLANPrinter:
             from core.webhook_utils import device_connect_ip
             creds = self.handshake()
             if self.model_id != KOBRA_S1_MODEL_ID:
+                if decoy:
+                    from modules.printers.kobra_s1 import S1Refusal
+                    raise S1Refusal('s1_model_mismatch', 'The printer did not identify itself as a Kobra S1. No command was sent.')
                 return dict(published=False, uncertain=False, message='Printer does not report the Kobra S1 model; no command was sent')
             broker = urlsplit(creds['broker'])
             if broker.scheme not in ('mqtt', 'mqtts') or broker.port != 9883:
@@ -124,7 +151,11 @@ class AnycubicLANPrinter:
             def on_message(_c, _u, message):
                 try:
                     body = json.loads(message.payload)
-                    if message.topic == report and isinstance(body, dict) and body.get('msgid') == payload['msgid']:
+                    if not isinstance(body, dict):
+                        return
+                    matched = (S1_PROVISIONAL_ANY_PRINT_REPORT and decoy_deadline is not None
+                               and time.monotonic() <= decoy_deadline) if decoy else body.get('msgid') == payload['msgid']
+                    if message.topic == report and isinstance(body, dict) and matched:
                         # Only these two fields leave this method, and only in these shapes.
                         code, state = body.get('code'), body.get('state')
                         answer.update(code=code if type(code) is int else None,
@@ -148,15 +179,24 @@ class AnycubicLANPrinter:
             client.on_connect, client.on_subscribe, client.on_message = on_connect, on_subscribe, on_message
             client.connect_timeout = timeout
             client.connect(address, 9883, keepalive=60)
-            def wait(predicate):
-                deadline = time.monotonic() + timeout
+            def wait(predicate, deadline=None):
+                deadline = time.monotonic() + timeout if deadline is None else deadline
                 while not predicate() and time.monotonic() < deadline:
                     if client.loop(timeout=min(.2, max(.01, deadline - time.monotonic()))) != mqtt.MQTT_ERR_SUCCESS:
                         return False
                 return predicate()
             if not wait(connected.is_set) or not wait(subscribed.is_set):
+                if decoy:
+                    return dict(processed=False)
                 return dict(published=False, uncertain=False, message='S1 MQTT connection/subscription was not acknowledged')
             before_publish()
+            if decoy:
+                # This branch never enters real-start evidence or delivery state.
+                decoy_deadline = time.monotonic() + DECOY_REPORT_SECONDS
+                sent = client.publish(topic, json.dumps(payload), qos=0, retain=False)
+                if sent.rc == mqtt.MQTT_ERR_SUCCESS:
+                    wait(received.is_set, decoy_deadline)
+                return dict(processed=received.is_set(), **answer)
             entered = True
             sent = client.publish(topic, json.dumps(payload), qos=0, retain=False)
             if sent.rc != mqtt.MQTT_ERR_SUCCESS:
@@ -170,6 +210,8 @@ class AnycubicLANPrinter:
             from modules.printers.kobra_s1 import S1Refusal
             if not entered and isinstance(exc, S1Refusal):
                 raise
+            if decoy:
+                return dict(processed=bool(answer), **answer)
             if published:
                 return after_publish()
             return dict(published=False, uncertain=entered,

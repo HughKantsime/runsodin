@@ -66,6 +66,8 @@ def s1(review_db, tmp_path, monkeypatch):
     monkeypatch.setattr(moonraker.MoonrakerPrinter, 'device_file_identity',
                         lambda self, name: dict(path=name, md5='b' * 32, size=999, filaments=[dict(color='#00AE42', type='PLA')]))
     monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', send)
+    from tests.test_contracts.s1_preflight_test_support import passing_preflight
+    passing_preflight(monkeypatch)
     monkeypatch.setattr(moonraker_monitor, 'engine', engine)
     monitor = moonraker_monitor.MoonrakerMonitor(59, 'Synthetic', '127.0.0.1', model='Kobra S1')
     monitor.observe = lambda: monitor._process_status(monitor.printer.get_status())

@@ -2,7 +2,7 @@
 import hashlib
 import time
 import uuid
-from modules.printers.kobra_s1 import S1Refusal, build_payload, read_filaments, mapping_vector, verify_mapping
+from modules.printers.kobra_s1 import DECOY_FILENAME, S1Refusal, build_payload, read_filaments, mapping_vector, verify_mapping
 from modules.printers.dispatch_ams_gate import record_refusal
 
 
@@ -14,7 +14,7 @@ def options(job, path):
 
 def create_start_gate(engine, *, admission_inputs, target_handle, **unused):
     from modules.printers.dispatch_admission import recheck_admitted
-    def gate():
+    def check_authority():
         if not target_handle.held():
             return record_refusal(gate, 's1_target_changed', 'Configured target ownership changed')
         result = recheck_admitted(engine, **admission_inputs)
@@ -22,6 +22,11 @@ def create_start_gate(engine, *, admission_inputs, target_handle, **unused):
             code, _, detail = result.reason.partition(': ')
             return record_refusal(gate, code, detail or result.reason)
         return True
+    def gate():
+        return check_authority()
+    # Recheck admission and claim ownership without consuming the single-use
+    # outer license gate or recording real-start evidence.
+    gate.preflight = check_authority
     gate.prepare = lambda: target_handle.held()
     gate.refusal = None
     gate.clean_no_start = False
@@ -50,6 +55,88 @@ def _fresh(printer):
     if status.ace_status is None:
         raise S1Refusal('s1_ace_unknown', 'ACE state is unavailable')
     return status.ace_status
+
+
+PREFLIGHT_MAX_DECOYS = 3
+PREFLIGHT_RETRY_SECONDS = 25.0
+
+
+def _decoy_file_absent(printer):
+    from urllib.error import HTTPError
+    try:
+        printer.device_file_identity(DECOY_FILENAME)
+    except HTTPError as exc:
+        exc.close()
+        if exc.code == 404:
+            return
+    except Exception:
+        pass
+    # Invalid headers, permission errors and incomplete reads do not prove absence.
+    raise S1Refusal('s1_preflight_file_not_absent', 'The printer could not confirm that the preflight file is missing. No print was started.')
+
+
+def _record_preflight(authority, facts):
+    from contextlib import nullcontext
+    from sqlalchemy.orm import Session
+    from core.audit import log_audit
+    from core.job_timeline import enqueue, event
+    from modules.printers.dispatch_background import audit_actor
+    actor = audit_actor()
+    with Session(authority.engine) as db:
+        with actor(db) if actor else nullcontext():
+            log_audit(db, 'job.dispatch_preflight', 'job', authority.job['id'],
+                      dict(printer_id=authority.job['printer_id'], **facts))
+            db.commit()
+    # Timeline kinds are schema-constrained; keep preflight facts on the existing
+    # start-preparation event rather than requiring a migration for a new kind.
+    enqueue(event(authority.job['id'], 'dispatch_starting', printer_id=authority.job['printer_id'],
+                  detail=dict(preflight_result=facts['result'], decoys_sent=facts['decoys_sent'], seconds=facts['seconds'])))
+
+
+def _preflight(printer, adapter, filaments, slots, mapping, authority):
+    from modules.printers.maintenance_gate import check_command, MaintenanceHold
+    started = time.monotonic()
+    facts = dict(result='refused', decoys_sent=0, seconds=0.0)
+    def before_decoy():
+        if authority.preflight() is not True:
+            refusal = authority.refusal
+            raise S1Refusal(refusal.code, refusal.detail)
+        fresh = _fresh(printer)
+        verify_mapping(filaments, fresh['slots'], mapping)
+        if any(fresh['slots'][n] != slots[n] for n in mapping):
+            raise S1Refusal('s1_slot_changed', 'The selected filament changed. Check the mapping, then try again.')
+        _decoy_file_absent(printer)
+        # File checks can take time; idle and maintenance must still hold at send.
+        _fresh(printer)
+        if authority.preflight() is not True:
+            refusal = authority.refusal
+            raise S1Refusal(refusal.code, refusal.detail)
+        try:
+            check_command()
+        except MaintenanceHold as exc:
+            raise S1Refusal('printer_maintenance_hold', str(exc)) from None
+        facts['decoys_sent'] += 1
+    try:
+        for attempt in range(PREFLIGHT_MAX_DECOYS):
+            if attempt:
+                time.sleep(PREFLIGHT_RETRY_SECONDS)
+            decoy = build_payload(dict(path=DECOY_FILENAME, md5='0' * 32, size=0, filaments=filaments),
+                                  slots, mapping, int(time.time() * 1000), str(uuid.uuid4()), decoy=True)
+            result = adapter.send_decoy(decoy, before_publish=before_decoy)
+            if result.get('processed') is True:
+                facts['result'] = 'passed'
+                return
+        raise S1Refusal('s1_start_service_not_responding', "The printer's start service did not respond. Restart it on the printer, then try again.")
+    except S1Refusal:
+        raise
+    except Exception:
+        raise S1Refusal('s1_preflight_unavailable', 'The printer start check could not be completed. No print was started; try again later.') from None
+    finally:
+        facts['seconds'] = round(time.monotonic() - started, 3)
+        try:
+            _record_preflight(authority, facts)
+        except Exception:
+            raise S1Refusal('s1_preflight_record_failed', 'The printer start check could not be recorded. No print was started; try again later.') from None
 
 
 def dispatch(job_id, path, remote, creds, print_options, gate):
@@ -86,6 +173,13 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
         if file['filaments'] != filaments:
             raise S1Refusal('s1_file_changed', 'Device filament header differs from the admitted payload')
         payload = build_payload(file, ace['slots'], mapping, int(time.time() * 1000), str(uuid.uuid4()))
+        adapter = AnycubicLANPrinter(creds['ip'])
+        try:
+            _preflight(printer, adapter, filaments, ace['slots'], mapping, authority)
+        except S1Refusal as exc:
+            record_refusal(gate, exc.code, exc.detail)
+            return False, common.PreflightNoStartMessage(str(exc))
+        payload['timestamp'] = int(time.time() * 1000)
         def before_publish():
             nonlocal publish_entered, published_at
             if publish_entered:
@@ -114,7 +208,7 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
             published_at = time.monotonic()
             publish_entered = True
         common._ws(job_id, 'starting', 'File verified; preparing S1 start')
-        result = AnycubicLANPrinter(creds['ip']).send_start(payload, before_publish=before_publish)
+        result = adapter.send_start(payload, before_publish=before_publish)
         if result.get('rejected'):
             raise S1Refusal('s1_start_rejected', result['message'])
         if not result['published']:
@@ -122,7 +216,7 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
                 raise common.DispatchOutcomeUncertain('S1 publish delivery uncertain; never retry automatically')
             raise S1Refusal('s1_send_failed', result['message'])
         if published_at is None or not _confirm_started(printer, remote, deadline=published_at + START_CONFIRM_SECONDS):
-            record_refusal(gate, 's1_start_unknown', 'Printing and nozzle heat were not observed within 90 seconds; never retry automatically. An operator must approve a gkapi restart and wait at least 10 minutes before retrying.')
+            record_refusal(gate, 's1_start_unknown', "The printer passed its start check, but printing and nozzle heat were not observed within 90 seconds. This is a new start failure; tell support. Do not retry automatically. Check that no print started, restart the printer's start service, then try again.")
             raise common.DispatchOutcomeUncertain('S1 start UNKNOWN; never retry automatically')
         return True, 'S1 start confirmed; ' + result['message'] + ('; ACE auto_refill is on' if ace['auto_refill'] == 1 else '')
     except S1Refusal as exc:
