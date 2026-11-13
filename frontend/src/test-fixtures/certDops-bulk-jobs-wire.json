@@ -72,7 +72,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-29T15:53:05"
+      "updated_at": "2026-10-29T15:53:05",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -120,7 +121,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-29T15:53:05"
+      "updated_at": "2026-10-29T15:53:05",
+      "waiting_reason": null
     }
   ],
   "reschedule": {

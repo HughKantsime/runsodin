@@ -5,7 +5,7 @@ import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import FilamentCheckPanel from '../../components/jobs/FilamentCheckPanel'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { Plus, Filter, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
 import { jobs, models, printers as printersApi, scheduler, getApprovalSetting, presets, bulkOps } from '../../api'
@@ -55,6 +55,7 @@ export default function Jobs() {
   })
 
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, _setStatusFilter] = useState(() => searchParams.get('status') || '')
@@ -324,6 +325,8 @@ export default function Jobs() {
         })
         break
       }
+      // From a job's waiting line ("Printer is offline"): jobId carries the printer id here.
+      case 'openPrinter': navigate(`/printers/${jobId}`); break
       case 'approve': approveJobMut.mutate(jobId); break
       case 'reject': setRejectingJobId(jobId); setShowRejectModal(true); break
       case 'resubmit': resubmitJobMut.mutate(jobId); break

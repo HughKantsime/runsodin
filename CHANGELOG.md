@@ -16,6 +16,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Jobs: a job that is not printing now says what it is waiting for, in one line under its status on the table and on the phone card: waiting for approval, on hold, needs a filament slot chosen for each colour (with a button that opens the job's filament mapping), printer is offline, printer is busy (with the time the running print should end, when known), quiet hours (with the time they end), no printer can run it (naming the material or tag no printer has), or the reason the last dispatch was refused, shown until the next attempt. Offline and busy lines have a button that opens the printer. The line goes away when the cause is fixed. `GET /api/v1/jobs` and `GET /api/v1/jobs/{id}` carry it as `waiting_reason` (`code`, and where they apply `detail`, `until`, `printer_id`); it is worked out when the list is read and nothing is stored. A printer you are not allowed to see is never named or linked.
 - Phone browsers, Classic theme: every button in a page, pop-up or stand-alone page is at least 44 px to the finger (switches look the same and take 44 px of space; small buttons inside a text field keep their size); a printer card's action buttons move to their own row instead of squeezing the printer's name. Desktop and tablet layouts are unchanged.
 - Alerts: a long title on a single alert is shown on two lines and expands when pressed (grouped alerts already did this).
 - Foundry cameras on a phone: the chosen camera's button is kept in view in the chooser strip.

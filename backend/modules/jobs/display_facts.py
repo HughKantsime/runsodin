@@ -1,4 +1,4 @@
-"""Derive display-only nozzle/slot selections for already-visible jobs."""
+"""Display facts for already-visible jobs: nozzle/slot selections and what each job is waiting for."""
 import json
 from sqlalchemy.orm.attributes import set_committed_value
 from core.rbac import check_org_access
@@ -6,13 +6,21 @@ from core.printer_display_facts import read_facts, may_read
 
 
 def enrich_job_facts(db, jobs, actor):
+    """Display facts for already-visible jobs: nozzle/slot selections and what each job waits for."""
+    from sqlalchemy import or_
     from modules.printers.models import Printer
     from modules.jobs.pinning import job_pin, preload_pin_printer_states
     from modules.printers.printer_models import bambu_nozzle_count
+    from modules.jobs.waiting_reason import add_waiting_reasons, may_lack_a_printer
     # Pins may differ from the current assignment. Load both before filtering
     # display visibility so pin issues retain inactive/inaccessible/missing states.
     ids = {pid for j in jobs for pid in (j.printer_id, job_pin(j))} - {None}
-    printers = db.query(Printer).filter(Printer.id.in_(ids)).all() if ids else []
+    # A pending job may be waiting for a printer that can run it: the same single
+    # printer read then also brings every active printer (still one read per list).
+    fleet = any(may_lack_a_printer(job) for job in jobs)
+    wanted = or_(Printer.id.in_(ids), Printer.is_active.is_(True)) if fleet else Printer.id.in_(ids)
+    loaded = db.query(Printer).filter(wanted).all() if ids or fleet else []
+    printers = [p for p in loaded if p.id in ids]
     preload_pin_printer_states(db, ids, printers)
     by_id = {p.id: p for p in printers}
     # JobResponse also expands the assigned printer. Seed that relationship
@@ -43,4 +51,4 @@ def enrich_job_facts(db, jobs, actor):
                 extruder = bindings.get(str(tray + 1))
                 job.ams_slot_nozzles.append({'source_index': source, 'slot_number': tray + 1,
                     'nozzle': ('right' if extruder == 0 else 'left') if type(extruder) is int and extruder in (0, 1) else None})
-    return jobs
+    return add_waiting_reasons(db, jobs, actor, active_printers=[p for p in loaded if p.is_active is True] if fleet else None)

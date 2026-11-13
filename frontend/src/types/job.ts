@@ -59,6 +59,15 @@ export interface Job {
   pinned_printer_id: number | null;
   pinned_printer_issue: 'pinned_printer_missing' | 'pinned_printer_inactive' | 'pinned_printer_deleted'
     | 'pinned_printer_inaccessible' | 'pinned_target_invalid' | null;
+  /** Why a queued job is not printing; computed by the server on GET /jobs and GET /jobs/{id}. */
+  waiting_reason?: {
+    code: 'awaiting_approval' | 'on_hold' | 'needs_filament_mapping' | 'printer_offline' | 'printer_busy'
+      | 'quiet_hours' | 'no_printer_can_run_it' | 'dispatch_refused' | (string & {});
+    detail?: string | null;
+    until?: string | null;
+    /** Present only when the caller may open the printer. */
+    printer_id?: number | null;
+  } | null;
   submitted_by: number | null;
   approved_by: number | null;
   approved_at: string | null;

@@ -20,6 +20,51 @@ const PIN_ISSUE_TEXT: Record<string, string> = {
   pinned_target_invalid: 'Invalid printer pin — treated as any printer; edit the job to choose one',
 }
 
+const WAITING_TEXT: Record<string, string> = {
+  awaiting_approval: 'Waiting for approval',
+  on_hold: 'On hold until it is released',
+  needs_filament_mapping: 'Needs a filament slot chosen for each colour',
+  printer_offline: 'Printer is offline',
+  printer_busy: 'Printer is busy',
+  quiet_hours: 'Quiet hours',
+  no_printer_can_run_it: 'No printer can run this job',
+  dispatch_refused: 'The last dispatch was refused',
+}
+
+function waitingUntil(value: string): string {
+  const until = parseServerDate(value)
+  if (Number.isNaN(until.getTime())) return ''
+  return ` until ${format(until, until.toDateString() === new Date().toDateString() ? 'HH:mm' : 'MMM d HH:mm')}`
+}
+
+/** One plain line saying what the job is waiting for (server-computed waiting_reason). */
+function waitingLine(reason: { code: string; detail?: string | null; until?: string | null }): string {
+  const detail = reason.detail?.trim()
+  // The server words the missing material or tag and the refusal; the other codes are worded here.
+  if (detail && (reason.code === 'no_printer_can_run_it' || reason.code === 'dispatch_refused' || !WAITING_TEXT[reason.code])) {
+    return detail.charAt(0).toUpperCase() + detail.slice(1)
+  }
+  const text = WAITING_TEXT[reason.code] ?? reason.code.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase())
+  return reason.until && (reason.code === 'printer_busy' || reason.code === 'quiet_hours') ? text + waitingUntil(reason.until) : text
+}
+
+// Shared by the table row and the phone card. A button appears only where an existing action fixes the wait.
+function JobWaitingReason({ job, onAction }: { job: any; onAction: (...args: any[]) => void }) {
+  const reason = job.waiting_reason
+  if (!reason?.code || !['submitted', 'pending', 'scheduled'].includes(job.status)) return null
+  const fix = reason.code === 'needs_filament_mapping' && canDo('jobs.edit')
+    ? { label: 'Choose slots', run: () => onAction('edit', job.id) }
+    : (reason.code === 'printer_offline' || reason.code === 'printer_busy') && reason.printer_id != null
+      ? { label: 'Open printer', run: () => onAction('openPrinter', reason.printer_id) }
+      : null
+  return (
+    <div data-testid="job-waiting-reason" className="text-xs text-[var(--brand-text-secondary)]">
+      <span role="status">{waitingLine(reason)}</span>
+      {fix && <button type="button" onClick={fix.run} className="ml-2 min-h-[24px] underline text-[var(--brand-primary)]">{fix.label}</button>}
+    </div>
+  )
+}
+
 function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   if (!dueDate) return null
   const due = new Date(dueDate)
@@ -46,11 +91,12 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
 }
 
 // Shared by the table row and the phone card so both render the same content and rules.
-function JobItemDetails({ job, nameClassName = 'font-medium text-sm' }: { job: any; nameClassName?: string }) {
+function JobItemDetails({ job, onAction, nameClassName = 'font-medium text-sm' }: { job: any; onAction: (...args: any[]) => void; nameClassName?: string }) {
   return (
     <>
       <div className={nameClassName}>{displayName(job)}</div>
       <div className="text-xs font-mono text-[var(--brand-text-muted)]">{`Job ${job.id}`}</div>
+      <JobWaitingReason job={job} onAction={onAction} />
       {(job.quantity == null || job.hold == null || job.is_locked == null) && (
         <div className="text-xs text-[var(--brand-text-muted)]">
           {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
@@ -189,7 +235,7 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       <div className="flex items-start gap-2">
         <CheckTarget touch><input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="h-6 w-6 mt-0.5 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${displayName(job)}`} /></CheckTarget>
         <div className="min-w-0 flex-1">
-          <JobItemDetails job={job} nameClassName="font-medium text-sm break-words" />
+          <JobItemDetails job={job} onAction={onAction} nameClassName="font-medium text-sm break-words" />
         </div>
         {job.queue_position != null && ['pending', 'scheduled'].includes(job.status) && (
           <span className="text-xs font-mono text-[var(--brand-text-muted)] shrink-0" title="Queue position">#{job.queue_position + 1}</span>
@@ -297,7 +343,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         </div>
       </td>
       <td className="px-3 md:px-4 py-3">
-        <JobItemDetails job={job} />
+        <JobItemDetails job={job} onAction={onAction} />
         {/* Below wide screens the priority has no column of its own: it sits under the name. */}
         <div className="xl:hidden text-xs text-[var(--brand-text-muted)]" aria-hidden="true">Priority {job.priority}</div>
       </td>
