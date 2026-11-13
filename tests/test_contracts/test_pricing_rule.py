@@ -117,3 +117,18 @@ def test_the_models_list_reports_the_markup_used_and_the_margin(ana):
     assert "margin_of_price_percent" in row
     # "markup_percent" stays the model's own override (None when the model has none).
     assert "markup_percent" in row
+
+
+def test_job_cost_estimates_use_the_same_rule_and_are_unchanged_without_the_new_settings(ana):
+    """The job estimate was a third copy of the formula; it now goes through the rule."""
+    client, identity, db = ana
+    from modules.models_library.services import calculate_job_cost
+    config = dict(DEFAULT_PRICING_CONFIG)
+    cost, price, markup = calculate_job_cost(db, filament_grams=120.0, print_hours=3.5)
+    subtotal, expected = _price_before_2_3_0(config, 120.0 * config["spool_cost"] / config["spool_weight"], 3.5, config["default_margin"])
+    assert (cost, price, markup) == (round(subtotal, 2), round(expected, 2), config["default_margin"])
+    identity.update(role="admin")
+    assert client.put("/pricing-config", json={"selling_fee_percent": 10, "plate_handling_min": 6}).status_code == 200
+    db.expire_all()
+    cost_with, price_with, _ = calculate_job_cost(db, filament_grams=120.0, print_hours=3.5)
+    assert cost_with > cost and price_with == pytest.approx(cost_with * 1.5 / 0.9, abs=0.02)
