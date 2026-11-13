@@ -510,6 +510,8 @@ class PrinterVisionThread(threading.Thread):
             job_id = self.print_job_id
         if self.print_job_id != job_id:
             return False
+        if not self._training_print_is_current(job_id):
+            return False
         if not self._training_capture_allowed() or self._training_job_excluded():
             return False
         config = self._training_settings()
@@ -533,6 +535,26 @@ class PrinterVisionThread(threading.Thread):
         self._sampler.mark()
         self._saved_this_tick = True
         return True
+
+    def _training_print_is_current(self, job_id) -> bool:
+        """True when `job_id` is still the print on this printer, read from the database.
+
+        The monitor refreshes this thread's print id a moment after a new print starts. Until
+        then the camera already shows print B while the thread still names print A, and every
+        rule below (controlled work, the 'no-training' category and its one-minute cache) would
+        be read for A. So before any of them: the thread's print must be the printer's only
+        running print, or, when the thread names none, the printer must have none running.
+        Asked for every frame, never cached; if it cannot be asked, nothing is saved.
+        """
+        try:
+            with engine.connect() as conn:
+                running = [row[0] for row in conn.execute(text(
+                    "SELECT id FROM print_jobs WHERE printer_id=:printer AND status='running' LIMIT 2"),
+                    {'printer': self.printer_id})]
+        except Exception:
+            log.warning(f"[{self.printer_name}] Running-print check failed; training frame not saved")
+            return False
+        return running == ([] if job_id is None else [job_id])
 
     def _training_job_excluded(self) -> bool:
         """True when the running job's model has the category 'no-training'.

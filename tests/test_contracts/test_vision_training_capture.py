@@ -122,9 +122,17 @@ def test_per_printer_interval_overrides_the_global_one(env):
     assert len(env.training()) == 2
 
 
+def _finish(db, print_id):
+    db.execute(text("UPDATE print_jobs SET status='completed' WHERE id=:p"), {'p': print_id})
+    db.commit()
+
+
 def test_a_new_job_is_sampled_at_once(env):
+    _print(env.db, 9001, 8001)
     thread = env.make(9001)
     thread._capture_and_analyze()
+    _finish(env.db, 9001)
+    _print(env.db, 9002, 8002)
     thread.update_layer(0, 9002, 'IDLE')
     thread._capture_and_analyze()
     assert len(env.training()) == 2
@@ -665,4 +673,69 @@ def test_an_exclusion_answer_is_never_cached_for_another_print(env, monkeypatch)
     assert thread._training_excluded[0] == 9001             # A's answer is A's
     assert thread._training_job_excluded() is True          # B is read for itself: excluded
     thread._capture_and_analyze()
+    assert len(env.training()) == 0
+
+
+# ------------------------------------------------------------------ the thread's print id can lag the printer
+
+def test_frame_of_a_new_excluded_print_is_not_saved_under_the_previous_prints_rules(env):
+    # Print A (ordinary) ends and print B (no-training) starts before the monitor moves the thread on:
+    # the camera shows B while the thread still names A. Nothing of B may be saved under A's answer.
+    _print(env.db, 9001, 8001, category='Mini Critters')
+    thread = env.make(9001)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 1          # A itself is collected, and its answer is now cached
+    _finish(env.db, 9001)
+    _print(env.db, 9002, 8002, category='no-training')
+    thread.clock.now += 10                   # well inside the one-minute cache for A
+    thread._capture_and_analyze()
+    thread._detection_burst(thread.frame)
+    assert len(env.training()) == 1
+    thread.update_layer(0, 9002, 'RUNNING')  # the monitor catches up: B's own rule applies
+    thread.clock.now += 10
+    thread._capture_and_analyze()
+    assert len(env.training()) == 1
+
+
+def test_frame_is_not_saved_while_the_previous_print_has_ended_and_nothing_replaced_it_yet(env):
+    _print(env.db, 9001, 8001)
+    thread = env.make(9001)
+    _finish(env.db, 9001)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 0
+
+
+def test_frame_is_not_saved_when_the_thread_names_no_print_but_the_printer_is_printing(env):
+    _print(env.db, 9002, 8002, category='no-training')
+    thread = env.make(None)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 0
+
+
+def test_frame_is_not_saved_when_two_prints_are_recorded_as_running(env):
+    _print(env.db, 9001, 8001)
+    _print(env.db, 9002, 8002)
+    thread = env.make(9002)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 0
+
+
+def test_a_print_on_another_printer_does_not_stop_collection(env):
+    _print(env.db, 9001, 8001)
+    _print(env.db, 9005, 8005, category='no-training', printer_id=10)
+    thread = env.make(9001)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 1
+
+
+def test_a_failed_running_print_check_saves_nothing(env, monkeypatch):
+    from modules.vision import detection_thread
+    _print(env.db, 9001, 8001)
+    thread = env.make(9001)
+
+    class Broken:
+        def connect(self):
+            raise RuntimeError('database unavailable')
+    monkeypatch.setattr(detection_thread, 'engine', Broken())
+    assert thread._save_training_frame(thread.frame) is False
     assert len(env.training()) == 0
