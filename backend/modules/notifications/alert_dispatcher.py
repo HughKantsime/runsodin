@@ -125,7 +125,10 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, m
     if alert_type in (AlertType.SPOOL_LOW, AlertType.PRINTER_ERROR):
         return active_resource_duplicate(db, user_id, alert_type, printer_id, spool_id, message)
 
-    if alert_type == AlertType.MAINTENANCE_OVERDUE and printer_id:
+    # Maintenance task alerts (kind=maintenance_task) are de-duplicated by their stage state in
+    # modules/system/maintenance_alerts.py; the per-printer rule would hide a second task or the
+    # overdue stage after a due-soon notice.
+    if alert_type == AlertType.MAINTENANCE_OVERDUE and printer_id and (metadata or {}).get("kind") != "maintenance_task":
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         existing = db.query(Alert.id).filter(
             Alert.user_id == user_id,

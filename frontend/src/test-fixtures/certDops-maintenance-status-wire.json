@@ -16,6 +16,18 @@
   "scope": "certDops owned actual GET /api/v1/maintenance/status (one printer, three task states)",
   "status": [
     {
+      "failure_rate": {
+        "last_30_days": {
+          "completed": 0,
+          "failed": 0,
+          "rate_percent": null
+        },
+        "last_90_days": {
+          "completed": 0,
+          "failed": 0,
+          "rate_percent": null
+        }
+      },
       "hours_since_maintenance": 28.0,
       "overall_status": "overdue",
       "printer_id": 9,
@@ -30,8 +42,9 @@
           "hours_until_due": -18.0,
           "interval_days": null,
           "interval_print_hours": 10.0,
+          "is_default": false,
           "last_by": null,
-          "last_serviced": "2026-10-16T04:11:28",
+          "last_serviced": "2026-11-12T05:46:52",
           "next_due_date": null,
           "next_due_print_hours": 100.0,
           "progress_percent": 150,
@@ -46,9 +59,10 @@
           "hours_until_due": null,
           "interval_days": 10,
           "interval_print_hours": null,
+          "is_default": false,
           "last_by": null,
-          "last_serviced": "2026-10-08T04:10:28.708256",
-          "next_due_date": "2026-10-18T04:10:28.708256+00:00",
+          "last_serviced": "2026-11-04T05:45:52.428604",
+          "next_due_date": "2026-11-14T05:45:52.428604+00:00",
           "next_due_print_hours": null,
           "progress_percent": 80.0,
           "status": "due_soon",
@@ -62,8 +76,9 @@
           "hours_until_due": 1000.0,
           "interval_days": null,
           "interval_print_hours": 1000.0,
+          "is_default": false,
           "last_by": null,
-          "last_serviced": "2026-10-15T04:11:28.708256",
+          "last_serviced": "2026-11-11T05:46:52.428604",
           "next_due_date": null,
           "next_due_print_hours": 1118.0,
           "progress_percent": 0.0,
@@ -78,6 +93,18 @@
   ],
   "status_after": [
     {
+      "failure_rate": {
+        "last_30_days": {
+          "completed": 0,
+          "failed": 0,
+          "rate_percent": null
+        },
+        "last_90_days": {
+          "completed": 0,
+          "failed": 0,
+          "rate_percent": null
+        }
+      },
       "hours_since_maintenance": 0.0,
       "overall_status": "due_soon",
       "printer_id": 9,
@@ -92,9 +119,10 @@
           "hours_until_due": null,
           "interval_days": 10,
           "interval_print_hours": null,
+          "is_default": false,
           "last_by": null,
-          "last_serviced": "2026-10-08T04:10:28.708256",
-          "next_due_date": "2026-10-18T04:10:28.708256+00:00",
+          "last_serviced": "2026-11-04T05:45:52.428604",
+          "next_due_date": "2026-11-14T05:45:52.428604+00:00",
           "next_due_print_hours": null,
           "progress_percent": 80.0,
           "status": "due_soon",
@@ -108,8 +136,9 @@
           "hours_until_due": 10.0,
           "interval_days": null,
           "interval_print_hours": 10.0,
+          "is_default": false,
           "last_by": null,
-          "last_serviced": "2026-10-16T04:11:28",
+          "last_serviced": "2026-11-12T05:46:52",
           "next_due_date": null,
           "next_due_print_hours": 128.0,
           "progress_percent": 0.0,
@@ -124,8 +153,9 @@
           "hours_until_due": 1000.0,
           "interval_days": null,
           "interval_print_hours": 1000.0,
+          "is_default": false,
           "last_by": null,
-          "last_serviced": "2026-10-15T04:11:28.708256",
+          "last_serviced": "2026-11-11T05:46:52.428604",
           "next_due_date": null,
           "next_due_print_hours": 1118.0,
           "progress_percent": 0.0,

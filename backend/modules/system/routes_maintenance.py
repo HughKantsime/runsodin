@@ -1,21 +1,22 @@
 """System maintenance routes — maintenance task templates, logs, status, and seed defaults."""
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel as PydanticBaseModel, Field, field_validator
-from sqlalchemy import text, or_
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_action,
-                       check_org_access, get_org_scope, should_filter_org)
+                       check_org_access)
 from core.responses import build_next_actions, next_action
 from modules.printers.models import Printer
+from modules.system.maintenance_status import compute_status, visible_printer_query
 from modules.system.models import MaintenanceTask, MaintenanceLog
 
 log = logging.getLogger("odin.api")
@@ -23,10 +24,7 @@ router = APIRouter()
 
 
 def _visible_printer_query(query, user):
-    org = get_org_scope(user)
-    if should_filter_org(user, org):
-        query = query.filter(or_(Printer.org_id == org, Printer.org_id.is_(None), Printer.shared.is_(True)))
-    return query
+    return visible_printer_query(query, user)
 
 
 def _authorized_printer(db, printer_id, user):
@@ -83,6 +81,23 @@ class MaintenanceLogCreate(PydanticBaseModel):
     notes: Optional[str] = None
     cost: float = Field(default=0, ge=0, allow_inf_nan=False)
     downtime_minutes: int = Field(default=0, ge=0)
+    # Optional back-dated service time. Omitted = now. Not in the future, not before 2020-01-01.
+    performed_at: Optional[datetime] = None
+
+    @field_validator("performed_at")
+    @classmethod
+    def valid_performed_at(cls, value):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        value = value.astimezone(timezone.utc)
+        if value > datetime.now(timezone.utc):
+            raise ValueError("Service date cannot be in the future")
+        if value < datetime(2020, 1, 1, tzinfo=timezone.utc):
+            raise ValueError("Service date cannot be before 2020-01-01")
+        # Stored like the server default: naive UTC.
+        return value.replace(tzinfo=None)
 
 
     @field_validator("task_name")
@@ -117,6 +132,34 @@ def list_maintenance_tasks(
         "estimated_downtime_min": t.estimated_downtime_min,
         "is_active": t.is_active,
     } for t in tasks]
+
+
+def _printed_since(db, printer_id, since):
+    """(hours, prints) this printer completed since `since`.
+
+    Only completed prints count, because only those are added to the printer's odometer
+    (printer_health.increment_care_counters); failed, cancelled and retired rows never were.
+    """
+    from sqlalchemy import text
+    floor = since.astimezone(timezone.utc).replace(tzinfo=None) if since.tzinfo else since
+    rows = db.execute(text(
+        "SELECT started_at, ended_at FROM print_jobs WHERE printer_id = :p AND status = 'completed' "
+        "AND started_at IS NOT NULL AND ended_at IS NOT NULL AND ended_at > :since"),
+        {"p": printer_id, "since": floor}).all()
+    hours, prints = 0.0, 0
+    for started, ended in rows:
+        try:
+            if isinstance(started, str): started = datetime.fromisoformat(started.replace("Z", "+00:00"))
+            if isinstance(ended, str): ended = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+            started = started.astimezone(timezone.utc).replace(tzinfo=None) if started.tzinfo else started
+            ended = ended.astimezone(timezone.utc).replace(tzinfo=None) if ended.tzinfo else ended
+            begin = max(started, floor)
+            if ended > begin:
+                hours += (ended - begin).total_seconds() / 3600.0
+                prints += 1
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return hours, prints
 
 
 @router.post("/maintenance/tasks", tags=["Maintenance"])
@@ -208,6 +251,11 @@ def create_maintenance_log(
         raise HTTPException(404, "Task not found")
     # Snapshot the same lifetime odometer used by the status calculation.
     total_hours = max(0.0, float(printer.total_print_hours or 0))
+    if data.performed_at is not None:
+        # A back-dated service happened at an earlier odometer reading: take off the
+        # hours printed since then, so hour-based tasks don't restart from today.
+        since_hours, since_prints = _printed_since(db, printer.id, data.performed_at)
+        total_hours = max(0.0, total_hours - since_hours)
 
     if is_dry_run(request):
         return dry_run_preview(
@@ -221,6 +269,7 @@ def create_maintenance_log(
                 "cost": data.cost,
                 "downtime_minutes": data.downtime_minutes,
                 "print_hours_at_service": total_hours,
+                "performed_at": data.performed_at.isoformat() if data.performed_at else None,
             },
             next_actions=[
                 next_action(
@@ -242,13 +291,24 @@ def create_maintenance_log(
         cost=data.cost,
         downtime_minutes=data.downtime_minutes,
         print_hours_at_service=total_hours,
+        **({"performed_at": data.performed_at} if data.performed_at else {}),
     )
     db.add(log_entry)
     # Completing maintenance resets the printer's care counters in the same
     # transaction as the log (the task's own next-due point is recomputed from
     # this log's print_hours_at_service / performed_at by the status endpoint).
-    printer.hours_since_maintenance = 0
-    printer.prints_since_maintenance = 0
+    # A back-dated entry that is now the printer's newest service sets the counters to
+    # what has been printed since that date; an older one leaves them alone.
+    if data.performed_at is None:
+        printer.hours_since_maintenance = 0
+        printer.prints_since_maintenance = 0
+    else:
+        newest = db.query(MaintenanceLog.performed_at).filter(
+            MaintenanceLog.printer_id == printer.id).order_by(MaintenanceLog.performed_at.desc()).first()
+        mine = data.performed_at.astimezone(timezone.utc).replace(tzinfo=None) if data.performed_at.tzinfo else data.performed_at
+        if newest is None or newest[0] is None or newest[0].replace(tzinfo=None) <= mine:
+            printer.hours_since_maintenance = round(since_hours, 2)
+            printer.prints_since_maintenance = since_prints
     db.commit()
     db.refresh(log_entry)
     return {
@@ -280,123 +340,13 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
 
 @router.get("/maintenance/status", tags=["Maintenance"])
 def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer")), _scope: dict = Depends(require_any_scope("read", AGENT_READ_SCOPE, AGENT_WRITE_SCOPE))):
-    """Get maintenance status for all active printers. Returns per-printer task health."""
-    printers = _visible_printer_query(db.query(Printer), current_user).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
-    tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active.is_(True)).all()
+    """Get maintenance status for all active printers. Returns per-printer task health.
 
-    hours_map = {p.id: float(p.total_print_hours or 0) for p in printers}
-
-    all_logs = db.query(MaintenanceLog).filter(
-        MaintenanceLog.printer_id.in_([p.id for p in printers])
-    ).order_by(MaintenanceLog.performed_at.desc(), MaintenanceLog.id.desc()).all()
-    log_map = {}
-    for mlog in all_logs:
-        key = (mlog.printer_id, mlog.task_id)
-        if key not in log_map or (mlog.performed_at and log_map[key].performed_at and mlog.performed_at > log_map[key].performed_at):
-            log_map[key] = mlog
-
-    now = datetime.now(timezone.utc)
-    result = []
-
-    for printer in printers:
-        total_hours = hours_map.get(printer.id, 0)
-        printer_tasks = []
-        worst_status = "ok"
-
-        for task in tasks:
-            if task.printer_model_filter:
-                if task.printer_model_filter.lower() not in (printer.model or "").lower():
-                    continue
-
-            last_log = log_map.get((printer.id, task.id))
-
-            service_anchor = None
-            if last_log and last_log.performed_at:
-                hours_since = max(0.0, total_hours - (last_log.print_hours_at_service or 0))
-                performed_at = last_log.performed_at
-                if performed_at.tzinfo is None:
-                    performed_at = performed_at.replace(tzinfo=timezone.utc)
-                service_anchor = performed_at
-                days_since = (now - performed_at).days
-                last_serviced = last_log.performed_at.isoformat()
-                last_by = last_log.performed_by
-            else:
-                hours_since = total_hours
-                created = printer.created_at
-                if created and created.tzinfo is None:
-                    created = created.replace(tzinfo=timezone.utc)
-                days_since = (now - created).days if created else 0
-                service_anchor = created
-                last_serviced = None
-                last_by = None
-
-            # Next due point: the interval measured from the last service (or
-            # from the printer's start when never serviced).
-            next_due_hours = hours_until_due = next_due_date = None
-            if task.interval_print_hours and task.interval_print_hours > 0:
-                next_due_hours = round(total_hours - hours_since + task.interval_print_hours, 1)
-                hours_until_due = round(task.interval_print_hours - hours_since, 1)
-            if task.interval_days and task.interval_days > 0 and service_anchor:
-                next_due_date = (service_anchor + timedelta(days=task.interval_days)).isoformat()
-
-            task_status = "ok"
-            progress = 0.0
-
-            if task.interval_print_hours and task.interval_print_hours > 0:
-                pct = (hours_since / task.interval_print_hours) * 100
-                progress = max(progress, pct)
-                if hours_since >= task.interval_print_hours:
-                    task_status = "overdue"
-                elif hours_since >= task.interval_print_hours * 0.8:
-                    task_status = "due_soon"
-
-            if task.interval_days and task.interval_days > 0:
-                pct = (days_since / task.interval_days) * 100
-                progress = max(progress, pct)
-                if days_since >= task.interval_days:
-                    task_status = "overdue"
-                elif days_since >= task.interval_days * 0.8:
-                    if task_status != "overdue":
-                        task_status = "due_soon"
-
-            if task_status == "overdue":
-                worst_status = "overdue"
-            elif task_status == "due_soon" and worst_status == "ok":
-                worst_status = "due_soon"
-
-            printer_tasks.append({
-                "task_id": task.id,
-                "task_name": task.name,
-                "description": task.description,
-                "interval_print_hours": task.interval_print_hours,
-                "interval_days": task.interval_days,
-                "hours_since_service": round(hours_since, 1),
-                "days_since_service": days_since,
-                "last_serviced": last_serviced,
-                "last_by": last_by,
-                "status": task_status,
-                "progress_percent": round(min(progress, 150), 1),
-                "next_due_print_hours": next_due_hours,
-                "hours_until_due": hours_until_due,
-                "next_due_date": next_due_date,
-            })
-
-        result.append({
-            "printer_id": printer.id,
-            "printer_name": printer.name,
-            "printer_model": printer.model,
-            "total_print_hours": round(total_hours, 1),
-            # Care counters: lifetime prints plus prints/hours since the last
-            # logged maintenance (reset by POST /maintenance/logs).
-            "total_print_count": printer.total_print_count or 0,
-            "prints_since_maintenance": printer.prints_since_maintenance or 0,
-            "hours_since_maintenance": round(float(printer.hours_since_maintenance or 0), 1),
-            "tasks": sorted(printer_tasks, key=lambda t: {"overdue": 0, "due_soon": 1, "ok": 2}.get(t["status"], 3)),
-            "overall_status": worst_status,
-        })
-
-    result.sort(key=lambda p: {"overdue": 0, "due_soon": 1, "ok": 2}.get(p["overall_status"], 3))
-    return result
+    The computation lives in modules/system/maintenance_status.py (shared with the hourly
+    notifier). Each printer also carries `failure_rate` (30/90 days); a printer with no
+    maintenance task shows the implicit "General service" task (`is_default: true`).
+    """
+    return compute_status(db, current_user)
 
 
 # ============== Seed defaults ==============

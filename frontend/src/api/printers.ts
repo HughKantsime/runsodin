@@ -95,11 +95,16 @@ export const maintenance = {
     printer_id: number; printer_name: string; printer_model: string | null;
     total_print_hours: number; total_print_count: number; prints_since_maintenance: number;
     hours_since_maintenance: number; overall_status: string;
-    tasks: { task_id: number; task_name: string; description: string | null;
+    failure_rate?: {
+      last_30_days: { completed: number; failed: number; rate_percent: number | null };
+      last_90_days: { completed: number; failed: number; rate_percent: number | null };
+    };
+    tasks: { task_id: number | null; task_name: string; description: string | null;
       interval_print_hours: number | null; interval_days: number | null;
       hours_since_service: number; days_since_service: number; last_serviced: string | null;
       last_by: string | null; status: string; progress_percent: number;
-      next_due_print_hours: number | null; hours_until_due: number | null; next_due_date: string | null }[];
+      next_due_print_hours: number | null; hours_until_due: number | null; next_due_date: string | null;
+      is_default?: boolean }[];
   }[]> => fetchAPI('/maintenance/status'),
   getTasks: (): Promise<MaintenanceTask[]> => fetchAPI('/maintenance/tasks'),
   createTask: (data: MaintenanceTaskCreate): Promise<MaintenanceTask> => fetchAPI('/maintenance/tasks', { method: 'POST', body: JSON.stringify(data) }),
