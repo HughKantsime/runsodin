@@ -52,6 +52,7 @@ REVIEWED = {
     "modules/printers/routes_camera_snapshot.py": "local", "modules/printers/telemetry/demo.py": "local",
     "modules/printers/telemetry/live_replay.py": "local", "modules/reporting/routes/analytics.py": "local",
     "modules/system/troubleshooting.py": "local", "modules/vision/detection_thread.py": "local",
+    "modules/vision/printer_native.py": "local",        # one frame from this machine's go2rtc for a printer-reported detection
 }
 
 

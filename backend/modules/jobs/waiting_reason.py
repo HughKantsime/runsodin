@@ -39,19 +39,35 @@ def _utc(value):
 
 def quiet_hours_end(db, now):
     """When the quiet hours in force at ``now`` end, or None outside them (the scheduler's own window rule)."""
-    from core.scheduler_settings import blackout_is_off, get_blackout
+    from core.scheduler_settings import blackout_is_off, get_blackout, get_blackout_timezone
     from modules.jobs.scheduler import Scheduler, SchedulerConfig
     start, end = get_blackout(db)
     if blackout_is_off(start, end):
         return None
+    zone_name = get_blackout_timezone(db)
     try:
-        config = SchedulerConfig.from_time_strings(blackout_start=start, blackout_end=end)
+        config = SchedulerConfig.from_time_strings(blackout_start=start, blackout_end=end, blackout_timezone=zone_name)
     except (TypeError, ValueError):
         return None
     if not Scheduler(config)._is_blackout_time(now):
         return None
-    until = now.replace(hour=config.blackout_end_hour, minute=config.blackout_end_minute, second=0, microsecond=0)
-    return until if until > now else until + timedelta(days=1)
+    # The window's clock times are in its saved zone (UTC when it has none): find the end on
+    # that zone's clock, then answer in the same naive-UTC form as ``now``.
+    from datetime import timezone as _tz
+    zone = _tz.utc
+    if zone_name:
+        try:
+            from zoneinfo import ZoneInfo
+            zone = ZoneInfo(zone_name)
+        except Exception:
+            zone = _tz.utc          # same fallback as the scheduler
+    aware = now if now.tzinfo is not None else now.replace(tzinfo=_tz.utc)
+    local = aware.astimezone(zone)
+    until = local.replace(hour=config.blackout_end_hour, minute=config.blackout_end_minute, second=0, microsecond=0)
+    if until <= local:
+        until = until + timedelta(days=1)
+    until = until.astimezone(_tz.utc)
+    return until if now.tzinfo is not None else until.replace(tzinfo=None)
 
 
 def _tag_text(tags, printers, pinned):

@@ -168,7 +168,7 @@ def handle_status(self, status, generation, runtime):
 
         # The printer's own camera reports (docs/bambu-hms.md): recorded and alerted
         # only, before a terminal packet ends the print they belong to. Never raises.
-        from modules.vision.printer_native import observe as observe_printer_detection
+        from modules.vision.services import observe_printer_detection
         observe_printer_detection(self, raw, status)
 
         # Capture every fresh tray delta, including packets between heartbeats.

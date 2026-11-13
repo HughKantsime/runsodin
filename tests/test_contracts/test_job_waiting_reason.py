@@ -293,3 +293,18 @@ def test_wire_shape_on_list_and_detail(bom_client, db):  # noqa: F811
     assert listed[980]['code'] == 'printer_busy' and listed[980]['printer_id'] == 9 and listed[980]['detail'] is None
     assert datetime.fromisoformat(listed[980]['until'].replace('Z', '+00:00')).tzinfo is not None  # an instant, not a bare local time
     assert bom_client.get('/jobs/980').json()['waiting_reason']['code'] == 'printer_busy'
+
+
+def test_quiet_hours_end_follows_the_saved_time_zone(review_db):  # noqa: F811
+    """Merged with the quiet-hours time zone work: the end is on the window's own clock."""
+    from datetime import datetime
+    from core.scheduler_settings import set_blackout
+    from modules.jobs.waiting_reason import quiet_hours_end
+    set_blackout(review_db, "22:30", "05:30", "America/New_York")
+    review_db.commit()
+    # 03:00 UTC on Jan 16 is 22:00 the evening before in New York: not yet quiet hours.
+    assert quiet_hours_end(review_db, datetime(2026, 1, 16, 3, 0)) is None
+    # 04:00 UTC is 23:00 in New York: quiet until 05:30 local = 10:30 UTC.
+    assert quiet_hours_end(review_db, datetime(2026, 1, 16, 4, 0)) == datetime(2026, 1, 16, 10, 30)
+    # July: 05:30 local is 09:30 UTC (daylight time).
+    assert quiet_hours_end(review_db, datetime(2026, 7, 16, 4, 0)) == datetime(2026, 7, 16, 9, 30)

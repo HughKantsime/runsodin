@@ -85,6 +85,7 @@ ALLOWED_PATTERNS = [
 
     # Data/utility files — pure functions with no route logic side effects.
     ".hms_codes",         # Bambu HMS error code lookup (data file)
+    ".bambu_hms_bundle",  # Bambu's bundled per-model code lists and the serial-to-family lookup (data file)
     ".quiet_hours",       # Quiet hours suppression helper
     ".branding",          # Org branding helper (read-only config)
     ".printer_models",    # Printer model metadata (data file)
