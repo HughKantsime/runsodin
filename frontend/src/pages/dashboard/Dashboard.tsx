@@ -32,6 +32,7 @@ import PrintProgress from '../../components/printers/PrintProgress'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
 import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
+import GettingStartedChecklist from '../../components/shared/GettingStartedChecklist'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
@@ -486,6 +487,10 @@ function ClassicDashboard() {
           TV Mode
         </Button>
       </PageHeader>
+
+      <SectionErrorBoundary>
+        <GettingStartedChecklist />
+      </SectionErrorBoundary>
 
       <SectionErrorBoundary>
         <AlertsWidget />

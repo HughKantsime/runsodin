@@ -20,7 +20,6 @@ import { useCloseOnNavigate } from './hooks/useCloseOnNavigate'
 import Toast from './components/ui/Toast'
 import FoundryPage from './components/foundry/Page'
 import ProGate from './components/shared/ProGate'
-import OnboardingTour from './components/shared/OnboardingTour'
 import AlertBell from './components/notifications/AlertBell'
 import EmergencyStop from './components/printers/EmergencyStop'
 import UpgradeBanner from './components/shared/UpgradeBanner'
@@ -193,7 +192,6 @@ export default function App() {
           </Routes>
           </ErrorBoundary>
           <Toast />
-          <OnboardingTour />
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
             <div className="text-center py-4 text-[10px] text-[var(--brand-text-muted)] select-none">Powered by O.D.I.N.</div>

@@ -21,7 +21,6 @@ vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ tier: 'enterprise'
 vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: null }) }))
 vi.mock('../../hooks/useWebSocket', () => ({ default: () => null }))
 vi.mock('../../hooks/useKeyboardShortcuts', () => ({ default: () => ({ showHelp: false, setShowHelp: vi.fn() }) }))
-vi.mock('../shared/OnboardingTour', () => ({ default: () => null }))
 vi.mock('../notifications/AlertBell', () => ({ default: () => null }))
 vi.mock('../printers/EmergencyStop', () => ({ default: () => null }))
 vi.mock('../shared/UpgradeBanner', () => ({ default: () => null }))

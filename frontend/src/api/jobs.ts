@@ -120,6 +120,8 @@ export const printFiles = {
     return response.json()
   },
   list: (): Promise<PrintFile[]> => fetchAPI('/print-files'),
+  // Whether any uploaded file exists (one row at most, files already on a job included).
+  any: async (): Promise<boolean> => ((await fetchAPI('/print-files?limit=1&include_scheduled=true')) as PrintFile[]).length > 0,
   get: (id: number, printerId?: number): Promise<PrintFile> => fetchAPI(`/print-files/${id}${printerId ? `?printer_id=${printerId}` : ""}`),
   delete: (id: number): Promise<void> => fetchAPI(`/print-files/${id}`, { method: 'DELETE' }),
   schedule: (fileId: number, printerId?: number, options?: { ams_mapping?: import("../types/archive").AmsMapping; hold?: boolean }): Promise<Job> => {
