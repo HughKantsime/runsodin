@@ -65,6 +65,9 @@ All notable changes to O.D.I.N. are documented here.
 
 - ITAR mode now also covers Square: with `ODIN_ITAR_MODE=1` every Square call is refused before any network use, and ODIN refuses to start while a Square connection is stored. Previously an administrator could connect Square on such a server.
 - ITAR mode now refuses to start when single sign-on uses the built-in Microsoft or Google preset without being on the allowed identity-provider list. The sign-in itself was already blocked; the problem now shows at start-up instead of at the first sign-in.
+## [2.1.1] - 2026-11-11
+<!-- summary: Hotfix: the iPhone/iPad Queue could fail to load after a Kobra/Moonraker print finished. Job dates are now stored and sent in one form. -->
+- The iPhone/iPad app's Queue could fail to load ("The data couldn't be read because it isn't in the correct format") after a Kobra/Moonraker print finished, because that print's start and end times were stored with a timezone. O.D.I.N. now stores Moonraker times in the same form as every other printer, and the job list and job detail endpoints send every job date in one form (`YYYY-MM-DDTHH:MM:SS`, UTC), including for rows already stored the old way. Stored rows are not rewritten. A print that started before the upgrade and finishes after it still gets its duration in the print history.
 
 ## [2.1.0] - 2026-11-10
 
