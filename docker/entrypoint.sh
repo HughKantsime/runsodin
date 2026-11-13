@@ -7,7 +7,13 @@ set -Eeuo pipefail
 # container starts (supervisord, the ODIN services, go2rtc, ffmpeg) starts without them.
 # backend/core/itar.py does the same inside each ODIN process, with the same rule
 # (neutralize_environment_proxies). Names are printed, never values.
-read -r odin_itar_mode <<< "${ODIN_ITAR_MODE:-}" || true
+# Trim exactly as backend/core/itar.py does (Python's str.strip): every leading and trailing
+# white-space character, including a newline or a carriage return left by a Windows-edited
+# env file. `read` would stop at a leading newline and keep a trailing carriage return, so
+# Python would turn ITAR mode on while this block did nothing.
+odin_itar_mode="${ODIN_ITAR_MODE:-}"
+odin_itar_mode="${odin_itar_mode#"${odin_itar_mode%%[![:space:]]*}"}"
+odin_itar_mode="${odin_itar_mode%"${odin_itar_mode##*[![:space:]]}"}"
 case "$(printf '%s' "${odin_itar_mode}" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes|on)
         odin_ignored_proxies=""

@@ -2202,7 +2202,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 214,
+      "line": 239,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
@@ -2210,7 +2210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 231,
+      "line": 256,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
@@ -2626,7 +2626,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 600,
+      "line": 607,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2634,7 +2634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 687,
+      "line": 694,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2642,7 +2642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 736,
+      "line": 743,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2650,7 +2650,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 780,
+      "line": 787,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
