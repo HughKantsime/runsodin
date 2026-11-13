@@ -6,6 +6,7 @@ packets or dispatch authority. No schema changes or printer reads are needed.
 import json
 import math
 from datetime import datetime, timezone
+from datetime import timedelta
 from sqlalchemy import bindparam, text
 from core.rbac import check_org_access, is_scoped_token, token_scope_granted
 
@@ -98,10 +99,35 @@ def plate_clear_times(db, printer_ids, actor):
         "JOIN jobs j ON j.id=e.job_id WHERE e.kind='bed_clear_confirmed' AND e.printer_id IN :ids "
         "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=j.id AND s.archived_at IS NOT NULL) "
         "ORDER BY e.occurred_at DESC,e.id DESC").bindparams(bindparam('ids', expanding=True)), {'ids': printer_ids})
-    result = {}
+    # The newest visible confirmation per printer, by parsed instant: stored times mix naive
+    # UTC and ISO forms with offsets, so the SQL order above is only a hint.
+    from modules.printers.plate_clear import as_utc
+    result, newest = {}, {}
     for printer_id, at, org_id in rows:
-        if check_org_access(actor, org_id):
-            result.setdefault(printer_id, at)
+        if not check_org_access(actor, org_id):
+            continue
+        moment = as_utc(at)
+        if printer_id not in result or (moment is not None and (newest[printer_id] is None or moment > newest[printer_id])):
+            result[printer_id], newest[printer_id] = at, moment
+    if not result:
+        return result
+    # A confirmation stands only until the next print starts: a plate cleared several prints
+    # ago says nothing about the bed now.
+    # Compared as parsed instants: stored times mix naive UTC and ISO forms, which do not
+    # sort correctly as text. Only jobs started on or after the day before the oldest
+    # confirmation can matter (the date prefix is the same in every form).
+    confirmed = {printer_id: as_utc(at) for printer_id, at in result.items()}
+    known = [at for at in confirmed.values() if at is not None]
+    if not known:
+        return result
+    day = (min(known) - timedelta(days=1)).strftime('%Y-%m-%d')
+    started = db.execute(text("SELECT printer_id, actual_start FROM jobs WHERE printer_id IN :ids "
+        "AND actual_start IS NOT NULL AND actual_start >= :day").bindparams(bindparam('ids', expanding=True)),
+        {'ids': list(result), 'day': day})
+    for printer_id, raw in started:
+        begun, at = as_utc(raw), confirmed.get(printer_id)
+        if printer_id in result and at is not None and begun is not None and begun > at:
+            del result[printer_id]
     return result
 
 
