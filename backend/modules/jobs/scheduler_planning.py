@@ -85,7 +85,7 @@ class SchedulerPlanning:
         }
         claimed_printers = set(db.execute(text('SELECT printer_id FROM printer_dispatch_claims')).scalars())
         from core.printer_maintenance import hold_reason
-        from modules.printers.services import dispatch_unsupported_reason
+        from modules.printers.services import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
         from modules.printers.support_levels import experimental_refusal
         # An Experimental printer whose job sending is not switched on (or an unsupported type)
         # would only refuse at dispatch, so it gets no new work; pinned jobs stay pending.

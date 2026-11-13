@@ -12,7 +12,33 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
+
+
+# Run with PYTHONPATH=<released commit>/backend: the released sources write their own database.
+RELEASED056_ARCHIVE_SOURCE = '''
+import json,os,sys
+import core
+assert core.__file__.startswith(sys.argv[1]) and '/preserved' not in core.__file__,core.__file__
+from sqlalchemy import inspect,text
+from core.database_config import create_database_engine
+from core.schema import bootstrap_database
+from core.schema.bootstrap import POST027_MIGRATIONS
+assert POST027_MIGRATIONS[-1][0]=='python:056-dispatch-recovery-global'
+engine=create_database_engine(os.environ['DATABASE_URL'],role='restore',password_file=os.environ['DATABASE_PASSWORD_FILE'])
+bootstrap_database(engine)
+assert not {c['name'] for c in inspect(engine).get_columns('filament_slots')}&{'do_not_feed','do_not_feed_note'}
+with engine.begin() as c:
+    c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker',:v)"),{'v':json.dumps('source56')})
+    c.execute(text("INSERT INTO printers(id,name,api_type,slot_count) VALUES(990560,'Released 056','moonraker',4)"))
+    c.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(990560,'Released 056','Fixture')"))
+    c.execute(text('INSERT INTO spools(id,filament_id) VALUES(990560,990560)'))
+    c.execute(text('INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation) VALUES(990560,990560,2,:state)'),{'state':'{"id":"released056"}'})
+    c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990560,'same',990560)"),{'state':'7'*32})
+    print(json.dumps(sorted(row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations')))))
+engine.dispose()
+'''
 
 
 def main():
@@ -35,6 +61,7 @@ def main():
         from modules.system import postgres_backup_service as b
         from modules.system.backup_service import BackupValidationError
         from modules.system.postgres_canonical_executables import validate_executables
+        from modules.system import restore_artifacts
         admin = create_engine(raw, isolation_level='AUTOCOMMIT', hide_parameters=True)
         post_ids = [migration_id for migration_id, _ in POST027_MIGRATIONS]
         from core.quiet_hours_deferral_schema import TABLE as DEFERRED, EXPECTED_COLUMNS
@@ -94,6 +121,18 @@ def main():
             with admin.connect() as c:
                 return c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one()
 
+        def release_sessions(pool):
+            # Closed sessions end asynchronously on the server, and an apply refuses any it still sees.
+            pool.dispose()
+            deadline = time.monotonic() + 30
+            while True:
+                with admin.connect() as c:
+                    active = c.execute(text('SELECT count(*) FROM pg_stat_activity WHERE datname=:name'), {'name': pool.url.database}).scalar_one()
+                if not active:
+                    return
+                assert time.monotonic() < deadline, 'Sessions still open on ' + pool.url.database
+                time.sleep(.1)
+
         if os.environ.get('POST027_CURRENT_ONLY') != '1':
             for era in (25, 26, 27):
                 archive = Path(facts[era]['archive'])
@@ -104,7 +143,7 @@ def main():
                 assert marker() == before and b._sha256(archive) == facts[era]['sha256'] and leftover() == 0
                 staged = b.stage_postgres_restore(archive, target, maintenance, **args)
                 assert staged['candidate_sha256'] == facts[era]['sha256']
-                engine.dispose()
+                release_sessions(engine)
                 result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[era]['sha256'], **args)
                 assert result['status'] == 'restored' and marker() == f'source{era}'
                 with engine.connect() as c:
@@ -148,9 +187,81 @@ def main():
         archive034=root/'published034.dump'
         b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(archive034),'--dbname',server+'/post027_published034'],maintenance,str(credential),root)
         facts034=b.validate_postgres_restore(archive034,target,maintenance,**args)
-        assert facts034['source_schema_version']==34 and facts034['prepared_schema_version']==35
+        current_era=int(post_ids[-1].split(':')[1][:3])
+        assert facts034['source_schema_version']==34 and facts034['prepared_schema_version']==current_era
         assert leftover()==0
-        print('post027-native-published034-frozen-stage-live035-upgrade-validated-pass',flush=True)
+        print('post027-native-published034-frozen-stage-live-upgrade-validated-pass',flush=True)
+
+        # Released 056: the decisive proof that preserved056 runs. The archive is written by
+        # the released commit's own sources, independent of the bundle being proved.
+        from core.schema import preserved056
+        released056 = os.environ['POST027_RELEASED056_SOURCE']
+        old056 = fresh('post027_released056'); old056.dispose()
+        env056 = {**os.environ, 'DATABASE_URL':server+'/post027_released056', 'PYTHONPATH':released056, 'PYTHONDONTWRITEBYTECODE':'1'}
+        made056 = subprocess.run([sys.executable,'-c',RELEASED056_ARCHIVE_SOURCE,released056],cwd=root,env=env056,capture_output=True,text=True,timeout=600)
+        assert made056.returncode==0, made056.stderr[-4000:]
+        ledger056 = json.loads(made056.stdout.strip().splitlines()[-1])
+        assert set(ledger056)==set(preserved056.ledger_ids()) and 'python:057-slot-feed-policy' not in ledger056
+        def dump_released(database, path):
+            b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(path),'--dbname',server+'/'+database],maintenance,str(credential),root)
+        archive056 = root/'released056.dump'
+        dump_released('post027_released056', archive056)
+        sha056 = b._sha256(archive056)
+        print('post027-native-released056-archive-written-by-independent-source-pass',flush=True)
+
+        def owned_files():
+            backups = b.postgres_paths(root).backups
+            return (list(backups.glob('.odin-preserved056-*')) + list(backups.glob('.odin-upgraded029-*'))
+                    + list(restore_artifacts.journal_dir(backups).glob('.odin-preserved056-*')))
+
+        before = marker()
+        metadata056 = b.validate_postgres_restore(archive056,target,maintenance,**args)
+        assert metadata056['sha256']==sha056 and metadata056['source_schema_version']==56
+        assert metadata056['prepared_schema_version']==current_era==57 and metadata056['prepared_sha256']!=sha056
+        assert marker()==before and b._sha256(archive056)==sha056 and leftover()==0 and not owned_files()
+        print('post027-native-released056-validated-source-era-56-prepared-era-57-target-untouched-pass',flush=True)
+        staged056 = b.stage_postgres_restore(archive056,target,maintenance,**args)
+        assert staged056['candidate_sha256']==sha056
+        release_sessions(engine)
+        result = b.apply_pending_postgres_restore(target,maintenance,acknowledgement=sha056,**args)
+        assert result['status']=='restored' and marker()=='source56'
+        with engine.connect() as c:
+            ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
+            assert ids==set(ledger056)|{'python:057-slot-feed-policy'}
+            assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990560')).one()==(990560,2,'{"id":"released056"}',False,None)
+            assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990560,'same',990560)
+            assert c.execute(text('SELECT ace_status FROM printers WHERE id=990560')).scalar_one() is None
+            validate_executables(c)
+        again056 = bootstrap_database(engine)
+        assert again056['applied']==[] and bootstrap_database(engine)['schema_fingerprint']==again056['schema_fingerprint']
+        assert b._sha256(archive056)==sha056 and leftover()==0 and not owned_files() and has_index(engine)
+        print('post027-native-released056-staged-applied-rows-relationships-057-defaults-repeat-bootstrap-no-owned-leftovers-pass',flush=True)
+
+        # Refusals: each keeps the target untouched and is judged, never an environment failure.
+        for label, tamper, expected in (
+                ('checksum', "UPDATE odin_schema_migrations SET checksum=repeat('0',64) WHERE migration_id='python:056-dispatch-recovery-global'", 'Migration history mismatch: python:056-dispatch-recovery-global'),
+                ('partial-ledger', "DELETE FROM odin_schema_migrations WHERE migration_id='python:040-job-foundation'", 'intermediate post-027 build'),
+                ('extra-table', 'CREATE TABLE public.unqualified_extra(id integer)', ''),
+                ('missing-column', 'ALTER TABLE tray_confirmations DROP COLUMN previous_spool_id', ''),
+                ('future-column', 'ALTER TABLE filament_slots ADD COLUMN do_not_feed boolean', '')):
+            with admin.connect() as c:
+                c.exec_driver_sql('DROP DATABASE IF EXISTS post027_tamper056 WITH (FORCE)')
+                c.exec_driver_sql('CREATE DATABASE post027_tamper056 TEMPLATE post027_released056')
+            tampered = create_database_engine(server+'/post027_tamper056',role='restore',password_file=str(credential))
+            with tampered.begin() as c:c.exec_driver_sql(tamper)
+            tampered.dispose()
+            path = root/('released056-'+label+'.dump')
+            dump_released('post027_tamper056',path)
+            before = marker()
+            try:b.validate_postgres_restore(path,target,maintenance,**args)
+            except BackupValidationError as error:
+                assert not isinstance(error,b.RestoreEnvironmentError),(label,str(error))
+                assert expected in str(error),(label,str(error))
+            else:raise AssertionError('Tampered released056 archive admitted: '+label)
+            assert marker()==before and leftover()==0 and not owned_files(),label
+            path.unlink()
+        with admin.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS post027_tamper056 WITH (FORCE)')
+        print('post027-native-released056-checksum-ledger-and-schema-refusals-target-untouched-pass',flush=True)
 
         from ops.database_parity.audit_integrity_native import exercise
         exercise(engine)
@@ -184,7 +295,9 @@ def main():
             c.execute(text("INSERT INTO audit_integrity_status(id,checked_at,result) VALUES(1,123,:r)"), {'r':'{"ok":true}'})
             c.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(990046,'Fixture','Roundtrip')"))
             c.execute(text("INSERT INTO spools(id,filament_id) VALUES(990046,990046)"))
-            c.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation) VALUES(990046,1,990046,:state)"), {'state':'{"id":"roundtrip046"}'})
+            # 046 and 057: an observed, flagged slot on an ACE printer, with its confirmation.
+            c.execute(text("INSERT INTO printers(id,name,ace_status) VALUES(990046,'Roundtrip',:ace)"), {'ace':'{"auto_refill":1}'})
+            c.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note) VALUES(990046,990046,990046,:state,TRUE,'Feed fault')"), {'state':'{"id":"roundtrip046"}'})
             c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990046,'same',990046)"), {'state':'6'*32})
             #048 Training and completion evidence survive the canonical round trip.
             c.execute(text("INSERT INTO education_memberships(user_id,org_id) VALUES(3,1) ON CONFLICT(user_id,org_id) DO NOTHING"))
@@ -209,7 +322,7 @@ def main():
                 c.execute(text('DELETE FROM '+table035))
         current = b.validate_postgres_restore(backup, target, maintenance, **args)
         assert 'source_schema_version' not in current and current['restore_validated']
-        b.stage_postgres_restore(backup, target, maintenance, **args); engine.dispose()
+        b.stage_postgres_restore(backup, target, maintenance, **args); release_sessions(engine)
         result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=backup_metadata['sha256'], **args)
         assert result['status'] == 'restored' and marker() == 'current-backup' and has_index(engine)
         with engine.connect() as c:
@@ -219,6 +332,8 @@ def main():
             assert c.execute(text("SELECT job_id,alert_kind,attempts FROM " + OUTBOX)).all() == [(990034, 'queue_added', 0)]
             assert c.execute(text("SELECT tray_observation FROM filament_slots WHERE id=990046")).scalar_one() == '{"id":"roundtrip046"}'
             assert c.execute(text("SELECT decision,spool_id FROM tray_confirmations WHERE slot_id=990046")).one() == ('same',990046)
+            assert c.execute(text("SELECT do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990046")).one() == (True,'Feed fault')
+            assert c.execute(text("SELECT ace_status FROM printers WHERE id=990046")).scalar_one() == '{"auto_refill":1}'
             from core.audit_integrity import verify
             assert verify(c)['ok']
             assert c.execute(text("SELECT name FROM audit_siem_destinations WHERE id='roundtrip_e1'")).scalar_one() == 'Owned SIEM'
@@ -245,6 +360,7 @@ def main():
         print('post027-native-current-backup-restore-roundtrip-052-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-050-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-057-slot-flag-and-ace-status-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
         with engine.connect() as c:
@@ -284,7 +400,7 @@ def main():
         with released.begin() as c:c.execute(text("UPDATE system_config SET value='\"released-backup\"' WHERE key='historical_marker'"))
         backup, backup_metadata = b.create_postgres_backup(released_url, maintenance_url=maintenance, **args)
         with released.begin() as c:c.execute(text("UPDATE system_config SET value='\"after\"' WHERE key='historical_marker'"))
-        b.stage_postgres_restore(backup, released_url, maintenance, **args); released.dispose()
+        b.stage_postgres_restore(backup, released_url, maintenance, **args); release_sessions(released)
         result = b.apply_pending_postgres_restore(released_url, maintenance, acknowledgement=backup_metadata['sha256'], **args)
         with released.connect() as c:
             assert result['status'] == 'restored' and c.execute(text("SELECT value FROM system_config WHERE key='historical_marker'")).scalar_one() == 'released-backup'
@@ -299,7 +415,7 @@ def main():
         from modules.system import routes_backup
         archive27 = Path(facts[27]['archive'])
         rollbacks = lambda: sorted(p.name for p in b.postgres_paths(root).backups.glob('rollback_*.dump'))
-        b.stage_postgres_restore(archive27, target, maintenance, **args); engine.dispose()
+        b.stage_postgres_restore(archive27, target, maintenance, **args); release_sessions(engine)
         before_rollbacks = rollbacks()
         real_prepared = stage_module.prepared_archive
         @contextmanager
@@ -314,7 +430,7 @@ def main():
         finally:
             stage_module.prepared_archive = real_prepared
         assert rollbacks() == before_rollbacks and b.postgres_paths(root).manifest.exists()
-        before = marker(); engine.dispose()  # no open target session during the apply
+        before = marker(); release_sessions(engine)  # no open target session during the apply
         try:b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[27]['sha256'], fail_after_restore=True, **args)
         except RuntimeError as error:assert 'Injected post-restore' in str(error)
         else:raise AssertionError('post-restore failure did not fire')
@@ -328,7 +444,6 @@ def main():
 
         # 8. A preserved029 child killed mid-run leaves no validation database or working file.
         import signal, threading
-        from modules.system import restore_artifacts
         journal = restore_artifacts.journal_dir(b.postgres_paths(root).backups)
         real_popen = preserved029.subprocess.Popen
         killed = []
@@ -345,19 +460,21 @@ def main():
             return process
         preserved029.subprocess.Popen = killing_popen
         try:
-            try:b.validate_postgres_restore(Path(facts[26]['archive']), target, maintenance, **args)
-            except BackupValidationError as error:assert 'did not validate' in str(error) or 'refused' in str(error), str(error)
-            else:raise AssertionError('Killed child admitted')
+            for victim, pattern in ((Path(facts[26]['archive']), '.odin-preserved029-*'), (archive056, '.odin-preserved056-*')):
+                killed.clear()
+                try:b.validate_postgres_restore(victim, target, maintenance, **args)
+                except BackupValidationError as error:assert 'did not validate' in str(error) or 'refused' in str(error), str(error)
+                else:raise AssertionError('Killed child admitted')
+                assert killed and leftover() == 0 and not restore_artifacts.journal_entries(b.postgres_paths(root).backups)
+                assert not list(b.postgres_paths(root).backups.glob(pattern)) and not list(b.postgres_paths(root).backups.glob('.odin-*.dump'))
         finally:
             preserved029.subprocess.Popen = real_popen
-        assert killed and leftover() == 0 and not restore_artifacts.journal_entries(b.postgres_paths(root).backups)
-        assert not list(b.postgres_paths(root).backups.glob('.odin-preserved029-*')) and not list(b.postgres_paths(root).backups.glob('.odin-*.dump'))
         print('post027-native-killed-child-no-stage-or-validation-database-or-dump-left-pass', flush=True)
 
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_published034'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 

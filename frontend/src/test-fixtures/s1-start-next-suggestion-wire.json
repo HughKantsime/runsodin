@@ -1,0 +1,16 @@
+{
+  "no_fingerprint": {
+    "filament": "verify_needed",
+    "fingerprint": null,
+    "job_id": 12,
+    "load": [],
+    "reason": "Scheduler queue order"
+  },
+  "unstartable": {
+    "filament": "verify_needed",
+    "fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "job_id": 12,
+    "load": [],
+    "reason": "Job 12 can't start: Choose an ACE slot for every file filament. Fix it, or hold it to start later jobs."
+  }
+}

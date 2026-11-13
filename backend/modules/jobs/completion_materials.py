@@ -4,6 +4,14 @@ from sqlalchemy import text
 from modules.models_library.models import Model
 
 
+def _is_kobra_s1(db, job):
+    if not job.printer_id:
+        return False
+    from modules.printers.models import Printer
+    from modules.printers.services import is_kobra_s1
+    return is_kobra_s1(db.get(Printer, job.printer_id))
+
+
 def completion_slot_grams(db, job):
     """Keep legacy model fallback and mapped file source IDs unchanged."""
     slot_grams = {}  # {slot_number: grams_to_deduct}
@@ -25,7 +33,8 @@ def completion_slot_grams(db, job):
     mapped_sources = {i + 1 for i, target in enumerate(mapping) if target != -1} if isinstance(mapping, list) else set()
     if len(mapped_sources) > 1:
         slot_grams = {}
-    if job.ams_mapping is None:
+    kobra_s1 = _is_kobra_s1(db, job)
+    if job.ams_mapping is None and not kobra_s1:
         # Source 2: Linked print file filaments (fallback if model has no gram data)
         if not slot_grams:
             # Check if a print_file is linked to this job
@@ -49,13 +58,17 @@ def completion_slot_grams(db, job):
         from core.filament_sources import indexed_materials
         file_id = job_file_id(db, job.model_id, job.print_file_id)
         pf_row = db.execute(text(
-            "SELECT filaments_json FROM print_files WHERE id = :id" if file_id else
-            "SELECT filaments_json FROM print_files WHERE job_id = :id LIMIT 1"
+            "SELECT filaments_json,stored_path FROM print_files WHERE id = :id" if file_id else
+            "SELECT filaments_json,stored_path FROM print_files WHERE job_id = :id LIMIT 1"
         ), {"id": file_id or job.id}).first()
-        if pf_row and pf_row[0]:
+        if pf_row and (pf_row[0] or kobra_s1):
             try:
                 import math
-                pf_filaments = json.loads(pf_row[0]) if isinstance(pf_row[0], str) else pf_row[0]
+                if kobra_s1:
+                    from modules.printers.services import stored_or_file_materials
+                    pf_filaments = stored_or_file_materials(pf_row[0], pf_row[1])
+                else:
+                    pf_filaments = json.loads(pf_row[0]) if isinstance(pf_row[0], str) else pf_row[0]
                 indexed = indexed_materials(pf_filaments)
                 file_grams = {}
                 for source, filament in (indexed or {}).items():

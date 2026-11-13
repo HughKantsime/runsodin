@@ -10,6 +10,7 @@ import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPan
 import TraySettings from '../../components/printers/TraySettings'
 import PauseCause from '../../components/printers/PauseCause'
 import { SupportLevelBadge, ExperimentalOptIn } from '../../components/printers/SupportLevel'
+import { IdleS1StartNext } from '../../components/printers/StartNextPanel'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
@@ -225,6 +226,8 @@ export default function PrinterDetail() {
           </div>
         </Card>
       )}
+
+      <IdleS1StartNext printer={printer} />
 
       {/* Printer Info */}
       <Card className="mb-6">

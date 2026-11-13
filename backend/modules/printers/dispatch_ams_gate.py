@@ -74,6 +74,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     Returned callback cannot grant a new claim or renew original evidence.
     """
     captured = dict(admission_inputs)
+    captured['effective_mapping'] = list(mapping)
     for field in ('job', 'creds', 'education_reservation'):
         if field in captured:
             captured[field] = copy.deepcopy(captured[field])
@@ -128,6 +129,8 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return False
         admission = recheck_admitted(engine, **captured)
         if not admission.admitted:
+            if str(getattr(admission, 'reason', '')).startswith('slot_do_not_feed:'):
+                return refuse('slot_do_not_feed', admission.reason.split(': ', 1)[-1])
             if str(getattr(admission, 'reason', '')).startswith('printer_maintenance_hold:'):
                 return refuse('printer_maintenance_hold', admission.reason)
             return refuse("admission_changed", f"Dispatch admission is no longer valid: {getattr(admission, 'reason', 'Admission recheck refused')}")

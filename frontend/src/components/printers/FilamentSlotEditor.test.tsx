@@ -3,8 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 import FilamentSlotEditor from './FilamentSlotEditor'
 import { printers } from '../../api'
+import { getCurrentUser } from '../../permissions'
 vi.mock('../../api', () => ({ printers: { assignSlotSpool: vi.fn(), confirmTrayIdentity: vi.fn() }, spools: { create: vi.fn() } }))
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: vi.fn(() => ({ role: 'admin' })) }))
 afterEach(cleanup)
 const slot = { id: 1, slot_number: 1, color_hex: 'FFFFFF', material_type: 'PLA', remaining: 50, assigned_spool_id: null, spool_confirmed: false }
 for (const mode of ['hover', 'drag']) for (const dismiss of ['Escape', 'Cancel', 'backdrop']) {
@@ -71,4 +72,42 @@ it('Foundry edits through the existing picker and keeps spool candidates out of 
   expect(screen.getByText('Remaining 0 g')).toBeInTheDocument()
   expect(screen.getAllByText('Loaded')).toHaveLength(1)
  } finally { cleanup(); document.documentElement.dataset.themeFamily = 'classic' }
+})
+
+it.each(['classic', 'foundry'])('shows the feed badge and requires confirmation in %s', theme => {
+  document.documentElement.dataset.themeFamily = theme
+  const onSave = vi.fn()
+  render(<FilamentSlotEditor slot={{ ...slot, do_not_feed: true, do_not_feed_note: 'Feed test failed' }} allFilaments={[]} spools={[]} printerId={1} onSave={onSave} />)
+  expect(screen.getByText('Do not feed')).toHaveAttribute('title', 'Feed test failed')
+  fireEvent.click(screen.getByTestId('filament-slot'))
+  fireEvent.change(screen.getByLabelText('Feed restriction note'), { target: { value: 'Feed test passed' } })
+  fireEvent.click(screen.getByText('Allow feeding'))
+  expect(onSave).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByText('Confirm allow feeding'))
+  expect(onSave).toHaveBeenCalledWith({ do_not_feed: false, do_not_feed_note: 'Feed test passed' })
+  document.documentElement.dataset.themeFamily = 'classic'
+})
+
+it.each(['classic', 'foundry'])('sets a feed restriction only after confirmation in %s', theme => {
+  document.documentElement.dataset.themeFamily = theme
+  const onSave = vi.fn()
+  render(<FilamentSlotEditor slot={slot} allFilaments={[]} spools={[]} printerId={1} onSave={onSave} />)
+  fireEvent.click(screen.getByTestId('filament-slot'))
+  fireEvent.change(screen.getByLabelText('Feed restriction note'), { target: { value: 'Feed fault' } })
+  fireEvent.click(screen.getByText('Do not feed'))
+  expect(onSave).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByText('Confirm do not feed'))
+  expect(onSave).toHaveBeenCalledWith({ do_not_feed: true, do_not_feed_note: 'Feed fault' })
+  document.documentElement.dataset.themeFamily = 'classic'
+})
+
+
+it('shows restrictions to operators but hides the admin toggle', () => {
+  vi.mocked(getCurrentUser).mockReturnValue({ role: 'operator', username: 'fixture' })
+  const onSave = vi.fn()
+  render(<FilamentSlotEditor slot={{ ...slot, do_not_feed: true }} allFilaments={[]} spools={[]} printerId={1} onSave={onSave} />)
+  fireEvent.click(screen.getByTestId('filament-slot'))
+  expect(screen.getByText('Do not feed')).toBeInTheDocument()
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  expect(onSave).not.toHaveBeenCalled()
 })

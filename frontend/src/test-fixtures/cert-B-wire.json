@@ -4,6 +4,7 @@
    {
     "color": "White",
     "color_hex": "FFFFFF",
+    "do_not_feed": false,
     "material": "PLA",
     "slot": 1,
     "spool_id": null
@@ -11,6 +12,7 @@
    {
     "color": "Black",
     "color_hex": "000000",
+    "do_not_feed": false,
     "material": "PLA",
     "slot": 2,
     "spool_id": 602
@@ -18,6 +20,7 @@
    {
     "color": "Red",
     "color_hex": "FF0000",
+    "do_not_feed": false,
     "material": "ABS",
     "slot": 3,
     "spool_id": null

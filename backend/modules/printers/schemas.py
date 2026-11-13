@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Literal, Optional, List
-from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
+from pydantic import StrictBool, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
 
 from core.base import FilamentType
 
@@ -26,6 +26,15 @@ class FilamentSlotCreate(FilamentSlotBase):
 
 
 class FilamentSlotUpdate(BaseModel):
+    do_not_feed: Optional[StrictBool] = None
+    do_not_feed_note: Optional[str] = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def feed_policy(self):
+        if "do_not_feed" in self.model_fields_set and self.do_not_feed is None:
+            raise ValueError("do_not_feed must be a boolean")
+        return self
+
     filament_type: Optional[FilamentType] = None
     color: Optional[str] = None
     color_hex: Optional[str] = None
@@ -35,6 +44,8 @@ class FilamentSlotUpdate(BaseModel):
 
 
 class FilamentSlotResponse(FilamentSlotBase):
+    do_not_feed: bool = False
+    do_not_feed_note: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -88,6 +99,7 @@ class PrinterBase(BaseModel):
     # api_key is intentionally excluded — write-only credential, never returned in responses
     camera_url: Optional[str] = None
     nickname: Optional[str] = None
+    ace_status: Optional[str] = None
     # Live telemetry
     bed_temp: Optional[float] = None
     bed_target_temp: Optional[float] = None

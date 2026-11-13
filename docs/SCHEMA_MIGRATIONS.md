@@ -66,6 +66,7 @@ This document explains how to add a database schema migration numbered 030 or hi
    - a database written by the published v1.9.24 image's own bootstrap, upgraded, backed up and restored;
    - a row in every new table surviving the current backup→restore round trip;
    - a killed preserved029 child leaving nothing behind;
+   - a real archive of the newest frozen era, written by that release's own sources from Git objects, validated, staged and applied (`POST027_RELEASED056_SOURCE` for 056), with ledger and schema refusals and a killed child;
    - a staged historical restore applied by the coordinator under enterprise-compose secret ownership (uid 10001, mode 0400); a root-run coordinator keeps the restore staged and fails; a deterministic archive refusal is quarantined;
    - a maintenance URL that carries `?sslmode=`.
 
@@ -121,6 +122,8 @@ that proof remains a release check (this change's verification is targeted contr
 
 - **Record the ledger before publishing.** `backend/core/schema/released_post027_ledgers.json` records the post-027 ids of every published release. Before publishing, run `python ops/release_control/record_post027_ledger.py` (it reads `VERSION`) and commit the entry into the release candidate. `publish-image.yml` refuses a `VERSION` that has no entry, or whose entry differs from the candidate's `POST027_MIGRATIONS`. The workflow cannot append the entry itself, because it has read-only contents and an immutable candidate SHA. Existing entries are never rewritten.
 - **Freeze a bundle before stranding a release.** `test_post027_release_gate.py` requires every recorded ledger to equal the current `POST027_MIGRATIONS` or to be routed by a preserved bundle. So once a release ships post-027 migrations, the next schema change fails that test until the release's restore-stage sources are frozen as a new `preserved0NN` bundle on the `preserved029` model, and archives whose ledger matches it are routed through that bundle. This adds a new qualified contract with its own tests; it never edits an existing one.
+  - **Generate it from the released commit.** `python -m ops.database_parity.freeze_preserved_bundle --commit <full sha> --release <version> --era <NN> --base-era <previous> --migration <last id> --write` selects the commit's complete `backend/core` and `backend/modules` sources from Git objects, so a refreshed module cannot lose a dependency. `--check` compares a committed bundle with the commit.
+  - **Hashes do not prove it runs.** The bundle needs its own `test_preserved0NN_bundle.py`, `test_post027_release_gate.py::test_routed_bundles_can_import_their_restore_closure`, and a real archive written by the released sources in `post027_restore_native.py`. Bundles 039 to 045 cannot restore PostgreSQL archives: their manifests omit `modules/system/backup_failure_alerts.py`, so the child exits 78 and the target stays untouched. They are byte-pinned, so that repair is separate work.
 - **SQLite is not affected.** SQLite databases upgrade in place through `bootstrap_database`, and SQLite backups restore as files and then upgrade on boot.
 
 ## Recipe configuration identity (043)
@@ -201,3 +204,19 @@ requirements change. Stale edit versions are refused without invalidating comple
 post027 ledger and canonical table inventory. No PostgreSQL functions/triggers are added.
 The new preserved046 overlay pins the released 046 schema and routes its backups through
 the existing isolated restore protocol before applying 048. Published ledger entries remain unchanged.
+
+## Slot feed policy and S1 telemetry (057)
+
+`python:057-slot-feed-policy` adds `filament_slots.do_not_feed` (false by
+default), `filament_slots.do_not_feed_note`, and `printers.ace_status`.
+It runs in the ordered release tail after 056. The audit-integrity migration
+keeps its existing 047 identity; the unshipped S1 migration was renumbered.
+
+`preserved056` freezes release 2.1.0 at
+`9112d4071b88d33dbbc5b82da558dfdf74d663db`, over the unchanged preserved055
+base. It routes through-056 archives into isolated released sources before
+live bootstrap applies 057. Generate or check it with
+`ops.database_parity.freeze_preserved_bundle`, using era 56, base era 55,
+and migration `python:056-dispatch-recovery-global`. Existing preserved
+packages and recorded release ledgers remain unchanged. The native proof
+runner exports that release from Git objects to write its independent archive.

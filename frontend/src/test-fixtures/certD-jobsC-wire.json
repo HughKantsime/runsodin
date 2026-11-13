@@ -3607,6 +3607,7 @@
  },
  "printers": [
   {
+   "ace_status": null,
    "api_host": "127.0.0.1",
    "api_type": "bambu",
    "bed_target_temp": null,
@@ -3629,6 +3630,8 @@
      "color": null,
      "color_hex": null,
      "display_name": null,
+     "do_not_feed": false,
+     "do_not_feed_note": null,
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
@@ -3690,6 +3693,7 @@
    "training_warnings": []
   },
   {
+   "ace_status": null,
    "api_host": null,
    "api_type": "bambu",
    "bed_target_temp": null,
@@ -3712,6 +3716,8 @@
      "color": null,
      "color_hex": null,
      "display_name": null,
+     "do_not_feed": false,
+     "do_not_feed_note": null,
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,

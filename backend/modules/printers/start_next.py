@@ -49,7 +49,8 @@ def admission_facts(db, job_id, printer_id):
     finished = finished_attempt(db, printer_id)
     return {'job': {k:str(v) if v is not None else None for k,v in row.items()} if row else None,
             'configuration_key': configuration_key(db, printer_id),
-            'finished_attempt_uid': finished['economic_uid'] if finished else None}
+            'finished_attempt_uid': finished['economic_uid'] if finished else None,
+            'finished_attempt_id': finished.get('id') if finished else None}
 
 
 def start(db, printer, user, data, *, background=False):
@@ -75,6 +76,10 @@ def start(db, printer, user, data, *, background=False):
                     'message': license_lock.refusal_message(exc)}
     if data.bed_clear_confirmed is not True:
         raise HTTPException(422, 'Confirm the bed is clear before starting')
+    from modules.printers.dispatch_support import is_kobra_s1
+    kobra_s1 = is_kobra_s1(printer)
+    if kobra_s1 and data.attestation is None:
+        raise HTTPException(422, 'A Kobra S1 start must say who confirmed the bed is clear')
     visible = lambda job: check_org_access(user, job.charged_to_org_id)
     suggestion = next_suggestion(db, printer, visible=visible, actor=user)
     if suggestion['job_id'] != data.suggested_job_id or suggestion['fingerprint'] != data.suggestion_fingerprint:
@@ -119,6 +124,8 @@ def start(db, printer, user, data, *, background=False):
             job = claim_db.query(Job).filter(Job.id == data.suggested_job_id).with_for_update().one_or_none()
             if job is None or getattr(job.status, 'value', job.status) != 'pending' or job.hold or job.printer_id not in (None, printer_id):
                 raise HTTPException(409, 'Candidate changed before it could be claimed')
+            if kobra_s1 and job.printer_id != printer_id:
+                raise HTTPException(409, 'A Kobra S1 starts only jobs assigned to it')
             record['assigned_by_claim'] = job.printer_id is None
             job.printer_id = printer_id
             claim_db.flush()
@@ -210,6 +217,25 @@ def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=F
         db.rollback()
         raise
     return result
+
+
+def start_requested(job):
+    """Whether this attempt runs inside a Start next request for exactly this job."""
+    context = _context.get()
+    return (context is not None and context['record']['job_id'] == job['id']
+            and context['record']['printer_id'] == job['printer_id'])
+
+
+def bed_clear_bound(conn, *, token, job, admitted):
+    """Kobra S1: a start needs this request's bed-clear confirmation, bound to its claim."""
+    context = _context.get()
+    if context is None:
+        return False
+    current = load(conn, context['key'])
+    if (current is None or current['job_id'] != job['id'] or current['printer_id'] != job['printer_id']
+            or not current.get('attestation')):
+        return False
+    return current.get('claim_token') == token if admitted else not current.get('claim_token')
 
 
 def confirm_on_admission(conn, *, token, job):

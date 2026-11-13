@@ -68,7 +68,7 @@ export interface ArchiveCompareResult {
 export type AmsMapping = { source_slot: number; target_slot: number }[];
 
 export interface ArchiveAmsRequirement { slot: number; color: string; material: string }
-export interface ArchiveAmsSlot { slot: number; color: string; color_hex: string; material: string; spool_id: number | null }
+export interface ArchiveAmsSlot { do_not_feed?: boolean; slot: number; color: string; color_hex: string; material: string; spool_id: number | null }
 export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }
 
 export interface ArchiveAmsPreview {
@@ -76,6 +76,10 @@ export interface ArchiveAmsPreview {
   required: ArchiveAmsRequirement[];
   available: ArchiveAmsSlot[];
   suggested_mapping: ArchiveAmsSuggestion[];
+  /** Why this printer can't map the file's filaments; a job can still be created without a mapping. */
+  file_note?: string;
+  /** A material-only suggestion stays off until someone picks or confirms the slots. */
+  confirm_suggestions?: boolean;
 }
 
 export interface ArchiveReprintRequest {

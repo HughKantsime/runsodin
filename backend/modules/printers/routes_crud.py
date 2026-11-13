@@ -28,6 +28,7 @@ import core.crypto as crypto
 from modules.printers.anycubic_crud import validate_credentials, prepare_update_credentials
 from modules.printers.bambu_chamber_camera import drop_unchanged_marker
 from modules.printers.models import Printer, FilamentSlot
+from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
 )
@@ -298,9 +299,8 @@ def update_printer(
                     )
                     db.add(slot)
         elif new_count < current_count:
-            for slot in printer.filament_slots:
-                if new_count < slot.slot_number < AMS_HT_FIRST_SLOT:
-                    db.delete(slot)
+            for slot in slots_removable_by_count(db, printer.id, new_count, AMS_HT_FIRST_SLOT):
+                db.delete(slot)
 
     from modules.organizations.services import printer_edit_warnings
     training_warnings = printer_edit_warnings(db, printer, update_data)
@@ -360,22 +360,26 @@ def update_filament_slot(
 
     if not slot:
         raise HTTPException(status_code=404, detail="Filament slot not found")
-    ensure_local_filaments(printer_id)
-
     values = updates.model_dump(exclude_unset=True)
+    slot_fields = set(values) - POLICY_FIELDS
+    policy = policy_change(db, slot, values, current_user)
+    if policy:
+        log_audit(db, 'filament_slot.feed_policy', 'filament_slot', slot.id, policy)
+    if slot_fields:
+        ensure_local_filaments(printer_id)
     if 'assigned_spool_id' in values:
         assign_slot(db, slot, values.pop('assigned_spool_id'), current_user)
     for field, value in values.items():
         setattr(slot, field, FilamentType(slot_filament_value(value)) if field == "filament_type" else value)
 
-    if slot.filament_type and slot.filament_type.value == "empty":
+    if slot_fields and slot.filament_type and slot.filament_type.value == "empty":
         slot.color = None
         slot.color_hex = None
         slot.spoolman_spool_id = None
         assign_slot(db, slot, None, current_user)
         slot.spool_confirmed = False
 
-    slot.loaded_at = datetime.now(timezone.utc)
+    slot.loaded_at = datetime.now(timezone.utc) if slot_fields else slot.loaded_at
     db.commit()
     db.refresh(slot)
     return slot

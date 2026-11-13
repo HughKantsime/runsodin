@@ -1,0 +1,1269 @@
+"""Install-wide license policy. Dormant until ODIN_LICENSE_FLEET_LOCK_ENABLED.
+
+B1 owns evidence, selections and user authorization. B2a adds printer checks and
+the final print-start admission (admit_start). Physical-attempt capture (exempt
+prints on newly locked printers) is B2b; until then only members are allowed N.
+"""
+from contextlib import contextmanager
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+import re
+import time
+from types import MappingProxyType
+from uuid import uuid4
+
+from fastapi import HTTPException
+from sqlalchemy import text
+
+POLICY_KEY = 'license_active_selection'
+EVIDENCE_KEY = 'license_lock_evidence'
+REVISION_KEY = 'license_lock_revision'
+# Print starts admitted under the policy lock, keyed by a digest of the dispatch
+# claim token (never the token). B2b turns a live entry into the exempt attempt
+# when its printer leaves the selection.
+ADMITTED_KEY = 'license_admitted_attempts'
+
+
+def enabled():
+    return os.getenv('ODIN_LICENSE_FLEET_LOCK_ENABLED', '').lower() in {'1', 'true', 'yes', 'on'}
+
+
+def paid_lapse_enabled():
+    # Shane 2026-11-08: a paid lapse gets the same lock as a trial lapse. On by
+    # default; the variable remains only as an explicit off switch.
+    return os.getenv('ODIN_LICENSE_PAID_LAPSE_ENABLED', '').lower() not in {'0', 'false', 'no', 'off'}
+
+
+# Deliberately no restricted-session issuer in B1. An environment flag alone
+# cannot safely enable a scope whose routes and operator decision are pending.
+RESTRICTED_RECOVERY_ENABLED = False
+COMMUNITY_DOWNGRADE_ENABLED = False
+
+
+class LicenseLockError(HTTPException):
+    def __init__(self, code, *, status=403, revision=0, resource_id=None, reason=None, resource_type='user'):
+        detail = dict(code=code, message=code.replace('_', ' '), resource_type=resource_type,
+                      policy_revision=revision, reason=reason or code)
+        if resource_id is not None:
+            detail['resource_id'] = resource_id
+        super().__init__(status, detail, headers={'X-ODIN-License-Lock': code})
+
+
+def _decode(value):
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _read(db, key):
+    value = db.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': key}).scalar()
+    return _decode(value) if value is not None else None
+
+
+def _write(db, key, value):
+    db.execute(text('INSERT INTO system_config (key,value) VALUES (:key,:value) '
+                    'ON CONFLICT(key) DO UPDATE SET value=excluded.value'),
+               {'key': key, 'value': json.dumps(value, separators=(',', ':'))})
+
+
+def _lock(db):
+    dialect = db.get_bind().dialect.name
+    if dialect == 'sqlite':
+        conn = db.connection().connection.driver_connection
+        if not conn.in_transaction:
+            db.execute(text('BEGIN IMMEDIATE'))
+    else:
+        db.execute(text("SET LOCAL lock_timeout = '2s'"))
+    db.execute(text("INSERT INTO system_config (key,value) VALUES (:key,'null') ON CONFLICT(key) DO NOTHING"), {'key': POLICY_KEY})
+    # PostgreSQL row lock, SQLite writer lock, held until caller commits.
+    db.execute(text('UPDATE system_config SET value=value WHERE key=:key'), {'key': POLICY_KEY})
+
+
+def _next_revision(db, previous):
+    try:
+        durable = _read(db, REVISION_KEY)
+    except (ValueError, TypeError):
+        durable = 0
+    value = max(previous, durable if type(durable) is int else 0) + 1
+    _write(db, REVISION_KEY, value)
+    return value
+
+
+def _valid_ids(ids):
+    return isinstance(ids, list) and all(type(i) is int and i > 0 for i in ids) and len(set(ids)) == len(ids)
+
+
+def _valid_policy(p):
+    fields = {'schema_version', 'revision', 'printers', 'users', 'membership_generation',
+              'entitlement', 'recovery_user_id', 'exempt_attempts', 'transition_id',
+              'effective_at', 'set_by', 'set_at', 'change_reason', 'usage', 'warning', 'expiry_applied'}
+    if not (isinstance(p, dict) and set(p) <= fields and p.get('schema_version') == 2
+            and type(p.get('revision')) is int and p['revision'] >= 0
+            and _valid_ids(p.get('printers')) and _valid_ids(p.get('users'))
+            and isinstance(p.get('entitlement'), dict)
+            and type(p.get('membership_generation')) is int and p['membership_generation'] >= 0):
+        return False
+    e = p['entitlement']
+    return (set(e) <= {'state', 'digest', 'binding_digest', 'max_printers', 'max_users', 'enforce', 'reason', 'deadline', 'proven', 'lease_deadline', 'recovery_exception'}
+            and e.get('state') in {'verified_current', 'verified_expired', 'community_initial', 'community_selected', 'verification_unavailable'}
+            and type(e.get('enforce')) is bool
+            and type(e.get('proven', False)) is bool
+            and type(e.get('recovery_exception', False)) is bool
+            and all(e.get(k) is None or type(e[k]) is int and e[k] >= 0 for k in ('max_users', 'max_printers'))
+            and (p.get('recovery_user_id') is None or type(p['recovery_user_id']) is int and p['recovery_user_id'] > 0)
+            and isinstance(p.get('exempt_attempts'), dict))
+
+
+def eligible_local(row):
+    # A syntactically valid bcrypt verifier, not an SSO/random placeholder.
+    return (bool(row['is_active']) and row['role'] == 'admin' and row['group_id'] is None
+            and isinstance(row['password_hash'], str)
+            and re.fullmatch(r'\$2[aby]\$(?:0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}', row['password_hash']) is not None)
+
+
+def _members(db):
+    printers = [r[0] for r in db.execute(text('SELECT id FROM printers WHERE is_active IS TRUE ORDER BY id'))]
+    rows = db.execute(text('SELECT id,role,group_id,is_active,password_hash FROM users ORDER BY id')).mappings().all()
+    users = [r['id'] for r in rows if r['is_active']]
+    recovery = [r['id'] for r in rows if eligible_local(r)]
+    return printers, users, recovery
+
+
+def _fill(preferred, active, cap, recovery=None):
+    active_set = set(active)
+    result = [i for i in preferred if i in active_set]
+    if cap == 0:
+        return []
+    if recovery is not None and recovery not in result:
+        result.insert(0, recovery)
+    existing = set(result)
+    result.extend(i for i in active if i not in existing)
+    if cap is not None:
+        if recovery is not None and recovery not in result[:cap]:
+            result.remove(recovery)
+            result.insert(0, recovery)
+        result = result[:cap]
+    return result
+
+
+def _entitlement(info):
+    state = info.verification_state
+    enforce = state == 'verified_current'
+    caps = [info.signed_max_printers, info.signed_max_users]
+    reason = info.reason_code
+    if state == 'verified_expired':
+        enforce = info.signed_trial or paid_lapse_enabled()
+        caps = [5, 1]
+        if not enforce:
+            reason = 'paid_lapse_decision_pending'
+    if state == 'community_selected':
+        enforce = COMMUNITY_DOWNGRADE_ENABLED
+        caps = [5, 1]
+    return dict(state=state, digest=info.verified_digest, binding_digest=info.binding_digest,
+                max_printers=caps[0], max_users=caps[1], enforce=enforce, reason=reason,
+                recovery_exception=caps[1] == 0,
+                deadline=info.expiry_deadline.isoformat() if info.expiry_deadline else None)
+
+
+def _frozen_members(previous, active, entitlement, cap_key, recovery=None, old_recovery=None, users=False):
+    """Membership while unverifiable: the last proven members that are still active.
+
+    Never adds a member except to fill a vacancy: within caps proven by the saved
+    signed envelope, or (unproven) only by the recovery admin taking a vacated seat.
+    Cached caps alone never change who is locked.
+    """
+    active_set = set(active)
+    kept = [i for i in previous if i in active_set]
+    if (users and old_recovery is not None and recovery is not None and old_recovery != recovery
+            and old_recovery in kept and recovery not in kept):
+        # Lost recovery eligibility hands that seat to the successor; if the successor
+        # already holds a seat, nobody's seat changes.
+        kept[kept.index(old_recovery)] = recovery
+    if users and recovery is None and entitlement.get('enforce') and entitlement.get(cap_key) is not None:
+        # Same guard as verified reconciliation: no seat refills without a recovery admin.
+        return kept
+    if not entitlement.get('proven'):
+        if recovery is not None and recovery not in kept and len(kept) < len(previous):
+            kept.insert(0, recovery)  # the recovery admin takes a vacated seat only
+        return kept
+    return _fill(kept, active, entitlement.get(cap_key), recovery)
+
+
+def _evidence(db, info, previous):
+    """Persist only verified envelopes; while unverifiable, freeze the last proven entitlement."""
+    from license_manager import license_clock
+    from core.license_clock import instant
+    now, _uncertain = license_clock().sample()
+    try:
+        evidence = _read(db, EVIDENCE_KEY)
+    except (ValueError, TypeError):
+        evidence = None
+    if info.verification_state in {'verified_current', 'verified_expired'}:
+        new = dict(schema_version=1, signed_envelope=info.signed_envelope, sha256=info.verified_digest,
+                   binding_digest=info.binding_digest, accepted_at=now.isoformat(), time_anchor=now.isoformat(),
+                   verification_state=info.verification_state,
+                   uncertainty_started_at=None)
+        try:
+            elapsed = (now - instant(evidence['time_anchor'])).total_seconds()
+            checkpoint_due = elapsed < 0 or elapsed >= 300
+        except (TypeError, KeyError, ValueError):
+            checkpoint_due = True
+        if not evidence or checkpoint_due or any(new[k] != evidence.get(k) for k in ('sha256', 'binding_digest', 'verification_state')) or evidence.get('uncertainty_started_at'):
+            _write(db, EVIDENCE_KEY, new)
+        return _entitlement(info), None
+    if info.verification_state == 'community_selected' or (info.verification_state == 'community_initial' and isinstance(evidence, dict) and evidence.get('community_selected')):
+        return dict(_entitlement(info), state='community_selected', enforce=False, reason='community_downgrade_decision_pending'), None
+    if info.verification_state == 'community_initial' and not evidence and not (previous or {}).get('enforce'):
+        return _entitlement(info), None
+    warning = 'license_verification_unavailable'
+    # Shane 2026-11-08 ("stay locked", clarified "freeze last-good"): while the
+    # license cannot be verified, keep the last proven state with no time limit.
+    # Uncertainty never adds or removes locks; only fresh verification or a known
+    # expiry changes the state. _reconcile freezes membership for 'uncertainty_frozen'.
+    if isinstance(evidence, dict) and evidence.get('schema_version') == 1 and (
+            not evidence.get('uncertainty_started_at') or 'uncertainty_deadline' in evidence):
+        evidence['uncertainty_started_at'] = evidence.get('uncertainty_started_at') or now.isoformat()
+        evidence.pop('uncertainty_deadline', None)
+        _write(db, EVIDENCE_KEY, evidence)
+    proof = _saved_proof(evidence)
+    if proof is not None and proof.verification_state == 'verified_expired':
+        # Known expiry from the saved signed envelope on a trusted clock.
+        return dict(_entitlement(proof), proven=True), warning
+    proven_current = proof is not None and proof.verification_state == 'verified_current'
+    if previous and previous.get('state'):
+        frozen = dict(previous, state='verification_unavailable', reason='uncertainty_frozen', proven=proven_current)
+        frozen.pop('lease_deadline', None)
+        if proven_current:
+            # Caps come only from the reverified signed envelope, never the stored row.
+            if (previous.get('max_printers'), previous.get('max_users')) != (proof.signed_max_printers, proof.signed_max_users):
+                warning = 'license_policy_evidence_mismatch'
+            frozen.update(max_printers=proof.signed_max_printers, max_users=proof.signed_max_users,
+                          recovery_exception=proof.signed_max_users == 0)
+        else:
+            # Unproven: keep the last-good recovery authorization as recorded, never
+            # re-derive it from cached caps.
+            if 'recovery_exception' in previous:
+                frozen['recovery_exception'] = previous['recovery_exception'] is True
+            else:
+                # Migration: policies saved before the flag existed were authorized by the
+                # rule they were saved under (a zero seat cap). Keep that last-good
+                # authorization once; the frozen row then carries the explicit flag.
+                frozen['recovery_exception'] = previous.get('max_users') == 0
+        return frozen, warning
+    if proven_current:
+        # Lost or corrupt policy row with usable evidence: rebuild from the proof.
+        return dict(_entitlement(proof), state='verification_unavailable', reason='policy_rebuilt_from_evidence', proven=True), warning
+    # Nothing was ever proven here: Slice A/Community semantics, as before.
+    return dict(_entitlement(info), state='verification_unavailable', enforce=False), warning
+
+
+def _saved_proof(evidence):
+    """The saved signed envelope, reverified now against the current binding, or None."""
+    from license_manager import verify_license_text
+    raw = evidence.get('signed_envelope') if isinstance(evidence, dict) else None
+    if not isinstance(raw, str) or hashlib.sha256(raw.encode()).hexdigest() != evidence.get('sha256'):
+        return None
+    verified = verify_license_text(raw)
+    if verified.verified_digest != evidence.get('sha256') or verified.binding_digest != evidence.get('binding_digest'):
+        return None
+    return verified
+
+
+def _reconcile(db, *, selection=None, expected_revision=None, actor=None, recovery_user_id=None):
+    """One short caller-owned transaction; never commits unrelated work."""
+    from license_manager import get_license, license_clock
+    _lock(db)
+    try:
+        old = _read(db, POLICY_KEY)
+    except (ValueError, TypeError):
+        old = None
+    valid = _valid_policy(old)
+    revision = old.get('revision', 0) if isinstance(old, dict) and type(old.get('revision')) is int else 0
+    try:
+        durable_revision = _read(db, REVISION_KEY)
+    except (ValueError, TypeError):
+        durable_revision = 0
+    revision = max(revision, durable_revision if type(durable_revision) is int else 0)
+    if expected_revision is not None and expected_revision != revision:
+        raise LicenseLockError('license_selection_stale', status=409, revision=revision)
+    if not valid:
+        old = dict(schema_version=2, revision=revision, printers=[], users=[], membership_generation=0,
+                   entitlement={}, recovery_user_id=None, exempt_attempts={}, transition_id=None,
+                   effective_at=None, set_by=None, set_at=None, change_reason='initial')
+    entitlement, warning = _evidence(db, get_license(), old['entitlement'])
+    printers, users, eligible = _members(db)
+    recovery = old.get('recovery_user_id')
+    if recovery_user_id is not None:
+        if type(recovery_user_id) is not int or recovery_user_id not in eligible:
+            raise LicenseLockError('license_selection_invalid', status=422, revision=revision, reason='ineligible_recovery')
+        recovery = recovery_user_id
+    if recovery not in eligible:
+        recovery = eligible[0] if eligible else None
+    frozen = entitlement.get('reason') == 'uncertainty_frozen'
+    if selection is not None and frozen and not entitlement.get('proven'):
+        # No proven caps to validate a new selection against; keep the frozen one.
+        raise LicenseLockError('license_verification_unavailable', status=409, revision=revision)
+    picks = selection or {'printers': old['printers'], 'users': old['users']}
+    if selection is not None:
+        for name, active in [('printers', printers), ('users', users)]:
+            ids, cap = picks.get(name), entitlement.get('max_' + name)
+            if not _valid_ids(ids) or any(i not in active for i in ids) or (cap is not None and len(ids) > cap):
+                raise LicenseLockError('license_selection_invalid', status=422, revision=revision)
+        if entitlement.get('max_users') != 0 and recovery is not None and picks['users'] and recovery not in picks['users']:
+            raise LicenseLockError('license_selection_invalid', status=422, revision=revision, reason='recovery_seat_required')
+    if frozen and selection is None:
+        member_printers = _frozen_members(old['printers'], printers, entitlement, 'max_printers')
+        member_users = _frozen_members(old['users'], users, entitlement, 'max_users', recovery,
+                                       old.get('recovery_user_id'), users=True)
+    else:
+        member_printers = _fill(picks['printers'], printers, entitlement.get('max_printers'))
+        member_users = (_fill(picks['users'], users, entitlement.get('max_users'), recovery)
+                        if recovery is not None or entitlement.get('max_users') is None or not entitlement.get('enforce') else [])
+    resolved = dict(old, entitlement=entitlement, recovery_user_id=recovery,
+                    printers=member_printers, users=member_users,
+                    usage={'printers': len(printers), 'users': len(users)}, warning=warning)
+    if not valid and revision:
+        resolved['warning'] = 'license_policy_reconstructed'
+    if recovery is None:
+        resolved['warning'] = resolved['warning'] or 'local_recovery_bootstrap_required'
+    if selection is not None:
+        resolved.update(set_by=actor, set_at=license_clock().sample()[0].isoformat(), change_reason='explicit_selection')
+    elif resolved != old:
+        resolved['change_reason'] = 'automatic_reconciliation'
+    _prune_admissions(db)
+    resolved['exempt_attempts'] = _exemptions(db, old if valid else None, resolved, entitlement,
+                                              reconstructed=not valid and bool(revision))
+    if resolved != old or not valid:
+        resolved['revision'] = _next_revision(db, revision)
+        resolved['transition_id'] = str(uuid4())
+        resolved['effective_at'] = license_clock().sample()[0].isoformat()
+        _write(db, POLICY_KEY, resolved)
+    return resolved
+
+
+def _live_admissions(db, entries):
+    if not isinstance(entries, dict):
+        return {}
+    live = {_attempt_key(row[0]) for row in db.execute(text('SELECT token FROM printer_dispatch_claims'))}
+    return {k: v for k, v in entries.items() if k in live}
+
+
+def _prune_admissions(db):
+    """Drop admission records whose dispatch claim is gone (released or retired)."""
+    try:
+        entries = _read(db, ADMITTED_KEY)
+    except (ValueError, TypeError):
+        entries = {}
+    if entries is None:
+        return
+    live = _live_admissions(db, entries)
+    if live != entries:
+        _write(db, ADMITTED_KEY, live)
+
+
+# --- B2b-1: the one exempt attempt per newly locked printer -----------------
+# Design sec. 5; plan specs/license-lock-b2-plan.md "B2b". An attempt is a
+# print_jobs row (id + immutable economic_birth_nonce), or a live B2a admission
+# whose start has not been bound to a row yet.
+
+PENDING_SECONDS = 60
+FRESH_SECONDS = 90
+LIVE_STATES = frozenset({'RUNNING', 'PRINTING', 'PAUSE', 'PAUSED'})
+
+
+def _utc(value):
+    from datetime import datetime, timezone
+    if value is None:
+        return None
+    stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    return stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp.astimezone(timezone.utc)
+
+
+def _db_now(db):
+    sql = ('SELECT clock_timestamp()' if db.get_bind().dialect.name == 'postgresql'
+           else "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')")
+    return _utc(db.execute(text(sql)).scalar())
+
+
+def _running_rows(db, printer_id):
+    return db.execute(text("SELECT id,economic_birth_nonce,started_at FROM print_jobs "
+                           "WHERE printer_id=:p AND status='running' ORDER BY started_at DESC,id DESC"),
+                      {'p': printer_id}).mappings().all()
+
+
+def _row(db, print_job_id):
+    return db.execute(text('SELECT id,economic_birth_nonce,started_at,status,ended_at FROM print_jobs WHERE id=:id'),
+                      {'id': print_job_id}).mappings().first()
+
+
+def _fresh(db, printer_id, now):
+    """Fresh printing/paused telemetry from the printer itself (DB clock).
+
+    print_jobs.observed_received_at is written once at the start, so it is not a
+    heartbeat; printers.last_seen is. Attempt matching is by the record's row being
+    the printer's only running row (monitors close superseded rows)."""
+    printer = db.execute(text('SELECT gcode_state,last_seen FROM printers WHERE id=:p'), {'p': printer_id}).first()
+    if not printer or not printer[1]:
+        return False
+    return (str(printer[0] or '').strip().upper() in LIVE_STATES
+            and 0 <= (now - _utc(printer[1])).total_seconds() <= FRESH_SECONDS)
+
+
+def _live_admission(db, printer_id):
+    """(claim_key, job_id, bound print_job_id or None) for a live B2a admission, else None."""
+    claim = db.execute(text('SELECT token FROM printer_dispatch_claims WHERE printer_id=:p'), {'p': printer_id}).first()
+    if claim is None:
+        return None
+    try:
+        entries = _read(db, ADMITTED_KEY)
+    except (ValueError, TypeError):
+        entries = None
+    entry = entries.get(_attempt_key(claim[0])) if isinstance(entries, dict) else None
+    if not isinstance(entry, dict) or entry.get('printer_id') != printer_id:
+        return None
+    bound = db.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE claim_token=:t'),
+                       {'t': claim[0]}).scalar()
+    return _attempt_key(claim[0]), entry.get('job_id'), bound
+
+
+def _receipt_binding(db, printer_id, job_id, claim_key):
+    """The row a retained receipt bound for this admission, even after its claim is gone.
+
+    Exact: every receipt of this job on this printer is checked (no history window)."""
+    for token, bound in db.execute(text('SELECT claim_token,observed_print_job_id FROM dispatch_attempt_receipts '
+                                        'WHERE printer_id=:p AND job_id=:j'), {'p': printer_id, 'j': job_id}):
+        if _attempt_key(token) == claim_key:
+            return bound
+    return None
+
+
+def _observed(row, cutoff, captured):
+    return dict(kind='observed', print_job_id=row['id'], nonce=row['economic_birth_nonce'],
+                started_at=_utc(row['started_at']).isoformat(), captured_at=captured, cutoff=cutoff)
+
+
+def _pending(candidates, cutoff, captured, until):
+    return dict(kind='pending', candidates=[{'id': r['id'], 'nonce': r['economic_birth_nonce']} for r in candidates],
+                captured_at=captured, cutoff=cutoff, until=until)
+
+
+def _window(start):
+    from datetime import timedelta
+    return (_utc(start) + timedelta(seconds=PENDING_SECONDS)).isoformat()
+
+
+def _capture(db, printer_id, cutoff, now, captured):
+    admission = _live_admission(db, printer_id)
+    running = _running_rows(db, printer_id)
+    if admission is not None:
+        claim_key, job_id, bound = admission
+        row = next((r for r in running if r['id'] == bound), None) if bound is not None else None
+        if row is not None:
+            return _observed(row, cutoff, captured)
+        return dict(kind='admitted', claim_key=claim_key, job_id=job_id, captured_at=captured, cutoff=cutoff)
+    cut = _utc(cutoff)
+    eligible = [r for r in running if _utc(r['started_at']) <= cut]  # a print started after cutoff gets nothing
+    if not eligible:
+        return None
+    if len(running) == 1 and _fresh(db, printer_id, now):
+        return _observed(running[0], cutoff, captured)
+    return _pending(eligible, cutoff, captured, _window(cutoff))
+
+
+COMPLETION_SECONDS = 24 * 3600  # the existing maximum cooldown window
+
+
+def _completion(row, record):
+    """After the exempt attempt ends: only its final energy read and the auto-off
+    that was configured at cutoff, for at most 24 hours (design sec. 5)."""
+    from datetime import timedelta
+    ended = _utc(row['ended_at'])
+    return dict(kind='completion', print_job_id=row['id'], nonce=row['economic_birth_nonce'],
+                ended_at=ended.isoformat(), until=(ended + timedelta(seconds=COMPLETION_SECONDS)).isoformat(),
+                auto_off=bool(record.get('auto_off')), cooldown_minutes=record.get('cooldown_minutes'),
+                cutoff=record['cutoff'], captured_at=record['captured_at'])
+
+
+def _later_attempt(db, printer_id, row):
+    """Any other attempt on this printer that began after this one (running or not).
+
+    A different print cancels the completion ticket for good, even once it ends."""
+    if db.execute(text('SELECT 1 FROM print_jobs WHERE printer_id=:p AND id>:id LIMIT 1'),
+                  {'p': printer_id, 'id': row['id']}).first() is not None:
+        return True
+    # Start times are compared parsed, not as text: SQLite rows hold more than one
+    # timestamp format. Older ids that started later are recent rows by nature.
+    mine = _utc(row['started_at'])
+    recent = db.execute(text('SELECT started_at FROM print_jobs WHERE printer_id=:p AND id<:id '
+                             'ORDER BY id DESC LIMIT 50'), {'p': printer_id, 'id': row['id']}).scalars()
+    return any(started is not None and _utc(started) > mine for started in recent)
+
+
+def _ended(db, printer_id, row, record):
+    """The record that follows a row that is no longer running."""
+    if _uncertain_closure(row):
+        return _pending([], record['cutoff'], record['captured_at'], _window(_db_now(db)))
+    if row['ended_at'] is not None and not _running_rows(db, printer_id) and not _later_attempt(db, printer_id, row):
+        return _completion(row, record)
+    return None  # ended without a time, or a different print already started
+
+
+def _uncertain_closure(row):
+    # Reconnect bookkeeping closes stray rows as cancelled with no end time; that is
+    # not proof this physical attempt ended.
+    return row is not None and row['status'] == 'cancelled' and row['ended_at'] is None
+
+
+def _refresh(db, printer_id, record, now):
+    """Resolve or retire one record; returns the record to keep, or None."""
+    kind = record.get('kind')
+    running = _running_rows(db, printer_id)
+    if kind == 'admitted':
+        live = _live_admission(db, printer_id)
+        bound = (live[2] if live is not None and live[0] == record.get('claim_key')
+                 else _receipt_binding(db, printer_id, record.get('job_id'), record.get('claim_key')))
+        if bound is None:
+            return record if live is not None and live[0] == record.get('claim_key') else None
+        row = _row(db, bound)
+        if row is not None and row['status'] == 'running':
+            return _observed(row, record['cutoff'], record['captured_at'])
+        return _ended(db, printer_id, row, record) if row is not None else None
+    if kind == 'pending':
+        live = [r for r in running
+                if any(c.get('id') == r['id'] and c.get('nonce') == r['economic_birth_nonce']
+                       for c in record.get('candidates') or [])]
+        if len(live) == 1 and len(running) == 1 and _fresh(db, printer_id, now):
+            return _observed(live[0], record['cutoff'], record['captured_at'])
+        if live:
+            return dict(record, candidates=[{'id': r['id'], 'nonce': r['economic_birth_nonce']} for r in live])
+        open_window = _utc(now) < _utc(record.get('until'))
+        return dict(record, candidates=[]) if open_window else None
+    if kind == 'observed':
+        row = _row(db, record.get('print_job_id'))
+        if row is None or row['economic_birth_nonce'] != record.get('nonce'):
+            return None  # missing or replaced
+        if row['status'] != 'running':
+            return _ended(db, printer_id, row, record)
+        if any(r['id'] != row['id'] and _utc(r['started_at']) > _utc(row['started_at']) for r in running):
+            return None  # a different, later attempt started
+        return record
+    if kind == 'completion':
+        row = _row(db, record.get('print_job_id'))
+        if (row is None or row['economic_birth_nonce'] != record.get('nonce') or running
+                or _later_attempt(db, printer_id, row) or _utc(now) >= _utc(record.get('until'))):
+            return None  # replaced, a different print started (even if it already ended), or 24 h passed
+        return record
+    return None
+
+
+def _exemptions(db, old, resolved, entitlement, *, reconstructed=False):
+    """Capture on unlocked->locked transitions; resolve and retire the rest."""
+    applied = (old or {}).get('expiry_applied')
+    if applied is not None:
+        resolved['expiry_applied'] = applied
+    if not entitlement.get('enforce'):
+        return {}
+    members = set(resolved['printers'])
+    previous = (old or {}).get('exempt_attempts') or {}
+    was_enforcing = bool(old and old.get('entitlement', {}).get('enforce'))
+    if old is None:
+        # A first policy: nothing was locked before. A reconstructed one (lost or
+        # corrupt row) is no evidence of a transition, so it captures nothing.
+        previously_unlocked = set() if reconstructed else None
+    else:
+        previously_unlocked = set(old['printers']) if was_enforcing else None
+    printers = {r[0] for r in db.execute(text('SELECT id FROM printers'))}
+    from license_manager import license_clock
+    from core.license_clock import instant
+    clock_now = license_clock().sample()[0]
+    deadline = entitlement.get('deadline')
+    # The deadline is the cutoff only for the expiry transition itself: the first
+    # reconcile that sees this deadline as passed on an expired license. The policy
+    # records which deadline was applied, because the state label can flip through
+    # verification_unavailable and back. Any later change, such as a selection edit
+    # after expiry, cuts off at the time it happens.
+    expiry_now = bool(entitlement.get('state') == 'verified_expired' and deadline
+                      and clock_now >= instant(deadline) and applied != deadline)
+    if expiry_now:
+        resolved['expiry_applied'] = deadline
+    cutoff_at = instant(deadline) if expiry_now else clock_now
+    cutoff, captured = _utc(cutoff_at).isoformat(), _utc(clock_now).isoformat()
+    now = _db_now(db)
+    result = {}
+    for printer_id in sorted(printers | {int(k) for k in previous}):
+        if printer_id in members:
+            continue  # relicensed or still selected: no exemption needed
+        key = str(printer_id)
+        if key in previous:
+            prior = dict(previous[key])
+            kept = _refresh(db, printer_id, prior, now)
+            if kept is not None:
+                for carried in ('auto_off', 'cooldown_minutes'):
+                    if carried in prior:
+                        kept.setdefault(carried, prior[carried])
+        elif previously_unlocked is None or printer_id in previously_unlocked:
+            kept = _capture(db, printer_id, cutoff, now, captured)  # newly locked (incl. just deactivated)
+            if kept is not None:
+                # The cooldown configured at cutoff; a later edit cannot add one.
+                plug = db.execute(text('SELECT plug_auto_off,plug_cooldown_minutes FROM printers WHERE id=:p'),
+                                  {'p': printer_id}).first()
+                kept['auto_off'] = bool(plug and plug[0])
+                minutes = plug[1] if plug and plug[1] is not None else 5  # smart_plug's default
+                kept['cooldown_minutes'] = minutes if type(minutes) is int and 0 <= minutes <= 1440 else None
+        else:
+            kept = None  # already locked before: a later attempt never gains an exemption
+        if kept is not None:
+            result[key] = kept
+    return result
+
+
+def exempt_attempt(policy, printer_id):
+    return (policy.exempt_attempts or {}).get(str(printer_id))
+
+
+def _pending_open(record):
+    from license_manager import license_clock
+    try:
+        return _utc(license_clock().sample()[0]) < _utc(record.get('until'))
+    except Exception:
+        return False
+
+
+def attempt_allowed(db, policy, printer_id, cap):
+    """C/V (and M) for the exempt attempt, re-read from the database.
+
+    Members pass. Otherwise C and V need the 'observed' record's own row: same id
+    and nonce, still running, with fresh printing/paused telemetry."""
+    if printer_allowed(policy, printer_id, cap):
+        return True
+    record = exempt_attempt(policy, printer_id)
+    if record is None or cap == 'N':
+        return False
+    if cap == 'M':
+        return record.get('kind') in {'observed', 'admitted'} or (record.get('kind') == 'pending' and _pending_open(record))
+    if cap not in {'C', 'V'} or record.get('kind') != 'observed':
+        return False
+    try:
+        rows = _running_rows(db, printer_id)
+        mine = next((r for r in rows if r['id'] == record.get('print_job_id')), None)
+        return (mine is not None and mine['economic_birth_nonce'] == record.get('nonce') and len(rows) == 1
+                and _fresh(db, printer_id, _db_now(db)))
+    except Exception:
+        return False
+
+
+def completion_allowed(engine, printer_id, print_job_id, action):
+    """Energy reads and the configured auto-off for the exempt attempt (B2b-2).
+
+    Members always pass. Otherwise the printer's record must be this attempt
+    (same id and nonce). 'energy': while it runs, or within 24 h after it ended.
+    'cooldown_off': only after it ended, within 24 h, only if auto-off was
+    configured at cutoff, and never once a different print is running.
+    Never auto-on; fails closed."""
+    if not enabled():
+        return True
+    if action not in {'energy', 'cooldown_off'}:
+        raise ValueError('unknown completion action')
+    from datetime import timedelta
+    from sqlalchemy.orm import Session
+    try:
+        with Session(engine) as db:
+            policy = snapshot(db)
+            if printer_allowed(policy, printer_id, 'N'):
+                return True
+            record = exempt_attempt(policy, printer_id)
+            if record is None or type(print_job_id) is not int or record.get('print_job_id') != print_job_id:
+                return False
+            if action == 'cooldown_off' and not record.get('auto_off'):
+                return False
+            row = _row(db, print_job_id)
+            if row is None or row['economic_birth_nonce'] != record.get('nonce'):
+                return False
+            running = _running_rows(db, printer_id)
+            if row['status'] == 'running':
+                # Energy for the exempt print while it is the printer's only running attempt.
+                return (action == 'energy' and record.get('kind') == 'observed'
+                        and len(running) == 1 and running[0]['id'] == row['id'])
+            if row['ended_at'] is None or running or _later_attempt(db, printer_id, row):
+                return False
+            now, ended = _db_now(db), _utc(row['ended_at'])
+            if now >= ended + timedelta(seconds=COMPLETION_SECONDS):
+                return False
+            if action == 'cooldown_off':
+                # The cooldown configured at cutoff must have elapsed; shortening it
+                # afterwards cannot bring the power-off forward.
+                minutes = record.get('cooldown_minutes')
+                if type(minutes) is not int or now < ended + timedelta(minutes=minutes):
+                    return False
+            return True
+    except Exception:
+        return False
+
+
+def reconcile(db, **kwargs):
+    try:
+        return _reconcile(db, **kwargs)
+    except HTTPException:
+        raise
+    except Exception:
+        raise LicenseLockError('license_policy_unavailable', status=503) from None
+
+
+@dataclass(frozen=True)
+class PolicySnapshot:
+    revision: int
+    enforcing: bool
+    printers: frozenset
+    users: frozenset
+    recovery_user_id: int | None
+    entitlement: object
+    warning: str | None
+    membership_generation: int
+    transition_id: str | None = None
+    effective_at: str | None = None
+    exempt_attempts: object = None
+
+    @property
+    def deadline(self):
+        return self.entitlement.get('deadline')
+
+    @property
+    def evidence_generation(self):
+        return self.entitlement.get('digest')
+
+
+def _freeze(value):
+    if isinstance(value, dict):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
+def _snapshot(p):
+    return PolicySnapshot(p['revision'], enabled() and p['entitlement'].get('enforce', False),
+                          frozenset(p['printers']), frozenset(p['users']), p['recovery_user_id'],
+                          MappingProxyType(dict(p['entitlement'])), p.get('warning'), p['membership_generation'], p.get('transition_id'), p.get('effective_at'),
+                          _freeze(p.get('exempt_attempts', {})))
+
+
+# While unverifiable, the license file's signature never changes, so a cached
+# snapshot would never re-check the saved envelope. Re-reconcile at the 30-second
+# retry cadence, and immediately once a known deadline passes.
+UNVERIFIED_CACHE_SECONDS = 30
+
+
+def _cache_current(cached, p, now):
+    from core.license_clock import instant
+    entitlement = p.get('entitlement') or {}
+    try:
+        # Re-reconcile once when a deadline is crossed after this entry was cached;
+        # a deadline already past when cached (a frozen lapsed policy) is throttled below.
+        cached_at = cached[4] if len(cached) > 4 else None
+        if (entitlement.get('deadline') and now >= instant(entitlement['deadline'])
+                and (cached_at is None or cached_at < instant(entitlement['deadline']))):
+            return False
+    except (TypeError, ValueError):
+        return False
+    if entitlement.get('state') == 'verification_unavailable' or p.get('exempt_attempts'):
+        # Unverifiable: re-check the saved envelope. Exempt attempts: retire or
+        # resolve them (terminal prints, bound starts) within the same bound.
+        return len(cached) > 3 and time.monotonic() - cached[3] < UNVERIFIED_CACHE_SECONDS
+    return True
+
+
+_DISABLED = PolicySnapshot(0, False, frozenset(), frozenset(), None, MappingProxyType({}), None, 0)
+_cache = {}
+
+
+def snapshot(db, *, request=None, cycle=None, fresh=False):
+    """fresh=True skips the process cache (monitor loops while an exemption exists,
+    so a retired attempt stops being monitored within the teardown bound)."""
+    if not enabled():
+        return _DISABLED
+    if fresh:
+        _cache.pop(str(db.get_bind().url), None)
+    holder = request.state if request is not None else cycle
+    if holder is not None and getattr(holder, 'license_policy', None) is not None:
+        return holder.license_policy
+    from license_manager import get_license, license_clock
+    info = get_license()
+    now, uncertain = license_clock().sample()
+    try:
+        try:
+            p = _read(db, POLICY_KEY)
+        except (ValueError, TypeError):
+            p = None
+        signature = (info.verification_state, info.verified_digest, info.binding_digest, paid_lapse_enabled())
+        cache_key = str(db.get_bind().url)
+        cached = _cache.get(cache_key)
+        fresh = (cached and _valid_policy(p) and cached[0] == p['revision'] and cached[1] == signature
+                 and _cache_current(cached, p, now))
+        if fresh:
+            result = cached[2]
+        else:
+            # Use an independent transaction only when the caller has not begun
+            # writing. Issuance/mutations already own the serialization lock.
+            connection = db.connection()
+            writing = connection.info.get('license_membership_write', False)
+            if connection.dialect.name == 'sqlite':
+                writing = connection.connection.driver_connection.in_transaction
+            if writing:
+                p = reconcile(db)
+            else:
+                from sqlalchemy.orm import Session
+                with Session(db.get_bind()) as policy_db:
+                    p = reconcile(policy_db)
+                    policy_db.commit()
+            result = _snapshot(p)
+            _cache[cache_key] = (p['revision'], signature, result, time.monotonic(), now)
+        if holder is not None:
+            holder.license_policy = result
+        return result
+    except HTTPException:
+        raise
+    except Exception:
+        raise LicenseLockError('license_policy_unavailable', status=503) from None
+
+
+def user_allowed(policy, user_id):
+    return (not policy.enforcing or user_id in policy.users
+            # Deliberate full-access recovery exception, including at zero seats.
+            # Keep until Shane decides restricted recovery sessions (review item 1).
+            # recovery_exception is set from proof (or kept from the last proven state
+            # while frozen); cached caps never open it.
+            or policy.entitlement.get('recovery_exception') is True
+            and user_id is not None and user_id == policy.recovery_user_id)
+
+
+def require_user(policy, user_id, purpose='access'):
+    if purpose in {'logout', 'credential_repair', 'revoke', 'enrollment_cancel'}:
+        return
+    if not user_allowed(policy, user_id):
+        raise LicenseLockError('license_user_locked', revision=policy.revision, resource_id=user_id,
+                               reason=policy.entitlement.get('reason'))
+
+
+# R: stored reads. N: new hardware work (dispatch, probes, writes, power on).
+# M: monitoring. C: pause/resume/stop. V: camera/capture. See printer_allowed.
+PRINTER_CAPABILITIES = frozenset({'R', 'N', 'M', 'C', 'V'})
+
+
+def printer_allowed(policy, printer_id, cap='N'):
+    """Pure check on the snapshot. N: members only. M: members or the exempt
+    attempt. C/V for an exempt attempt need attempt_allowed (database re-read)."""
+    if cap not in PRINTER_CAPABILITIES:
+        raise ValueError('unknown printer capability')
+    if not policy.enforcing or cap == 'R' or printer_id in policy.printers:
+        return True
+    if cap != 'M':
+        return False
+    record = exempt_attempt(policy, printer_id)
+    return record is not None and (record.get('kind') in {'observed', 'admitted'}
+                                   or (record.get('kind') == 'pending' and _pending_open(record)))
+
+
+def require_printer(policy, printer_id, cap='N'):
+    if not printer_allowed(policy, printer_id, cap):
+        raise LicenseLockError('license_printer_locked', revision=policy.revision, resource_id=printer_id,
+                               resource_type='printer', reason=policy.entitlement.get('reason'))
+
+
+def printer_refusal(engine, printer_id, cap='N'):
+    """Early, non-authoritative check before any power, readiness or upload work.
+
+    Returns None or a LicenseLockError. admit_start remains the authority."""
+    if not enabled():
+        return None
+    from sqlalchemy.orm import Session
+    try:
+        with Session(engine) as db:
+            require_printer(snapshot(db), printer_id, cap)
+        return None
+    except LicenseLockError as exc:
+        return exc
+    except Exception:
+        return LicenseLockError('license_policy_unavailable', status=503, resource_id=printer_id, resource_type='printer')
+
+
+def refusal_message(exc, *, outcome=True):
+    """Operator text for a printer refusal; nothing was sent."""
+    detail = exc.detail if isinstance(getattr(exc, 'detail', None), dict) else {}
+    code = detail.get('code', 'license_policy_unavailable')
+    if code == 'license_printer_locked':
+        text = f'This printer is not in the active license selection ({detail.get("reason", code)})'
+    else:
+        text = 'The license policy could not be checked; retry shortly'
+    return text + ('; no command was sent' if outcome else '')
+
+
+def _attempt_key(claim_token):
+    return hashlib.sha256(('license-admission:' + claim_token).encode()).hexdigest()[:32]
+
+
+def admit_start(engine, *, printer_id, job_id, claim_token):
+    """Final license admission for one print command; None admits.
+
+    Runs immediately before the command, under the policy lock that selection
+    changes take, so either a change that locks this printer commits first and
+    this refuses, or this admission commits first and is recorded for B2b to
+    keep as the printer's exempt attempt. Fails closed: any error refuses.
+    Returns None (admitted) or a LicenseLockError (refused; nothing was sent).
+    """
+    if not enabled():
+        return None
+    try:
+        with _admission_session(engine) as db:
+            policy = _snapshot(_reconcile(db))  # takes the policy lock; prunes stale records
+            if not printer_allowed(policy, printer_id, 'N'):
+                db.commit()  # keep any reconciliation; the refusal itself writes nothing
+                return LicenseLockError('license_printer_locked', revision=policy.revision, resource_id=printer_id,
+                                        resource_type='printer', reason=policy.entitlement.get('reason'))
+            try:
+                entries = _read(db, ADMITTED_KEY)
+            except (ValueError, TypeError):
+                entries = None
+            entries = entries if isinstance(entries, dict) else {}
+            from license_manager import license_clock
+            entries[_attempt_key(claim_token)] = dict(printer_id=printer_id, job_id=job_id, revision=policy.revision,
+                                                      admitted_at=license_clock().sample()[0].isoformat())
+            _write(db, ADMITTED_KEY, entries)
+            db.commit()
+            return None
+    except LicenseLockError as exc:
+        return exc
+    except Exception:
+        return LicenseLockError('license_policy_unavailable', status=503, resource_id=printer_id, resource_type='printer')
+
+
+ADMISSION_WAIT_MS = 2000
+
+
+@contextmanager
+def _admission_session(engine):
+    """Own short transaction with a bounded lock wait on both databases.
+
+    PostgreSQL: _lock sets a 2 s lock_timeout. SQLite: the engine's busy timeout
+    is longer, so it is lowered on one explicitly held connection and restored on
+    that same connection before it returns to the pool."""
+    from sqlalchemy.orm import Session
+    with engine.connect() as conn:
+        raw = conn.connection.driver_connection if engine.dialect.name == 'sqlite' else None
+        restore = None
+        if raw is not None:
+            restore = raw.execute('PRAGMA busy_timeout').fetchone()[0]
+            raw.execute(f'PRAGMA busy_timeout={int(ADMISSION_WAIT_MS)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bind parameters; ADMISSION_WAIT_MS is an int constant
+        try:
+            with Session(bind=conn) as db:
+                yield db
+        finally:
+            if raw is not None:
+                try:
+                    if conn.in_transaction():
+                        conn.rollback()
+                    raw.execute(f'PRAGMA busy_timeout={int(restore)}')  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- PRAGMA takes no bind parameters; int() of SQLite's own busy_timeout reading
+                except Exception:
+                    conn.invalidate()  # never pool a connection with the shortened wait
+
+
+def withdraw_admission(engine, claim_token):
+    """Best effort: a later safety gate refused, so this attempt will not be sent.
+
+    Reconciliation also drops the record once the claim is released."""
+    if not enabled():
+        return
+    try:
+        with _admission_session(engine) as db:
+            _lock(db)
+            entries = _read(db, ADMITTED_KEY)
+            if isinstance(entries, dict) and entries.pop(_attempt_key(claim_token), None) is not None:
+                _write(db, ADMITTED_KEY, entries)
+            db.commit()
+    except Exception:
+        pass
+
+
+def locked_snapshot(db):
+    """Fresh policy (deadline included) in the caller's Session transaction.
+
+    The policy lock is held to the caller's commit, so a selection change cannot
+    commit between this check and the caller's writes. Take it after any row locks
+    the caller needs and commit promptly: final admissions wait on it. Returns None
+    (fail closed) on error or on anything but a Session."""
+    if not enabled():
+        return _DISABLED
+    from sqlalchemy.orm import Session
+    if not isinstance(db, Session):
+        return None
+    try:
+        return _snapshot(_reconcile(db))
+    except Exception:
+        return None
+
+
+def stored_snapshot(executor):
+    """The stored policy as a snapshot: a plain read on the caller's own executor.
+
+    No reconcile, no lock, no second connection, so it never blocks on or adds to
+    the caller's locks. Not fresh (a passed deadline is not applied) and None when
+    the row is missing or unreadable: callers use it only for early, non-authoritative
+    filtering; admit_start and locked_snapshot remain the authority."""
+    statement = 'SELECT value FROM system_config WHERE key=:key'
+    try:
+        from sqlalchemy.engine import Connection
+        from sqlalchemy.orm import Session
+        if isinstance(executor, (Session, Connection)):
+            raw = executor.execute(text(statement), {'key': POLICY_KEY}).scalar()
+        else:
+            row = executor.cursor().execute(statement.replace(':key', '?'), (POLICY_KEY,)).fetchone()
+            raw = row[0] if row else None
+        p = _decode(raw) if raw is not None else None
+    except Exception:
+        return None
+    return _snapshot(p) if _valid_policy(p) else None
+
+
+def printer_allowed_now(executor, printer_id):
+    """Early, non-authoritative N check for service callers (Education)."""
+    if not enabled():
+        return True
+    policy = stored_snapshot(executor)
+    return policy is None or printer_allowed(policy, printer_id, 'N')
+
+
+def authorize_user(db, user_id, *, request=None, purpose='access', issuance=False):
+    if not enabled():
+        return
+    try:
+        policy = issuance_snapshot(db) if issuance else snapshot(db, request=request)
+    except HTTPException:
+        raise
+    except Exception:
+        raise LicenseLockError('license_policy_unavailable', status=503) from None
+    require_user(policy, user_id, purpose)
+
+
+def issuance_snapshot(db):
+    """Stable issuances share the policy row on PostgreSQL; only changes reconcile.
+
+    SQLite still needs its writer reservation for atomic session issuance, but
+    does not rewrite the policy/evidence on each login or MFA step.
+    """
+    policy = snapshot(db)
+    if db.get_bind().dialect.name == 'postgresql':
+        db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        raw = db.execute(text('SELECT value FROM system_config WHERE key=:key FOR SHARE'),
+                         {'key': POLICY_KEY}).scalar()
+    else:
+        conn = db.connection().connection.driver_connection
+        if not conn.in_transaction:
+            db.execute(text('BEGIN IMMEDIATE'))
+        raw = db.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': POLICY_KEY}).scalar()
+    p = _decode(raw) if raw else None
+    if _valid_policy(p) and p['revision'] == policy.revision:
+        return policy
+    return _snapshot(reconcile(db))
+
+
+def replace_selection(db, *, printers, users, expected_revision, actor, recovery_user_id=None):
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise LicenseLockError('license_selection_invalid', status=422)
+    return reconcile(db, selection={'printers': printers, 'users': users}, expected_revision=expected_revision,
+                     actor=actor, recovery_user_id=recovery_user_id)
+
+
+def status_view(p):
+    enforcing = enabled() and p['entitlement'].get('enforce', False)
+    return dict(p, rollout_enabled=enabled(), enforcing=enforcing,
+                allowance={kind: p['entitlement'].get('max_' + kind) for kind in ('printers', 'users')},
+                selected_counts={kind: len(p[kind]) for kind in ('printers', 'users')},
+                locked_counts={kind: max(0, p['usage'][kind] - len(p[kind])) if enforcing else 0 for kind in ('printers', 'users')},
+                paid_lapse_enabled=paid_lapse_enabled(), restricted_recovery_enabled=RESTRICTED_RECOVERY_ENABLED,
+                reconciliation='rollout_disabled' if not enabled() else 'B2_B3_pending')
+
+
+def selection_status(db, *, read_only=False):
+    if not read_only:
+        return status_view(reconcile(db))
+    p = _read(db, POLICY_KEY)
+    if not _valid_policy(p):
+        from license_manager import get_license
+        printers, users, eligible = _members(db)
+        entitlement = _entitlement(get_license(persist_clock=False))
+        recovery = eligible[0] if eligible else None
+        p = dict(schema_version=2, revision=0, membership_generation=0,
+                 entitlement=entitlement, recovery_user_id=recovery,
+                 printers=_fill([], printers, entitlement['max_printers']),
+                 users=_fill([], users, entitlement['max_users'], recovery),
+                 exempt_attempts={}, usage={'printers': len(printers), 'users': len(users)},
+                 warning='license_policy_pending')
+    return status_view(p)
+
+
+def request_purpose(request):
+    """Exact, method-bound exceptions; never trust a caller-supplied purpose."""
+    if request is None:
+        return 'access'
+    path = request.scope.get('path', '')
+    if path.startswith('/api/v1/'):
+        path = path[7:]
+    elif path.startswith('/api/'):
+        path = path[4:]
+    return {('POST', '/auth/logout'): 'logout',
+            ('DELETE', '/auth/biometric-token'): 'revoke',
+            ('POST', '/auth/mfa/enrollment/cancel'): 'enrollment_cancel',
+            ('POST', '/auth/reset-password'): 'credential_repair'}.get((request.method, path), 'access')
+
+
+def mark_community_selected(db, actor):
+    """Durable intent, distinct from an accidentally missing file. Pending policy."""
+    if not enabled():
+        return
+    _lock(db)
+    p = reconcile(db)
+    p['entitlement'].update(state='community_selected', enforce=False, reason='community_downgrade_decision_pending')
+    p.update(revision=_next_revision(db, p['revision']), set_by=actor, change_reason='explicit_community')
+    _write(db, POLICY_KEY, p)
+    _write(db, EVIDENCE_KEY, {'schema_version': 1, 'community_selected': True})
+
+
+def remove_installed_license(db, actor, action, *, details=None):
+    """Journal intent durably, then quarantine and commit policy/audit together.
+
+    A failed transaction restores the active file. A process crash after rename
+    leaves the journal so an absent artifact is recognized as intentional.
+    """
+    import license_manager as lm
+    from core.audit import log_audit
+    journal = 'license_lock_removal_intent'
+    original = lm._find_license_file()
+    quarantined = None
+    try:
+        if enabled():
+            _lock(db)
+            _write(db, journal, {'community_selected': True})
+            db.commit()
+        mark_community_selected(db, actor)
+        quarantined = lm.quarantine_installed_license()
+        log_audit(db, action, 'system', details=details or {'quarantined': os.path.basename(quarantined or '')})
+        if enabled():
+            db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+        db.commit()
+        lm._cached_license = None
+        return quarantined
+    except Exception as exc:
+        db.rollback()
+        if quarantined and original:
+            os.replace(quarantined, original)
+        lm._cached_license = None
+        if enabled():
+            try:
+                db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': journal})
+                db.commit()
+            except Exception:
+                db.rollback()
+        if isinstance(exc, LicenseLockError):
+            raise
+        raise LicenseLockError('license_policy_unavailable', status=503) from None
+
+
+def install_membership_hooks():
+    """Serialize every SQLAlchemy user/printer membership mutation, including imports.
+
+    Hooks cover both ORM and raw SQL used by runtime services. No schema/triggers
+    or preserved migration source changes. Telemetry-only updates are excluded.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+    if event.contains(Engine, 'before_cursor_execute', _before_membership):
+        return
+    event.listen(Engine, 'before_cursor_execute', _before_membership)
+    event.listen(Engine, 'after_cursor_execute', _after_membership)
+    event.listen(Engine, 'commit', _check_recovery_commit)
+    event.listen(Engine, 'rollback', _clear_membership)
+    from sqlalchemy.pool import Pool
+    event.listen(Pool, 'checkin', _clear_membership_pool)
+
+
+def _before_membership(conn, cursor, statement, parameters, context, executemany):
+    if not enabled() or conn.info.get('license_hook'):
+        return
+    from core.sql_write_shape import WRITE as _WRITE, table_name as _table_name, set_columns as _set_columns, COMMENT as _COMMENT
+    match = _WRITE.search(_COMMENT.sub(' ', statement))
+    if not match or _table_name(match.group(2)) not in {'users', 'printers'}:
+        return
+    table = _table_name(match.group(2))
+    if match.group(1).upper().startswith('UPDATE'):
+        cols = _set_columns(statement, match.end())
+        relevant = {'id', 'is_active', 'role', 'group_id', 'password_hash', 'username',
+                    'oidc_issuer', 'oidc_subject', 'oidc_provider', 'mfa_enabled'} if table == 'users' else {
+            'id', 'is_active', 'serial_number', 'ip_address', 'api_type', 'api_host', 'api_key',
+            'access_code', 'hostname', 'machine_type', 'camera_url', 'camera_enabled',
+            'plug_type', 'plug_host', 'plug_entity_id', 'plug_auth_token', 'org_id', 'shared'}
+        if cols and '*' not in cols and not cols & relevant:
+            return
+        if not cols and table != 'users':
+            return
+    conn.info['license_hook'] = True
+    try:
+        if conn.dialect.name == 'sqlite' and not conn.connection.driver_connection.in_transaction:
+            conn.exec_driver_sql('BEGIN IMMEDIATE')
+        if conn.dialect.name == 'postgresql':
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+        conn.execute(text("INSERT INTO system_config (key,value) VALUES (:k,'null') ON CONFLICT(key) DO NOTHING"), {'k': POLICY_KEY})
+        conn.execute(text('UPDATE system_config SET value=value WHERE key=:k'), {'k': POLICY_KEY})
+        if 'license_had_recovery' not in conn.info:
+            rows = conn.execute(text('SELECT id,role,group_id,is_active,password_hash FROM users')).mappings()
+            conn.info['license_had_recovery'] = any(eligible_local(row) for row in rows)
+        conn.info['license_membership_write'] = True
+        context._license_membership_changed = True
+    finally:
+        conn.info['license_hook'] = False
+
+
+def _after_membership(conn, cursor, statement, parameters, context, executemany):
+    if not getattr(context, '_license_membership_changed', False):
+        return
+    conn.info['license_hook'] = True
+    try:
+        raw = conn.execute(text('SELECT value FROM system_config WHERE key=:k'), {'k': POLICY_KEY}).scalar()
+        p = _decode(raw)
+        if _valid_policy(p):
+            p['revision'] = _next_revision(conn, p['revision'])
+            p['membership_generation'] += 1
+            # Force snapshot reconciliation even in this process.
+            _cache.pop(str(conn.engine.url), None)
+            conn.execute(text('UPDATE system_config SET value=:v WHERE key=:k'), {'k': POLICY_KEY, 'v': json.dumps(p)})
+    finally:
+        conn.info['license_hook'] = False
+
+
+def _check_recovery_commit(conn):
+    if not enabled() or not conn.info.get('license_membership_write'):
+        _clear_membership(conn)
+        return
+    if conn.info.get('license_had_recovery'):
+        rows = conn.execute(text('SELECT id,role,group_id,is_active,password_hash FROM users')).mappings()
+        if not any(eligible_local(row) for row in rows):
+            raise LicenseLockError('license_selection_invalid', status=422, reason='last_local_recovery_principal')
+    _clear_membership(conn)
+
+
+def _clear_membership(conn):
+    # Runs on every rollback, including the one an invalidated connection fires
+    # while it closes (the Postgres dispatch target lock does exactly that).
+    # Reading .info there raises; an invalidated connection has nothing to clear.
+    try:
+        info = conn.info
+    except Exception:
+        return
+    for key in ('license_had_recovery', 'license_membership_write', 'license_hook'):
+        info.pop(key, None)
+
+
+def _clear_membership_pool(dbapi_connection, connection_record):
+    for key in ('license_had_recovery', 'license_membership_write', 'license_hook'):
+        connection_record.info.pop(key, None)
+
+
+install_membership_hooks()

@@ -344,6 +344,129 @@ def test_unreadable_freeze_refuses_dispatch_and_manual_start(dispatch_case, wind
     assert_recorded(engine)
 
 
+@pytest.fixture
+def s1_case(dispatch_case, monkeypatch):
+    """Printer 59 as a Kobra S1 with a mapped, startable job. Device and MQTT are substituted."""
+    from modules.printers.adapters import moonraker, anycubic_lan
+    from modules.printers.kobra_s1 import parse_ace
+    from tests.test_contracts.test_kobra_s1_release1 import HUB, S1_HEADER, FILAMENTS
+    engine, client = dispatch_case
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+        conn.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,2,'PLA')"))
+        conn.execute(text("UPDATE jobs SET ams_mapping='[1]' WHERE id=53"))
+        stored = conn.execute(text('SELECT stored_path FROM print_files WHERE id=52')).scalar_one()
+    with open(stored, 'w') as stream:
+        stream.write(S1_HEADER + '; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
+    device = SimpleNamespace(reads=[], uploads=[], publishes=[])
+    def status(self):
+        device.reads.append(True)
+        if device.publishes:
+            return SimpleNamespace(internal_state='RUNNING', raw_print_state='printing',
+                                   nozzle_target=210, filename=device.uploads[-1][1],
+                                   raw_data={'webhooks': {'state': 'ready'}}, ace_status=parse_ace(HUB))
+        return SimpleNamespace(internal_state='IDLE', raw_print_state='complete',
+                               raw_data={'webhooks': {'state': 'ready'}}, ace_status=parse_ace(HUB))
+    def upload(self, *args):
+        device.uploads.append(args)
+        return True
+    def send(self, payload, *, before_publish):
+        before_publish()
+        device.publishes.append(payload)
+        return dict(published=True, message='Published; physical confirmation still required.')
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', status)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'upload_file', upload)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'device_file_identity',
+                        lambda self, name: dict(path=name, md5='b' * 32, size=999, filaments=FILAMENTS[:1]))
+    monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', send)
+    return engine, client, device
+
+
+def _start_s1(client, *, wait=True):
+    return client.post('/api/printers/59/start-next' + ('?wait=true' if wait else ''), json={
+        'suggested_job_id': 53, 'suggestion_fingerprint': 'f' * 64, 'request_id': str(uuid.uuid4()),
+        'bed_clear_confirmed': True, 'attestation': 'owner_in_app'})
+
+
+def assert_no_s1_contact(engine, device):
+    assert (device.reads, device.uploads, device.publishes) == ([], [], [])
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE 's1_start:%'")).scalar_one() == 0
+
+
+@pytest.mark.parametrize('entry', ['start_next', 'start_next_background', 'direct'])
+def test_s1_start_refuses_before_claim_or_device_contact(s1_case, window, monkeypatch, entry):
+    from core import dispatch_claims
+    engine, client, device = s1_case
+    window[2]()
+    monkeypatch.setattr(dispatch_claims, 'acquire', lambda *a, **k: pytest.fail('Frozen S1 start reached claim acquisition'))
+    if entry == 'direct':
+        response = client.post('/api/jobs/53/dispatch?wait=true')
+        assert response.status_code == 400
+        assert response.json()['detail'] == 'deploy_window: ' + deploy_freeze.MESSAGE
+    else:
+        response = _start_s1(client, wait=entry == 'start_next')
+        body = response.json()
+        if entry == 'start_next':
+            assert response.status_code == 200 and body['state'] == 'refused' and body['code'] == 'deploy_window'
+        else:
+            assert response.status_code == 400 and body['detail'] == 'deploy_window: ' + deploy_freeze.MESSAGE
+    assert_no_s1_contact(engine, device)
+    assert_unstarted(engine)
+    assert_recorded(engine)
+
+
+def test_s1_window_opened_during_preparation_is_refused_at_admission(s1_case, window, monkeypatch):
+    from modules.printers import dispatch_acquisition
+    engine, client, device = s1_case
+    def ready(*args):
+        window[2]()
+        return True
+    monkeypatch.setattr(dispatch_acquisition, 'bounded_status_is_idle', ready)
+    body = _start_s1(client).json()
+    assert body['state'] == 'refused' and body['code'] == 'deploy_window'
+    assert_no_s1_contact(engine, device)
+    assert_unstarted(engine)
+    assert_recorded(engine)
+
+
+def test_s1_start_proceeds_once_the_window_closes(s1_case, window):
+    """Positive control: the freeze is what stopped the attempt, and it leaves nothing behind."""
+    engine, client, device = s1_case
+    path, _, write = window
+    write()
+    assert _start_s1(client).json()['code'] == 'deploy_window'
+    path.unlink()
+    body = _start_s1(client).json()
+    assert body['state'] == 'dispatched', body
+    assert len(device.uploads) == 1 and len(device.publishes) == 1
+
+
+def test_s1_publish_has_one_route_and_it_is_behind_the_freeze():
+    """send_start <- s1_dispatch.dispatch <- _run_admitted_dispatch <- _dispatch_claimed."""
+    import ast
+    from pathlib import Path
+    from modules import printers
+    package = Path(printers.__file__).parent
+    def callers(name):
+        found = set()
+        for path in package.rglob('*.py'):
+            tree = ast.parse(path.read_text())
+            for function in ast.walk(tree):
+                if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for node in ast.walk(function):
+                        if isinstance(node, ast.Call) and getattr(node.func, 'attr', getattr(node.func, 'id', None)) == name:
+                            found.add((path.name, function.name))
+        return found
+    assert callers('send_start') == {('s1_dispatch.py', 'dispatch')}
+    assert callers('dispatch_s1') == {('dispatch.py', '_run_admitted_dispatch')}
+    assert callers('_run_admitted_dispatch') == {('dispatch_orchestration.py', '_dispatch_claimed')}
+    claimed = next(node for node in ast.parse((package / 'dispatch_orchestration.py').read_text()).body
+                   if isinstance(node, ast.FunctionDef) and node.name == '_dispatch_claimed')
+    first = claimed.body[0]
+    assert isinstance(first, ast.If) and first.test.func.id == 'deploy_window_refusal'
+
+
 def test_frozen_health_never_echoes_the_release_as_version(window, monkeypatch):
     from modules.system import routes_health
     window[2]()
