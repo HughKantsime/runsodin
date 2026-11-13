@@ -62,8 +62,9 @@ def _check_ssrf_blocklist(host: str) -> None:
     from core.webhook_utils import DeviceDestinationBlocked, device_destination_ips
     try:
         device_destination_ips(host)
-    except DeviceDestinationBlocked:
-        raise HTTPException(status_code=400, detail="Invalid printer host")
+    except DeviceDestinationBlocked as exc:
+        # `from exc`: the connection test reads __cause__ to say why (blocked vs. unresolved).
+        raise HTTPException(status_code=400, detail="Invalid printer host") from exc
 
 def pinned_device_get(client, url: str, **kwargs):
     """GET a device URL through the destination policy, pinned to its validated address.
@@ -696,20 +697,24 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     return False
 
 def test_anycubic_lan_connection(host):
-    """Safe, credential-free response for the authenticated/setup connection probe."""
+    """Safe, credential-free response for the authenticated/setup connection probe.
+
+    The adapter reports every failure (handshake, broker, TLS, login) as False,
+    so the reason is always "unknown": it cannot be told apart here.
+    """
     from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
     from modules.printers.printer_models import normalize_model_name
     client = AnycubicLANPrinter(host)
     try:
         if not client.connect():
-            return {"success": False, "error": "Connection failed. Check IP and enable LAN mode."}
+            return {"success": False, "error": "Connection failed. Check IP and enable LAN mode.", "reason": "unknown"}
         if not client.poll():
-            return {"success": False, "error": "Anycubic LAN query failed."}
+            return {"success": False, "error": "Anycubic LAN query failed.", "reason": "unknown"}
         deadline = time.monotonic() + 5
         while not client.last_info and time.monotonic() < deadline:
             time.sleep(0.1)
         if not client.last_info:
-            return {"success": False, "error": "No Anycubic LAN info report received."}
+            return {"success": False, "error": "No Anycubic LAN info report received.", "reason": "unknown"}
         status = client.get_status()
         from modules.printers.parsing.anycubic_lan import filament_slots
         return {"success": True, "state": status.internal_state,
@@ -717,6 +722,6 @@ def test_anycubic_lan_connection(host):
                 "ams_slots": len(filament_slots(status.boxes)),
                 "model": normalize_model_name("anycubic_lan", client.model_id)}
     except Exception:
-        return {"success": False, "error": "Anycubic LAN connection failed."}
+        return {"success": False, "error": "Anycubic LAN connection failed.", "reason": "unknown"}
     finally:
         client.disconnect()

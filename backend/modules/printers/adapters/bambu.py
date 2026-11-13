@@ -160,6 +160,8 @@ class BambuPrinter:
         
         self._client: Optional[mqtt.Client] = None
         self._connected = False
+        # Why the last connect() failed (modules.printers.connection_reasons), or None.
+        self.connect_failure: Optional[str] = None
         self._status = PrinterStatus()
         self._lock = threading.Lock()
         
@@ -174,6 +176,7 @@ class BambuPrinter:
         Returns:
             True if connected successfully
         """
+        self.connect_failure = None
         try:
             # Create MQTT client
             self._client = mqtt.Client(
@@ -211,6 +214,8 @@ class BambuPrinter:
             
         except Exception as e:
             print("Printer connection could not be established")
+            from modules.printers.connection_reasons import reason_for_exception
+            self.connect_failure = reason_for_exception(e)
             self._abandon_client()
             self._status.state = PrinterState.OFFLINE
             return False
@@ -535,6 +540,8 @@ class BambuPrinter:
             self.request_full_status()
         else:
             print(f"Connection failed with code: {rc}")
+            from modules.printers.connection_reasons import reason_for_mqtt_refusal
+            self.connect_failure = reason_for_mqtt_refusal(rc)
             self._status.state = PrinterState.OFFLINE
     
     def _on_disconnect(self, client, userdata, rc):

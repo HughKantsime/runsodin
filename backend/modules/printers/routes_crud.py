@@ -27,6 +27,9 @@ from core.rbac import (
 import core.crypto as crypto
 from modules.printers.anycubic_crud import validate_credentials, prepare_update_credentials
 from modules.printers.bambu_chamber_camera import drop_unchanged_marker
+from modules.printers.connection_reasons import (
+    AUTH, NOT_THIS_TYPE, UNKNOWN, failed, reason_for_exception, reason_for_http_status,
+)
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
@@ -457,8 +460,18 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
 
 @router.post("/printers/test-connection", tags=["Printers"])
 def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_action("printers.edit", scope="write:printers"))):
-    """Test connection to a printer without saving."""
-    _check_ssrf_blocklist(request.api_host)
+    """Test connection to a printer without saving.
+
+    A failure is {success: False, error, reason}: `reason` is one of
+    connection_reasons.REASONS, derived from what the test observed and
+    "unknown" when the protocol cannot tell. No message carries the address,
+    serial or credential.
+    """
+    try:
+        _check_ssrf_blocklist(request.api_host)
+    except HTTPException as exc:
+        # blocked_address when policy refused it, unreachable when the name did not resolve.
+        return failed(reason_for_exception(exc.__cause__), "ODIN cannot use this printer address.")
     api_type = request.api_type.lower()
 
     if api_type == "bambu":
@@ -485,9 +498,9 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                 result = read_status_once(config, timeout=8.0)
             except Exception as e:
                 log.warning("Bambu V2 test-connection failed: %s", e)
-                return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
+                return failed(reason_for_exception(e), "Connection failed. Check IP, serial, and access code.")
             if not result.success:
-                return {"success": False, "error": result.error or "Failed to connect."}
+                return failed(result.reason or UNKNOWN, result.error or "Failed to connect.")
             view = result.view
             ams_slots = ams_slots_from_section(result.section) if result.section else []
             try:
@@ -506,7 +519,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             from modules.printers.adapters.bambu import BambuPrinter
             bambu = BambuPrinter(ip=request.api_host, serial=request.serial, access_code=request.access_code)
             if not bambu.connect():
-                return {"success": False, "error": "Failed to connect. Check IP, serial, and access code."}
+                return failed(getattr(bambu, "connect_failure", None) or UNKNOWN,
+                              "Failed to connect. Check IP, serial, and access code.")
             try:
                 time.sleep(2)
                 bambu_status = bambu.get_status()
@@ -526,13 +540,15 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")
         except Exception as e:
             log.warning("Bambu test-connection failed: %s", e)
-            return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
+            return failed(reason_for_exception(e), "Connection failed. Check IP, serial, and access code.")
 
     elif api_type == "moonraker":
         import httpx as httpx_client
         from modules.printers.route_utils import pinned_device_get
+        answered = False
         try:
             r = pinned_device_get(httpx_client, f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            answered = True
             if r.status_code == 200:
                 info = r.json().get("result", {})
                 detected_model = None
@@ -560,10 +576,12 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                     except Exception as e:
                         log.debug(f"Failed to detect model from hostname: {e}")
                 return {"success": True, "state": info.get("state", "unknown"), "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
-            return {"success": False, "error": f"Moonraker returned HTTP {r.status_code}"}
+            return failed(reason_for_http_status(r.status_code), f"Moonraker returned HTTP {r.status_code}")
         except Exception as e:
             log.warning("Moonraker test-connection failed: %s", e)
-            return {"success": False, "error": "Connection failed. Check printer IP and Moonraker configuration."}
+            # After an answer, the only thing left to fail is a 200 body that is not Moonraker's JSON.
+            return failed(NOT_THIS_TYPE if answered else reason_for_exception(e),
+                          "Connection failed. Check printer IP and Moonraker configuration.")
 
     elif api_type == "prusalink":
         from modules.printers.route_utils import prusalink_test_get
@@ -573,38 +591,41 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                 # Official PrusaLink Version schema defines `printer` as a
                 # software-version string, not a hardware-model identifier.
                 return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None}
-            return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
-        except Exception:
+            return failed(reason_for_http_status(r.status_code), f"PrusaLink returned HTTP {r.status_code}")
+        except Exception as e:
             log.warning("PrusaLink test-connection failed")
-            return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
+            return failed(reason_for_exception(e), "Connection failed. Check printer IP and PrusaLink configuration.")
 
     elif api_type == "octoprint":
         from modules.printers.route_utils import octoprint_test_get
         if not request.api_key:
-            return {"success": False, "error": "OctoPrint needs an application key."}
+            return failed(UNKNOWN, "OctoPrint needs an application key.")  # nothing was sent
         try:
             r = octoprint_test_get(request.api_host, request.api_key)
             if r.status_code == 200:
                 # GET /api/version identifies the server, not the printer: never guess a model.
                 return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None}
             if r.status_code in (401, 403):
-                return {"success": False, "error": "OctoPrint rejected the application key."}
-            return {"success": False, "error": f"OctoPrint returned HTTP {r.status_code}"}
-        except Exception:
+                return failed(AUTH, "OctoPrint rejected the application key.")
+            return failed(reason_for_http_status(r.status_code), f"OctoPrint returned HTTP {r.status_code}")
+        except Exception as e:
             log.warning("OctoPrint test-connection failed")
-            return {"success": False, "error": "Connection failed. Check printer IP and OctoPrint configuration."}
+            return failed(reason_for_exception(e), "Connection failed. Check printer IP and OctoPrint configuration.")
 
     elif api_type == "ultimaker":
         from modules.printers.adapters.ultimaker import UltimakerPrinter
         # GET /api/v1/system only: no credential, no write. The adapter's transport applies the ITAR
         # check and the pinned device destination policy.
         try:
-            info = UltimakerPrinter(request.api_host).get_system()
+            info, answer = UltimakerPrinter(request.api_host).probe_system()
         except Exception:
             log.warning("Ultimaker test-connection failed")
-            info = None
+            info, answer = None, None
         if info is None:
-            return {"success": False, "error": "Connection failed. Check the printer address; the printer must answer http://<address>/api/v1/system."}
+            # The adapter reports timeout, refusal and a blocked destination alike as "no answer",
+            # so only an answer that is not an Ultimaker's (404, or 200 without its fields) is known.
+            return failed(NOT_THIS_TYPE if answer in (200, 404) else UNKNOWN,
+                          "Connection failed. Check the printer address; the printer must answer http://<address>/api/v1/system.")
         detail = ", ".join(part for part in (info["variant"], f"firmware {info['firmware']}" if info["firmware"] else "") if part)
         return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None,
                 "variant": info["variant"], "firmware": info["firmware"], "detail": detail}
@@ -619,13 +640,15 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         import socket
         import json as _json
         reachable = False
+        reason = UNKNOWN
         try:
             pinned_device_get(httpx_client, f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             reachable = True
         except Exception as e:
             log.debug(f"Failed to reach Elegoo printer: {e}")
+            reason = reason_for_exception(e)
         if not reachable:
-            return {"success": False, "error": "Cannot reach Elegoo printer on port 3030"}
+            return failed(reason, "Cannot reach Elegoo printer on port 3030")
         detected_model = None
         try:
             from modules.printers.printer_models import normalize_model_name
@@ -653,4 +676,4 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
 
     else:
-        return {"success": False, "error": f"Unknown printer type: {request.api_type}"}
+        return failed(UNKNOWN, f"Unknown printer type: {request.api_type}")

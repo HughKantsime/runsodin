@@ -28,5 +28,7 @@ it('sends the credential when creating a PrusaLink printer', () => {
  fireEvent.change(screen.getByPlaceholderText('e.g., p1s-01, x1c-floor2'), { target: { value: 'prusa-test' } })
  fireEvent.change(screen.getByPlaceholderText('PrusaLink API key or username|password'), { target: { value: 'synthetic-key' } })
  fireEvent.submit(view.container.querySelector('form')!)
+ expect(submit).not.toHaveBeenCalled() // never tested: the form asks first
+ fireEvent.click(screen.getByRole('button', { name: 'Save anyway' }))
  expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'prusalink', api_key: 'synthetic-key' })
 })

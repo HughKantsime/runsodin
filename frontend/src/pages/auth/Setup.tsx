@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { User, Lock, Mail, Server, Wifi, CheckCircle2, ChevronRight, ChevronLeft, Loader2, AlertCircle, Printer, Tag, Hash, KeyRound, MonitorSmartphone, ArrowRight, Sparkles, Gift, FileKey, UploadCloud } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
 import { useLicense } from '../../LicenseContext'
-import { BAMBU_LAN_NOTE, connectionFailureHelp } from '../../utils/shared'
+import { BAMBU_LAN_NOTE, connectionFailureMessage } from '../../utils/shared'
 
 const STEPS = [
   { id: 'welcome', title: 'Welcome' },
@@ -824,7 +824,7 @@ export default function Setup() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <AlertCircle size={16} />
-                    <span>{errorText(testResult.error) || errorText(testResult.message) || 'Connection failed'} {connectionFailureHelp(printerType)}</span>
+                    <span data-testid="connection-failure">{connectionFailureMessage(testResult.reason, printerType, errorText(testResult.error) || errorText(testResult.message) || 'Connection failed')}</span>
                   </div>
                 )}
               </div>

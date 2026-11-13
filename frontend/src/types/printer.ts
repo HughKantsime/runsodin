@@ -343,6 +343,9 @@ export interface ConnectionTestRequest {
 export interface ConnectionTestResult {
   success: boolean;
   message: string;
+  /** Failed test: the server's sentence, and why (see CONNECTION_FAILURE_REASONS). */
+  error?: string;
+  reason?: string;
   printer_info?: Record<string, unknown>;
 }
 

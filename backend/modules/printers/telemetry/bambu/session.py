@@ -49,6 +49,7 @@ class StatusReadResult:
     view: Optional[BambuV2StatusView] = None
     section: Optional[BambuPrintSection] = None
     error: Optional[str] = None
+    reason: Optional[str] = None  # on failure: modules.printers.connection_reasons value
 
 
 def read_status_once(
@@ -85,10 +86,16 @@ def read_status_once(
     try:
         try:
             adapter.start()
-        except Exception:
-            return StatusReadResult(success=False, error="Unable to start printer status session")
+        except Exception as exc:
+            from modules.printers.connection_reasons import reason_for_exception
+            return StatusReadResult(success=False, error="Unable to start printer status session",
+                                    reason=reason_for_exception(exc))
         if not connected.wait(timeout=max(0.0, deadline - time.monotonic())):
-            return StatusReadResult(success=False, error="timeout waiting for CONNACK")
+            # TCP (and TLS) came up. A refused login is known; silence is not.
+            from modules.printers.connection_reasons import UNKNOWN, reason_for_mqtt_refusal
+            refusal = getattr(adapter, "connect_refusal", None)
+            return StatusReadResult(success=False, error="timeout waiting for CONNACK",
+                                    reason=reason_for_mqtt_refusal(refusal) if refusal is not None else UNKNOWN)
         # Both waits consume the same monotonic budget, including startup.
         remaining = max(0.0, deadline - time.monotonic())
         had_report.wait(timeout=remaining)
