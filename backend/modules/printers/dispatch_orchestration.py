@@ -155,7 +155,14 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                 if derived:
                     from modules.printers.dispatch_background import progress
                     progress('preparing', message='AMS mapping derived from verified file source', ams_mapping_derived=True)
-                if education_decision is not None:
+                # Filament check: a short slot in hold mode refuses here, before any
+                # Education reservation exists; a warning is announced after admission.
+                from modules.printers.filament_check import dispatch_gate
+                filament = dispatch_gate(engine, job, options.get('ams_mapping'))
+                if filament.refusal:
+                    result=(False,filament.refusal)
+                    error=filament.refusal
+                if education_decision is not None and not error:
                     reserved,error=dispatch._reserve_education_hardware_action(job,os.path.splitext(remote_filename)[1].lower())
                     if error:result=(False,error)
                     else:provider,reservation=reserved
@@ -204,6 +211,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             result=(False,'Dispatch admission completed after the preparation deadline; reconciliation is required before retrying')
                         else:
                             _require_target(target_handle)
+                            filament.announce(engine, job)  # best-effort audit + alert; never raises
                             from modules.printers.maintenance_gate import start_gate
                             before_start = start_gate(engine, job['printer_id']) if creds['api_type'] == 'bambu' else None
                             if options.get('ams_mapping') is not None:
@@ -244,6 +252,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                     no_command = False
                             if derived:
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
+                            if filament.warning and result[0] is True:
+                                result = (result[0], result[1] + '; ' + filament.warning)
                             _require_target(target_handle)
                             accepted=type(result[0]) is bool and result[0]
                             # A hold arriving after admission retains inventory-maint's

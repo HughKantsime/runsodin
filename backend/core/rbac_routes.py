@@ -355,6 +355,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("PUT", "/api/branding"), ("POST", "/api/branding/favicon"), ("DELETE", "/api/branding/favicon"),
         ("POST", "/api/branding/logo"), ("DELETE", "/api/branding/logo"),
         ("PUT", "/api/config"), ("PUT", "/api/config/ip-allowlist"), ("PUT", "/api/config/mqtt-republish"),
+        ("PUT", "/api/config/filament-check"),  # pre-dispatch filament check mode and margin, audited
         ("POST", "/api/config/mqtt-republish/test"), ("PUT", "/api/config/quiet-hours"), ("PUT", "/api/config/retention"),
         ("POST", "/api/groups"), ("DELETE", "/api/groups/{group_id}"),
         ("DELETE", "/api/license"), ("POST", "/api/license/activate"), ("POST", "/api/license/activation-request"),

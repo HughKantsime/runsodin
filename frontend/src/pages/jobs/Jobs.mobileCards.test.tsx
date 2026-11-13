@@ -106,4 +106,17 @@ describe('Jobs phone cards vs desktop table', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Move Queued 3 down in the queue' }))   // already last: nothing sent
     expect(h.reorder).toHaveBeenCalledTimes(1)
   })
+
+  it('the phone card offers the filament check on a scheduled job with a printer, like the table row', async () => {
+    viewport(true)
+    h.list.mockResolvedValue([
+      { ...wire.jobs[0], id: 9701, item_name: 'Scheduled one', display_name: 'Scheduled one', status: 'scheduled', printer_id: 7, printer: { id: 7, name: 'Printer Alpha' } },
+      { ...wire.jobs[0], id: 9702, item_name: 'Pending one', display_name: 'Pending one', status: 'pending', printer_id: null },
+    ])
+    show()
+    const scheduled = (await screen.findByText('Scheduled one')).closest('[data-testid="job-card"]') as HTMLElement
+    const pending = screen.getByText('Pending one').closest('[data-testid="job-card"]') as HTMLElement
+    expect(within(scheduled).getByRole('button', { name: 'Filament check' })).toHaveAttribute('aria-expanded', 'false')
+    expect(within(pending).queryByRole('button', { name: 'Filament check' })).not.toBeInTheDocument()
+  })
 })

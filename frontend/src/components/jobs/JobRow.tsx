@@ -1,4 +1,6 @@
+import { useState, type ReactNode } from 'react'
 import OutcomeCorrection from './OutcomeCorrection'
+import FilamentCheckPanel from './FilamentCheckPanel'
 import CheckTarget from '../ui/CheckTarget'
 import { displayName } from '../../utils/displayName'
 import PageState from '../ui/PageState'
@@ -90,10 +92,22 @@ function PriorityBadge({ priority }: { priority: number }) {
   )
 }
 
-function JobPrinterInfo({ job, pinnedPrinterName }: { job: any; pinnedPrinterName?: string }) {
+// The pre-dispatch filament check, offered on a scheduled job that has a printer (table row and phone card alike).
+function FilamentToggle({ job, open, onToggle }: { job: any; open: boolean; onToggle: () => void }) {
+  if (job.status !== 'scheduled' || job.printer_id == null) return null
+  return (
+    <button type="button" aria-expanded={open} onClick={onToggle}
+      className="block min-h-[24px] text-xs underline text-[var(--brand-text-muted)]">
+      {open ? 'Hide filament check' : 'Filament check'}
+    </button>
+  )
+}
+
+function JobPrinterInfo({ job, pinnedPrinterName, filament }: { job: any; pinnedPrinterName?: string; filament?: ReactNode }) {
   return (
     <>
       {job.printer?.name || '—'}
+      {filament}
       {job.pinned_printer_id != null && (
         <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
           Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
@@ -164,6 +178,7 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
 // status, printer, priority/time, then the same row actions.
 function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight, onMove }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean; onMove?: (jobId: number, direction: -1 | 1) => void }) {
   const overdue = job.due_date && new Date(job.due_date) < new Date() && !['completed', 'cancelled', 'failed'].includes(job.status)
+  const [showFilament, setShowFilament] = useState(false)
   return (
     <li data-testid="job-card" data-job-id={job.id} className={clsx(
       'px-3 py-3 border-b border-[var(--brand-card-border)] last:border-b-0',
@@ -188,8 +203,12 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       </div>
       <div className="mt-2 text-sm">
         <span className="text-xs text-[var(--brand-text-muted)] mr-1">Printer</span>
-        <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName} />
+        <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName}
+          filament={<FilamentToggle job={job} open={showFilament} onToggle={() => setShowFilament(v => !v)} />} />
       </div>
+      {showFilament && job.printer_id != null && (
+        <div className="mt-2"><FilamentCheckPanel jobId={job.id} printerId={job.printer_id} /></div>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--brand-text-secondary)]">
         <PriorityBadge priority={job.priority} />
         <span className="font-mono">{formatHours(job.duration_hours)}</span>
@@ -246,7 +265,9 @@ export function JobCardList({ jobs, isLoading, emptyText, selectedIds, onToggleS
 }
 
 export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean }) {
+  const [showFilament, setShowFilament] = useState(false)
   return (
+    <>
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
           highlight && 'ring-2 ring-inset ring-[var(--brand-primary)]',
@@ -281,7 +302,8 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         <PriorityBadge priority={job.priority} />
       </td>
       <td className="px-3 md:px-4 py-3 text-sm">
-        <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName} />
+        <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName}
+          filament={<FilamentToggle job={job} open={showFilament} onToggle={() => setShowFilament(v => !v)} />} />
       </td>
       <td className="px-3 md:px-4 py-3 hidden lg:table-cell">
         {job.colors_list?.length > 0 ? (
@@ -310,5 +332,13 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal} />
       </td>
     </tr>
+    {showFilament && job.printer_id != null && (
+      <tr className="border-b border-[var(--brand-card-border)]">
+        <td colSpan={9} className="px-3 md:px-4 pb-3">
+          <FilamentCheckPanel jobId={job.id} printerId={job.printer_id} />
+        </td>
+      </tr>
+    )}
+    </>
   )
 }

@@ -3,6 +3,7 @@ import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
+import FilamentCheckPanel from '../../components/jobs/FilamentCheckPanel'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
@@ -386,6 +387,7 @@ export default function Jobs() {
   const approvalJobCount = (jobsData || []).filter(j => j.status === 'submitted').length
   const orderJobCount = (jobsData || []).filter(j => j.order_item_id != null).length
   const adhocJobCount = (jobsData || []).filter(j => j.order_item_id == null).length
+  const dispatchTarget = confirmAction?.action === 'dispatch' ? jobsData?.find(j => j.id === confirmAction.jobId) : undefined
 
   const selectableIds = [...(deepExtra ? [deepExtra.id] : []), ...filteredJobs.map(j => j.id)]
   return (
@@ -616,7 +618,10 @@ export default function Jobs() {
         confirmText={confirmAction?.confirmText || 'Confirm'}
         confirmVariant={confirmAction?.confirmVariant || 'danger'}
       >
-        {confirmAction?.action === 'dispatch' && jobsData?.find(j => j.id === confirmAction.jobId)?.printer_id && <MaintenanceBanner printerId={jobsData.find(j => j.id === confirmAction.jobId).printer_id} />}
+        {dispatchTarget?.printer_id && <>
+          <MaintenanceBanner printerId={dispatchTarget.printer_id} />
+          <FilamentCheckPanel jobId={dispatchTarget.id} printerId={dispatchTarget.printer_id} />
+        </>}
       </ConfirmModal>
     </div>
   )
