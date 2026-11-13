@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import OdinMark from '../../components/layout/OdinMark'
 import LoginContinuation, { readLoginAuthority, verifyLoginSession, type LoginAuthority } from '../../components/auth/LoginContinuation'
 import SSOButton from '../../components/auth/SSOButton'
 import { useNavigate } from 'react-router-dom'
@@ -77,9 +78,12 @@ const handleSubmit = async (e) => {
             {branding.logo_url ? (
               <img src={branding.logo_url} alt={branding.app_name} className="h-12 mx-auto mb-2" />
             ) : (
-              <h1 className="text-3xl font-display font-bold" style={{ color: 'var(--brand-accent)' }}>
-                {branding.app_name.toUpperCase()}
-              </h1>
+              <>
+                <div className="flex justify-center mb-3"><OdinMark className="h-14 w-14" /></div>
+                <h1 className="text-3xl font-display font-bold" style={{ color: 'var(--brand-accent)' }}>
+                  {branding.app_name.toUpperCase()}
+                </h1>
+              </>
             )}
             <p className="mt-1" style={{ color: 'var(--brand-text-muted)' }}>
               {authority ? 'Two-Factor Authentication' : branding.app_subtitle}

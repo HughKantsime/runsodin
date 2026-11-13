@@ -83,6 +83,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - Live updates come back by themselves: when the page could not get its live-updates token (for example after several quick reloads, or while the server restarted) it stopped updating until reloaded. It now tries again after 5 seconds, backing off to once a minute.
+- New O.D.I.N. mark: the eye now appears beside the name in the sidebar, the phone header and on the sign-in page, and as the browser tab, home-screen and installed-app icon. Installs without custom branding had no tab icon at all before. A white-labelled install (its own name or logo) is unchanged and never shows the O.D.I.N. mark.
 
 ## [2.1.0] - 2026-11-10
 
