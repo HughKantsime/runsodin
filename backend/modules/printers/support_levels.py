@@ -27,7 +27,7 @@ SUPPORT_TABLE: dict[str, tuple[str, str]] = {
     'bambu': (SUPPORTED, 'Bambu Lab LAN-mode MQTT and FTPS; verified on real hardware'),
     'moonraker': (SUPPORTED, 'Moonraker REST API; verified on real hardware'),
     'prusalink': (SUPPORTED, 'PrusaLink REST API; verified on real hardware'),
-    'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring plus pause, resume and stop; no job sending'),
+    'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring, pause, resume, speed and stop; job sending is Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in'),
     'anycubic_lan': (SUPPORTED, 'Anycubic LAN mode; monitoring and ACE slots only'),
     'octoprint': (EXPERIMENTAL, "OctoPrint's public REST API documentation (docs.octoprint.org); built from the documentation, not verified on real hardware"),
 }
@@ -65,6 +65,26 @@ def support_source(api_type) -> Optional[str]:
 
 def is_experimental(api_type) -> bool:
     return support_level(api_type) == EXPERIMENTAL
+
+
+# Capabilities that need the per-printer opt-in on a type whose OVERALL level stays Supported:
+# monitoring and the controls that already shipped are unchanged and are never gated.
+DISPATCH = 'dispatch'
+GATED_CAPABILITIES: dict[str, frozenset] = {
+    # Resume and speed shipped as Supported before job sending existed: they stay ungated.
+    'elegoo': frozenset({DISPATCH}),
+}
+# Control route suffix or command name -> the capability it needs.
+ACTION_CAPABILITY = {'resume': 'resume', 'resume_print': 'resume', 'speed': 'speed', 'set_print_speed': 'speed'}
+
+
+def gated_capabilities(api_type) -> frozenset:
+    return GATED_CAPABILITIES.get(normalize(api_type), frozenset())
+
+
+def opt_in_applies(api_type) -> bool:
+    """True when the per-printer opt-in means anything for this type."""
+    return support_level(api_type) == EXPERIMENTAL or bool(gated_capabilities(api_type))
 
 
 def _coerce(raw) -> dict:
@@ -111,17 +131,40 @@ def experimental_refusal_for_printer(db, printer_id) -> Optional[str]:
         api_type = db.execute(text('SELECT api_type FROM printers WHERE id=:id'), {'id': printer_id}).scalar_one_or_none()
     except Exception:
         return EXPERIMENTAL_REFUSAL
-    return experimental_refusal(db, printer_id, api_type)
+    return dispatch_refusal(db, printer_id, api_type)
 
 
-def command_refusal(printer) -> Optional[str]:
-    """Refusal for a printer object (ORM row or namespace) about to receive a device command."""
+def dispatch_refusal(db, printer_id, api_type) -> Optional[str]:
+    """experimental_refusal, plus: a Supported type whose 'dispatch' capability is gated also needs
+    the opt-in before any job is sent. Used at every job-sending boundary."""
+    refusal = experimental_refusal(db, printer_id, api_type)
+    if refusal is not None or DISPATCH not in gated_capabilities(api_type):
+        return refusal
+    return None if experimental_enabled(db, printer_id, api_type) else EXPERIMENTAL_REFUSAL
+
+
+def control_refusal(db, printer_id, api_type, action) -> Optional[str]:
+    """Refusal for a control route: Experimental and Unsupported types as experimental_refusal; a
+    gated Supported type only for an action whose capability is gated (never pause or stop)."""
+    refusal = experimental_refusal(db, printer_id, api_type)
+    if refusal is not None or ACTION_CAPABILITY.get(action) not in gated_capabilities(api_type):
+        return refusal
+    return None if experimental_enabled(db, printer_id, api_type) else EXPERIMENTAL_REFUSAL
+
+
+def command_refusal(printer, action=None) -> Optional[str]:
+    """Refusal for a printer object (ORM row or namespace) about to receive a device command.
+
+    A Supported type with gated capabilities is refused only for a gated ``action``; with no
+    action it is refused unless opted in (the "is it opted in" question)."""
     api_type = getattr(printer, 'api_type', None)
     level = support_level(api_type)
     if level == UNSUPPORTED:
         return UNSUPPORTED_REFUSAL
     if level != EXPERIMENTAL:
-        return None
+        gated = gated_capabilities(api_type)
+        if not gated or (action is not None and ACTION_CAPABILITY.get(action) not in gated):
+            return None
     printer_id = getattr(printer, 'id', None)
     try:
         from sqlalchemy.orm import object_session
@@ -139,7 +182,7 @@ def command_refusal(printer) -> Optional[str]:
 
 def enabled_for_printer(printer) -> bool:
     """Response field: only an Experimental type can be enabled, and only through the store."""
-    return support_level(getattr(printer, 'api_type', None)) == EXPERIMENTAL and command_refusal(printer) is None
+    return opt_in_applies(getattr(printer, 'api_type', None)) and command_refusal(printer) is None
 
 
 def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:

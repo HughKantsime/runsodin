@@ -58,7 +58,7 @@ def test_invalid_identity(field,value):
 
 
 @pytest.mark.parametrize('inputs',[
-    {'api_type':'elegoo','ip':'127.0.0.1'},
+    {'api_type':'anycubic_lan','ip':'127.0.0.1'},
     {'api_type':'moonraker','ip':'127.0.0.1','port':True},
     {'api_type':'moonraker','ip':'127.0.0.1','scheme':'ftp'},
     {'api_type':'moonraker','ip':'127.0.0.1','callback':'eval'},

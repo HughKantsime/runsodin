@@ -147,7 +147,7 @@ def bounded_status_is_idle(creds: dict, deadline: float, *, _report=False):
     receiver = sender = process = None
     accepted = False
     try:
-        if not isinstance(creds, dict) or creds.get('api_type') not in ('bambu','moonraker', 'prusalink', 'octoprint'):
+        if not isinstance(creds, dict) or creds.get('api_type') not in ('bambu','moonraker', 'prusalink', 'octoprint', 'elegoo'):
             return refuse('unsupported_printer')
         if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
             return refuse('invalid_deadline')

@@ -625,7 +625,7 @@ def _send_printer_command(printer, action: str) -> bool:
     from modules.printers.support_levels import command_refusal
     # Pausing or stopping a print is always allowed (Vigil auto-pause, operator stop): refusing a
     # safety action on an Experimental printer would leave its print uncontrollable.
-    if action not in _SAFETY_COMMANDS and command_refusal(printer):
+    if action not in _SAFETY_COMMANDS and command_refusal(printer, action):
         log.warning("Printer command %s refused: Experimental printer without opt-in", action)
         return False
     if printer.api_type == "anycubic_lan":

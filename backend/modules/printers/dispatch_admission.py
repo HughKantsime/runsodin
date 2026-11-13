@@ -142,8 +142,8 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             unsupported = dispatch_unsupported_reason(current_creds)
             if unsupported:
                 raise _Refused(unsupported)
-            from modules.printers.support_levels import experimental_refusal
-            experimental = experimental_refusal(conn, job['printer_id'], current_creds.get('api_type'))
+            from modules.printers.support_levels import dispatch_refusal
+            experimental = dispatch_refusal(conn, job['printer_id'], current_creds.get('api_type'))
             if experimental:
                 raise _Refused(experimental)
             if current_job!=job:

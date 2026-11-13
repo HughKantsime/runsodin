@@ -64,7 +64,7 @@ def _identity(value):
 def _status_inputs(value):
     _require(type(value) is dict)
     api=value.get('api_type')
-    _require(type(api) is str and api in ('bambu','moonraker','prusalink','octoprint'))
+    _require(type(api) is str and api in ('bambu','moonraker','prusalink','octoprint','elegoo'))
     if api=='bambu':
         _keys(value,{'api_type','ip','serial','access_code'})
         _string(value['serial'],nonempty=True,limit=256)

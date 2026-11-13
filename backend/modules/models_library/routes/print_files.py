@@ -487,7 +487,7 @@ async def submit_studio_print(
     printer = _get_accessible_printer(db, target_printer_id, current_user)
     from modules.models_library.queue_payload import TARGET_FIELDS, capture
     initial_target = capture(printer, TARGET_FIELDS)
-    compatible_suffixes = {'bambu': ('.3mf',), 'moonraker': ('.gcode',), 'prusalink': ('.gcode', '.bgcode'), 'octoprint': ('.gcode',)}
+    compatible_suffixes = {'bambu': ('.3mf',), 'moonraker': ('.gcode',), 'prusalink': ('.gcode', '.bgcode'), 'octoprint': ('.gcode',), 'elegoo': ('.gcode',)}
     if (not printer.is_active or printer.api_type not in compatible_suffixes
             or Path(filename).suffix.lower() not in compatible_suffixes[printer.api_type]):
         raise HTTPException(400, 'Uploaded file is incompatible with the selected printer API')
