@@ -32,6 +32,8 @@ PUBLIC={
     # Overlay MJPEG relay: no session; the handler requires a camera-only (sole scope read:cameras) API
     # token in ?token= and the token user's printer access (test_cert_B_camera_fixes.py)
     'GET /api/overlay/{printer_id}/camera',
+    # Its single-frame twin: the same camera-only token rule on every request (test_overlay_camera_snapshot.py)
+    'GET /api/overlay/{printer_id}/snapshot',
     # SPA fallback
     'GET /{path:path}',
 }

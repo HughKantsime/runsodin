@@ -41,8 +41,10 @@ async def test_printer_and_fleet_entities(hass, aioclient_mock, status):
     assert hass.states.get("sensor.odin_fleet_queue_length").state == "4"
     # No camera token configured: no camera entities.
     assert not hass.states.async_entity_ids("camera")
-    devices = dr.async_get(hass).devices
-    assert {d.name for d in devices.values()} >= {"X1C", "Kobra S1", "ODIN fleet"}
+    registry = dr.async_get(hass)
+    devices = [d for entry in hass.config_entries.async_entries("odin")
+               for d in dr.async_entries_for_config_entry(registry, entry.entry_id)]
+    assert {d.name for d in devices} >= {"X1C", "Kobra S1", "ODIN fleet"}
 
 
 async def test_error_event_fires_only_on_a_new_error(hass, aioclient_mock, status):
