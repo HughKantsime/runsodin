@@ -46,7 +46,7 @@ function AuditCard({ log, expanded, onToggle }: { log: any; expanded: boolean; o
     <RowCard
       title={<><span className={ACTION_COLORS[log.action] || 'text-[var(--brand-text-secondary)]'}>{log.action || 'Unknown'}</span>{' '}{log.entity_type || 'Unknown'} {log.entity_id ?? 'Unknown'}</>}
       fields={[
-        ['Time', log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown'],
+        ['Time', log.timestamp ? parseServerDate(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown'],
         ['User', log.auth_kind === 'legacy_global_api_key' ? 'Service API key' : log.username || 'Unknown'],
         ['Details', log.details !== null && log.details !== undefined ? (
           <button type="button" onClick={onToggle} className="min-h-11 text-left hover:text-[var(--brand-text-primary)] transition-colors">

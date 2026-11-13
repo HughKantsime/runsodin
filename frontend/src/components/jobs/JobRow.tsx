@@ -213,7 +213,7 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--brand-text-secondary)]">
         <PriorityBadge priority={job.priority} />
         <span className="font-mono">{formatHours(job.duration_hours)}</span>
-        {job.scheduled_start && <span className="font-mono text-xs">{format(new Date(job.scheduled_start), 'MMM d HH:mm')}</span>}
+        {job.scheduled_start && <span className="font-mono text-xs">{format(parseServerDate(job.scheduled_start), 'MMM d HH:mm')}</span>}
       </div>
       <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal}
         className="mt-2 flex flex-wrap items-center gap-1 [&_button]:min-h-11 [&_button]:min-w-11" />
