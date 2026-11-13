@@ -210,7 +210,7 @@ def preview(db,user,product_id):
             'status':'unconfigured','message':'Choose an explicit assortment policy first.','stock':None,'recipes':[],
             'advisory_only':True,'retrieved_at':None}
     if not entry:return result
-    if entry['assortment']=='inactive':return {**result,'status':'inactive','message':'Inactive for routine show replenishment. Existing stock, files and orders are retained.'}
+    if entry['assortment']=='inactive':return {**result,'status':'inactive','message':'Inactive: not part of routine replenishment. Existing stock, files and orders are retained.'}
     if entry['assortment']=='trial':return {**result,'status':'trial','message':'A deliberate trial, not automatic replenishment. The smallest batch set for this product still applies to its recipes.'}
     doc,_=store.load(db,owner)
     if not doc or str(product_id) not in doc['mappings']:return {**result,'status':'blocked','message':'Connect Square and map this product before checking recorded stock.'}
