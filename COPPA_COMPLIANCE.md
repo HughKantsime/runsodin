@@ -4,6 +4,7 @@
 **Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Version:** 1.3.27
 **Date:** February 2026
+**Revised:** November 2026 (network connections and third-party sections only, to match O.D.I.N. 2.2.0; the rest of this statement is as issued for 1.3.27 and is due a full review)
 **Contact:** sublab3dp@gmail.com
 
 > This document is provided as a technical reference for K-12 schools evaluating O.D.I.N. for COPPA compliance. It does not constitute legal advice. Schools should consult qualified legal counsel to confirm compliance with their specific obligations under COPPA (15 U.S.C. §§ 6501-6506; 16 CFR Part 312).
@@ -54,7 +55,7 @@ O.D.I.N. collects only the data necessary to manage 3D printer operations:
 - Geolocation data
 - Persistent identifiers for tracking across sites or services
 - Cookies sent to third parties
-- Any data transmitted to Sublab 3DP or any third party
+- Any student data transmitted to Sublab 3DP
 
 ### 3.3 No Third-Party Data Sharing
 
@@ -64,7 +65,9 @@ O.D.I.N. does not transmit any data to:
 - Advertising networks
 - Analytics services
 - Data brokers
-- Any external server (unless the school explicitly configures webhook integrations)
+- Any external server, unless the school turns an integration on (notification webhooks, email, single sign-on, class roster import, push notifications). Push notifications, if a user enables them, pass the notification text, which can include a job or file name, through the browser vendor's or Apple's push service
+
+License actions an administrator runs (activate, trial, move or re-check a key) contact runsodin.com with the license key and installation identifiers only, never student data, and can be done by file with no connection.
 
 ---
 
@@ -165,7 +168,7 @@ O.D.I.N. contains:
 Sublab 3DP attests that:
 
 1. O.D.I.N. does not collect personal information directly from children
-2. O.D.I.N. does not transmit any data to Sublab 3DP or any third party
+2. O.D.I.N. does not transmit student data to Sublab 3DP, and transmits nothing to any third party unless the school turns an integration on
 3. O.D.I.N. does not contain advertising or third-party tracking
 4. O.D.I.N.'s license validation is air-gap compatible and does not require data exchange
 5. Sublab 3DP has no access to any deployed O.D.I.N. instance

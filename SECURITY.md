@@ -55,14 +55,14 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 - Camera RTSP credentials never persisted to DB — generated on-demand from the encrypted API key
 - API keys stripped from all printer API responses
 - Auto-generated secrets on first run (no hardcoded defaults in production); API_KEY startup warning if unset
-- No telemetry, no analytics, no data leaves your network
+- No telemetry and no analytics. A default installation contacts nothing outside your network by itself. Three things can: (1) licence actions an administrator runs (activate, start a trial, move or re-check a key) contact runsodin.com and send the licence key, an installation ID and a device key, never print, user or student records; each can be done by file instead, with no connection; (2) browser or mobile push notifications, if a user turns them on, pass the notification text through the browser vendor's or Apple's push service; (3) integrations an administrator connects (email, chat webhooks, single sign-on, class roster import, Square, Spoolman, MQTT) contact the service they are pointed at. `ODIN_ITAR_MODE=1` refuses every such destination that is not a private address and turns push off.
 - SQLite database with WAL mode for safe concurrent access
 - Docker base images pinned to SHA256 digests; go2rtc binary SHA256-verified at build time
 
 ### Network Security
 - All printer communication stays on your local network
-- No cloud dependencies or phone-home behavior
-- License verification is fully offline (Ed25519 signature validation)
+- No cloud service is needed to run O.D.I.N., and it makes no background calls to the vendor (no heartbeat, no update check)
+- An installed license is verified locally (Ed25519 signature validation) with no network call. Activating a key contacts runsodin.com unless you activate by file
 - Camera streams proxied through go2rtc (credentials not exposed to browser)
 
 ### Audit Trail

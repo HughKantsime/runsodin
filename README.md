@@ -17,7 +17,7 @@
 
 ---
 
-Self-hosted print farm management that combines multi-protocol printer support, AI failure detection, and business operations in a single container. No cloud dependency. No per-printer fees. Files, camera processing and records are hosted on your server; enabled integrations may transmit selected data.
+Self-hosted print farm management that combines multi-protocol printer support, AI failure detection, and business operations in a single container. No per-printer fees. Files, camera processing and records are hosted on your server, and O.D.I.N. runs without any cloud service; activating a license online contacts runsodin.com (or activate by file), and enabled integrations may transmit selected data.
 
 ## Key Features
 
@@ -31,7 +31,7 @@ Self-hosted print farm management that combines multi-protocol printer support, 
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
 - **Spool Inventory** — Filament tracking with QR labels, AMS integration, PA profiles, low-stock alerts, bidirectional Spoolman sync (pull inventory + push consumption), and CSV export
 - **Notifications** — Discord, Slack, Telegram, ntfy, WhatsApp, Pushover, email, and browser push
-- **Enterprise Security** — RBAC (admin/operator/viewer), TOTP MFA, Microsoft Entra ID SSO, IP allowlisting, audit logs
+- **Security** — TOTP MFA, IP allowlisting and an audit log on every tier; roles (admin/operator/viewer) and single sign-on (Microsoft Entra ID, Google Workspace or any OpenID Connect provider) in Pro and up; audit export, integrity verification, SIEM streaming and traceability in Enterprise
 - **Native Companion Apps** — iOS, iPadOS, and macOS apps with fleet view, widgets, and Live Activities ([odin-native](https://github.com/HughKantsime/odin-native))
 - **Single Container Deploy** — One `docker compose up`, ~256 MB RAM, all 9 services included
 

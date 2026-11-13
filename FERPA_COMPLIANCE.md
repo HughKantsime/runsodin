@@ -4,6 +4,7 @@
 **Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Version:** 1.3.27
 **Date:** February 2026
+**Revised:** November 2026 (network connections and third-party sections only, to match O.D.I.N. 2.2.0; the rest of this statement is as issued for 1.3.27 and is due a full review)
 **Contact:** sublab3dp@gmail.com
 
 > This document is provided as a technical reference for institutions evaluating O.D.I.N. for FERPA compliance. It does not constitute legal advice. Institutions should consult qualified legal counsel to confirm compliance with their specific obligations under FERPA (20 U.S.C. § 1232g; 34 CFR Part 99).
@@ -26,7 +27,7 @@ O.D.I.N. runs as a single Docker container on hardware controlled by the institu
 |--------|--------|
 | Deployment model | Self-hosted, on-premises Docker container |
 | Cloud dependency | None |
-| Telemetry / phone-home | None |
+| Telemetry / phone-home | None. License actions an administrator runs (activate, trial, move or re-check a key) contact runsodin.com with the license key and installation identifiers only; they can be done by file with no connection |
 | Analytics sent to vendor | None |
 | Data storage location | Local SQLite database at `/data/odin.db` |
 | Network requirements | Local network only (no internet required for operation) |
@@ -135,7 +136,7 @@ The institution controls all backup and recovery processes:
 - Database is a single SQLite file (`/data/odin.db`) using WAL mode
 - Standard filesystem backup tools apply
 - Backups remain within the institution's infrastructure
-- No data is replicated to external servers
+- O.D.I.N. does not replicate its database or backups to any external server
 
 Institutions should include O.D.I.N. data in their existing backup and retention policies.
 
@@ -184,13 +185,15 @@ O.D.I.N. does not provide TLS termination natively. Institutions should deploy O
 
 ## 11. Third-Party Data Sharing
 
-O.D.I.N. does not share data with any third party. There are:
+O.D.I.N. does not send education records to the vendor, and sends nothing to any third party unless the institution turns an integration on. There are:
 
 - No analytics services
 - No advertising networks
-- No cloud APIs
+- No cloud APIs in a default installation
 - No external webhooks enabled by default
 - No telemetry or usage reporting to Sublab 3DP
+
+**Integrations the institution may turn on, and what leaves the server when it does:** class roster import from Google Classroom or Canvas (O.D.I.N. requests the roster; names and email addresses come in, none are sent out); single sign-on (sign-in is handled by the institution's identity provider); browser or mobile push notifications (the notification text, which can include a job or file name, passes through the browser vendor's or Apple's push service); Square and Spoolman (product stock and filament data, no student records).
 
 **Note:** O.D.I.N. supports optional webhook integrations (Discord, Slack, email, ntfy, Telegram) for print notifications. If enabled by the institution, notification data is sent to the configured external service. Institutions should evaluate whether notification content could include student information.
 
