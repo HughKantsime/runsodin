@@ -165,24 +165,33 @@ class SquareReader:
                 'variation_name': str(data.get('name') or 'Default')[:200], 'tracked': tracked(data, location)}
 
     def count(self, variation, location):
+        return self.counts(location, [variation])[variation]
+
+    def counts(self, location, variations):
+        """Counts for many variations at one location in ONE read; a variation Square omits is unknown."""
+        wanted = list(dict.fromkeys(identifier(v) for v in variations))
+        # One page only: Square returns at most 1000 counts per read, so a larger request could not be complete.
+        if not wanted or len(wanted) > 1000:
+            raise HTTPException(400, 'Choose between 1 and 1000 Square variations')
         result = self._read('POST', '/v2/inventory/counts/batch-retrieve', body={
-            'catalog_object_ids': [identifier(variation)], 'location_ids': [identifier(location)], 'states': ['IN_STOCK']})
+            'catalog_object_ids': wanted, 'location_ids': [identifier(location)], 'states': ['IN_STOCK']})
         if result.get('cursor'):
             invalid()
         counts = result.get('counts', [])
         if not isinstance(counts, list):
             invalid()
-        matches = [v for v in counts if isinstance(v, dict) and v.get('catalog_object_id') == variation
-                   and v.get('location_id') == location and v.get('state') == 'IN_STOCK']
-        if not matches:
-            return {'quantity': None, 'calculated_at': None, 'state': 'unknown'}
-        if len(matches) != 1:
-            invalid()
-        row = matches[0]
-        try:
-            quantity = row['quantity']
-            if not isinstance(quantity, str) or len(quantity) > 64 or not Decimal(quantity).is_finite():
+        found = {}
+        for row in counts:
+            if (not isinstance(row, dict) or row.get('location_id') != location or row.get('state') != 'IN_STOCK'
+                    or row.get('catalog_object_id') not in wanted):
+                continue
+            if row['catalog_object_id'] in found:
                 invalid()
-        except (KeyError, InvalidOperation):
-            invalid()
-        return {'quantity': quantity, 'calculated_at': row.get('calculated_at'), 'state': 'known'}
+            try:
+                quantity = row['quantity']
+                if not isinstance(quantity, str) or len(quantity) > 64 or not Decimal(quantity).is_finite():
+                    invalid()
+            except (KeyError, InvalidOperation):
+                invalid()
+            found[row['catalog_object_id']] = {'quantity': quantity, 'calculated_at': row.get('calculated_at'), 'state': 'known'}
+        return {v: found.get(v) or {'quantity': None, 'calculated_at': None, 'state': 'unknown'} for v in wanted}

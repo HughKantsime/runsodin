@@ -32,6 +32,7 @@ import PrintProgress from '../../components/printers/PrintProgress'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
 import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
+import PrintNextCard from '../../components/orders/PrintNextCard'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
@@ -489,6 +490,10 @@ function ClassicDashboard() {
 
       <SectionErrorBoundary>
         <AlertsWidget />
+      </SectionErrorBoundary>
+
+      <SectionErrorBoundary>
+        <PrintNextCard />
       </SectionErrorBoundary>
 
       <SectionErrorBoundary>

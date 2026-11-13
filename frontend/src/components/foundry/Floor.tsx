@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { canAccessPage } from '../../permissions'
 import useCameraList from '../../hooks/useCameraList'
 import SystemNoticesBanner from '../admin/SystemNoticesBanner'
+import PrintNextCard from '../orders/PrintNextCard'
 import { useFoundry } from '../../hooks/themePreferences'
 import DensityToggle from './DensityToggle'
 import { Fleet } from './PrinterRows'
@@ -32,6 +33,7 @@ export default function Floor() {
   return <div className="f-page">
     <SystemNoticesBanner />
     <header className="f-row"><div><h1>Floor</h1><p className="f-secondary">Your printers, live cameras and the next 12 hours.</p></div><div className="f-actions"><DensityToggle />{canAccessPage('jobs') && <Link className="f-primary" to="/jobs">Schedule a print</Link>}</div></header>
+    <PrintNextCard />
     {fleet.isError ? <p role="alert">Could not load printers. <button onClick={() => fleet.refetch()}>Retry</button></p> : fleet.isLoading ? <p role="status">Loading printers…</p> : <>
       <NeedsYouBanner printers={printers} prints={prints.data} alerts={notices.data} cameraIds={cameras.isError ? [] : (cameras.data || []).map(c => c.id)} now={now} />
       {(prints.isError || queue.isError || notices.isError) && <p role="status">Some job or alert information could not be loaded. Available printer data is shown.</p>}

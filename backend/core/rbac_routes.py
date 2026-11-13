@@ -92,6 +92,8 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     ],
     "products.assortment_preview": [
         ("POST", "/api/products/production/assortment/{product_id}/preview"),
+        ("GET", "/api/production/replenishment"),
+        ("POST", "/api/production/replenishment/queue"),
     ],
     "settings.edit": [
         ("DELETE", "/api/education/term-retention/{term_id}"),

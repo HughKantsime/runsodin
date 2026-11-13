@@ -8,6 +8,7 @@ from .finance_settings import router as finance_settings_router
 from .products import router as products_router
 from .square import router as square_router
 from .batches import router as batches_router
+from .replenishment import router as replenishment_router
 from .operations import router as operations_router
 from .orders_crud import router as orders_crud_router
 from .show_orders import router as show_orders_router
@@ -20,6 +21,8 @@ router.include_router(attempt_valuation_router)
 # tier (downgrade policy, see license_manager.feature_gate).
 router.include_router(operations_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])
 router.include_router(batches_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])
+# The print-next list is computed advice, not a stored record: every method needs the entitlement.
+router.include_router(replenishment_router, dependencies=[Depends(feature_gate("products"))])
 router.include_router(square_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])
 router.include_router(products_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])
 router.include_router(finance_settings_router)

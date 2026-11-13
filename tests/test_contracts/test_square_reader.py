@@ -67,3 +67,28 @@ def test_network_error_does_not_echo_exception(monkeypatch):
     monkeypatch.setattr(requests,'Session',Session)
     with pytest.raises(HTTPException) as error:SquareReader('production','synthetic').merchant()
     assert 'private-sentinel' not in str(error.value.detail)
+
+
+def test_batched_counts_use_one_allowed_read_and_never_invent_a_missing_count(monkeypatch):
+    seen=[]
+    def read(self,method,path,*,params=None,body=None):
+        seen.append((method,path,body))
+        return {'counts':[{'catalog_object_id':'V1','location_id':'L1','state':'IN_STOCK','quantity':'3'},
+                          {'catalog_object_id':'V2','location_id':'L1','state':'WASTE','quantity':'9'},
+                          {'catalog_object_id':'V3','location_id':'OTHER','state':'IN_STOCK','quantity':'9'},
+                          {'catalog_object_id':'STRAY','location_id':'L1','state':'IN_STOCK','quantity':'9'}]}
+    monkeypatch.setattr(SquareReader,'_read',read)
+    result=SquareReader('sandbox','synthetic').counts('L1',['V1','V2','V3','V1'])
+    assert result=={'V1':{'quantity':'3','calculated_at':None,'state':'known'},
+                    'V2':{'quantity':None,'calculated_at':None,'state':'unknown'},'V3':{'quantity':None,'calculated_at':None,'state':'unknown'}}
+    assert seen==[('POST','/v2/inventory/counts/batch-retrieve',{'catalog_object_ids':['V1','V2','V3'],'location_ids':['L1'],'states':['IN_STOCK']})]
+
+
+@pytest.mark.parametrize('payload,variations',[
+ ({'cursor':'next','counts':[]},['V1']),
+ ({'counts':[{'catalog_object_id':'V1','location_id':'L1','state':'IN_STOCK','quantity':'1'}]*2},['V1']),
+ ({'counts':[{'catalog_object_id':'V1','location_id':'L1','state':'IN_STOCK','quantity':'NaN'}]},['V1']),
+ ({'counts':[]},[]),({'counts':[]},['V%d'%i for i in range(1001)]),({'counts':[]},['bad id!'])])
+def test_incomplete_oversized_or_invalid_batched_counts_are_refused(monkeypatch,payload,variations):
+    monkeypatch.setattr(SquareReader,'_read',lambda *a,**kw:payload)
+    with pytest.raises(HTTPException):SquareReader('sandbox','synthetic').counts('L1',variations)

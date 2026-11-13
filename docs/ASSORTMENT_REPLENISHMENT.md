@@ -1,6 +1,6 @@
 # Show assortment and advisory replenishment
 
-Open **Products → Show assortment and replenishment**. The panel is closed initially and does not poll. It reads saved policy when opened; Square is read only when an operator/admin clicks **Check replenishment**. Nothing creates a job, starts a printer or changes Square stock.
+Open **Products → Show assortment and replenishment**. The panel is closed initially and does not poll. It reads saved policy when opened; Square is read only when an operator/admin clicks **Check replenishment**. Nothing in this panel creates a job, starts a printer or changes Square stock. The ranked list across products is **Print next**, described at the end of this page.
 
 ## One-time explicit classification
 
@@ -41,3 +41,16 @@ Checks are snapshots. Paid orders, promised wholesale deadlines, materials, main
 The policy holds no stock balance. Rack-to-travel-bin moves do not change Square totals. Policy cleanup shares existing transactional product/tenant deletion and retained-history guards, so a reused product ID cannot inherit a deleted product's policy. No schema or frozen restore package changes were made.
 
 The panel shows up to 1,000 owned products and explicitly reports truncation. Recipe and pending-addition scans are bounded to 1,000 records, matching-job scans to 200. Incomplete relevant scans suppress suggestions. No real product classification, stock update or deployment was performed during local tests.
+
+## Print next (Pro)
+
+**Products → Print next** lists every Active product, most urgent first: products whose open order lines exceed stock (oldest order first), then products at zero, then by how much of the target is missing; ties go to the plate with the least print time per piece. Each row shows the count and when it was read, the reorder point and target, pieces already on the way, the shortfall, and the reason for its place.
+
+- **Shortfall** is the target minus stock minus pieces already on the way, when stock is below the reorder point. Open order lines that stock cannot cover count in full, even above the reorder point. Pieces on the way are matching pending, submitted, scheduled, printing and paused jobs, completed jobs not yet inspected, and inspected pieces whose Square addition is still prepared or uncertain.
+- **Plates** are whole plates of the product's qualified recipe: the shortfall divided by the plate's yield, rounded up, never less than the smallest batch. A recipe below the smallest batch of any of its main outputs is not offered.
+- **Stock** is read from Square in one request per location for all mapped products, at most once every two minutes per organization (per server process). Inside that interval Refresh shows the same read. When Square cannot be read, or ITAR mode is on, the list shows the last recorded count for each product with its age; a product with no recorded count is blocked. Nothing is guessed, and Square is never written.
+- **Queue N plates** creates that many jobs from the recipe's exact file, plate and printer, on hold. Tick "Queue as ready" to skip the hold. "Queue all suggested" does the same for every row. Each request is checked against the current list, so repeating it adds nothing once the plates are on the way. A recipe whose file changed or is gone, or whose printer left the organization, is not queued and the row says why. Nothing is queued automatically.
+- Blocked rows say what to do: map the product to Square, qualify a recipe, review a negative or fractional count, or review existing work when a scan is incomplete. Inactive and trial products are not listed.
+- "Sold" is units per week from ODIN orders over the last four weeks, shown once the organization has at least 14 days of orders. It is not used for ranking.
+
+The Dashboard shows a "Print next" card when any product needs printing; the card and the Home Assistant `print_next_count` use recorded counts only and never contact Square. Listing needs the `products.assortment_preview` permission (an interactive session or a token with the `read` scope); queueing also needs `jobs.create` (a token needs `write:jobs`).

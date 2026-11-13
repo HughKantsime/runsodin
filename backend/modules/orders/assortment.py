@@ -165,6 +165,16 @@ def recipes_for(db,owner,product_id):
     return result
 
 
+WORK_STATES=('pending','submitted','scheduled','printing','paused','completed')
+
+
+def job_may_produce(job,payload):
+    """Shared by the one-product check and the print-next list: could this job be a run of this plate?"""
+    if job.model_id!=payload['model_id']:return False
+    # Missing preparation/assignment is uncertainty, never proof of free capacity.
+    return not any(getattr(job,k) is not None and getattr(job,k)!=payload[k] for k in ('print_file_id','payload_sha256','plate_index'))
+
+
 def pending_work(db,owner,product_id,recipes):
     outstanding=db.execute(select(batches.additions.c.receipt_id).where(batches.additions.c.owner==owner,
                batches.additions.c.state.in_(('prepared','unknown'))).limit(1001)).scalars().all()
@@ -181,18 +191,15 @@ def pending_work(db,owner,product_id,recipes):
     clause=Job.charged_to_org_id.is_(None) if owner==0 else Job.charged_to_org_id==owner
     models={r['payload']['model_id'] for r in recipes}
     rows=db.execute(select(Job,literal_column('jobs.economic_uid')).where(clause,Job.model_id.in_(models),
-        Job.status.in_(('pending','submitted','scheduled','printing','paused','completed'))).order_by(Job.id.desc()).limit(201)).all()
+        Job.status.in_(WORK_STATES)).order_by(Job.id.desc()).limit(201)).all()
     if len(rows)>200:return 'Matching-job scan is incomplete. Review existing work first.'
     inspected=set(db.execute(select(batches.receipts.c.job_uid).where(batches.receipts.c.owner==owner,
         batches.receipts.c.job_uid.in_([uid for _,uid in rows if uid]))).scalars())
     for job,job_uid in rows:
         if str(getattr(job.status,'value',job.status))=='completed' and job_uid in inspected:continue
         for recipe in recipes:
-            payload=recipe['payload']
-            if job.model_id!=payload['model_id']:continue
-            # Missing preparation/assignment is uncertainty, never proof of free capacity.
-            if any(getattr(job,k) is not None and getattr(job,k)!=payload[k] for k in ('print_file_id','payload_sha256','plate_index')):continue
-            return f'Job {job.id} may already produce this plate or awaits inspection. Review it before suggesting another plate.'
+            if job_may_produce(job,recipe['payload']):
+                return f'Job {job.id} may already produce this plate or awaits inspection. Review it before suggesting another plate.'
     return None
 
 

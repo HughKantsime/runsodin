@@ -270,3 +270,31 @@ def test_query_count_does_not_grow_with_the_fleet(ha_client, review_db):
 def test_unresolved_error_rule(error_at, started, expected):
     from modules.printers.routes_integrations import unresolved_error
     assert unresolved_error(error_at, started) is expected
+
+
+def test_print_next_count_is_reported_on_pro_only_from_recorded_stock(ha_client, review_db, tier_license, monkeypatch):
+    """Stock-driven printing: the fleet block gains print_next_count for Pro installs, never by contacting Square."""
+    from cryptography.fernet import Fernet
+    from modules.orders import assortment, replenishment, square_store
+    from modules.orders.square_client import SquareReader
+
+    def no_square(*args, **kwargs):
+        raise AssertionError('the Home Assistant status route must not contact Square')
+    monkeypatch.setattr(SquareReader, '_read', no_square)
+    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    replenishment.forget_reads()
+    client, issue = ha_client
+    tier_license(None)
+    assert 'print_next_count' not in client.get(URL, headers=issue(['read'])).json()['fleet']
+    tier_license('pro')
+    assert client.get(URL, headers=issue(['read'])).json()['fleet']['print_next_count'] == 0
+    review_db.execute(text("INSERT INTO products(id,name,org_id) VALUES(901,'Stocked part',1)"))
+    square_store.save(review_db, 1, {'version': 1, 'tenant': 1, 'token': 'synthetic', 'environment': 'sandbox', 'merchant_id': 'M1',
+                                     'mappings': {'901': {'variation_id': 'V1', 'location_id': 'L1'}}}, None)
+    doc, prior = assortment.load(review_db, 1)
+    doc['products']['901'] = {'assortment': 'active', 'reorder_point': 5, 'target': 10, 'minimum_batch': 1}
+    assortment.save(review_db, 1, doc, prior)
+    review_db.execute(text("INSERT INTO stock_snapshots(owner_scope,owner_key,variation,location,quantity,calculated_at,read_at) "
+                           "VALUES('org',1,'V1','L1','2',:at,:at)"), {'at': datetime.now(timezone.utc)})
+    review_db.commit()
+    assert client.get(URL, headers=issue(['read'])).json()['fleet']['print_next_count'] == 1
