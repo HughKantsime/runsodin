@@ -409,9 +409,9 @@ def _json_tree(value, depth=0, budget=None):
 _METADATA_RULES = {
     "filename": lambda v: _text(v, 1024), "project_name": lambda v: _text(v, 1024),
     "print_time_seconds": lambda v: _integer(v, 0, 10**8), "total_weight_grams": lambda v: _number(v, 0, 1e7),
-    "layer_count": lambda v: _integer(v, 0, 10**7), "layer_height": lambda v: _number(v, 0, 100),
+    "layer_count": lambda v: _integer(v, 0, 10**7), "layer_height": lambda v: _number(v, 0, 100, optional=True),
     "nozzle_diameter": lambda v: _number(v, 0, 100, optional=True), "printer_model": lambda v: _text(v, 256, True),
-    "supports_used": lambda v: type(v) is bool, "bed_type": lambda v: _text(v, 256),
+    "supports_used": lambda v: v is None or type(v) is bool, "bed_type": lambda v: _text(v, 256),
     "filaments": lambda v: type(v) is list and len(v) <= 64 and all(_filament(f) for f in v),
     "safety_facts": lambda v: type(v) is dict and _json_tree(v),
     "thumbnail_b64": lambda v: v is None or (type(v) is str and len(v) <= ANALYSIS_LIMIT_BYTES),

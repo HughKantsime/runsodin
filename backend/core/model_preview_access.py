@@ -19,6 +19,20 @@ def is_education_owned_file(db, file_id, stored_path):
     ), {"id": file_id, "path": stored_path}).fetchone() is not None
 
 
+def education_owned_file_ids(db, file_ids):
+    """is_education_owned_file for many files in one query: the owned ids among them."""
+    from sqlalchemy import bindparam
+    ids = [file_id for file_id in file_ids if file_id is not None]
+    if not ids:
+        return set()
+    return set(db.execute(text(
+        "SELECT f.id FROM print_files f WHERE f.id IN :ids AND ("
+        "EXISTS (SELECT 1 FROM education_submissions s WHERE s.print_file_id=f.id) "
+        "OR EXISTS (SELECT 1 FROM education_upload_operations o "
+        "WHERE o.final_path=f.stored_path AND o.final_path IS NOT NULL))"
+    ).bindparams(bindparam("ids", expanding=True)), {"ids": ids}).scalars())
+
+
 def delete_generic_file_if_unchanged(db, row, *, parent_org_id, require_unreferenced=False):
     """Delete only the authorized identity, with persisted protection checked in the write."""
     result = db.execute(text(

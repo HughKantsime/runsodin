@@ -65,10 +65,10 @@ class PrintFileMetadata:
     print_time_seconds: int
     total_weight_grams: float
     layer_count: int
-    layer_height: float
+    layer_height: Optional[float]  # None when the file does not state it
     nozzle_diameter: Optional[float]
     printer_model: Optional[str]
-    supports_used: bool
+    supports_used: Optional[bool]  # None when the file does not state it
     bed_type: str
     filaments: List[FilamentInfo]
     safety_facts: dict[str, Any]
@@ -149,7 +149,8 @@ def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileM
                 return None
             
             # Parse plate_1.json for additional info
-            plate_info = parse_plate_json(zf)
+            plate_info = parse_plate_json(zf) or {}
+            stated = _stated_slicer_settings(zf)
             
             # Extract thumbnail
             thumbnail_b64 = extract_thumbnail(zf)
@@ -182,11 +183,12 @@ def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileM
                 print_time_seconds=int(slice_info.get('prediction', 0)),
                 total_weight_grams=float(slice_info.get('weight', 0)),
                 layer_count=layer_count,
-                layer_height=plate_info.get('layer_height', 0.2) if plate_info else 0.2,
+                layer_height=plate_info.get('layer_height') or stated['layer_height'],
                 nozzle_diameter=safety_facts["nozzle"].get("value"),
                 printer_model=safety_facts["machine"].get("value"),
-                supports_used=slice_info.get('support_used', 'false').lower() == 'true',
-                bed_type=plate_info.get('bed_type', 'Unknown') if plate_info else 'Unknown',
+                supports_used=(slice_info['support_used'].lower() == 'true' if 'support_used' in slice_info
+                               else stated['supports_used']),
+                bed_type=_stated_plate_type(plate_info.get('bed_type')) or stated['bed_type'] or 'Unknown',
                 filaments=filaments,
                 safety_facts=safety_facts,
                 thumbnail_b64=thumbnail_b64
@@ -244,6 +246,41 @@ def parse_slice_info(zf: zipfile.ZipFile) -> Optional[dict]:
         return None
 
 
+def _stated_layer_height(value) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(number, 4) if 0 < number <= 100 else None
+
+
+def _stated_plate_type(value) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    cleaned = "".join(ch for ch in value if ch.isprintable()).strip()[:256]
+    return cleaned if cleaned and cleaned.lower() != 'unknown' else None
+
+
+def _stated_slicer_settings(zf: zipfile.ZipFile) -> dict:
+    """Layer height, supports and plate type as the project settings state them.
+
+    The fallback for a package whose plate description leaves them out. A setting
+    the file does not carry stays None: nothing is assumed.
+    """
+    found = {'layer_height': None, 'supports_used': None, 'bed_type': None}
+    try:
+        raw = _member_bytes(zf, 'Metadata/project_settings.config', 8 * 1024 * 1024)
+        data = json.loads(raw) if raw else None
+        if isinstance(data, dict):
+            found['layer_height'] = _stated_layer_height(data.get('layer_height'))
+            if str(data.get('enable_support', '')).strip() in ('0', '1'):
+                found['supports_used'] = str(data['enable_support']).strip() == '1'
+            found['bed_type'] = _stated_plate_type(data.get('curr_bed_type'))
+    except Exception:
+        pass
+    return found
+
+
 def parse_plate_json(zf: zipfile.ZipFile) -> Optional[dict]:
     """Parse Metadata/plate_1.json file."""
     if not _plate_json_member_ok(zf, 'Metadata/plate_1.json'):
@@ -252,10 +289,10 @@ def parse_plate_json(zf: zipfile.ZipFile) -> Optional[dict]:
         with zf.open('Metadata/plate_1.json') as f:
             data = json.load(f)
             
-            # Extract layer height from bbox_objects
-            layer_height = 0.2
+            # Layer height from bbox_objects; None when the plate does not state it
+            layer_height = None
             if 'bbox_objects' in data and len(data['bbox_objects']) > 0:
-                layer_height = data['bbox_objects'][0].get('layer_height', 0.2)
+                layer_height = _stated_layer_height(data['bbox_objects'][0].get('layer_height'))
             
             return {
                 'bed_type': data.get('bed_type', 'Unknown'),
@@ -342,6 +379,7 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
         
         project_name = extract_project_name(zf) or filename_stem(str(name or file_path))
         thumbnail_b64 = extract_thumbnail(zf)
+        stated = _stated_slicer_settings(zf)
         
         return PrintFileMetadata(
             filename=Path(name or file_path).name,
@@ -349,11 +387,11 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
             print_time_seconds=0,  # Unknown - needs manual entry
             total_weight_grams=0,
             layer_count=0,
-            layer_height=0.2,
+            layer_height=stated['layer_height'],
             nozzle_diameter=safety_facts["nozzle"].get("value"),
             printer_model=safety_facts["machine"].get("value"),
-            supports_used=False,
-            bed_type='Unknown',
+            supports_used=stated['supports_used'],
+            bed_type=stated['bed_type'] or 'Unknown',
             filaments=filaments,
             safety_facts=safety_facts,
             thumbnail_b64=thumbnail_b64

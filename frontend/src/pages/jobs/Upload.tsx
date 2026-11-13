@@ -8,6 +8,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import Select from '../../components/ui/Select'
+import { FileFactChips, PrinterFitLine } from '../../components/models/FileFacts'
 
 import { printFiles, getApprovalSetting, printers } from '../../api'
 import { models as modelsApi } from '../../api'
@@ -166,6 +167,9 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
               </div>
             </div>
           </div>
+
+          <PrinterFitLine fit={data.printer_fit} className="mb-3" />
+          <FileFactChips facts={data.file_facts} className="mb-4" />
 
           {data.filaments?.length > 0 && (
             <div className="mb-4">

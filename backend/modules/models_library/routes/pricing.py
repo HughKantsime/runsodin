@@ -183,6 +183,7 @@ def calculate_model_cost(
 
 def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows, filters=None):
     """List all print models with calculated cost and suggested price."""
+    from modules.models_library.printer_fit import printer_fit_for_files, row_file_facts, schedule_file
     from modules.models_library.education_retention import visible_models
     query = visible_models(db)
     if category:
@@ -253,17 +254,22 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
     # Count and derive dimensions from the same authorized file snapshots.
     variant_counts = {}
     bed_dims = {}
+    schedule_files = {}
     for model in models:
         variants = variant_rows(db, model.id, current_user)
         variant_counts[model.id] = len(variants)
+        schedule_files[model.id] = schedule_file(model, variants)
         row = next((row for row in variants if row.bed_x_mm is not None), None)
         bed_dims[model.id] = {
             "bed_x_mm": row.bed_x_mm if row else None,
             "bed_y_mm": row.bed_y_mm if row else None,
         }
+    # Which of the caller's printers each model's file runs on: one printer read for the whole list.
+    fit = printer_fit_for_files(db, current_user, list(schedule_files.values()))
 
     result = []
     for model in models:
+        file = schedule_files.get(model.id)
         # Calculate cost for this model
         filament_grams = model.total_filament_grams or 0
         print_hours = model.build_time_hours or 1.0
@@ -321,6 +327,9 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
             # Bed dimensions from linked print file (for dispatch compatibility warning)
             "bed_x_mm": bed_dims.get(model.id, {}).get("bed_x_mm"),
             "bed_y_mm": bed_dims.get(model.id, {}).get("bed_y_mm"),
+            # What the schedule file says, and the printers it runs on (information only).
+            "printer_fit": fit.get(file.id) if file else None,
+            "file_facts": row_file_facts(file) if file else None,
         }
         result.append(model_dict)
 

@@ -1,4 +1,5 @@
 import ModelPlates from './ModelPlates'
+import { FileFactChips, PrinterFitLine } from './FileFacts'
 import { useState, useEffect, useRef } from 'react'
 import { Pencil, Trash2, Clock, Scale, Star, Package, CalendarPlus, History, X, ChevronDown, Palette, DollarSign, EyeOff, Layers } from 'lucide-react'
 import clsx from 'clsx'
@@ -113,6 +114,9 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             </div>
           )}
         </div>
+
+        <PrinterFitLine fit={model.printer_fit} className="mt-2" />
+        <FileFactChips facts={model.file_facts} className="mt-2" />
 
         {canDo('models.plates') && <ModelPlates model={model} onSchedule={onSchedule} />}
 

@@ -27,6 +27,7 @@ from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role, require_action
 from core.responses import build_next_actions, next_action
+from modules.models_library.printer_fit import uploaded_file_fit
 from modules.models_library.upload_storage import _studio_print_notes, _normalize_model_name, _fresh_upload_actor, _visible_upload_duplicate, _own_upload_model, _new_upload_path
 
 log = logging.getLogger("odin.api")
@@ -334,6 +335,7 @@ async def upload_3mf(
                 "compatibility_facts": meta["safety_facts"],
                 "duplicate": duplicate_info,
                 "target_printer_id": target_printer_id,
+                **uploaded_file_fit(db, current_user, file_id),
             }
 
         else:
@@ -434,6 +436,7 @@ async def upload_3mf(
                 "compatibility_facts": meta["safety_facts"],
                 "duplicate": duplicate_info,
                 "target_printer_id": target_printer_id,
+                **uploaded_file_fit(db, current_user, file_id),
             }
     except Exception as exc:
         rollback_failed = False

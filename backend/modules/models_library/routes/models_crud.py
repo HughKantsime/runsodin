@@ -285,15 +285,10 @@ def schedule_from_model(
         if suffix not in (".3mf", ".gcode", ".bgcode"):
             raise HTTPException(400, "Unsupported print payload format")
         if printer:
-            if api_type not in {"bambu", "moonraker", "prusalink", "octoprint", "elegoo"} or not printer.is_active:
-                raise HTTPException(400, "Selected printer does not support dispatch")
-            allowed = [v.strip() for v in (file.compatible_api_types or "").split(",") if v.strip()]
-            from modules.models_library.queue_payload import PRINTER_PAYLOAD_SUFFIXES
-            if suffix not in PRINTER_PAYLOAD_SUFFIXES[api_type] or (allowed and api_type not in allowed):
-                raise HTTPException(400, "Print file is incompatible with the selected printer API")
-            if all(v is not None for v in (file.bed_x_mm, file.bed_y_mm, printer.bed_x_mm, printer.bed_y_mm)):
-                if file.bed_x_mm > printer.bed_x_mm + 2 or file.bed_y_mm > printer.bed_y_mm + 2:
-                    raise HTTPException(400, "Print file exceeds the selected printer bed")
+            from modules.models_library.queue_payload import printer_payload_refusal
+            refusal = printer_payload_refusal(file, printer)
+            if refusal:
+                raise HTTPException(400, refusal)
         try:
             payload_hash = hash_regular_payload(path)
             if opts.payload_sha256 is not None and opts.payload_sha256 != payload_hash:
@@ -549,15 +544,20 @@ def _accessible_model_variant_rows(db, model_id, current_user):
 @router.get("/{model_id}/variants")
 def get_model_variants(model_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     """Get all print file variants for a model."""
-    model = db.execute(text("SELECT id, name, org_id FROM models WHERE id = :id"), {"id": model_id}).fetchone()
+    model = db.execute(text("SELECT id, name, org_id, print_file_id FROM models WHERE id = :id"), {"id": model_id}).fetchone()
     if not model or not check_org_access(current_user, model[2]):
         raise HTTPException(status_code=404, detail="Model not found")
 
     accessible = _accessible_model_variant_rows(db, model_id, current_user)
+    from types import SimpleNamespace
+    from modules.models_library.printer_fit import printer_fit_for_files, row_file_facts, schedule_file
+    file = schedule_file(SimpleNamespace(print_file_id=model[3]), accessible)
 
     return {
         "model_id": model_id,
         "model_name": model[1],
+        # The printers the file a schedule request uses runs on (the schedule dialog pre-selects a single fit).
+        "printer_fit": printer_fit_for_files(db, current_user, [file]).get(file.id) if file else None,
         "variants": [{
             "id": v.id, "filename": v.filename, "printer_model": v.printer_model or "Unknown",
             "print_time_seconds": v.print_time_seconds,
@@ -566,6 +566,7 @@ def get_model_variants(model_id: int, current_user: dict = Depends(require_role(
             "layer_height": v.layer_height, "uploaded_at": v.uploaded_at,
             "bed_x_mm": v.bed_x_mm, "bed_y_mm": v.bed_y_mm,
             "compatible_api_types": v.compatible_api_types, "plate_count": v.plate_count or 1,
+            "file_facts": row_file_facts(v),
         } for v in accessible]
     }
 

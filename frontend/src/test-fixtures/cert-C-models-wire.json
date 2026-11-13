@@ -43,7 +43,22 @@
       "margin_of_price_percent": 33.3,
       "is_favorite": false,
       "bed_x_mm": null,
-      "bed_y_mm": null
+      "bed_y_mm": null,
+      "printer_fit": {
+        "count": 0,
+        "printers": [],
+        "sliced_for": "A1"
+      },
+      "file_facts": {
+        "nozzle_diameter": 0.4,
+        "layer_height": 0.2,
+        "plate_type": "textured_plate",
+        "supports": false,
+        "filament_colors": [
+          "#FF0000",
+          "#000000"
+        ]
+      }
     },
     {
       "id": 14,
@@ -75,7 +90,19 @@
       "margin_of_price_percent": 33.3,
       "is_favorite": true,
       "bed_x_mm": null,
-      "bed_y_mm": null
+      "bed_y_mm": null,
+      "printer_fit": {
+        "count": 0,
+        "printers": [],
+        "sliced_for": null
+      },
+      "file_facts": {
+        "nozzle_diameter": null,
+        "layer_height": null,
+        "plate_type": null,
+        "supports": null,
+        "filament_colors": []
+      }
     }
   ]
 }
