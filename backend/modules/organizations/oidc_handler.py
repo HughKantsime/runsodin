@@ -105,6 +105,19 @@ def _state_db_cleanup():
         log.debug(f"Failed to clean expired OIDC states: {e}")
 
 
+def effective_discovery_url(discovery_url, provider_type, tenant_id, environment="commercial"):
+    """The discovery address a sign-in will contact: the stored one, else the provider preset's.
+
+    Shared with the ITAR boot audit so both judge the same address.
+    """
+    if discovery_url:
+        return discovery_url
+    if provider_type == "google":
+        return "https://accounts.google.com/.well-known/openid-configuration"
+    template = OIDCHandler.DISCOVERY_URLS.get(environment, OIDCHandler.DISCOVERY_URLS["commercial"])
+    return template.format(tenant=tenant_id or "")
+
+
 class OIDCHandler:
     """
     Handles OIDC authentication with Microsoft Entra ID.
@@ -140,13 +153,7 @@ class OIDCHandler:
         self._expected_nonce: Optional[str] = None
         
         # Use custom discovery URL or default based on environment
-        if discovery_url:
-            self.discovery_url = discovery_url
-        elif provider_type == "google":
-            self.discovery_url = "https://accounts.google.com/.well-known/openid-configuration"
-        else:
-            template = self.DISCOVERY_URLS.get(environment, self.DISCOVERY_URLS["commercial"])
-            self.discovery_url = template.format(tenant=tenant_id)
+        self.discovery_url = effective_discovery_url(discovery_url, provider_type, tenant_id, environment)
         
     async def _get_oidc_config(self) -> Dict[str, Any]:
         """Fetch OIDC configuration from discovery endpoint. Cached for 1 hour.

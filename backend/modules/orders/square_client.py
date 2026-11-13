@@ -47,6 +47,16 @@ def tracked(data, location):
     return data.get('track_inventory') is True
 
 
+ITAR_REFUSAL = 'Square is turned off while ITAR mode is on: this server does not contact public services.'
+
+
+def refuse_under_itar():
+    """Square is a fixed public host, so ITAR mode can never allow it. Checked before any network use."""
+    from core.itar import is_itar_mode
+    if is_itar_mode():
+        raise HTTPException(409, ITAR_REFUSAL)
+
+
 class SquareReader:
     def __init__(self, environment, token):
         if environment not in HOSTS:
@@ -58,6 +68,7 @@ class SquareReader:
                    or re.fullmatch(r'/v2/catalog/object/[A-Za-z0-9_-]{1,192}', path)))
         if not allowed and not (method == 'POST' and path in ('/v2/inventory/counts/batch-retrieve', '/oauth2/token/status')):
             raise HTTPException(400, 'Square operation is not a supported read')
+        refuse_under_itar()
         try:
             with requests.Session() as session:
                 session.trust_env = False

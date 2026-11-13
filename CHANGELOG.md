@@ -59,6 +59,11 @@ All notable changes to O.D.I.N. are documented here.
 - Settings > Notifications: the Alert Preferences table lays out as a table again (alert type, then In-App, Push and Email side by side). A malformed layout rule had stacked the three switches under each alert at tablet and desktop widths (768 px and up; on a phone they stack by design). The same fault is fixed in the Education cost-center manager's two-column layout and member rows.
 - The scheduler now routes by filament material, not only colour. By default (`require`), a job is only assigned to a printer whose loaded filament includes every material the job needs (taken from the sliced file, otherwise from the job's filament type). A printer or job with no recorded material is never excluded, so installs that don't record materials see no change. **Behaviour change on upgrade for farms that do record materials (every Bambu AMS farm):** a job whose material is not loaded on any printer now waits in the queue with a reason, where it used to be assigned and then refused at dispatch (or, on other printer types, printed in the wrong material). Switch Filament routing to `prefer` or `off` to keep the old assignment behaviour. A job that no printer can take stays queued, and the scheduler run notes and the "Job could not be scheduled" alert say which material is missing; a job pinned to a printer that lacks the material also stays queued and is never moved. To switch it off, set **Settings > General > Scheduler Settings > Filament routing** to **Off** (colour scoring only, as before), or to **Prefer** (matching material ranks first but nothing is excluded). Only a platform administrator can change it, and each change is audited.
 
+### Security
+
+- ITAR mode now also covers Square: with `ODIN_ITAR_MODE=1` every Square call is refused before any network use, and ODIN refuses to start while a Square connection is stored. Previously an administrator could connect Square on such a server.
+- ITAR mode now refuses to start when single sign-on uses the built-in Microsoft or Google preset without being on the allowed identity-provider list. The sign-in itself was already blocked; the problem now shows at start-up instead of at the first sign-in.
+
 ## [2.1.0] - 2026-11-10
 
 

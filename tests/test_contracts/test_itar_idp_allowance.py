@@ -407,7 +407,7 @@ def _fake_db(monkeypatch, discovery_urls):
     class DB:
         def execute(self, clause, params=None):
             if "oidc_config" in str(clause):
-                return Result([(u,) for u in discovery_urls])
+                return Result([(u, "generic", None) for u in discovery_urls])   # discovery_url, provider_type, tenant_id
             return Result([])
 
         def close(self):
