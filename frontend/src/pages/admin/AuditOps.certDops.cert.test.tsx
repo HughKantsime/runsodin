@@ -10,6 +10,7 @@ import AuditLogs from './AuditLogs'
 import RoleGate from '../../components/auth/RoleGate'
 import { refreshPermissions } from '../../permissions'
 import wire from '../../test-fixtures/certDops-audit-wire.json'
+import { parseServerDate } from '../../utils/shared'
 
 // cert-fix-G: audit CSV export is the Enterprise audit_export entitlement.
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ hasFeature: (feature: string) => feature === 'audit_export' }) }))
@@ -65,7 +66,8 @@ describe('F19-19.1-02 audit log viewer is reachable by admins', () => {
     expect(await screen.findByText(row.action)).toBeInTheDocument()
     expect(screen.getByText(row.username)).toBeInTheDocument()
     expect(screen.getByText(row.ip_address)).toBeInTheDocument()
-    const stamp = new Date(row.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    // The server sends UTC without a zone; the page must show that instant, not read it as local time.
+    const stamp = parseServerDate(row.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
     expect(screen.getByText(stamp)).toBeInTheDocument()
     const calls = transport.mock.calls.filter(([url]) => String(url).startsWith('/api/audit-logs'))
     expect(calls.length).toBeGreaterThan(0)

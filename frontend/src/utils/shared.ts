@@ -86,16 +86,33 @@ export function formatDurationSecs(seconds: number | null | undefined): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
+/** Parse a timestamp sent by the server.
+ *  The API sends UTC without a zone ("2026-11-13T03:18:20"); `new Date()` would read that as
+ *  LOCAL time and show it hours off. A value that already carries a zone is used as it is, and a
+ *  date with no time ("2026-11-13") is a calendar day, not an instant: it stays that local day. */
+export function parseServerDate(value: string | number | Date | null | undefined): Date {
+  if (value instanceof Date) return value
+  if (typeof value === 'number') return new Date(value)
+  if (!value) return new Date(NaN)
+  const text = String(value).trim()
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (day) return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]))
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(text) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) {
+    return new Date(text.replace(' ', 'T') + 'Z')
+  }
+  return new Date(text)
+}
+
 /** Format an ISO date string to locale-friendly display (e.g. "Jan 5, 2026, 03:45 PM"). */
 export function formatDate(d: string | null | undefined): string {
   if (!d) return '--'
-  return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return parseServerDate(d).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 /** Format an ISO datetime string to time-only display (e.g. "3:45 PM"). */
 export function formatTime(isoString: string | null | undefined): string {
   if (!isoString) return '\u2014'
-  const d = new Date(isoString)
+  const d = parseServerDate(isoString)
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 

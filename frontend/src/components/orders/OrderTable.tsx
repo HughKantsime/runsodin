@@ -2,6 +2,7 @@ import Table from '../ui/Table'
 import { Eye, Pencil, Trash2, Play, Truck, Ban } from 'lucide-react'
 import { canDo } from '../../permissions'
 import { Button, StatusBadge } from '../ui'
+import { parseServerDate } from '../../utils/shared'
 
 export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, onSchedule, onShip, onCancel, onDelete }: { orders: any[]; STATUS_CLASSES: Record<string, string>; onDetail: (order: any) => void; onEdit: (order: any) => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDelete: (id: number) => void }) {
   return (
@@ -24,7 +25,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               <div>Customer: {order.customer_name || '-'}</div>
               <div>Items: {order.item_count || 0}</div>
               <div>Revenue: <span className="font-mono">{order.revenue != null ? `$${order.revenue.toFixed(2)}` : '-'}</span></div>
-              {order.created_at && <div>Date: {new Date(order.created_at).toLocaleDateString()}</div>}
+              {order.created_at && <div>Date: {parseServerDate(order.created_at).toLocaleDateString()}</div>}
             </div>
             <div className="flex gap-1">
               <Button variant="ghost" size="icon" icon={Eye} onClick={() => onDetail(order)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="View Details" />
@@ -71,7 +72,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
                 </button>
               </td>
               <td className="px-4 py-3 text-[var(--brand-muted)] text-sm">
-                {order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}
+                {order.created_at ? parseServerDate(order.created_at).toLocaleDateString() : '-'}
               </td>
               <td className="px-4 py-3 capitalize text-[var(--brand-text-secondary)]">{order.platform || '-'}</td>
               <td className="px-4 py-3 text-[var(--brand-text-secondary)]">{order.customer_name || '-'}</td>

@@ -4,6 +4,7 @@ import { History, Upload, X, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { modelRevisions } from '../../api'
 import { canDo } from '../../permissions'
+import { parseServerDate } from '../../utils/shared'
 
 export default function ModelRevisionPanel({ modelId, modelName, onClose }: { modelId: number; modelName?: string; onClose: () => void }) {
   const queryClient = useQueryClient()
@@ -100,7 +101,7 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }: { mo
                     <RotateCcw size={12} /> Revert
                   </button>
                 )}
-                <span className="text-xs text-[var(--brand-muted)] font-mono">{rev.created_at ? new Date(rev.created_at).toLocaleDateString() : ''}</span>
+                <span className="text-xs text-[var(--brand-muted)] font-mono">{rev.created_at ? parseServerDate(rev.created_at).toLocaleDateString() : ''}</span>
               </div>
             </div>
             {rev.changelog && <p className="text-xs text-[var(--brand-muted)]">{rev.changelog}</p>}

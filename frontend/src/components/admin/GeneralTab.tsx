@@ -168,6 +168,19 @@ function NetworkSection() {
   )
 }
 
+
+/** One sentence for the scheduler quiet hours. The server applies them in UTC, so the sentence
+ *  also gives the viewer's own clock time. Equal start and end means off. */
+export function quietHoursSummary(start: string, end: string, timeZone?: string): string {
+  if (!start || !end || start === end) return 'Quiet hours are off: the scheduler may start jobs at any time.'
+  const local = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number)
+    const at = new Date(Date.UTC(2026, 0, 15, h, m))
+    return at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...(timeZone ? { timeZone } : {}) })
+  }
+  return `The scheduler will not start jobs between ${start} and ${end} UTC (${local(start)} to ${local(end)} your time, standard time). Save to apply.`
+}
+
 export default function GeneralTab() {
   const { locale, setLocale, t, LANGUAGES } = useTranslation()
   const [languageSaving, setLanguageSaving] = useState(false)
@@ -363,21 +376,27 @@ export default function GeneralTab() {
         </p>
         <div className="grid grid-cols-2 gap-3 md:gap-4 max-w-md">
           <Input
-            label="Blackout Start"
+            label="Quiet hours start (UTC)"
             type="time"
             value={settings.blackout_start}
             onChange={(e) => setSettings(s => ({ ...s, blackout_start: e.target.value }))}
           />
           <Input
-            label="Blackout End"
+            label="Quiet hours end (UTC)"
             type="time"
             value={settings.blackout_end}
             onChange={(e) => setSettings(s => ({ ...s, blackout_end: e.target.value }))}
           />
         </div>
-        <p className="text-xs text-[var(--brand-text-muted)] mt-2">
-          Jobs will not be scheduled to start during blackout hours (currently {settings.blackout_start} - {settings.blackout_end})
+        <p className="text-xs text-[var(--brand-text-muted)] mt-2" data-testid="quiet-hours-summary">
+          {quietHoursSummary(settings.blackout_start, settings.blackout_end)}
         </p>
+        {settings.blackout_start !== settings.blackout_end && (
+          <button type="button" className="mt-2 text-xs underline text-[var(--brand-text-secondary)]"
+            onClick={() => setSettings(s => ({ ...s, blackout_start: '00:00', blackout_end: '00:00' }))}>
+            Turn quiet hours off
+          </button>
+        )}
       </div>
 
       {/* Job Approval Workflow */}

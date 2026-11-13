@@ -6,7 +6,7 @@ import { format } from 'date-fns'
 import clsx from 'clsx'
 import { resolveColor } from '../../utils/colorMap'
 import { canDo, getCurrentUser } from '../../permissions'
-import { formatHours } from '../../utils/shared'
+import { formatHours, parseServerDate } from '../../utils/shared'
 import { Button, StatusBadge } from '../ui'
 
 const PIN_ISSUE_TEXT: Record<string, string> = {
@@ -124,7 +124,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden md:table-cell">
         <span className="font-mono">{formatHours(job.duration_hours)}</span>
         {job.actual_start && job.actual_end && (() => {
-          const actualH = (new Date(job.actual_end) - new Date(job.actual_start)) / 3600000
+          const actualH = (parseServerDate(job.actual_end) - parseServerDate(job.actual_start)) / 3600000
           return (
             <span className="block text-xs text-[var(--brand-text-muted)] font-mono" title="Actual duration">
               {formatHours(actualH)} actual
@@ -133,7 +133,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         })()}
       </td>
       <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden lg:table-cell">
-        <span className="font-mono">{job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
+        <span className="font-mono">{job.scheduled_start ? format(parseServerDate(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-1">

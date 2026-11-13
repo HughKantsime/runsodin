@@ -86,6 +86,15 @@ class SetupAdminRequest(PydanticBaseModel):
     # Farm name from the wizard; saved as the branding app name (GET /api/branding).
     site_name: Optional[str] = None
 
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, value):
+        """Blank stays allowed (as before); anything else must look like an address."""
+        value = (value or "").strip()
+        if value and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise ValueError("Enter a valid email address")
+        return value
+
     @field_validator("site_name")
     @classmethod
     def _validate_site_name(cls, value):
@@ -207,6 +216,11 @@ def setup_create_admin(request: SetupAdminRequest, http_request: Request, db: Se
         db.rollback()
         log.error(f"Failed to create admin user during setup: {e}")
         raise HTTPException(status_code=400, detail="Failed to create user. The username may already be taken.")
+
+    # A new install starts with scheduler quiet hours off (same transaction as the account).
+    # Installs that existed before this keep whatever they had, saved or default.
+    from core.scheduler_settings import disable_blackout
+    disable_blackout(db)
 
     # The wizard's token is a real session, committed with the account:
     # listed in Active Sessions and revoked by "sign out everywhere" and by

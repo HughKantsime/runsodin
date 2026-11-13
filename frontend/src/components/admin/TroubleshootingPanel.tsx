@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchAPI } from '../../api'
 import { Button, Card } from '../ui'
+import { parseServerDate } from '../../utils/shared'
 
 type Check = { stage: string; status: string; message: string; next_step: string; details: Record<string, unknown> }
 type Result = { diagnostic_id: string; checked_at: string; checks: Check[] }
@@ -9,7 +10,7 @@ type Report = Result & { included: string[]; [key: string]: unknown }
 function Results({ result }: { result: Result | null }) {
   if (!result) return null
   return <div className="space-y-3 mt-4">
-    <p className="text-xs text-[var(--brand-text-muted)]">Checked {new Date(result.checked_at).toLocaleString()} · ID {result.diagnostic_id}</p>
+    <p className="text-xs text-[var(--brand-text-muted)]">Checked {parseServerDate(result.checked_at).toLocaleString()} · ID {result.diagnostic_id}</p>
     {result.checks.map((item, i) => <div key={`${item.stage}-${i}`} className="border border-[var(--brand-card-border)] rounded-md p-3">
       <p className="font-semibold">{item.stage.replaceAll('_', ' ')}: {item.status}</p>
       <p>{item.message}</p>

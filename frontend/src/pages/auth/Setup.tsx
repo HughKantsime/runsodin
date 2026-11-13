@@ -13,6 +13,9 @@ const STEPS = [
   { id: 'done', title: 'Ready' },
 ]
 
+// The trial request page on the ODIN website (the key is emailed; nothing is sent from this install).
+export const TRIAL_URL = 'https://runsodin.com/portal/trial'
+
 const PRINTER_MODELS = {
   bambu: [
     { value: 'X1C', label: 'X1 Carbon', slots: 4 },
@@ -46,6 +49,18 @@ const PRINTER_MODELS = {
     { value: 'Saturn 4 Ultra', label: 'Saturn 4 Ultra (Resin)', slots: 1 },
     { value: 'Other', label: 'Other Elegoo Printer', slots: 1 },
   ],
+}
+
+
+/** Text for an error that may arrive as a string or as the API's {code, detail} object.
+ *  Rendering the object itself throws and blanks the page. */
+export function errorText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    const detail = (value as { detail?: unknown; message?: unknown }).detail ?? (value as { message?: unknown }).message
+    return typeof detail === 'string' ? detail : ''
+  }
+  return ''
 }
 
 export default function Setup() {
@@ -89,12 +104,30 @@ export default function Setup() {
   // on the backend; no token field needed.
 
   // v1.8.8: tier step. Community (free) / key / offline.
-  const [tierChoice, setTierChoice] = useState<'' | 'community' | 'key' | 'offline'>('')
+  const [tierChoice, setTierChoice] = useState<'' | 'community' | 'trial' | 'key' | 'offline'>('')
   const [licenseKey, setLicenseKey] = useState('')
   const [offlineFile, setOfflineFile] = useState<File | null>(null)
   const [tierLoading, setTierLoading] = useState(false)
   const [tierError, setTierError] = useState('')
   const [tierResult, setTierResult] = useState<{ tier?: string; licensee?: string } | null>(null)
+
+  // Reopening /setup on an install that already has its admin (a reload, a crash, a second
+  // device) must not ask for another admin: continue where setup left off, or go and sign in.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const status = await (await fetch('/api/setup/status')).json()
+        if (cancelled || !status?.has_users) return
+        if (status.is_complete) { window.location.href = '/'; return }
+        const me = await fetch('/api/auth/me', { credentials: 'include' })
+        if (cancelled) return
+        if (me.ok) setStep(current => (current < 2 ? 2 : current))
+        else window.location.href = '/login'
+      } catch { /* the wizard still works from step one */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // Auto-set slot count when model changes
   useEffect(() => {
@@ -135,6 +168,7 @@ export default function Setup() {
     if (!username.trim()) return setError('Username is required')
     if (!email.trim()) return setError('Email is required')
     if (!password) return setError('Password is required')
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError('Enter a valid email address')
     if (password.length < 8) return setError('Password must be at least 8 characters')
     if (!/[A-Z]/.test(password)) return setError('Password must contain at least one uppercase letter')
     if (!/[a-z]/.test(password)) return setError('Password must contain at least one lowercase letter')
@@ -186,24 +220,27 @@ export default function Setup() {
 
     setTestLoading(true)
     try {
-      const resp = await fetch('/api/setup/test-printer', {
+      // The admin account already exists at this step, so /api/setup/test-printer (open only
+      // while the install is unclaimed) always answers 403. Use the signed-in test instead.
+      const resp = await fetch('/api/printers/test-connection', {
         method: 'POST',
         ...apiOptions(token),
         body: JSON.stringify({
-          name: printerName.trim() || 'Printer',
           api_type: printerType,
           api_host: printerIp.trim(),
-          api_key: printerType === 'bambu' ? `${serial.trim()}|${accessCode.trim()}` : (printerType === 'prusalink' ? printerApiKey || null : null),
-          model: printerModel,
+          ...(printerType === 'prusalink' && printerApiKey ? { api_key: printerApiKey } : {}),
           serial: serial.trim() || null,
           access_code: accessCode.trim() || null,
-          slot_count: slotCount,
         }),
       })
-      const data = await resp.json()
-      setTestResult(data)
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) {
+        setTestResult({ success: false, error: errorText(data?.detail) || `The connection test could not run (HTTP ${resp.status})` })
+      } else {
+        setTestResult(data && typeof data === 'object' ? data : { success: false, error: 'Connection failed' })
+      }
     } catch (err: any) {
-      setTestResult({ success: false, error: err.message })
+      setTestResult({ success: false, error: errorText(err?.message) || 'Connection failed' })
     } finally {
       setTestLoading(false)
     }
@@ -513,6 +550,17 @@ export default function Setup() {
           </button>
 
           <button
+            onClick={() => setTierChoice('trial')}
+            className="p-4 rounded-lg border border-white/10 bg-white/[0.02] hover:border-amber-500/40 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles size={18} className="text-amber-500" />
+              <span className="text-white font-semibold">Try Pro free</span>
+            </div>
+            <p className="text-white/50 text-sm">Get a free trial key by email, then paste it here.</p>
+          </button>
+
+          <button
             onClick={() => setTierChoice('key')}
             className="p-4 rounded-lg border border-white/10 bg-white/[0.02] hover:border-amber-500/40 transition-colors text-left"
           >
@@ -533,6 +581,22 @@ export default function Setup() {
             </div>
             <p className="text-white/50 text-sm">Upload a signed-license JSON for air-gapped / ITAR deployments.</p>
           </button>
+        </div>
+      )}
+
+      {tierChoice === 'trial' && (
+        <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5" data-testid="setup-trial">
+          <p className="text-white/80 text-sm mb-3">
+            Request a trial key on the ODIN website. It arrives by email; come back here and paste it.
+            If you would rather set up first, start on Community and add the key later in Settings, License.
+          </p>
+          <a href={TRIAL_URL} target="_blank" rel="noopener noreferrer"
+            className="inline-block mb-4 text-amber-400 underline text-sm">Request a trial key at runsodin.com (opens a new tab)</a>
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={() => setTierChoice('')} className={btnSecondary}><ChevronLeft size={16} /> Back</button>
+            <button onClick={() => setTierChoice('key')} className={btnPrimary}>I have my key <ChevronRight size={16} /></button>
+            <button onClick={() => setTierChoice('community')} className={btnSecondary}>Start on Community for now</button>
+          </div>
         </div>
       )}
 
@@ -749,7 +813,7 @@ export default function Setup() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <AlertCircle size={16} />
-                    <span>{testResult.error || testResult.message || 'Connection failed'}</span>
+                    <span>{errorText(testResult.error) || errorText(testResult.message) || 'Connection failed'}</span>
                   </div>
                 )}
               </div>
@@ -771,7 +835,7 @@ export default function Setup() {
           </div>
 
           <button onClick={() => setStep(4)} className="w-full mt-3 text-center text-white/30 hover:text-white/50 text-sm transition-colors">
-            Skip \u2014 I'll add printers later
+            Skip for now. I'll add printers later
           </button>
         </>
       )}
@@ -886,7 +950,7 @@ export default function Setup() {
           {stepViews[step]()}
         </div>
         <p className="text-center text-white/20 text-xs mt-4">
-          O.D.I.N. \u2014 Orchestrated Dispatch & Inventory Network
+          O.D.I.N. {'\u00B7'} Orchestrated Dispatch & Inventory Network
         </p>
       </div>
     </div>

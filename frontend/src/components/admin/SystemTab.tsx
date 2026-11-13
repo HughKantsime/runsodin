@@ -12,6 +12,7 @@ import { useLicense } from '../../LicenseContext'
 import toast from 'react-hot-toast'
 import { Button, Card, Input } from '../ui'
 import { clearSensitiveBrowserState } from '../../permissions'
+import { parseServerDate } from '../../utils/shared'
 
 function downloadExport(endpoint, filename) {
   // endpoint comes in as '/api/...' — strip the /api prefix for downloadBlob
@@ -319,7 +320,7 @@ export default function SystemTab() {
   }
 
   const formatDate = (dateStr) => {
-    const d = new Date(dateStr)
+    const d = parseServerDate(dateStr)
     return d.toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit'

@@ -6,6 +6,7 @@ import { canDo } from '../../permissions'
 import { printers, printerTelemetry } from '../../api'
 
 import type { HmsHistoryResponse } from '../../types'
+import { parseServerDate } from '../../utils/shared'
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: 'bg-red-600/10 text-red-400/80',
@@ -53,7 +54,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
     }
   }
 
-  const formatDate = (d: string) => new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const formatDate = (d: string) => parseServerDate(d).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   // Top recurring errors
   const topErrors = Object.entries(data.frequency || {})

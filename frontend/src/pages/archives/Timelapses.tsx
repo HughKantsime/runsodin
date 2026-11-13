@@ -10,6 +10,7 @@ import type { User, Timelapse } from '../../types'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import TimelapseFactsRecheck from '../../components/archives/TimelapseFactsRecheck'
 import TimelapseEditor from '../../components/archives/TimelapseEditor'
+import { parseServerDate } from '../../utils/shared'
 
 function audience(user: User | null | undefined) {
   return user && Number.isInteger(user.id) && user.id > 0 ? JSON.stringify([user.id, user.username, user.role, user.group_id]) : ''
@@ -91,7 +92,7 @@ export default function Timelapses() {
     {error && <PageState kind="error" role="alert">{error}</PageState>}
     {!rows.isLoading && !rows.isError && !items.length && <p>No recordings match these filters.</p>}
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{items.map(row => <article key={row.id} className="border rounded-lg p-4 space-y-2"><h2>{row.printer_name || `Printer ${row.printer_id}`}</h2><p>Recording {row.id}: {row.status}, {row.frame_count} frames</p>
-      {row.created_at && <p>{new Date(row.created_at).toLocaleString()}</p>}
+      {row.created_at && <p>{parseServerDate(row.created_at).toLocaleString()}</p>}
       {durationLabel(row.duration_seconds) !== null && <p>{durationLabel(row.duration_seconds)}</p>}
       {Number.isInteger(row.print_job_id) && (row.print_job_id ?? 0) > 0 && <p>Job #{row.print_job_id}</p>}
       {row.status === 'ready' && <><button onClick={() => { retire(); setError(''); setPlaying({ row, owner, epoch: generation.current }) }}>Play recording {row.id}</button><button disabled={pending} onClick={() => download(row)}>Download recording {row.id}</button></>}

@@ -7,6 +7,7 @@ import { PageHeader, SearchInput, Button, EmptyState, Select } from '../../compo
 import toast from 'react-hot-toast'
 import type { User } from '../../types'
 import { useLicense } from '../../LicenseContext'
+import { parseServerDate } from '../../utils/shared'
 
 const ACTION_COLORS = {
   create: 'text-green-400',
@@ -188,7 +189,7 @@ export default function AuditLogs() {
               return (
               <tr key={log.id} className="border-b border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/30 transition-colors">
                 <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] whitespace-nowrap font-mono text-xs">
-                  {log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown'}
+                  {log.timestamp ? parseServerDate(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown'}
                 </td>
                 <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] whitespace-nowrap">
                   {log.auth_kind === 'legacy_global_api_key' ? 'Service API key' : log.username || 'Unknown'}

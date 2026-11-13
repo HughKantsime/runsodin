@@ -2,6 +2,7 @@ import PageState from '../ui/PageState'
 import { useState, useEffect } from 'react'
 import { Key, Plus, Trash2, Copy, CheckCircle, AlertTriangle, Clock, Loader2 } from 'lucide-react'
 import { apiTokens } from '../../api'
+import { parseServerDate } from '../../utils/shared'
 
 const AVAILABLE_SCOPES = [
   { value: 'read:printers', label: 'Read Printers' },
@@ -224,11 +225,11 @@ export default function APITokenManager() {
                 <div className="flex gap-3 mt-1 text-xs text-[var(--brand-text-muted)]">
                   {t.expires_at && (
                     <span className="flex items-center gap-1">
-                      <Clock size={10} /> Expires {new Date(t.expires_at).toLocaleDateString()}
+                      <Clock size={10} /> Expires {parseServerDate(t.expires_at).toLocaleDateString()}
                     </span>
                   )}
                   {t.last_used_at && (
-                    <span>Last used {new Date(t.last_used_at).toLocaleDateString()}</span>
+                    <span>Last used {parseServerDate(t.last_used_at).toLocaleDateString()}</span>
                   )}
                 </div>
               </div>

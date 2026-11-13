@@ -477,7 +477,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                   !testStatus && "bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] text-[var(--brand-text-primary)]"
                 )}>
                 {testStatus === 'testing' ? (
-                  <><span className="animate-spin">\u27F3</span> Testing...</>
+                  <><span className="animate-spin">{'\u27F3'}</span> Testing...</>
                 ) : testStatus === 'success' ? (
                   <><CheckCircle size={14} /> Connected</>
                 ) : testStatus === 'error' ? (

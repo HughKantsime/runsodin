@@ -23,6 +23,7 @@ import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
 import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
 import { PageHeader, Button, SearchInput, TabBar } from '../../components/ui'
+import { parseServerDate } from '../../utils/shared'
 
 
 const jobTypeTabs = [
@@ -260,7 +261,7 @@ export default function Jobs() {
         case 'priority': return dir * ((a.priority ?? 99) - (b.priority ?? 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
         case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
-        case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0).getTime() - new Date(b.scheduled_start || 0).getTime())
+        case 'scheduled_start': return dir * (parseServerDate(a.scheduled_start || 0).getTime() - parseServerDate(b.scheduled_start || 0).getTime())
         default: return 0
       }
     })

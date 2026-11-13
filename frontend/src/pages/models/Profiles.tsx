@@ -8,6 +8,7 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 import ProfileHistory from './ProfileHistory'
 import { canDo, getCurrentUser } from '../../permissions'
 import { DialogSurface } from '../../components/ui'
+import { parseServerDate } from '../../utils/shared'
 
 const SLICER_TABS = [
   { key: '', label: 'All' },
@@ -242,7 +243,7 @@ export default function Profiles({ filterPrinterId, filterSlicer }: { filterPrin
                 {p.description && <p className="text-xs text-[var(--brand-muted)] truncate">{p.description}</p>}
                 <div className="flex items-center gap-3 mt-1 text-xs text-[var(--brand-muted)]">
                   {p.tags && <span>{p.tags}</span>}
-                  {p.last_applied_at && <span>Applied {new Date(p.last_applied_at).toLocaleDateString()}</span>}
+                  {p.last_applied_at && <span>Applied {parseServerDate(p.last_applied_at).toLocaleDateString()}</span>}
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">

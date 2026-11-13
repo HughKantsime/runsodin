@@ -279,7 +279,7 @@ function AlertsWidget() {
           onClick={() => navigate('/alerts')}
           className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
         >
-          View all \u2192
+          View all {'\u2192'}
         </button>
       </div>
       <div className="space-y-1.5">

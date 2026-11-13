@@ -32,6 +32,8 @@ beforeEach(()=>{
  vi.stubGlobal('fetch',vi.fn(async(url:unknown)=>({ok:String(url)==='/api/setup/complete'?api.completeOK:true,status:api.completeOK?200:500,json:async()=>String(url)==='/api/setup/network'?{detected_ip:'192.0.2.10'}:{access_token:'synthetic-test-authority'}})))
 })
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals()})
+// The wizard asks /api/setup/status once when it opens (to resume a claimed install); that read is not a setup request.
+const sent=()=>vi.mocked(fetch).mock.calls.filter(([url])=>url!=='/api/setup/status')
 function mount(){render(<MemoryRouter initialEntries={['/setup']}><Routes><Route path='/setup' element={<Setup/>}/><Route path='/' element={<h1>Synthetic Dashboard</h1>}/></Routes></MemoryRouter>)}
 async function admin(){
  fireEvent.click(screen.getByRole('button',{name:'Get Started'}))
@@ -46,12 +48,12 @@ async function admin(){
 async function ready(){await admin();fireEvent.click(screen.getByText('Community (free)'));fireEvent.click(screen.getByRole('button',{name:'Start with Community'}));expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:/Skip.*add printers later/}));await screen.findByRole('heading',{name:'Network Configuration'});fireEvent.click(screen.getByRole('button',{name:'Skip',exact:true}));expect(screen.getByRole('heading',{name:"You're all set!"})).toBeInTheDocument()}
 test('F22-22.1-06 required admin fields block requests; Back returns welcome',()=>{
  mount();fireEvent.click(screen.getByRole('button',{name:'Get Started'}));fireEvent.click(screen.getByRole('button',{name:'Create Account'}))
- expect(screen.getByText('Username is required')).toBeInTheDocument();expect(fetch).not.toHaveBeenCalled()
+ expect(screen.getByText('Username is required')).toBeInTheDocument();expect(sent()).toEqual([])
  fireEvent.click(screen.getByRole('button',{name:'Back'}));expect(screen.getByRole('heading',{name:'Welcome to O.D.I.N.'})).toBeInTheDocument()
 })
 test('F22-22.1-06 successful account request preserves farm name and establishes cookie login',async()=>{
  mount();await admin()
- const calls=vi.mocked(fetch).mock.calls
+ const calls=sent()
  expect(JSON.parse(String(calls[0][1]?.body))).toEqual({username:'synthetic-admin',email:'synthetic@example.invalid',password:'Synthetic123',site_name:'Synthetic farm'})
  expect(calls[1][0]).toBe('/api/auth/login');expect(calls[1][1]?.credentials).toBe('include');expect(api.refresh).toHaveBeenCalledOnce()
 })
@@ -66,12 +68,12 @@ test('F22-22.1-06 below Pro the farm-name field is disabled with a Pro note and 
  expect(field).toBeDisabled();expect(field).toHaveValue('O.D.I.N.')
  expect(screen.getByText(/Pro feature: a custom instance name needs a Pro license/)).toBeInTheDocument()
  cleanup();mount();await admin()
- expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual({username:'synthetic-admin',email:'synthetic@example.invalid',password:'Synthetic123'})
+ expect(JSON.parse(String(sent()[0][1]?.body))).toEqual({username:'synthetic-admin',email:'synthetic@example.invalid',password:'Synthetic123'})
 })
 test('F22-22.1-06 farm name is saved with Admin before the documented Tier step',async()=>{
  mount();await admin()
  expect(screen.getByRole('heading',{name:'Pick a Tier'})).toBeInTheDocument()
- expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)).site_name).toBe('Synthetic farm')
+ expect(JSON.parse(String(sent()[0][1]?.body)).site_name).toBe('Synthetic farm')
 })
 test('F22-22.1-06 rejected completion does not enter dashboard as completed',async()=>{
  mount();await ready();api.completeOK=false;fireEvent.click(screen.getByRole('button',{name:'Open Dashboard'}))
@@ -130,7 +132,9 @@ test('wizard sends the backend PrusaLink schema for both connection test and cre
  expect(key).toHaveAttribute('type','password')
  fireEvent.change(key,{target:{value:payload.api_key}})
  fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
- await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/test-printer',expect.objectContaining({body:JSON.stringify(payload)})))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/printers/test-connection',expect.objectContaining({method:'POST',credentials:'include'})))
+ expect(JSON.parse(String(vi.mocked(fetch).mock.calls.find(([url])=>url==='/api/printers/test-connection')![1]?.body))).toEqual({api_type:payload.api_type,api_host:payload.api_host,api_key:payload.api_key,serial:null,access_code:null})
+ expect(vi.mocked(fetch).mock.calls.some(([url])=>url==='/api/setup/test-printer')).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
  await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/printer',expect.objectContaining({body:JSON.stringify(payload)})))
 })
@@ -144,11 +148,43 @@ test('wizard packs Bambu credentials for creation and keeps separate probe crede
  fireEvent.change(screen.getByPlaceholderText('From printer settings or Bambu app'),{target:{value:'FIXTURE-SERIAL'}})
  fireEvent.change(screen.getByPlaceholderText('8-digit code from printer'),{target:{value:'fixture-code'}})
  fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
- await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/test-printer',expect.objectContaining({body:expect.any(String)})))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/printers/test-connection',expect.objectContaining({body:expect.any(String)})))
  fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
  await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/printer',expect.objectContaining({body:expect.any(String)})))
- for(const endpoint of ['/api/setup/test-printer','/api/setup/printer']) {
-  const call=vi.mocked(fetch).mock.calls.find(([url])=>url===endpoint)!
-  expect(JSON.parse(String(call[1]?.body))).toMatchObject({api_type:'bambu',api_host:'192.0.2.45',api_key:'FIXTURE-SERIAL|fixture-code',serial:'FIXTURE-SERIAL',access_code:'fixture-code'})
- }
+ const probe=vi.mocked(fetch).mock.calls.find(([url])=>url==='/api/printers/test-connection')!
+ expect(JSON.parse(String(probe[1]?.body))).toEqual({api_type:'bambu',api_host:'192.0.2.45',serial:'FIXTURE-SERIAL',access_code:'fixture-code'})
+ const created=vi.mocked(fetch).mock.calls.find(([url])=>url==='/api/setup/printer')!
+ expect(JSON.parse(String(created[1]?.body))).toMatchObject({api_type:'bambu',api_host:'192.0.2.45',api_key:'FIXTURE-SERIAL|fixture-code',serial:'FIXTURE-SERIAL',access_code:'fixture-code'})
+})
+
+test('a failed connection test shows its sentence and never renders the error object', async () => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'),{target:{value:'192.0.2.45'}})
+ fireEvent.change(screen.getByPlaceholderText('From printer settings or Bambu app'),{target:{value:'FIXTURE-SERIAL'}})
+ fireEvent.change(screen.getByPlaceholderText('8-digit code from printer'),{target:{value:'fixture-code'}})
+ const original=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async(url,opts)=>url==='/api/printers/test-connection'
+  ? {ok:false,status:403,json:async()=>({detail:'Not allowed here',error:{code:'permission_denied',detail:'Not allowed here',retriable:false}})} as Response
+  : original(url,opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ expect(await screen.findByText('Not allowed here')).toBeInTheDocument()
+ expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument()
+ vi.mocked(fetch).mockImplementation(async(url,opts)=>url==='/api/printers/test-connection'
+  ? {ok:true,status:200,json:async()=>({success:false,error:{code:'x',detail:'Printer refused',retriable:false}})} as Response
+  : original(url,opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ expect(await screen.findByText('Printer refused')).toBeInTheDocument()
+})
+
+test('reopening setup on a claimed install resumes at the tier step when signed in, and goes to sign in otherwise', async () => {
+ const original=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async(url,opts)=>url==='/api/setup/status'
+  ? {ok:true,status:200,json:async()=>({needs_setup:false,has_users:true,is_complete:false})} as Response
+  : url==='/api/auth/me' ? {ok:true,status:200,json:async()=>({username:'synthetic-admin'})} as Response : original(url,opts))
+ mount()
+ expect(await screen.findByRole('heading',{name:'Pick a Tier'})).toBeInTheDocument()
+ expect(screen.getByText('Try Pro free')).toBeInTheDocument()
+ expect(vi.mocked(fetch).mock.calls.some(([url])=>url==='/api/setup/admin')).toBe(false)
 })

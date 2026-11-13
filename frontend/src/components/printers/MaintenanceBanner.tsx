@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { printerMaintenance, type MaintenanceState } from '../../api/printerMaintenance'
 import { Button } from '../ui'
+import { parseServerDate } from '../../utils/shared'
 
 export default function MaintenanceBanner({ printerId, editable = false, maintenance }: { printerId: number; editable?: boolean; maintenance?: MaintenanceState | null }) {
   const client = useQueryClient()
@@ -15,7 +16,7 @@ export default function MaintenanceBanner({ printerId, editable = false, mainten
     {maintenance === undefined && query.isError && <p role="alert">Maintenance status unavailable. <button onClick={() => query.refetch()}>Retry</button></p>}
     {current && current.state !== 'ok' && <div role="status" className="border border-amber-500 rounded p-3">
       <strong>{current.state === 'hold' ? 'Maintenance hold — dispatch blocked' : 'Maintenance warning'}</strong>
-      <p>{current.note}</p><p className="text-xs">Set by {current.set_by_name || current.set_by || 'admin'}{current.set_at ? ` · ${new Date(current.set_at).toLocaleString()}` : ''}</p>
+      <p>{current.note}</p><p className="text-xs">Set by {current.set_by_name || current.set_by || 'admin'}{current.set_at ? ` · ${parseServerDate(current.set_at).toLocaleString()}` : ''}</p>
     </div>}
     {editable && principal?.role === 'admin' && current && <Button onClick={() => { setState(current!.state); setNote(current!.note); setEditing(true); save.reset() }}>Set maintenance state</Button>}
     {editing && <form className="space-y-2" onSubmit={e => { e.preventDefault(); save.mutate() }}>
