@@ -546,23 +546,29 @@ class PrinterVisionThread(threading.Thread):
         needing a tag only runs on printers that carry it), so tagging a job would block it.
         Checked once a minute per print.
         """
-        if self.print_job_id is None:
+        # One print id for the cache lookup, the query and the cache entry: the monitor can move
+        # the thread to another print while the query runs, and print A's answer must never be
+        # stored, or returned, as print B's.
+        job_id = self.print_job_id
+        if job_id is None:
             return False
         now = time.monotonic()
         cached = getattr(self, '_training_excluded', None)
-        if cached and cached[0] == self.print_job_id and now - cached[2] < 60:
+        if cached and cached[0] == job_id and now - cached[2] < 60:
             return cached[1]
         try:
             with engine.connect() as conn:
                 category = conn.execute(text(
                     "SELECT m.category FROM print_jobs pj JOIN jobs j ON j.id = pj.scheduled_job_id "
                     "LEFT JOIN models m ON m.id = j.model_id WHERE pj.id = :pid"),
-                    {"pid": self.print_job_id}).scalar()
+                    {"pid": job_id}).scalar()
             excluded = training_capture.excluded_category(category)
         except Exception:
             log.warning(f"[{self.printer_name}] Training exclusion check failed; training frame not saved")
             excluded = True
-        self._training_excluded = (self.print_job_id, excluded, now)
+        self._training_excluded = (job_id, excluded, now)
+        if self.print_job_id != job_id:
+            return True   # the print changed meanwhile: this frame is not saved; the next one re-reads
         return excluded
 
     def _storage_alert(self, free: int, minimum: int) -> None:

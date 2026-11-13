@@ -640,3 +640,29 @@ def test_a_detections_own_frame_is_saved_only_under_the_print_it_was_captured_fo
     thread._detection_burst(thread.frame)
     assert len(env.training()) == 0
     assert thread._burst_after_job == 9001   # the follow-up frame is not credited to B either
+
+
+def test_an_exclusion_answer_is_never_cached_for_another_print(env, monkeypatch):
+    """Fifth sign-off: the monitor moved from ordinary print A to excluded print B during A's
+    category query; A's 'not excluded' was cached under B's id and B was collected for a minute."""
+    from modules.vision import detection_thread
+    _print(env.db, 9001, 8001)
+    _print(env.db, 9002, 8002, category='no-training')
+    env.db.commit()
+    thread = env.make(9001)
+    real_engine = detection_thread.engine
+
+    class Switching:
+        def connect(self):
+            thread.print_job_id = 9002          # the switch happens while A's query is out
+            return real_engine.connect()
+
+        def __getattr__(self, name):
+            return getattr(real_engine, name)
+    monkeypatch.setattr(detection_thread, 'engine', Switching())
+    assert thread._training_job_excluded() is True          # A's frame is dropped
+    monkeypatch.setattr(detection_thread, 'engine', real_engine)
+    assert thread._training_excluded[0] == 9001             # A's answer is A's
+    assert thread._training_job_excluded() is True          # B is read for itself: excluded
+    thread._capture_and_analyze()
+    assert len(env.training()) == 0
