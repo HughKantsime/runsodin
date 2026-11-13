@@ -161,9 +161,8 @@ def test_p1_login_audit_trail_records_client_ip_via_real_api(odin):
     assert r.status_code == 200, r.text
     logs = [e for e in r.json()["logs"] if e["ip_address"] == "203.0.113.11"]
     actions = {e["action"] for e in logs}
-    assert {"login_failed", "auth.login_failed"} <= actions
-    r2 = odin.get("/api/audit-logs", params={"action": "login_success", "limit": 500}, headers=odin.cached_admin)
-    assert any(e["ip_address"] == "203.0.113.12" for e in r2.json()["logs"])
+    # One row per sign-in outcome: the legacy login_failed/login_success twins are no longer written.
+    assert "auth.login_failed" in actions and "login_failed" not in actions
     r3 = odin.get("/api/audit-logs", params={"action": "auth.login", "limit": 500}, headers=odin.cached_admin)
     assert any(e["ip_address"] == "203.0.113.12" for e in r3.json()["logs"])
 
@@ -301,6 +300,6 @@ def test_untrusted_forwarded_header_is_not_recorded_as_login_ip(tmp_path_factory
         assert o.login("nobody_x", "Wrong1abc", **xff("192.0.2.99")).status_code == 401
         rows = o.sql("SELECT ip FROM login_attempts WHERE username='nobody_x'")
         assert rows == [("127.0.0.1",)]
-        r = o.get("/api/audit-logs", params={"action": "login_failed"}, headers={"Authorization": "Bearer " + o.admin_token})
+        r = o.get("/api/audit-logs", params={"action": "auth.login_failed"}, headers={"Authorization": "Bearer " + o.admin_token})
         assert r.status_code == 200
         assert {e["ip_address"] for e in r.json()["logs"]} == {"127.0.0.1"}

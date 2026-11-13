@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Audit Log: each entry now reads as a plain sentence ("newowner sent job 1 to Test X1C"), with the raw action and details one click away under "Raw record"; actions without a sentence yet look as before. A password sign-in now writes one audit entry instead of two: `auth.login` for a completed sign-in and `auth.login_failed` for a failed one (a correct password that still needs a second step keeps its single `login_success` entry). Existing entries are untouched; a SIEM rule or saved search that matched the old `login_failed` or `login_success` twins should match `auth.login_failed` and `auth.login`. The Export CSV button is no longer shown on licenses without audit export, instead of a disabled button.
 - Home Assistant day totals compare parsed completion times against local midnight, so Moonraker ISO timestamps and timestamps with offsets count on the correct day alongside naive UTC timestamps.
 - Vigil training capture now verifies a print's job link when controlled data exists and rechecks controlled status before every sampled or burst frame write. Pending review advances correctly under React StrictMode. The training guide now correctly states that labelled frames also expire under the retention setting.
 ### Changed

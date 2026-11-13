@@ -290,7 +290,7 @@ for peer in ['127.0.0.1', '::1']:
     assert c.post('/api/auth/login', data={'username':'nobody', 'password':PASSWORD}).status_code == 401
 for query in ['SELECT DISTINCT ip_address FROM active_sessions ORDER BY ip_address',
               'SELECT DISTINCT ip FROM login_attempts ORDER BY ip',
-              "SELECT DISTINCT ip_address FROM audit_logs WHERE action IN ('auth.login','login_failed') ORDER BY ip_address"]:
+              "SELECT DISTINCT ip_address FROM audit_logs WHERE action IN ('auth.login','auth.login_failed') ORDER BY ip_address"]:
     assert sql(query) == [['127.0.0.1'], ['::1']]
 OUT['untrusted_identity'] = True
 ''', tmp_path, extra_env={'ODIN_TRUSTED_PROXIES': ''})

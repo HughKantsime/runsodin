@@ -1,8 +1,8 @@
 import Table from '../../components/ui/Table'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Download, ChevronLeft, ChevronRight, Lock } from 'lucide-react'
-import { auditLogs, auth } from '../../api'
+import { FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { auditLogs, auth, printers } from '../../api'
 import { PageHeader, SearchInput, Button, EmptyState, Select } from '../../components/ui'
 import toast from 'react-hot-toast'
 import type { User } from '../../types'
@@ -10,6 +10,7 @@ import { useLicense } from '../../LicenseContext'
 import { RowCard, RowCardList } from '../../components/ui/RowCard'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { parseServerDate } from '../../utils/shared'
+import { auditSentence } from '../../utils/auditSentence'
 
 const ACTION_COLORS = {
   create: 'text-green-400',
@@ -39,9 +40,38 @@ function summarizeDetails(details: any) {
   return parts.length > 0 ? parts.join(' \u2022 ') : null
 }
 
+const actorOf = (log: any): string | null => log.auth_kind === 'legacy_global_api_key' ? 'Service API key' : log.username || null
+
+// The raw action and details stay one click away: auditors need the record as written.
+function RawRecord({ log, expanded, onToggle }: { log: any; expanded: boolean; onToggle: () => void }) {
+  return (
+    <>
+      <button type="button" aria-expanded={expanded} onClick={onToggle} className="min-h-11 sm:min-h-0 text-xs underline text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] transition-colors">
+        {expanded ? 'Hide raw record' : 'Raw record'}
+      </button>
+      {expanded && (
+        <pre data-testid="audit-raw" className="mt-1 text-xs whitespace-pre-wrap font-mono text-[var(--brand-text-secondary)]">
+          {JSON.stringify({ action: log.action, entity_type: log.entity_type ?? null, entity_id: log.entity_id ?? null, details: log.details ?? null }, null, 2)}
+        </pre>
+      )}
+    </>
+  )
+}
+
 // Phone layout (< 640 px): same fields as the table row, stacked.
-function AuditCard({ log, expanded, onToggle }: { log: any; expanded: boolean; onToggle: () => void }) {
+function AuditCard({ log, sentence, expanded, onToggle }: { log: any; sentence: string | null; expanded: boolean; onToggle: () => void }) {
   const summary = summarizeDetails(log.details)
+  if (sentence) return (
+    <RowCard
+      title={sentence}
+      fields={[
+        ['Time', log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown'],
+        ['User', actorOf(log) || 'Unknown'],
+        ['Record', <RawRecord log={log} expanded={expanded} onToggle={onToggle} />],
+        ['IP', log.ip_address || 'Unknown'],
+      ]}
+    />
+  )
   return (
     <RowCard
       title={<><span className={ACTION_COLORS[log.action] || 'text-[var(--brand-text-secondary)]'}>{log.action || 'Unknown'}</span>{' '}{log.entity_type || 'Unknown'} {log.entity_id ?? 'Unknown'}</>}
@@ -104,6 +134,10 @@ export default function AuditLogs() {
   })
 
   const logs = ready ? data?.logs || [] : []
+  // Names for "sent job 1 to Test X1C"; without them the sentence says "printer 3".
+  const { data: printerList } = useQuery({ queryKey: ['audit-logs', 'printer-names', audience], enabled: ready, retry: false, staleTime: 300_000, queryFn: () => printers.list() })
+  const printerName = (id: number) => (Array.isArray(printerList) ? printerList.find(p => p.id === id)?.name : undefined)
+  const sentenceOf = (log: any) => auditSentence(log.action, log.details, actorOf(log), { entityId: log.entity_id, printerName })
   const total = data?.total || 0
 
   const page = Math.floor(offset / limit) + 1
@@ -171,18 +205,14 @@ export default function AuditLogs() {
         <Select aria-label="Entries per page" value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="w-auto">
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
         </Select>
-        {canExport ? (
+        {canExport && (
           <Button variant="secondary" size="md" icon={Download} onClick={exportCsv} disabled={!ready || exporting} className="ml-auto">
             {exporting ? 'Exporting...' : 'Export CSV'}
-          </Button>
-        ) : (
-          <Button variant="secondary" size="md" icon={Lock} disabled className="ml-auto" title="Audit log CSV export requires an Enterprise license">
-            Export CSV (Enterprise)
           </Button>
         )}
       </div>
 
-      <p className="mb-3 text-xs text-[var(--brand-text-muted)]">CSV export includes up to 5,000 matching entries.</p>
+      {canExport && <p className="mb-3 text-xs text-[var(--brand-text-muted)]">CSV export includes up to 5,000 matching entries.</p>}
 
       {exportTruncated && <p role="status" className="mb-3 text-sm">This export was truncated at 5,000 entries. Narrow the dates to get the rest.</p>}
 
@@ -200,7 +230,7 @@ export default function AuditLogs() {
           ) : (
             <RowCardList label="Audit logs">
               {logs.map(log => (
-                <AuditCard key={log.id} log={log} expanded={expandedId === log.id} onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)} />
+                <AuditCard key={log.id} log={log} sentence={sentenceOf(log)} expanded={expandedId === log.id} onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)} />
               ))}
             </RowCardList>
           )}
@@ -212,10 +242,7 @@ export default function AuditLogs() {
             <tr className="border-b border-[var(--brand-card-border)] text-[var(--brand-text-muted)] text-xs uppercase">
               <th className="text-left px-4 py-3 font-medium">Timestamp</th>
               <th className="text-left px-4 py-3 font-medium">User</th>
-              <th className="text-left px-4 py-3 font-medium">Action</th>
-              <th className="text-left px-4 py-3 font-medium">Type</th>
-              <th className="text-left px-4 py-3 font-medium">ID</th>
-              <th className="text-left px-4 py-3 font-medium">Details</th>
+              <th colSpan={4} className="text-left px-4 py-3 font-medium">What happened</th>
               <th className="text-left px-4 py-3 font-medium">IP</th>
             </tr>
           </thead>
@@ -230,6 +257,7 @@ export default function AuditLogs() {
               <tr><td colSpan={7}><EmptyState icon={FileText} title={searchText ? 'No matching entries' : 'No audit log entries'} /></td></tr>
             ) : logs.map(log => {
               const summary = summarizeDetails(log.details)
+              const sentence = sentenceOf(log)
               return (
               <tr key={log.id} className="border-b border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/30 transition-colors">
                 <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] whitespace-nowrap font-mono text-xs">
@@ -238,6 +266,12 @@ export default function AuditLogs() {
                 <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] whitespace-nowrap">
                   {log.auth_kind === 'legacy_global_api_key' ? 'Service API key' : log.username || 'Unknown'}
                 </td>
+                {sentence ? (
+                <td colSpan={4} className="px-4 py-2.5 text-[var(--brand-text-primary)]">
+                  <span className="mr-2">{sentence}</span>
+                  <RawRecord log={log} expanded={expandedId === log.id} onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)} />
+                </td>
+                ) : (<>
                 <td className={`px-4 py-2.5 font-medium ${ACTION_COLORS[log.action] || 'text-[var(--brand-text-secondary)]'}`}>
                   {log.action || 'Unknown'}
                 </td>
@@ -257,6 +291,7 @@ export default function AuditLogs() {
                     </button>
                   ) : 'Unknown'}
                 </td>
+                </>)}
                 <td className="px-4 py-2.5 text-[var(--brand-text-muted)] whitespace-nowrap font-mono text-xs">{log.ip_address || 'Unknown'}</td>
               </tr>
               )

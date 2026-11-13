@@ -34,7 +34,11 @@ def test_password_history_erasure_is_exact(client, review_db, monkeypatch, usern
         before = set(history(review_db))
         for success in (True, False):
             assert auth_helpers._record_login_attempt(review_db, '192.0.2.9', name, success)
-        log_audit(review_db, 'auth.login_failed', 'user', details={'username': name}, ip='192.0.2.9')
+        # Rows written before one-row-per-sign-in still exist on upgraded installs.
+        from core.models import AuditLog
+        for action, prefix in (('login_success', 'Login'), ('login_failed', 'Failed login')):
+            review_db.add(AuditLog(action=action, entity_type='user',
+                                   details=f'{prefix}: {name} from 192.0.2.9', ip_address='192.0.2.9'))
         review_db.commit()
         if name == username:
             target_ids.update(set(history(review_db)) - before)

@@ -81,7 +81,7 @@ def main():
             return JSONResponse({'detail': 'Camera/hardware transport is unavailable in this disposable fixture.'}, status_code=503)
         response = await call_next(request)
         if path == '/api/auth/login' and response.status_code == 200:
-            # Authentication writes both login_success and auth.login. Keep its
+            # Authentication writes auth.login (older builds also wrote login_success). Keep its
             # lockout/session behavior intact; remove only fixture login noise.
             with engine.begin() as connection:
                 connection.execute(text("DELETE FROM audit_logs WHERE action IN ('login_success','auth.login')"))

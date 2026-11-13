@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import AuditLogs from './AuditLogs'
 
 const api = vi.hoisted(() => ({ list: vi.fn() }))
-vi.mock('../../api', () => ({ auditLogs: { list: api.list, exportCsv: vi.fn() }, auth: { me: vi.fn() } }))
+vi.mock('../../api', () => ({ auditLogs: { list: api.list, exportCsv: vi.fn() }, auth: { me: vi.fn() }, printers: { list: vi.fn(async () => []) } }))
 vi.mock('react-hot-toast', () => ({ default: { error: vi.fn() } }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ hasFeature: () => true }) }))
 const row = { id: 1, timestamp: '2026-10-13T12:00:00', username: 'ada', action: 'update', entity_type: 'job', entity_id: 0, details: { name: 'Benchy', changes: { status: 1 } }, ip_address: '10.0.0.5' }
@@ -32,6 +32,18 @@ test('phone: one card per entry, entity id zero visible, details expand, no tabl
   expect(within(card).getByText('10.0.0.5')).toBeInTheDocument()
   fireEvent.click(within(card).getByText(/Benchy/))
   expect(within(card).getByText(/"changes"/)).toBeInTheDocument()
+})
+
+test('phone: a known action is the card title, raw record behind its disclosure', async () => {
+  viewport(true)
+  api.list.mockResolvedValue({ logs: [{ ...row, action: 'printer.created', entity_type: 'printer', entity_id: 2, details: { name: 'Test X1C', api_type: 'bambu' } }], total: 1 })
+  show()
+  const card = (await screen.findAllByTestId('row-card'))[0]
+  expect(within(card).getByText('ada added printer Test X1C')).toBeInTheDocument()
+  expect(within(card).queryByText(/api_type/)).not.toBeInTheDocument()
+  fireEvent.click(within(card).getByRole('button', { name: 'Raw record' }))
+  expect(within(card).getByTestId('audit-raw')).toHaveTextContent('"action": "printer.created"')
+  expect(within(card).getByTestId('audit-raw')).toHaveTextContent('"api_type": "bambu"')
 })
 
 test('phone: loading, error and empty states stay outside the card list', async () => {
