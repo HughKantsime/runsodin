@@ -86,7 +86,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     "method": "PATCH",
     "path": "/jobs/16",
@@ -155,7 +156,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -203,7 +210,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -251,7 +259,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -299,7 +313,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -347,7 +362,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     }
   ],
   "jobs_operator_after_approve": [
@@ -400,7 +416,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -448,7 +470,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -496,7 +519,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -544,7 +568,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -592,7 +617,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     }
   ],
   "jobs_operator_reject_view": [
@@ -645,7 +671,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -693,7 +725,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -741,7 +774,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -789,7 +823,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -837,7 +877,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -885,7 +926,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     }
   ],
   "jobs_viewer": [
@@ -938,7 +985,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -986,7 +1039,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -1034,7 +1088,13 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": {
+        "code": "awaiting_approval",
+        "detail": null,
+        "printer_id": null,
+        "until": null
+      }
     },
     {
       "actual_end": null,
@@ -1082,7 +1142,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     },
     {
       "actual_end": null,
@@ -1130,7 +1191,8 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": "specific",
-      "updated_at": "<ts>"
+      "updated_at": "<ts>",
+      "waiting_reason": null
     }
   ],
   "library_model": {

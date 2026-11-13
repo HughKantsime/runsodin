@@ -125,8 +125,19 @@ class AMSSlotNozzle(BaseModel):
     nozzle: Optional[str] = None
 
 
+class WaitingReason(BaseModel):
+    """Why a queued job is not printing (modules.jobs.waiting_reason). Computed on read."""
+    code: str
+    detail: Optional[str] = None
+    until: Optional[datetime] = None
+    # The printer to open, only when the caller may read it.
+    printer_id: Optional[int] = None
+
+
 class JobResponse(JobBase):
     ams_slot_nozzles: List[AMSSlotNozzle] = Field(default_factory=list)
+    # Set on GET /jobs and GET /jobs/{id}; None when printing, finished, or simply next in the queue.
+    waiting_reason: Optional[WaitingReason] = None
     display_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 

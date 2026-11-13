@@ -267,3 +267,47 @@ def experimental_refusal(db, printer_id, api_type):
     """Service-layer entry for other modules (the scheduler): see support_levels.experimental_refusal."""
     from modules.printers.support_levels import experimental_refusal as _refusal
     return _refusal(db, printer_id, api_type)
+
+
+def printer_wait_states(db, printers, now):
+    """Why work assigned to these printers is not starting, in one read however many printers.
+
+    {printer id: ('offline' | 'busy', the running print's estimated end or None)}; an idle
+    printer is absent. Online and printing follow the Home Assistant status rules.
+    """
+    from datetime import timedelta
+    from sqlalchemy import bindparam
+    from modules.printers.routes_integrations import PAUSED_STATES, PRINTING_STATES, is_online
+    states, printing = {}, []
+    for printer in printers:
+        state = (printer.gcode_state or "").strip().upper()
+        if not is_online(printer.gcode_state, printer.last_seen, now):
+            states[printer.id] = ("offline", None)
+        elif state in PRINTING_STATES or state in PAUSED_STATES:
+            states[printer.id] = ("busy", None)
+            if state in PRINTING_STATES:  # a paused print's remaining time says nothing about its end
+                printing.append(printer.id)
+    if printing:
+        rows = db.execute(text("SELECT printer_id, remaining_minutes FROM print_jobs WHERE status = 'running' "
+                               "AND printer_id IN :ids ORDER BY started_at DESC, id DESC")
+                          .bindparams(bindparam("ids", expanding=True)), {"ids": printing}).all()
+        seen = set()
+        for printer_id, remaining in rows:
+            if printer_id in seen:
+                continue
+            seen.add(printer_id)
+            try:
+                minutes = float(remaining)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= minutes <= 60 * 24 * 30:
+                states[printer_id] = ("busy", now + timedelta(minutes=minutes))
+    return states
+
+
+def latest_gate_refusals(db, job_ids):
+    """{job id: (code, plain words)} where the job's latest dispatch event is a gate refusal (one read)."""
+    from modules.printers.integration_floor import _refusals, refusal_words
+    if not job_ids:
+        return {}
+    return {job_id: (str(code or "").upper(), refusal_words(code)) for job_id, (code, _at) in _refusals(db, job_ids).items()}
