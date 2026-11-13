@@ -13,6 +13,7 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import EnergyWidget from '../../components/reporting/EnergyWidget'
+import CostPerPrint from './CostPerPrint'
 import { PageHeader, StatCard, ProgressBar as SharedProgressBar, Button } from '../../components/ui'
 
 const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316']
@@ -598,6 +599,8 @@ export default function Analytics() {
           <HmsErrorFrequency data={failureData} />
         </>
       )}
+
+      <CostPerPrint days={days} />
 
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

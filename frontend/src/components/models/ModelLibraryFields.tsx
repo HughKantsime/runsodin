@@ -9,7 +9,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { formatGrams, formatHours } from '../../utils/shared'
 
-export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, onPlates = undefined, submitForApproval = false, pricingConfigured = true }) {
+export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, onPlates = undefined, submitForApproval = false, pricingConfigured = true, actualCost = undefined }) {
   const queryClient = useQueryClient()
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden hover:border-[var(--brand-card-border)] transition-colors">
@@ -136,6 +136,15 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             <div className="text-xs font-medium text-green-400">
               ${model.suggested_price?.toFixed(2) || '—'}
             </div>
+          </div>
+        )}
+
+        {pricingConfigured && actualCost?.average_actual_per_piece != null && (
+          <div className="mt-2 text-xs text-[var(--brand-muted)]" data-testid="model-actual-cost">
+            Actual: <span className="text-[var(--brand-text-secondary)]">${actualCost.average_actual_per_piece.toFixed(2)} per piece</span> over {actualCost.jobs_with_full_cost} prints
+            {actualCost.variance_percent != null && actualCost.variance_percent !== 0 && (
+              <span className="block">Prints cost {Math.abs(actualCost.variance_percent)}% {actualCost.variance_percent > 0 ? 'more' : 'less'} than estimated</span>
+            )}
           </div>
         )}
 

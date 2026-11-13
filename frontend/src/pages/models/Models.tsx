@@ -29,7 +29,8 @@ import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
-import { models, filaments, printers, printFiles, getApprovalSetting, pricingConfig } from '../../api'
+import { models, filaments, printers, printFiles, getApprovalSetting, pricingConfig, analytics } from '../../api'
+import { useLicense } from '../../LicenseContext'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import { formatHours } from '../../utils/shared'
@@ -436,6 +437,10 @@ export default function Models() {
   const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
   const [statsOpen, setStatsOpen] = useState(() => { try { return localStorage.getItem('odin.models.stats') === '1' } catch { return false } })
   const pricingConfigured = (pricingSettings as { configured?: boolean } | undefined)?.configured !== false
+  // Pro: what each model's completed prints actually cost per piece (shown from 3 prints with full cost records).
+  const analyticsLicensed = useLicense().hasFeature('analytics')
+  const { data: costPerPrint } = useQuery({ queryKey: ['cost-per-print', 'model'], queryFn: () => analytics.costPerPrint('model'), enabled: analyticsLicensed && pricingConfigured, retry: false, staleTime: 60000 })
+  const actualCosts = analyticsLicensed && pricingConfigured && Array.isArray(costPerPrint?.rows) ? costPerPrint.rows : []
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
   // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
@@ -632,7 +637,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {filteredModels?.map((model) => (
-            <ModelCard key={model.id} pricingConfigured={pricingConfigured} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} onPlates={(m) => setPlatesModel(m)} submitForApproval={submitForApproval} />
+            <ModelCard key={model.id} pricingConfigured={pricingConfigured} actualCost={actualCosts.find(row => row.id === model.id)} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} onPlates={(m) => setPlatesModel(m)} submitForApproval={submitForApproval} />
           ))}
         </div>
       )}

@@ -405,6 +405,8 @@ ENDPOINTS = [
     # =========================================================================
     ("GET", "/api/analytics/failures",      _api_read(), None, "Failure analytics"),
     ("GET", "/api/analytics/time-accuracy", _api_read(), None, "Time accuracy analytics"),
+    ("GET", "/api/analytics/cost-per-print", _api_read(), None, "Cost per print table"),
+    ("GET", "/api/export/cost-per-print", _op_write(), None, "Export cost per print CSV"),
 ]
 
 # D2: installation license plus live school roster; these census identities have no school.
