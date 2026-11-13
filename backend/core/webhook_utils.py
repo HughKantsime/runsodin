@@ -593,12 +593,33 @@ def normalize_device_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme.lower(), netloc, parsed.path, parsed.query, parsed.fragment))
 
 
+ITAR_DEVICE_REFUSAL = "ITAR mode blocks printer and device addresses outside the local network."
+
+
+def _refuse_public_device_addresses_under_itar(ips) -> None:
+    """ITAR mode: every address a device host resolved to must be on the local network.
+
+    The rule is core.itar.is_private_destination (the one the Moonraker, PrusaLink and
+    go2rtc guards use). One address outside it refuses the whole answer, so a name that
+    resolves to a local and a public address is refused. No-op with ITAR mode off.
+    """
+    from core.itar import is_itar_mode, is_private_destination
+    if not is_itar_mode():
+        return
+    for ip in ips:
+        if not is_private_destination(str(ip).split("%", 1)[0]):
+            raise DeviceDestinationBlocked(ITAR_DEVICE_REFUSAL)
+
+
 def device_destination_ips(host: str, port=None) -> list:
     """Resolve a device host and return its validated addresses.
 
     `host` may carry a port (see split_device_host). Raises
     DeviceDestinationBlocked if it cannot be resolved or ANY resolved
-    address is blocked.
+    address is blocked. Under ITAR mode every address must also be on the
+    local network. Every device client gets its address here (directly, or
+    through pinned_device_destination, device_request, device_urlopen and
+    device_connect_ip), so this is the one place that rule is enforced.
     """
     hostname, parsed_port = split_device_host(host)
     try:
@@ -621,6 +642,7 @@ def device_destination_ips(host: str, port=None) -> list:
             ips.append(ip)
     if not ips:
         raise DeviceDestinationBlocked(f"Host {hostname!r} returned no addresses")
+    _refuse_public_device_addresses_under_itar(ips)
     return ips
 
 

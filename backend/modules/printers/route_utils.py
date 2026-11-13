@@ -59,11 +59,13 @@ def _check_ssrf_blocklist(host: str) -> None:
     loopback, link-local, unspecified, multicast, metadata and IPv4-mapped
     forms of those. Private LAN ranges are allowed. Resolver errors are 400.
     """
-    from core.webhook_utils import DeviceDestinationBlocked, device_destination_ips
+    from core.webhook_utils import DeviceDestinationBlocked, ITAR_DEVICE_REFUSAL, device_destination_ips
     try:
         device_destination_ips(host)
-    except DeviceDestinationBlocked:
-        raise HTTPException(status_code=400, detail="Invalid printer host")
+    except DeviceDestinationBlocked as exc:
+        # Under ITAR mode say why; every other refusal keeps the generic message.
+        detail = ITAR_DEVICE_REFUSAL if str(exc) == ITAR_DEVICE_REFUSAL else "Invalid printer host"
+        raise HTTPException(status_code=400, detail=detail)
 
 def pinned_device_get(client, url: str, **kwargs):
     """GET a device URL through the destination policy, pinned to its validated address.

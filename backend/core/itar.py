@@ -521,6 +521,72 @@ def collect_db_configured_urls() -> list[str]:
     return urls
 
 
+def _literal_address(host: str):
+    """`host` as an ip_address when it is an IP literal in any form the resolver accepts
+    (dotted, short, hexadecimal, octal, IPv6), else None. Never does a name lookup."""
+    try:
+        return ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host))
+    except (OSError, ValueError):
+        return None
+
+
+def saved_printers_outside_local_network() -> list[str]:
+    """Saved printers whose address is an IP literal outside the local network, as
+    "printer <id> (<name>)". Only the id and name are returned: no address, no credential.
+
+    Names are not looked up here: a printer that is switched off or a slow resolver must
+    not delay or block start-up. A printer saved by name is checked on every connection
+    by core.webhook_utils.device_destination_ips, like every other printer.
+    """
+    from core.db import SessionLocal
+    from core.webhook_utils import DeviceDestinationBlocked, split_device_host
+    from sqlalchemy import text as sa_text
+
+    found: list[str] = []
+    db = SessionLocal()
+    try:
+        try:
+            rows = db.execute(sa_text("SELECT id, name, api_host FROM printers ORDER BY id")).fetchall()
+        except Exception as exc:
+            log.debug("ITAR audit: printers table not queryable: %s", exc)
+            return found
+        for printer_id, name, api_host in rows:
+            try:
+                host, _port = split_device_host(str(api_host or ""))
+            except DeviceDestinationBlocked:
+                continue
+            address = _literal_address(host)
+            if address is not None and not _is_local_address(address):
+                found.append(f"printer {printer_id} ({name})")
+    finally:
+        db.close()
+    return found
+
+
+def enforce_boot_printer_addresses() -> None:
+    """Refuse to start under ITAR mode while a saved printer has a public IP address.
+
+    The connection itself is already refused; this shows the problem at start-up.
+    No-op with ITAR mode off.
+    """
+    if not is_itar_mode():
+        return
+    printers = saved_printers_outside_local_network()
+    if printers:
+        msg = (
+            "ODIN_ITAR_MODE=1 is set but these saved printers have an address outside "
+            "the local network:\n"
+            + "\n".join(f"  - {entry}" for entry in printers)
+            + "\n\nUnset ODIN_ITAR_MODE, change or remove these printers, then turn it back on."
+        )
+        log.critical(msg)
+        raise RuntimeError(msg)
+
+
 class ItarOutboundBlocked(Exception):
     """Raised by the HTTP client guard when a public destination is
     attempted in ITAR mode."""

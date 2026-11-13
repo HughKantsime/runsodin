@@ -471,6 +471,9 @@ def create_app() -> FastAPI:
                     len(db_urls),
                 )
                 enforce_boot_config(db_urls)
+            # Saved printers with a public IP address (reported by id and name only).
+            from core.itar import enforce_boot_printer_addresses
+            enforce_boot_printer_addresses()
 
         # Validate all declared dependencies are satisfied
         registry.validate_dependencies()
