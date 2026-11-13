@@ -340,6 +340,12 @@ class ElegooPrinter:
             with self._transport_lock:
                 if self._ws is not ws:
                     return
+            # websocket-client reads http_proxy from the environment by itself, and has no
+            # argument that turns that off (it ignores http_no_proxy unless a proxy host is
+            # passed too). Under ITAR mode, make sure the environment holds no proxy at the
+            # moment of this connection, whatever ran before. No-op with ITAR mode off.
+            from core.itar import neutralize_environment_proxies
+            neutralize_environment_proxies()
             ws.run_forever(ping_interval=30, ping_timeout=10)
         finally:
             try:

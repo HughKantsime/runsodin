@@ -16,6 +16,11 @@ Classes:
            a Unix socket, the fixed mDNS multicast group (which routers do not forward),
            or no connection at all (the library is imported for name lookups,
            certificate parsing or exception types, or is not used). Each entry says which.
+           A fixed loopback address is local only while no proxy can carry the request: a
+           library that reads HTTP_PROXY from the environment sends a "localhost" request
+           to the proxy. Under ITAR mode no ODIN process has a proxy in its environment
+           (core.itar.neutralize_environment_proxies, tests/test_contracts/
+           test_itar_environment_proxies.py); an entry that depends on that says so.
 "The file references a guard" is a tripwire, not a proof: the behaviour is proven by the
 per-client tests (test_itar_mode.py, test_itar_square_and_sso_presets.py,
 test_itar_local_client_destinations.py, test_itar_device_destinations.py and the others).
@@ -140,7 +145,10 @@ ITAR_FILES = (
     "modules/vision/detection_thread.py",
 )
 
-# local: file -> what it can reach. Re-audited one by one on 2026-11-13.
+# local: file -> what it can reach. Re-audited one by one on 2026-11-13, and again the same
+# day for "could a proxy from the environment carry it": only mqtt_printer.py could (urllib
+# reads the environment). paho reads a proxy only from `mqtt_proxy`, and only when PySocks is
+# installed, which ODIN does not ship; a Unix socket and a name lookup have no proxy.
 LOCAL_FILES = {
     "core/remote_access.py": "no connection: looks up the names in ODIN_TRUSTED_PROXIES",
     "modules/system/routes_audit_integrity.py": "no connection: ssl only parses a CA bundle",
@@ -149,10 +157,15 @@ LOCAL_FILES = {
         "local link only: one UDP query to the fixed mDNS group 224.0.0.251:5353, then it only listens; "
         "the answers are checked by moonraker_discovery before anything is contacted",
     "modules/printers/monitors/mqtt_printer.py":
-        "loopback: the fixed address http://localhost:8000 (ODIN's own API); printers go through the adapters",
-    "modules/printers/telemetry/demo.py": "loopback: the demo broker ODIN starts on 127.0.0.1",
+        "loopback: the fixed address http://localhost:8000 (ODIN's own API), sent with the X-API-Key header. "
+        "Local under ITAR mode only because no proxy can carry it there: the request is built with no proxy, "
+        "and the process environment holds none. With ITAR mode off it follows HTTP_PROXY like any urllib "
+        "request. Printers go through the adapters",
+    "modules/printers/telemetry/demo.py":
+        "loopback: the demo broker ODIN starts on 127.0.0.1 (paho; no proxy without PySocks, none under ITAR mode)",
     "modules/printers/telemetry/live_replay.py":
-        "loopback: the demo broker on 127.0.0.1 (its only callers, demo.py and live_shadow.py, pass that broker)",
+        "loopback: the demo broker on 127.0.0.1 (its only callers, demo.py and live_shadow.py, pass that broker; "
+        "paho, as demo.py)",
     "modules/inventory/routes/drying_logs.py": "no connection: httpx is imported and not used",
     "modules/inventory/routes/spoolman.py":
         "no connection of its own: httpx is imported and not used; Spoolman goes through core.spoolman_client",
@@ -218,8 +231,13 @@ def test_a_local_file_listed_as_not_using_its_library_really_does_not(name):
 
 def test_the_local_files_with_a_fixed_address_still_have_only_that_address():
     printer = (BACKEND / "modules/printers/monitors/mqtt_printer.py").read_text(encoding="utf-8")
-    assert _uses(printer, "urllib.request") == {"urllib.request.Request", "urllib.request.urlopen"}
+    assert _uses(printer, "urllib.request") == {
+        "urllib.request.Request", "urllib.request.urlopen",
+        "urllib.request.build_opener", "urllib.request.ProxyHandler"}
     assert printer.count("urllib.request.urlopen(") == 1 and "'http://localhost:8000/api/scheduler/run'" in printer
+    # Under ITAR mode the one request is opened with no proxy; the default opener is ITAR-off only.
+    assert printer.count("urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=5)") == 1
+    assert printer.count("urllib.request.Request(") == 1
     replay = (BACKEND / "modules/printers/telemetry/live_replay.py").read_text(encoding="utf-8")
     assert 'def __init__(self, host: str = "127.0.0.1")' in replay
     for caller in ("demo.py", "live_shadow.py", "live_replay.py"):

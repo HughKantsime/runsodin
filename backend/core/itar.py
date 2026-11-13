@@ -87,6 +87,68 @@ def is_itar_mode() -> bool:
     return os.getenv("ODIN_ITAR_MODE", "").strip().lower() in _ENABLED_VALUES
 
 
+# Names only (never a value: a proxy URL can hold a password) of the proxy settings that
+# were removed. Set so a process started later can still report them: docker/entrypoint.sh
+# removes the settings before any ODIN process exists.
+IGNORED_PROXIES_ENV = "ODIN_ITAR_IGNORED_PROXIES"
+_PROXY_NAME = re.compile(r"[A-Za-z0-9_]*_proxy", re.IGNORECASE)
+
+
+def _is_proxy_variable(name: str) -> bool:
+    """HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, FTP_PROXY, WS_PROXY, WSS_PROXY, MQTT_PROXY,
+    SOCKS_PROXY and any other `<scheme>_proxy`, in either case. urllib (and so requests,
+    httpx and paho) reads every variable whose name ends in `_proxy`. NO_PROXY is not one."""
+    return bool(_PROXY_NAME.fullmatch(name)) and name.lower() != "no_proxy"
+
+
+def ignored_environment_proxies() -> tuple[str, ...]:
+    """Names of the proxy settings ITAR mode removed for this container or process."""
+    names = (os.getenv(IGNORED_PROXIES_ENV) or "").split(",")
+    return tuple(sorted({name.strip() for name in names if _is_proxy_variable(name.strip())}))
+
+
+def neutralize_environment_proxies() -> tuple[str, ...]:
+    """Under ITAR mode, remove every proxy setting from this process's environment.
+
+    Why here and not client by client: requests, httpx, urllib, websocket-client, paho,
+    aiohttp, the ffmpeg library inside OpenCV, and every program ODIN starts (ffmpeg,
+    pg_dump, Python workers) each read the proxy from the environment in their own way.
+    Under ITAR mode every permitted destination is on the local network (a listed
+    identity provider is the one exception, and needs a direct route), so no request
+    needs a proxy, and a proxy outside the network would receive the request, its
+    headers and its body. Removing the variables covers every library and every child
+    process at once; the per-client `trust_env=False` settings stay as a second layer.
+
+    NO_PROXY is set to `*` as well: every library and program above treats that as "use
+    no proxy for any host", so a proxy variable set later (a supervisor `environment=`
+    line, a wrapper script) is still not used.
+
+    Runs when the `core` or `modules` package is first imported (their __init__.py), so
+    it is done before any ODIN code builds a client. docker/entrypoint.sh does the same
+    for the programs supervisord starts. Safe to call again: the second call finds
+    nothing. Logs the names once, never the values. Does nothing with ITAR mode off:
+    operators rely on a corporate proxy there (see should_trust_env).
+
+    Returns the names removed by this call that held a value.
+    """
+    if not is_itar_mode():
+        return ()
+    names = sorted(name for name in os.environ if _is_proxy_variable(name))
+    ignored = tuple(name for name in names if os.environ[name].strip())
+    for name in names:
+        del os.environ[name]  # also unsets it for C libraries and child processes
+    os.environ["NO_PROXY"] = os.environ["no_proxy"] = "*"
+    if ignored:
+        os.environ[IGNORED_PROXIES_ENV] = ",".join(
+            sorted(set(ignored) | set(ignored_environment_proxies())))
+        log.warning(
+            "ODIN_ITAR_MODE=1: ignoring the proxy settings %s. ITAR mode does not use a "
+            "proxy; every connection is made directly.",
+            ", ".join(ignored),
+        )
+    return ignored
+
+
 def _parses_as_ip(entry: str) -> bool:
     """True if `entry` is an address under ipaddress or the C resolver.
 
@@ -345,15 +407,21 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
         )
         log.critical(msg)
         raise RuntimeError(msg)
+    # Proxy settings are reported, not refused: unlike a public URL they can be dropped
+    # without losing anything (see neutralize_environment_proxies).
+    ignored = ignored_environment_proxies()
+    proxies = (
+        f" The proxy settings {', '.join(ignored)} were set and are ignored." if ignored else ""
+    )
     allowance = sorted(allowed_idp_hosts())
     if allowance:
         log.info(
             "ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private "
-            "or on the identity-provider allowance (%s=%s).",
-            IDP_HOSTS_ENV, ",".join(allowance),
+            "or on the identity-provider allowance (%s=%s).%s",
+            IDP_HOSTS_ENV, ",".join(allowance), proxies,
         )
     else:
-        log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.")
+        log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.%s", proxies)
 
 
 def env_configured_urls() -> list[str]:

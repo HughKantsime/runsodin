@@ -555,7 +555,14 @@ class PrinterMonitor:
                     headers={'Content-Type': 'application/json', 'X-API-Key': api_key},
                     method='POST'
                 )
-                urllib.request.urlopen(req, timeout=5)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
+                from core.itar import is_itar_mode
+                if is_itar_mode():
+                    # ODIN's own API on this machine: never through a proxy. urlopen reads
+                    # HTTP_PROXY and does not exempt localhost, so the request and its
+                    # X-API-Key header would go to the proxy.
+                    urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=5)
+                else:
+                    urllib.request.urlopen(req, timeout=5)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
                 log.info(f"[{self.name}] Triggered scheduler re-run after bump")
             except Exception as e:
                 log.debug(f"[{self.name}] Scheduler trigger failed (non-critical): {e}")

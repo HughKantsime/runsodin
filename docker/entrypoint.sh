@@ -1,6 +1,38 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+# ITAR-PROXIES-BEGIN
+# ITAR mode does not use a proxy: every connection is made directly.
+# Remove the proxy settings here, before anything else runs, so that every program this
+# container starts (supervisord, the ODIN services, go2rtc, ffmpeg) starts without them.
+# backend/core/itar.py does the same inside each ODIN process, with the same rule
+# (neutralize_environment_proxies). Names are printed, never values.
+read -r odin_itar_mode <<< "${ODIN_ITAR_MODE:-}" || true
+case "$(printf '%s' "${odin_itar_mode}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+        odin_ignored_proxies=""
+        for odin_variable in $(compgen -e | LC_ALL=C sort); do
+            case "$(printf '%s' "${odin_variable}" | tr '[:upper:]' '[:lower:]')" in
+                no_proxy) ;;
+                *_proxy)
+                    if [ -n "$(printf '%s' "${!odin_variable}" | tr -d '[:space:]')" ]; then
+                        odin_ignored_proxies="${odin_ignored_proxies:+${odin_ignored_proxies},}${odin_variable}"
+                    fi
+                    unset "${odin_variable}"
+                    ;;
+            esac
+        done
+        export NO_PROXY='*' no_proxy='*'
+        if [ -n "${odin_ignored_proxies}" ]; then
+            export ODIN_ITAR_IGNORED_PROXIES="${odin_ignored_proxies}"
+            echo "  ! ODIN_ITAR_MODE=1: ignoring the proxy settings ${odin_ignored_proxies//,/, }. ITAR mode does not use a proxy."
+        fi
+        unset odin_ignored_proxies odin_variable
+        ;;
+esac
+unset odin_itar_mode
+# ITAR-PROXIES-END
+
 # This availability flag is overwritten by trusted startup, never accepted as
 # an identity. The reader must still validate the root-owned runtime record.
 export ODIN_AMS_RUNTIME_READY=0

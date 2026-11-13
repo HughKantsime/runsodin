@@ -8,7 +8,7 @@ It is set in the container environment, not in the UI or the database, so a comp
 
 - At boot, O.D.I.N. refuses to start if a configured outbound destination (license server, Spoolman, webhooks, SMTP, MQTT republish, an enabled SSO discovery URL) resolves to a public address.
 - At run time, every outbound request is checked again and its DNS answer is pinned for the connection. A public answer, or a mix of private and public answers, is refused.
-- Environment proxy settings are ignored, so identity-provider traffic needs a direct route.
+- Environment proxy settings are ignored, so identity-provider traffic needs a direct route. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and every other variable whose name ends in `_PROXY` (either case) are removed from the environment of the container and of every O.D.I.N. process, and `NO_PROXY` is set to `*`. Start-up logs the names that were set and ignored, never their values. A go2rtc that runs as its own container (the enterprise layout) is not started by O.D.I.N.: do not give that container proxy settings.
 - Push (APNs) and the hardcoded third-party notification APIs stay off.
 
 Private (RFC 1918, loopback, link-local) destinations are unaffected.
