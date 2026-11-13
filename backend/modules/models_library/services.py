@@ -110,3 +110,21 @@ def calculate_job_cost(
         )
 
     return (round(subtotal, 2), round(suggested_price, 2), margin)
+
+
+def saved_pricing_config(db: Session):
+    """(config, configured): the saved pricing settings, or the generic defaults and False.
+
+    Same rule as the `configured` flag of GET /pricing-config: until someone saves pricing, costs
+    come from generic defaults and are not shown as the owner's numbers.
+    """
+    row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    if row is None or not isinstance(row.value, dict):
+        return dict(DEFAULT_PRICING_CONFIG), False
+    return row.value, True
+
+
+def price_one_item(config, *, material_cost, print_hours):
+    """The one pricing rule for a single plate, as calculate_job_cost applies it to a job."""
+    from modules.models_library.pricing_rule import price_item
+    return price_item(config, material_cost=material_cost, print_hours=print_hours, units_per_plate=1)

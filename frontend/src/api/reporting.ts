@@ -1,4 +1,4 @@
-import { fetchAPI } from './client'
+import { downloadBlob, fetchAPI } from './client'
 
 // ---- Reporting types ----
 
@@ -127,8 +127,37 @@ export interface ReportScheduleUpdate {
   [key: string]: unknown;
 }
 
+// One row of the cost per print table. Averages are null until the group has `minimum_jobs`
+// completed jobs with a complete actual cost. variance_percent > 0: prints cost more than estimated.
+export interface CostPerPrintRow {
+  id: number | null
+  name: string | null
+  jobs: number
+  jobs_with_full_cost: number
+  jobs_partial: number
+  jobs_without_usage: number
+  pieces: number
+  average_actual_per_piece: number | null
+  average_estimate_per_piece: number | null
+  variance_percent: number | null
+  failure_share_percent: number | null
+}
+
+export interface CostPerPrintData {
+  configured: boolean
+  group: 'model' | 'product'
+  from: string | null
+  to: string | null
+  minimum_jobs: number
+  rows: CostPerPrintRow[]
+}
+
+const costPerPrintQuery = (group: 'model' | 'product', from?: string) => `group=${group}${from ? `&from=${from}` : ''}`
+
 export const analytics = {
   get: (days?: number): Promise<AnalyticsData> => fetchAPI('/analytics' + (days ? `?days=${days}` : '')),
+  costPerPrint: (group: 'model' | 'product' = 'model', from?: string): Promise<CostPerPrintData> => fetchAPI(`/analytics/cost-per-print?${costPerPrintQuery(group, from)}`),
+  costPerPrintCsv: (group: 'model' | 'product' = 'model', from?: string): Promise<void> => downloadBlob(`/export/cost-per-print?${costPerPrintQuery(group, from)}`, 'cost_per_print.csv'),
   timeAccuracy: (days = 30): Promise<TimeAccuracyData> => fetchAPI(`/analytics/time-accuracy?days=${days}`),
   failures: (days = 30): Promise<FailureAnalyticsData> => fetchAPI(`/analytics/failures?days=${days}`),
 }

@@ -153,14 +153,15 @@ it('F12-12.7-04 real shared Modal renders a named aria-modal dialog / alertdialo
 
 it('F12-12.7-06 census: scope="col" exists only on a minority of table headers', () => {
   // Merged tree: cert-fix-D's Analytics failure tables add 8 scoped headers (still a minority).
-  expect(summary.th_scope_col).toBe(18)
+  // The Analytics cost per print table adds 6 scoped headers.
+  expect(summary.th_scope_col).toBe(24)
   // 2.0.13 adds one unscoped header (inventory reorder table).
   // Bulk receiving adds one mapped header element. Foundry adds one mapped column header and one row header.
   // 2.3.0: the readable audit log shows one "What happened" column where four raw columns were.
-  expect(summary.th_total).toBe(123)
+  expect(summary.th_total).toBe(129)
   expect(summary.th_scope_col * 2).toBeLessThan(summary.th_total)
   expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/foundry/PrinterRows.tsx', 'components/jobs/JobTableHeader.tsx',
-    'pages/analytics/Analytics.tsx'])
+    'pages/analytics/Analytics.tsx', 'pages/analytics/CostPerPrint.tsx'])
 })
 
 it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {

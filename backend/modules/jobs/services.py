@@ -51,3 +51,11 @@ def printer_matches_sliced_model(printer, required_model):
     file was sliced for" rule (scheduler._same_printer_model on scheduler._printer_identity)."""
     from modules.jobs.scheduler import _printer_identity, _same_printer_model
     return _same_printer_model(_printer_identity(printer), required_model)
+
+
+def job_actual_costs(db, jobs, config):
+    """Service-layer entry for other modules (reporting): {job_id: cost_actual result} for jobs
+    the caller has already been allowed to see, with a fixed number of statements per 500 jobs."""
+    from modules.jobs.cost_actual import cost_actual, load_attempts
+    attempts = load_attempts(db, [job.id for job in jobs])
+    return {job.id: cost_actual(attempts[job.id], config) for job in jobs}

@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { Plus, Filter, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
-import { jobs, models, printers as printersApi, scheduler, getApprovalSetting, presets, bulkOps } from '../../api'
+import { jobs, models, printers as printersApi, scheduler, getApprovalSetting, presets, bulkOps, pricingConfig } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import FailureReasonModal from '../../components/jobs/FailureReasonModal'
@@ -16,6 +16,7 @@ import { updateJobFailure } from '../../api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import JobRow, { JobCardList } from '../../components/jobs/JobRow'
+import { PricingConfigured } from '../../components/jobs/JobCost'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import ScrollTabs from '../../components/ui/ScrollTabs'
 import TraceabilityPanel from '../../components/jobs/TraceabilityPanel'
@@ -255,6 +256,8 @@ export default function Jobs() {
   const { data: modelsData } = useQuery({ queryKey: ['models', org.orgId], queryFn: () => models.list(org.orgId) })
   const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printersApi.list() })
   const { data: presetsData } = useQuery({ queryKey: ['presets'], queryFn: () => presets.list() })
+  // Finished rows offer their actual cost only once pricing has been saved (JobCost).
+  const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
 
   const handleDragStart = (e, jobId) => { if (!canDo('jobs.edit')) { e.preventDefault(); return }; setDraggedId(jobId); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', jobId); e.currentTarget.style.opacity = '0.4' }
   const handleDragEnd = (e) => { e.currentTarget.style.opacity = '1'; setDraggedId(null); setDragOverId(null) }
@@ -505,6 +508,7 @@ export default function Jobs() {
         </div>
       )}
 
+      <PricingConfigured.Provider value={(pricingSettings as { configured?: boolean } | undefined)?.configured === true}>
       {compact ? (
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
           <JobCardList
@@ -569,6 +573,7 @@ export default function Jobs() {
       </div>
 
       )}
+      </PricingConfigured.Provider>
       <div className="flex items-center gap-3 mt-3 mb-4 text-sm text-[var(--brand-text-secondary)]">
         {jobsTotal != null && <span>{jobTypeFilter === 'all'
           ? `Showing ${jobsData?.length ?? 0} of ${jobsTotal}`
