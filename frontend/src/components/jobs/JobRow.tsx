@@ -9,7 +9,7 @@ import { format } from 'date-fns'
 import clsx from 'clsx'
 import { resolveColor } from '../../utils/colorMap'
 import { canDo, getCurrentUser } from '../../permissions'
-import { formatHours, parseServerDate } from '../../utils/shared'
+import { formatHours, formatServerDay, parseServerDate, serverDayOffset } from '../../utils/shared'
 import { Button, StatusBadge } from '../ui'
 
 const PIN_ISSUE_TEXT: Record<string, string> = {
@@ -20,11 +20,16 @@ const PIN_ISSUE_TEXT: Record<string, string> = {
   pinned_target_invalid: 'Invalid printer pin — treated as any printer; edit the job to choose one',
 }
 
+// A due date is a calendar day, not a moment: count whole days from the viewer's own today.
+const TERMINAL_STATUSES = ['completed', 'cancelled', 'failed']
+function isOverdue(job: { due_date?: string | null; status?: string }) {
+  const days = serverDayOffset(job.due_date)
+  return days !== null && days < 0 && !TERMINAL_STATUSES.includes(job.status || '')
+}
+
 function DueDateBadge({ dueDate }: { dueDate: string | null }) {
-  if (!dueDate) return null
-  const due = new Date(dueDate)
-  const now = new Date()
-  const daysUntil = Math.ceil((due - now) / (1000 * 60 * 60 * 24))
+  const daysUntil = serverDayOffset(dueDate)
+  if (daysUntil === null) return null
 
   let color = 'text-[var(--brand-text-secondary)]'
   if (daysUntil < 0) color = 'text-red-400'
@@ -38,7 +43,7 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
     : `Due in ${daysUntil}d`
 
   return (
-    <span className={`inline-flex items-center gap-1 text-xs ${color}`}>
+    <span className={`inline-flex items-center gap-1 text-xs ${color}`} title={`Due ${formatServerDay(dueDate)}`}>
       <Calendar size={10} />
       {label}
     </span>
@@ -178,7 +183,7 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
 // Phone layout (< 640 px): one stacked card per job. Order: name (wraps by words),
 // status, printer, priority/time, then the same row actions.
 function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName, highlight, onMove }: { job: any; onAction: (...args: any[]) => void; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string; highlight?: boolean; onMove?: (jobId: number, direction: -1 | 1) => void }) {
-  const overdue = job.due_date && new Date(job.due_date) < new Date() && !['completed', 'cancelled', 'failed'].includes(job.status)
+  const overdue = isOverdue(job)
   const [showFilament, setShowFilament] = useState(false)
   return (
     <li data-testid="job-card" data-job-id={job.id} className={clsx(
@@ -272,7 +277,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
           highlight && 'ring-2 ring-inset ring-[var(--brand-primary)]',
-          job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
+          isOverdue(job) && 'bg-red-950/30 border-l-2 border-l-red-500'
         )}
         data-job-id={job.id}
         {...(dragProps || {})}>

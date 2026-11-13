@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import { jobs, printJobs } from '../../api'
 import JobTimeline from './JobTimeline'
 import JobAmsMapping from './JobAmsMapping'
+import { parseServerDay } from '../../utils/shared'
 
 function parseUTC(dateStr) {
   if (!dateStr) return null
@@ -119,8 +120,8 @@ function ScheduledJobDetail({ block }) {
           {job.filament_type && (
             <Row icon={<Layers size={14} />} label="Filament" value={job.filament_type} />
           )}
-          {job.due_date && (
-            <Row label="Due" value={format(parseUTC(job.due_date), 'MMM d, yyyy')} />
+          {parseServerDay(job.due_date) && (
+            <Row label="Due" value={format(parseServerDay(job.due_date), 'MMM d, yyyy')} />
           )}
           {job.match_score != null && (
             <Row label="Match score" value={`${Math.round(job.match_score * 100)}%`} />
