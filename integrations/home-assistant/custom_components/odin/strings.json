@@ -75,6 +75,9 @@
           "held": "Held"
         }
       },
+      "finished_at": {"name": "Last print finished"},
+      "plate_clear_confirmed_at": {"name": "Plate cleared"},
+      "spools": {"name": "Spools loaded"},
       "fleet_printing": {"name": "Printers printing"},
       "fleet_paused": {"name": "Printers paused"},
       "fleet_error": {"name": "Printers in error"},

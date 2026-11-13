@@ -61,6 +61,7 @@ def _next_job_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
     ams = job.get("ams_check") if isinstance(job.get("ams_check"), dict) else {}
     filaments = job.get("filaments")
     slots = ams.get("slots")
+    short, ready = job.get("short_spools"), job.get("ready")
     return {
         "job_id": job.get("id"),
         "held": job.get("held"),
@@ -72,7 +73,43 @@ def _next_job_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
         "ams_status": ams.get("status"),
         "ams_slots": slots if isinstance(slots, list) else None,
         "scheduled_start": job.get("scheduled_start"),
+        # Sent by the ODIN release after 2.2.0; None (unknown) against an older ODIN.
+        "queued_after": _number(job.get("queued_after")),
+        "short_spools": short if isinstance(short, list) else None,
+        "ready": ready if isinstance(ready, bool) else None,
     }
+
+
+def _status_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
+    """When the last print completed and when the last error was recorded (None when unknown).
+
+    The status itself comes from ODIN, which no longer reports "error" once a print has
+    completed after the recorded error. Absent on an ODIN that does not send these times.
+    """
+    if "last_completed_at" not in printer and "last_error_at" not in printer:
+        return None
+    return {"last_completed_at": _text(printer.get("last_completed_at")),
+            "last_error_at": _text(printer.get("last_error_at"))}
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _spool_slots(printer: dict[str, Any]) -> list[dict[str, Any]] | None:
+    slots = printer.get("slots")
+    return [slot for slot in slots if isinstance(slot, dict)] if isinstance(slots, list) else None
+
+
+def _spools(printer: dict[str, Any]) -> int | None:
+    """How many spool slots have filament loaded. Unknown on an ODIN that does not send slots."""
+    slots = _spool_slots(printer)
+    return None if slots is None else sum(1 for slot in slots if slot.get("material") or slot.get("name"))
+
+
+def _spools_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
+    slots = _spool_slots(printer)
+    return None if slots is None else {"slots": slots}
 
 
 def _waiting_on(printer: dict[str, Any]) -> str | None:
@@ -131,7 +168,7 @@ class OdinSensorDescription(SensorEntityDescription):
 
 PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
     OdinSensorDescription(key="status", device_class=SensorDeviceClass.ENUM, options=PRINTER_STATUSES,
-                          value=_status),
+                          value=_status, attrs=_status_attrs),
     OdinSensorDescription(key="progress", native_unit_of_measurement=PERCENTAGE,
                           state_class=SensorStateClass.MEASUREMENT, suggested_display_precision=0,
                           value=lambda p: p.get("progress")),
@@ -151,6 +188,13 @@ PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
                           value=_ams_humidity, attrs=_ams_humidity_attrs),
     OdinSensorDescription(key="waiting_on", device_class=SensorDeviceClass.ENUM, options=BENCH_STATES,
                           value=_waiting_on, attrs=_waiting_on_attrs),
+    OdinSensorDescription(key="finished_at", device_class=SensorDeviceClass.TIMESTAMP,
+                          value=lambda p: _timestamp(p.get("finished_at"))),
+    OdinSensorDescription(key="plate_clear_confirmed_at", device_class=SensorDeviceClass.TIMESTAMP,
+                          value=lambda p: _timestamp(p.get("plate_clear_confirmed_at"))),
+    # One sensor for all of a printer's spool slots: the slots are its attributes.
+    OdinSensorDescription(key="spools", state_class=SensorStateClass.MEASUREMENT,
+                          value=_spools, attrs=_spools_attrs),
 )
 
 FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (

@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Home Assistant integration 0.3.0. Each printer now has a Spools loaded sensor that lists every spool slot (colour, name, material, how much is left), a Last print finished time and a Plate cleared time. The Next job sensor says how many more jobs are queued behind it, which spools are too low for it, and whether it is ready to start. A printer no longer shows as "error" in Home Assistant after its print went on to complete; the Status sensor also carries when the last print completed and when the last error was recorded. Other organizations' jobs and controlled work stay hidden as before, and spool amounts are not shown on a printer another organization shares with you. No extra polling: the integration still makes one status call.
+
 ### Fixed
 
 - A job's due date now shows as the day you picked in every time zone. Before, a job due Nov 20 could read as Nov 19 in the Timeline detail for anyone west of UTC, and the Jobs list counted "due today" and "overdue" from midnight UTC instead of your own calendar day. A job is now marked overdue (red row) only once its due day has passed where you are, not during the due day itself, and hovering the due badge shows the date.
