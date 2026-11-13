@@ -1138,8 +1138,11 @@ def remove_installed_license(db, actor, action, *, details=None, expected_key=No
     with lm.license_file_lock():
         if expected_key is not None or expected_sha256 is not None:
             installed = lm.load_license()
-            if (not installed.license_sha256 or installed.key != expected_key
-                    or installed.license_sha256 != expected_sha256):
+            # No verified license when the request started and no file now is unchanged
+            # (a lost file, unactivated by typing the key): nothing here to protect.
+            still_absent = not expected_sha256 and lm._find_license_file() is None
+            if not still_absent and (not installed.license_sha256 or installed.key != expected_key
+                                     or installed.license_sha256 != expected_sha256):
                 from fastapi import HTTPException
                 raise HTTPException(status_code=409, detail="The installed license changed during unactivation. The current license was retained.")
         journal = 'license_lock_removal_intent'

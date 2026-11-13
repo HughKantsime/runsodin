@@ -191,6 +191,58 @@ def test_unactivation_cannot_remove_an_intervening_replacement(app, monkeypatch,
     assert app.lm.get_license().valid
 
 
+def _lose_license_file(app, monkeypatch):
+    # The fixture's finder always names the path; the real one reports a missing file.
+    monkeypatch.setattr(app.lm, "_find_license_file", lambda: str(app.path) if app.path.exists() else None)
+    app.path.unlink()
+    app.restart()
+    assert not app.path.exists() and app.lm.get_license().license_sha256 == ""
+
+
+def _unactivate_with_key(app, key=KEY):
+    return asyncio.run(app.routes.unactivate_license(
+        app.routes.LicenseUnactivateRequest(key=key),
+        current_user={"id": 1}, db=app.db, license_mutation_allowed=None))
+
+
+def test_unactivation_with_a_key_succeeds_when_no_license_file_is_installed(app, monkeypatch):
+    # The local file was lost or removed; the admin frees the grant by typing the key.
+    audit = []
+    monkeypatch.setattr("core.audit.log_audit", lambda *args, **kwargs: audit.append(args[1]))
+    _lose_license_file(app, monkeypatch)
+    assert _unactivate_with_key(app) == {"status": "unactivated", "tier": "community"}
+    assert [body["key"] for url, body in app.calls if url.endswith("/api/v1/unactivate")] == [KEY]
+    assert audit == ["license.unactivated"]
+    assert not app.path.exists()
+    assert not list(app.path.parent.glob(app.path.name + ".unactivated-*"))
+    app.restart()
+    current = app.lm.get_license()
+    assert not current.valid and current.key == "" and current.tier == "community"
+
+
+@pytest.mark.parametrize("same_key", [False, True])
+def test_unactivation_with_a_key_keeps_a_license_installed_during_the_portal_call(app, monkeypatch, same_key):
+    # Nothing installed when the request started; an upload lands while the portal answers.
+    appeared = app.sign(**app.fields, key=KEY if same_key else "OTHER-KEY",
+                        issued_at=iso(ago(hours=2)), expires_at=iso(ahead(days=40))).decode()
+    request = app.routes.pinned_async_request
+
+    async def concurrent_upload(*args, **kwargs):
+        app.lm.install_portal_license(appeared)
+        return await request(*args, **kwargs)
+
+    monkeypatch.setattr(app.routes, "pinned_async_request", concurrent_upload)
+    _lose_license_file(app, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _unactivate_with_key(app)
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == appeared
+    assert not list(app.path.parent.glob(app.path.name + ".unactivated-*"))
+    app.routes.log_audit.assert_not_called()
+    app.restart()
+    assert app.lm.get_license().valid
+
+
 @pytest.mark.parametrize("phase", ["ordering", "rollback", "removal_rollback"])
 def test_concurrent_installs_serialize_checks_and_rollback(app, monkeypatch, phase):
     from concurrent.futures import ThreadPoolExecutor
