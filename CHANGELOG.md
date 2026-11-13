@@ -21,6 +21,8 @@ All notable changes to O.D.I.N. are documented here.
 ### Changed
 
 - Jobs page: it opens on the queue (submitted, rejected, pending, scheduled, printing and paused jobs) instead of the first 100 jobs in queue order, which on a farm with many jobs could hide every pending job. History (completed, failed, cancelled) is its own choice, newest first, 50 at a time with Load more, and the page says "Showing 50 of 212" instead of cutting the list off silently. Search now runs on the server and finds a job by number (`218`, `#218`, `job 218`), name, printer name or nickname, or order number, among the jobs you are allowed to see. You can filter by printer (or Unassigned) and show held jobs only; filters and search are kept in the page address, and `/jobs?job=218` opens that job even when it is outside the filter. Every row shows `Job <number>`, queue position reads `Queue 3`, held jobs carry a Held badge, and pending and submitted jobs can be cancelled from their row. `GET /api/v1/jobs` also takes `q`, `held` and `unassigned` and always sends the number of matching jobs in an `X-Total-Count` header; the response body is unchanged. `POST /api/v1/jobs/{id}/cancel` now also cancels a job awaiting approval, as bulk cancel already did.
+### Fixed
+- Settings > Notifications: the Alert Preferences table lays out as a table again (alert type, then In-App, Push and Email side by side). A malformed layout rule had stacked the three switches under each alert at tablet and desktop widths (768 px and up; on a phone they stack by design). The same fault is fixed in the Education cost-center manager's two-column layout and member rows.
 
 ## [2.1.0] - 2026-11-10
 
