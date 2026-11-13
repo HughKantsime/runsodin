@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import { jobs, printJobs } from '../../api'
 import JobTimeline from './JobTimeline'
 import JobAmsMapping from './JobAmsMapping'
+import JobCost from './JobCost'
 import { parseServerDay } from '../../utils/shared'
 
 function parseUTC(dateStr) {
@@ -139,6 +140,8 @@ function ScheduledJobDetail({ block }) {
           </div>
         </div>
       )}
+
+      <JobCost jobId={job.id} status={job.status} />
 
       {/* Failure info */}
       {job.status === 'failed' && (job.fail_reason || job.fail_notes) && (

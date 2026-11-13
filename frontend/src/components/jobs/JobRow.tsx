@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import OutcomeCorrection from './OutcomeCorrection'
+import JobCost from './JobCost'
 import FilamentCheckPanel from './FilamentCheckPanel'
 import CheckTarget from '../ui/CheckTarget'
 import { displayName } from '../../utils/displayName'
@@ -121,6 +122,7 @@ function JobItemDetails({ job, onAction, nameClassName = 'font-medium text-sm' }
       )}
       {job.notes && <div className="text-xs text-[var(--brand-text-muted)] truncate max-w-xs">{job.notes}</div>}
       {job.due_date && <DueDateBadge dueDate={job.due_date} />}
+      <JobCost jobId={job.id} status={job.status} compact />
       {job.fail_reason && (
         <div className="text-xs text-red-400 truncate max-w-xs">
           <AlertTriangle size={10} className="shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
