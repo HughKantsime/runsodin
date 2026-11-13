@@ -622,7 +622,8 @@ def test_the_entrypoint_removes_the_proxy_settings_before_any_python_or_supervis
 # The shell must read the value exactly as Python does, white space included: a value with a
 # carriage return or a leading newline (a Windows-edited env file) once turned ITAR mode on in
 # Python while the shell block did nothing, leaving go2rtc with the proxy.
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "Yes", "on", " 1 ", "1\r", "\n1", "\t true \r\n", "\v\fON\f"])
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "Yes", "on", " 1 ", "1\r", "\n1", "\t true \r\n", "\v\fON\f",
+                                   "\x1c1\x1c", "\x1d\x1e\x1ftrue", "\x85yes\x85", "\xa0on\xa0", "\u20031\u2003", "\u30001"])
 def test_the_entrypoint_block_matches_the_python_rule_with_itar_on(value, monkeypatch):
     monkeypatch.setenv("ODIN_ITAR_MODE", value)
     assert itar.is_itar_mode()

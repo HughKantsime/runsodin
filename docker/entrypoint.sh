@@ -7,13 +7,15 @@ set -Eeuo pipefail
 # container starts (supervisord, the ODIN services, go2rtc, ffmpeg) starts without them.
 # backend/core/itar.py does the same inside each ODIN process, with the same rule
 # (neutralize_environment_proxies). Names are printed, never values.
-# Trim exactly as backend/core/itar.py does (Python's str.strip): every leading and trailing
-# white-space character, including a newline or a carriage return left by a Windows-edited
-# env file. `read` would stop at a leading newline and keep a trailing carriage return, so
-# Python would turn ITAR mode on while this block did nothing.
+# backend/core/itar.py trims the value with Python's str.strip, whose idea of white space is
+# wider than the shell's (it includes the control characters 0x1c-0x1f and Unicode spaces).
+# Matching that list byte for byte in shell is fragile, so this block is deliberately WIDER:
+# it drops every leading and trailing byte that is not an ASCII letter or digit. Whatever
+# value turns ITAR mode on in Python therefore turns it on here too; a value such as "1"
+# wrapped in quotes or stray punctuation is treated as on here as well, which only removes
+# a proxy and can never leave one in place.
 odin_itar_mode="${ODIN_ITAR_MODE:-}"
-odin_itar_mode="${odin_itar_mode#"${odin_itar_mode%%[![:space:]]*}"}"
-odin_itar_mode="${odin_itar_mode%"${odin_itar_mode##*[![:space:]]}"}"
+odin_itar_mode="$(LC_ALL=C; v="${odin_itar_mode}"; v="${v#"${v%%[A-Za-z0-9]*}"}"; v="${v%"${v##*[A-Za-z0-9]}"}"; printf '%s' "${v}")"
 case "$(printf '%s' "${odin_itar_mode}" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes|on)
         odin_ignored_proxies=""
