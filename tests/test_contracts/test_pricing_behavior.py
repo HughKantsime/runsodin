@@ -216,3 +216,55 @@ def test_pricing_says_whether_anyone_has_saved_it_and_never_stores_that_flag(pri
     stored = review_db.execute(text("SELECT value FROM system_config WHERE key='pricing_config'")).scalar_one()
     stored = json.loads(stored) if isinstance(stored, str) else stored
     assert 'configured' not in stored
+
+
+def _stored_pricing(review_db):
+    import json
+    stored = review_db.execute(text("SELECT value FROM system_config WHERE key='pricing_config'")).scalar_one()
+    return json.loads(stored) if isinstance(stored, str) else stored
+
+
+def test_switching_interface_mode_on_a_fresh_install_does_not_mark_pricing_as_saved(pricing_client, review_db):
+    from modules.models_library.services import DEFAULT_PRICING_CONFIG
+    client, issue = pricing_client
+    headers = issue(['admin'])
+    switched = client.put('/pricing-config', headers=headers, json={'ui_mode': 'simple'})
+    assert switched.status_code == 200
+    assert switched.json()['ui_mode'] == 'simple' and switched.json()['configured'] is False
+    read = client.get('/pricing-config', headers=headers).json()
+    assert read == switched.json() and 'pricing_saved' not in read
+    # The numbers on the row are still the generic defaults, so nothing may present them as the owner's.
+    assert {key: read[key] for key in DEFAULT_PRICING_CONFIG if key != 'ui_mode'} == {key: value for key, value in DEFAULT_PRICING_CONFIG.items() if key != 'ui_mode'}
+    # Switching back and forth changes nothing about that.
+    assert client.put('/pricing-config', headers=headers, json={'ui_mode': 'advanced'}).json()['configured'] is False
+    assert client.get('/pricing-config', headers=headers).json()['configured'] is False
+
+
+def test_saving_pricing_after_an_interface_mode_switch_marks_pricing_as_saved_and_it_stays_saved(pricing_client, review_db):
+    client, issue = pricing_client
+    headers = issue(['admin'])
+    client.put('/pricing-config', headers=headers, json={'ui_mode': 'simple'})
+    saved = client.put('/pricing-config', headers=headers, json={'spool_cost': 25, 'hourly_rate': 15}).json()
+    # Saving the default numbers unchanged is still the owner's decision.
+    assert saved['configured'] is True and saved['ui_mode'] == 'simple'
+    assert client.put('/pricing-config', headers=headers, json={'ui_mode': 'advanced'}).json()['configured'] is True
+    assert client.get('/pricing-config', headers=headers).json()['configured'] is True
+    assert _stored_pricing(review_db)['pricing_saved'] is True
+
+
+@pytest.mark.parametrize('stored', [
+    {'spool_cost': 40, 'hourly_rate': 27, 'ui_mode': 'advanced'},
+    {'spool_cost': 25.0, 'spool_weight': 1000.0, 'ui_mode': 'simple'},
+    {'ui_mode': 'simple'},
+])
+def test_pricing_saved_before_this_release_stays_shown_as_saved(pricing_client, review_db, stored):
+    import json
+    client, issue = pricing_client
+    headers = issue(['admin'])
+    review_db.execute(text("INSERT INTO system_config(key,value) VALUES('pricing_config',:value)"), {'value': json.dumps(stored)})
+    review_db.commit()
+    assert client.get('/pricing-config', headers=headers).json()['configured'] is True
+    # An interface-mode switch on such a row never hides the prices the owner already had.
+    assert client.put('/pricing-config', headers=headers, json={'ui_mode': 'advanced'}).json()['configured'] is True
+    assert client.get('/pricing-config', headers=headers).json()['configured'] is True
+    assert 'pricing_saved' not in _stored_pricing(review_db)

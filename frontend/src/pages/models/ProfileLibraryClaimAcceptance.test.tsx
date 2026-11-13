@@ -9,7 +9,9 @@ import Models from './Models'
 const api = vi.hoisted(() => ({ list: vi.fn(), import: vi.fn(), update: vi.fn(), models: vi.fn() }))
 vi.mock('../../api', async importOriginal => {
   const actual = await importOriginal<typeof import('../../api')>()
-  return { ...actual, profilesApi: { ...actual.profilesApi, list: api.list, import: api.import, update: api.update }, models: { ...actual.models, listWithPricing: api.models }, printers: { list: vi.fn().mockResolvedValue([]) } }
+  return { ...actual, profilesApi: { ...actual.profilesApi, list: api.list, import: api.import, update: api.update }, models: { ...actual.models, listWithPricing: api.models }, printers: { list: vi.fn().mockResolvedValue([]) },
+    // Costs are shown only once the pricing settings have loaded and say they were saved.
+    pricingConfig: { ...actual.pricingConfig, get: vi.fn().mockResolvedValue({ configured: true }) } }
 })
 vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ id: 3, role: 'operator', group_id: 17 }) }))
 vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: 17 }) }))
@@ -24,7 +26,7 @@ function stat(label: string) { return screen.getByText(label, { selector: 'span'
 beforeEach(() => { vi.clearAllMocks(); api.list.mockResolvedValue({ profiles, total: 51 }); api.import.mockResolvedValue({ imported: 1 }); api.update.mockResolvedValue({ updated: true }); api.models.mockResolvedValue(modelData) })
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.restoreAllMocks() })
 it('F05-5.2-03 actual model summary counts models, favorites, categories and costed models', async () => {
-  await models(); expect(stat('Models')).toHaveTextContent('2'); expect(stat('Favorites')).toHaveTextContent('1'); expect(stat('Categories')).toHaveTextContent('2'); expect(stat('Costed')).toHaveTextContent('1')
+  await models(); expect(stat('Models')).toHaveTextContent('2'); expect(stat('Favorites')).toHaveTextContent('1'); expect(stat('Categories')).toHaveTextContent('2'); await waitFor(() => expect(stat('Costed')).toHaveTextContent('1'))
   expect(api.models).toHaveBeenCalledWith(null,17,{})
 })
 it.each(['Total Print Hours','Most Printed'])('F05-5.2-03 CLAIM GAP: summary includes advertised %s stat', async label => {

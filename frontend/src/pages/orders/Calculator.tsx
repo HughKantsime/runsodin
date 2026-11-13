@@ -132,6 +132,8 @@ export default function CalculatorPage() {
     mutationFn: pricingConfig.update,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pricingConfig'] })
+      // The Models page reads the same settings under this key to decide whether to show prices.
+      queryClient.invalidateQueries({ queryKey: ['pricing-config'] })
     },
     onError: (err: any) => toast.error('Save pricing config failed: ' + (err?.message || 'Unknown error')),
   })
