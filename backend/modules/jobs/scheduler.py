@@ -194,7 +194,15 @@ class Scheduler(SchedulerPlanning):
             from zoneinfo import ZoneInfo
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            dt = dt.astimezone(ZoneInfo(self.config.blackout_timezone))
+            try:
+                dt = dt.astimezone(ZoneInfo(self.config.blackout_timezone))
+            except Exception:
+                # The zone was valid when saved but this server's zone database no longer has
+                # it (image change). Never stop scheduling over that: read the window as UTC,
+                # as an install with no zone does. Settings shows the saved zone for correction.
+                import logging
+                logging.getLogger("odin.scheduler").warning(
+                    "Quiet hours: unknown time zone %r; applying the window in UTC", self.config.blackout_timezone)
         minutes = dt.hour * 60 + dt.minute
         blackout_start = self.config.blackout_start_hour * 60 + self.config.blackout_start_minute
         blackout_end = self.config.blackout_end_hour * 60 + self.config.blackout_end_minute

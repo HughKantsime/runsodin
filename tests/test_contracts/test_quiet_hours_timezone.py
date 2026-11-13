@@ -141,3 +141,9 @@ def test_unknown_zone_is_refused(zone, review_db):  # noqa: F811
     with pytest.raises(ValueError):
         set_blackout(review_db, "22:30", "05:30", zone or "Nowhere/None")
     assert ConfigUpdate(blackout_timezone="America/New_York").blackout_timezone == "America/New_York"
+
+
+def test_a_saved_zone_the_server_no_longer_knows_falls_back_to_utc_and_never_stops_scheduling():
+    scheduler = _scheduler(zone="Mars/Olympus_Mons")
+    assert scheduler._is_blackout_time(datetime(2026, 1, 15, 23, 0, tzinfo=timezone.utc)) is True
+    assert scheduler._is_blackout_time(datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)) is False
