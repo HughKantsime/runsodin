@@ -132,6 +132,43 @@ export function parseServerDate(value: string | number | Date | null | undefined
   return new Date(text)
 }
 
+/** Read a calendar day sent by the server (a job's due date, for example).
+ *  A day the user picked is stored as midnight UTC ("2026-11-20T00:00:00", sometimes with a "Z")
+ *  or as a bare date. It is a day, not a moment: read as an instant it lands on Nov 19 for
+ *  everyone west of UTC. Only the written year-month-day is used, and the result is that same
+ *  day at local midnight, so it shows and compares as Nov 20 in every time zone.
+ *  Never use this for real instants (created_at, started_at, last_seen): use parseServerDate. */
+export function parseServerDay(value: string | null | undefined): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/.exec(String(value ?? '').trim())
+  if (!match) return null
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const date = new Date(year, month - 1, day)
+  // new Date() rolls an impossible day over (Feb 31 becomes Mar 3): refuse it instead.
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+  return date
+}
+
+/** Show a server calendar day as the same day everywhere (e.g. "Nov 20, 2026"). */
+export function formatServerDay(
+  value: string | null | undefined,
+  options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' },
+  locales: string | string[] = [],
+): string {
+  const date = parseServerDay(value)
+  return date ? date.toLocaleDateString(locales, options) : '--'
+}
+
+/** Whole calendar days from the viewer's today to a server calendar day:
+ *  0 is today, 1 tomorrow, -1 yesterday (overdue). Null when the value is not a day. */
+export function serverDayOffset(value: string | null | undefined, now: Date = new Date()): number | null {
+  const date = parseServerDay(value)
+  if (!date) return null
+  // Compare the two calendar days on a UTC scale so a daylight-saving change cannot make a day 23 or 25 hours.
+  const day = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((day - today) / 86_400_000)
+}
+
 /** Format an ISO date string to locale-friendly display (e.g. "Jan 5, 2026, 03:45 PM"). */
 export function formatDate(d: string | null | undefined): string {
   if (!d) return '--'

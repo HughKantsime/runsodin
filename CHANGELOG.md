@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- A job's due date now shows as the day you picked in every time zone. Before, a job due Nov 20 could read as Nov 19 in the Timeline detail for anyone west of UTC, and the Jobs list counted "due today" and "overdue" from midnight UTC instead of your own calendar day. A job is now marked overdue (red row) only once its due day has passed where you are, not during the due day itself, and hovering the due badge shows the date.
 - Home Assistant day totals compare parsed completion times against local midnight, so Moonraker ISO timestamps and timestamps with offsets count on the correct day alongside naive UTC timestamps.
 - Vigil training capture now verifies a print's job link when controlled data exists and rechecks controlled status before every sampled or burst frame write. Pending review advances correctly under React StrictMode. The training guide now correctly states that labelled frames also expire under the retention setting.
 ### Changed
