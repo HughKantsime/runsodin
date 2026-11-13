@@ -63,7 +63,7 @@ it('F10-10.2-01 CLAIM GAP: subtotal includes monetary costs only, without adding
 })
 it('F10-10.2-02 edits and saves manufacturing margin and recomputes price with zero failure rate', async () => {
   // No failure buffer: subtotal $24.50 + $5.00 overhead = $29.50; x 1.25 = $36.875 -> $36.88.
-  api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Margin', 25)
+  api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Markup', 25)
   expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$36.88')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 25, failure_rate: 0 }), expect.anything()))

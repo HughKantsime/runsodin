@@ -3,6 +3,7 @@ import { useState, useEffect, useId, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { models, pricingConfig } from '../../api'
+import { priceItem, marginFromMarkup, markupFromMargin, type PricedItem } from '../../utils/pricingRule'
 import {
   type LucideIcon,
   Calculator,
@@ -19,7 +20,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 
-function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", min = 0 }: { label: string; value: number; onChange: (value: number) => void; suffix?: string; icon?: LucideIcon; step?: string | number; min?: number }) {
+function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", min = 0, max, hint }: { label: string; value: number; onChange: (value: number) => void; suffix?: string; icon?: LucideIcon; max?: number; hint?: string; step?: string | number; min?: number }) {
   const inputId = useId()
   return (
     <div>
@@ -31,12 +32,14 @@ function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", 
           type="number"
           step={step}
           min={min}
+          max={max}
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
           className={`w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 pr-10 text-sm ${Icon ? 'pl-8' : 'pl-3'}`}
         />
         {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--brand-muted)] text-xs">{suffix}</span>}
       </div>
+      {hint && <p className="text-[11px] text-[var(--brand-muted)] mt-1">{hint}</p>}
     </div>
   )
 }
@@ -56,38 +59,39 @@ function CostSection({ title, icon: Icon, cost, children }: { title: string; ico
   )
 }
 
-function PricingBreakdown({ costs, margin, quantity, unitsPerBed = 1 }: { costs: Record<'material' | 'labor' | 'electricity' | 'depreciation' | 'packaging' | 'failure' | 'overhead' | 'other' | 'failureRate', number>; margin: number; quantity: number; unitsPerBed?: number }) {
-  // `costs` are per sellable item (per-bed inputs were divided by the unit count).
+function PricingBreakdown({ priced, failureRate, quantity, unitsPerBed = 1 }: { priced: PricedItem; failureRate: number; quantity: number; unitsPerBed?: number }) {
+  // `priced` is per sellable item (per-plate inputs were divided by the unit count).
   const units = Number.isFinite(unitsPerBed) && unitsPerBed >= 1 ? unitsPerBed : 1
-  const subtotal = costs.material + costs.labor + costs.electricity
-    + costs.depreciation + costs.packaging + costs.failure
-    + costs.overhead + costs.other
-  const withMargin = subtotal * (1 + margin / 100)
-  const perUnit = withMargin
-  const costPerUnit = subtotal
-  const total = perUnit * quantity
+  const perUnit = priced.price
+  const profit = priced.price - priced.selling_fees - priced.subtotal
+  const hasFees = priced.selling_fees > 0
+  const row = (label: string, value: number) => (
+    <div className="flex justify-between"><span className="text-[var(--brand-muted)] font-sans">{label}</span><span>${value.toFixed(2)}</span></div>
+  )
 
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-3 md:p-4 lg:sticky lg:top-4">
       <h3 className="font-display font-semibold mb-4 text-sm md:text-base">Final Pricing</h3>
       <div className="space-y-2 text-sm font-mono">
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)] font-sans">Material Cost:</span><span>${costs.material.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Labor Cost:</span><span>${costs.labor.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Electricity:</span><span>${costs.electricity.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Printer Depreciation:</span><span>${costs.depreciation.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Packaging:</span><span>${costs.packaging.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Failure Buffer ({costs.failureRate}%):</span><span>${costs.failure.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Overhead:</span><span>${costs.overhead.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Other Costs:</span><span>${costs.other.toFixed(2)}</span></div>
+        {row('Material Cost:', priced.material)}
+        {row('Labor Cost:', priced.labor)}
+        {row('Electricity:', priced.electricity)}
+        {row('Printer Depreciation:', priced.depreciation)}
+        {row('Packaging:', priced.packaging)}
+        {row(`Failure Buffer (${failureRate}%):`, priced.failure)}
+        {row('Overhead:', priced.overhead)}
+        {row('Other Costs:', priced.other)}
 
         <div className="border-t border-[var(--brand-card-border)] pt-2 mt-2">
-          <div className="flex justify-between font-medium"><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
+          <div className="flex justify-between font-medium"><span>Subtotal:</span><span>${priced.subtotal.toFixed(2)}</span></div>
         </div>
 
         <div className="pt-2">
-          <label className="block text-sm text-[var(--brand-muted)] mb-1">Manufacturing Margin</label>
-          <div className="text-2xl font-bold text-center py-2">{margin}%</div>
+          <div className="block text-sm text-[var(--brand-muted)] mb-1 font-sans">Markup <span className="text-xs">(added on top of cost)</span></div>
+          <div className="text-2xl font-bold text-center py-2" data-testid="markup-percent">{Number(priced.markup_percent.toFixed(2))}%</div>
         </div>
+
+        {hasFees && row('Selling fees:', priced.selling_fees)}
 
         {units > 1 && (
           <div className="flex justify-between text-xs text-[var(--brand-muted)]"><span>Bed price ({units} units per bed):</span><span>${(perUnit * units).toFixed(2)}</span></div>
@@ -95,20 +99,22 @@ function PricingBreakdown({ costs, margin, quantity, unitsPerBed = 1 }: { costs:
 
         <div className="bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md p-3 md:p-4 text-center">
           <div className="text-xs md:text-sm text-[var(--brand-muted)]">Recommended Price (per unit)</div>
-          <div className="text-2xl md:text-3xl font-display font-bold text-[var(--brand-primary)] font-mono">${perUnit.toFixed(2)}</div>
+          <div className="text-2xl md:text-3xl font-display font-bold text-[var(--brand-primary)] font-mono" data-testid="recommended-price">${perUnit.toFixed(2)}</div>
+        </div>
+        <div className="text-xs text-[var(--brand-muted)] text-center font-sans" data-testid="margin-of-price">
+          Margin (of price): <span className="text-green-400 font-mono">{priced.margin_of_price_percent.toFixed(1)}%</span>{hasFees ? ' after selling fees' : ''}
         </div>
 
         {quantity > 1 && (
           <div className="bg-[var(--brand-input-bg)] rounded-md p-3 text-center">
             <div className="text-xs md:text-sm text-[var(--brand-muted)]">Total for {quantity} units</div>
-            <div className="text-lg md:text-xl font-bold text-green-400 font-mono">${total.toFixed(2)}</div>
+            <div className="text-lg md:text-xl font-bold text-green-400 font-mono">${(perUnit * quantity).toFixed(2)}</div>
           </div>
         )}
 
         <div className="pt-2 space-y-1 text-xs text-[var(--brand-muted)]">
-          <div className="flex justify-between"><span>Cost per unit:</span><span>${costPerUnit.toFixed(2)}</span></div>
-          <div className="flex justify-between"><span>Profit per unit:</span><span className="text-green-400">${(perUnit - costPerUnit).toFixed(2)}</span></div>
-          <div className="flex justify-between"><span>Profit margin:</span><span className="text-green-400">{((withMargin - subtotal) / withMargin * 100).toFixed(1)}%</span></div>
+          <div className="flex justify-between"><span>Cost per unit:</span><span>${priced.subtotal.toFixed(2)}</span></div>
+          <div className="flex justify-between"><span>Profit per unit{hasFees ? ' (after fees)' : ''}:</span><span className="text-green-400">${profit.toFixed(2)}</span></div>
         </div>
       </div>
     </div>
@@ -159,7 +165,10 @@ export default function CalculatorPage() {
   const [monthlyRent, setMonthlyRent] = useState(0)
   const [partsPerMonth, setPartsPerMonth] = useState(100)
   const [otherCosts, setOtherCosts] = useState(0)
-  const [margin, setMargin] = useState(50)
+  const [margin, setMargin] = useState(50)          // stored as default_margin; it is a markup
+  const [sellingFeePercent, setSellingFeePercent] = useState(0)
+  const [sellingFeeFixed, setSellingFeeFixed] = useState(0)
+  const [plateHandlingMin, setPlateHandlingMin] = useState(0)
 
   // Load saved config when it arrives
   useEffect(() => {
@@ -180,6 +189,9 @@ export default function CalculatorPage() {
       setPartsPerMonth(savedConfig.parts_per_month ?? 100)
       setOtherCosts(savedConfig.other_costs ?? 0)
       setMargin(savedConfig.default_margin ?? 50)
+      setSellingFeePercent(savedConfig.selling_fee_percent ?? 0)
+      setSellingFeeFixed(savedConfig.selling_fee_fixed ?? 0)
+      setPlateHandlingMin(savedConfig.plate_handling_min ?? 0)
       setHasChanges(false)
     }
   }, [savedConfig])
@@ -206,6 +218,7 @@ export default function CalculatorPage() {
 
   // Save config
   const handleSaveConfig = () => {
+    if (!(sellingFeePercent >= 0 && sellingFeePercent < 100)) { toast.error('Selling fee must be under 100%'); return }
     saveConfigMutation.mutate({
       spool_cost: spoolCost,
       spool_weight: spoolWeight,
@@ -222,7 +235,10 @@ export default function CalculatorPage() {
       monthly_rent: monthlyRent,
       parts_per_month: partsPerMonth,
       other_costs: otherCosts,
-      default_margin: margin
+      default_margin: margin,
+      selling_fee_percent: sellingFeePercent,
+      selling_fee_fixed: sellingFeeFixed,
+      plate_handling_min: plateHandlingMin
     })
     setHasChanges(false)
   }
@@ -246,34 +262,39 @@ export default function CalculatorPage() {
       setPartsPerMonth(savedConfig.parts_per_month ?? 100)
       setOtherCosts(savedConfig.other_costs ?? 0)
       setMargin(savedConfig.default_margin ?? 50)
+      setSellingFeePercent(savedConfig.selling_fee_percent ?? 0)
+      setSellingFeeFixed(savedConfig.selling_fee_fixed ?? 0)
+      setPlateHandlingMin(savedConfig.plate_handling_min ?? 0)
       setHasChanges(false)
     }
   }
 
-  // Calculations, per sellable item. Filament grams and print time describe one
-  // bed, so material, electricity and machine depreciation divide by the bed's
-  // unit count; labour, packaging, overhead and other costs are already per item.
+  // Calculations, per sellable item, through the one shared rule (utils/pricingRule.ts, the
+  // same rule the API uses). Filament grams and print time describe one plate, so they are
+  // divided by the plate's unit count here; labour, packaging, overhead and other costs are
+  // per item, and plate handling is shared between the plate's units inside the rule.
   const bedUnits = Number.isFinite(unitsPerBed) && unitsPerBed >= 1 ? unitsPerBed : 1
   const costPerGram = spoolCost / spoolWeight
-  const materialCost = filamentGrams * costPerGram / bedUnits
-  const laborHours = (postProcessingMin + packingMin + supportMin) / 60
-  const laborCost = laborHours * hourlyRate
-  const electricityCost = (printerWattage / 1000) * printTimeHours * electricityRate / bedUnits
-  const depreciationCost = (printerCost / printerLifespan) * printTimeHours / bedUnits
-  const baseCost = materialCost + laborCost + electricityCost + depreciationCost + packagingCost + otherCosts
-  const failureCost = baseCost * (failureRate / 100)
-  const overheadCost = partsPerMonth > 0 ? monthlyRent / partsPerMonth : 0
-
-  const costs = {
-    material: materialCost,
-    labor: laborCost,
-    electricity: electricityCost,
-    depreciation: depreciationCost,
-    packaging: packagingCost,
-    failureRate: failureRate,
-    failure: failureCost,
-    overhead: overheadCost,
-    other: otherCosts
+  const feePercentValid = sellingFeePercent >= 0 && sellingFeePercent < 100
+  const priced = priceItem({
+    hourly_rate: hourlyRate, post_processing_min: postProcessingMin, packing_min: packingMin, support_min: supportMin,
+    plate_handling_min: plateHandlingMin, electricity_rate: electricityRate, printer_wattage: printerWattage,
+    printer_cost: printerCost, printer_lifespan: printerLifespan, packaging_cost: packagingCost, other_costs: otherCosts,
+    failure_rate: failureRate, monthly_rent: monthlyRent, parts_per_month: partsPerMonth, default_margin: margin,
+    selling_fee_percent: feePercentValid ? sellingFeePercent : 0, selling_fee_fixed: sellingFeeFixed,
+  }, { material_cost: filamentGrams * costPerGram / bedUnits, print_hours: printTimeHours / bedUnits, units_per_plate: bedUnits })
+  const materialCost = priced.material
+  const laborCost = priced.labor
+  const electricityCost = priced.electricity
+  const depreciationCost = priced.depreciation
+  const failureCost = priced.failure
+  const overheadCost = priced.overhead
+  const targetMargin = Number(marginFromMarkup(margin).toFixed(1))
+  const setTargetMargin = (value: number) => {
+    const markup = markupFromMargin(value)
+    if (markup === null) { toast.error('Target margin must be 0 or more and under 100%'); return }
+    setMargin(Number(markup.toFixed(2)))
+    setHasChanges(true)
   }
 
   if (configLoading) {
@@ -362,6 +383,10 @@ export default function CalculatorPage() {
               <InputField label="Packing" value={packingMin} onChange={markChanged(setPackingMin)} suffix="min" />
               <InputField label="Support" value={supportMin} onChange={markChanged(setSupportMin)} suffix="min" />
             </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+              <InputField label="Plate handling" value={plateHandlingMin} onChange={markChanged(setPlateHandlingMin)} suffix="min" hint="per plate: clear it and start the next" />
+            </div>
+            <div className="text-xs text-[var(--brand-muted)]">Post-process, packing and support are minutes per item. Plate handling is minutes per plate, shared between the items on it.</div>
           </CostSection>
 
           {/* Electricity Costs */}
@@ -395,13 +420,24 @@ export default function CalculatorPage() {
           <CostSection title="Failure Buffer" icon={AlertTriangle} cost={failureCost}>
             <div className="grid grid-cols-2 gap-2 md:gap-3">
               <InputField label="Failure Rate" value={failureRate} onChange={markChanged(setFailureRate)} suffix="%" icon={Percent} />
-              <InputField label="Margin" value={margin} onChange={markChanged(setMargin)} suffix="%" icon={TrendingUp} />
             </div>
+          </CostSection>
+
+          {/* Markup and selling fees */}
+          <CostSection title="Markup and Selling Fees" icon={TrendingUp} cost={priced.price - priced.subtotal}>
+            <div className="grid grid-cols-2 gap-2 md:gap-3">
+              <InputField label="Markup" value={margin} onChange={markChanged(setMargin)} suffix="%" icon={TrendingUp} hint="added on top of cost" />
+              <InputField label="Target margin" value={targetMargin} onChange={setTargetMargin} suffix="%" icon={Percent} max={99.9} hint="the same setting, as a share of the price" />
+              <InputField label="Selling fee" value={sellingFeePercent} onChange={markChanged(setSellingFeePercent)} suffix="%" icon={Percent} max={99.9} hint="card or marketplace share of the price" />
+              <InputField label="Fixed fee" value={sellingFeeFixed} onChange={markChanged(setSellingFeeFixed)} suffix="$" icon={DollarSign} hint="per sale" />
+            </div>
+            {!feePercentValid && <div role="alert" className="text-xs text-red-400">Selling fee must be under 100%.</div>}
+            <div className="text-xs text-[var(--brand-muted)]">Markup and target margin are one setting: change either and the other follows. The price is raised so the selling fees are covered and your markup still applies to your cost.</div>
           </CostSection>
         </div>
 
         {/* Pricing breakdown */}
-        <PricingBreakdown costs={costs} margin={margin} quantity={quantity} unitsPerBed={unitsPerBed} />
+        <PricingBreakdown priced={priced} failureRate={failureRate} quantity={quantity} unitsPerBed={unitsPerBed} />
       </div>
     </div>
   )
