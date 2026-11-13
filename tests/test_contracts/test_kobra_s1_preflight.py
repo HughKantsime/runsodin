@@ -393,3 +393,24 @@ def test_preflight_timeline_rows_are_persisted(pipeline):
     assert (row.printer_id, row.org_id) == (59, 1)
     assert detail == dict(preflight_result='refused', decoys_sent=3, seconds=59,
                           message='Printer start check did not pass. Checks sent: 3. Time: 59 seconds.')
+
+
+@pytest.mark.parametrize('hold', [False, True])
+def test_a_failed_upload_releases_the_claim_only_when_no_maintenance_hold_arrived(pipeline, monkeypatch, hold):
+    # Release-merge review: an S1 upload failure marks the gate clean_no_start, and that used to
+    # release the claim even when a maintenance hold had been set while the upload ran. A hold
+    # that arrives mid-dispatch keeps the fence for every refusal except a start check.
+    from modules.printers.adapters import moonraker
+    def failing_upload(self, local, remote):
+        pipeline.uploads.append(remote)
+        if hold:
+            pipeline.sql("INSERT INTO system_config(key,value) VALUES('printer.maintenance.59','{\"state\": \"hold\",\"note\":\"Service needed\"}')")
+        return False
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'upload_file', failing_upload)
+    ok, message = pipeline.run()
+    assert not ok and not pipeline.decoys and not pipeline.starts
+    claim = evidence(pipeline)[0]
+    if hold:
+        assert claim is not None, 'a hold set during the upload must keep the claim fenced'
+    else:
+        assert claim is None, 'with no hold a failed upload still releases the claim cleanly'
