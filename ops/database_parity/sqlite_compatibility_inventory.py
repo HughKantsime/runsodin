@@ -284,7 +284,7 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     ),
     "backend/modules/jobs/list_query.py": (
         "sqlite-provider-only",
-        "Dialect-guarded: SQLite stores job times as text in two shapes, so ordering and finished_since compare their first 19 characters with T replaced by a space; PostgreSQL compares real timestamps.",
+        "Dialect-guarded: SQLite stores job times as text in more than one shape, so ordering and finished_since compare strftime-normalised UTC seconds plus the stored six fraction digits; PostgreSQL compares real timestamps.",
     ),
     "backend/modules/jobs/state_machine.py": (
         "dialect-neutral",

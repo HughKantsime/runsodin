@@ -1877,7 +1877,7 @@
       "line": 21,
       "path": "backend/modules/jobs/list_query.py",
       "pattern": "qmark-parameter",
-      "reason": "Dialect-guarded: SQLite stores job times as text in two shapes, so ordering and finished_since compare their first 19 characters with T replaced by a space; PostgreSQL compares real timestamps.",
+      "reason": "Dialect-guarded: SQLite stores job times as text in more than one shape, so ordering and finished_since compare strftime-normalised UTC seconds plus the stored six fraction digits; PostgreSQL compares real timestamps.",
       "source": "_NUMBER = re.compile(r'^(#|job\\s*#?)?\\s*(\\d{1,15})$', re.IGNORECASE)"
     },
     {
