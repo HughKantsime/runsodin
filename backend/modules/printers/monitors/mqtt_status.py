@@ -119,6 +119,13 @@ def handle_status(self, status, generation, runtime):
             # report there is. A start waits for the tail: its snapshot is first-start evidence,
             # and a first packet can be a print already under way.
             refresh_ams_remain(self)
+        # A question owns only physical bookkeeping. Telemetry continues below,
+        # while start, progress and HMS terminal writers have no row authority.
+        from modules.printers.monitors.restart_question import handle as handle_restart_question
+        question_waiting = bool(gcode_state and not self._current_job_id and handle_restart_question(self, runtime))
+        if question_waiting:
+            self._pending_running_state = None
+            gcode_state = None
         if gcode_state and getattr(self, '_recovery_pending', False) and not self._current_job_id:
             # Recovery's wait ended before any report carried a state, or it failed. A tracked
             # print is ending live, so its row waits for this packet's transition instead.
@@ -198,6 +205,8 @@ def handle_status(self, status, generation, runtime):
                     runtime.log.warning('[%s] Attempt tray persistence failed; will retry', self.name)
 
         def process_hms(packet, expected_print_job_id=None):
+            if question_waiting:
+                return True
             from modules.printers.monitors.hms_evidence import evidence
             report_evidence = evidence(packet, runtime.time.time())
             incoming_hms = packet.get('hms')

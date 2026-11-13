@@ -37,3 +37,11 @@ test('late pre-delete list response cannot restore deleted row',async()=>{
 test('delete finishing during a new filter request does not discard its rows',async()=>{
  let deleted:any,list:any;vi.mocked(api.remove).mockImplementation(()=>new Promise(done=>{deleted=done}));show();await screen.findByText(row.title);fireEvent.click(screen.getByRole('button',{name:'Delete alert'}));vi.mocked(api.list).mockImplementationOnce(()=>new Promise(done=>{list=done}));fireEvent.click(screen.getByRole('button',{name:'Warning'}));await waitFor(()=>expect(list).toBeTruthy());await act(async()=>deleted({status:'ok',alert_id:701}));await act(async()=>list([{...row,id:702,title:'Synthetic warning',severity:'warning'}]));expect(screen.getByText('Synthetic warning')).toBeTruthy();expect(screen.queryByText(row.title)).toBeNull()
 })
+
+
+test('restart question alert opens the printer recovery question', async () => {
+ vi.mocked(api.list).mockResolvedValue([{...row, printer_id:9, metadata_json:{restart_question_id:'a'.repeat(32)}}] as any)
+ show()
+ await screen.findByText(row.title)
+ expect(screen.getByRole('link', {name:'Confirm print in Dispatch Recovery'})).toHaveAttribute('href','/printers/9#dispatch-recovery')
+})

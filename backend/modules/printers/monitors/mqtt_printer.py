@@ -61,6 +61,7 @@ AMS_SYNC_RETRY_MAX_SECONDS = 300
 
 # A failed reconciliation retries on later reports, backing off because each attempt
 # opens a connection under self._lock and can wait out the database busy timeout.
+MONITOR_STARTED_AT = datetime.now(timezone.utc)
 RECOVERY_RETRY_BASE_SECONDS = 10
 RECOVERY_RETRY_MAX_SECONDS = 300
 
@@ -75,6 +76,7 @@ class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""
 
     def __init__(self, printer_id: int, name: str, ip: str, serial: str, access_code: str):
+        self._monitor_started_at = MONITOR_STARTED_AT
         self.printer_id = printer_id
         self.name = name
         self.ip = ip
@@ -244,6 +246,9 @@ class PrinterMonitor:
             self._recovery_pending = True
             return
         self._recovery_pending = False
+        from modules.printers.monitors.restart_question import handle
+        if handle(self, sys.modules[__name__]):
+            return
         ended_state = self._recover_rows()
         if ended_state is None:
             if not self._recovery_pending:
@@ -678,6 +683,12 @@ class PrinterMonitor:
         # Guard: already tracking a job — skip duplicate start
         if self._current_job_id:
             log.debug(f"[{self.name}] _job_started called but already tracking job {self._current_job_id}")
+            return True
+
+        from modules.printers.monitors.restart_question import handle
+        if handle(self, sys.modules[__name__]):
+            return False
+        if self._current_job_id:
             return True
 
         # Check for existing running job in DB (e.g. after reconnect)

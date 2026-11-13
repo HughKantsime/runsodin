@@ -23,7 +23,17 @@ import type {
   Camera,
 } from '../types'
 
+export interface RestartQuestion {
+  id: string
+  print_job_id: number
+  raised_at: string
+  print_name: string
+  reported_name: string | null
+}
+
 export interface DispatchRecoveryInspection {
+  restart_question?: RestartQuestion | null
+  answer_restart_question?: boolean
   refresh_required?: boolean
   refresh?: { method: 'GET'; endpoint: string }
   state: string
@@ -67,6 +77,7 @@ export interface MoonrakerDiscoveryResult {
 
 export const printers = {
   recoverDispatch: (id: number, action: DispatchRecoveryAction, body: Record<string, unknown>): Promise<DispatchRecoveryDecision> => fetchAPI(`/printers/${id}/dispatch-recovery/${action}`, { method: 'POST', body: JSON.stringify(body) }),
+  answerRestartQuestion: (id: number, question_id: string, answer: 'same' | 'new'): Promise<{ outcome: string; print_job_id: number }> => fetchAPI(`/printers/${id}/dispatch-recovery/restart-question`, { method: 'POST', body: JSON.stringify({ question_id, answer }) }),
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
   list: (activeOnly = false, tag = '', orgId: number | null = null): Promise<Printer[]> => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '') + (orgId != null ? '&org_id=' + orgId : '')),
   allTags: (): Promise<string[]> => fetchAPI('/printers/tags'),

@@ -230,6 +230,7 @@ export default function Alerts() {
   }
 
   const getActionLink = (alert) => {
+    if (alert.metadata_json?.restart_question_id && alert.printer_id) return { label: 'Confirm print in Dispatch Recovery', path: `/printers/${alert.printer_id}#dispatch-recovery` }
     if (alert.job_id) return { label: 'View Job', path: '/jobs' }
     if (alert.spool_id) return { label: 'View Spool', path: '/spools' }
     if (alert.printer_id) return { label: 'View Printer', path: '/printers' }

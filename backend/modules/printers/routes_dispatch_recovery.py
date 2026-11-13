@@ -151,6 +151,9 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         'refresh':{'method':'GET','endpoint':f'/api/printers/{printer_id}/dispatch-recovery'}}
     if result['refresh_required']:
         result['guidance'] = 'Wait for fresh monitor telemetry, then use Refresh evidence or GET '+result['refresh']['endpoint']+'. '+GUIDANCE
+    from core.restart_questions import visible as restart_question
+    result['restart_question'] = restart_question(db, printer_id, current_user)
+    result['answer_restart_question'] = bool(can_write and result['restart_question'])
     if visible:
         result.update(attempt_handle=evidence['attempt'],snapshot_handle=evidence['snapshot'])
     return result
@@ -169,3 +172,17 @@ def retain_dispatch_recovery(body:RetainRequest,printer_id:int=Path(gt=0),curren
 @router.post('/printers/{printer_id}/dispatch-recovery/release',tags=['Printers'],dependencies=[Depends(require_action('printers.dispatch_recovery'))])
 def release_dispatch_recovery(body:ReleaseRequest,printer_id:int=Path(gt=0),current_user:dict=Depends(require_role('admin',scope='write:printers')),db:Session=Depends(get_db)):
     return mutate(db,printer_id,current_user,body,'release',lambda conn,pid=printer_id:configured_identity(pid,conn))
+
+
+class RestartAnswer(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    question_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    answer: Literal['same', 'new']
+
+
+@router.post('/printers/{printer_id}/dispatch-recovery/restart-question', tags=['Printers'], dependencies=[Depends(require_action('printers.dispatch_recovery'))])
+def answer_restart_question(body: RestartAnswer, printer_id: int = Path(gt=0),
+                            current_user: dict = Depends(require_role('admin', scope='write:printers')),
+                            db: Session = Depends(get_db)):
+    from core.restart_questions import answer
+    return answer(db, printer_id, current_user, body.question_id, body.answer)

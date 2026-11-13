@@ -12,7 +12,7 @@ import TraySettings from '../../components/printers/TraySettings'
 import PauseCause from '../../components/printers/PauseCause'
 import { SupportLevelBadge, ExperimentalOptIn } from '../../components/printers/SupportLevel'
 import { IdleS1StartNext } from '../../components/printers/StartNextPanel'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
 import { printers, printerTelemetry, printJobs } from '../../api'
@@ -315,5 +315,6 @@ export default function PrinterDetail() {
 }
 
 function DetailPresentation({ foundry, children }) {
-  return foundry ? <details className="f-management"><summary>Printer status and recovery</summary>{children}</details> : <>{children}</>
+  const { hash } = useLocation()
+  return foundry ? <details className="f-management" open={hash === '#dispatch-recovery' || undefined}><summary>Printer status and recovery</summary>{children}</details> : <>{children}</>
 }

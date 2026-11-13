@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { printers, type DispatchRecoveryAction, type DispatchRecoveryInspection } from '../../api'
 import { canDo } from '../../permissions'
 import { Card, Button, Modal } from '../ui'
+import RestartQuestion from './RestartQuestion'
 
 const checks = [
   ['printer_checked', 'I inspected this printer.'],
@@ -88,11 +89,12 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
       : (data.guidance || 'ODIN has no start record to show you for this printer.')}</p>
     <Button ref={refreshButton} size="sm" variant="ghost" disabled={query.isFetching} onClick={() => query.refetch()}>Refresh evidence</Button>
   </details>
-  return <Card className="mb-6 min-w-0 break-words">
+  return <Card id="dispatch-recovery" className="mb-6 min-w-0 break-words">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <h2 className="text-sm font-medium">Dispatch recovery</h2>
       <Button ref={refreshButton} size="sm" variant="ghost" disabled={query.isFetching || mutation.isPending} onClick={() => query.refetch()}>Refresh evidence</Button>
     </div>
+    {data?.restart_question && <RestartQuestion key={data.restart_question.id} printerId={printerId} question={data.restart_question} canAnswer={canWrite && !!data.answer_restart_question} />}
     {notice && <p role="status" className="mb-3">{notice}</p>}
     {query.isError ? <p role="alert">Dispatch evidence is unavailable for this printer. Refresh to try again.</p>
       : query.isPending ? <p role="status">Loading dispatch evidence...</p>
