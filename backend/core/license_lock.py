@@ -1127,6 +1127,22 @@ def mark_community_selected(db, actor):
     _write(db, EVIDENCE_KEY, {'schema_version': 1, 'community_selected': True})
 
 
+def refuse_known_unactivation_conflict(typed_key, current):
+    """Refuse, before the portal is contacted, a typed key the local step would refuse.
+
+    The portal frees the grant first; a refusal afterwards cannot be retried.
+    Concurrent changes are still caught by remove_installed_license.
+    """
+    if not typed_key or typed_key == current.key:
+        return
+    import license_manager as lm
+    from fastapi import HTTPException
+    if current.license_sha256:
+        raise HTTPException(status_code=409, detail="The license key entered is not the one installed on this server. Nothing was changed. To unactivate the installed license, send the request without a key.")
+    if lm._find_license_file() is not None:
+        raise HTTPException(status_code=409, detail="The installed license file cannot be read. Nothing was changed. Remove the file first with \"Remove license\" (DELETE /api/license), then unactivate with the key again.")
+
+
 def remove_installed_license(db, actor, action, *, details=None, expected_key=None, expected_sha256=None):
     """Journal intent durably, then quarantine and commit policy/audit together.
 
@@ -1138,8 +1154,11 @@ def remove_installed_license(db, actor, action, *, details=None, expected_key=No
     with lm.license_file_lock():
         if expected_key is not None or expected_sha256 is not None:
             installed = lm.load_license()
-            if (not installed.license_sha256 or installed.key != expected_key
-                    or installed.license_sha256 != expected_sha256):
+            # No verified license when the request started and no file now is unchanged
+            # (a lost file, unactivated by typing the key): nothing here to protect.
+            still_absent = not expected_sha256 and lm._find_license_file() is None
+            if not still_absent and (not installed.license_sha256 or installed.key != expected_key
+                                     or installed.license_sha256 != expected_sha256):
                 from fastapi import HTTPException
                 raise HTTPException(status_code=409, detail="The installed license changed during unactivation. The current license was retained.")
         journal = 'license_lock_removal_intent'

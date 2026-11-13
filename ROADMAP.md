@@ -20,7 +20,7 @@ Updated - see CHANGELOG for current version.
 
 ## Prepared: License refresh
 
-- No-entitlement replacements require verified evidence and the installed key, including within the clock allowance. A different file for the same key requires a newer issue time, preventing equal-time uploads from restoring a canceled entitlement.
+- No-entitlement replacements require verified evidence and the installed key, including within the clock allowance. A different file for the same key requires a newer issue time; one with the same issue time is installed only when it does not end later, so equal-time uploads cannot restore a canceled entitlement while a plan change on a license without a subscription still installs.
 
 ## Prepared: Education funding and program reports
 

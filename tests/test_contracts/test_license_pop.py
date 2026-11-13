@@ -26,6 +26,7 @@ import pytest
 BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 LICENSE_MGR = BACKEND_DIR / "license_manager.py"
 ROUTES_HEALTH = BACKEND_DIR / "modules" / "system" / "routes_health.py"
+ROUTES_LICENSE = BACKEND_DIR / "modules" / "system" / "routes_license.py"
 
 
 class TestDeviceKeypairLifecycle:
@@ -134,7 +135,7 @@ class TestSignatureFormat:
 
 class TestRoutesWireKeypairAndSignature:
     """routes_health.py must send device_pubkey on activate and signed
-    nonces on unactivate / reactivate. Source-level gate so this can't
+    nonces on unactivate; routes_license.py on reactivate. Source-level gate so this can't
     silently regress to the key+install-id-only form."""
 
     def test_activate_sends_device_pubkey(self):
@@ -171,7 +172,7 @@ class TestRoutesWireKeypairAndSignature:
         )
 
     def test_reactivate_fetches_challenge_and_signs(self):
-        source = ROUTES_HEALTH.read_text()
+        source = ROUTES_LICENSE.read_text()
         tree = ast.parse(source)
         fn_src = None
         for node in ast.walk(tree):

@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 @pytest.fixture
 def owned_import(tmp_path, monkeypatch):
     import license_manager as lm
-    from modules.system import routes_health as routes
+    from modules.system import routes_health as routes, routes_license
     key=Ed25519PrivateKey.generate()
     monkeypatch.setattr(lm,'ODIN_PUBLIC_KEY',key.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo).decode())
     monkeypatch.setattr(lm,'LICENSE_DIR',str(tmp_path))
@@ -21,9 +21,11 @@ def owned_import(tmp_path, monkeypatch):
     monkeypatch.setattr(lm,'_cached_license',None)
     monkeypatch.setattr(lm,'_cached_mtime',0)
     monkeypatch.setattr(routes,'get_license',lm.load_license)
+    monkeypatch.setattr(routes_license,'get_license',lm.load_license)
     monkeypatch.setattr(routes,'save_license_file',lm.save_license_file)
     audit=Mock()
     monkeypatch.setattr(routes,'log_audit',audit)
+    monkeypatch.setattr(routes_license,'log_audit',audit)
     monkeypatch.setattr('core.audit.log_audit', audit)
     db=Mock()
     payload=json.dumps({'tier':'education','licensee':'Owned synthetic school','expires_at':'2099-01-01','features':['education_workflows']}).encode()
