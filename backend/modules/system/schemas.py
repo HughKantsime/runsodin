@@ -132,7 +132,8 @@ class ConfigUpdate(BaseModel):
     @field_validator('scheduler_material_mode')
     @classmethod
     def validate_material_mode(cls, v):
-        from modules.jobs.scheduler_materials import MODES
+        from modules.jobs.services import scheduler_material_modes
+        MODES = scheduler_material_modes()
         if v is not None and v not in MODES:
             raise ValueError("scheduler_material_mode must be 'require', 'prefer' or 'off'")
         return v

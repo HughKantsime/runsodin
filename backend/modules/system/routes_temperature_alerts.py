@@ -5,8 +5,11 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import require_superadmin
-from modules.notifications.temperature_alerts import read_settings, store_settings
-from modules.notifications.temperature_rules import validate_update
+from modules.notifications.services import (
+    read_temperature_alert_settings as read_settings,
+    store_temperature_alert_settings as store_settings,
+    validate_temperature_alert_update as validate_update,
+)
 
 router = APIRouter()
 

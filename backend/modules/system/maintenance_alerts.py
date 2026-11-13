@@ -97,7 +97,7 @@ def alert_text(printer, task, stage):
 
 
 def _stage(db, printer, task, stage):
-    from modules.notifications import alert_dispatcher
+    import modules.notifications.alert_dispatcher as alert_dispatcher
     title, message = alert_text(printer, task, stage)
     metadata = {
         # "kind" tells the dispatcher this alert is de-duplicated by the stage state, not
@@ -119,7 +119,7 @@ def _stage(db, printer, task, stage):
 
 def check_maintenance(*, session_factory=None, now=None):
     """One pass over every active printer and task. Returns a small summary."""
-    from modules.notifications import alert_dispatcher
+    import modules.notifications.alert_dispatcher as alert_dispatcher
     from modules.system.backup_service import restore_lock
     if session_factory is None:
         from core.db import SessionLocal

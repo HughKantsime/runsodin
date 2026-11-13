@@ -593,7 +593,7 @@ async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewe
 def get_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current configuration."""
     from core.scheduler_settings import get_blackout
-    from modules.jobs.scheduler_materials import get_mode
+    from modules.jobs.services import scheduler_material_mode as get_mode
     blackout_start, blackout_end = get_blackout(db)
     return {
         "spoolman_url": get_spoolman_url(db) or None,
@@ -624,7 +624,7 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
 
     mode_change = {}
     if config.scheduler_material_mode is not None:
-        from modules.jobs.scheduler_materials import get_mode, set_mode
+        from modules.jobs.services import scheduler_material_mode as get_mode, set_scheduler_material_mode as set_mode
         mode_change["scheduler_material_mode"] = {"from": get_mode(db), "to": set_mode(db, config.scheduler_material_mode)}
 
     log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "scheduler_material_mode"] if getattr(config, k) is not None], **mode_change})

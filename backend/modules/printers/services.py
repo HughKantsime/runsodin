@@ -261,3 +261,9 @@ def create_printer_record(db, **fields):
     db.add(printer)
     db.flush()
     return printer
+
+
+def experimental_refusal(db, printer_id, api_type):
+    """Service-layer entry for other modules (the scheduler): see support_levels.experimental_refusal."""
+    from modules.printers.support_levels import experimental_refusal as _refusal
+    return _refusal(db, printer_id, api_type)

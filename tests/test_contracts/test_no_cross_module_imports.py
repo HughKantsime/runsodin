@@ -93,6 +93,9 @@ ALLOWED_PATTERNS = [
     ".go2rtc_access",     # go2rtc API address + per-boot credentials (vision/timelapse frame capture)
     ".dispatch import",   # Printer dispatch (send job to printer HW)
     ".archive import",    # Print archive service (create_print_archive shared by monitors)
+    " import plate_cache",  # models_library/plate_cache.py read by the printer's plate-thumbnail route only.
+                            # Deliberately NOT re-exported through services.py: test_plate_cache_routes.py
+                            # pins the short list of files allowed to touch the cache (picture privacy).
 
     # Service layer — the intended cross-module boundary for shared business
     # logic. Importing from another module's services.py is allowed; importing

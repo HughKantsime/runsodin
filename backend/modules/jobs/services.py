@@ -28,3 +28,19 @@ def delete_org_jobs(db, org_id):
         clear_job_attempts(sqlalchemy_runner(db), job_id)
     db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})
     redact_job_history_ids(db, restricted)
+
+
+def scheduler_material_modes():
+    """Service-layer entry for other modules (settings): the allowed scheduler material modes."""
+    from modules.jobs.scheduler_materials import MODES
+    return MODES
+
+
+def scheduler_material_mode(db):
+    from modules.jobs.scheduler_materials import get_mode
+    return get_mode(db)
+
+
+def set_scheduler_material_mode(db, mode):
+    from modules.jobs.scheduler_materials import set_mode
+    return set_mode(db, mode)
