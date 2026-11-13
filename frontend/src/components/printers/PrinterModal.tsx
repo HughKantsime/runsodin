@@ -6,7 +6,7 @@ import type { PlugConfig } from '../../types'
 import { canDo } from '../../permissions'
 import { PRINTER_TYPE_OPTIONS, printerTypeLabel, supportLevelOfType, experimentalWarning } from '../../utils/supportLevels'
 import { Modal } from '../ui'
-import { BAMBU_LAN_NOTE, connectionFailureHelp } from '../../utils/shared'
+import { BAMBU_LAN_NOTE, connectionFailureMessage } from '../../utils/shared'
 import MoonrakerDiscovery from './MoonrakerDiscovery'
 
 // TODO: type this properly — runtime printer has extra fields
@@ -70,6 +70,11 @@ interface FormData {
 }
 
 type TestStatus = 'testing' | 'success' | 'error' | null
+
+/** The details a connection test covers; a passing test only vouches for these exact values. */
+function connectionKey(form: Pick<FormData, 'api_type' | 'api_host' | 'serial' | 'access_code' | 'api_key_field'>): string {
+  return [form.api_type, form.api_host, form.serial, form.access_code, form.api_key_field || ''].join('\n')
+}
 
 const KNOWN_PRINTER_BEDS: Record<string, [number, number]> = {
   'x1 carbon': [256, 256],
@@ -150,6 +155,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<TestStatus>(null)
   const [testMessage, setTestMessage] = useState('')
+  // Connection details known to work: the saved ones when editing, or the last ones that passed a test.
+  const [verifiedConnection, setVerifiedConnection] = useState<string | null>(null)
+  const [confirmSave, setConfirmSave] = useState(false)
   const [modelOverride, setModelOverride] = useState(false)
   const [slotOverride, setSlotOverride] = useState(false)
 
@@ -165,6 +173,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         serial = parts[0] || ''
         access_code = parts[1] || ''
       }
+      setVerifiedConnection(connectionKey({ api_type: printer.api_type || '', api_host: printer.api_host || '', serial, access_code }))
       setFormData({
         name: printer.name || '',
         nickname: printer.nickname || '',
@@ -187,9 +196,11 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         bed_y_mm: printer.bed_y_mm != null ? String(printer.bed_y_mm) : '',
       })
     } else {
+      setVerifiedConnection(null)
       setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false, shared: false, bed_x_mm: '', bed_y_mm: '' })
     }
     setPlugBaseline(EMPTY_PLUG)
+    setConfirmSave(false)
     setTestStatus(null)
     setTestMessage('')
     setModelOverride(false)
@@ -233,6 +244,8 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
     setTestStatus('testing')
     setTestMessage('Connecting to printer...')
+    setConfirmSave(false)
+    const tested = connectionKey(formData)
 
     try {
       const result = await printers.testConnection({
@@ -249,6 +262,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       })
 
       if (result.success) {
+        setVerifiedConnection(tested)
         setTestStatus('success')
         const detail = (result as unknown as { detail?: string }).detail
         setTestMessage(detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots`)
@@ -259,14 +273,20 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           setFormData(prev => ({ ...prev, model: result.model }))
         }
       } else {
+        setVerifiedConnection(null)
         setTestStatus('error')
-        setTestMessage(`${result.error || 'Connection failed'} ${connectionFailureHelp(formData.api_type || 'bambu')}`)
+        setTestMessage(connectionFailureMessage(result.reason, formData.api_type || 'bambu', result.error || 'Connection failed'))
       }
     } catch (err) {
+      setVerifiedConnection(null)
       setTestStatus('error')
       setTestMessage('Failed to test connection')
     }
   }
+
+  // A printer with connection details that have not passed a test (failed, never run, or
+  // changed since) is saved only after the user confirms.
+  const connectionUnverified = !!formData.api_type && connectionKey(formData) !== verifiedConnection
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -304,6 +324,11 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     if (formData.api_type !== 'bambu' && formData.api_type !== 'anycubic_lan' && formData.api_key_field) {
       submitData.api_key = formData.api_key_field
     }
+    if (connectionUnverified && !confirmSave) {
+      setConfirmSave(true)
+      return
+    }
+    setConfirmSave(false)
     onSubmit(submitData, printer?.id)
   }
 
@@ -496,7 +521,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                 )}
               </button>
               {testMessage && (
-                <p className={clsx("text-xs mt-1", testStatus === 'success' ? "text-green-400" : testStatus === 'error' ? "text-red-400" : "text-[var(--brand-text-secondary)]")}>
+                <p data-testid="connection-test-message" className={clsx("text-xs mt-1", testStatus === 'success' ? "text-green-400" : testStatus === 'error' ? "text-red-400" : "text-[var(--brand-text-secondary)]")}>
                   {testMessage}
                 </p>
               )}
@@ -599,9 +624,19 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           </div>
         )}
 
+        {confirmSave && connectionUnverified && (
+          <p role="alert" data-testid="save-anyway-prompt" className="text-sm text-amber-400">
+            {testStatus === 'error'
+              ? 'The last connection test failed, so ODIN may not be able to talk to this printer. Save anyway?'
+              : 'The connection has not been tested with these details. Save anyway?'}
+          </p>
+        )}
         <div data-modal-footer className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
-          <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
+          {confirmSave && connectionUnverified && (
+            <button type="button" onClick={() => setConfirmSave(false)} className="px-4 py-2 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Go back</button>
+          )}
+          <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">{confirmSave && connectionUnverified ? 'Save anyway' : isEditing ? 'Save Changes' : 'Add Printer'}</button>
         </div>
       </form>
     </Modal>

@@ -193,13 +193,17 @@ class UltimakerPrinter:
     # ------------------------------------------------------------------
     def get_system(self) -> Optional[Dict[str, str]]:
         """GET /system: name, variant, firmware, guid. None unless it looks like an Ultimaker answer."""
+        return self.probe_system()[0]
+
+    def probe_system(self):
+        """(system info or None, HTTP status or None). Status None: no answer at all (see _get)."""
         code, body = self._fetch("/system")
         if code != 200 or body is None:
-            return None
+            return None, code
         info = parse_system(body)
         if not info["variant"] and not info["firmware"]:
-            return None
-        return info
+            return None, code
+        return info, code
 
     def get_status(self) -> UltimakerStatus:
         """GET /printer (status, temperatures) then GET /print_job (job, progress, times)."""

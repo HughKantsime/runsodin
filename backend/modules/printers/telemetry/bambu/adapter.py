@@ -122,6 +122,8 @@ class BambuTelemetryAdapter:
         self._lock = threading.Lock()
         self._client: Optional[mqtt.Client] = None
         self._connected = False
+        # The broker's last CONNACK refusal code, or None; read by the connection test.
+        self.connect_refusal = None
 
     # ---- Public lifecycle ----
 
@@ -225,6 +227,7 @@ class BambuTelemetryAdapter:
                 kind="connected",
             ))
         else:
+            self.connect_refusal = reason_code
             logger.warning(
                 "bambu adapter connect failed: printer=%s rc=%s",
                 self._config.printer_id, reason_code,

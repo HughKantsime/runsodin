@@ -281,6 +281,42 @@ export function connectionFailureHelp(apiType: string): string {
   return 'Check the address and that the printer is on the same network as ODIN.'
 }
 
+/** Machine-readable reasons from POST /printers/test-connection (`reason` on a failed test). */
+export const CONNECTION_FAILURE_REASONS = ['unreachable', 'auth', 'not_this_type', 'blocked_address', 'control_disabled', 'unknown'] as const
+export type ConnectionFailureReason = typeof CONNECTION_FAILURE_REASONS[number]
+
+function connectionAuthFix(apiType: string): string {
+  if (apiType === 'bambu') return 'Re-enter the access code exactly as the printer screen shows it.'
+  if (apiType === 'moonraker') return 'Allow this ODIN server in moonraker.conf (trusted_clients).'
+  if (apiType === 'prusalink') return 'Re-enter the PrusaLink API key or username|password from the printer\'s settings.'
+  if (apiType === 'octoprint') return 'Create a new application key in OctoPrint (Settings, Application Keys) and paste it here.'
+  return 'Check the credentials and test again.'
+}
+
+/**
+ * One plain sentence and one thing to do for a failed connection test.
+ * Built only from the reason and printer type: never from the address, serial or credential.
+ * "unknown" (or a server that sends no reason) keeps the server's sentence and the per-type checklist.
+ */
+export function connectionFailureMessage(reason: unknown, apiType: string, serverError?: string | null): string {
+  switch (reason) {
+    case 'unreachable':
+      return 'ODIN could not reach a printer at that address. ' + (apiType === 'moonraker'
+        ? 'Check the address, and add the port if Moonraker is not on 80 (for example 192.168.1.50:7125).'
+        : 'Check that the printer is on, on the same network as ODIN, and that the address is its current one.')
+    case 'auth':
+      return `The printer answered but did not accept the credentials. ${connectionAuthFix(apiType)}`
+    case 'not_this_type':
+      return 'Something answered at that address, but not as the printer type you chose. Check the printer type and the address.'
+    case 'blocked_address':
+      return 'ODIN does not connect to that address. Enter the printer\'s own address on your local network.'
+    case 'control_disabled':
+      return 'The printer answered, but it is not accepting control from ODIN. Turn on LAN Only mode and Developer Mode on the printer screen (Settings, WLAN).'
+    default:
+      return `${serverError || 'The connection test failed and ODIN could not tell why.'} ${connectionFailureHelp(apiType)}`
+  }
+}
+
 /** Grams for display: one decimal under 10 g (a 0.3 g print is not "0g"), whole grams above. */
 export function formatGrams(grams: number | null | undefined): string {
   if (grams == null || !Number.isFinite(grams)) return '\u2014'

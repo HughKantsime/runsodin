@@ -62,6 +62,8 @@ it('accepts Anycubic LAN with IP only and omits credentials left from another pr
  expect(screen.queryByPlaceholderText('Moonraker API key (if required)')).not.toBeInTheDocument()
  expect(screen.getByText(/credentials refresh automatically/)).toBeInTheDocument()
  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+ expect(submit).not.toHaveBeenCalled() // the protocol changed and was not tested: the form asks first
+ fireEvent.click(screen.getByRole('button', { name: 'Save anyway' }))
  expect(submit).toHaveBeenCalledOnce()
  expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'anycubic_lan', api_host: '192.0.2.49' })
  expect(submit.mock.calls[0][0]).not.toHaveProperty('api_key')

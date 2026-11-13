@@ -53,6 +53,7 @@ REVIEWED = {
     "modules/printers/telemetry/live_replay.py": "local", "modules/reporting/routes/analytics.py": "local",
     "modules/system/troubleshooting.py": "local", "modules/vision/detection_thread.py": "local",
     "modules/vision/printer_native.py": "local",        # one frame from this machine's go2rtc for a printer-reported detection
+    "modules/printers/connection_reasons.py": "local",  # httpx exception classes only; opens nothing
 }
 
 

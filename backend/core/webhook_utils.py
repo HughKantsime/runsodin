@@ -381,6 +381,10 @@ class DeviceDestinationBlocked(WebhookSSRFError):
     """A device host is malformed, unresolvable or a blocked address."""
 
 
+class DeviceHostUnresolved(DeviceDestinationBlocked):
+    """The host name did not resolve: nothing was blocked, there is no address to reach."""
+
+
 _METADATA_ADDRESSES = frozenset({
     ipaddress.ip_address("169.254.169.254"),
     ipaddress.ip_address("fd00:ec2::254"),
@@ -608,8 +612,10 @@ def device_destination_ips(host: str, port=None) -> list:
     port = port or parsed_port or 0
     try:
         infos = _real_getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-    except (socket.gaierror, UnicodeError, OSError) as exc:
+    except UnicodeError as exc:
         raise DeviceDestinationBlocked(f"Host {hostname!r} could not be resolved") from exc
+    except OSError as exc:  # socket.gaierror included
+        raise DeviceHostUnresolved(f"Host {hostname!r} could not be resolved") from exc
     ips = []
     for _fam, _type, _proto, _canon, sockaddr in infos:
         ip = sockaddr[0]
@@ -620,7 +626,7 @@ def device_destination_ips(host: str, port=None) -> list:
         if ip not in ips:
             ips.append(ip)
     if not ips:
-        raise DeviceDestinationBlocked(f"Host {hostname!r} returned no addresses")
+        raise DeviceHostUnresolved(f"Host {hostname!r} returned no addresses")
     return ips
 
 

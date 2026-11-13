@@ -188,3 +188,27 @@ test('reopening setup on a claimed install resumes at the tier step when signed 
  expect(screen.getByText('Try Pro free')).toBeInTheDocument()
  expect(vi.mocked(fetch).mock.calls.some(([url])=>url==='/api/setup/admin')).toBe(false)
 })
+
+test.each([
+ ['unreachable',/^ODIN could not reach a printer at that address\. Check that the printer is on/],
+ ['auth',/^The printer answered but did not accept the credentials\. Re-enter the access code/],
+ ['not_this_type',/^Something answered at that address, but not as the printer type you chose\./],
+ ['blocked_address',/^ODIN does not connect to that address\./],
+ ['control_disabled',/Turn on LAN Only mode and Developer Mode/],
+])('a failed connection test with reason %s says why and what to do, without the address or credentials', async (reason,sentence) => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'),{target:{value:'192.0.2.45'}})
+ fireEvent.change(screen.getByPlaceholderText('From printer settings or Bambu app'),{target:{value:'FIXTURE-SERIAL'}})
+ fireEvent.change(screen.getByPlaceholderText('8-digit code from printer'),{target:{value:'fixture-code'}})
+ const original=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async(url,opts)=>url==='/api/printers/test-connection'
+  ? {ok:true,status:200,json:async()=>({success:false,error:'Failed to connect. Check IP, serial, and access code.',reason})} as Response
+  : original(url,opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ const message=await screen.findByTestId('connection-failure')
+ expect(message).toHaveTextContent(sentence)
+ expect(message.textContent).not.toMatch(/192\.0\.2\.45|FIXTURE-SERIAL|fixture-code|Failed to connect/)
+ expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument()
+})
