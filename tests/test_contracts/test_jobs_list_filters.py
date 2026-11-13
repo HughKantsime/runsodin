@@ -113,3 +113,24 @@ def test_a_cancellation_dates_a_job_that_never_started(many_jobs, review_db):  #
     since = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
     today = ids(many_jobs.get('/jobs', params={'finished_since': since, 'order': 'recent', 'limit': 500}))
     assert 6400 in today and 6401 in today
+
+
+def test_recent_order_and_finished_since_treat_older_iso_times_and_naive_times_as_the_same_clock(many_jobs, review_db):
+    # Rows written by older versions hold ISO times with a 'T' and an offset; newer ones hold naive
+    # UTC with a space. As text a 'T' sorts after a space, so an older ISO row of the same day
+    # ranked above a newer naive one, and passed a finished_since it was actually before.
+    now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
+    iso = lambda moment: moment.strftime('%Y-%m-%dT%H:%M:%S') + '+00:00'
+    with review_db.get_bind().begin() as connection:
+        for identifier, end in ((7001, iso(now - timedelta(minutes=10))),                    # older, ISO shape
+                                (7002, stamp(now - timedelta(minutes=5))),                   # newest, naive shape
+                                (7003, iso(now - timedelta(hours=6)))):                      # before the window, ISO
+            connection.execute(text(
+                "INSERT INTO jobs(id,item_name,status,charged_to_org_id,quantity,hold,is_locked,priority,created_at,updated_at,actual_end) "
+                "VALUES(:id,'Mixed time job','completed',1,1,0,0,3,:created,:created,:end)"),
+                dict(id=identifier, created=stamp(now - timedelta(days=1)), end=end))
+    mine = [i for i in ids(many_jobs.get('/jobs', params={'order': 'recent', 'limit': 100})) if i in (7001, 7002, 7003)]
+    assert mine == [7002, 7001, 7003]
+    since = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+    today = ids(many_jobs.get('/jobs', params={'finished_since': since, 'order': 'recent'}))
+    assert [i for i in today if i in (7001, 7002)] == [7002, 7001] and 7003 not in today

@@ -90,6 +90,20 @@ def search_filter(user, q):
     return text('(' + ' OR '.join(parts) + ')').bindparams(**params)
 
 
+def _instant(db, column):
+    """`column` in a form that orders and compares correctly as stored.
+
+    On SQLite job times are text, in two shapes: naive UTC 'YYYY-MM-DD HH:MM:SS[.ffffff]' and,
+    in rows written by older versions, ISO 'YYYY-MM-DDTHH:MM:SS[.ffffff]+00:00'. As text the
+    two do not sort together ('T' sorts after a space, so an older ISO row of the same day
+    ranked above a newer naive one). Both are UTC, so their first 19 characters with 'T'
+    replaced by a space are the same instant to the second. PostgreSQL stores real timestamps.
+    """
+    if db.get_bind().dialect.name != 'sqlite':
+        return column
+    return func.replace(func.substr(column, 1, 19), 'T', ' ')
+
+
 def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, finished_since,
                   order, org_id, q, limit, offset):
     """(rows, total): the requested page and the number of jobs matching every filter."""
@@ -113,9 +127,11 @@ def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, f
         since = finished_since.astimezone(timezone.utc).replace(tzinfo=None) if finished_since.tzinfo else finished_since
         # A job that ended without ever starting (cancelled or rejected while queued) has no
         # actual_end; its last update is when it ended.
-        ended_unstarted = and_(Job.actual_end.is_(None), Job.updated_at >= since,
+        if db.get_bind().dialect.name == 'sqlite':
+            since = since.strftime('%Y-%m-%d %H:%M:%S')   # compared with _instant's text form
+        ended_unstarted = and_(Job.actual_end.is_(None), _instant(db, Job.updated_at) >= since,
                                Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.REJECTED]))
-        query = query.filter(or_(and_(Job.actual_end.isnot(None), Job.actual_end >= since), ended_unstarted))
+        query = query.filter(or_(and_(Job.actual_end.isnot(None), _instant(db, Job.actual_end) >= since), ended_unstarted))
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
@@ -129,7 +145,7 @@ def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, f
     # Priority first; drag-and-drop queue_position orders jobs within a
     # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
     if order == "recent":
-        ordering = (func.coalesce(Job.actual_end, Job.updated_at, Job.created_at).desc(), Job.id.desc())
+        ordering = (_instant(db, func.coalesce(Job.actual_end, Job.updated_at, Job.created_at)).desc(), Job.id.desc())
     else:
         ordering = (Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id)
     rows = query.order_by(*ordering).offset(offset).limit(limit).all()

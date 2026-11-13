@@ -282,6 +282,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "qmark_runner translates named parameters for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
     ),
+    "backend/modules/jobs/list_query.py": (
+        "sqlite-provider-only",
+        "Dialect-guarded: SQLite stores job times as text in two shapes, so ordering and finished_since compare their first 19 characters with T replaced by a space; PostgreSQL compares real timestamps.",
+    ),
     "backend/modules/jobs/state_machine.py": (
         "dialect-neutral",
         "transition_job translates named parameters to qmark only for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
