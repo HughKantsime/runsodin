@@ -711,3 +711,22 @@ def test_a_license_in_force_from_a_fallback_location_can_still_be_refreshed(app,
     with pytest.raises(HTTPException) as refused:
         app.refresh(license_file=app.make(ago(hours=5), ahead(days=90)), refresh_status="renewed")
     assert refused.value.status_code == 409 and app.path.read_text() == replacement
+
+
+@pytest.mark.parametrize("status", ["renewed", "not_entitled"])
+def test_a_refresh_is_refused_when_the_license_path_is_set_by_configuration(app, monkeypatch, tmp_path, status):
+    """Fifth sign-off: with ODIN_LICENSE_FILE outside the license folder the replacement was
+    saved where the loader never reads, and the refresh still reported success."""
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=20)))
+    pinned = tmp_path / "pinned" / "odin.license"
+    pinned.parent.mkdir()
+    pinned.write_text(app.path.read_text())
+    before = app.path.read_text()
+    monkeypatch.setenv("ODIN_LICENSE_FILE", str(pinned))
+    app.restart()
+    ends = ago(minutes=1) if status == "not_entitled" else ahead(days=40)
+    with pytest.raises(HTTPException) as refused:
+        app.refresh(license_file=app.make(ago(hours=1), ends), refresh_status=status)
+    assert refused.value.status_code == 409 and "ODIN_LICENSE_FILE" in refused.value.detail
+    assert pinned.read_text() == before and app.path.read_text() == before
+    assert app.lm.get_license().valid

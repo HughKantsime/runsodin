@@ -646,6 +646,11 @@ def install_portal_license(license_content, after_install=None, *, allow_expired
         # Identity and issue order are judged against the license that is actually in force,
         # which may live in a supported fallback location; `previous` is only the destination's
         # own content, kept for rollback.
+        explicit = os.environ.get("ODIN_LICENSE_FILE", "").strip()
+        if explicit and os.path.realpath(explicit) != os.path.realpath(target):
+            # The loader reads only that file; a replacement saved here would never take
+            # effect, and reporting success would be false (a cancelled plan would stay active).
+            raise HTTPException(status_code=409, detail="This server reads its license from the file set in ODIN_LICENSE_FILE, so it cannot be replaced from here. Replace that file, or remove the setting and upload the license. Your installed license is unchanged.")
         effective = _find_license_file()
         in_force = previous
         if effective and os.path.realpath(effective) != os.path.realpath(target):
