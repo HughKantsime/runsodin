@@ -14,6 +14,7 @@ import {
   AreaChart, Area
 } from 'recharts'
 import clsx from 'clsx'
+import { parseServerDate } from '../../utils/shared'
 
 const metric = (value, suffix = '') => typeof value === 'number' && Number.isFinite(value) ? `${value}${suffix}` : 'Unknown'
 
@@ -276,7 +277,7 @@ export default function EducationReports() {
                 <td className="py-2 px-2 text-right">{metric(u.accuracy, '%')}</td>
                 <td className="py-2 px-2 text-right">{estimatedCost(u)}</td>
                 <td className="py-2 px-2 text-right text-[var(--brand-text-muted)] text-xs hidden lg:table-cell">
-                  {u.last_activity ? new Date(u.last_activity).toLocaleDateString() : 'Unknown'}
+                  {u.last_activity ? parseServerDate(u.last_activity).toLocaleDateString() : 'Unknown'}
                 </td>
               </tr>
             ))}

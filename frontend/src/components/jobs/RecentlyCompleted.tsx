@@ -3,6 +3,7 @@ import { displayName } from '../../utils/displayName'
 import { useEffect, useState } from 'react'
 import { CheckCircle, XCircle, History, AlertTriangle, ImageOff } from 'lucide-react'
 import type { RecentTerminalJob } from '../../types'
+import { parseServerDate } from '../../utils/shared'
 
 function Thumbnail({ job }: { job: RecentTerminalJob }) {
   const [failed, setFailed] = useState(false)
@@ -33,7 +34,7 @@ export default function RecentlyCompleted({ jobs = [], loading = false, error = 
           <div className="flex items-center justify-between mb-1 gap-1"><span className="text-sm font-medium truncate" title={displayName(job)}>{displayName(job)}</span>{job.status === 'completed' ? <CheckCircle size={14} className="text-green-400 shrink-0" aria-label="Completed" /> : <XCircle size={14} className="text-red-400 shrink-0" aria-label="Failed" />}</div>
           <div className="text-xs text-[var(--brand-text-muted)]">{job.printer_name || 'Printer unavailable'} · {duration(job.duration_seconds)}</div>
           {job.model_name && <div className="text-xs text-[var(--brand-text-muted)] truncate">{job.model_name}</div>}
-          <div className="text-xs text-[var(--brand-text-muted)]">{job.actual_end ? <time dateTime={job.actual_end}>{new Date(job.actual_end).toLocaleString()}</time> : 'Completion time unknown'}</div>
+          <div className="text-xs text-[var(--brand-text-muted)]">{job.actual_end ? <time dateTime={job.actual_end}>{parseServerDate(job.actual_end).toLocaleString()}</time> : 'Completion time unknown'}</div>
           {job.fail_reason && <div className="text-xs text-red-400 mt-1 truncate flex items-center gap-1" title={job.fail_reason.replace(/_/g, ' ')}><AlertTriangle size={10} className="shrink-0" />{job.fail_reason.replace(/_/g, ' ')}</div>}
         </div>
       </article>)}</div>}

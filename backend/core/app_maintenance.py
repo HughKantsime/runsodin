@@ -213,6 +213,40 @@ def _check_schema_drift(engine, Base):
         log.debug("Schema drift check skipped", exc_info=True)
 
 
+def _apply_amber_default_branding(engine) -> int:
+    """Move untouched green accent defaults to the designed amber, once.
+
+    Before 2.2 a new install's branding row was created with the old green accent in three
+    columns, which overrode the amber the interface was designed around. Each of those columns
+    that still holds exactly its old default is set to the new default; any other value was
+    chosen by someone and is left alone. A system_config marker makes this run exactly once, so
+    a person who later picks the old green on purpose keeps it. Not a schema change. Returns
+    the number of columns changed.
+    """
+    from sqlalchemy import inspect, text
+    from core.db_compat import sql
+    from modules.organizations.branding import AMBER_DEFAULTS
+    marker = "branding_amber_default_2_2"
+    changed = 0
+    with engine.begin() as connection:
+        if connection.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": marker}).first():
+            return 0
+        if inspect(connection).has_table("branding"):
+            for column, (old, new) in AMBER_DEFAULTS.items():
+                changed += connection.execute(
+                    text(f"UPDATE branding SET {column} = :new WHERE id = 1 AND lower({column}) = :old"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- column names are the three literals in AMBER_DEFAULTS
+                    {"new": new, "old": old.lower()},
+                ).rowcount
+        connection.execute(
+            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- no user input
+                 f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
+            {"k": marker, "v": "true"},
+        )
+    if changed:
+        log.info("Branding: %d untouched accent default(s) moved from green to amber.", changed)
+    return changed
+
+
 def _revoke_legacy_biometric_tokens(engine) -> None:
     """Delete all biometric refresh tokens once, on first start of this version.
 

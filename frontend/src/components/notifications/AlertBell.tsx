@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { alerts as alertsApi } from '../../api'
+import { parseServerDate } from '../../utils/shared'
 
 const SEVERITY_STYLES = {
   critical: { dot: 'bg-red-500', text: 'text-red-400' },
@@ -13,7 +14,7 @@ const SEVERITY_STYLES = {
 
 function timeAgo(dateStr: string) {
   const now = new Date()
-  const date = new Date(dateStr)
+  const date = parseServerDate(dateStr)
   const seconds = Math.floor((now - date) / 1000)
   if (seconds < 60) return 'just now'
   const minutes = Math.floor(seconds / 60)

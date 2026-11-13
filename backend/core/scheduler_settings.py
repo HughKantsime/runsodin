@@ -11,6 +11,18 @@ from core.config import settings
 from core.models import SystemConfig
 
 BLACKOUT_KEY = "scheduler_blackout"
+# A window whose start equals its end blocks nothing: that is how "off" is stored.
+BLACKOUT_OFF = ("00:00", "00:00")
+
+
+def blackout_is_off(start: str, end: str) -> bool:
+    return start == end
+
+
+def disable_blackout(db: Session) -> None:
+    """Save "no quiet hours"; the caller commits. New installs start this way (setup wizard);
+    an install that never saved a window keeps the BLACKOUT_START / BLACKOUT_END defaults."""
+    set_blackout(db, *BLACKOUT_OFF)
 
 
 def get_blackout(db: Session) -> tuple[str, str]:

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Monitor, Smartphone, Globe, Trash2, LogOut, Loader2, CheckCircle } from 'lucide-react'
 import { sessions } from '../../api'
+import { parseServerDate } from '../../utils/shared'
 
 function parseUA(ua: string | null): { device: string; browser: string } {
   if (!ua) return { device: 'Unknown', browser: 'Unknown' }
@@ -89,7 +90,7 @@ export default function SessionManager() {
                       )}
                     </div>
                     <div className="text-[11px] text-[var(--brand-text-muted)] mt-0.5">
-                      {s.ip_address} &middot; Last seen {s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : 'recently'}
+                      {s.ip_address} &middot; Last seen {s.last_seen_at ? parseServerDate(s.last_seen_at).toLocaleString() : 'recently'}
                     </div>
                   </div>
                 </div>

@@ -10,6 +10,7 @@ import type { User, Timelapse } from '../../types'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import TimelapseFactsRecheck from '../../components/archives/TimelapseFactsRecheck'
 import TimelapseEditor from '../../components/archives/TimelapseEditor'
+import { parseServerDate } from '../../utils/shared'
 
 function audience(user: User | null | undefined) {
   return user && Number.isInteger(user.id) && user.id > 0 ? JSON.stringify([user.id, user.username, user.role, user.group_id]) : ''
@@ -19,7 +20,7 @@ function durationLabel(seconds: number | null | undefined) {
   const whole = Math.floor(seconds)
   return `${Math.floor(whole / 60)}m ${whole % 60}s`
 }
-const provenance = 'Historical recordings without verified lifetime provenance cannot be played or deleted. Editing supports verified CFR30 recordings; originals are retained.'
+const provenance = 'Older recordings that ODIN cannot verify cannot be played or deleted. Trimming works on standard 30 fps recordings, and the original is always kept.'
 type Selection = { row: Timelapse; etag: string; owner: string; epoch: number }
 export default function Timelapses() {
   const foundry = useFoundry()
@@ -82,7 +83,8 @@ export default function Timelapses() {
   const active = selection?.owner === owner && selection.epoch === generation.current ? selection : null
   return <div className="p-4 md:p-6 space-y-4">
     <Link to="/cameras">Back to Cameras</Link><h1 className="text-xl flex items-center gap-2"><Film />Timelapses</h1>
-    <p className="text-sm text-[var(--brand-text-muted)]">{provenance}</p>
+    <p className="text-sm text-[var(--brand-text-muted)]" data-testid="page-purpose">Videos recorded during prints.</p>
+    {total > 0 && <p className="text-sm text-[var(--brand-text-muted)]">{provenance}</p>}
     {user?.role === 'admin' && user.group_id == null && <TimelapseFactsRecheck key={owner} current={current} onComplete={() => { client.invalidateQueries({ queryKey: ['timelapses', owner] }) }} />}
     <div className="flex gap-3"><select aria-label="Printer filter" value={printer} onChange={e => { retire(); setPrinter(e.target.value); setOffset(0) }}><option value="">All printers</option>{(printerRows.data || []).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
       <select aria-label="Status filter" value={status} onChange={e => { retire(); setStatus(e.target.value); setOffset(0) }}><option value="">All statuses</option>{['ready', 'capturing', 'encoding', 'failed', 'deleting'].map(value => <option key={value}>{value}</option>)}</select></div>
@@ -91,7 +93,7 @@ export default function Timelapses() {
     {error && <PageState kind="error" role="alert">{error}</PageState>}
     {!rows.isLoading && !rows.isError && !items.length && <p>No recordings match these filters.</p>}
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{items.map(row => <article key={row.id} className="border rounded-lg p-4 space-y-2"><h2>{row.printer_name || `Printer ${row.printer_id}`}</h2><p>Recording {row.id}: {row.status}, {row.frame_count} frames</p>
-      {row.created_at && <p>{new Date(row.created_at).toLocaleString()}</p>}
+      {row.created_at && <p>{parseServerDate(row.created_at).toLocaleString()}</p>}
       {durationLabel(row.duration_seconds) !== null && <p>{durationLabel(row.duration_seconds)}</p>}
       {Number.isInteger(row.print_job_id) && (row.print_job_id ?? 0) > 0 && <p>Job #{row.print_job_id}</p>}
       {row.status === 'ready' && <><button onClick={() => { retire(); setError(''); setPlaying({ row, owner, epoch: generation.current }) }}>Play recording {row.id}</button><button disabled={pending} onClick={() => download(row)}>Download recording {row.id}</button></>}

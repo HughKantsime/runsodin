@@ -6,6 +6,7 @@ import { spools as spoolsApi } from '../../api'
 import { Modal } from '../ui'
 import { PurchaseFields, PURCHASE_CURRENCIES, validPurchaseDecimal, purchaseAudience, type PurchasePrincipal } from './PurchaseEvidenceModal'
 import type { PurchaseInput } from '../../types/inventory'
+import { parseServerDate } from '../../utils/shared'
 
 const HYGROSCOPIC_TYPES = new Set([
   'PA', 'NYLON_CF', 'NYLON_GF', 'PPS', 'PPS_CF',
@@ -388,7 +389,7 @@ export function DryingModal({ spool, onClose, onSubmit }: { spool: any; onClose:
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
             {history.map(h => (
               <div key={h.id} className="flex items-center justify-between text-xs text-[var(--brand-text-muted)]">
-                <span>{h.dried_at ? new Date(h.dried_at).toLocaleDateString() : '—'}</span>
+                <span>{h.dried_at ? parseServerDate(h.dried_at).toLocaleDateString() : '—'}</span>
                 <span>{h.duration_hours}h @ {h.temp_c ? h.temp_c + '°C' : '—'}</span>
                 <span className="capitalize">{h.method}</span>
               </div>

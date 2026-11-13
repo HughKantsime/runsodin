@@ -118,7 +118,8 @@ afterEach(cleanup)
 it('F12-12.7-03 census: at least 50 icon-only buttons carry aria-label (exact count in receipt)', () => {
   expect(summary.icon_only_with_aria_label).toBeGreaterThanOrEqual(50)
   // 2.2.0 phone pass: four more named icon-only buttons (header search, phone sheet and stray pop-up close buttons).
-  expect(summary.icon_only_with_aria_label).toBe(114)
+  // Design pass: two became labelled buttons (Schedule print on the model card, Dispatch on the job row).
+  expect(summary.icon_only_with_aria_label).toBe(112)
 })
 
 it('F12-12.7-03 census: every icon-only button has an accessible name (aria-label, aria-labelledby or title)', () => {
@@ -161,7 +162,7 @@ it('F12-12.7-06 census: scope="col" exists only on a minority of table headers',
 
 it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {
   expect(summary.progressbar_role_elements.map(p => p.split(':')[0]).sort()).toEqual([
-    'components/foundry/PrinterCard.tsx', 'components/jobs/TimelineJobDetail.tsx', 'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
+    'components/foundry/PrinterCard.tsx', 'components/jobs/TimelineJobDetail.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
     'components/shared/OnboardingTour.tsx', 'components/ui/ProgressBar.tsx', 'pages/dashboard/Overlay.tsx',
     'pages/dashboard/TVDashboard.tsx', 'pages/jobs/Upload.tsx',
   ])

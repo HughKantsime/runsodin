@@ -168,7 +168,7 @@ it('a deep-linked job outside the filter keeps the dispatch safeguards of an ord
   await screen.findByText('Far away job')
   fireEvent.click(within(row('Far away job')).getByRole('button', { name: 'Dispatch to printer' }))
   await screen.findByText(/will be uploaded to/)
-  fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Dispatch')!)
+  fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Dispatch' && b.getAttribute('aria-label') !== 'Dispatch to printer')!)
   await waitFor(() => expect(api.dispatch).toHaveBeenCalledTimes(1))
   const busy = await within(row('Far away job')).findByRole('button', { name: 'Dispatching...' })
   expect(busy).toBeDisabled()

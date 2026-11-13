@@ -56,8 +56,9 @@ beforeEach(() => {
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.unstubAllGlobals() })
 
 describe('F16-16.2-01 sidebar navigation', () => {
-  it('exposes the Film timelapse link beside Cameras and respects camera access', () => {
+  it('exposes the Film timelapse link under History and respects camera access', () => {
     const view = show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'HISTORY' }))
     const link = screen.getByRole('link', { name: 'Timelapses' })
     expect(link).toHaveAttribute('href', '/timelapses')
     expect(link.querySelector('.lucide-film')).not.toBeNull()
@@ -66,15 +67,20 @@ describe('F16-16.2-01 sidebar navigation', () => {
     view.unmount()
     api.access.mockImplementation(page => page !== 'cameras')
     show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    expect(screen.getByRole('link', { name: 'Archives' })).toBeInTheDocument()   // History stayed open (remembered)
     expect(screen.queryByRole('link', { name: 'Timelapses' })).not.toBeInTheDocument()
   })
   it('renders authorized advanced page links and navigates by a real link click', async () => {
     show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Main navigation' })
     await within(nav).findByRole('link', { name: 'Orders' })
-    for (const [label, path] of [['Dashboard','/'],['Printers','/printers'],['Cameras','/cameras'],['Archives','/archives'],['Projects','/projects'],['Print Log','/print-log'],['Alerts','/alerts'],['Detections','/detections'],['Jobs','/jobs'],['Timeline','/timeline'],['Upload','/upload'],['Models','/models'],['Profiles','/profiles'],['Spools','/spools'],['Calculator','/calculator'],['Settings','/settings'],['Audit Log','/audit'],['Orders','/orders'],['Products','/products'],['Consumables','/consumables'],['Maintenance','/maintenance'],['Analytics','/analytics'],['Utilization','/utilization'],['Usage Reports','/education-reports']]) {
+    // History and Insights start folded; a person opens them to reach those pages.
+    for (const group of ['HISTORY', 'INSIGHTS']) fireEvent.click(within(nav).getByRole('button', { name: group }))
+    for (const [label, path] of [['Dashboard','/'],['Printers','/printers'],['Cameras','/cameras'],['Archives','/archives'],['Projects','/projects'],['Print Log','/print-log'],['Alerts','/alerts'],['Detections','/detections'],['Jobs','/jobs'],['Timeline','/timeline'],['Upload','/upload'],['Models','/models'],['Profiles','/profiles'],['Spools','/spools'],['Calculator','/calculator'],['Settings','/settings'],['Orders','/orders'],['Products','/products'],['Consumables','/consumables'],['Maintenance','/maintenance'],['Analytics','/analytics'],['Utilization','/utilization'],['Usage Reports','/education-reports']]) {
       expect(within(nav).getByRole('link', { name: label })).toHaveAttribute('href', path)
     }
+    // The audit log is reached from Settings > System, not from the sidebar.
+    expect(within(nav).queryByRole('link', { name: 'Audit Log' })).not.toBeInTheDocument()
     fireEvent.click(within(nav).getByRole('link', { name: 'Jobs' }))
     expect(screen.getByTestId('route')).toHaveTextContent('/jobs')
   })
@@ -210,4 +216,80 @@ it('entitlement change invalidates pending privileged search results', async () 
  await act(async () => pending.resolve({ ...results, orders: [{ id: 92, name: 'Obsolete order' }] } as typeof results))
  expect(screen.queryByRole('button', { name: 'Obsolete order' })).not.toBeInTheDocument()
  expect(screen.queryByRole('button', { name: /Gear.*printer/ })).not.toBeInTheDocument()
+})
+
+describe('sidebar grouping (2.2.0): Print, Farm, Materials, History, Insights', () => {
+  const hrefs = (nav: HTMLElement) => within(nav).getAllByRole('link').map(a => a.getAttribute('href'))
+  it('shows the daily pages and keeps History and Insights folded until opened', () => {
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    const nav = screen.getByRole('navigation', { name: 'Main navigation' })
+    expect(within(nav).getAllByRole('button', { expanded: true }).map(b => b.textContent)).toEqual(['PRINT', 'FARM', 'MATERIALS'])
+    expect(within(nav).getAllByRole('button', { expanded: false }).map(b => b.textContent)).toEqual(['HISTORY', 'INSIGHTS'])
+    for (const hidden of ['/archives', '/print-log', '/timelapses', '/projects', '/detections', '/analytics', '/utilization', '/calculator']) expect(hrefs(nav)).not.toContain(hidden)
+    // the order a print follows
+    const order = hrefs(nav)
+    expect(order.indexOf('/jobs')).toBeLessThan(order.indexOf('/timeline'))
+    expect(order.indexOf('/timeline')).toBeLessThan(order.indexOf('/upload'))
+    expect(order.indexOf('/upload')).toBeLessThan(order.indexOf('/models'))
+    expect(order.indexOf('/models')).toBeLessThan(order.indexOf('/printers'))
+    expect(order.indexOf('/printers')).toBeLessThan(order.indexOf('/spools'))
+  })
+  it('remembers which groups a person opened', () => {
+    const first = show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'INSIGHTS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'MATERIALS' }))
+    first.unmount()
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    expect(screen.getByRole('link', { name: 'Calculator' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Spools' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Archives' })).not.toBeInTheDocument()
+  })
+  it('ignores a damaged saved state', () => {
+    localStorage.setItem('odin.sidebar.sections', '{"history":"yes","print":false,"bogus":true')
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    expect(screen.getByRole('link', { name: 'Jobs' })).toBeInTheDocument()
+  })
+  it('opening every group offers exactly the same pages as before the regroup, minus the audit log', () => {
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    const nav = screen.getByRole('navigation', { name: 'Main navigation' })
+    for (const group of ['HISTORY', 'INSIGHTS']) fireEvent.click(within(nav).getByRole('button', { name: group }))
+    expect([...new Set(hrefs(nav))].sort()).toEqual(['/', '/alerts', '/analytics', '/archives', '/calculator', '/cameras', '/consumables', '/detections',
+      '/education-reports', '/jobs', '/maintenance', '/models', '/orders', '/print-log', '/printers', '/products', '/profiles', '/projects', '/settings',
+      '/spools', '/timelapses', '/timeline', '/upload', '/utilization'].sort())
+  })
+  it('a free install sees the same groups without the Pro pages', () => {
+    api.isPro = false
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    const nav = screen.getByRole('navigation', { name: 'Main navigation' })
+    for (const group of ['HISTORY', 'INSIGHTS']) fireEvent.click(within(nav).getByRole('button', { name: group }))
+    const seen = hrefs(nav)
+    for (const pro of ['/orders', '/products', '/consumables', '/maintenance', '/analytics', '/utilization', '/education-reports']) expect(seen).not.toContain(pro)
+    expect(seen).toContain('/calculator')
+  })
+  it('shows waiting jobs and unread alerts beside their rows without changing the link names', async () => {
+    const mocked = await import('../../api')
+    vi.mocked(mocked.stats.get).mockResolvedValue({ jobs: { pending: 2, scheduled: 1, printing: 4 } } as never)
+    vi.mocked(mocked.alerts.unreadCount).mockResolvedValue({ unread_count: 5 } as never)
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    expect(await screen.findByRole('status', { name: '3 jobs waiting' })).toHaveTextContent('3 waiting')
+    expect(await screen.findByRole('status', { name: '5 unread alerts' })).toHaveTextContent('5')
+    expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute('href', '/jobs')
+    expect(screen.getByRole('link', { name: 'Alerts' })).toHaveAttribute('href', '/alerts')
+    expect(screen.getByRole('link', { name: 'Printers' })).toHaveAttribute('href', '/printers')
+  })
+  it('shows no count when there is nothing waiting or unread', async () => {
+    const mocked = await import('../../api')
+    vi.mocked(mocked.stats.get).mockResolvedValue({} as never)
+    vi.mocked(mocked.alerts.unreadCount).mockResolvedValue({ unread_count: 0 } as never)
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    await screen.findByRole('link', { name: 'Fleet status: 2 of 3 printers online' })
+    expect(screen.queryByRole('status', { name: /waiting|unread/ })).not.toBeInTheDocument()
+  })
+  it('offers Sign out and no longer shows the version or a "Powered by" line', () => {
+    show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
+    const nav = screen.getByRole('navigation', { name: 'Main navigation' })
+    expect(within(nav).getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+    expect(nav).not.toHaveTextContent('Powered by')
+    expect(nav).not.toHaveTextContent('vaudit')
+  })
 })

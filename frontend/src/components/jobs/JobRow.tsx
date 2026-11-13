@@ -9,7 +9,7 @@ import { format } from 'date-fns'
 import clsx from 'clsx'
 import { resolveColor } from '../../utils/colorMap'
 import { canDo, getCurrentUser } from '../../permissions'
-import { formatHours } from '../../utils/shared'
+import { formatHours, parseServerDate } from '../../utils/shared'
 import { Button, StatusBadge } from '../ui'
 
 const PIN_ISSUE_TEXT: Record<string, string> = {
@@ -110,7 +110,8 @@ function JobPrinterInfo({ job, pinnedPrinterName, filament }: { job: any; pinned
       {filament}
       {job.pinned_printer_id != null && (
         <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
-          Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
+          {/* Same printer already named above: say only that it is pinned, not its name twice. */}
+          {pinnedPrinterName && pinnedPrinterName === job.printer?.name ? 'Pinned' : `Pinned: ${pinnedPrinterName || `printer #${job.pinned_printer_id}`}`}
         </div>
       )}
       {job.pinned_printer_issue && (
@@ -138,7 +139,7 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
       {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
         <Button
           variant="ghost"
-          size="icon"
+          size="sm"
           icon={isDispatching ? Loader2 : Send}
           loading={isDispatching}
           onClick={() => !isDispatching && onAction('dispatch', job.id, displayName(job), job.printer?.name)}
@@ -146,7 +147,7 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
           title={dispatchFenced ? 'Dispatch requires verification. Check the printer before any further dispatch.' : isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
           aria-label={dispatchFenced ? 'Dispatch requires verification' : isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
           disabled={isDispatching || dispatchFenced}
-        />
+        >Dispatch</Button>
       )}
       {job.status === 'printing' && canDo('jobs.complete') && (
         <>
@@ -297,15 +298,17 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       </td>
       <td className="px-3 md:px-4 py-3">
         <JobItemDetails job={job} />
+        {/* Below wide screens the priority has no column of its own: it sits under the name. */}
+        <div className="xl:hidden text-xs text-[var(--brand-text-muted)]" aria-hidden="true">Priority {job.priority}</div>
       </td>
-      <td className="px-3 md:px-4 py-3">
+      <td className="px-3 md:px-4 py-3 hidden xl:table-cell">
         <PriorityBadge priority={job.priority} />
       </td>
       <td className="px-3 md:px-4 py-3 text-sm">
         <JobPrinterInfo job={job} pinnedPrinterName={pinnedPrinterName}
           filament={<FilamentToggle job={job} open={showFilament} onToggle={() => setShowFilament(v => !v)} />} />
       </td>
-      <td className="px-3 md:px-4 py-3 hidden lg:table-cell">
+      <td className="px-3 md:px-4 py-3 hidden xl:table-cell">
         {job.colors_list?.length > 0 ? (
           <div className="flex gap-1 flex-wrap">
             {job.colors_list.map((color, i) => (
@@ -317,7 +320,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden md:table-cell">
         <span className="font-mono">{formatHours(job.duration_hours)}</span>
         {job.actual_start && job.actual_end && (() => {
-          const actualH = (new Date(job.actual_end) - new Date(job.actual_start)) / 3600000
+          const actualH = (parseServerDate(job.actual_end) - parseServerDate(job.actual_start)) / 3600000
           return (
             <span className="block text-xs text-[var(--brand-text-muted)] font-mono" title="Actual duration">
               {formatHours(actualH)} actual
@@ -326,10 +329,11 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         })()}
       </td>
       <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden lg:table-cell">
-        <span className="font-mono">{job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
+        <span className="font-mono">{job.scheduled_start ? format(parseServerDate(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
       </td>
-      <td className="px-3 md:px-4 py-3">
-        <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal} />
+      <td className="px-3 md:px-4 py-3 min-w-[9.5rem]">
+        <JobActions job={job} onAction={onAction} isDispatching={isDispatching} dispatchFenced={dispatchFenced} correctionPrincipal={correctionPrincipal}
+          className="flex flex-wrap items-center gap-1 max-w-[8.5rem] xl:max-w-none" />
       </td>
     </tr>
     {showFilament && job.printer_id != null && (

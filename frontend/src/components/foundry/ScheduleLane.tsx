@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { timeline } from '../../api'
 import type { Printer, PrintJob, Job, TimelineSlot } from '../../types'
-import { isPausedState, isPrintingState } from '../../utils/shared'
+import { isPausedState, isPrintingState, parseServerDate } from '../../utils/shared'
 import { displayName } from '../../utils/displayName'
 import { number, utc, useNow, useFloorData } from './data'
 import DetailDrawer from '../shared/DetailDrawer'
@@ -60,7 +60,7 @@ export function layoutLane(blocks: LaneBlock[], start: number, hours: number, tr
 }
 function blockDescription(block: LaneBlock) {
   const timing = number(block.start) && number(block.end) && block.end > block.start
-    ? `${new Date(block.start).toLocaleString()} – ${new Date(block.end).toLocaleString()}` : 'time unknown'
+    ? `${parseServerDate(block.start).toLocaleString()} – ${parseServerDate(block.end).toLocaleString()}` : 'time unknown'
   return `${block.name} · ${block.kind === 'waiting' ? 'waits for you' : block.kind} · ${timing}`
 }
 export function ScheduleLane({ printer, blocks, start, hours = 12, onSelect }: { printer: Printer; blocks: LaneBlock[]; start: number; hours?: number; onSelect?: (slot: TimelineSlot) => void }) {

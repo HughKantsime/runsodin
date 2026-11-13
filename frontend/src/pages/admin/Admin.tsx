@@ -13,6 +13,7 @@ import UpgradeModal from '../../components/shared/UpgradeModal'
 import { DialogSurface } from '../../components/ui'
 
 import RestoreSuperadmin from './RestoreSuperadmin'
+import { parseServerDate } from '../../utils/shared'
 
 const API_BASE = '/api'
 
@@ -467,7 +468,7 @@ export default function Admin() {
                         {user.is_active ? <span className="text-green-400">Active</span> : <span className="text-[var(--brand-text-muted)]">Disabled</span>}
                       </td>
                       <td className="py-3 px-3 md:px-4 text-[var(--brand-text-muted)] text-sm hidden md:table-cell">
-                        {user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}
+                        {user.last_login ? parseServerDate(user.last_login).toLocaleDateString() : 'Never'}
                       </td>
                       <td className="py-3 px-3 md:px-4">
                         <div className="flex justify-end gap-1">

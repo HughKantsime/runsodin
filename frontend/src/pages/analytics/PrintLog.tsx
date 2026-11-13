@@ -115,6 +115,7 @@ export default function PrintLog() {
         <div>
           <h1 className="text-xl md:text-2xl font-display font-bold">Print Log</h1>
           <p className="text-[var(--brand-text-muted)] text-sm mt-1">{total} entries</p>
+          <p className="text-[var(--brand-text-muted)] text-xs mt-1" data-testid="page-purpose">Every print in order, as a list you can filter and export. The full record of each print is in Archives.</p>
         </div>
       </div>
 

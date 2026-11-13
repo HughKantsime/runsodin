@@ -35,7 +35,7 @@ import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
-import { getShortName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
+import { getShortName, slotFullName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
 
 export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
   const foundry = useFoundry()
@@ -104,15 +104,16 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
 
         <div className="grid grid-cols-4 gap-1.5 md:gap-2">
           {slots.map((slot, idx) => (
-            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1.5 md:p-2 text-center min-w-0 flex flex-col items-center gap-1">
+            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1 text-center min-w-0 flex flex-col items-center gap-1 overflow-hidden">
               <SpoolRing
                 color={slot.color_hex ? `#${slot.color_hex}` : '#888'}
                 material=""
                 level={slot.remaining != null ? slot.remaining : 100}
                 empty={!slot.color_hex && !slot.material_type && !slot.type}
+                bare
                 size={20}
               />
-              <span className="text-[10px] md:text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
+              <span title={slotFullName(slot)} className="text-[10px] leading-tight tracking-tight text-[var(--brand-text-muted)] truncate block w-full min-w-0">{getShortName(slot)}</span>
             </div>
           ))}
         </div>
@@ -279,7 +280,7 @@ function AlertsWidget() {
           onClick={() => navigate('/alerts')}
           className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
         >
-          View all \u2192
+          View all {'\u2192'}
         </button>
       </div>
       <div className="space-y-1.5">
@@ -519,7 +520,9 @@ function ClassicDashboard() {
               ))}
               {(!printersData || printersData.length === 0) && (
                 <div className="col-span-full bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
-                  <EmptyState title="No printers configured." />
+                  <EmptyState title="No printers yet" description="Add your first printer to see it here.">
+                    {canDo('printers.add') && <Button onClick={() => navigate('/printers')}>Add a printer</Button>}
+                  </EmptyState>
                 </div>
               )}
             </div>

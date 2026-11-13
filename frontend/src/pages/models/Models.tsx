@@ -25,9 +25,10 @@ import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
-import { models, filaments, printers, printFiles, getApprovalSetting } from '../../api'
+import { models, filaments, printers, printFiles, getApprovalSetting, pricingConfig } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
+import { formatHours } from '../../utils/shared'
 
 function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   const [formData, setFormData] = useState({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1 as number | string, markup_percent: 300 as number | string })
@@ -247,7 +248,7 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
           {model.build_time_hours && (
             <div className="flex items-center gap-1">
               <Clock size={14} />
-              <span>{model.build_time_hours}h</span>
+              <span>{formatHours(model.build_time_hours)}</span>
             </div>
           )}
           {model.total_filament_grams > 0 && (
@@ -310,7 +311,7 @@ export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling 
                         : 'border-[var(--brand-card-border)] text-[var(--brand-muted)] hover:border-[var(--brand-card-border)]'
                     )}
                   >
-                    Plate {i + 1} — {plate.is_sliced ? `${plate.print_time_seconds != null ? Math.round(plate.print_time_seconds / 60) + ' min' : 'Time unknown'} · ${plate.filament_grams != null ? plate.filament_grams + ' g' : 'Filament unknown'}` : 'Requires slicing'}
+                    Plate {i + 1} — {plate.is_sliced ? `${plate.print_time_seconds != null ? formatHours(plate.print_time_seconds / 3600) : 'Time unknown'} · ${plate.filament_grams != null ? plate.filament_grams + ' g' : 'Filament unknown'}` : 'Requires slicing'}
                   </button>
                 )})}
               </div>
@@ -408,6 +409,11 @@ export default function Models() {
   }, [updateSearchParams])
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
+  // Costs and prices are shown only once someone has saved pricing settings; before that they
+  // are generic defaults (an older server that does not say is treated as configured).
+  const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
+  const [statsOpen, setStatsOpen] = useState(() => { try { return localStorage.getItem('odin.models.stats') === '1' } catch { return false } })
+  const pricingConfigured = (pricingSettings as { configured?: boolean } | undefined)?.configured !== false
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
   // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
@@ -450,7 +456,7 @@ export default function Models() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleModel(null)
-      toast.success(submitForApproval ? 'Job submitted for approval' : 'Print job scheduled')
+      toast.success(submitForApproval ? 'Job submitted for approval' : 'Job created. Find it on the Jobs page.')
     },
     onError: (err) => toast.error('Schedule failed: ' + err.message),
   })
@@ -540,22 +546,27 @@ export default function Models() {
         </div>
       )}
 
+      {/* Library statistics sit behind a fold so the page opens on the models themselves. The
+          choice is remembered. */}
+      {modelsData?.length > 0 && (
+        <details className="mb-4" open={statsOpen} onToggle={e => { const open = (e.currentTarget as HTMLDetailsElement).open; setStatsOpen(open); try { localStorage.setItem('odin.models.stats', open ? '1' : '0') } catch { /* not remembered */ } }}>
+          <summary className="cursor-pointer text-sm text-[var(--brand-text-secondary)] mb-3">Library statistics</summary>
       {/* Model Library Summary */}
       {modelsData?.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
           <StatCard label="Models" value={modelsData.length} icon={Box} color="blue" />
           <StatCard label="Favorites" value={modelsData.filter(m => m.is_favorite).length} icon={Star} color="amber" />
           <StatCard label="Categories" value={categories.length} color="green" />
-          <StatCard label="Costed" value={modelsData.filter(m => m.estimated_cost).length} color="purple" />
+          {pricingConfigured && <StatCard label="Costed" value={modelsData.filter(m => m.estimated_cost).length} color="purple" />}
           <StatCard label="Total Print Hours" value={!libraryStatsAvailable ? 'Unavailable' : libraryUnknown && libraryHours === 0 ? 'Unknown' : `${libraryHours.toFixed(1)}h`} icon={Clock} color="blue" />
           <StatCard label="Most Printed" value={!libraryStatsAvailable ? 'Unavailable' : mostPrinted ? <span className="block break-words text-sm" title={mostPrinted.name}>{mostPrinted.name}</span> : 'None'} subtitle={mostPrinted ? `${mostPrinted.job_statistics.completed_job_count} completed jobs` : undefined} icon={PrinterIcon} color="green" />
         </div>
       )}
-      {modelsData?.length > 0 && <p className="text-xs text-[var(--brand-muted)] mb-4">Totals for the current library view use measured time and completed generic jobs visible to you. Education jobs are excluded; most printed is ranked by completed job count.{libraryStatsAvailable && libraryUnknown > 0 ? ` Timing is unknown for ${libraryUnknown} completed jobs.` : ''}</p>}
+      {modelsData?.length > 0 && <p className="text-xs text-[var(--brand-muted)] mb-4">Totals count the finished prints you can see, using measured print time. Education jobs are not counted.{libraryStatsAvailable && libraryUnknown > 0 ? ` Timing is unknown for ${libraryUnknown} completed jobs.` : ''}</p>}
 
       {modelsData?.length > 0 && (
         <div className="mb-6" aria-label="Selected model job statistics">
-          <p className="text-xs text-[var(--brand-muted)] mb-2">Generic visible jobs for selected models; Education jobs excluded.</p>
+          <p className="text-xs text-[var(--brand-muted)] mb-2">Finished prints for the models shown below; Education jobs excluded.</p>
           <div className="grid grid-cols-2 gap-2 md:gap-3">
             <StatCard label="Completed jobs" value={statisticsAvailable ? selectedStats.jobs : 'Unavailable'} icon={PrinterIcon} color="green" />
             <StatCard label="Actual print hours" value={!statisticsAvailable ? 'Unavailable' : selectedStats.unknown > 0 && selectedStats.hours === 0 ? 'Unknown' : `${selectedStats.hours.toFixed(1)}h`} icon={Clock} color="blue" />
@@ -564,6 +575,9 @@ export default function Models() {
             <p className="text-xs text-[var(--brand-muted)] mt-2">Timing unknown for {selectedStats.unknown} completed {selectedStats.unknown === 1 ? 'job' : 'jobs'}; hours include measured time only.</p>
           )}
         </div>
+      )}
+
+        </details>
       )}
 
       {isLoading ? (
@@ -582,7 +596,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {filteredModels?.map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} submitForApproval={submitForApproval} />
+            <ModelCard key={model.id} pricingConfigured={pricingConfigured} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} submitForApproval={submitForApproval} />
           ))}
         </div>
       )}

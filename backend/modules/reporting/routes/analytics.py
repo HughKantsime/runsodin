@@ -27,6 +27,13 @@ log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Analytics"])
 
+# A print that ODIN dispatched is both a job (status printing/completed) and a tracked print
+# (print_jobs, linked by scheduled_job_id). The dashboard totals add the two tables, so a
+# tracked print already counted as its job must not be counted again. The status is one of two
+# literals written in this module, never user input.
+_NOT_AN_ODIN_JOB = (" AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = pj.scheduled_job_id "
+                    "AND j.status = '{status}')")
+
 
 # ============== Stats ==============
 
@@ -62,20 +69,23 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     ).count()
 
     # Include MQTT-tracked jobs
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
+    # A datetime, not an ISO string: SQLite stores "2026-11-12 14:57:45" (a space), and comparing
+    # that as text with "2026-11-12T00:00:00+00:00" is never true on the same day, so tracked
+    # prints finished today were never counted.
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
     if should_filter_org(current_user, org):
         mqtt_printing = db.execute(text(
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
-            "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+            "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)" + _NOT_AN_ODIN_JOB.format(status="printing")
         ), {"org": org}).scalar() or 0
         mqtt_completed_today = db.execute(text(
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
             "WHERE pj.status = 'completed' AND pj.ended_at >= :today "
-            "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+            "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)" + _NOT_AN_ODIN_JOB.format(status="completed")
         ), {"today": today_start, "org": org}).scalar() or 0
     else:
-        mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
-        mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed' AND ended_at >= :today"), {"today": today_start}).scalar() or 0
+        mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status = 'running'" + _NOT_AN_ODIN_JOB.format(status="printing"))).scalar() or 0
+        mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status = 'completed' AND pj.ended_at >= :today" + _NOT_AN_ODIN_JOB.format(status="completed")), {"today": today_start}).scalar() or 0
 
     printing_jobs += mqtt_printing
     completed_today += mqtt_completed_today

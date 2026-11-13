@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import { canDo } from '../../permissions'
 import { printerTelemetry } from '../../api'
 import type { NozzleLifecycle } from '../../types'
+import { parseServerDate } from '../../utils/shared'
 
 interface NozzleStatusCardProps {
   printerId: number
@@ -115,7 +116,7 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
     }
   }
 
-  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString() : 'Unknown'
+  const formatDate = (d: string | null) => d ? parseServerDate(d).toLocaleDateString() : 'Unknown'
 
   return (
     <div className="rounded-md p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>

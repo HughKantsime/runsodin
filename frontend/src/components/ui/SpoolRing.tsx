@@ -5,11 +5,13 @@ interface SpoolRingProps {
   material?: string
   level?: number | null
   empty?: boolean
+  /** Draw only the ring: the caller shows its own label under it. */
+  bare?: boolean
   size?: number
   className?: string
 }
 
-export default function SpoolRing({ color = '#888', material = '', level = 100, empty = false, size = 20, className }: SpoolRingProps) {
+export default function SpoolRing({ color = '#888', material = '', level = 100, empty = false, size = 20, className, bare = false }: SpoolRingProps) {
   const strokeWidth = 3
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
@@ -32,7 +34,7 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
             opacity={0.4}
           />
         </svg>
-        <span className="text-xs text-[var(--brand-text-muted)]">Empty</span>
+        {!bare && <span className="text-xs text-[var(--brand-text-muted)]">Empty</span>}
       </div>
     )
   }

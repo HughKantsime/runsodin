@@ -13,7 +13,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
 import { printers, printerTelemetry, printJobs } from '../../api'
-import { isOnline } from '../../utils/shared'
+import { isOnline, parseServerDate } from '../../utils/shared'
 import { PageHeader, Card, StatCard, StatusBadge, Button, ProgressBar } from '../../components/ui'
 
 
@@ -288,7 +288,7 @@ export default function PrinterDetail() {
                     {job.file_name || job.name || 'Untitled'}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>
-                    {job.started_at ? new Date(job.started_at).toLocaleDateString() : ''}
+                    {job.started_at ? parseServerDate(job.started_at).toLocaleDateString() : ''}
                     {job.duration ? ` \u2022 ${formatDuration(job.duration)}` : ''}
                   </p>
                 </div>

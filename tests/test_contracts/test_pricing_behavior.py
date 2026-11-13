@@ -202,3 +202,17 @@ def test_job_calculator_cannot_return_nonfinite_estimates(pricing_client, review
         calculate_job_cost(review_db, model_id=199)
     assert rejected.value.status_code == 422
     assert rejected.value.detail == 'Pricing calculation exceeds supported numeric range'
+
+
+def test_pricing_says_whether_anyone_has_saved_it_and_never_stores_that_flag(pricing_client, review_db):
+    from sqlalchemy import text
+    client, issue = pricing_client
+    headers = issue(['admin'])
+    assert client.get('/pricing-config', headers=headers).json()['configured'] is False
+    saved = client.put('/pricing-config', headers=headers, json={'spool_cost': 40, 'configured': False}).json()
+    assert saved['configured'] is True
+    assert client.get('/pricing-config', headers=headers).json() == saved
+    import json
+    stored = review_db.execute(text("SELECT value FROM system_config WHERE key='pricing_config'")).scalar_one()
+    stored = json.loads(stored) if isinstance(stored, str) else stored
+    assert 'configured' not in stored

@@ -45,7 +45,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     id: 'add-printer',
     title: 'Add Your First Printer',
-    description: 'O.D.I.N. supports Bambu Lab (MQTT), Klipper/Moonraker, PrusaLink, and Elegoo printers. Click "Add Printer" and enter your printer\'s IP address — O.D.I.N. will auto-detect the protocol and model.',
+    description: 'O.D.I.N. works with Bambu Lab, Klipper (Moonraker), Prusa (PrusaLink) and Elegoo printers. Click "Add Printer", choose the printer type and enter its address. A Bambu printer reports its own model on first connect.',
     icon: <Printer size={24} />,
     targetRoute: '/printers',
     action: 'Next: Job Queue',
@@ -145,7 +145,7 @@ export default function OnboardingTour() {
     return (
       <button
         onClick={() => setIsMinimized(false)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-accent text-accent-foreground shadow-lg hover:brightness-110 transition-all"
+        className="fixed bottom-24 right-6 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--brand-primary)] text-[var(--brand-on-primary)] shadow-lg hover:brightness-110 transition-all"
         title="Resume tour"
       >
         <Sparkles size={16} />
@@ -155,20 +155,20 @@ export default function OnboardingTour() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[420px] max-w-[calc(100vw-2rem)]">
+    <div className="fixed bottom-24 right-6 z-50 w-[420px] max-w-[calc(100vw-2rem)]">
       {/* Card */}
-      <div className="rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
+      <div className="rounded-xl border border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] shadow-2xl overflow-hidden">
         {/* Progress bar */}
-        <div className="h-1 bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Tour progress" aria-valuenow={Math.round(progress)}>
+        <div className="h-1 bg-[var(--brand-input-bg)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Tour progress" aria-valuenow={Math.round(progress)}>
           <div
-            className="h-full bg-accent transition-all duration-500"
+            className="h-full bg-[var(--brand-primary)] transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1">
-          <div className="flex items-center gap-2 text-accent">
+          <div className="flex items-center gap-2 text-[var(--brand-primary)]">
             <Sparkles size={14} />
             <span className="text-xs font-medium uppercase tracking-wider">
               Getting Started — {currentStep + 1} of {TOUR_STEPS.length}
@@ -177,17 +177,17 @@ export default function OnboardingTour() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => setIsMinimized(true)}
-              className="p-1 rounded hover:bg-muted transition-colors"
+              className="p-1 rounded hover:bg-[var(--brand-input-bg)] transition-colors"
               title="Minimize"
             >
-              <ArrowRight size={14} className="text-muted-foreground rotate-90" />
+              <ArrowRight size={14} className="text-[var(--brand-text-muted)] rotate-90" />
             </button>
             <button
               onClick={completeTour}
-              className="p-1 rounded hover:bg-muted transition-colors"
+              className="p-1 rounded hover:bg-[var(--brand-input-bg)] transition-colors"
               title="Skip tour"
             >
-              <X size={14} className="text-muted-foreground" />
+              <X size={14} className="text-[var(--brand-text-muted)]" />
             </button>
           </div>
         </div>
@@ -195,12 +195,12 @@ export default function OnboardingTour() {
         {/* Content */}
         <div className="px-4 pb-4">
           <div className="flex items-start gap-3 mb-3">
-            <div className="mt-0.5 p-2 rounded-lg bg-accent/10 text-accent shrink-0">
+            <div className="mt-0.5 p-2 rounded-lg bg-[var(--brand-input-bg)] text-[var(--brand-primary)] shrink-0">
               {step.icon}
             </div>
             <div>
-              <h3 className="font-semibold text-foreground text-base">{step.title}</h3>
-              <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+              <h3 className="font-semibold text-[var(--brand-text-primary)] text-base">{step.title}</h3>
+              <p className="text-sm text-[var(--brand-text-muted)] mt-1 leading-relaxed">
                 {step.description}
               </p>
             </div>
@@ -211,7 +211,7 @@ export default function OnboardingTour() {
             <button
               onClick={prevStep}
               disabled={currentStep === 0}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1 text-sm text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <ArrowLeft size={14} />
               Back

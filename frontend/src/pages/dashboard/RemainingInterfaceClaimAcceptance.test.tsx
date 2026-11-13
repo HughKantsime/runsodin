@@ -32,9 +32,9 @@ const due = { task_name: 'Lubricate rails', status: 'overdue', progress_percent:
 beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); api.language.mockResolvedValue({}) })
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.restoreAllMocks() })
 
-it('F16-16.5-01 exposes the advertised five locale codes and 181 English keys', () => {
+it('F16-16.5-01 exposes the advertised five locale codes and 184 English keys', () => {
   expect(LANGUAGES.map(l => l.code).sort()).toEqual(['de','en','es','it','ja'])
-  expect(Object.keys(en)).toHaveLength(181)
+  expect(Object.keys(en)).toHaveLength(184)
   for (const catalog of Object.values(catalogs)) {
     expect(Object.values(catalog).every(value => typeof value === 'string' && value.length > 0)).toBe(true)
     expect(Object.keys(catalog).sort()).toEqual(Object.keys(en).sort())

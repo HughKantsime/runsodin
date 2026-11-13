@@ -14,9 +14,10 @@ const DEFAULT_BRANDING = {
   app_name: "O.D.I.N.",
   app_subtitle: "Print Farm Management",
   // Colors
-  primary_color: "#C47A1A",
-  accent_color: "#D4891F",
-  sidebar_active_text: "#D4891F",
+  // Same values as the server's defaults (backend branding.AMBER_DEFAULTS): no colour jump on load.
+  primary_color: "#dc9a3e",
+  accent_color: "#e3a04a",
+  sidebar_active_text: "#dc9a3e",
   // Fonts
   font_display: "system-ui, -apple-system, sans-serif",
   font_body: "system-ui, -apple-system, sans-serif",

@@ -482,6 +482,7 @@ export default function ArchivesPage() {
     <div className="p-4 md:p-6">
       {/* Header */}
       <PageHeader icon={Archive} title="Print Archive" subtitle={`${total} archived prints`} />
+      <p className="text-sm text-[var(--brand-text-muted)] mb-4" data-testid="page-purpose">One record for each finished print. Print Log is the plain list you can export, Projects groups related prints, and Timelapses holds the videos.</p>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-4">

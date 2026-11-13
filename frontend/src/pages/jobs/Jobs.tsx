@@ -26,6 +26,7 @@ import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
 import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
 import { PageHeader, Button, SearchInput, TabBar } from '../../components/ui'
+import { parseServerDate, isOnline } from '../../utils/shared'
 
 
 const jobTypeTabs = [
@@ -311,11 +312,13 @@ export default function Jobs() {
       }
       case 'dispatch': {
         const printerLabel = existingReason || 'the printer'
+        const target = (printersData || []).find(p => p.id === (jobsData || []).find(j => j.id === jobId)?.printer_id)
+        const offline = target && !isOnline(target)
         setConfirmAction({
           action: 'dispatch',
           jobId,
           title: 'Dispatch to Printer',
-          message: `"${jobName}" will be uploaded to ${printerLabel} via FTP and the print will start automatically.\n\nMake sure the bed is clear before confirming.`,
+          message: `${offline ? `${printerLabel} looks offline right now, so this will probably be refused.\n\n` : ''}"${jobName}" will be uploaded to ${printerLabel} and the print will start automatically.\n\nMake sure the bed is clear before confirming.`,
           confirmText: 'Dispatch',
           confirmVariant: 'confirm',
         })
@@ -378,7 +381,7 @@ export default function Jobs() {
         case 'priority': return dir * ((a.priority ?? 99) - (b.priority ?? 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
         case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
-        case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0).getTime() - new Date(b.scheduled_start || 0).getTime())
+        case 'scheduled_start': return dir * (parseServerDate(a.scheduled_start || 0).getTime() - parseServerDate(b.scheduled_start || 0).getTime())
         default: return 0
       }
     })

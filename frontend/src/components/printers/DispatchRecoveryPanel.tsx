@@ -77,6 +77,17 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
     submitting.current = true
     mutation.mutate({ ...confirmation, targetId: printerId })
   }
+  // Nothing held for this printer (the usual case): one quiet line that opens on request,
+  // not a block of warnings at the top of every printer page.
+  const quiet = !notice && !query.isError && !query.isPending && !!data
+    && (data.state === 'no_retained_claim' || (data.state === 'investigation_required' && (data.blockers || []).every(code => code === 'evidence_authority_unavailable')))
+  if (quiet) return <details className="mb-6 text-sm text-[var(--brand-text-muted)]" data-testid="dispatch-recovery-quiet">
+    <summary className="cursor-pointer">Dispatch recovery: nothing to recover</summary>
+    <p className="mt-2">{data.state === 'no_retained_claim'
+      ? 'ODIN is not holding a print start for this printer. That does not confirm a successful print or give permission to retry.'
+      : (data.guidance || 'ODIN has no start record to show you for this printer.')}</p>
+    <Button ref={refreshButton} size="sm" variant="ghost" disabled={query.isFetching} onClick={() => query.refetch()}>Refresh evidence</Button>
+  </details>
   return <Card className="mb-6 min-w-0 break-words">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <h2 className="text-sm font-medium">Dispatch recovery</h2>

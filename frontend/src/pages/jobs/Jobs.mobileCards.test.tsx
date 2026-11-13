@@ -88,7 +88,7 @@ describe('Jobs phone cards vs desktop table', () => {
     expect(screen.getAllByTestId('job-card')[0]).toBe(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Dispatch to printer' }))
     await screen.findByText(/will be uploaded to/)
-    fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Dispatch')!)
+    fireEvent.click(screen.getAllByRole('button').find(b => b.textContent === 'Dispatch' && b.getAttribute('aria-label') !== 'Dispatch to printer')!)
     expect(await within(card).findByRole('button', { name: 'Dispatching...' })).toBeDisabled()
   })
 

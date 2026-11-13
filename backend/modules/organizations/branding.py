@@ -16,6 +16,15 @@ import os
 from core.base import Base
 
 
+# The three accent defaults before 2.2 (green) and from 2.2 (amber). A saved row that still
+# holds an old default in one of these columns is moved to the new one once, on the first start
+# after upgrade (core.app_maintenance); a colour someone chose is never touched.
+AMBER_DEFAULTS = {
+    "primary_color": ("#22c55e", "#dc9a3e"),
+    "accent_color": ("#4ade80", "#e3a04a"),
+    "sidebar_active_text": ("#4ade80", "#dc9a3e"),
+}
+
 # Legacy text colours on the legacy surfaces. Brand, accent and sidebar colours are often
 # customized (prod uses an amber primary), so only these five fields decide the upgrade: when
 # both text tokens and the three surfaces they sit on are still the old defaults, the two text
@@ -40,15 +49,20 @@ class Branding(Base):
     app_subtitle = Column(String(200), default="Scheduler")
 
     # ---- Color Palette ----
-    # Accent / brand highlight (the print-* green by default)
-    primary_color = Column(String(7), default="#22c55e")     # print-500
-    accent_color = Column(String(7), default="#4ade80")      # print-400
+    # Accent / brand highlight: the amber of the design tokens (frontend/src/design-tokens.css and
+    # BrandingContext). Until 2.2 these three defaulted to the older print-* green, which
+    # overrode the designed amber on every install; see AMBER_DEFAULTS below.
+    # The exact shades are the lighter amber (Foundry's #dc9a3e): as text it is 5.4:1 on cards
+    # and 4.8:1 on the active sidebar row. The darker token amber #C47A1A is 3.8:1 on cards,
+    # below the 4.5:1 that small text needs, and the primary colour is used as text.
+    primary_color = Column(String(7), default="#dc9a3e")
+    accent_color = Column(String(7), default="#e3a04a")
     # Sidebar
     sidebar_bg = Column(String(7), default="#1a1917")        # farm-950
     sidebar_border = Column(String(7), default="#3b3934")    # farm-800
     sidebar_text = Column(String(7), default="#8a8679")      # farm-400
     sidebar_active_bg = Column(String(7), default="#3b3934") # farm-800
-    sidebar_active_text = Column(String(7), default="#4ade80")  # print-400
+    sidebar_active_text = Column(String(7), default="#dc9a3e")
     # Content area
     content_bg = Column(String(7), default="#1a1917")        # farm-950
     card_bg = Column(String(7), default="#33312d")           # farm-900

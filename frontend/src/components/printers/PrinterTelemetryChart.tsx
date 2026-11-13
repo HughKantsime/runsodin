@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { X } from 'lucide-react'
 import { printerTelemetry } from '../../api'
-import { fanSpeedDisplay } from '../../utils/shared'
+import { fanSpeedDisplay, parseServerDate } from '../../utils/shared'
 
 interface PrinterTelemetryChartProps {
   printerId: number
@@ -36,7 +36,7 @@ export default function PrinterTelemetryChart({ printerId, apiType, onClose }: P
       const result = await printerTelemetry.get(printerId, hours)
       const formatted = (result || []).map((d: any) => ({
         ...d,
-        time: new Date(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        time: parseServerDate(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         bed: d.bed_temp != null ? parseFloat(d.bed_temp.toFixed(1)) : null,
         nozzle: d.nozzle_temp != null ? parseFloat(d.nozzle_temp.toFixed(1)) : null,
         fan: fanSpeedDisplay(apiType, d.fan_speed)?.value ?? null,

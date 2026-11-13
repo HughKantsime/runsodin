@@ -1,5 +1,6 @@
 import PrinterNumber from '../ui/PrinterNumber'
 import type { InstalledNozzle } from '../../types/printer'
+import { parseServerDate } from '../../utils/shared'
 
 export default function InstalledNozzles({ nozzles }: { nozzles?: InstalledNozzle[] | null }) {
   return <section aria-label="Installed nozzles" className="mb-6 rounded-lg border border-[var(--brand-card-border)] p-4">
@@ -9,7 +10,7 @@ export default function InstalledNozzles({ nozzles }: { nozzles?: InstalledNozzl
         <p className="capitalize">{nozzle.side} nozzle{nozzle.present === false ? ' · absent' : ''}</p>
         <PrinterNumber as="p">{nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`} · {nozzle.flow || 'Flow unknown'} · {nozzle.material || 'Material unknown'}</PrinterNumber>
         <PrinterNumber as="p">Wear: {nozzle.wear == null ? 'Unknown' : nozzle.wear}</PrinterNumber>
-        <p className="text-xs">Last reported: <time dateTime={nozzle.observed_at}>{new Date(nozzle.observed_at).toLocaleString()}</time></p>
+        <p className="text-xs">Last reported: <time dateTime={nozzle.observed_at}>{parseServerDate(nozzle.observed_at).toLocaleString()}</time></p>
       </li>)}</ul>}
     <p className="mt-2 text-xs">Last reported values; dispatch checks a fresh printer report.</p>
   </section>

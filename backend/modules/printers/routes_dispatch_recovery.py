@@ -81,11 +81,12 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
     if evidence is None:
         # Absent and inaccessible claims must be indistinguishable, including
         # on the caller's own printer. Global ownership is already visible.
-        guidance = ('Recovery authority is unavailable to this caller for this global printer. '
-                    'Ask a global administrator to investigate printer and evidence ownership. '
+        # Plain words, same answer for "nothing recorded" and "not yours to see".
+        guidance = ('ODIN has no start record to show you for this global printer. That is normal when nothing '
+                    'is waiting to be recovered. If a print start looks stuck, a global administrator can investigate. '
                     if printer.org_id is None else
-                    'No retained evidence is available to this caller. Ask an administrator to investigate '
-                    'printer and evidence ownership; missing evidence is not permission to retry. ')
+                    'ODIN has no start record to show you for this printer. If a print start looks stuck, ask an '
+                    'administrator to investigate; a missing record is not permission to send the print again. ')
         return {'state':'investigation_required','refresh_required':False,'release_available':False,
                 'actions':{'hold':False,'reconcile_retain':False,'release':False},
                 'blockers':['evidence_authority_unavailable'],'guidance':guidance+GUIDANCE}

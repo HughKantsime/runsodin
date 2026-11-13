@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {assortment,AssortmentState,AssortmentMode,ProductKind,ReplenishmentPreview} from '../../api/assortment'
 import {getCurrentUser} from '../../permissions'
+import { parseServerDate } from '../../utils/shared'
 
 export default function AssortmentPolicyPanel(){
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
@@ -34,7 +35,7 @@ export default function AssortmentPolicyPanel(){
    {preview&&<article className="space-y-2 rounded-md border border-[var(--brand-card-border)] p-3 text-sm break-words">
     <p role="status">{preview.message}</p>
     {preview.stock&&<p>Square recorded quantity: {preview.stock.quantity??'Unknown'}. This is not a physical stock count.</p>}
-    {preview.retrieved_at&&<p>Checked {new Date(preview.retrieved_at).toLocaleString()}. Counts and queued work can change after this check.</p>}
+    {preview.retrieved_at&&<p>Checked {parseServerDate(preview.retrieved_at).toLocaleString()}. Counts and queued work can change after this check.</p>}
     {preview.recipes.map(r=><div key={r.id} className="space-y-1 border-t border-[var(--brand-card-border)] pt-2"><h3 className="font-medium">{r.name}: one plate produces {r.main_yield} main pieces</h3><p>Printer {r.printer_id} · {r.materials}</p>{r.outputs.map((o,i)=><p key={i}>{o.expected} {o.product_name} ({o.kind})</p>)}</div>)}
     {preview.recipes.length>0&&<p>Advisory only. Protect paid-order and wholesale promises. Loaded materials, maintenance, physical stock and a freshly cleared plate still need checking before a start.</p>}
    </article>}

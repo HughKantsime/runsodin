@@ -46,6 +46,7 @@ def extract_printer_model_from_settings(zf: zipfile.ZipFile) -> str:
 
 from typing import Any, Optional, List
 from dataclasses import dataclass, asdict
+from core.display_names import filename_stem
 
 
 @dataclass
@@ -154,7 +155,7 @@ def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileM
             thumbnail_b64 = extract_thumbnail(zf)
             
             # Get project name from 3dmodel.model
-            project_name = extract_project_name(zf) or Path(name or file_path).stem
+            project_name = extract_project_name(zf) or filename_stem(str(name or file_path))
             
             # Build filament list
             filaments = []
@@ -339,7 +340,7 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
             used_grams=0
         ))
         
-        project_name = extract_project_name(zf) or Path(name or file_path).stem
+        project_name = extract_project_name(zf) or filename_stem(str(name or file_path))
         thumbnail_b64 = extract_thumbnail(zf)
         
         return PrintFileMetadata(

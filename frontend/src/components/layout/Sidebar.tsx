@@ -42,7 +42,7 @@ import ProBadge from '../shared/ProBadge'
 import { canAccessPage, clearSensitiveBrowserState } from '../../permissions'
 import { isOnline } from '../../utils/shared'
 import { fleetCounts } from '../../utils/fleetCounts'
-import { stats, printers, getEducationMode, pricingConfig } from '../../api'
+import { stats, printers, getEducationMode, pricingConfig, alerts } from '../../api'
 import { Modal, Button } from '../ui'
 
 
@@ -99,10 +99,35 @@ export function NavGroup({ label, collapsed, open, onToggle }) {
 }
 
 
+const SECTIONS_KEY = 'odin.sidebar.sections'
+const DEFAULT_SECTIONS = { print: true, farm: true, materials: true, history: false, insights: false }
+
+function loadSections() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SECTIONS_KEY) || 'null')
+    if (saved && typeof saved === 'object') return { ...DEFAULT_SECTIONS, ...Object.fromEntries(Object.entries(saved).filter(([k, v]) => k in DEFAULT_SECTIONS && typeof v === 'boolean')) }
+  } catch { /* unreadable: use the defaults */ }
+  return { ...DEFAULT_SECTIONS }
+}
+
+/** A count at the right edge of a row. It sits beside the link, not inside it, so the link keeps
+ *  its plain name ("Jobs"); the count has its own label for screen readers. Collapsed: a dot. */
+export function NavCount({ count, label, tone = 'muted', collapsed, text }: { count: number; label: string; tone?: 'muted' | 'hot'; collapsed?: boolean; text?: string }) {
+  if (!count) return null
+  const hot = tone === 'hot'
+  if (collapsed) return <span role="status" aria-label={label} title={label} className="pointer-events-none absolute right-2 top-1 h-1.5 w-1.5 rounded-full" style={{ backgroundColor: hot ? 'var(--status-failed, #dc2626)' : 'var(--brand-text-muted)' }} />
+  return <span role="status" aria-label={label} title={label}
+    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1.5 text-[10px] font-mono leading-4"
+    style={hot ? { backgroundColor: 'var(--status-failed, #dc2626)', color: '#fff' } : { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-text)' }}>
+    {text || (count > 99 ? '99+' : count)}
+  </span>
+}
+
 export default function Sidebar({ mobileOpen, onMobileClose }) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
-  const [sections, setSections] = useState({ work: true, library: true, insights: true, tools: true })
+  // Which groups are open. History and Insights start folded; each person's choice is remembered.
+  const [sections, setSections] = useState(loadSections)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   // React Query for ui mode (replaces window event listener)
@@ -124,7 +149,11 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
   const adv = uiMode === 'advanced'
   const lic = useLicense()
   const org = useOrg()
-  const toggle = (key) => setSections(s => ({ ...s, [key]: !s[key] }))
+  const toggle = (key) => setSections(s => {
+    const next = { ...s, [key]: !s[key] }
+    try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)) } catch { /* private mode: not remembered */ }
+    return next
+  })
   const branding = useBranding()
 
   const { data: statsData } = useQuery({
@@ -138,11 +167,22 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
     refetchInterval: 15000,
   })
 
+  const { data: unreadData } = useQuery({
+    queryKey: ['sidebar-unread-alerts'],
+    queryFn: () => alerts.unreadCount(),
+    refetchInterval: 30000,
+  })
+  const unreadAlerts = Number(unreadData?.unread_count) || 0
+  const waitingJobs = (Number(statsData?.jobs?.pending) || 0) + (Number(statsData?.jobs?.scheduled) || 0)
+  const { data: principal } = useQuery<{ username?: string; role?: string } | null>({ queryKey: ['auth', 'me'], enabled: false })
+
   const onlinePrinters = (printersData || []).filter(isOnline)
   // Same counting rules as the Foundry header (utils/fleetCounts): a paused / needs-you printer is not "printing".
   const { printing: printingCount, ready: idleCount } = fleetCounts(printersData || [])
   const otherCount = onlinePrinters.length - printingCount - idleCount
   const offlineCount = (printersData?.length || 0) - onlinePrinters.length
+
+  const c = collapsed && !mobileOpen   // icon-only rail (never on the phone drawer)
 
   // Close mobile menu on nav click
   const handleNavClick = () => {
@@ -243,120 +283,103 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Navigation */}
         <nav className="sidebar-nav flex-1 overflow-y-auto p-4 space-y-1 min-h-0 max-sm:overscroll-contain">
-          {/* Fleet */}
-          {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>{t('nav.dashboard')}</NavItem>}
-          {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>{t('nav.printers')}</NavItem>}
-          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>{t('nav.cameras')}</NavItem>}
-          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
-          <NavItem collapsed={collapsed && !mobileOpen} to="/archives" icon={Archive} onClick={handleNavClick}>Archives</NavItem>
-          <NavItem collapsed={collapsed && !mobileOpen} to="/projects" icon={FolderKanban} onClick={handleNavClick}>Projects</NavItem>
-          <NavItem collapsed={collapsed && !mobileOpen} to="/print-log" icon={ScrollText} onClick={handleNavClick}>Print Log</NavItem>
-          <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>{t('nav.alerts')}</NavItem>
-          <NavItem collapsed={collapsed && !mobileOpen} to="/detections" icon={Eye} onClick={handleNavClick}>Detections</NavItem>
+          {canAccessPage('dashboard') && <NavItem collapsed={c} to="/" icon={LayoutDashboard} onClick={handleNavClick}>{t('nav.dashboard')}</NavItem>}
 
-          {/* Work */}
-          {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("timeline")) && <NavGroup label={t('nav.work')} collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
-          {((collapsed && !mobileOpen) || sections.work) && <>
-            {educationMode && lic.isEducation && canAccessPage('education') && <NavItem collapsed={collapsed && !mobileOpen} to="/education" icon={GraduationCap} onClick={handleNavClick}>Education</NavItem>}
-            {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>{t('nav.jobs')}</NavItem>}
-            {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>{t('nav.timeline')}</NavItem>}
-            {adv && lic.isPro && !educationMode && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>{t('nav.orders')}{!lic.isPro && <ProBadge />}</NavItem>}
-            {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>{t('nav.upload')}</NavItem>}
+          {/* Print: getting something printed */}
+          {(canAccessPage('jobs') || canAccessPage('upload') || canAccessPage('timeline') || canAccessPage('models')) && <NavGroup label={t('nav.print')} collapsed={c} open={sections.print} onToggle={() => toggle('print')} />}
+          {(c || sections.print) && <>
+            {educationMode && lic.isEducation && canAccessPage('education') && <NavItem collapsed={c} to="/education" icon={GraduationCap} onClick={handleNavClick}>Education</NavItem>}
+            {canAccessPage('jobs') && <div className="relative"><NavItem collapsed={c} to="/jobs" icon={ListTodo} onClick={handleNavClick}>{t('nav.jobs')}</NavItem><NavCount collapsed={c} count={waitingJobs} text={`${waitingJobs > 99 ? '99+' : waitingJobs} waiting`} label={`${waitingJobs} ${waitingJobs === 1 ? 'job' : 'jobs'} waiting`} /></div>}
+            {canAccessPage('timeline') && <NavItem collapsed={c} to="/timeline" icon={Calendar} onClick={handleNavClick}>{t('nav.timeline')}</NavItem>}
+            {canAccessPage('upload') && <NavItem collapsed={c} to="/upload" icon={UploadIcon} onClick={handleNavClick}>{t('nav.upload')}</NavItem>}
+            {canAccessPage('models') && <NavItem collapsed={c} to="/models" icon={Box} onClick={handleNavClick}>{t('nav.models')}</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('jobs') && <NavItem collapsed={c} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>{t('nav.orders')}{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
-          {/* Library */}
-          {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label={t('nav.library')} collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
-          {((collapsed && !mobileOpen) || sections.library) && <>
-            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>{t('nav.models')}</NavItem>}
-            <NavItem collapsed={collapsed && !mobileOpen} to="/profiles" icon={SlidersHorizontal} onClick={handleNavClick}>Profiles</NavItem>
-            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>{t('nav.products')}{!lic.isPro && <ProBadge />}</NavItem>}
-            {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>{t('nav.spools')}</NavItem>}
-            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
+          {/* Farm: the machines */}
+          <NavGroup label={t('nav.farm')} collapsed={c} open={sections.farm} onToggle={() => toggle('farm')} />
+          {(c || sections.farm) && <>
+            {canAccessPage('printers') && <div className="relative">
+              <NavItem collapsed={c} to="/printers" icon={Printer} onClick={handleNavClick}>{t('nav.printers')}</NavItem>
+              {printersData && !c && (
+                <NavLink to="/printers" onClick={handleNavClick}
+                  aria-label={`Fleet status: ${onlinePrinters.length} of ${printersData.length} printers online`}
+                  title={`Printing: ${printingCount} · Idle: ${idleCount} · Offline: ${offlineCount}${otherCount > 0 ? ` · Other: ${otherCount}` : ''}`}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1.5 text-[10px] font-mono leading-4 hover:opacity-80"
+                  style={{ backgroundColor: 'var(--brand-sidebar-active-bg)', color: offlineCount > 0 ? 'var(--brand-sidebar-text)' : 'var(--status-completed)' }}>
+                  {onlinePrinters.length}/{printersData.length}
+                  <span className="sr-only"> Printing: {printingCount} Idle: {idleCount} Offline: {offlineCount}{otherCount > 0 ? ` Other: ${otherCount}` : ''}</span>
+                </NavLink>
+              )}
+            </div>}
+            {canAccessPage('cameras') && <NavItem collapsed={c} to="/cameras" icon={Video} onClick={handleNavClick}>{t('nav.cameras')}</NavItem>}
+            <div className="relative"><NavItem collapsed={c} to="/alerts" icon={BellIcon} onClick={handleNavClick}>{t('nav.alerts')}</NavItem><NavCount collapsed={c} tone="hot" count={unreadAlerts} label={`${unreadAlerts} unread ${unreadAlerts === 1 ? 'alert' : 'alerts'}`} /></div>
+            {adv && lic.isPro && canAccessPage('maintenance') && <NavItem collapsed={c} to="/maintenance" icon={Wrench} onClick={handleNavClick}>{t('nav.maintenance')}</NavItem>}
           </>}
 
-          {/* Insights (was Monitor — Pro only) */}
-          {adv && lic.isPro && (canAccessPage("analytics") || canAccessPage("maintenance")) && <NavGroup label="Insights" collapsed={collapsed && !mobileOpen} open={sections.insights} onToggle={() => toggle("insights")} />}
-          {adv && lic.isPro && ((collapsed && !mobileOpen) || sections.insights) && <>
-            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>{t('nav.maintenance')}</NavItem>}
-            {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>{t('nav.analytics')}</NavItem>}
-            {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization</NavItem>}
-            {canAccessPage('education_reports') && <NavItem collapsed={collapsed && !mobileOpen} to="/education-reports" icon={BarChart3} onClick={handleNavClick}>Usage Reports</NavItem>}
+          {/* Materials: what goes into a print */}
+          {(canAccessPage('spools') || canAccessPage('models')) && <NavGroup label={t('nav.materials')} collapsed={c} open={sections.materials} onToggle={() => toggle('materials')} />}
+          {(c || sections.materials) && <>
+            {canAccessPage('spools') && <NavItem collapsed={c} to="/spools" icon={Circle} onClick={handleNavClick}>{t('nav.spools')}</NavItem>}
+            <NavItem collapsed={c} to="/profiles" icon={SlidersHorizontal} onClick={handleNavClick}>Profiles</NavItem>
+            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={c} to="/products" icon={ShoppingBag} onClick={handleNavClick}>{t('nav.products')}{!lic.isPro && <ProBadge />}</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={c} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
-          {/* Tools */}
-          {adv && canAccessPage("calculator") && <NavGroup label="Tools" collapsed={collapsed && !mobileOpen} open={sections.tools} onToggle={() => toggle("tools")} />}
-          {adv && ((collapsed && !mobileOpen) || sections.tools) && <>
-            {canAccessPage('calculator') && <NavItem collapsed={collapsed && !mobileOpen} to="/calculator" icon={Calculator} onClick={handleNavClick}>{t('nav.calculator')}</NavItem>}
+          {/* History: what already happened. Folded until opened. */}
+          <NavGroup label={t('nav.history')} collapsed={c} open={sections.history} onToggle={() => toggle('history')} />
+          {(c || sections.history) && <>
+            <NavItem collapsed={c} to="/archives" icon={Archive} onClick={handleNavClick}>Archives</NavItem>
+            <NavItem collapsed={c} to="/print-log" icon={ScrollText} onClick={handleNavClick}>Print Log</NavItem>
+            {canAccessPage('cameras') && <NavItem collapsed={c} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
+            <NavItem collapsed={c} to="/projects" icon={FolderKanban} onClick={handleNavClick}>Projects</NavItem>
+            <NavItem collapsed={c} to="/detections" icon={Eye} onClick={handleNavClick}>Detections</NavItem>
           </>}
 
-          {/* Settings */}
+          {/* Insights: numbers. Folded until opened. */}
+          {adv && ((lic.isPro && (canAccessPage('analytics') || canAccessPage('education_reports'))) || canAccessPage('calculator')) && <NavGroup label={t('nav.insights')} collapsed={c} open={sections.insights} onToggle={() => toggle('insights')} />}
+          {adv && (c || sections.insights) && <>
+            {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={c} to="/analytics" icon={BarChart3} onClick={handleNavClick}>{t('nav.analytics')}</NavItem>}
+            {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={c} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization</NavItem>}
+            {lic.isPro && canAccessPage('education_reports') && <NavItem collapsed={c} to="/education-reports" icon={BarChart3} onClick={handleNavClick}>Usage Reports</NavItem>}
+            {canAccessPage('calculator') && <NavItem collapsed={c} to="/calculator" icon={Calculator} onClick={handleNavClick}>{t('nav.calculator')}</NavItem>}
+          </>}
+
+          {/* Settings (the audit log is reached from Settings > System) */}
           <div className="mt-2" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingTop: '0.5rem' }}>
-            {canAccessPage('settings') && <NavItem collapsed={collapsed && !mobileOpen} to="/settings" icon={Settings} onClick={handleNavClick}>{t('nav.settings')}</NavItem>}
-            {canAccessPage('audit') && <NavItem collapsed={collapsed && !mobileOpen} to="/audit" icon={FileText} onClick={handleNavClick}>Audit Log</NavItem>}
+            {canAccessPage('settings') && <NavItem collapsed={c} to="/settings" icon={Settings} onClick={handleNavClick}>{t('nav.settings')}</NavItem>}
           </div>
         </nav>
 
-        {/* Fleet Status */}
-        {printersData && (!collapsed || mobileOpen) && (
-          <NavLink to="/printers" className="shrink-0 px-3 py-2.5 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} aria-label={`Fleet status: ${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-mono font-medium" style={{ color: 'var(--brand-text-muted)' }}>
-                FLEET
+        {/* Who is signed in, and the way out */}
+        <div className="shrink-0 px-3 py-2.5 flex items-center gap-2.5" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))' }}>
+          {!c && principal?.username && (
+            <>
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-semibold uppercase"
+                style={{ backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-text-primary)' }}>{principal.username.slice(0, 1)}</span>
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-sm" style={{ color: 'var(--brand-text-primary)' }}>{principal.username}</span>
+                {principal.role && <span className="block text-[11px] capitalize" style={{ color: 'var(--brand-text-muted)' }}>{principal.role}</span>}
               </span>
-              <span className="text-[10px] font-mono" style={{ color: 'var(--brand-sidebar-text)' }}>
-                {printersData.filter(p => isOnline(p)).length}/{printersData.length}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-x-2 gap-y-1 mb-1.5 text-[10px]" style={{ color: 'var(--brand-sidebar-text)' }}>
-              <span>Printing: {printingCount}</span><span>Idle: {idleCount}</span><span>Offline: {offlineCount}</span>
-              {otherCount > 0 && <span>Other: {otherCount}</span>}
-            </div>
-            <div
-              className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'rgb(var(--farm-800))' }}
-              role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Printers online"
-              aria-valuenow={printersData.length ? Math.round(printersData.filter(p => isOnline(p)).length / printersData.length * 100) : 0}
-              aria-valuetext={`${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${printersData.length ? (printersData.filter(p => isOnline(p)).length / printersData.length * 100) : 0}%`,
-                  backgroundColor: 'var(--status-completed)'
-                }}
-              />
-            </div>
-          </NavLink>
-        )}
-
-        {/* Footer */}
-        <div className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-          <div className="flex items-center justify-between">
-            {(!collapsed || mobileOpen) && (
-              <span className="text-[10px]" style={{ color: 'var(--brand-text-muted)' }}>v{__APP_VERSION__}</span>
-            )}
-            <button
-              onClick={() => setShowLogoutConfirm(true)}
-              className="flex items-center gap-2 hover:text-red-400 text-sm transition-colors"
-              style={{ color: 'var(--brand-sidebar-text)' }}
-              aria-label="Logout"
-            >
-              <LogOut size={14} />
-              {(!collapsed || mobileOpen) && "Logout"}
-            </button>
-          </div>
-          {(!collapsed || mobileOpen) && (
-            <p className="text-[10px] text-center mt-1" style={{ color: 'var(--brand-text-muted)' }}>
-              Powered by O.D.I.N.
-            </p>
+            </>
           )}
+          <button
+            onClick={() => setShowLogoutConfirm(true)}
+            className={clsx("flex items-center gap-1.5 hover:text-red-400 text-xs transition-colors", c ? "mx-auto" : "ml-auto")}
+            style={{ color: 'var(--brand-sidebar-text)' }}
+            aria-label="Sign out"
+          >
+            <LogOut size={14} />
+            {!c && "Sign out"}
+          </button>
         </div>
       </aside>
 
-      <Modal isOpen={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} title="Confirm Logout" size="sm" alert>
-        <p className="text-sm mb-4" style={{ color: 'var(--brand-text-secondary)' }}>Are you sure you want to log out?</p>
+      <Modal isOpen={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} title="Sign out?" size="sm" alert>
+        <p className="text-sm mb-4" style={{ color: 'var(--brand-text-secondary)' }}>Sign out of ODIN on this device?</p>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={() => setShowLogoutConfirm(false)}>Cancel</Button>
-          <Button variant="danger" size="sm" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {}); await clearSensitiveBrowserState(); window.location.href = '/login'; }}>Logout</Button>
+          <Button variant="danger" size="sm" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {}); await clearSensitiveBrowserState(); window.location.href = '/login'; }}>Sign out</Button>
         </div>
       </Modal>
     </>

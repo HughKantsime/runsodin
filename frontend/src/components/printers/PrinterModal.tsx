@@ -5,6 +5,7 @@ import { printers, getPlugConfig } from '../../api'
 import type { PlugConfig } from '../../types'
 import { canDo } from '../../permissions'
 import { Modal } from '../ui'
+import { BAMBU_LAN_NOTE, connectionFailureHelp } from '../../utils/shared'
 
 // TODO: type this properly — runtime printer has extra fields
 interface PrinterLike {
@@ -256,7 +257,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         }
       } else {
         setTestStatus('error')
-        setTestMessage(result.error || 'Connection failed')
+        setTestMessage(`${result.error || 'Connection failed'} ${connectionFailureHelp(formData.api_type || 'bambu')}`)
       }
     } catch (err) {
       setTestStatus('error')
@@ -457,6 +458,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Access Code</label>
               <input type="text" value={formData.access_code} onChange={(e) => setFormData(prev => ({ ...prev, access_code: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder="e.g., 12345678" />
               <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Settings &rarr; Network &rarr; Access Code</p>
+              <p className="text-xs text-[var(--brand-text-secondary)] mt-2" data-testid="bambu-lan-note">{BAMBU_LAN_NOTE}</p>
             </div>
             )}
             {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink') && (
@@ -477,7 +479,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                   !testStatus && "bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] text-[var(--brand-text-primary)]"
                 )}>
                 {testStatus === 'testing' ? (
-                  <><span className="animate-spin">\u27F3</span> Testing...</>
+                  <><span className="animate-spin">{'\u27F3'}</span> Testing...</>
                 ) : testStatus === 'success' ? (
                   <><CheckCircle size={14} /> Connected</>
                 ) : testStatus === 'error' ? (

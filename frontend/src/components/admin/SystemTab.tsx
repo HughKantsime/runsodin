@@ -12,6 +12,7 @@ import { useLicense } from '../../LicenseContext'
 import toast from 'react-hot-toast'
 import { Button, Card, Input } from '../ui'
 import { clearSensitiveBrowserState } from '../../permissions'
+import { parseServerDate } from '../../utils/shared'
 
 function downloadExport(endpoint, filename) {
   // endpoint comes in as '/api/...' — strip the /api prefix for downloadBlob
@@ -270,6 +271,15 @@ function InstallAppCard() {
   )
 }
 
+/** Which ODIN this is. It used to sit in the sidebar footer. */
+function AboutVersion() {
+  return (
+    <p className="text-xs text-[var(--brand-text-muted)] mb-4 md:mb-6" data-testid="about-version">
+      O.D.I.N. version {typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'unknown'}
+    </p>
+  )
+}
+
 function AuditLogLink() {
   return (
     <a href="/audit" className="flex items-center gap-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6 hover:bg-[var(--brand-input-bg)]/50 transition-colors">
@@ -319,7 +329,7 @@ export default function SystemTab() {
   }
 
   const formatDate = (dateStr) => {
-    const d = new Date(dateStr)
+    const d = parseServerDate(dateStr)
     return d.toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
@@ -541,6 +551,7 @@ export default function SystemTab() {
 
       <InstallAppCard />
       <AuditLogLink />
+      <AboutVersion />
 
       {/* Privacy & Data (GDPR) */}
       <PrivacyDataCard />

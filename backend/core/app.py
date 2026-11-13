@@ -28,7 +28,7 @@ else:
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
 from core.app_maintenance import (
     _discover_modules, _resolve_load_order, _periodic_cleanup,
-    _check_schema_drift, _revoke_legacy_biometric_tokens,
+    _check_schema_drift, _revoke_legacy_biometric_tokens, _apply_amber_default_branding,
 )
 
 # Middleware setup
@@ -447,6 +447,13 @@ def create_app() -> FastAPI:
             _revoke_legacy_biometric_tokens(engine)
         except Exception as e:
             log.warning("One-time biometric token revocation did not complete: %s", e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- static message; exception comes from SQL whose only bound values are the marker key, never token data
+
+        # 2.2 one-time data fix: untouched green accent defaults move to the designed amber
+        # (branding.AMBER_DEFAULTS). Guarded by a system_config flag; no schema change.
+        try:
+            _apply_amber_default_branding(engine)
+        except Exception as e:
+            log.warning("One-time branding default update did not complete: %s", type(e).__name__)
 
         # v1.8.9 codex pass 4: second ITAR audit, now that DB is
         # populated. The early `create_app`-level check only sees

@@ -14,6 +14,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, Button, EmptyState, ProgressBar as SharedProgressBar, TabBar } from '../../components/ui'
 import { DialogSurface } from '../../components/ui'
+import { parseServerDate } from '../../utils/shared'
 
 const STATUS_COLORS = {
   ok: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-400' },
@@ -247,7 +248,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
                   )}
                   {task.last_serviced ? (
                     <span className="text-xs text-[var(--brand-text-muted)]">
-                      Last: {new Date(task.last_serviced).toLocaleDateString()}{task.last_by ? ` by ${task.last_by}` : ''}
+                      Last: {parseServerDate(task.last_serviced).toLocaleDateString()}{task.last_by ? ` by ${task.last_by}` : ''}
                     </span>
                   ) : (
                     <span className="text-xs text-[var(--brand-text-muted)] italic">Never serviced</span>
@@ -565,7 +566,7 @@ export default function Maintenance() {
                   const pName = statusData.find(p => p.printer_id === log.printer_id)?.printer_name || `Printer #${log.printer_id}`
                   return (
                     <tr key={log.id} className="border-t border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/30">
-                      <td className="px-4 py-3 text-[var(--brand-text-secondary)]">{log.performed_at ? new Date(log.performed_at).toLocaleDateString() : '—'}</td>
+                      <td className="px-4 py-3 text-[var(--brand-text-secondary)]">{log.performed_at ? parseServerDate(log.performed_at).toLocaleDateString() : '—'}</td>
                       <td className="px-4 py-3 text-[var(--brand-text-primary)]">{pName}</td>
                       <td className="px-4 py-3 text-[var(--brand-text-primary)]">
                         {log.task_name}
