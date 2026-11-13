@@ -913,3 +913,97 @@ def test_a_configured_file_that_is_the_license_folder_file_is_still_replaced(app
     assert not app.path.is_symlink() and app.path.read_text() == replacement
     app.restart()
     assert app.lm.get_license().expires_at == iso(ahead(days=40))
+
+
+def _watch_portal(app, monkeypatch):
+    """Every portal contact of an unactivation: the challenge fetch and the POSTs."""
+    contacts = []
+    challenge = app.routes._fetch_license_challenge
+
+    async def recorded_challenge(*args):
+        contacts.append("challenge")
+        return await challenge(*args)
+
+    monkeypatch.setattr(app.routes, "_fetch_license_challenge", recorded_challenge)
+
+    def seen():
+        return contacts + [url.rsplit("/", 1)[-1] for url, _body in app.calls]
+
+    return seen
+
+
+def _grant_held(app):
+    # The stub portal frees a grant only when it receives an unactivate POST.
+    return not [url for url, _body in app.calls if url.endswith("/api/v1/unactivate")]
+
+
+def _assert_nothing_changed(app, seen, before):
+    assert seen() == [] and _grant_held(app)
+    assert app.path.read_bytes() == before
+    assert not list(app.path.parent.glob(app.path.name + ".unactivated-*"))
+    app.routes.log_audit.assert_not_called()
+
+
+@pytest.mark.parametrize("installed_has_key", [True, False])
+def test_unactivation_with_a_different_key_is_refused_before_the_portal(app, monkeypatch, installed_has_key):
+    if installed_has_key:
+        app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    app.restart()
+    assert app.lm.get_license().valid and app.lm.get_license().key == (KEY if installed_has_key else "")
+    before = app.path.read_bytes()
+    seen = _watch_portal(app, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _unactivate_with_key(app, "OTHER-KEY")
+    assert exc.value.status_code == 409
+    assert exc.value.detail == ("The license key entered is not the one installed on this server. Nothing was changed. "
+                                "To unactivate the installed license, send the request without a key.")
+    assert "OTHER-KEY" not in exc.value.detail and KEY not in exc.value.detail
+    _assert_nothing_changed(app, seen, before)
+    app.restart()
+    assert app.lm.get_license().valid
+
+
+@pytest.mark.parametrize("damage", ["garbage", "bad_signature"])
+def test_unactivation_with_a_key_and_an_unreadable_license_file_is_refused_before_the_portal(app, monkeypatch, damage):
+    good = app.make(ago(days=30), ahead(days=5))
+    payload, signature = good.split(".")
+    other = app.make(ago(days=29), ahead(days=5)).split(".")[1]
+    app.path.write_text("not a license" if damage == "garbage" else payload + "." + other)
+    app.restart()
+    assert app.lm.get_license().license_sha256 == ""
+    before = app.path.read_bytes()
+    seen = _watch_portal(app, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _unactivate_with_key(app)
+    assert exc.value.status_code == 409
+    assert exc.value.detail == ("The installed license file cannot be read. Nothing was changed. Remove the file first "
+                                "with \"Remove license\" (DELETE /api/license), then unactivate with the key again.")
+    _assert_nothing_changed(app, seen, before)
+
+    # The advice works: remove the file, then the same request frees the grant.
+    monkeypatch.setattr(app.lm, "_find_license_file", lambda: str(app.path) if app.path.exists() else None)
+    assert app.routes.remove_license(current_user={"id": 1}, db=app.db, license_mutation_allowed=None)["status"] == "removed"
+    assert not app.path.exists() and seen() == []
+    app.restart()
+    assert _unactivate_with_key(app) == {"status": "unactivated", "tier": "community"}
+    assert seen() == ["challenge", "unactivate"] and not _grant_held(app)
+
+
+@pytest.mark.parametrize("typed_key", [None, KEY])
+def test_unactivation_of_the_installed_license_still_frees_the_grant(app, monkeypatch, typed_key):
+    # No key in the request (the installed key is used), or the installed key typed in.
+    audit = []
+    monkeypatch.setattr("core.audit.log_audit", lambda *args, **kwargs: audit.append(args[1]))
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    app.restart()
+    seen = _watch_portal(app, monkeypatch)
+    if typed_key is None:
+        result = asyncio.run(app.routes.unactivate_license(current_user={"id": 1}, db=app.db, license_mutation_allowed=None))
+    else:
+        result = _unactivate_with_key(app, typed_key)
+    assert result == {"status": "unactivated", "tier": "community"}
+    assert seen() == ["challenge", "unactivate"] and not _grant_held(app)
+    assert [body["key"] for url, body in app.calls if url.endswith("/api/v1/unactivate")] == [KEY]
+    assert audit == ["license.unactivated"]
+    assert not app.path.exists()
+    assert len(list(app.path.parent.glob(app.path.name + ".unactivated-*"))) == 1

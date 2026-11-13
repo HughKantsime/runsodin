@@ -547,6 +547,9 @@ async def unactivate_license(
     license_key = (request and request.key) or current_license.key
     if not license_key:
         raise HTTPException(status_code=400, detail="No license key available. Provide a key or ensure current license contains one.")
+    # Known local conflicts are refused here: the portal frees the grant before the local step.
+    from core.license_lock import refuse_known_unactivation_conflict
+    refuse_known_unactivation_conflict(request and request.key, current_license)
 
     installation_id = get_installation_id()
 

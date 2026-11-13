@@ -1127,6 +1127,22 @@ def mark_community_selected(db, actor):
     _write(db, EVIDENCE_KEY, {'schema_version': 1, 'community_selected': True})
 
 
+def refuse_known_unactivation_conflict(typed_key, current):
+    """Refuse, before the portal is contacted, a typed key the local step would refuse.
+
+    The portal frees the grant first; a refusal afterwards cannot be retried.
+    Concurrent changes are still caught by remove_installed_license.
+    """
+    if not typed_key or typed_key == current.key:
+        return
+    import license_manager as lm
+    from fastapi import HTTPException
+    if current.license_sha256:
+        raise HTTPException(status_code=409, detail="The license key entered is not the one installed on this server. Nothing was changed. To unactivate the installed license, send the request without a key.")
+    if lm._find_license_file() is not None:
+        raise HTTPException(status_code=409, detail="The installed license file cannot be read. Nothing was changed. Remove the file first with \"Remove license\" (DELETE /api/license), then unactivate with the key again.")
+
+
 def remove_installed_license(db, actor, action, *, details=None, expected_key=None, expected_sha256=None):
     """Journal intent durably, then quarantine and commit policy/audit together.
 
