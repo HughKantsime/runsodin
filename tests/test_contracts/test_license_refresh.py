@@ -403,6 +403,71 @@ def test_different_file_with_equal_issue_time_cannot_restore_entitlement(app, pa
     assert app.lm.get_license().expires_at == iso(ago(hours=1) if ended else ahead(days=3))
 
 
+@pytest.mark.parametrize("path", ["upload", "refresh"])
+def test_plan_change_with_equal_issue_time_is_installed(app, path):
+    """The license server re-signs a key that has no subscription with the key's stored
+    issue time (odin-site-cf api/_lib/billing/key-entitlement.js `unmanaged`), so an
+    upgrade arrives as a different file with the same issue time and the same end."""
+    issued, end = ago(days=30), ahead(days=300)
+    app.lm.save_license_file(app.make(issued, end, tier="pro"))
+    assert app.lm.get_license().tier == "pro"
+    upgraded = app.make(issued, end, tier="enterprise", max_printers=40)
+    if path == "upload":
+        app.upload(upgraded.encode())
+    else:
+        result = app.refresh(license_file=upgraded, refresh_status="renewed")
+        assert result["valid"] is True and result["tier"] == "enterprise"
+    assert app.path.read_text() == upgraded
+    app.restart()
+    info = app.lm.get_license()
+    assert info.valid and info.tier == "enterprise" and info.max_printers == 40
+
+
+def test_equal_issue_time_file_that_ends_earlier_is_installed(app):
+    issued = ago(days=30)
+    app.lm.save_license_file(app.make(issued, ahead(days=300)))
+    shorter = app.make(issued, ahead(days=10))
+    assert app.lm.install_portal_license(shorter).valid
+    assert app.path.read_text() == shorter
+
+
+def test_identical_file_is_accepted_and_changes_nothing(app):
+    installed = app.make(ago(days=30), ahead(days=300), tier="pro")
+    app.lm.save_license_file(installed)
+    result = app.refresh(license_file=installed, refresh_status="renewed")
+    assert result["valid"] is True and result["tier"] == "pro"
+    assert app.path.read_text() == installed
+
+
+@pytest.mark.parametrize("path", ["upload", "refresh", "install"])
+@pytest.mark.parametrize("same_instant", [False, True])
+def test_pre_refund_file_cannot_be_replayed_after_the_refund_replacement(app, path, same_instant):
+    """After a refund the installed file is the ended replacement. The file held before
+    the refund is refused when it is older, and also if it carried the very same issue
+    time as the replacement: an equal issue time never installs a file that ends later."""
+    refunded_at = ago(hours=2)
+    before_refund = app.make(refunded_at if same_instant else ago(days=20), ahead(days=10), tier="enterprise")
+    if not same_instant:
+        app.lm.save_license_file(before_refund)
+    else:
+        app.lm.save_license_file(app.make(ago(days=20), ahead(days=10)))
+    replacement = app.make(refunded_at, refunded_at + timedelta(seconds=1))
+    assert app.refresh(license_file=replacement, refresh_status="not_entitled")["valid"] is False
+    assert app.path.read_text() == replacement
+    with pytest.raises(HTTPException) as exc:
+        if path == "upload":
+            app.upload(before_refund.encode())
+        elif path == "refresh":
+            app.refresh(license_file=before_refund, refresh_status="renewed")
+        else:
+            app.lm.install_portal_license(before_refund, allow_expired=True, expected_key=KEY)
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == replacement
+    app.restart()
+    info = app.lm.get_license()
+    assert not info.valid and info.max_printers == app.lm.TIERS["community"]["max_printers"]
+
+
 # ---- already-expired replacement ----
 
 def test_expired_replacement_is_installed_and_persists_across_restart(app):

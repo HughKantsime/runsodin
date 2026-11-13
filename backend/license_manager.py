@@ -601,9 +601,17 @@ def _refuse_replacement_out_of_order(candidate, installed) -> None:
 
     Order is decided by the signed ``issued_at``, never by ``expires_at``: a
     later issue may legitimately end earlier (a cancellation) or already have
-    ended (a refund). Equal issue times are accepted only for the same file.
-    A file with no issue time cannot be shown to be newer than an
-    installed file that has one. Licenses for different keys are not compared.
+    ended (a refund). A file with no issue time cannot be shown to be newer
+    than an installed file that has one. Licenses for different keys are not
+    compared.
+
+    Equal issue times: the license server signs a key that has no subscription
+    with the key's own stored issue time on every re-issue, so a plan upgrade
+    or a changed limit arrives as a different file with the SAME issue time.
+    Such a file is accepted only when it does not end later than the installed
+    file. An equal issue time can therefore never add time: after a refund the
+    installed replacement has already ended, so no file with the same issue
+    time can bring a plan back.
     """
     from fastapi import HTTPException
     from core.license_clock import instant
@@ -619,9 +627,13 @@ def _refuse_replacement_out_of_order(candidate, installed) -> None:
         candidate_at = instant(candidate.issued_at) if candidate.issued_at else None
     except ValueError:
         candidate_at = None  # A candidate whose issue time cannot be read is not shown to be newer.
-    if (candidate_at is None or candidate_at < installed_at
-            or (candidate_at == installed_at and candidate.license_sha256 != installed.license_sha256)):
+    if candidate_at is None or candidate_at < installed_at:
         raise HTTPException(status_code=409, detail=LICENSE_OLDER_THAN_INSTALLED)
+    if candidate_at == installed_at and candidate.license_sha256 != installed.license_sha256:
+        candidate_end = getattr(candidate, "expiry_deadline", None)
+        installed_end = getattr(installed, "expiry_deadline", None)
+        if candidate_end is None or installed_end is None or candidate_end > installed_end:
+            raise HTTPException(status_code=409, detail=LICENSE_OLDER_THAN_INSTALLED)
 
 
 def install_portal_license(license_content, after_install=None, *, allow_expired=False,
