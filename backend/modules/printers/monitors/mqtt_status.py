@@ -161,7 +161,7 @@ def handle_status(self, status, generation, runtime):
                     self._pending_running_state = None
         def transition(value):
             if value and (value != self._last_gcode_state or
-                          (value in ('RUNNING', 'PAUSE') and not self._current_job_id)):
+                          (value in ('RUNNING', 'PAUSE') and not self._current_job_id and not question_waiting)):
                 self._on_state_change(self._last_gcode_state, value)
                 if not (self._pending_running_state and not self._current_job_id):
                     self._last_gcode_state = value

@@ -1330,15 +1330,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 34,
+      "line": 35,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "cur.execute(\"UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'')=?)\","
+      "source": "cur.execute(\"UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'') IN (?,?))\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 39,
+      "line": 40,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1346,7 +1346,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 43,
+      "line": 44,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1354,7 +1354,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 48,
+      "line": 49,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1362,7 +1362,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 69,
+      "line": 65,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1370,7 +1370,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 74,
+      "line": 70,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1378,7 +1378,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 82,
+      "line": 78,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1386,7 +1386,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 85,
+      "line": 81,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1394,7 +1394,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 129,
+      "line": 134,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1402,7 +1402,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 137,
+      "line": 142,
       "path": "backend/modules/archives/archive.py",
       "pattern": "lastrowid",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1410,7 +1410,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 139,
+      "line": 144,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1418,7 +1418,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 148,
+      "line": 153,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1426,7 +1426,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 222,
+      "line": 227,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1434,7 +1434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 228,
+      "line": 233,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1442,7 +1442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 243,
+      "line": 248,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1450,7 +1450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 276,
+      "line": 281,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1458,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 360,
+      "line": 365,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1466,7 +1466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 371,
+      "line": 376,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",

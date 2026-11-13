@@ -85,7 +85,7 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
   }
   // Nothing held for this printer (the usual case): one quiet line that opens on request,
   // not a block of warnings at the top of every printer page.
-  const quiet = !notice && !query.isError && !query.isPending && !!data
+  const quiet = !data?.restart_question && !notice && !query.isError && !query.isPending && !!data
     && (data.state === 'no_retained_claim' || (data.state === 'investigation_required' && (data.blockers || []).every(code => code === 'evidence_authority_unavailable')))
   if (quiet) return <details className="mb-6 text-sm text-[var(--brand-text-muted)]" data-testid="dispatch-recovery-quiet">
     <summary className="cursor-pointer">Dispatch recovery: nothing to recover</summary>
@@ -99,7 +99,7 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
       <h2 className="text-sm font-medium">Dispatch recovery</h2>
       <Button ref={refreshButton} size="sm" variant="ghost" disabled={query.isFetching || mutation.isPending} onClick={() => query.refetch()}>Refresh evidence</Button>
     </div>
-    {data?.restart_question && <RestartQuestion key={data.restart_question.id} printerId={printerId} question={data.restart_question} onNotice={message => { if (activePrinter.current === printerId) setNotice(message) }} canAnswer={canWrite && !!data.answer_restart_question} />}
+    {data?.restart_question && <RestartQuestion key={data.restart_question.id} printerId={printerId} question={data.restart_question} onNotice={message => { if (activePrinter.current === printerId) setNotice(message) }} canAnswer={canDo('printers.answer_restart_question') && !!data.answer_restart_question} />}
     {notice && <p role="status" className="mb-3">{notice}</p>}
     {query.isError ? <p role="alert">Dispatch evidence is unavailable for this printer. Refresh to try again.</p>
       : query.isPending ? <p role="status">Loading dispatch evidence...</p>

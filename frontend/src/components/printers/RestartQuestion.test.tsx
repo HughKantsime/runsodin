@@ -44,7 +44,7 @@ it('requires the server and client recovery permission', async () => {
   mount()
   await screen.findByRole('region', { name: 'Confirm print after restart' })
   expect(screen.queryByRole('button', { name: /Yes, same print/ })).toBeNull()
-  expect(screen.getByText(/An authorized administrator can answer/)).toBeTruthy()
+  expect(screen.getByText(/An authorized operator or administrator can answer/)).toBeTruthy()
 })
 it('refreshes after an uncertain response without retrying the answer', async () => {
   vi.mocked(printers.answerRestartQuestion).mockRejectedValue(new Error('timeout'))
@@ -76,4 +76,18 @@ it.each(['classic', 'foundry'])('scrolls an alert link to recovery in %s', async
   await screen.findByRole('region', { name: 'Confirm print after restart' })
   expect(scroll).toHaveBeenCalled()
   window.location.hash = ''
+})
+
+it('operators answer using their own permission without claim controls', async () => {
+ vi.mocked(canDo).mockImplementation(action => action === 'printers.answer_restart_question')
+ mount()
+ expect(await screen.findByRole('button', { name: /Yes, same print/ })).toBeVisible()
+ expect(screen.queryByRole('button', { name: 'Release fence' })).toBeNull()
+ expect(screen.queryByRole('button', { name: 'Record decision and retain fence' })).toBeNull()
+})
+it('shows investigation records and repair instructions without answer buttons', async () => {
+ vi.mocked(printers.dispatchRecovery).mockResolvedValue({ ...evidence, restart_question: { ...question, state: 'investigation', candidate_ids: [241, 242], message: 'Review records 241, 242 and close the records that are no longer running.' } } as any)
+ mount()
+ expect(await screen.findByText(/Review records 241, 242/)).toBeVisible()
+ expect(screen.queryByRole('button', { name: /Yes, same print/ })).toBeNull()
 })

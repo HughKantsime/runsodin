@@ -91,6 +91,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
                 <span className="text-sm font-medium truncate">{displayName(activeJob)}</span>
               </div>
             </div>
+            {activeJob.awaiting_confirmation ? <p role="status">Waiting for print confirmation in Dispatch Recovery.</p> : <>
             <PrintProgress percent={activeJob.progress_percent} remainingMinutes={activeJob.remaining_minutes} />
             <div className="printer-number flex justify-between text-xs text-[var(--brand-text-muted)]">
               <span>
@@ -102,6 +103,8 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
               </span>
 
             </div>
+            </>}
+            {activeJob.recording_note && <p className="text-xs">{activeJob.recording_note}</p>}
           </div>
         )}
 
@@ -224,7 +227,7 @@ function MqttPrintItem({ job }) {
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-lg font-bold font-mono text-[var(--brand-primary)]">{job.progress_percent || 0}%</p>
+          <p className="text-lg font-bold font-mono text-[var(--brand-primary)]">{job.awaiting_confirmation ? 'Waiting for print confirmation' : `${job.progress_percent || 0}%`}</p>
         </div>
       </div>
     </div>
@@ -248,6 +251,7 @@ function PrintHistoryItem({ job }) {
         </div>
         <div className="text-right shrink-0">
           <div className="font-medium text-[var(--brand-primary)]">{formatDuration(job.duration_minutes)}</div>
+          {job.recording_note && <p className="text-xs">{job.recording_note}</p>}
           {job.total_layers && <PrinterNumber as="p" className="text-xs text-[var(--brand-text-muted)]">{job.total_layers} layers</PrinterNumber>}
         </div>
       </div>

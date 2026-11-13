@@ -27,12 +27,13 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
     import math
     from core.db_compat import as_utc_datetime
     from .attempt_accounting import account_archive
+    from core.restart_questions import ENDED_UNKNOWN
     try:
         with get_db() as conn:
             cur = conn.cursor()
             try:
-                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'')=?)",
-                            (print_job_id, printer_id, CLOSED_UNKNOWN))
+                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'') IN (?,?))",
+                            (print_job_id, printer_id, CLOSED_UNKNOWN, ENDED_UNKNOWN))
                 if cur.rowcount != 1:
                     conn.rollback()
                     return None
@@ -46,19 +47,14 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     conn.commit()
                     return existing[0]
                 cur.execute('SELECT job_name,started_at,ended_at,scheduled_job_id,status,'
-                            'spool_snapshot,filament_used_g,print_duration_seconds '
+                            'spool_snapshot,filament_used_g,print_duration_seconds,error_code '
                             'FROM print_jobs WHERE id=?', (print_job_id,))
                 pj = cur.fetchone()
-                name, started, ended, scheduled, stored_status, snapshot_json, measured, duration = pj
+                name, started, ended, scheduled, stored_status, snapshot_json, measured, duration, error_code = pj
                 if result_status is not None and result_status != stored_status:
                     conn.rollback()
                     return None
                 status = stored_status
-                from core.restart_questions import load
-                from core.dispatch_observation_executor import TransactionView
-                restart = load(TransactionView(conn), f"restart_print:{print_job_id}")
-                unconfirmed = bool(restart and restart.get("outcome") == "ended_unconfirmed")
-                midprint = bool(restart and restart.get("first_seen_mid_print"))
                 if duration is None and started and ended:
                     try:
                         duration = (as_utc_datetime(ended)-as_utc_datetime(started)).total_seconds()
@@ -106,6 +102,15 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                         accounting_snapshot = captured
                 except (ValueError, TypeError):
                     pass  # account_archive records an explicit invalid-snapshot reason.
+                from core.restart_questions import load
+                from core.dispatch_observation_executor import TransactionView
+                # Ordinary print ends do not perform a restart-provenance lookup.
+                snapshot_source = captured.get('source') if isinstance(captured, dict) else None
+                restart = (load(TransactionView(conn), f"restart_print:{print_job_id}")
+                           if error_code == 'Ended while unconfirmed; duration and filament use are unverified.'
+                           or snapshot_source == 'bambu-operator-first-seen-mid-print' else None)
+                unconfirmed = bool(restart and restart.get("outcome") == "ended_unconfirmed")
+                midprint = bool(restart and restart.get("first_seen_mid_print"))
                 from .ownership import capture_content_owner
                 current_owner = capture_content_owner(conn, scheduled)
                 captured_owner = captured.get('content_owner') if isinstance(captured, dict) else None

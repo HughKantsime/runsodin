@@ -24,6 +24,9 @@ import type {
 } from '../types'
 
 export interface RestartQuestion {
+  state?: 'pending' | 'investigation'
+  candidate_ids?: number[]
+  message?: string
   id: string
   print_job_id: number
   raised_at: string

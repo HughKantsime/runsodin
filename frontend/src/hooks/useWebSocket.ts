@@ -155,13 +155,17 @@ export default function useWebSocket() {
               break
 
             case 'restart_question_changed':
+              queryClient.invalidateQueries({ queryKey: ['print-jobs'] })
               queryClient.invalidateQueries({ queryKey: ['dispatch-recovery', d.printer_id] })
               queryClient.invalidateQueries({ queryKey: ['alerts'] })
               queryClient.invalidateQueries({ queryKey: ['alert-summary'] })
               break
 
             case 'alert_new':
-              if (d.restart_question_id) queryClient.invalidateQueries({ queryKey: ['dispatch-recovery', d.printer_id] })
+              if (d.restart_question_id) {
+                queryClient.invalidateQueries({ queryKey: ['dispatch-recovery', d.printer_id] })
+                queryClient.invalidateQueries({ queryKey: ['print-jobs'] })
+              }
               // Refetch alert counts
               queryClient.invalidateQueries({ queryKey: ['dash-alert-summary'] })
               queryClient.invalidateQueries({ queryKey: ['alert-summary'] })

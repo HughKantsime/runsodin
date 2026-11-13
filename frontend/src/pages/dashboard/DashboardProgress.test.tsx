@@ -43,3 +43,14 @@ it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('re
  expect(labels[1].previousElementSibling).toHaveClass('w-1.5', 'h-1.5', 'rounded-full')
  expect(document.querySelector('.foundry-status')).toBeNull()
 })
+
+it('shows confirmation instead of frozen values across telemetry and refetch', () => {
+ const job = { job_name: 'Bracket', awaiting_confirmation: true, progress_percent: 13, remaining_minutes: 615, current_layer: 6, total_layers: 93 }
+ const view = render(<PrinterCard printer={printer} activeJob={job} {...props} />)
+ for (const progress_percent of [80, 13]) {
+  view.rerender(<PrinterCard printer={printer} activeJob={{ ...job, progress_percent }} {...props} />)
+  expect(screen.getByText(/Waiting for print confirmation/)).toBeVisible()
+  expect(screen.queryByRole('progressbar')).toBeNull()
+  expect(screen.queryByText(/Layer 6\/93/)).toBeNull()
+ }
+})

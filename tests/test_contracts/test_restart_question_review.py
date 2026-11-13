@@ -29,16 +29,20 @@ def test_changed_authority_retires_once_and_resumes(case, change):
             'claim_replaced': "UPDATE printer_dispatch_claims SET token='eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'",
         }[change]))
     packet(monitor, gcode_state='FINISH')
-    assert case.question() is None
+    if change in ('closed', 'claim_removed', 'unlinked', 'claim_replaced'):
+        assert case.question() is None
+    else:
+        assert case.question()['state'] in ('pending', 'investigation')
     with case.engine.connect() as db:
-        assert db.execute(text("SELECT count(*) FROM alerts WHERE is_dismissed IS FALSE AND title='Confirm the print after restart'")).scalar_one() == 0
+        assert db.execute(text("SELECT count(*) FROM alerts WHERE is_dismissed IS TRUE AND title='Confirm the print after restart'")).scalar_one() == (6 if change in ('unlinked', 'claim_replaced') else 3)
         notices = db.execute(text("SELECT message FROM alerts WHERE title='Print confirmation closed'")).scalars().all()
-        assert len(notices) == 3 and all('changed' in message for message in notices)
+        assert len(notices) == (6 if change in ('unlinked', 'claim_replaced') else 3)
+        assert sum('changed' in message for message in notices) == 3
     for _ in range(5):
         packet(monitor, gcode_state='RUNNING', subtask_name='next-print')
     assert monitor._current_job_id is not None
     with case.engine.connect() as db:
-        assert db.execute(text("SELECT count(*) FROM alerts WHERE title='Print confirmation closed'")).scalar_one() == 3
+        assert db.execute(text("SELECT count(*) FROM alerts WHERE title='Print confirmation closed'")).scalar_one() == (3 if change in ('closed', 'claim_removed') else 6)
 
 
 def trace_connections(case, monkeypatch):
@@ -160,7 +164,7 @@ def test_multiple_candidates_alert_once(case):
     with case.engine.connect() as db:
         messages = db.execute(text("SELECT message FROM alerts WHERE title='Print records need investigation'")).scalars().all()
         assert len(messages) == 3
-        assert all('more than one' in message for message in messages)
+        assert all('241, 242' in message and 'close records' in message for message in messages)
     assert len(case.rows()) == 2
 
 

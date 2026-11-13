@@ -117,8 +117,8 @@ def test_nameless_named_finish_and_second_restart_one_question(case):
     assert row['print_duration_seconds'] is None and row['filament_used_g'] is None
     assert case.question() is None
     with case.engine.connect() as db:
-        assert db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 3
-        assert db.execute(text('SELECT count(*) FROM alerts WHERE is_dismissed IS FALSE')).scalar_one() == 0
+        assert db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 6
+        assert db.execute(text('SELECT count(*) FROM alerts WHERE is_dismissed IS FALSE')).scalar_one() == 3
         assert db.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
         from core.restart_questions import load
         assert load(db,'restart_print:241')['usage_verified'] is False
@@ -160,12 +160,12 @@ def test_answers_atomic_rows_audit_alerts_and_replay(case, decision):
         assert db.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
 
 
-@pytest.mark.parametrize('user', ['student', 'manager', 'foreign'])
+@pytest.mark.parametrize('user', ['student', 'foreign'])
 def test_answer_rbac_and_tenant(case, user):
     start(case)
     before = case.rows()
     response = case.post('same', user=user)
-    assert response.status_code in (403, 404)
+    assert response.status_code == (404 if user == 'foreign' else 403)
     assert case.rows() == before and case.question()['state'] == 'pending'
 
 
@@ -313,7 +313,7 @@ def test_changed_authority_refuses_answer_and_preserves_rows(case):
 
 
 @pytest.mark.parametrize('decision', ['same', 'new'])
-def test_answer_never_authorizes_adoption_after_a_later_process_restart(case, decision):
+def test_saved_answer_is_honoured_after_a_later_process_restart(case, decision):
     start(case)
     previous = case.question()['id']
     assert case.post(decision).status_code == 200
@@ -321,9 +321,9 @@ def test_answer_never_authorizes_adoption_after_a_later_process_restart(case, de
     monitor._monitor_started_at = datetime.now(timezone.utc)
     before = case.rows()
     packet(monitor, gcode_state='RUNNING', subtask_name='bracket')
-    assert monitor._current_job_id is None
-    assert case.rows() == before
-    assert case.question()['state'] == 'pending' and case.question()['id'] != previous
+    assert monitor._current_job_id == before[-1]['id']
+    assert len(case.rows()) == len(before)
+    assert case.question()['state'] == decision and case.question()['id'] == previous
 
 
 def test_concurrent_monitors_create_one_question_and_one_alert_per_recipient(case):
@@ -369,13 +369,11 @@ def test_answer_racing_terminal_keeps_one_authoritative_outcome(case, decision):
         assert db.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
 
 
-def test_nameless_report_with_generic_plate_path_still_asks(case):
+def test_gcode_file_is_a_name_and_mismatch_uses_original_new_row_path(case):
     monitor = case.monitor()
     packet(monitor, gcode_state='RUNNING', gcode_file='Metadata/plate_1.gcode')
-    assert len(case.rows()) == 1 and case.question()['state'] == 'pending'
-    packet(monitor, subtask_name='bracket')
-    packet(monitor, gcode_state='FINISH')
-    assert len(case.rows()) == 1 and case.question() is None
+    assert len(case.rows()) == 2 and case.question() is None
+    assert monitor._current_job_id != 241
 
 
 def test_answer_does_not_adopt_a_later_differently_named_print(case):

@@ -16,6 +16,9 @@ from core.interfaces.education_policy import is_education_reserved_filename
 from core.physical_print import CLOSED_UNKNOWN
 
 
+ENDED_UNKNOWN = 'closed: ended while unconfirmed; outcome and end time unknown'
+
+
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -110,109 +113,146 @@ def retire(db, printer_id, question, reason):
     clear(db, printer_id)
 
 
+def fingerprint(db, printer_id):
+    """One read detects decisions and changes to every protected row's authority.
+
+    Unchanged packets need no locks, membership fences, writes or alert work.
+    Progress is deliberately absent: it cannot establish print identity.
+    """
+    return [tuple(row) for row in db.execute(text("""
+        SELECT q.value,p.org_id,p.api_type,c.job_id,c.owner_org_id,c.token,
+               r.id,r.scheduled_job_id,r.started_at,r.filename,r.job_name,
+               j.printer_id,j.charged_to_org_id,
+               EXISTS(SELECT 1 FROM dispatch_attempt_receipts d WHERE d.observed_print_job_id=r.id),
+               EXISTS(SELECT 1 FROM education_submissions e WHERE e.job_id=r.scheduled_job_id)
+        FROM printers p
+        LEFT JOIN system_config q ON q.key='restart_question:' || CAST(p.id AS TEXT)
+        LEFT JOIN printer_dispatch_claims c ON c.printer_id=p.id
+        LEFT JOIN print_jobs r ON r.printer_id=p.id AND r.status='running'
+        LEFT JOIN jobs j ON j.id=r.scheduled_job_id
+        WHERE p.id=:id ORDER BY r.id
+    """), {'id': printer_id}).all()]
+
+
 def observe(executor, printer_id, started_at, state):
-    """Return a pending question or an explicit row adoption, never a guess."""
+    """Re-evaluate after every retirement before granting the ordinary path."""
     with locked(executor) as db:
         key = f'restart_question:{printer_id}'
         question = load(db, key)
         printer, claim = context(db, printer_id)
         gstate = state.get('gcode_state')
-        name = state.get('subtask_name')
+        name = state.get('subtask_name') or state.get('gcode_file')
         epoch = started_at.isoformat()
-        if question and question['state'] not in ('pending', 'investigation', 'same', 'new'):
-            clear(db, printer_id)
-            return None
+        previous_ids = set()
+        if question:
+            previous_ids.update(question.get('candidate_ids', [question['print_job_id']]))
+            if question.get('active_print_job_id'):
+                previous_ids.add(question['active_print_job_id'])
         if question and question['state'] in ('same', 'new'):
-            # An answer applies only to the process that saw it. A later restart
-            # requires a new answer; the earlier decision is not identity evidence.
-            if question['monitor_started_at'] != epoch:
-                clear(db, printer_id)
+            # Deliver an accepted answer once, even across a process restart.
+            # Once recording resumed, a later restart needs a fresh decision.
+            current = dict(question, print_job_id=question['active_print_job_id'],
+                           row_started_at=question['active_row_started_at'],
+                           scheduled_job_id=question['active_scheduled_job_id'])
+            try:
+                row = check_question(db, current, printer, claim)
+            except ValueError:
+                retire(db, printer_id, question, 'The print record or its ownership changed. Review the current records in Dispatch Recovery.')
                 question = None
             else:
-                current = dict(question, print_job_id=question['active_print_job_id'],
-                               row_started_at=question['active_row_started_at'],
-                               scheduled_job_id=question['active_scheduled_job_id'])
-                row = read_row(db, current['print_job_id'])
-                if not row or row['status'] != 'running':
-                    clear(db, printer_id)
-                    return None
-                try:
-                    check_question(db, current, printer, claim)
-                except ValueError:
-                    retire(db, printer_id, question, 'The print record or its ownership changed. Print confirmation has closed; review the current records in Dispatch Recovery.')
-                    return None
-                if name and name != 'Unknown' and name not in (row['job_name'], row['filename']):
-                    retire(db, printer_id, question, 'The printer reported a different print name. Print confirmation has closed; the earlier record is unchanged.')
-                    return None
-                return dict(question, adopt=row['id'], linked_job_id=row['scheduled_job_id'])
+                if question.get('applied_monitor_started_at') not in (None, epoch):
+                    retire(db, printer_id, question, 'ODIN restarted after recording resumed. Confirm the current print again; the earlier answer was already used.')
+                elif not name or name == 'Unknown' or name in (row['job_name'], row['filename']):
+                    if not question.get('applied_monitor_started_at'):
+                        question['applied_monitor_started_at'] = epoch
+                        save(db, key, question)
+                    return dict(question, adopt=row['id'], linked_job_id=row['scheduled_job_id'])
+                else:
+                    retire(db, printer_id, question, 'The printer reported a different print name. The earlier record is unchanged.')
+                question = None
         if question and question['state'] == 'pending':
             try:
                 row = check_question(db, question, printer, claim)
             except ValueError:
-                retire(db, printer_id, question, 'The print record or its ownership changed. Print confirmation has closed; review the current records in Dispatch Recovery.')
-                return None
-            # Compare against the earlier row, including after a nameless report,
-            # before interpreting ANY terminal values as that row's result.
-            if name and name != 'Unknown' and name not in (row['job_name'], row['filename']):
-                retire(db, printer_id, question, 'The printer reported a different print name. Print confirmation has closed; the earlier record is unchanged.')
-                return None
-            if gstate in ('FINISH', 'FAILED', 'IDLE'):
-                error = state.get('print_error')
-                outcome = ('completed' if gstate == 'FINISH' else 'cancelled' if gstate == 'IDLE' or error in
-                           (0x0300400C, 0x0500400E, str(0x0300400C), str(0x0500400E)) else 'failed')
-                ended = now()
-                db.execute(text("UPDATE print_jobs SET status=:status,ended_at=:ended,error_code=:reason,"
-                                'progress_percent=COALESCE(:progress,progress_percent),'
-                                'current_layer=COALESCE(:layer,current_layer),'
-                                'remaining_minutes=COALESCE(:remaining,remaining_minutes) WHERE id=:id'),
-                           {'id': row['id'], 'status': outcome, 'ended': ended,
-                            'reason': 'Ended while unconfirmed; duration and filament use are unverified.',
-                            'progress': state.get('mc_percent'), 'layer': state.get('layer_num'),
-                            'remaining': state.get('mc_remaining_time')})
-                save(db, f'restart_print:{row["id"]}', {'question_id': question['id'], 'outcome': 'ended_unconfirmed',
-                     'duration_verified': False, 'usage_verified': False, 'reported_result': outcome, 'end_received_at': ended})
-                resolve_alerts(db, question)
-                clear(db, printer_id)
-                return dict(question, state='ended_unconfirmed', reported_result=outcome)
-            if question['monitor_started_at'] != epoch or (name and name != question['reported_name']):
-                question['monitor_started_at'] = epoch
-                if name:
-                    question['reported_name'] = name
-                save(db, key, question)
-            return question
-        if question and question['state'] == 'investigation':
-            rows = [read_row(db, identifier) for identifier in question['candidate_ids']]
-            if (not printer or not claim or question['org_id'] != printer['org_id']
-                    or any(not eligible(db, row, claim, printer['org_id']) for row in rows)):
-                retire(db, printer_id, question, 'The print records or their ownership changed. Review the current records in Dispatch Recovery.')
-                return None
-            if name and name != 'Unknown' and all(name not in (row['job_name'], row['filename']) for row in rows):
-                retire(db, printer_id, question, 'The printer reported a different print name. The earlier records still need investigation; recording can continue for the new print.')
-                return None
-            return question
-        if gstate not in ('RUNNING', 'PAUSE'):
-            return None
+                retire(db, printer_id, question, 'The print record or its ownership changed. Review the current records in Dispatch Recovery.')
+                question = None
+            else:
+                if name and name != 'Unknown' and name not in (row['job_name'], row['filename']):
+                    retire(db, printer_id, question, 'The printer reported a different print name. The earlier record is unchanged.')
+                    question = None
+                elif gstate in ('FINISH', 'FAILED', 'IDLE'):
+                    return end_unanswered(db, printer_id, question, row, state)
+                else:
+                    if question['monitor_started_at'] != epoch or (name and name != question['reported_name']):
+                        question['monitor_started_at'] = epoch
+                        if name:
+                            question['reported_name'] = name
+                        save(db, key, question)
+                    return question
+        # A changed timestamp/link must not make a formerly protected row vanish
+        # from consideration. Reassigned/dispatch-owned rows remain blocked for
+        # investigation; this feature cannot repair their authority.
         if not printer or printer['api_type'] != 'bambu' or not claim or claim['owner_org_id'] != printer['org_id'] or reserved_name(name):
+            if question:
+                retire(db, printer_id, question, 'The print records or their ownership changed. Review the current records in Dispatch Recovery.')
             return None
         rows = db.execute(text("SELECT id,printer_id,scheduled_job_id,status,started_at,filename,job_name FROM print_jobs "
                                "WHERE printer_id=:id AND status='running' ORDER BY id"), {'id': printer_id}).mappings().all()
-        candidates = [row for row in rows if eligible(db, row, claim, printer['org_id'])
-                      and row['started_at'] and as_utc_datetime(row['started_at']) < started_at
+        candidates = [row for row in rows
+                      if (row['id'] in previous_ids or (row['started_at'] and as_utc_datetime(row['started_at']) < started_at))
+                      and (row['id'] in previous_ids or eligible(db, row, claim, printer['org_id']))
                       and (not name or name == 'Unknown' or name in (row['job_name'], row['filename']))]
-        if not candidates:
+        signature = [dict(row) for row in candidates]
+        # JSON normalizes DB datetime values the same way on both backends.
+        signature = json.loads(json.dumps(signature, default=str))
+        answerable = len(candidates) == 1 and eligible(db, candidates[0], claim, printer['org_id'])
+        if question:
+            if (not answerable and question['state'] == 'investigation' and question.get('candidates') == signature
+                    and question.get('claim_key') == claim_key(claim) and question['org_id'] == printer['org_id']):
+                return question
+            retire(db, printer_id, question, 'The print records or their ownership changed. Review the current records in Dispatch Recovery.')
+        if not candidates or (not previous_ids and gstate not in ('RUNNING', 'PAUSE')):
             return None
         row = candidates[0]
         question = dict(id=uuid4().hex, state='pending', claim_key=claim_key(claim), print_job_id=row['id'], org_id=printer['org_id'],
                         scheduled_job_id=row['scheduled_job_id'], row_started_at=str(row['started_at']),
                         raised_at=now(), monitor_started_at=epoch, reported_name=name, print_name=row['job_name'] or row['filename'] or 'print')
-        if len(candidates) != 1:
-            question.update(state='investigation', candidate_ids=[r['id'] for r in candidates],
+        if not answerable:
+            ids = [r['id'] for r in candidates]
+            question.update(state='investigation', candidate_ids=ids, candidates=signature,
                             title='Print records need investigation',
-                            message=f'{printer["name"]} has more than one earlier running print record. An administrator must investigate these records before recording can continue.')
+                            message=f'{printer["name"]}: review print records {", ".join(map(str, ids))} in print history. '
+                                    'An administrator must close records that are no longer running and check their linked jobs and printer assignments. '
+                                    'When one eligible running record remains, ODIN will ask whether it is the same print. The retained dispatch stays blocked.')
         from modules.notifications.services import stage_restart_alerts
-        question['alert_ids'] = stage_restart_alerts(db, printer_id, printer['name'], question)
+        question['alert_ids'] = stage_restart_alerts(db, printer_id, printer['name'],
+                                                   dict(question, scheduled_job_id=None) if not answerable else question)
         save(db, key, question)
+        if answerable and gstate in ('FINISH', 'FAILED', 'IDLE'):
+            return end_unanswered(db, printer_id, question, row, state)
         return question
+
+
+def end_unanswered(db, printer_id, question, row, state):
+    gstate, error = state.get('gcode_state'), state.get('print_error')
+    unknown = gstate == 'IDLE'
+    outcome = ('completed' if gstate == 'FINISH' else 'cancelled' if unknown or error in
+               (0x0300400C, 0x0500400E, str(0x0300400C), str(0x0500400E)) else 'failed')
+    ended = now()
+    reason = ENDED_UNKNOWN if unknown else 'Ended while unconfirmed; duration and filament use are unverified.'
+    db.execute(text("UPDATE print_jobs SET status=:status,ended_at=:ended,error_code=:reason,"
+                    'progress_percent=COALESCE(:progress,progress_percent),'
+                    'current_layer=COALESCE(:layer,current_layer),'
+                    'remaining_minutes=COALESCE(:remaining,remaining_minutes) WHERE id=:id'),
+               {'id': row['id'], 'status': outcome, 'ended': None if unknown else ended, 'reason': reason,
+                'progress': None if unknown else state.get('mc_percent'),
+                'layer': None if unknown else state.get('layer_num'),
+                'remaining': None if unknown else state.get('mc_remaining_time')})
+    save(db, f'restart_print:{row["id"]}', {'question_id': question['id'], 'outcome': 'ended_unconfirmed',
+         'duration_verified': False, 'usage_verified': False, 'reported_result': 'unknown' if unknown else outcome, 'end_received_at': ended})
+    retire(db, printer_id, question, 'The printer is idle; the print outcome and end time are unknown. The question closed unanswered. Duration and filament use are unverified.' if unknown else
+           f'The printer reported the print ended ({outcome}). The question closed unanswered. Duration and filament use are unverified. The retained dispatch still needs review.')
+    return dict(question, state='ended_unconfirmed', reported_result='unknown' if unknown else outcome)
 
 
 def visible(db, printer_id, actor):
@@ -220,16 +260,19 @@ def visible(db, printer_id, actor):
     from core.controlled_parts import allowed
     view = TransactionView(db)
     question = load(view, f'restart_question:{printer_id}')
-    if not question or question['state'] != 'pending':
+    if not question or question['state'] not in ('pending', 'investigation'):
         return None
     printer, claim = context(view, printer_id)
-    try:
-        check_question(view, question, printer, claim)
-    except ValueError:
+    if question['state'] == 'pending':
+        try:
+            check_question(view, question, printer, claim)
+        except ValueError:
+            return None
+    elif any(not allowed(db, 'print_job', identifier, actor) for identifier in question['candidate_ids']):
         return None
     if not check_org_access(actor, question['org_id']) or not allowed(db, 'print_job', question['print_job_id'], actor):
         return None
-    return {k: question[k] for k in ('id', 'print_job_id', 'raised_at', 'print_name', 'reported_name')}
+    return {k: question[k] for k in ('id', 'state', 'print_job_id', 'raised_at', 'print_name', 'reported_name', 'candidate_ids', 'message') if k in question}
 
 
 def answer(db, printer_id, actor, question_id, decision):
@@ -251,8 +294,8 @@ def answer(db, printer_id, actor, question_id, decision):
                 raise HTTPException(409, 'This question has already changed. Refresh to see its current state.')
             live = db.execute(text('SELECT role,group_id,is_active FROM users WHERE id=:id' +
                                    (' FOR UPDATE NOWAIT' if view.dialect.name == 'postgresql' else '')), {'id': actor['id']}).first()
-            if not live or live[0] != 'admin' or live[1] != actor.get('group_id') or not live[2]:
-                raise HTTPException(403, 'An authorized administrator must answer this question.')
+            if not live or live[0] not in ('admin', 'operator') or live[1] != actor.get('group_id') or not live[2]:
+                raise HTTPException(403, 'An authorized operator or administrator must answer this question.')
             from core.dispatch_recovery import capture, authorized
             evidence = capture(db, printer_id, actor)
             if evidence is None:

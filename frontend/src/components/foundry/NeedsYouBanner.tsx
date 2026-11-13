@@ -48,7 +48,7 @@ export default function NeedsYouBanner({ printers, prints = [], alerts = [], cam
       const status = isPausedState(printer.gcode_state) ? 'Paused' : 'Needs you'
       const title = `${name}${name.toLowerCase().includes(status.toLowerCase()) ? '' : ` · ${status}`}: ${alert?.message || 'Check the printer. No current cause was reported.'}`
       const detail = [job ? displayName(job) : printer.current_print_display_name,
-        job && number(job.progress_percent) ? `${job.progress_percent}%` : '',
+        job?.awaiting_confirmation ? 'Waiting for print confirmation in Dispatch Recovery.' : job && number(job.progress_percent) ? `${job.progress_percent}%` : '',
         age !== null && Number.isFinite(age) && age >= 0 ? `Reported ${formatMinutesAgo(age)}` : '',
       ].filter(Boolean).join(' · ')
       return <article id={`needs-you-${printer.id}`} key={printer.id} className="f-attention">

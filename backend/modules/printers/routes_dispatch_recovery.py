@@ -153,7 +153,14 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         result['guidance'] = 'Wait for fresh monitor telemetry, then use Refresh evidence or GET '+result['refresh']['endpoint']+'. '+GUIDANCE
     from core.restart_questions import visible as restart_question
     result['restart_question'] = restart_question(db, printer_id, current_user)
-    result['answer_restart_question'] = bool(can_write and result['restart_question'])
+    can_answer = (current_user.get('role') in ('admin', 'operator')
+                  and (current_user.get('role') == 'admin' and current_user.get('group_id') is None
+                       or current_user.get('role') in action_roles(db, 'printers.answer_restart_question'))
+                  and (not is_scoped_token(current_user) or token_scope_granted(current_user.get('_token_scopes', []), 'write:printers')))
+    if can_answer:
+        try: authorized(db, evidence, current_user)
+        except HTTPException: can_answer = False
+    result['answer_restart_question'] = bool(can_answer and result['restart_question'] and result['restart_question']['state'] == 'pending')
     if visible:
         result.update(attempt_handle=evidence['attempt'],snapshot_handle=evidence['snapshot'])
     return result
@@ -180,9 +187,9 @@ class RestartAnswer(BaseModel):
     answer: Literal['same', 'new']
 
 
-@router.post('/printers/{printer_id}/dispatch-recovery/restart-question', tags=['Printers'], dependencies=[Depends(require_action('printers.dispatch_recovery'))])
+@router.post('/printers/{printer_id}/dispatch-recovery/restart-question', tags=['Printers'], dependencies=[Depends(require_action('printers.answer_restart_question'))])
 def answer_restart_question(body: RestartAnswer, printer_id: int = Path(gt=0),
-                            current_user: dict = Depends(require_role('admin', scope='write:printers')),
+                            current_user: dict = Depends(require_role('operator', scope='write:printers')),
                             db: Session = Depends(get_db)):
     from core.restart_questions import answer
     return answer(db, printer_id, current_user, body.question_id, body.answer)

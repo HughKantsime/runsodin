@@ -17,7 +17,7 @@ export function CameraFeed({ camera, printer, job }: { camera: Camera; printer?:
     <video ref={videoRef} autoPlay playsInline muted />
     <CameraFallback cameraId={camera.id} active={!!fallback} onState={setStream} hideUnavailable />
     <div className="f-camera-overlay f-mono"><span>{live ? 'LIVE' : failed ? 'Unavailable' : fallback && stream.transport === 'snapshot' ? 'Snapshot' : 'Connecting'} · {camera.name} · {transport}</span>
-      <span>{[number(job?.progress_percent) ? `${job.progress_percent}%` : '', number(job?.current_layer) && number(job?.total_layers) ? `L ${job.current_layer}/${job.total_layers}` : '', number(printer?.nozzle_temp) ? `Nozzle ${Math.round(printer.nozzle_temp)}°` : ''].filter(Boolean).join(' · ')}</span>
+      <span>{[job?.awaiting_confirmation ? 'Waiting for print confirmation in Dispatch Recovery.' : number(job?.progress_percent) ? `${job.progress_percent}%` : '', !job?.awaiting_confirmation && number(job?.current_layer) && number(job?.total_layers) ? `L ${job.current_layer}/${job.total_layers}` : '', number(printer?.nozzle_temp) ? `Nozzle ${Math.round(printer.nozzle_temp)}°` : ''].filter(Boolean).join(' · ')}</span>
     </div>
     {failed && <div className="f-camera-empty"><p role="status">Camera unavailable. Check the camera connection.</p><button className="f-button" type="button" onClick={retry}>Retry camera</button></div>}
   </div>

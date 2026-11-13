@@ -33,3 +33,10 @@ test('640 px and above keeps the table', () => {
   expect(screen.getByRole('table')).toBeInTheDocument()
   expect(screen.queryAllByTestId('row-card')).toHaveLength(0)
 })
+
+test.each([true, false])('unverified totals have a visible explanation (phone=%s)', phone => {
+ viewport(phone)
+ state.data = { items: [{ ...item, actual_duration_seconds: null, filament_used_grams: null, recording_note: 'Ended while unconfirmed; duration and filament use are unverified.' }], total: 1 }
+ render(<MemoryRouter><PrintLog /></MemoryRouter>)
+ expect(screen.getByText(/duration and filament use are unverified/)).toBeVisible()
+})
