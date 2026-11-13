@@ -1,4 +1,5 @@
 import PageState from '../../components/ui/PageState'
+import { pricingIsConfigured } from '../../utils/pricingConfigured'
 import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { Model } from '../../api/models'
 import { ModelCard, ColorSlotInput } from '../../components/models/ModelLibraryFields'
@@ -410,10 +411,12 @@ export default function Models() {
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
   // Costs and prices are shown only once someone has saved pricing settings; before that they
-  // are generic defaults (an older server that does not say is treated as configured).
+  // are generic defaults. Nothing is shown until the settings have actually loaded (while they
+  // load, or if the request fails, the answer is not known). An older server whose answer does
+  // not say is treated as configured.
   const { data: pricingSettings } = useQuery({ queryKey: ['pricing-config'], queryFn: () => pricingConfig.get(), staleTime: 60000 })
   const [statsOpen, setStatsOpen] = useState(() => { try { return localStorage.getItem('odin.models.stats') === '1' } catch { return false } })
-  const pricingConfigured = (pricingSettings as { configured?: boolean } | undefined)?.configured !== false
+  const pricingConfigured = pricingIsConfigured(pricingSettings)
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
   // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
