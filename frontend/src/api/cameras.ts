@@ -11,6 +11,11 @@ export type TimelapseRecheckPage = {
   results: ({ timelapse_id: number; status: 're-admitted'; changed: boolean } | { timelapse_id: number; status: 'refused'; reason: string })[];
   next_after_id: number | null;
 }
+export type TimelapseCaptureStatus = {
+  enabled: boolean; capturing: boolean; print_job_id: number | null; started_at: string | null;
+  frames_captured: number; last_frame_at: string | null; last_error: string | null;
+  will_capture_external_prints: boolean;
+}
 function mediaVersion(path: string, etag?: string) { return path + (etag ? `?version=${encodeURIComponent(etag)}` : '') }
 // ============== Timelapses ==============
 export const timelapses = {
@@ -27,6 +32,11 @@ export const timelapses = {
     if (params.offset) query.set('offset', String(params.offset))
     const qs = query.toString()
     return fetchAPI(`/timelapses${qs ? '?' + qs : ''}`)
+  },
+  captureStatus: async (printerId: number, signal?: AbortSignal): Promise<TimelapseCaptureStatus> => {
+    const response = await fetch(`/api/printers/${printerId}/timelapse-status`, { credentials: 'include', signal })
+    if (!response.ok) throw await timelapseError(response)
+    return response.json()
   },
   videoUrl: (id: number): string => `/api/timelapses/${id}/video`,
   streamUrl: (id: number, etag?: string): string => mediaVersion(`/api/timelapses/${id}/stream`, etag),

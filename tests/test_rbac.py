@@ -90,6 +90,7 @@ from rbac_endpoints_b import ENDPOINTS as _ENDPOINTS_B, PUBLIC_LICENSE_GATED
 ENDPOINT_MATRIX = _ENDPOINTS_A + _ENDPOINTS_B + [
     ("GET", "/api/settings/remote-access", _admin_read(), None, "Remote access status"),
     ("GET", "/api/cameras/{printer_id}/snapshot", _api_read(), None, "Camera snapshot fallback"),
+    ("GET", "/api/printers/{printer_id}/timelapse-status", _api_read(), None, "Timelapse capture status"),
 ]
 
 

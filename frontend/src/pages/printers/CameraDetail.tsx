@@ -11,6 +11,7 @@ import { printers } from '../../api'
 import { isOnline } from '../../utils/shared'
 import { PrinterInfoPanel, FilamentSlotsPanel, ActiveJobPanel } from '../../components/printers/PrinterPanels'
 import useWebRTC from '../../hooks/useWebRTC'
+import TimelapseStatusLine from '../../components/printers/TimelapseStatusLine'
 
 const API_BASE = '/api'
 
@@ -196,6 +197,7 @@ function ClassicCameraDetail() {
         {/* Camera stream */}
         <div className="flex-[7] min-w-0" ref={containerRef}>
           <WebRTCPlayer cameraId={printerId} className="aspect-video rounded-none overflow-hidden border-b border-[var(--brand-card-border)]" />
+          <TimelapseStatusLine printerId={printerId} />
         </div>
 
         {/* Data panels */}
