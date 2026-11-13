@@ -108,6 +108,7 @@ class ConfigUpdate(BaseModel):
     blackout_end: Optional[str] = None
     blackout_timezone: Optional[str] = None  # IANA name; the quiet-hours clock times are in it
     scheduler_material_mode: Optional[str] = None
+    farm_timezone: Optional[str] = None  # IANA name; where the farm's "today" starts. "" clears it
 
     @field_validator('spoolman_url')
     @classmethod
@@ -130,10 +131,10 @@ class ConfigUpdate(BaseModel):
             raise ValueError('Invalid time format. Use HH:MM (e.g., 22:30)')
         return v
 
-    @field_validator('blackout_timezone')
+    @field_validator('blackout_timezone', 'farm_timezone')
     @classmethod
-    def validate_timezone(cls, v):
-        if v is None:
+    def validate_timezone(cls, v, info):
+        if v is None or (v == '' and info.field_name == 'farm_timezone'):
             return v
         from core.scheduler_settings import check_timezone
         return check_timezone(v)

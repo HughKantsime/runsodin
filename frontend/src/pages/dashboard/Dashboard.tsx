@@ -34,7 +34,8 @@ import SectionErrorBoundary from './SectionErrorBoundary'
 import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
 import GettingStartedChecklist from '../../components/shared/GettingStartedChecklist'
 
-import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
+import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance, fetchAPI } from '../../api'
+import { browserTimeZone, farmDayNote } from '../../utils/farmTime'
 import { canDo } from '../../permissions'
 import { getShortName, slotFullName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
 
@@ -379,6 +380,9 @@ function ClassicDashboard() {
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
 
   const { data: statsData, isLoading: statsLoading } = useQuery({ queryKey: ['stats'], queryFn: () => stats.get() })
+  // "Completed today" is the farm's day (Settings > General); say so when this viewer's day differs.
+  const { data: farmConfig } = useQuery({ queryKey: ['config'], queryFn: () => fetchAPI<any>('/config'), staleTime: 300000 })
+  const farmDay = farmDayNote(farmConfig?.farm_timezone_effective?.zone, browserTimeZone())
   const { data: dashAlertSummary } = useQuery({ queryKey: ['dash-alert-summary'], queryFn: alertsApi.summary, refetchInterval: 60000 })
   const { data: printersData, isLoading: printersLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 30000 })
   const { data: activeJobs, isLoading: jobsLoading } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
@@ -501,7 +505,7 @@ function ClassicDashboard() {
           <StatCard label={t('dashboard.active_prints')} value={currentlyPrinting} icon={Play} color="green" onClick={() => navigate('/jobs?status=printing')} className={highlightClass('printing')} />
           <StatCard label={t('jobs.scheduled')} value={statValues.scheduled} icon={Clock} color="blue" onClick={() => navigate('/timeline')} className={highlightClass('scheduled')} />
           <StatCard label={t('jobs.pending')} value={statValues.pending} icon={AlertCircle} color="amber" onClick={() => navigate('/jobs?status=pending')} className={highlightClass('pending')} />
-          <StatCard label={t('dashboard.completed_today')} value={statValues.completed_today} icon={CheckCircle} color="default" className={highlightClass('completed_today')} />
+          <StatCard label={t('dashboard.completed_today') + (farmDay ? ` (${farmDay})` : '')} value={statValues.completed_today} icon={CheckCircle} color="default" className={highlightClass('completed_today')} />
           <StatCard label="Active Alerts" value={statValues.active_alerts} icon={AlertTriangle} color="red" onClick={() => navigate('/alerts')} className={highlightClass('active_alerts')} />
           <StatCard label={t('alerts.maintenance_due')} value={statValues.maintenance_due} icon={Activity} color="purple" onClick={() => navigate('/maintenance')} className={highlightClass('maintenance_due')} />
         </div>

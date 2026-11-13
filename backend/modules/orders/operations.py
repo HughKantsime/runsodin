@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import select,update,cast,String,delete,text
 from sqlalchemy.exc import IntegrityError
 from core.models import SystemConfig
+from core.farm_time import farm_today
 from modules.orders import square_store as store,batch_production as batches
 
 PREFIX='production_operations:'
@@ -131,7 +132,7 @@ def set_capacity(db,user,data):
     for entered in sorted(data.estimates,key=lambda e:e.order_id):
         order=owned_order(db,user,entered.order_id,lock=True)
         estimates.append({**entered.model_dump(mode='json'),'binding':work_binding(db,order)})
-    doc['capacity']={**data.model_dump(mode='json',exclude={'revision','estimates'}),'estimates':estimates,'recorded_on':date.today().isoformat()}
+    doc['capacity']={**data.model_dump(mode='json',exclude={'revision','estimates'}),'estimates':estimates,'recorded_on':farm_today(db).isoformat()}
     save(db,owner,doc,raw);return conflicts(db,user)
 
 def conflicts(db,user):
@@ -151,7 +152,7 @@ def conflicts(db,user):
         paid=facts['state']=='paid_committed'
         if paid:promise=receipt['details']['dispatch_by']
         in_window=bool(capacity and promise and capacity['starts_on']<=promise<=capacity['ends_on'])
-        needs=not capacity or not promise or minutes is None or (capacity and capacity['recorded_on']!=date.today().isoformat())
+        needs=not capacity or not promise or minutes is None or (capacity and capacity['recorded_on']!=farm_today(db).isoformat())
         if needs:unknown=True
         if in_window and minutes is not None:total+=minutes
         if capacity and promise and promise<capacity['starts_on']:reasons.append(f'Order {order.id} is promised before the entered capacity window.')

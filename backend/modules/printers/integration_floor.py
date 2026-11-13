@@ -27,7 +27,6 @@ caller reaches only because it is shared. The filament check runs once per print
 a next job (as the AMS comparison does); everything else is a fixed number of queries.
 """
 import json
-import os
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -203,22 +202,12 @@ def ams_environment(db, printer_ids, now):
 # Day totals
 # ---------------------------------------------------------------------------
 
-def server_zone():
-    """The server's timezone setting: the TZ environment variable, else the OS zone."""
-    name = os.environ.get("TZ")
-    if name:
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(name)
-        except Exception:
-            pass
-    return None
-
-
 def day_start(now, zone=None):
-    """Local midnight (in the server zone) at or before ``now``, as an aware UTC datetime."""
+    """Local midnight in ``zone`` at or before ``now``, as an aware UTC datetime (no zone: the OS zone).
+    Built from the date so a daylight-saving change day gets midnight's own UTC offset."""
     local = now.astimezone(zone) if zone is not None else now.astimezone()
-    return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    midnight = datetime(local.year, local.month, local.day, tzinfo=zone) if zone is not None else local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(timezone.utc)
 
 
 def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
@@ -564,7 +553,8 @@ class Floor:
         from core.printer_maintenance import enrich_maintenance
         self.maintenance = {p.id: getattr(p, "maintenance", None) or {}
                             for p in enrich_maintenance(db, list(printers))}
-        self.today = day_totals(db, actor, scope, controlled, ids, now, zone or server_zone())
+        from core.farm_time import farm_zone  # the farm's day: saved setting, quiet-hours zone, TZ, UTC
+        self.today = day_totals(db, actor, scope, controlled, ids, now, zone or farm_zone(db))
         picked = _pick(db, actor, scope, controlled, states, ids)
         rows = _details(db, [job_id for job_id, _, _ in picked]) if picked else {}
         self.names = display_names(db, "job", list(rows), actor) if rows else {}
