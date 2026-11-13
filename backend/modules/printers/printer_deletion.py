@@ -22,6 +22,8 @@ def delete_printer(db, printer_id, current_user):
     education_policy.assert_printer_tenant_change_or_delete_allowed(db, printer_id)
     from modules.organizations.services import scope_loss_warnings
     training_warnings = scope_loss_warnings(db, org_id=printer.org_id, removed_printer_ids={printer_id})
+    from modules.printers.slot_feed_policy import refuse_delete_while_flagged
+    refuse_delete_while_flagged(db, printer_id)
     printer_name = printer.name
     # Jobs pinned to this printer must not silently follow a reused id: mark
     # their pin deleted (they wait for a new choice) and tell their owners.

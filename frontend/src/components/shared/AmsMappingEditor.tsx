@@ -1,7 +1,7 @@
 import { useFoundry } from '../../hooks/themePreferences'
-import SlotTile from '../foundry/SlotTile'
+import SlotTile, { slotLabel as deviceSlotLabel } from '../foundry/SlotTile'
 import { useState } from 'react'
-import type { ArchiveAmsPreview, AmsMapping } from '../../types/archive'
+import type { ArchiveAmsPreview, ArchiveAmsSlot, AmsMapping } from '../../types/archive'
 
 export type { AmsMapping } from '../../types/archive'
 
@@ -11,16 +11,25 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   const initial = stored?.flatMap((target, source) => target < 0 ? [] : [{ source_slot: source + 1, target_slot: target + 1 }])
     ?? preview?.suggested_mapping.map(({ source_slot, target_slot }) => ({ source_slot, target_slot })) ?? []
   const complete = (mapping: AmsMapping) => !!preview?.required.length
-    && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot)))
+    && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot && !s.do_not_feed)))
     && new Set(mapping.map(m => m.target_slot)).size === mapping.length
-  const selection = choice?.context === context ? choice : { context, mapping: initial, enabled: complete(initial) }
+  const needsConfirmation = !stored && !!preview?.confirm_suggestions && preview.suggested_mapping.some(s => s.confidence === 'material_only')
+  const selection = choice?.context === context ? choice : { context, mapping: initial, enabled: complete(initial) && !needsConfirmation }
   const valid = complete(selection.mapping)
   return {
     mapping: selection.mapping, enabled: selection.enabled, valid,
     value: selection.enabled && valid ? selection.mapping : undefined,
-    onChange: (mapping: AmsMapping) => setChoice({ ...selection, mapping }),
+    // Picking the slots is the confirmation a held-back suggestion was waiting for.
+    onChange: (mapping: AmsMapping) => setChoice({ ...selection, mapping, enabled: selection.enabled || (!!preview?.confirm_suggestions && complete(mapping)) }),
     onEnabledChange: (enabled: boolean) => setChoice({ ...selection, enabled }),
   }
+}
+
+// An S1 slot's colour name is only its material, so its hex is what tells same-material slots apart.
+function slotLabel(slot: ArchiveAmsSlot) {
+  const name = slot.color && slot.color !== slot.material ? slot.color : null
+  const hex = !name && slot.color_hex ? `#${slot.color_hex.replace(/^#/, '')}` : null
+  return [name, slot.material, hex].filter(Boolean).join(' ')
 }
 
 export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange, planned = false }: {
@@ -33,7 +42,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
     <h3 className="text-sm font-medium">AMS filament mapping</h3>
     {loading ? <p role="status">Loading filament mapping...</p>
       : error ? <p role="alert">Filament mapping preview unavailable</p>
-      : !preview?.required.length ? <p className="text-xs">The original file lists no filaments.</p>
+      : !preview?.required.length ? <p className="text-xs">{preview?.file_note || 'The original file lists no filaments.'}</p>
       : <>
         <ul className="space-y-2">{preview.required.map(req => {
           const match = mapping.find(m => m.source_slot === req.slot)
@@ -43,9 +52,9 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
             <span aria-hidden="true">→</span>
             {foundry ? <div className="f-slots" role="group" aria-label={`Filament ${req.slot} AMS slot`}>
               <button type="button" aria-pressed={!match} onClick={() => onChange(mapping.filter(m => m.source_slot !== req.slot))}>No matching slot</button>
-              {preview.available.map(slot => <button type="button" className="f-slot-button" key={slot.slot} aria-pressed={match?.target_slot === slot.slot}
+              {preview.available.map(slot => <button type="button" className="f-slot-button" key={slot.slot} disabled={slot.do_not_feed} aria-label={`${deviceSlotLabel(preview.confirm_suggestions ? "anycubic_lan" : "bambu", slot.slot)} (${slotLabel(slot)})${slot.do_not_feed ? " — Do not feed" : ""}`} aria-pressed={match?.target_slot === slot.slot}
                 onClick={() => onChange([...mapping.filter(m => m.source_slot !== req.slot), { source_slot: req.slot, target_slot: slot.slot }].sort((a, b) => a.source_slot - b.source_slot))}>
-                <SlotTile apiType="bambu" slot={{ slot_number: slot.slot, material_type: slot.material, color: slot.color, color_hex: slot.color_hex }} />
+                <SlotTile apiType={preview.confirm_suggestions ? "anycubic_lan" : "bambu"} slot={{ slot_number: slot.slot, material_type: slot.material, color: slotLabel(slot), color_hex: slot.color_hex, do_not_feed: slot.do_not_feed }} />
               </button>)}
             </div> : (            <select id={`ams-source-${req.slot}`} aria-label={`Filament ${req.slot} AMS slot`}
               className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded p-1"
@@ -54,7 +63,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
                 ...(e.target.value ? [{ source_slot: req.slot, target_slot: Number(e.target.value) }] : []),
               ].sort((a, b) => a.source_slot - b.source_slot))}>
               <option value="">No matching slot</option>
-              {preview.available.map(slot => <option key={slot.slot} value={slot.slot}>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')})</option>)}
+              {preview.available.map(slot => <option key={slot.slot} value={slot.slot} disabled={slot.do_not_feed}>Slot {slot.slot} ({slotLabel(slot)}){slot.do_not_feed ? ' — Do not feed' : ''}</option>)}
             </select>)}
           </li>
         })}</ul>

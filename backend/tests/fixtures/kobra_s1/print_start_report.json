@@ -1,0 +1,13 @@
+{
+  "type": "print",
+  "action": "start",
+  "msgid": "fixture-message",
+  "timestamp": 0,
+  "data": {
+    "curr_layer": 0,
+    "print_time": 0,
+    "progress": 0,
+    "remain_time": 119,
+    "total_layers": 50
+  }
+}

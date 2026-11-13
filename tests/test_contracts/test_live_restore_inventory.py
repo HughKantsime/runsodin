@@ -111,6 +111,8 @@ POST027_RAW_TABLES = {
     "python:044-spool-tray-uuid": {},
     # Extends the native alert enum without adding raw tables.
     "python:045-pause-cancel-alerts": {},
+    # Adds ORM columns only: filament_slots.do_not_feed, do_not_feed_note, printers.ace_status.
+    "python:057-slot-feed-policy": {},
     "python:040-job-foundation": {
         "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
         "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),

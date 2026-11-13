@@ -2,11 +2,13 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import AmsMappingEditor, { useAmsMapping } from './AmsMappingEditor'
 import wire from '../../test-fixtures/ams-file-source-wire.json'
+import type { ArchiveAmsPreview } from '../../types/archive'
+const preview = wire.preview as ArchiveAmsPreview
 afterEach(cleanup)
 
 function Harness({ context = 'file8:printer1', stored = wire.stored, submit = vi.fn() }) {
-  const selection = useAmsMapping(wire.preview, context, stored)
-  return <><AmsMappingEditor preview={wire.preview} {...selection} />
+  const selection = useAmsMapping(preview, context, stored)
+  return <><AmsMappingEditor preview={preview} {...selection} />
     <button disabled={!selection.value} onClick={() => submit(selection.value)}>Save</button></>
 }
 
@@ -38,5 +40,21 @@ test('Foundry maps actual available slot tiles through the same selection callba
     fireEvent.click(screen.getByRole('button', { name: /AMS 1 · 4/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(submit).toHaveBeenCalledWith([{ source_slot: 4, target_slot: 4 }])
+  } finally { cleanup(); document.documentElement.dataset.themeFamily = 'classic' }
+})
+
+test('Foundry S1 mapping labels ACE colours and refuses flagged tiles even in a held plan', () => {
+  document.documentElement.dataset.themeFamily = 'foundry'
+  const onChange = vi.fn()
+  try {
+    render(<AmsMappingEditor planned preview={{ required: [{ slot: 1, material: 'PLA', color: '#ffffff' }],
+      available: [{ slot: 2, material: 'PLA', color: 'PLA', color_hex: '6558B1', do_not_feed: true, spool_id: null }],
+      suggested_mapping: [], confirm_suggestions: true }} mapping={[]} enabled={false} valid={false}
+      onChange={onChange} onEnabledChange={vi.fn()} />)
+    const target = screen.getByRole('button', { name: /ACE · 2.*PLA #6558B1.*Do not feed/ })
+    expect(target).toBeDisabled()
+    fireEvent.click(target)
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByText(/Plan the trays now/)).toBeInTheDocument()
   } finally { cleanup(); document.documentElement.dataset.themeFamily = 'classic' }
 })

@@ -6,7 +6,7 @@ import JobTimeline from './JobTimeline'
 import {jobCompletion,CompletionSummary as Summary} from '../../api/jobCompletion'
 vi.mock('../../api/jobCompletion',()=>({jobCompletion:{suggestion:vi.fn(),start:vi.fn(),timeline:vi.fn()}}))
 vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))
-vi.mock('../../permissions',()=>({canDo:()=>true}))
+vi.mock('../../permissions',()=>({canDo:()=>true,getCurrentUser:()=>({role:'admin'})}))
 vi.mock('../orders/ProductionBatches',()=>({default:({inspectJobId}:{inspectJobId:number})=><p>Count form for job {inspectJobId}</p>}))
 const summary:Summary={job_id:2,job_name:'Mini',printer_id:1,printer:'X1C',actual_print_seconds:3600,recipe_state:'matched',product:['Mini'],expected_outputs:[{product_id:1,product_name:'Mini',kind:'main',expected:5}],health:'history incomplete',health_events:[],inspection_available:true,inspection_unavailable_reason:null,square_projection:[{product_id:1,quantity:10}],bed_line:"ODIN has not checked the bed. Use 'Bed clear, start next' to start."}
 const suggestion={job_id:3,reason:'Scheduler queue order',filament:'verify_needed' as const,fingerprint:'a'.repeat(64)}

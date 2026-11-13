@@ -119,7 +119,7 @@ class MQTTMonitorDaemon:
         """Load Moonraker-based printers from database (bind: an engine; default the shared one)."""
         with (bind or engine).connect() as conn:
             result = conn.execute(text("""
-                SELECT id, name, api_host
+                SELECT id, name, api_host, model, machine_type
                 FROM printers
                 WHERE api_type = 'moonraker'
                   AND api_host IS NOT NULL
@@ -147,6 +147,7 @@ class MQTTMonitorDaemon:
                     'name': row['name'],
                     'host': host,
                     'port': port,
+                    'model': row['model'], 'machine_type': row['machine_type'],
                 })
 
         return printers
@@ -203,7 +204,7 @@ class MQTTMonitorDaemon:
                         printer_id=p['id'],
                         name=p['name'],
                         host=p['host'],
-                        port=p['port'],
+                        port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'),
                     )
                     if monitor.connect():
                         self.monitors[p['id']] = monitor
@@ -256,9 +257,9 @@ class MQTTMonitorDaemon:
                      lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
                                               serial=p['serial'], access_code=p['access_code']))]
         if MOONRAKER_AVAILABLE:
-            families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port'),
+            families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port', 'model', 'machine_type'),
                              lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
-                                                        host=p['host'], port=p['port'])))
+                                                        host=p['host'], port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'))))
         return families
 
     def _check_new_printers(self):
@@ -457,7 +458,7 @@ class MQTTMonitorDaemon:
                     printer_id=p['id'],
                     name=p['name'],
                     host=p['host'],
-                    port=p['port'],
+                    port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'),
                 )
                 if new_mon.connect():
                     self.monitors[pid] = new_mon

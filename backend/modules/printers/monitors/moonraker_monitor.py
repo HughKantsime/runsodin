@@ -75,13 +75,13 @@ class MoonrakerMonitor(MoonrakerJobTracking):
     Same DB tables, same state tracking, same job logging.
     """
     
-    def __init__(self, printer_id: int, name: str, host: str, port: int = 80, api_key: str = ""):
+    def __init__(self, printer_id: int, name: str, host: str, port: int = 80, api_key: str = "", *, model=None, machine_type=None):
         self.printer_id = printer_id
         self.name = name
         self.host = host
         self.port = port
         
-        self.printer = MoonrakerPrinter(host=host, port=port, api_key=api_key)
+        self.printer = MoonrakerPrinter(host=host, port=port, api_key=api_key, model=model, machine_type=machine_type)
         
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -434,9 +434,23 @@ class MoonrakerMonitor(MoonrakerJobTracking):
             observe_status(engine, self.printer_id, status, 'moonraker', owner=self)
 
         internal_state = status.internal_state
+        # A cold S1 prep report cannot establish a started print, including via
+        # the monitor racing a dispatch whose publish is still unconfirmed.
+        if (getattr(getattr(self, 'printer', None), 'is_kobra_s1', False)
+                and not self._current_job_db_id and internal_state in ('RUNNING', 'PAUSE')
+                and not (getattr(status, 'nozzle_target', 0) > 0)):
+            internal_state = self._prev_state or 'UNKNOWN'
+        # gklib has states Moonraker doesn't define. One in the middle of a tracked S1 print
+        # must not hide its end: a job closes only from RUNNING or PAUSE.
+        if (internal_state == 'UNKNOWN' and self._current_job_db_id and self._prev_state
+                and getattr(getattr(self, 'printer', None), 'is_kobra_s1', False)):
+            internal_state = self._prev_state
+
+        if getattr(status, 'ace_status', None) is not None:
+            self._maybe_sync_ace(status.ace_status, now)
 
         # ---- Filament slot sync (every 60s) ----
-        if status.filament_slots and now - self._last_slot_sync >= SLOT_SYNC_INTERVAL:
+        if getattr(status, "ace_status", None) is None and status.filament_slots and now - self._last_slot_sync >= SLOT_SYNC_INTERVAL:
             self._last_slot_sync = now
             self._sync_filament_slots(status.filament_slots)
 
@@ -486,6 +500,12 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                 end_status = education_terminal_status or (
                     "completed" if internal_state == "IDLE" else "failed"
                 )
+                # An S1 can pass through standby on its way to complete, and can land there from
+                # an aborted prep. Only a print that printed something finished.
+                if (end_status == "completed" and raw_terminal != "complete"
+                        and getattr(getattr(self, 'printer', None), 'is_kobra_s1', False)
+                        and not status.print_duration):
+                    end_status = "cancelled"
                 education_suppressed = self._job_ended(
                     end_status,
                     status,
@@ -549,7 +569,7 @@ def _api_key(api_key_raw):
 def _rows():
     with engine.connect() as conn:
         return conn.execute(
-            text("SELECT id, name, api_host, api_key FROM printers "
+            text("SELECT id, name, api_host, api_key, model, machine_type FROM printers "
             "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active IS TRUE")
         ).mappings().fetchall()
 
@@ -561,8 +581,8 @@ def _inventory():
     for row in _rows():
         host, port = _endpoint(row["api_host"])
         api_key = _api_key(row["api_key"] or "")
-        inventory[row["id"]] = (connection_fingerprint("moonraker", host, port, api_key),
-                                (row["name"], host, port, api_key))
+        inventory[row["id"]] = (connection_fingerprint("moonraker", host, port, api_key, row["model"], row["machine_type"]),
+                                (row["name"], host, port, api_key, row["model"], row["machine_type"]))
     return inventory
 
 
@@ -572,9 +592,9 @@ class _MoonrakerSession(threading.Thread):
     the monitor's poll loop handles reconnection. Never stopped in-process for a
     license or configuration change: the daemon exits and restarts instead."""
 
-    def __init__(self, printer_id, name, host, port, api_key):
+    def __init__(self, printer_id, name, host, port, api_key, model=None, machine_type=None):
         super().__init__(name=f"moonraker-session-{name}", daemon=True)
-        self.monitor = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
+        self.monitor = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key, model=model, machine_type=machine_type)
         self._stopped = threading.Event()
 
     def run(self):
@@ -593,6 +613,7 @@ class _MoonrakerSession(threading.Thread):
         self.monitor.disconnect()
 
 
+
 def start_moonraker_monitors():
     """Load Moonraker printers from DB and start monitors (license fleet lock off; see __main__)."""
     from core.monitor_bootstrap import bootstrap_monitor_authority
@@ -605,7 +626,7 @@ def start_moonraker_monitors():
             host, port = _endpoint(row["api_host"])
             api_key = _api_key(row["api_key"] or "")
 
-            m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
+            m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key, model=row["model"], machine_type=row["machine_type"])
             if m.connect():
                 monitors.append(m)
                 log.info(f"Started Moonraker monitor for {name} ({host}:{port})")

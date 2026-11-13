@@ -11,7 +11,7 @@ from sqlalchemy import (
     ForeignKey, Enum as SQLEnum, Text, JSON
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, false
 
 from core.base import Base, FilamentType, _ENUM_VALUES
 
@@ -111,6 +111,8 @@ class Printer(Base):
     installed_nozzles = Column(JSON, nullable=True)
 
     # Relationships
+    ace_status = Column(Text)
+
     filament_slots = relationship("FilamentSlot", back_populates="printer", cascade="all, delete-orphan", order_by="FilamentSlot.slot_number")
     jobs = relationship("Job", back_populates="printer", passive_deletes=True)
 
@@ -122,7 +124,7 @@ class Printer(Base):
     @property
     def loaded_colors(self) -> List[str]:
         """Get list of currently loaded colors."""
-        return [slot.color.lower() for slot in self.filament_slots if slot.color]
+        return [slot.color.lower() for slot in self.filament_slots if slot.color and not slot.do_not_feed]
 
     def __repr__(self):
         return f"<Printer {self.name}>"
@@ -156,6 +158,8 @@ class FilamentSlot(Base):
     loaded_at = Column(DateTime, server_default=func.now())
 
     tray_observation = Column(Text)
+    do_not_feed = Column(Boolean, nullable=False, default=False, server_default=false())
+    do_not_feed_note = Column(String(200))
 
     # Relationships
     printer = relationship("Printer", back_populates="filament_slots")

@@ -271,7 +271,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 api_key = crypto.decrypt(printer.api_key)
             except Exception:
                 api_key = printer.api_key
-        mk = MoonrakerPrinter(host=host, port=port, api_key=api_key)
+        mk = MoonrakerPrinter(host=host, port=port, api_key=api_key, model=printer.model, machine_type=printer.machine_type)
         if not mk.connect():
             raise HTTPException(status_code=503, detail="Failed to connect to Moonraker")
         try:
@@ -282,6 +282,15 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                     "slots_synced": 0, "slots": [], "mismatches": [],
                     "message": "No MMU/ACE detected on this printer"}
+        if getattr(mk_status, 'ace_status', None) is not None:
+            printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+            from modules.printers.monitors.ams_inventory import sync_ace_inventory
+            sync_ace_inventory(db.connection(), printer_id, mk_status.ace_status)
+            log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(mk_status.ace_status['slots']), "source": "moonraker_ace"})
+            db.commit()
+            return {'success': True, 'printer_id': printer_id, 'printer_name': printer.name,
+                    'slots_synced': len(mk_status.ace_status['slots']),
+                    'slots': mk_status.ace_status['slots'], 'mismatches': []}
         printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
         from core.interfaces.inventory_moves import inventory_moves
         inventory_moves().observe_slots(db, printer_id,
@@ -317,7 +326,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         db.query(FilamentSlot).filter(
             FilamentSlot.printer_id == printer_id,
             FilamentSlot.slot_number > max_slot,
-        ).delete()
+            FilamentSlot.do_not_feed.is_not(True),  # Feed restrictions outlive gate-count changes.
+        ).delete(synchronize_session=False)
         log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "source": "moonraker_mmu"})
         db.commit()
         return {"success": True, "printer_id": printer_id, "printer_name": printer.name,

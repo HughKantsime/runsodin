@@ -47,6 +47,10 @@ def dispatch_status(job_id: int,
         return result
     result['phase'] = {'preparing':'preparing', 'adapter_entered':'sending',
                        'accepted':'start_accepted', 'uncertain':'needs_reconciliation'}[claim.state]
+    from modules.printers.services import s1_start_facts
+    facts = s1_start_facts(db, claim.token, job_id=job.id)
+    if facts is not None:
+        result['s1_start'] = facts
     receipt = db.get(DispatchAttemptReceipt, claim.token)
     if (receipt is None or receipt.job_id != job.id or receipt.printer_id != printer.id
             or receipt.configuration_key != claim.configuration_key

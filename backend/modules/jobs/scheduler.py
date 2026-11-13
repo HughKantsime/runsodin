@@ -367,7 +367,7 @@ class Scheduler(SchedulerPlanning):
         plans = []
         from modules.printers.services import KOBRA_DISPATCH_DETAIL
         messages = {
-            'printer_dispatch_unsupported': KOBRA_DISPATCH_DETAIL,
+            'printer_dispatch_unsupported': 'This printer does not support automatic dispatch. Kobra S1 requires an explicit Start next confirmation.',
             "unknown_quantity": "Set the job quantity before scheduling. The job remains queued.",
             "no_fit": "No compatible printer has capacity within the scheduling horizon. Check job requirements and printer availability.",
             "no_active_printers": "No active printers are available. Check which printers are enabled; the job remains queued.",
@@ -436,7 +436,7 @@ class Scheduler(SchedulerPlanning):
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
 
         from core.dispatch_identity import ownership_refusal
-        from modules.printers.services import dispatch_unsupported_reason
+        from modules.printers.services import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
         from core.controlled_parts import dispatch_refusal
         from sqlalchemy.orm import object_session
         db = object_session(job)

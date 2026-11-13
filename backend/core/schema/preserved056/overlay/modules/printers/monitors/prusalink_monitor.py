@@ -1,0 +1,450 @@
+"""
+PrusaLink Monitor — Polling daemon for Prusa 3D printers.
+
+Supports: MK4/S, MK3.9, MK3.5, MINI+, XL, CORE One
+Protocol: PrusaLink REST API (v1)
+Auth: HTTP Digest or API key
+
+Architecture:
+  - One thread per PrusaLink printer
+  - Polls /api/v1/status every POLL_INTERVAL seconds
+  - Feeds printer_events.py universal handler (same as Bambu/Moonraker)
+  - WebSocket push, MQTT republish, telemetry DB updates
+
+This is a clone of moonraker_monitor.py adapted for PrusaLink's API shape.
+"""
+
+import os
+import sys
+import time
+import logging
+import threading
+from datetime import datetime, timezone
+
+from sqlalchemy import text
+
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
+from core.db_compat import sql
+
+# WebSocket push (same as mqtt_monitor / moonraker_monitor)
+try:
+    from core.ws_hub import push_event as ws_push
+except ImportError:
+    def ws_push(*a, **kw): pass
+
+# MQTT republish (same as mqtt_monitor / moonraker_monitor)
+try:
+    import modules.notifications.mqtt_republish as _mqtt_republish
+except ImportError:
+    _mqtt_republish = None
+
+from modules.printers.adapters.prusalink import PrusaLinkPrinter, PrusaLinkState
+
+log = logging.getLogger(__name__)
+
+POLL_INTERVAL = 10  # seconds
+MAX_CONSECUTIVE_FAILURES = 5  # Treat as disconnect after this many failures
+
+
+class PrusaLinkMonitorThread(threading.Thread):
+    """Monitor thread for a single PrusaLink printer."""
+
+    def __init__(self, printer_id: int, name: str, host: str, port: int = 80,
+                 username: str = "maker", password: str = "", api_key: str = ""):
+        super().__init__(daemon=True)
+        self.printer_id = printer_id
+        self.name = name
+        self.host = host
+        self.client = PrusaLinkPrinter(
+            host=host, port=port,
+            username=username, password=password, api_key=api_key
+        )
+        self._running = True
+        self._consecutive_failures = 0
+        self._last_heartbeat = 0
+        self._last_state = None
+        self._last_filename = None
+        self._last_progress = 0.0
+        self._last_telemetry_insert = 0
+        self._marked_offline = False
+        self._status_lock = threading.RLock()
+        self._retired = False
+
+    def stop(self):
+        with self._status_lock:
+            self._retired = True
+            self._running = False
+
+    def run(self):
+        log.info(f"[{self.name}] PrusaLink monitor started for {self.host}")
+        # Auto-discover camera on startup
+        self._discover_and_save_camera()
+        while self._running:
+            try:
+                status = self.client.get_status()
+                if status.state == PrusaLinkState.DISCONNECTED:
+                    # The adapter swallows transport errors and reports a default
+                    # DISCONNECTED status; count it as a failed poll so OFFLINE is
+                    # only persisted after MAX_CONSECUTIVE_FAILURES in a row.
+                    raise ConnectionError("PrusaLink status poll failed")
+                # If recovering from disconnect, re-discover camera
+                if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    log.info(f"[{self.name}] Connection recovered, re-discovering camera...")
+                    self._discover_and_save_camera()
+                self._consecutive_failures = 0
+                self._process_status(status)
+            except Exception:
+                self._consecutive_failures += 1
+                with self._status_lock:
+                    if not self._retired:
+                        if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES and not self._marked_offline:
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": self.printer_id})
+                                self._marked_offline = True
+                            except Exception:
+                                log.warning("Offline state persistence failed; retry on next observation")
+                log.warning("Printer poll failed (%s consecutive failures)", self._consecutive_failures)
+            time.sleep(POLL_INTERVAL)
+        log.info(f"[{self.name}] PrusaLink monitor stopped")
+
+    def _try_dispatch(self):
+        """Attempt auto-dispatch of next scheduled job after print completes."""
+        try:
+            time.sleep(5)
+            from modules.printers import dispatch as printer_dispatch
+            printer_dispatch.attempt_dispatch(self.printer_id)
+        except Exception as e:
+            log.warning(f"[{self.name}] Dispatch attempt error: {e}")
+
+    def _discover_and_save_camera(self):
+        """Discover camera URL and save to DB via printer_events."""
+        import modules.notifications.event_dispatcher as printer_events
+        try:
+            cam_url = self.client.get_webcam_url()
+            if cam_url:
+                printer_events.discover_camera(self.printer_id, cam_url)
+                log.info("Camera discovery completed for printer %s", self.printer_id)
+        except Exception as e:
+            log.warning("Camera discovery failed for printer %s", self.printer_id)
+
+    def _process_status(self, status):
+        with self._status_lock:
+            if self._retired:
+                return
+            self._process_status_locked(status)
+
+    def _process_status_locked(self, status):
+        """Process polled status — update DB, detect transitions, push events."""
+        import modules.notifications.event_dispatcher as printer_events
+
+        # ----------------------------------------------------------
+        # 1. Detect state transitions via printer_events.py
+        # ----------------------------------------------------------
+        current_state = status.internal_state
+        current_file = status.filename
+        # BUSY and UNKNOWN don't say whether it was printing, so the first look lasts until a state does.
+        first_look = not getattr(self, '_known_state_seen', False)
+        self._known_state_seen = not first_look or status.state not in (PrusaLinkState.UNKNOWN, PrusaLinkState.BUSY)
+
+        # Map PrusaLink states to O.D.I.N. states
+        if status.state == PrusaLinkState.PRINTING:
+            odin_state = "RUNNING"
+        elif status.state == PrusaLinkState.PAUSED:
+            odin_state = "PAUSE"
+        elif status.state == PrusaLinkState.FINISHED:
+            odin_state = "FINISH"
+        elif status.state == PrusaLinkState.STOPPED:
+            odin_state = "CANCELLED"
+        elif status.state == PrusaLinkState.ERROR:
+            odin_state = "FAILED"
+        elif status.state == PrusaLinkState.ATTENTION:
+            odin_state = "PAUSE"  # Attention = waiting for user (filament change, etc.)
+        else:
+            odin_state = "IDLE"
+
+        # Only fire events on transitions
+        if current_state != self._last_state:
+            if odin_state != "PAUSE":
+                from core.job_timeline import close_pause_episode
+                close_pause_episode(self.printer_id)
+            if odin_state == "RUNNING" and self._last_state in ('PAUSED','ATTENTION'):
+                from core.job_timeline import for_printer
+                for_printer(self.printer_id, 'resumed')
+            elif odin_state == "RUNNING" and self._last_state != "PRINTING":
+                # Print started
+                from core.physical_print import continuing_print_limit
+                printer_events.on_print_start(
+                    self.printer_id,
+                    current_file or "Unknown",
+                    0,  # total_layers — PrusaLink doesn't always provide
+                    None,  # layer count
+                    status.time_remaining // 60 if status.time_remaining else None,
+                    observed_elapsed=continuing_print_limit(status.time_printing, first_look=first_look),
+                    # /api/v1/status names no file, so the job id is what identifies this print.
+                    physical_job_id=f"prusalink_{status.job_id}" if status.job_id is not None else None,
+                )
+            elif odin_state == "FINISH":
+                # Print completed
+                printer_events.on_print_complete(
+                    self.printer_id,
+                    current_file or self._last_filename or "Unknown",
+                    status.time_printing,
+                    None,  # filament_used_g — not provided
+                )
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
+            elif odin_state == "CANCELLED":
+                printer_events.on_print_cancelled(
+                    self.printer_id,
+                    current_file or self._last_filename or "Unknown",
+                )
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
+            elif odin_state == "FAILED":
+                # Print failed — try to extract error detail from raw data
+                error_msg = "Printer reported error state"
+                raw = getattr(status, 'raw_data', {}) or {}
+                printer_info = raw.get('printer', {})
+                if isinstance(printer_info, dict):
+                    status_printer = printer_info.get('status_printer', {})
+                    if isinstance(status_printer, dict) and status_printer.get('message'):
+                        error_msg = status_printer['message']
+                printer_events.on_print_failed(
+                    self.printer_id,
+                    current_file or self._last_filename or "Unknown",
+                    error_msg,
+                )
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
+                # Record error in hms_error_history for tracking
+                try:
+                    printer_events.record_error(
+                        self.printer_id,
+                        error_code=f"PRUSALINK_{current_state}",
+                        error_message=error_msg,
+                        source="prusalink",
+                        severity="error",
+                        history=True,
+                    )
+                except Exception as e:
+                    log.debug(f"Failed to record PrusaLink error: {e}")
+            elif odin_state == "PAUSE":
+                printer_events.on_print_paused(self.printer_id, current_file)
+
+            self._last_state = current_state
+
+        # Track filename for completion events
+        if current_file:
+            self._last_filename = current_file
+
+        # ----------------------------------------------------------
+        # 2. Update progress (while printing)
+        # ----------------------------------------------------------
+        if status.state == PrusaLinkState.PRINTING and status.progress_percent > 0:
+            if abs(status.progress_percent - self._last_progress) >= 1.0:
+                remaining_min = status.time_remaining // 60 if status.time_remaining else None
+                printer_events.on_progress_update(
+                    self.printer_id,
+                    status.progress_percent,
+                    status.current_layer,
+                    status.total_layers,
+                    remaining_min,
+                )
+                self._last_progress = status.progress_percent
+
+        # ----------------------------------------------------------
+        # 3. Telemetry + heartbeat (throttled to every 10 seconds)
+        # ----------------------------------------------------------
+        live_state_allowed = True
+        if self._marked_offline or time.time() - self._last_heartbeat >= 10:
+            live_state_allowed = False
+            try:
+                with engine.begin() as conn:
+                    bed_t = status.bed_temp
+                    bed_tt = status.bed_target
+                    noz_t = status.nozzle_temp
+                    noz_tt = status.nozzle_target
+                    gstate = status.internal_state
+                    progress = status.progress_percent
+                    remaining_min = status.time_remaining // 60 if status.time_remaining else None
+                    current_layer = status.current_layer
+                    total_layers = status.total_layers
+                    # PrusaLink reports fan RPM — fan_print is the part cooling fan
+                    # A measured 0 RPM is a real reading; only a missing field is unknown.
+                    raw_printer = (status.raw_data or {}).get("printer") if isinstance(status.raw_data, dict) else None
+                    fan_speed_val = status.fan_print if isinstance(raw_printer, dict) and "fan_print" in raw_printer else None
+
+                    # Determine stage
+                    if status.state == PrusaLinkState.PRINTING:
+                        stage = "Printing"
+                    elif status.state == PrusaLinkState.PAUSED:
+                        stage = "Paused"
+                    elif status.state == PrusaLinkState.ATTENTION:
+                        stage = "Attention"
+                    elif noz_tt and noz_tt > 0:
+                        stage = "Heating hotend"
+                    elif bed_tt and bed_tt > 0:
+                        stage = "Heating bed"
+                    else:
+                        stage = "Idle"
+
+                    conn.execute(
+                        text(f"UPDATE printers SET last_seen={sql.now()},"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+                        " bed_temp=COALESCE(:bed_t,bed_temp),bed_target_temp=COALESCE(:bed_tt,bed_target_temp),"
+                        " nozzle_temp=COALESCE(:noz_t,nozzle_temp),nozzle_target_temp=COALESCE(:noz_tt,nozzle_target_temp),"
+                        " gcode_state=COALESCE(:gstate,gcode_state),print_stage=COALESCE(:stage,print_stage),"
+                        " fan_speed=COALESCE(:fan_speed,fan_speed) WHERE id=:pid"),
+                        {"bed_t": bed_t, "bed_tt": bed_tt, "noz_t": noz_t, "noz_tt": noz_tt,
+                         "gstate": gstate, "stage": stage, "fan_speed": fan_speed_val, "pid": self.printer_id}
+                    )
+
+                    # ---- Timeseries Telemetry Capture ----
+                    # Record temps + fan speed every 60s during active prints
+                    if gstate in ('PRINTING', 'PAUSED', 'ATTENTION') and time.time() - self._last_telemetry_insert >= 60:
+                        self._last_telemetry_insert = time.time()
+                        try:
+                            conn.execute(
+                                text("INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (:pid, :bed_t, :noz_t, :bed_tt, :noz_tt, :fan)"),
+                                {"pid": self.printer_id, "bed_t": bed_t, "noz_t": noz_t, "bed_tt": bed_tt, "noz_tt": noz_tt, "fan": fan_speed_val}
+                            )
+                            conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+                        except Exception as e:
+                            log.debug(f"[{self.name}] Telemetry insert: {e}")
+
+                live_state_allowed = True
+                self._last_heartbeat = time.time()
+                self._marked_offline = False
+
+                payload = {
+                    'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,
+                    'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
+                    'progress': progress, 'remaining_min': remaining_min,
+                    'current_layer': current_layer, 'total_layers': total_layers,
+                    'fan_speed': fan_speed_val,
+                }
+                try:
+                    ws_push('printer_telemetry', payload)
+                except Exception:
+                    log.warning("Committed telemetry WebSocket delivery failed")
+                if _mqtt_republish:
+                    try:
+                        _mqtt_republish.republish_telemetry(self.printer_id, self.name,
+                            {key: value for key, value in payload.items() if key != 'printer_id'})
+                    except Exception:
+                        log.warning("Committed telemetry MQTT delivery failed")
+
+            except Exception:
+                log.warning("Telemetry persistence failed; retry on next observation")
+
+        # Keep optional evidence separate and after a successful status commit;
+        # reports between heartbeats still refresh live-state freshness.
+        if live_state_allowed:
+            from modules.printers.monitors.live_state import observe_status
+            observe_status(engine, self.printer_id, status, 'prusalink', owner=self)
+
+
+# ------------------------------------------------------------------
+# Main — standalone daemon mode (like moonraker_monitor.py)
+# ------------------------------------------------------------------
+def _credentials(api_key_raw):
+    """(username, password, api_key) from the stored, usually encrypted, credential."""
+    # Decrypt credentials if encrypted (same as Moonraker)
+    username, password, api_key = "maker", "", ""
+    if api_key_raw:
+        try:
+            from core.crypto import decrypt
+            decrypted = decrypt(api_key_raw)
+            # Format: "username|password" or just "api_key"
+            if "|" in decrypted:
+                username, password = decrypted.split("|", 1)
+            else:
+                api_key = decrypted
+        except Exception:
+            # Not encrypted or decrypt failed — use as raw API key
+            api_key = api_key_raw
+    return username, password, api_key
+
+
+def _rows():
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active IS TRUE")
+        ).mappings().fetchall()
+
+
+def _inventory():
+    """{printer_id: (fingerprint, (name, host, username, password, api_key))} for license retirement (B2c)."""
+    from core.license_monitor import connection_fingerprint
+    inventory = {}
+    for row in _rows():
+        credentials = _credentials(row["api_key"] or "")
+        inventory[row["id"]] = (connection_fingerprint("prusalink", row["api_host"], *credentials),
+                                (row["name"], row["api_host"], *credentials))
+    return inventory
+
+
+def _session(printer_id, name, host, username, password, api_key):
+    log.info(f"Starting PrusaLink monitor for {name} ({host})")
+    return PrusaLinkMonitorThread(printer_id=printer_id, name=name, host=host,
+                                  username=username, password=password, api_key=api_key)
+
+
+def start_prusalink_monitors():
+    """
+    Load PrusaLink printers from DB and start monitor threads.
+    License fleet lock off; see __main__.
+    """
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
+    threads = []
+    try:
+        for row in _rows():
+            printer_id = row["id"]
+            name = row["name"]
+            host = row["api_host"]
+            username, password, api_key = _credentials(row["api_key"] or "")
+
+            t = PrusaLinkMonitorThread(
+                printer_id=printer_id,
+                name=name,
+                host=host,
+                username=username,
+                password=password,
+                api_key=api_key,
+            )
+            t.start()
+            threads.append(t)
+            log.info(f"Started PrusaLink monitor for {name} ({host})")
+
+    except Exception as e:
+        log.error(f"Failed to start PrusaLink monitors: {e}")
+
+    return threads
+
+
+if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.schema.bootstrap import configure_orm
+    configure_orm()
+    from core.job_timeline import start
+    start("prusalink_monitor")
+    import signal
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
+
+    shutdown = threading.Event()
+
+    def _shutdown(signum, frame):
+        log.info(f"Received signal {signum}, shutting down PrusaLink monitors...")
+        shutdown.set()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
+    # Otherwise the monitors start once (retried every 60 s while none exist), as before.
+    from core.license_monitor import run_monitor_process
+    run_monitor_process(engine, _inventory, _session, start_prusalink_monitors, 'PrusaLink', shutdown, log)
+    log.info("PrusaLink monitor daemon stopped.")

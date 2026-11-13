@@ -88,7 +88,7 @@ def _printer_change_reason(previous, current):
     return 'Printer ' + ('; '.join(parts) if parts else 'configuration could not be verified')
 
 
-def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filename,power_accepted,broker_connection=None,education_provider=None,education_reservation=None,already_admitted):
+def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filename,power_accepted,broker_connection=None,education_provider=None,education_reservation=None,already_admitted,effective_mapping=None):
     """Revalidate captured facts and persist adapter entry on the same connection.
 
     Payload hash describes the owned adapter snapshot. The orchestrator must
@@ -142,6 +142,10 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             unsupported = dispatch_unsupported_reason(current_creds)
             if unsupported:
                 raise _Refused(unsupported)
+            from modules.printers.slot_feed_policy import flagged_mapping_reason
+            feed_refusal = flagged_mapping_reason(conn, job['printer_id'], effective_mapping if effective_mapping is not None else current_job.get('ams_mapping'))
+            if feed_refusal:
+                raise _Refused(feed_refusal)
             if current_job!=job:
                 raise _Refused('Job, file, options or ownership changed before dispatch')
             current_identity=build_identity(current_creds,key)
@@ -151,6 +155,12 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             ownership_error=ownership_refusal(current_job,current_creds)
             if ownership_error:
                 raise _Refused(ownership_error)
+            from modules.printers.dispatch_support import is_kobra_s1
+            if is_kobra_s1(current_creds):
+                from modules.printers.start_next import bed_clear_bound
+                if not bed_clear_bound(conn, token=token, job=current_job, admitted=already_admitted):
+                    from modules.printers.dispatch_support import S1_BED_CLEAR_REQUIRED
+                    raise _Refused(S1_BED_CLEAR_REQUIRED)
             if job['status'] not in ('pending','scheduled') or job.get('hold') not in (None,False,0):
                 raise _Refused('Job is held or no longer ready for dispatch')
             active=conn.execute(text("SELECT 1 FROM jobs WHERE printer_id=:id AND status IN ('printing','paused') LIMIT 1"),{'id':job['printer_id']}).first()

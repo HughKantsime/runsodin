@@ -8,7 +8,45 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from modules.printers.education_compatibility import evaluate_education_compatibility
-from modules.printers.dispatch_support import dispatch_unsupported_reason, KOBRA_DISPATCH_DETAIL
+from modules.printers.dispatch_support import (
+    automatic_dispatch_unsupported_reason,
+    dispatch_unsupported_reason,
+    is_kobra_s1,
+    KOBRA_DISPATCH_DETAIL,
+)
+
+
+def stored_or_file_materials(filaments_json, stored_path):
+    from modules.printers.kobra_s1 import stored_or_file_materials as materials
+    return materials(filaments_json, stored_path)
+
+
+def s1_start_problem(db, job):
+    """Why this S1 job can't start as it stands, in words for the queue, or None."""
+    from core.print_file_binding import job_file_id
+    from modules.printers.kobra_s1 import S1Refusal, mapping_vector, read_filaments
+    from modules.printers.slot_feed_policy import flagged_mapping_reason
+    file_id = job_file_id(db, job.model_id, job.print_file_id)
+    stored_path = db.execute(text('SELECT stored_path FROM print_files WHERE id=:id'), {'id': file_id}).scalar() if file_id else None
+    if not stored_path:
+        return 'The job has no stored print file.'
+    try:
+        mapping = mapping_vector(job.ams_mapping, read_filaments(stored_path))
+    except S1Refusal as refusal:
+        return refusal.detail
+    except OSError:
+        return 'Payload cannot be read'
+    flagged = flagged_mapping_reason(db, job.printer_id, mapping)
+    return flagged.split(': ', 1)[-1] if flagged else None
+
+
+def s1_start_facts(db, token, *, job_id=None):
+    """Publish evidence recorded for one Kobra S1 attempt, or None."""
+    from modules.printers.start_next import load
+    from core.controlled_parts import policies
+    if job_id is None or policies(db, 'job', job_id):
+        return None
+    return load(db, 's1_start:' + token)
 
 
 def evaluate_submission_compatibility(

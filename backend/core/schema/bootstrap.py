@@ -343,7 +343,7 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-CURRENT_ORM_BASELINE = "tray_identity_046_20261028"
+CURRENT_ORM_BASELINE = "slot_feed_policy_057_20261112"
 
 # Post-027 migrations, applied in this order on the current path only. Each must be
 # additive and must never fail because of existing user data (data-dependent
@@ -376,6 +376,7 @@ POST027_MIGRATIONS = (
     ("python:054-controlled-parts", "core.schema.migrations.054_controlled_parts"),
     ("python:055-controlled-history", "core.schema.migrations.055_controlled_history"),
     ("python:056-dispatch-recovery-global", "core.schema.migrations.056_dispatch_recovery_global"),
+    ("python:057-slot-feed-policy", "core.schema.migrations.057_slot_feed_policy"),
 )
 
 
@@ -642,7 +643,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -676,7 +677,7 @@ def _bootstrap_database_contract(
             applied.append("python:052-traceability")
         # Keep the release tail ordered after Education rebuilds and identity guards.
         for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
-            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global"} and apply_python_migration(connection, module_name):
+            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy"} and apply_python_migration(connection, module_name):
                 applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")

@@ -10,7 +10,7 @@ from modules.printers.dispatch_support import dispatch_unsupported_reason, KOBRA
 
 
 @pytest.mark.parametrize('field', ['model', 'machine_type'])
-@pytest.mark.parametrize('model', ['Kobra S1', 'kObRa s1 mAx', 'Anycubic Kobra 3', 'Kobra 3 V2', 'Kobra 3 Max'])
+@pytest.mark.parametrize('model', ['kObRa s1 mAx', 'Anycubic Kobra 3', 'Kobra 3 V2', 'Kobra 3 Max'])
 def test_identity_matches_either_field(field, model):
     assert dispatch_unsupported_reason({'api_type': 'moonraker', field: model}) == (
         'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL)
@@ -30,7 +30,7 @@ def test_dispatch_refuses_before_power_read_or_upload(review_db, tmp_path, monke
     from modules.printers import dispatch, dispatch_acquisition, smart_plug
     engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
     with engine.begin() as conn:
-        conn.execute(text("UPDATE printers SET model='Kobra S1',machine_type='Rinkhals' WHERE id=59"))
+        conn.execute(text("UPDATE printers SET model='Kobra 3',machine_type='Rinkhals' WHERE id=59"))
         conn.execute(text("UPDATE jobs SET status='pending' WHERE id=53"))
     def forbidden(*a, **kw):
         pytest.fail('Blocked printer must not reach device I/O')
@@ -75,11 +75,11 @@ def test_manual_link_print_on_kobra_remains_available(fleet, signed_license, mon
     assert fleet.execute(text('SELECT scheduled_job_id FROM print_jobs WHERE id=7991')).scalar_one() == 991
 
 
-def test_next_job_suggestion_excludes_kobra(fleet):
+def test_next_job_suggestion_excludes_kobra3_but_offers_s1_for_attended_start(fleet):
     from modules.printers.models import Printer
     from modules.jobs.completion_summary import next_suggestion, eligible
     from modules.jobs.models import Job
-    fleet.execute(text("UPDATE printers SET api_type='moonraker',model='Kobra S1' WHERE id=9"))
+    fleet.execute(text("UPDATE printers SET api_type='moonraker',model='Kobra 3' WHERE id=9"))
     fleet.commit()
     add_job(fleet, 992)
     printer = fleet.get(Printer, 9)
@@ -87,3 +87,10 @@ def test_next_job_suggestion_excludes_kobra(fleet):
     suggestion = next_suggestion(fleet, printer)
     assert suggestion['job_id'] is None
     assert suggestion['reason'] == 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
+    # Start next is the S1's only start path, so an S1 reaches the queue. It adopts only its own work.
+    fleet.execute(text("UPDATE printers SET model='Kobra S1' WHERE id=9"))
+    fleet.commit()
+    fleet.expire_all()
+    suggestion = next_suggestion(fleet, fleet.get(Printer, 9))
+    assert suggestion['job_id'] is None
+    assert suggestion['reason'] == 'No queued job fits this printer.'

@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Search } from 'lucide-react'
 import { printers } from '../../api'
-import { canDo } from '../../permissions'
+import { canDo, getCurrentUser } from '../../permissions'
 import SlotLabel from './SlotLabel'
-import { SpoolRing } from '../ui'
+import { SpoolRing, Button } from '../ui'
 import TrayIdentityConfirm from './TrayIdentityConfirm'
 
 // TODO: type these properly when the filament/spool API types are finalized
@@ -47,6 +47,8 @@ interface SpoolOption {
 }
 
 interface SlotUpdateData {
+  do_not_feed?: boolean
+  do_not_feed_note?: string | null
   color?: string | null
   color_hex?: string | null
   filament_type?: string
@@ -67,6 +69,14 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   const foundry = useFoundry()
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
+  const [feedNote, setFeedNote] = useState(slot.do_not_feed_note || '')
+  const [confirmFeed, setConfirmFeed] = useState(false)
+  const admin = getCurrentUser()?.role === 'admin'
+  const changeFeed = () => {
+    onSave({ do_not_feed: !slot.do_not_feed, do_not_feed_note: feedNote.trim() || null })
+    setConfirmFeed(false)
+    setIsEditing(false)
+  }
   useEffect(() => {
     if (!isEditing) return
     const close = (event: KeyboardEvent) => {
@@ -94,6 +104,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   })) || []
 
   const handleSelectSpool = async (spool: SpoolOption) => {
+    if (slot.spool_change_pending) return
     await printers.assignSlotSpool(printerId, slot.slot_number, spool.id)
     onSave({
       color: `${spool.filament_brand} ${spool.filament_name}`,
@@ -106,6 +117,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   }
 
   const handleSelect = (filament: FilamentOption) => {
+    if (slot.spool_change_pending) return
     onSave({
       color: `${filament.brand} ${filament.name}`,
       color_hex: filament.color_hex,
@@ -117,6 +129,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   }
 
   const handleClear = () => {
+    if (slot.spool_change_pending) return
     onSave({ filament_type: 'empty', color: null, color_hex: null, spoolman_spool_id: null })
     setIsEditing(false)
   }
@@ -129,16 +142,16 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   return (
     <>
       {foundry ? <button type="button" className="f-slot-button" data-testid="filament-slot"
-        disabled={slot.spool_change_pending || !canDo('printers.slots')}
+        disabled={(slot.spool_change_pending && !admin) || !canDo('printers.slots')}
         onPointerDown={event => event.stopPropagation()}
-        onClick={event => { event.stopPropagation(); setIsEditing(true) }}>
+        onClick={event => { event.stopPropagation(); setConfirmFeed(false); setFeedNote(slot.do_not_feed_note || ''); setIsEditing(true) }}>
         <SlotTile slot={slot} apiType={apiType} />
       </button> : (      <div
         data-testid="filament-slot"
         className="bg-[var(--brand-input-bg)] rounded-md p-2 overflow-hidden cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
         onPointerDown={event => event.stopPropagation()}
         onDragStart={event => { event.preventDefault(); event.stopPropagation() }}
-        onClick={(event) => { event.stopPropagation(); if (!slot.spool_change_pending && (typeof canDo === 'function' ? canDo('printers.slots') : true)) setIsEditing(true) }}
+        onClick={(event) => { event.stopPropagation(); if ((!slot.spool_change_pending || admin) && (typeof canDo === 'function' ? canDo('printers.slots') : true)) { setConfirmFeed(false); setFeedNote(slot.do_not_feed_note || ''); setIsEditing(true) } }}
       >
         <SpoolRing
           color={colorHex ? `#${colorHex}` : '#888'}
@@ -148,6 +161,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
           size={20}
         />
         <SlotLabel text={material} />
+        {slot.do_not_feed && <span title={slot.do_not_feed_note || 'Do not feed'} className="text-xs font-semibold text-[var(--brand-text-primary)] border border-[var(--brand-border)] bg-[var(--brand-card-bg)] rounded px-1 break-words">Do not feed</span>}
         {preset && <SlotLabel text={preset} singleLine />}
         {slot.remaining == null && <SlotLabel text="Remaining unknown" />}
       </div>
@@ -164,6 +178,19 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
           />
           <div className="relative bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-md p-4 w-full sm:w-80 shadow-xl border border-[var(--brand-border)] max-h-[80vh] flex flex-col">
             <div className="text-sm font-medium text-[var(--brand-text-primary)] mb-3">Slot {slot.slot_number} - Select Filament</div>
+            {admin && <div className="mb-3 space-y-2 text-sm text-[var(--brand-text-primary)]">
+              <label className="block">Feed restriction note
+                <input aria-label="Feed restriction note" maxLength={200} value={feedNote} onChange={e => setFeedNote(e.target.value)}
+                  className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-border)] rounded-md p-2" />
+              </label>
+              <Button variant="secondary" role="switch" aria-checked={!!slot.do_not_feed} aria-label="Do not feed" onClick={() => setConfirmFeed(true)}>{slot.do_not_feed ? 'Allow feeding' : 'Do not feed'}</Button>
+              {confirmFeed && <div role="group" aria-label="Confirm feed restriction" className="space-y-2">
+                <p>{slot.do_not_feed ? 'Confirm this slot is safe to feed before clearing its restriction.' : 'Prevent dispatch from using this slot?'}</p>
+                <Button onClick={changeFeed}>Confirm {slot.do_not_feed ? 'allow feeding' : 'do not feed'}</Button>
+                <Button variant="secondary" onClick={() => setConfirmFeed(false)}>Keep current restriction</Button>
+              </div>}
+            </div>}
+            {!slot.spool_change_pending && <>
             <div className="relative mb-3">
               <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
               <input
@@ -242,8 +269,9 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 <PageState kind="empty" className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</PageState>
               )}
             </div>
+            </>}
             <div className="flex gap-2 mt-4 shrink-0">
-              <button onClick={handleClear} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Clear</button>
+              <button disabled={slot.spool_change_pending} onClick={handleClear} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Clear</button>
               <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Cancel</button>
             </div>
           </div>

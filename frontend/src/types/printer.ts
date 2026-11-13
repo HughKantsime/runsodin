@@ -32,6 +32,8 @@ export type FilamentType =
 // ---- Filament Slots ----
 
 export interface FilamentSlot {
+  do_not_feed?: boolean;
+  do_not_feed_note?: string | null;
   id: number;
   printer_id: number;
   slot_number: number;
@@ -53,6 +55,8 @@ export interface FilamentSlot {
 }
 
 export interface FilamentSlotUpdate {
+  do_not_feed?: boolean;
+  do_not_feed_note?: string | null;
   filament_type?: FilamentType;
   color?: string;
   color_hex?: string;
@@ -68,6 +72,7 @@ export interface Printer {
   feeding_slot?: number | null;
   chamber_temp?: number | null;
   plate_clear_confirmed_at?: string | null;
+  ace_status?: string | null;
   current_print_display_name?: string | null;
   maintenance?: import('../api/printerMaintenance').MaintenanceState;
   id: number;

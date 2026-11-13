@@ -512,10 +512,18 @@ def ams_preview(
     if file_id:
         from core.model_preview_access import accessible_preview_file
         pf = accessible_preview_file(db, file_id, user)
-        if pf.filaments_json:
+        filaments_json = pf.filaments_json
+        if printer_id:
+            # A Kobra S1 previews a reprint as it does a schedule; other printers are unchanged.
+            from modules.printers.services import is_kobra_s1
+            target = db.execute(text("SELECT api_type,model,machine_type FROM printers WHERE id=:id"), {"id": printer_id}).mappings().first()
+            if target and is_kobra_s1(target):
+                from core.ams_mapping import preview
+                return preview(db, filaments_json, printer_id, user, stored_path=pf.stored_path)
+        if filaments_json:
             try:
                 from core.print_payload import source_filaments
-                filaments = source_filaments(pf.filaments_json)
+                filaments = source_filaments(filaments_json)
                 for f in filaments:
                     required.append({
                         "slot": f["slot"],
@@ -539,6 +547,7 @@ def ams_preview(
             for s in slots:
                 available.append({
                     "slot": s.slot_number,
+                    "do_not_feed": bool(s.do_not_feed),
                     "color": s.color or "",
                     "color_hex": s.color_hex or "",
                     "material": s.material_type or "",
@@ -572,7 +581,7 @@ def reprint_archive(
     from modules.printers.models import Printer, FilamentSlot
     from modules.models_library.models import Model
     from modules.jobs.models import Job
-    from core.print_payload import validate_plate, validate_mapping
+    from core.print_payload import validate_plate
     from core.registry import registry
 
     printer = db.query(Printer).filter(Printer.id == body.printer_id).first()
@@ -606,9 +615,8 @@ def reprint_archive(
         if expected and not hmac.compare_digest(str(expected).lower(), payload_hash):
             raise HTTPException(400, "Original print file contents changed")
     validate_plate(file_path, body.plate_index, printer.api_type)
-    slots = {slot.slot_number: getattr(slot.filament_type, "value", slot.filament_type) for slot in db.query(FilamentSlot).filter(
-        FilamentSlot.printer_id == printer.id).all()}
-    mapping = validate_mapping(body.ams_mapping, file["filaments_json"], slots, printer.api_type)
+    from core.ams_mapping import validate_for_printer
+    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user, stored_path=file['stored_path'])
     identity = user if isinstance(user, dict) else vars(user)
     new_job = Job(
         item_name=human_name(model_name=model.name, original_filename=file['original_filename']),

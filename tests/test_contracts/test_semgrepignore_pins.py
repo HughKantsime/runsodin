@@ -34,7 +34,7 @@ DEFAULT_PATTERNS = (
     "node_modules/", ".npm/", ".yarn/", ".venv/", "_opam/", "_build/", "_cargo/",
     "test/", "tests/", "testsuite/", "*_test.go",
 )
-BUNDLES = ("/backend/core/schema/preserved027/bundle/", "/backend/core/schema/preserved029/bundle/", "/backend/core/schema/preserved034/bundle/", "/backend/core/schema/preserved053/overlay/", "/backend/core/schema/preserved055/overlay/")
+BUNDLES = ("/backend/core/schema/preserved027/bundle/", "/backend/core/schema/preserved029/bundle/", "/backend/core/schema/preserved034/bundle/", "/backend/core/schema/preserved053/overlay/", "/backend/core/schema/preserved055/overlay/", "/backend/core/schema/preserved056/overlay/")
 
 
 def _sha(path):

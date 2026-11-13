@@ -5,11 +5,13 @@ bytes plus working-tree edits) under artifacts/application-certification/migrati
 mounted read-only. Owned containers/network are named certfixMig_* and always removed.
 """
 import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import uuid
 import os
@@ -51,6 +53,14 @@ def main():
             target.parent.mkdir(parents=True, exist_ok=True)
             if (root / relative).is_file():
                 shutil.copy2(root / relative, target)
+        # The released 056 sources are written from Git objects, independent of the bundle
+        # under proof and of the working tree, so the archive they produce is a real input.
+        receipt['released056_commit'] = json.loads((root / 'backend/core/schema/preserved056/manifest.json').read_text())['source_commit']
+        released056 = source / 'released056'
+        released056.mkdir(parents=True)
+        tree = subprocess.run(['git', 'archive', '--format=tar', receipt['released056_commit'], 'backend/core', 'backend/modules', 'backend/license_manager.py', 'backend/main.py'], capture_output=True, check=True, timeout=120).stdout
+        with tarfile.open(fileobj=io.BytesIO(tree)) as stream:
+            stream.extractall(released056, filter='data')
         receipt['source_sha256'] = hashlib.sha256(''.join(f'{f}\0{hashlib.sha256((source / f).read_bytes()).hexdigest()}\n' for f in files if (source / f).is_file()).encode()).hexdigest()
         receipt['runtime_image'] = run('docker', 'image', 'inspect', '--format', '{{.Id}}', RUNTIME_REF).strip()
         run('docker', 'network', 'create', '--internal', name)
@@ -85,7 +95,8 @@ def main():
         result = subprocess.run(['docker', 'run', '--rm', '--name', runtime, '--platform', RUNTIME_PLATFORM, '--network', name,
             '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
             '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
-            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_CURRENT_ONLY='+os.environ.get('POST027_CURRENT_ONLY','0'), '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', receipt['runtime_image'],
+            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_CURRENT_ONLY='+os.environ.get('POST027_CURRENT_ONLY','0'), '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres',
+            '-e', 'POST027_RELEASED056_SOURCE=/source/released056/backend', receipt['runtime_image'],
             '-c', 'exec runuser -u odin -- python /source/ops/database_parity/post027_restore_native.py'],
             text=True, capture_output=True, timeout=5400)
         log = STAGING / 'post027-restore-native-stdout.log'

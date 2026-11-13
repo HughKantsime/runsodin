@@ -1,0 +1,61 @@
+{
+  "available": [
+    {
+      "color": "PLA",
+      "color_hex": "00BB31",
+      "do_not_feed": false,
+      "material": "PLA",
+      "slot": 1,
+      "spool_id": null
+    },
+    {
+      "color": "PLA",
+      "color_hex": "6558B1",
+      "do_not_feed": false,
+      "material": "PLA",
+      "slot": 2,
+      "spool_id": null
+    },
+    {
+      "color": "PLA",
+      "color_hex": "EF60A3",
+      "do_not_feed": false,
+      "material": "PLA",
+      "slot": 3,
+      "spool_id": null
+    },
+    {
+      "color": "PLA",
+      "color_hex": "0047BB",
+      "do_not_feed": false,
+      "material": "PLA",
+      "slot": 4,
+      "spool_id": null
+    }
+  ],
+  "confirm_suggestions": true,
+  "required": [
+    {
+      "color": "#00AE42",
+      "material": "PLA",
+      "slot": 1
+    },
+    {
+      "color": "#FFFF00",
+      "material": "PLA",
+      "slot": 2
+    }
+  ],
+  "suggested_mapping": [
+    {
+      "confidence": "material_only",
+      "source_slot": 1,
+      "target_slot": 1
+    },
+    {
+      "confidence": "material_only",
+      "source_slot": 2,
+      "target_slot": 2
+    }
+  ]
+}

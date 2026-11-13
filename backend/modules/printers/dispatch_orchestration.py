@@ -111,6 +111,12 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
 def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,education_decision,target_handle):
     if deploy_window_refusal(job):
         return False, 'deploy_window: ' + deploy_freeze.MESSAGE
+    from modules.printers.dispatch_support import S1_BED_CLEAR_REQUIRED, is_kobra_s1
+    if is_kobra_s1(creds):
+        # Before any claim, smart plug or device contact. Admission still rechecks the binding.
+        from modules.printers.start_next import start_requested
+        if not start_requested(job):
+            return False, S1_BED_CLEAR_REQUIRED
     from core.auth import SECRET_KEY
     from core.db import engine
     from modules.printers import dispatch,smart_plug
@@ -191,7 +197,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                         transport_filename=(reservation['remote_filename'] if reservation else
                             f"odin-dispatch-{claim.token}{os.path.splitext(staged.path)[1].lower()}")
                         _require_target(target_handle)
-                        admission=admit(engine,token=claim.token,job=job,creds=creds,key=key,
+                        admission=admit(engine,token=claim.token,job=job,creds=creds,key=key,effective_mapping=options.get('ams_mapping'),
                             payload_sha256=staged.sha256,transport_filename=transport_filename,power_accepted=power.accepted,broker_connection=power.connection,
                             education_provider=provider,education_reservation=reservation)
                         if not admission.admitted:
@@ -208,8 +214,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             before_start = start_gate(engine, job['printer_id']) if creds['api_type'] == 'bambu' else None
                             if options.get('ams_mapping') is not None:
                                 from modules.printers.dispatch_ams_gate import create_ams_start_gate
+                                from modules.printers.dispatch_support import is_kobra_s1
+                                if is_kobra_s1(creds):
+                                    from modules.printers.s1_dispatch import create_start_gate as create_ams_start_gate
                                 before_start = create_ams_start_gate(engine,
-                                    admission_inputs=dict(token=claim.token,job=job,creds=creds,key=key,
+                                    admission_inputs=dict(token=claim.token,job=job,creds=creds,key=key,effective_mapping=options.get('ams_mapping'),
                                         payload_sha256=staged.sha256,transport_filename=transport_filename,
                                         power_accepted=power.accepted,broker_connection=power.connection,
                                         education_provider=provider,education_reservation=reservation),
@@ -220,6 +229,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 before_start = create_capability_gate(job=job, creds=creds,
                                     staged_path=staged.path, plate_number=options.get('plate_num', 1),
                                     target_handle=target_handle, previous=before_start)
+                            if is_kobra_s1(creds):
+                                options.s1_gate = before_start
                             # License admission is last: it runs after every other
                             # check, immediately before the command (B2a; no-op while off).
                             from modules.printers.license_start_gate import create_license_gate

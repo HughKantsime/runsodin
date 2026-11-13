@@ -1,0 +1,11 @@
+{
+  "type": "info",
+  "action": "report",
+  "msgid": "fixture-message",
+  "timestamp": 0,
+  "data": {
+    "state": "free",
+    "print_speed_mode": 2,
+    "fan_speed_pct": 0
+  }
+}
