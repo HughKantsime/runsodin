@@ -23,6 +23,41 @@ non-retained `FAILED`, `PAUSE` or `IDLE` corroboration from the same or a follow
 report. Retained HMS is display-only for job outcomes; common/info notices never
 fail a job. There is no hand-maintained stopping-code list.
 
+## Printer-camera detections
+
+One deliberate exception to "no hand-maintained code list": the reviewed table
+`PRINTER_DETECTION_CODES` in `backend/modules/vision/printer_native.py`. Printers
+with built-in AI monitoring report what their own camera (or first-layer scanner)
+saw as common notices or `print_error` values, which never alert under the rules
+above. The vendor lists carry no machine-readable class for them, so the table maps
+each such code to a kind: `spaghetti`, `first_layer`, `nozzle_clump`, `air_print`,
+`shift_collapse`, `chute_pileup`. Camera-health, build-plate-marker and
+clumping-sensor codes are listed beside it as explicitly not detections. Contract
+tests check every table code against the bundled lists by keyword and fail when a
+refreshed list adds a sentence on these subjects that has not been classified, so
+review the table with each release refresh.
+
+When a table code becomes active (an HMS item appears, or `print_error` takes the
+value) in a live, non-retained report, O.D.I.N. records one detection
+(`vision_detections`, confidence 1.0, metadata `{"source": "printer", "code",
+"text"}`, linked to the running print when there is one) and raises the alert a
+Vigil detection raises, to the same recipients. The persistent active set lives in
+`system_config` (`printer.native_detection_codes.<printer id>`): a reconnect or
+restart does not repeat a detection, a clear followed by recurrence is new, and a
+second code of a kind that is already active is the same detection. Omitted or null
+`hms` / `print_error` fields change nothing; an empty array or `0` clears.
+
+This path only records and alerts. It never pauses, stops or fails a print (the
+printer applies its own setting) and the job-outcome rules above are unchanged.
+Vigil's auto-pause never claims a printer-source detection. Education prints are
+recorded but not alerted, as for HMS alerts. If the printer has a camera in
+O.D.I.N., one snapshot is attached off the monitor thread (3 second limit) and the
+detection is `pending`; otherwise it is `informational` and never waits in the
+review queue. No training frame is written. Alert types reuse Vigil's three
+(`spaghetti_detected` for spaghetti, clumping, air printing and the waste chute,
+the last as a warning; `first_layer_issue`; `detachment_detected` for shift or
+collapse), so existing alert preferences apply.
+
 ## Release refresh
 
 Run from the repository root using Python 3 (standard library only):

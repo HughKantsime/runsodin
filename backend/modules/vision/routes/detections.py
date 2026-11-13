@@ -24,7 +24,7 @@ from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
 from modules.vision.models import VisionDetection, VisionSettings, VisionModel
-from modules.vision import training_capture
+from modules.vision import training_capture, printer_native
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -42,6 +42,8 @@ def _detection_to_dict(det: VisionDetection, printer_name=None, printer_nickname
         "frame_path": det.frame_path,
         "bbox_json": det.bbox_json,
         "metadata_json": det.metadata_json,
+        # 'printer' = reported by the printer's own camera; 'vigil' = ODIN's detector.
+        "source": printer_native.source_of(det.metadata_json),
         "reviewed_by": det.reviewed_by,
         "reviewed_at": det.reviewed_at.isoformat() if det.reviewed_at else None,
         "created_at": det.created_at.isoformat() if det.created_at else None,
@@ -80,6 +82,7 @@ async def list_vision_detections(
     printer_id: Optional[int] = None,
     detection_type: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
+    source: Optional[str] = Query(None, pattern="^(printer|vigil)$"),
     limit: int = Query(50, le=200),
     offset: int = 0,
     current_user: dict = Depends(require_role("viewer",scope="read")),
@@ -106,6 +109,11 @@ async def list_vision_detections(
     if detection_type:
         query = query.filter(VisionDetection.detection_type == detection_type)
         count_query = count_query.filter(VisionDetection.detection_type == detection_type)
+    if source:
+        native = printer_native.source_clause(VisionDetection.metadata_json)
+        source_filter = native if source == printer_native.SOURCE else or_(VisionDetection.metadata_json.is_(None), ~native)
+        query = query.filter(source_filter)
+        count_query = count_query.filter(source_filter)
     if status_filter:
         query = query.filter(VisionDetection.status == status_filter)
         count_query = count_query.filter(VisionDetection.status == status_filter)
@@ -516,7 +524,7 @@ async def get_vision_stats(
     """Legacy records have unknown historical ownership."""
     from modules.vision.training_service import maintenance
     if not maintenance(current_user):
-        return {"days":days,"by_type":{},"by_status":{},"by_printer":[],"accuracy_pct":None,"total_reviewed":0}
+        return {"days":days,"by_type":{},"by_status":{},"by_source":{},"by_printer":[],"accuracy_pct":None,"total_reviewed":0}
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # By type
@@ -536,6 +544,24 @@ async def get_vision_stats(
         .all()
     )
     by_status = {s: cnt for s, cnt in status_rows}
+
+    # By source and review outcome (groundwork for the per-install scorecard).
+    native_rows = (
+        db.query(VisionDetection.status, sa_func.count(VisionDetection.id))
+        .filter(VisionDetection.created_at > cutoff, _not_training(),
+                printer_native.source_clause(VisionDetection.metadata_json))
+        .group_by(VisionDetection.status)
+        .all()
+    )
+    native_status = {s: cnt for s, cnt in native_rows}
+
+    def _outcomes(counts):
+        return {"total": sum(counts.values()), "confirmed": counts.get("confirmed", 0),
+                "dismissed": counts.get("dismissed", 0)}
+    by_source = {
+        printer_native.SOURCE: _outcomes(native_status),
+        "vigil": _outcomes({s: cnt - native_status.get(s, 0) for s, cnt in by_status.items()}),
+    }
 
     # By printer (top 10)
     printer_rows = (
@@ -577,6 +603,7 @@ async def get_vision_stats(
         "days": days,
         "by_type": by_type,
         "by_status": by_status,
+        "by_source": by_source,
         "by_printer": by_printer,
         "accuracy_pct": accuracy,
         "total_reviewed": total_reviewed,

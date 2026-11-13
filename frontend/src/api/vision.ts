@@ -16,6 +16,8 @@ export interface VisionDetection {
   frame_path: string | null;
   bbox_json: string | null;
   metadata_json: string | null;
+  /** 'printer' = reported by the printer's own camera (metadata_json carries code and text); 'vigil' = ODIN's detector. */
+  source?: 'printer' | 'vigil';
   reviewed_by: number | null;
   reviewed_at: string | null;
   created_at: string;
@@ -58,6 +60,8 @@ export interface VisionModel {
 export interface VisionStats {
   by_type: Record<string, number>;
   days: number;
+  /** Counts per source with review outcomes (scorecard groundwork). */
+  by_source?: Record<string, { total: number; confirmed: number; dismissed: number }>;
   accuracy_pct: number | null;
   total_reviewed: number;
   [key: string]: unknown;
@@ -67,6 +71,7 @@ export interface VisionDetectionListParams {
   printer_id?: number | string;
   detection_type?: string;
   status?: string;
+  source?: 'printer' | 'vigil' | string;
   limit?: number;
   offset?: number;
   [key: string]: unknown;

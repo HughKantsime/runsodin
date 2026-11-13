@@ -23,6 +23,8 @@ from core.printer_utils import is_idle_state, is_printing_state
 from core.db_compat import execute_insert_returning_id, sql
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision import frame_storage, training_capture
+# The printer's own detections are not Vigil's: a Vigil pause never claims one.
+from modules.vision.printer_native import NOT_PRINTER_SOURCE_SQL
 
 try:
     from core.ws_hub import push_event as ws_push
@@ -733,6 +735,7 @@ class PrinterVisionThread(threading.Thread):
                         text("""UPDATE vision_detections SET status = 'auto_paused'
                         WHERE id = (SELECT id FROM vision_detections
                             WHERE printer_id = :pid AND status = 'pending'
+                              AND """ + NOT_PRINTER_SOURCE_SQL + """
                             ORDER BY id DESC LIMIT 1)"""),
                         {"pid": self.printer_id}
                     )

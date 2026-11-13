@@ -2,7 +2,7 @@ import CheckTarget from '../../components/ui/CheckTarget'
 import PageState from '../../components/ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { auth, vision, printers } from '../../api'
@@ -21,6 +21,11 @@ const TYPE_META = {
   first_layer: { label: 'First Layer', color: 'text-amber-400', bg: 'bg-amber-500/20' },
   detachment: { label: 'Detachment', color: 'text-orange-400', bg: 'bg-orange-500/20' },
   build_plate_empty: { label: 'Plate Ready', color: 'text-green-400', bg: 'bg-green-500/20' },
+  // Reported by a Bambu printer's own camera (source "printer").
+  nozzle_clump: { label: 'Nozzle Clumping', color: 'text-red-400', bg: 'bg-red-500/20' },
+  air_print: { label: 'Air Printing', color: 'text-red-400', bg: 'bg-red-500/20' },
+  shift_collapse: { label: 'Shift or Collapse', color: 'text-orange-400', bg: 'bg-orange-500/20' },
+  chute_pileup: { label: 'Waste Chute Full', color: 'text-amber-400', bg: 'bg-amber-500/20' },
 }
 
 const STATUS_META = {
@@ -28,6 +33,37 @@ const STATUS_META = {
   confirmed: { label: 'Confirmed', color: 'text-red-400', bg: 'bg-red-500/15' },
   dismissed: { label: 'Dismissed', color: 'text-[var(--brand-text-muted)]', bg: 'bg-[var(--brand-input-bg)]' },
   auto_paused: { label: 'Auto-Paused', color: 'text-purple-400', bg: 'bg-purple-500/15' },
+  // Recorded without a picture (the printer has no camera in ODIN): never queued for review.
+  informational: { label: 'Informational', color: 'text-sky-400', bg: 'bg-sky-500/15' },
+}
+
+const SOURCE_LABEL = { printer: 'Printer', vigil: 'Vigil' }
+const sourceOf = (det): 'printer' | 'vigil' => det.source === 'printer' ? 'printer' : 'vigil'
+
+/** The code and the printer's own sentence, for a detection its camera reported. */
+function printerReport(det) {
+  if (sourceOf(det) !== 'printer' || typeof det.metadata_json !== 'string') return null
+  try {
+    const meta = JSON.parse(det.metadata_json)
+    if (!meta || typeof meta !== 'object') return null
+    return { code: typeof meta.code === 'string' ? meta.code : '', text: typeof meta.text === 'string' ? meta.text : '' }
+  } catch { return null }
+}
+
+function SourceMarker({ det }) {
+  const source = sourceOf(det)
+  return <span data-source={source} title={source === 'printer' ? "Reported by the printer's own camera" : 'Detected by Vigil AI'}
+    className="shrink-0 px-1.5 py-0.5 rounded-md text-xs font-medium border border-[var(--brand-card-border)] text-[var(--brand-text-secondary)]">
+    {SOURCE_LABEL[source]}
+  </span>
+}
+
+function PrinterReport({ det }) {
+  const report = printerReport(det)
+  if (!report) return null
+  return <p data-printer-report className="mt-1 text-xs text-[var(--brand-text-muted)] break-words">
+    {report.text} {report.code && <span className="font-mono whitespace-nowrap">{report.code}</span>}
+  </p>
 }
 
 function StatBar({ stats }: { stats: Awaited<ReturnType<typeof vision.getStats>> }) {
@@ -81,16 +117,17 @@ function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
         {/* Details */}
         <div className="p-4">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <SourceMarker det={detection} />
               <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${TYPE_META[detection.detection_type]?.bg} ${TYPE_META[detection.detection_type]?.color}`}>
                 {TYPE_META[detection.detection_type]?.label || detection.detection_type}
               </span>
               <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${STATUS_META[detection.status]?.bg} ${STATUS_META[detection.status]?.color}`}>
                 {STATUS_META[detection.status]?.label || detection.status}
               </span>
-              <span className="text-sm font-mono text-[var(--brand-text-secondary)]">
+              {sourceOf(detection) === 'vigil' && <span className="text-sm font-mono text-[var(--brand-text-secondary)]">
                 {detection.confidence != null ? (detection.confidence * 100).toFixed(0) + '%' : '-'}
-              </span>
+              </span>}
             </div>
             <button onClick={onClose} aria-label="Close detection details" className="text-[var(--brand-text-muted)] hover:text-white">
               <X size={20} aria-hidden="true" />
@@ -101,10 +138,11 @@ function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
             <span className="font-medium text-[var(--brand-text-primary)]">{detection.printer_nickname || detection.printer_name}</span>
             <span className="mx-2">&middot;</span>
             {formatDate(detection.created_at)}
+            <PrinterReport det={detection} />
           </div>
 
           {/* Review actions */}
-          {canReview && detection.status === 'pending' && (
+          {canReview && (detection.status === 'pending' || detection.status === 'informational') && (
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => onReview(detection.id, 'confirmed')}
@@ -168,7 +206,10 @@ export default function Detections() {
   const [dataset, setDataset] = useState<{ audience: string; initialId?: number } | null>(null)
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const [printerFilter, setPrinterFilter] = useState('')
+  // The printer page links here with ?source=printer&printer=<id>.
+  const linked = new URLSearchParams(useLocation().search)
+  const [printerFilter, setPrinterFilter] = useState(() => /^\d+$/.test(linked.get('printer') || '') ? linked.get('printer') : '')
+  const [sourceFilter, setSourceFilter] = useState(() => ['printer', 'vigil'].includes(linked.get('source') || '') ? linked.get('source') : '')
   const [selectedDetection, setSelectedDetection] = useState(null)
   const [page, setPage] = useState(0)
   const LIMIT = 30
@@ -184,10 +225,11 @@ export default function Detections() {
   if (typeFilter) params.detection_type = typeFilter
   if (statusFilter) params.status = statusFilter
   if (printerFilter) params.printer_id = printerFilter
+  if (sourceFilter) params.source = sourceFilter
 
   const { data, isLoading } = useQuery({
     enabled: !!audience,
-    queryKey: ['vision-detections', audience, typeFilter, statusFilter, printerFilter, page],
+    queryKey: ['vision-detections', audience, typeFilter, statusFilter, printerFilter, sourceFilter, page],
     queryFn: () => vision.getDetections(params),
     refetchInterval: 15000,
   })
@@ -312,6 +354,10 @@ export default function Detections() {
           <option value="first_layer">First Layer</option>
           <option value="detachment">Detachment</option>
           <option value="build_plate_empty">Plate ready</option>
+          <option value="nozzle_clump">Nozzle clumping</option>
+          <option value="air_print">Air printing</option>
+          <option value="shift_collapse">Shift or collapse</option>
+          <option value="chute_pileup">Waste chute full</option>
         </select>
 
         <select aria-label="Filter by status"
@@ -324,6 +370,7 @@ export default function Detections() {
           <option value="confirmed">Confirmed</option>
           <option value="dismissed">Dismissed</option>
           <option value="auto_paused">Auto-Paused</option>
+          <option value="informational">Informational</option>
         </select>
 
         <select aria-label="Filter by printer"
@@ -335,6 +382,16 @@ export default function Detections() {
           {(printersData || []).map(p => (
             <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
           ))}
+        </select>
+
+        <select aria-label="Filter by source"
+          value={sourceFilter}
+          onChange={e => { setSourceFilter(e.target.value); setPage(0) }}
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"
+        >
+          <option value="">All Sources</option>
+          <option value="printer">Printer</option>
+          <option value="vigil">Vigil</option>
         </select>
 
         <span className="text-xs text-[var(--brand-text-muted)] ml-auto">
@@ -401,9 +458,9 @@ export default function Detections() {
                     </div>
                   )}
                   {/* Confidence badge */}
-                  <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded-md text-xs font-mono">
+                  {sourceOf(det) === 'vigil' && <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded-md text-xs font-mono">
                     {det.confidence != null ? (det.confidence * 100).toFixed(0) + '%' : '-'}
-                  </div>
+                  </div>}
                   {/* Checkbox for bulk select */}
                   {canDo('printers.edit') && (
                     <div className="absolute top-2 left-2">
@@ -421,9 +478,12 @@ export default function Detections() {
 
                 {/* Info */}
                 <div className="p-2.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`text-xs font-medium ${TYPE_META[det.detection_type]?.color}`}>
-                      {TYPE_META[det.detection_type]?.label || det.detection_type}
+                  <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <SourceMarker det={det} />
+                      <span className={`text-xs font-medium ${TYPE_META[det.detection_type]?.color}`}>
+                        {TYPE_META[det.detection_type]?.label || det.detection_type}
+                      </span>
                     </span>
                     <span className={`px-1.5 py-0.5 rounded-md text-xs font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
                       {STATUS_META[det.status]?.label || det.status}
@@ -439,6 +499,7 @@ export default function Detections() {
                     </Link>
                     <span>{formatDate(det.created_at)}</span>
                   </div>
+                  <PrinterReport det={det} />
                   {/* Inline quick actions for pending items */}
                   {det.status === 'pending' && canDo('printers.edit') && (
                     <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-[var(--brand-card-border)]">

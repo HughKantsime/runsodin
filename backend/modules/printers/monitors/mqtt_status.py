@@ -166,6 +166,11 @@ def handle_status(self, status, generation, runtime):
         if self._current_job_id:
             self._pending_running_state = None
 
+        # The printer's own camera reports (docs/bambu-hms.md): recorded and alerted
+        # only, before a terminal packet ends the print they belong to. Never raises.
+        from modules.vision.printer_native import observe as observe_printer_detection
+        observe_printer_detection(self, raw, status)
+
         # Capture every fresh tray delta, including packets between heartbeats.
         # Cached AMS state can belong to a prior print, so never use it here.
         if self._current_job_id:
