@@ -9,6 +9,7 @@ ROUTES = [
     "system.routes_license_selection",
     "system.routes_audit_integrity",
     "system.routes_config",
+    "system.routes_temperature_alerts",
     "system.routes_setup",
     "system.routes_backup",
     "system.routes_settings",
