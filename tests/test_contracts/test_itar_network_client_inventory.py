@@ -41,6 +41,7 @@ REVIEWED = {
     "modules/printers/adapters/anycubic_lan.py": "itar", "modules/printers/adapters/bambu.py": "itar",
     "modules/printers/adapters/elegoo.py": "itar", "modules/printers/adapters/moonraker.py": "itar",
     "modules/printers/adapters/prusalink.py": "itar",
+    "modules/printers/adapters/octoprint.py": "itar", "modules/printers/adapters/ultimaker.py": "itar",
     "modules/printers/telemetry/bambu/adapter.py": "itar", "modules/printers/telemetry/bambu/ams_acquisition_session.py": "itar",
     "modules/printers/telemetry/bambu/commands.py": "itar", "modules/printers/telemetry/bambu/ftp_upload.py": "itar",
     # ---- local: go2rtc on this machine, a registered printer, or types only ----
