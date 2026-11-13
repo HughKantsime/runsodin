@@ -239,8 +239,10 @@ def printer_checks(printer,transfer=False):
             target=('['+host+']') if ':' in host else host
             target+=(':'+str(port or (7125 if protocol=='moonraker' else 80)))
             path='/printer/info' if protocol=='moonraker' else '/api/v1/status'
-            with httpx.Client(timeout=5,trust_env=False,follow_redirects=False) as client:
-                response=client.get('http://'+target+path,headers=headers,auth=auth)
+            # Through the device destination policy, pinned to the validated address: the saved
+            # key must never go to a host that resolves somewhere the policy refuses.
+            from modules.printers.route_utils import pinned_device_get
+            response=pinned_device_get(httpx,'http://'+target+path,timeout=5,headers=headers,auth=auth)
             checks.append(check('http_status','pass' if response.status_code==200 else 'fail',
                                 'Printer status endpoint responded.' if response.status_code==200 else 'Printer status endpoint rejected the request.',
                                 '' if response.status_code==200 else 'Check printer API configuration and saved API key.',http_status=response.status_code))
