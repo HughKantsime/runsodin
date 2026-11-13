@@ -24,11 +24,18 @@ function sendNotification(title, body) {
  * - job_started / job_completed: invalidates job queries
  * - alert_new: invalidates alert queries
  */
+/** Wait before asking for a live-updates token again: 5 s, 10 s, 20 s, 40 s, then 60 s. */
+export function tokenRetryDelayMs(failures: number): number {
+  return Math.min(60000, 5000 * 2 ** Math.max(0, Math.min(failures, 10)))
+}
+
 export default function useWebSocket() {
   const queryClient = useQueryClient()
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const lastConnectAttempt = useRef(0)
+  const tokenFailures = useRef(0)
+  const stopped = useRef(false)
 
   const connect = useCallback(async () => {
     // Don't reconnect too fast
@@ -39,17 +46,33 @@ export default function useWebSocket() {
     // Fetch a short-lived WS token (WebSocket connections can't send cookies/headers).
     // A missing token fails closed; the backend never accepts an anonymous socket.
     let wsToken = ''
+    let signedOut = false
     try {
       const res = await fetch('/api/auth/ws-token', { method: 'POST', credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         wsToken = data.token || ''
+      } else if (res.status === 401 || res.status === 403) {
+        signedOut = true
       }
     } catch {}
+    if (stopped.current) return
 
     // Build WebSocket URL from current location
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    if (!wsToken) return
+    if (!wsToken) {
+      // No token (rate limited, server restarting, network blip): try again later, backing
+      // off from 5 s to 60 s, so the page gets its live updates back without a reload.
+      // A refused session (401/403) is not retried: the app is about to show the sign-in page.
+      if (!signedOut) {
+        const delay = tokenRetryDelayMs(tokenFailures.current)
+        tokenFailures.current += 1
+        if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+        reconnectTimer.current = setTimeout(connect, delay)
+      }
+      return
+    }
+    tokenFailures.current = 0
     const tokenParam = `?token=${encodeURIComponent(wsToken)}`
     const url = `${proto}//${window.location.host}/ws${tokenParam}`
 
@@ -183,8 +206,10 @@ export default function useWebSocket() {
   }, [])
 
   useEffect(() => {
+    stopped.current = false
     connect()
     return () => {
+      stopped.current = true
       if (wsRef.current) {
         wsRef.current.close()
         wsRef.current = null
