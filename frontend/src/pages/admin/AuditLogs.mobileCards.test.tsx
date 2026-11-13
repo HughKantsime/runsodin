@@ -49,3 +49,12 @@ test('640 px and above keeps the table', async () => {
   expect(screen.getByRole('table')).toBeInTheDocument()
   expect(screen.queryAllByTestId('row-card')).toHaveLength(0)
 })
+
+test('phone: the card shows the server time as UTC, the same instant the table shows', async () => {
+  // Server times carry no zone and are UTC. Read as local time they showed hours off on phones only.
+  viewport(true)
+  show()
+  const card = (await screen.findAllByTestId('row-card'))[0]
+  const expected = new Date('2026-10-13T12:00:00Z').toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  expect(within(card).getByText(expected)).toBeInTheDocument()
+})
