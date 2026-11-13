@@ -17,6 +17,14 @@ For an unlinked print with such a detection, pause_cause is null and the reason 
 Even a recent detection cannot prove that no resume has intervened. Scheduled
 prints retain the existing timeline-based classification. No history is inferred
 from elapsed time or the current layer alone.
+
+Integration 0.3.0 (spec: .claude/specs/ha-integration-next.md, items A-D) adds, per printer,
+``last_completed_at``, ``finished_at``, ``plate_clear_confirmed_at`` and ``slots``, and on the
+next job ``queued_after``, ``short_spools`` and ``ready``. The times and the count pass
+``visible_clauses`` like everything else; a time that belongs to a job the caller cannot
+list is null. Spool amounts follow the filament-check route: withheld on a printer the
+caller reaches only because it is shared. The filament check runs once per printer that has
+a next job (as the AMS comparison does); everything else is a fixed number of queries.
 """
 import json
 import os
@@ -245,20 +253,174 @@ def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
 # ---------------------------------------------------------------------------
 
 def _pick(db, actor, scope, controlled, states, printer_ids):
-    """First visible queued job per printer, and the first MAX_UNASSIGNED unassigned ones."""
+    """First visible queued job per printer, and the first MAX_UNASSIGNED unassigned ones.
+
+    Each row also carries how many visible queued jobs its printer has in all (the window
+    counts only rows that passed ``visible_clauses``), which is where ``queued_after`` comes from.
+    """
     clauses, params = visible_clauses(actor, scope, controlled, "j")
     params.update({"states": list(states), "pids": list(printer_ids) or [-1], "cap": MAX_UNASSIGNED})
     where = " AND ".join(["j.status IN :states"] + clauses)
-    sql = ("SELECT id, printer_id FROM ("
+    sql = ("SELECT id, printer_id, total FROM ("
            "SELECT j.id AS id, j.printer_id AS printer_id, ROW_NUMBER() OVER (PARTITION BY j.printer_id "
            "ORDER BY (j.scheduled_start IS NULL), j.scheduled_start, COALESCE(j.priority, 3), "
-           "(j.queue_position IS NULL), j.queue_position, j.id) AS rn "
+           "(j.queue_position IS NULL), j.queue_position, j.id) AS rn, "
+           "COUNT(*) OVER (PARTITION BY j.printer_id) AS total "
            "FROM jobs j WHERE " + where + " AND (j.printer_id IN :pids OR j.printer_id IS NULL)"
            ") ranked WHERE ranked.rn <= CASE WHEN ranked.printer_id IS NULL THEN :cap ELSE 1 END "
            "ORDER BY ranked.rn, ranked.id")
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
     query = text(sql).bindparams(bindparam("states", expanding=True), bindparam("pids", expanding=True))
-    return [(row[0], row[1]) for row in db.execute(query, params).all()]
+    return [(row[0], row[1], int(row[2] or 0)) for row in db.execute(query, params).all()]
+
+
+def _last_prints(db, actor, scope, controlled, printer_ids):
+    """{printer_id: {"completed": instant, "ended": instant, "resolved": instant}} from print_jobs.
+
+    A printer runs one print at a time, so its highest-numbered ended row is its last print
+    (stored end times mix naive UTC and ISO text and do not sort as text). ``completed`` is the
+    end of the last print that completed, ``ended`` the end of the last print whatever its
+    outcome. Both are None when that print belongs to a job the caller cannot list (the
+    ``day_totals`` rule: a print with no job is the printer's own). ``resolved`` is the same
+    completion time for the status rule only and is never sent.
+    """
+    if not printer_ids:
+        return {}
+    latest = db.execute(text(
+        "SELECT p.printer_id, MAX(CASE WHEN p.status = 'completed' THEN p.id END), MAX(p.id) FROM print_jobs p "
+        "WHERE p.printer_id IN :pids AND p.status IN ('completed', 'failed', 'cancelled') AND p.ended_at IS NOT NULL "
+        "GROUP BY p.printer_id").bindparams(bindparam("pids", expanding=True)), {"pids": list(printer_ids)}).all()
+    wanted = {value for _, done, ended in latest for value in (done, ended) if value is not None}
+    if not wanted:
+        return {}
+    clauses, params = visible_clauses(actor, scope, controlled)
+    params["ids"] = list(wanted)
+    sql = ("SELECT p.id, p.ended_at, CASE WHEN p.scheduled_job_id IS NULL OR p.scheduled_job_id IN "
+           "(SELECT jobs.id FROM jobs WHERE " + " AND ".join(clauses) + ") THEN 1 ELSE 0 END "
+           "FROM print_jobs p WHERE p.id IN :ids")
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
+    rows = {row[0]: (_instant(row[1]), bool(row[2]))
+            for row in db.execute(text(sql).bindparams(bindparam("ids", expanding=True)), params).all()}
+    found = {}
+    for printer_id, done, ended in latest:
+        done_at, done_visible = rows.get(done, (None, False))
+        ended_at, ended_visible = rows.get(ended, (None, False))
+        found[printer_id] = {"completed": done_at if done_visible else None,
+                             "ended": ended_at if ended_visible else None, "resolved": done_at}
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Spool slots (what is loaded) and the pre-dispatch filament check
+# ---------------------------------------------------------------------------
+
+# The names the web page shows on a slot (frontend/src/utils/shared.ts: materialLabel,
+# slotColorName). Kept word for word so Home Assistant and the Printers page agree.
+_MATERIAL_NAMES = {
+    "PLA_SUPPORT": "PLA Support", "PETG_SUPPORT": "PETG Support", "PA_SUPPORT": "PA Support", "SUPPORT": "Support",
+    "PLA_CF": "PLA-CF", "PETG_CF": "PETG-CF", "PA_CF": "PA-CF", "PA_GF": "PA-GF", "PET_CF": "PET-CF",
+    "ABS_GF": "ABS-GF", "ASA_CF": "ASA-CF", "PLA_AERO": "PLA Aero", "ASA_AERO": "ASA Aero", "PLA_SILK": "PLA Silk",
+    "PLA_MATTE": "PLA Matte", "TPU_95A": "TPU 95A", "OTHER": "Other",
+}
+_FILAMENT_BRANDS = ("Bambu Lab", "Bambu", "Polymaker", "Hatchbox", "eSun", "Prusament", "Overture", "Elegoo",
+                    "Sunlu", "Anycubic", "Creality", "Generic")
+
+
+def material_label(value):
+    """A material code as people write it ("PLA_SUPPORT" is "PLA Support"); None for an empty slot."""
+    code = _material(value)
+    code = code.strip() if code else ""
+    if not code:
+        return None
+    if code.upper() in _MATERIAL_NAMES:
+        return _MATERIAL_NAMES[code.upper()]
+    return re.sub(r"_(CF|GF)$", lambda found: "-" + found.group(1).upper(), code, flags=re.IGNORECASE).replace("_", " ")
+
+
+def slot_color_name(value):
+    """The colour or product name on a slot without "preset:", the brand or a bare hex code; None when none."""
+    name = re.sub(r"^preset:\s*", "", str(value or "").strip(), flags=re.IGNORECASE)
+    if not name or re.fullmatch(r"#?[0-9a-fA-F]{6,8}", name):
+        return None
+    for brand in _FILAMENT_BRANDS:
+        if name.lower().startswith(brand.lower() + " "):
+            name = name[len(brand) + 1:].strip()
+            break
+    return name or None
+
+
+def _color_hex(value):
+    found = re.fullmatch(r"#?([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?", str(value or "").strip())
+    return "#" + found.group(1).upper() if found else None
+
+
+def _amount(value):
+    """A stored weight or percentage as a number; None (never 0) when it is not a finite number."""
+    if type(value) not in (int, float) or value != value or value in (float("inf"), float("-inf")) or value < 0:
+        return None
+    return round(float(value), 1)
+
+
+def printer_slots(db, printers, actor):
+    """{printer_id: [slot, ...]}: what each printer has loaded, as the Printers page shows it.
+
+    Values come from the Printers page's own slot schema (FilamentSlotResponse), so the
+    colour name, the remaining percentage and the remaining grams follow its rules. On a
+    printer the caller reaches only because it is shared, the owner's remaining amounts are
+    withheld: the rule of the filament-check route (``hide_spool_details``).
+    """
+    if not printers:
+        return {}
+    from sqlalchemy.orm import joinedload
+    from core.rbac import check_org_access
+    from modules.printers.models import FilamentSlot
+    from modules.printers.schemas import FilamentSlotResponse
+    spool = FilamentSlot.assigned_spool.property.mapper.class_
+    owners = {printer.id: check_org_access(actor, printer.org_id) for printer in printers}
+    rows = (db.query(FilamentSlot)
+            .options(joinedload(FilamentSlot.assigned_spool).joinedload(spool.filament))
+            .filter(FilamentSlot.printer_id.in_(list(owners)))
+            .order_by(FilamentSlot.printer_id, FilamentSlot.slot_number).all())
+    found = {}
+    for row in rows:
+        try:
+            shown = FilamentSlotResponse.model_validate(row)
+        except Exception:
+            continue  # a slot row the Printers page cannot show either
+        owner = owners.get(row.printer_id, False)
+        found.setdefault(row.printer_id, []).append({
+            "slot": shown.slot_number,
+            "color_hex": _color_hex(shown.color_hex),
+            "name": slot_color_name(shown.color),
+            "material": material_label(shown.filament_type),
+            "remaining_percent": _amount(shown.remaining) if owner else None,
+            "remaining_g": _amount(shown.remaining_weight) if owner else None,
+        })
+    return found
+
+
+def short_spools(db, job_id, printer, actor):
+    """[{slot, needed_g, remaining_g}] for the spools the pre-dispatch filament check finds short.
+
+    The check is the one the Jobs page and dispatch use (``filament_check.check_job``), with
+    that route's rule for a printer reached only because it is shared (no remaining weight).
+    An empty list means every filament was judged and has enough. None means unknown: the
+    check is off, could not run, or could not judge a filament and found none short.
+    """
+    from core.rbac import check_org_access
+    from modules.printers import filament_check
+    try:
+        with db.begin_nested():  # a failed read must not poison the request's transaction
+            result = filament_check.check_job(db.connection(), job_id, printer.id)
+        if not check_org_access(actor, printer.org_id):
+            result = filament_check.hide_spool_details(result)
+        if result.get("overall") not in ("short", "enough"):
+            return None
+        return [{"slot": item.get("slot"), "needed_g": _amount(item.get("needed_g")),
+                 "remaining_g": _amount(item.get("remaining_g"))}
+                for item in result.get("slots", []) if item.get("status") == "short"]
+    except Exception:
+        return None
 
 
 def _details(db, job_ids):
@@ -404,17 +566,29 @@ class Floor:
                             for p in enrich_maintenance(db, list(printers))}
         self.today = day_totals(db, actor, scope, controlled, ids, now, zone or server_zone())
         picked = _pick(db, actor, scope, controlled, states, ids)
-        rows = _details(db, [job_id for job_id, _ in picked]) if picked else {}
+        rows = _details(db, [job_id for job_id, _, _ in picked]) if picked else {}
         self.names = display_names(db, "job", list(rows), actor) if rows else {}
-        self.next_rows, unassigned = {}, []
-        for job_id, printer_id in picked:
+        self.next_rows, self.queued, unassigned = {}, {}, []
+        for job_id, printer_id, total in picked:
             if job_id not in rows:
                 continue
             if printer_id is None:
                 unassigned.append(rows[job_id])
-            else:
-                self.next_rows.setdefault(printer_id, rows[job_id])
+            elif printer_id not in self.next_rows:
+                self.next_rows[printer_id] = rows[job_id]
+                self.queued[printer_id] = total  # visible queued jobs on this printer, the next one included
         self.unassigned = unassigned
+        # Last print per printer, the plate-clear confirmation (the Printers page's own rule plus
+        # this feed's job visibility) and the loaded spools.
+        self.last_prints = _last_prints(db, actor, scope, controlled, ids)
+        self.running = set(running)
+        from core.printer_display_facts import plate_clear_times
+        job_clauses, job_params = visible_clauses(actor, scope, controlled, "j")
+        self.plate_cleared = plate_clear_times(db, ids, actor, job_clauses, job_params) if ids else {}
+        self.slots = printer_slots(db, printers, actor)
+        by_id = {printer.id: printer for printer in printers}
+        self.short = {row["id"]: short_spools(db, row["id"], by_id[printer_id], actor)
+                      for printer_id, row in self.next_rows.items()}
         self.refusals = _refusals(db, [row["id"] for row in self.next_rows.values()]) if self.next_rows else {}
         self.loaded = {}
         if self.next_rows:
@@ -536,12 +710,29 @@ class Floor:
 
     # -- per printer --------------------------------------------------------
 
+    def completed_at(self, printer_id):
+        """End of the printer's last completed print, for the unresolved-error rule only."""
+        return (self.last_prints.get(printer_id) or {}).get("resolved")
+
     def for_printer(self, printer, status, running, names_allowed, redact, error_unresolved):
         row = self.next_rows.get(printer.id)
         next_job, mismatch = (self._describe(row, names_allowed, printer.api_type) if row is not None else (None, None))
         bench = None
         care = self.maintenance.get(printer.id) or {}
         held_out = care.get("state") == "hold"
+        if next_job is not None:
+            next_job["queued_after"] = max(0, self.queued.get(printer.id, 1) - 1)
+            # Spool weights are details of the job's filaments: withheld with them.
+            short = self.short.get(row["id"]) if next_job["filaments"] is not None else None
+            next_job["short_spools"] = short
+            colours = (next_job["ams_check"] or {}).get("status")
+            if next_job["held"] or held_out or mismatch or short or row["id"] in self.refusals:
+                next_job["ready"] = False
+            else:
+                # Unknown spool weights never hold a dispatch, so they do not make a job unready;
+                # colours that cannot be compared leave the answer unknown.
+                next_job["ready"] = True if colours == "match" else None
+        last = self.last_prints.get(printer.id) or {}
         if status == "paused":
             cause, reason = self._pause(printer, running, error_unresolved, redact)
             bench = {"state": "paused", "reason": reason, "since": self.paused_since.get(printer.id), "pause_cause": cause}
@@ -564,7 +755,14 @@ class Floor:
                 bench = {"state": "blocked", "reason": HIDDEN_ERROR_MESSAGE if redact else refusal_words(refused[0]),
                          "since": iso(refused[1]), "pause_cause": None}
         return {"next_job": next_job, "bench": bench, "out_of_service": held_out,
-                "ams": self.ams.get(printer.id, [])}
+                "ams": self.ams.get(printer.id, []),
+                "last_completed_at": iso(last.get("completed")),
+                # The print on the bed now has not finished: no end time while one is running.
+                "finished_at": None if printer.id in self.running else iso(last.get("ended")),
+                "plate_clear_confirmed_at": iso(_instant(self.plate_cleared.get(printer.id))),
+                # What is loaded on a printer carrying controlled work the caller cannot name
+                # describes that work's filaments: withheld (null) with the job's own details.
+                "slots": self.slots.get(printer.id, []) if names_allowed else None}
 
     def _pause(self, printer, running, error_unresolved, redact):
         stored = _json(printer.hms_errors)

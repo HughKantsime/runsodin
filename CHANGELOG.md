@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Home Assistant integration 0.3.0. Each printer now has a Spools loaded sensor that lists every spool slot (colour, name, material, how much is left), a Last print finished time and a Plate cleared time. The Next job sensor says how many more jobs are queued behind it, which spools are too low for it, and whether it is ready to start. A printer no longer shows as "error" in Home Assistant after its print went on to complete; the Status sensor also carries when the last print completed and when the last error was recorded. Other organizations' jobs and controlled work stay hidden as before, and spool amounts are not shown on a printer another organization shares with you. No extra polling: the integration still makes one status call.
+
 ### Fixed
 
 - Home Assistant day totals compare parsed completion times against local midnight, so Moonraker ISO timestamps and timestamps with offsets count on the correct day alongside naive UTC timestamps.

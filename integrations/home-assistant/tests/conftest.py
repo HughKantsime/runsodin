@@ -65,6 +65,36 @@ STATUS_V2["printers"][1].update({
 })
 
 
+# The fields added for integration 0.3.0 (still status schema 2: fields were only added).
+STATUS_NEXT = copy.deepcopy(STATUS_V2)
+STATUS_NEXT["printers"][0]["next_job"].update({
+    "queued_after": 3,
+    "short_spools": [{"slot": 2, "needed_g": 13.8, "remaining_g": 9.0}],
+    "ready": False,
+})
+STATUS_NEXT["printers"][0].update({
+    "last_completed_at": "2026-11-08T22:10:00Z",
+    "last_error_at": "2026-11-08T21:00:00Z",
+    "finished_at": None,
+    "plate_clear_confirmed_at": None,
+    "slots": [
+        {"slot": 1, "color_hex": "#1A1A1A", "name": "Galaxy Black", "material": "PLA",
+         "remaining_percent": 64.0, "remaining_g": 640.0},
+        {"slot": 2, "color_hex": "#FF0000", "name": None, "material": "PLA Support",
+         "remaining_percent": None, "remaining_g": None},
+        {"slot": 3, "color_hex": None, "name": None, "material": None,
+         "remaining_percent": None, "remaining_g": None},
+    ],
+})
+STATUS_NEXT["printers"][1].update({
+    "last_completed_at": None,
+    "last_error_at": "2026-11-08T23:36:50Z",
+    "finished_at": "2026-11-08T20:15:00Z",
+    "plate_clear_confirmed_at": "2026-11-08T20:20:00Z",
+    "slots": [],
+})
+
+
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     yield
@@ -78,3 +108,8 @@ def status():
 @pytest.fixture
 def status_v2():
     return copy.deepcopy(STATUS_V2)
+
+
+@pytest.fixture
+def status_next():
+    return copy.deepcopy(STATUS_NEXT)

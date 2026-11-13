@@ -91,14 +91,21 @@ def read_facts(db, printers):
     return result
 
 
-def plate_clear_times(db, printer_ids, actor):
-    """Only confirmations on jobs visible to this caller; no actor/job details leak."""
+def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
+    """Only confirmations on jobs visible to this caller; no actor/job details leak.
+
+    ``job_clauses`` are further source-owned predicates on the job (alias ``j``) with their
+    bound ``job_params``: the Home Assistant status feed passes its own job visibility rule.
+    """
     if not printer_ids or not may_read(actor, 'jobs'):
         return {}
+    extra = ''.join(' AND (' + clause + ')' for clause in job_clauses)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus the caller's source-owned job predicates; every value is bound
     rows = db.execute(text("SELECT e.printer_id,e.occurred_at,j.charged_to_org_id FROM job_timeline_events e "
         "JOIN jobs j ON j.id=e.job_id WHERE e.kind='bed_clear_confirmed' AND e.printer_id IN :ids "
-        "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=j.id AND s.archived_at IS NOT NULL) "
-        "ORDER BY e.occurred_at DESC,e.id DESC").bindparams(bindparam('ids', expanding=True)), {'ids': printer_ids})
+        "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=j.id AND s.archived_at IS NOT NULL)" + extra +
+        " ORDER BY e.occurred_at DESC,e.id DESC").bindparams(bindparam('ids', expanding=True)),
+        {**(job_params or {}), 'ids': printer_ids})
     # The newest visible confirmation per printer, by parsed instant: stored times mix naive
     # UTC and ISO forms with offsets, so the SQL order above is only a hint.
     from modules.printers.plate_clear import as_utc
