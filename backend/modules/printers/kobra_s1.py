@@ -200,11 +200,18 @@ def safe_path(name):
     return name
 
 
-def build_payload(file, slots, mapping, timestamp, msgid):
+DECOY_FILENAME = 'zz-odin-preflight-nonexistent.gcode'
+
+
+def build_payload(file, slots, mapping, timestamp, msgid, *, decoy=False):
     filaments = file['filaments']
     verify_mapping(filaments, slots, mapping)
     name = safe_path(file['path'])
-    if not re.fullmatch('[a-f0-9]{32}', file['md5']) or type(file['size']) is not int or file['size'] <= 0:
+    if decoy:
+        valid = name == DECOY_FILENAME and file['md5'] == '0' * 32 and type(file['size']) is int and file['size'] == 0
+    else:
+        valid = name != DECOY_FILENAME and re.fullmatch('[a-f0-9]{32}', file['md5']) and type(file['size']) is int and file['size'] > 0
+    if not valid:
         raise S1Refusal('s1_file_identity_invalid', 'Invalid device file identity')
     def rgba(value):
         return ([int(value[i:i+2], 16) for i in (1, 3, 5)] if isinstance(value, str) else value[:3]) + [255]

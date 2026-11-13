@@ -288,6 +288,8 @@ def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypat
     monkeypatch.setattr(moonraker.MoonrakerPrinter,'device_file_identity',identity)
     monkeypatch.setattr(moonraker.MoonrakerPrinter,'start_print',lambda *a:pytest.fail('Plain Moonraker start'))
     monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter,'send_start',send)
+    from tests.test_contracts.s1_preflight_test_support import passing_preflight
+    passing_preflight(monkeypatch)
     from modules.printers import start_next
     marker=None if scenario=='no_bed_clear' else _bed_clear_request(engine,53,59)
     try:result=dispatch.dispatch_job(59,53)
@@ -721,6 +723,8 @@ def test_s1_start_never_enters_the_generic_ams_gate(review_db, tmp_path, monkeyp
         publishes.append(payload)
         return dict(published=True, message='Published; no correlated report. Do not retry automatically.')
     monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', send)
+    from tests.test_contracts.s1_preflight_test_support import passing_preflight
+    passing_preflight(monkeypatch)
     marker = _bed_clear_request(engine, 53, 59)
     try:
         result = dispatch.dispatch_job(59, 53)
@@ -823,47 +827,40 @@ def test_other_moonraker_printers_keep_source_slot_deduction(review_db, monkeypa
     assert weights == [88, 100, 100] and audits == [] and 'Slot 1' in notes
 
 
-class _ClosingServer:
-    """A real HTTP server for the read-back, because http.client decides what a short read does."""
-    def __init__(self, bodies, declared=None, send_length=True):
-        import http.server, threading
-        served = self.served = []
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                body = bodies[min(len(served), len(bodies) - 1)]
-                served.append(self.path)
-                self.send_response(200)
-                if send_length:
-                    self.send_header('Content-Length', str(declared if declared is not None else len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                self.close_connection = True
-            def log_message(self, *a):
-                pass
-        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+class _ClosingDevice:
+    """Real HTTPResponse short-read behavior over an in-memory socket substitute."""
+    def __init__(self, monkeypatch, bodies, declared=None, send_length=True):
+        import http.client
+        import io
+        from modules.printers.adapters import moonraker
+        self.served = []
+        def read(request, timeout):
+            body = bodies[min(len(self.served), len(bodies) - 1)]
+            self.served.append(request.full_url)
+            length = f"Content-Length: {declared if declared is not None else len(body)}\r\n" if send_length else ''
+            raw = ('HTTP/1.1 200 OK\r\n' + length + 'Connection: close\r\n\r\n').encode() + body
+            response = http.client.HTTPResponse(SimpleNamespace(makefile=lambda *args: io.BytesIO(raw)))
+            response.begin()
+            return response
+        monkeypatch.setattr(moonraker, 'urlopen', read)
     def __enter__(self):
         return self
     def __exit__(self, *a):
-        self.server.shutdown()
-        self.server.server_close()
+        pass
     def printer(self):
-        return MoonrakerPrinter('127.0.0.1', self.server.server_address[1], model='Kobra S1')
+        return MoonrakerPrinter('192.0.2.1', model='Kobra S1')
 
 
 @pytest.fixture
-def loopback_device(monkeypatch):
-    # The real client against a real socket; only the device address policy is opened for loopback.
-    import urllib.request
-    from modules.printers.adapters import moonraker
-    monkeypatch.setattr(moonraker, 'urlopen', urllib.request.urlopen)
+def device_stream(monkeypatch):
+    return lambda *args, **kwargs: _ClosingDevice(monkeypatch, *args, **kwargs)
 
 
 DEVICE_FILE = (FIXTURES / 'bambu_studio_one_colour.gcode').read_bytes()
 
 
-def test_read_back_hashes_the_complete_copy_twice(loopback_device):
-    with _ClosingServer([DEVICE_FILE]) as server:
+def test_read_back_hashes_the_complete_copy_twice(device_stream):
+    with device_stream([DEVICE_FILE]) as server:
         facts = server.printer().device_file_identity('print.gcode')
     assert facts['md5'] == hashlib.md5(DEVICE_FILE, usedforsecurity=False).hexdigest() and facts['size'] == len(DEVICE_FILE)
     assert len(server.served) == 2
@@ -874,8 +871,8 @@ def test_read_back_hashes_the_complete_copy_twice(loopback_device):
     pytest.param(dict(bodies=[DEVICE_FILE], send_length=False), 's1_device_file_incomplete', id='no_content_length'),
     pytest.param(dict(bodies=[DEVICE_FILE, DEVICE_FILE + b'; patched while reading\n']), 's1_device_file_changed', id='changes_between_reads'),
 ])
-def test_read_back_refuses_a_copy_it_cannot_trust(loopback_device, kwargs, code):
-    with _ClosingServer(**kwargs) as server:
+def test_read_back_refuses_a_copy_it_cannot_trust(device_stream, kwargs, code):
+    with device_stream(**kwargs) as server:
         with pytest.raises(S1Refusal, match=code):
             server.printer().device_file_identity('print.gcode')
 

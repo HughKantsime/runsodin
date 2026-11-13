@@ -257,7 +257,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             # before any message suffix turns the marker into a plain str.
                             no_command = (type(result[0]) is bool and not result[0]
                                           and isinstance(result[1], dispatch.NoStartMessage))
-                            if no_command:
+                            preflight_no_start = no_command and isinstance(result[1], dispatch.PreflightNoStartMessage)
+                            if no_command and not preflight_no_start:
                                 # A maintenance hold set while the upload ran keeps the fence.
                                 from modules.printers.maintenance_gate import refusal as maintenance_refusal
                                 try:
@@ -268,13 +269,16 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
                             if filament.warning and result[0] is True:
                                 result = (result[0], result[1] + '; ' + filament.warning)
-                            _require_target(target_handle)
+                            # A decoy cannot start a print. Loss of target ownership
+                            # must stop it, but does not turn it into a real-start fence.
+                            if not preflight_no_start:
+                                _require_target(target_handle)
                             accepted=type(result[0]) is bool and result[0]
                             # A hold arriving after admission retains inventory-maint's
                             # conservative fence; initial holds refuse before any claim.
                             gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
                             clean_refusal = (not accepted and (getattr(before_start, 'clean_no_start', False) or no_command)
-                                and gate_code != 'printer_maintenance_hold')
+                                and (gate_code != 'printer_maintenance_hold' or preflight_no_start))
                             from modules.printers.dispatch_background import audit_actor
                             actor = audit_actor()
                             recorded = (dispatch_claims.release_unstarted(engine, claim.token) if clean_refusal else
