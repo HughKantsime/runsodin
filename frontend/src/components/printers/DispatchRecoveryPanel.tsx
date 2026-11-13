@@ -67,6 +67,11 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
   useEffect(() => {
     if (notice && !mutation.isPending) refreshButton.current?.focus()
   }, [notice, mutation.isPending])
+  useEffect(() => {
+    if (window.location.hash === '#dispatch-recovery') {
+      document.getElementById('dispatch-recovery')?.scrollIntoView?.({ block: 'start' })
+    }
+  }, [printerId, query.data])
   const data = query.data
   const canWrite = canDo('printers.dispatch_recovery')
   function open(action: DispatchRecoveryAction) {
@@ -94,7 +99,7 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
       <h2 className="text-sm font-medium">Dispatch recovery</h2>
       <Button ref={refreshButton} size="sm" variant="ghost" disabled={query.isFetching || mutation.isPending} onClick={() => query.refetch()}>Refresh evidence</Button>
     </div>
-    {data?.restart_question && <RestartQuestion key={data.restart_question.id} printerId={printerId} question={data.restart_question} canAnswer={canWrite && !!data.answer_restart_question} />}
+    {data?.restart_question && <RestartQuestion key={data.restart_question.id} printerId={printerId} question={data.restart_question} onNotice={message => { if (activePrinter.current === printerId) setNotice(message) }} canAnswer={canWrite && !!data.answer_restart_question} />}
     {notice && <p role="status" className="mb-3">{notice}</p>}
     {query.isError ? <p role="alert">Dispatch evidence is unavailable for this printer. Refresh to try again.</p>
       : query.isPending ? <p role="status">Loading dispatch evidence...</p>

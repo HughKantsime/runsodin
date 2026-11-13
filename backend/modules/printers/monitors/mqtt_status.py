@@ -123,17 +123,17 @@ def handle_status(self, status, generation, runtime):
         # while start, progress and HMS terminal writers have no row authority.
         from modules.printers.monitors.restart_question import handle as handle_restart_question
         question_waiting = bool(gcode_state and not self._current_job_id and handle_restart_question(self, runtime))
+        self._restart_blocks_rows = question_waiting
         if question_waiting:
             self._pending_running_state = None
-            gcode_state = None
-        if gcode_state and getattr(self, '_recovery_pending', False) and not self._current_job_id:
+        if not question_waiting and gcode_state and getattr(self, '_recovery_pending', False) and not self._current_job_id:
             # Recovery's wait ended before any report carried a state, or it failed. A tracked
             # print is ending live, so its row waits for this packet's transition instead.
             self._reconcile_running_rows()
         tracked_before = self._current_job_id
         pending_start_before = self._pending_running_state
         self._status_received.set()
-        if gcode_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
+        if not question_waiting and gcode_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
             if self._pending_running_state is None:
                 self._pending_running_state = dict(self._state)
         pending = self._pending_running_state
@@ -205,8 +205,6 @@ def handle_status(self, status, generation, runtime):
                     runtime.log.warning('[%s] Attempt tray persistence failed; will retry', self.name)
 
         def process_hms(packet, expected_print_job_id=None):
-            if question_waiting:
-                return True
             from modules.printers.monitors.hms_evidence import evidence
             report_evidence = evidence(packet, runtime.time.time())
             incoming_hms = packet.get('hms')
@@ -232,6 +230,7 @@ def handle_status(self, status, generation, runtime):
                     self.printer_id, incoming_hms, observed_filename=observed_filename,
                     expected_print_job_id=expected_print_job_id,
                     **report_evidence,
+                    **({'withhold_row_writes': True} if question_waiting else {}),
                     tray_evidence_incomplete=(getattr(self, '_tray_attempt_id', None) == expected_print_job_id
                                               and bool(getattr(self, '_pending_attempt_trays', ()))))
             except Exception:
@@ -298,6 +297,13 @@ def handle_status(self, status, generation, runtime):
                 }
         if terminal and resolved:
             transition(gcode_state)
+
+        if terminal and not question_waiting and not self._current_job_id and getattr(self, '_restart_check_needed', False):
+            from modules.printers.monitors.restart_question import clear_finished
+            try:
+                clear_finished(self, runtime)
+            except Exception:
+                runtime.log.error('[%s] Print confirmation cleanup will retry', self.name)
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
         live_state_allowed = True

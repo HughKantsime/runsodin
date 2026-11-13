@@ -3,8 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { printers, type RestartQuestion as Question } from '../../api'
 import { Button } from '../ui'
 
-export default function RestartQuestion({ printerId, question, canAnswer }: {
-  printerId: number; question: Question; canAnswer: boolean
+export default function RestartQuestion({ printerId, question, canAnswer, onNotice }: {
+  printerId: number; question: Question; canAnswer: boolean; onNotice: (message: string) => void
 }) {
   const client = useQueryClient()
   const submitting = useRef(false)
@@ -12,7 +12,7 @@ export default function RestartQuestion({ printerId, question, canAnswer }: {
   const mutation = useMutation({
     retry: false,
     mutationFn: (answer: 'same' | 'new') => printers.answerRestartQuestion(printerId, question.id, answer),
-    onSuccess: () => setNotice('Your answer was recorded.'),
+    onSuccess: () => onNotice('Your answer was recorded.'),
     onError: () => setNotice('Your answer could not be confirmed. Refresh the question before trying again.'),
     onSettled: async () => {
       await Promise.all([['dispatch-recovery', printerId], ['alerts'], ['printers'], ['printer', printerId]].map(queryKey => client.invalidateQueries({ queryKey })))
@@ -28,6 +28,8 @@ export default function RestartQuestion({ printerId, question, canAnswer }: {
     <h3 className="font-medium">Is it still the same print?</h3>
     <p>ODIN was recording {question.print_name} when it restarted. Confirm whether the printer is still making that print.</p>
     <p>Live readings continue while ODIN waits for your answer. Choosing a new print closes the earlier record with its outcome unknown.</p>
+    <p>A linked scheduled job stays marked as printing if you choose a new print or this print ends unanswered. An administrator must review that job before releasing the retained dispatch.</p>
+    <p>After another restart, ODIN may ask again. An earlier answer does not confirm which print is running now.</p>
     {canAnswer ? <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Button className="min-h-[44px] whitespace-normal" disabled={mutation.isPending} onClick={() => answer('same')}>Yes, same print: keep recording on it</Button>
       <Button className="min-h-[44px] whitespace-normal" variant="secondary" disabled={mutation.isPending} onClick={() => answer('new')}>No, it is a new print</Button>

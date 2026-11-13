@@ -19,6 +19,10 @@ AUDIT_MIGRATION = runpy.run_path(str(BACKEND / 'core/schema/audit_integrity_vers
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/vision/printer_native.py": ("dialect-neutral", "Printer detection correlation uses bound qmark reads through the shared monitor DBAPI adapter."),
+    "backend/modules/jobs/list_query.py": ("dialect-neutral", "Job-number regular expression contains question marks; SQL uses SQLAlchemy bound parameters and portable LIKE with explicit escape."),
+    "backend/modules/printers/monitors/restart_question.py": ("sqlite-provider-only", "Monitor DBAPI adapter translates BEGIN IMMEDIATE for PostgreSQL; startup reads use the shared transaction view."),
+    "backend/core/restart_questions.py": ("sqlite-provider-only", "Answer uses dialect-guarded SQLite BEGIN IMMEDIATE and PostgreSQL NOWAIT membership locks; portable bound question storage."),
     "backend/core/license_clock.py": (
         "sqlite-provider-only",
         "Dialect-guarded SQLite busy_timeout PRAGMAs bound clock checkpoint writes and restore the connection timeout; PostgreSQL uses SET LOCAL lock_timeout.",

@@ -4,6 +4,7 @@ The caller owns the transaction. A question and its alerts share that transactio
 No elapsed time, progress or printer identifier is used to infer physical identity.
 """
 import json
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -69,7 +70,7 @@ def eligible(db, row, claim, org_id):
 
 def context(db, printer_id):
     printer = db.execute(text('SELECT id,name,org_id,api_type FROM printers WHERE id=:id'), {'id': printer_id}).mappings().first()
-    claim = db.execute(text('SELECT job_id,owner_org_id FROM printer_dispatch_claims WHERE printer_id=:id'), {'id': printer_id}).mappings().first()
+    claim = db.execute(text('SELECT job_id,owner_org_id,token FROM printer_dispatch_claims WHERE printer_id=:id'), {'id': printer_id}).mappings().first()
     return printer, claim
 
 
@@ -77,9 +78,14 @@ def read_row(db, identifier):
     return db.execute(text('SELECT id,printer_id,scheduled_job_id,status,started_at,filename,job_name FROM print_jobs WHERE id=:id'), {'id': identifier}).mappings().first()
 
 
+def claim_key(claim):
+    return hashlib.sha256(json.dumps(dict(claim), sort_keys=True).encode()).hexdigest()
+
+
 def check_question(db, question, printer, claim):
     row = read_row(db, question['print_job_id'])
     if (not printer or not claim or printer['api_type'] != 'bambu'
+            or question.get('claim_key') != claim_key(claim)
             or question['org_id'] != printer['org_id'] or claim['owner_org_id'] != printer['org_id']
             or not eligible(db, row, claim, printer['org_id']) or row['printer_id'] != printer['id']
             or str(row['started_at']) != question['row_started_at'] or row['scheduled_job_id'] != question['scheduled_job_id']):
@@ -92,44 +98,69 @@ def resolve_alerts(db, question):
     resolve_restart_alerts(db, question['alert_ids'])
 
 
+def clear(db, printer_id):
+    db.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': f'restart_question:{printer_id}'})
+
+
+def retire(db, printer_id, question, reason):
+    """Retirement and its explanation commit once with alert resolution."""
+    resolve_alerts(db, question)
+    from modules.notifications.services import stage_restart_alerts
+    stage_restart_alerts(db, printer_id, '', dict(question, scheduled_job_id=None, title='Print confirmation closed', message=reason))
+    clear(db, printer_id)
+
+
 def observe(executor, printer_id, started_at, state):
-    """Return a pending/closed question or an explicit row adoption, never a guess."""
+    """Return a pending question or an explicit row adoption, never a guess."""
     with locked(executor) as db:
         key = f'restart_question:{printer_id}'
         question = load(db, key)
         printer, claim = context(db, printer_id)
         gstate = state.get('gcode_state')
+        name = state.get('subtask_name')
         epoch = started_at.isoformat()
-        # An answer concerns the run that observed the question. It is never
-        # evidence of identity after another process restart.
+        if question and question['state'] not in ('pending', 'investigation', 'same', 'new'):
+            clear(db, printer_id)
+            return None
         if question and question['state'] in ('same', 'new'):
-            reported = question['reported_name']
-            incoming = state.get('subtask_name')
-            if question['monitor_started_at'] != epoch or (reported and incoming and reported != 'Unknown' and incoming != reported):
-                question['state'] = 'superseded'
-                save(db, key, question)
+            # An answer applies only to the process that saw it. A later restart
+            # requires a new answer; the earlier decision is not identity evidence.
+            if question['monitor_started_at'] != epoch:
+                clear(db, printer_id)
                 question = None
-        if question and question['state'] in ('same', 'new'):
-            row = read_row(db, question['active_print_job_id'])
-            if row and row['status'] == 'running':
-                # An answered question remains a durable instruction across a
-                # second monitor restart, but cannot override changed authority.
+            else:
                 current = dict(question, print_job_id=question['active_print_job_id'],
                                row_started_at=question['active_row_started_at'],
                                scheduled_job_id=question['active_scheduled_job_id'])
-                check_question(db, current, printer, claim)
+                row = read_row(db, current['print_job_id'])
+                if not row or row['status'] != 'running':
+                    clear(db, printer_id)
+                    return None
+                try:
+                    check_question(db, current, printer, claim)
+                except ValueError:
+                    retire(db, printer_id, question, 'The print record or its ownership changed. Print confirmation has closed; review the current records in Dispatch Recovery.')
+                    return None
+                if name and name != 'Unknown' and name not in (row['job_name'], row['filename']):
+                    retire(db, printer_id, question, 'The printer reported a different print name. Print confirmation has closed; the earlier record is unchanged.')
+                    return None
                 return dict(question, adopt=row['id'], linked_job_id=row['scheduled_job_id'])
-            question['state'] = 'ended'
-            save(db, key, question)
         if question and question['state'] == 'pending':
-            row = check_question(db, question, printer, claim)
+            try:
+                row = check_question(db, question, printer, claim)
+            except ValueError:
+                retire(db, printer_id, question, 'The print record or its ownership changed. Print confirmation has closed; review the current records in Dispatch Recovery.')
+                return None
+            # Compare against the earlier row, including after a nameless report,
+            # before interpreting ANY terminal values as that row's result.
+            if name and name != 'Unknown' and name not in (row['job_name'], row['filename']):
+                retire(db, printer_id, question, 'The printer reported a different print name. Print confirmation has closed; the earlier record is unchanged.')
+                return None
             if gstate in ('FINISH', 'FAILED', 'IDLE'):
                 error = state.get('print_error')
                 outcome = ('completed' if gstate == 'FINISH' else 'cancelled' if gstate == 'IDLE' or error in
                            (0x0300400C, 0x0500400E, str(0x0300400C), str(0x0500400E)) else 'failed')
                 ended = now()
-                # Physical bookkeeping only. No job transition, claim release,
-                # terminal accounting or success event for unconfirmed identity.
                 db.execute(text("UPDATE print_jobs SET status=:status,ended_at=:ended,error_code=:reason,"
                                 'progress_percent=COALESCE(:progress,progress_percent),'
                                 'current_layer=COALESCE(:layer,current_layer),'
@@ -140,20 +171,27 @@ def observe(executor, printer_id, started_at, state):
                             'remaining': state.get('mc_remaining_time')})
                 save(db, f'restart_print:{row["id"]}', {'question_id': question['id'], 'outcome': 'ended_unconfirmed',
                      'duration_verified': False, 'usage_verified': False, 'reported_result': outcome, 'end_received_at': ended})
-                question.update(state='ended_unconfirmed', ended_at=ended, reported_result=outcome)
                 resolve_alerts(db, question)
-                save(db, key, question)
-                return question
-            name = state.get('subtask_name')
+                clear(db, printer_id)
+                return dict(question, state='ended_unconfirmed', reported_result=outcome)
             if question['monitor_started_at'] != epoch or (name and name != question['reported_name']):
                 question['monitor_started_at'] = epoch
                 if name:
                     question['reported_name'] = name
                 save(db, key, question)
             return question
+        if question and question['state'] == 'investigation':
+            rows = [read_row(db, identifier) for identifier in question['candidate_ids']]
+            if (not printer or not claim or question['org_id'] != printer['org_id']
+                    or any(not eligible(db, row, claim, printer['org_id']) for row in rows)):
+                retire(db, printer_id, question, 'The print records or their ownership changed. Review the current records in Dispatch Recovery.')
+                return None
+            if name and name != 'Unknown' and all(name not in (row['job_name'], row['filename']) for row in rows):
+                retire(db, printer_id, question, 'The printer reported a different print name. The earlier records still need investigation; recording can continue for the new print.')
+                return None
+            return question
         if gstate not in ('RUNNING', 'PAUSE'):
-            return question if question and question['state'] in ('ended', 'ended_unconfirmed') else None
-        name = state.get('subtask_name')
+            return None
         if not printer or printer['api_type'] != 'bambu' or not claim or claim['owner_org_id'] != printer['org_id'] or reserved_name(name):
             return None
         rows = db.execute(text("SELECT id,printer_id,scheduled_job_id,status,started_at,filename,job_name FROM print_jobs "
@@ -163,12 +201,14 @@ def observe(executor, printer_id, started_at, state):
                       and (not name or name == 'Unknown' or name in (row['job_name'], row['filename']))]
         if not candidates:
             return None
-        if len(candidates) != 1:
-            raise ValueError('Multiple earlier prints require investigation')
         row = candidates[0]
-        question = dict(id=uuid4().hex, state='pending', print_job_id=row['id'], org_id=printer['org_id'],
+        question = dict(id=uuid4().hex, state='pending', claim_key=claim_key(claim), print_job_id=row['id'], org_id=printer['org_id'],
                         scheduled_job_id=row['scheduled_job_id'], row_started_at=str(row['started_at']),
                         raised_at=now(), monitor_started_at=epoch, reported_name=name, print_name=row['job_name'] or row['filename'] or 'print')
+        if len(candidates) != 1:
+            question.update(state='investigation', candidate_ids=[r['id'] for r in candidates],
+                            title='Print records need investigation',
+                            message=f'{printer["name"]} has more than one earlier running print record. An administrator must investigate these records before recording can continue.')
         from modules.notifications.services import stage_restart_alerts
         question['alert_ids'] = stage_restart_alerts(db, printer_id, printer['name'], question)
         save(db, key, question)
@@ -203,7 +243,9 @@ def answer(db, printer_id, actor, question_id, decision):
             db.execute(text('BEGIN IMMEDIATE'))
         with locked(db) as view:
             question = load(view, f'restart_question:{printer_id}')
-            if not question or not check_org_access(actor, question['org_id']):
+            if not question:
+                raise HTTPException(409, 'This question has closed. Refresh to see the current records.')
+            if not check_org_access(actor, question['org_id']):
                 raise HTTPException(404, 'Print question not found.')
             if question['id'] != question_id or question['state'] != 'pending':
                 raise HTTPException(409, 'This question has already changed. Refresh to see its current state.')
@@ -223,6 +265,9 @@ def answer(db, printer_id, actor, question_id, decision):
             answered_at = now()
             active_id = row['id']
             if decision == 'new':
+                from core.monitor_observations import live_state
+                if live_state(db, printer_id, 0) not in ('RUNNING', 'PAUSE'):
+                    raise HTTPException(409, 'Wait for a fresh running report from the printer before choosing a new print.')
                 name = question['reported_name'] or 'Unknown'
                 if reserved_name(name):
                     raise HTTPException(409, 'The reported print has changed. Refresh and investigate before answering.')

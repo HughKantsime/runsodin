@@ -44,6 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry('printers.monitors.restart_question', 'initialize/handle/clear_finished', 'print/job/printer', 'read/mutate', 'Bambu startup candidate check and scoped durable decision; receipt and Education exclusions', (), 'test_restart_question_review.py', 'guarded'),
     _entry('notifications.restart_alerts', 'stage/resolve', 'printer/job/alert', 'in-app delivery', 'shared recipient policy; active scoped operators and administrators; caller transaction', (), 'test_restart_ask_operator.py', 'guarded'),
     _entry('core.restart_questions', 'observe/answer/visible', 'print/job/printer', 'read/mutate', 'Bambu unbound physical rows only; receipt and Education rows excluded; scoped Dispatch Recovery administrator', (), 'test_restart_ask_operator.py', 'guarded'),
     _entry('organizations.routes_education_training', 'router:/education/trainings', 'training/student/audit', "read/mutate", 'licensed Education credentials plus explicit matrix and tenant authority', (), 'test_education_training_http.py', "guarded"),
@@ -265,6 +266,7 @@ _EXPLICIT_SURFACE_PATHS = (
     "core/app.py",
     "core/recipient_policy.py",
     "core/restart_questions.py",
+    "modules/printers/monitors/restart_question.py",
     "modules/organizations/routes_education.py",
     "modules/organizations/routes_education_classes.py",
     "modules/organizations/routes_education_roster.py",

@@ -54,3 +54,26 @@ it('refreshes after an uncertain response without retrying the answer', async ()
   await waitFor(() => expect(printers.dispatchRecovery).toHaveBeenCalledTimes(2))
   expect(printers.answerRestartQuestion).toHaveBeenCalledTimes(1)
 })
+it('keeps the answer notice after the question disappears', async () => {
+  vi.mocked(printers.dispatchRecovery).mockResolvedValueOnce(evidence).mockResolvedValue({ ...evidence, restart_question: undefined })
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: /Yes, same print/ }))
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Confirm print after restart' })).toBeNull())
+  expect(screen.getByText('Your answer was recorded.')).toBeVisible()
+})
+it('explains linked job and later restart behavior', async () => {
+  mount()
+  await screen.findByRole('region', { name: 'Confirm print after restart' })
+  expect(screen.getByText(/linked scheduled job stays/)).toBeVisible()
+  expect(screen.getByText(/another restart/)).toBeVisible()
+})
+it.each(['classic', 'foundry'])('scrolls an alert link to recovery in %s', async family => {
+  document.documentElement.dataset.themeFamily = family
+  window.location.hash = '#dispatch-recovery'
+  const scroll = vi.fn()
+  Element.prototype.scrollIntoView = scroll
+  mount()
+  await screen.findByRole('region', { name: 'Confirm print after restart' })
+  expect(scroll).toHaveBeenCalled()
+  window.location.hash = ''
+})

@@ -138,6 +138,14 @@ def get_print_jobs(
                 job['duration_minutes'] = None
         else:
             job['duration_minutes'] = None
+        from core.restart_questions import load
+        provenance = load(db, f'restart_print:{job["id"]}')
+        if provenance and provenance.get('duration_verified') is False:
+            job.update(duration_minutes=None, print_duration_seconds=None, filament_used_g=None,
+                       duration_verified=False, usage_verified=False,
+                       recording_note=('First seen mid-print; full duration and filament use are unverified.'
+                                       if provenance.get('first_seen_mid_print') else
+                                       'Ended while unconfirmed; duration and filament use are unverified.'))
         jobs.append(job)
 
     from core.display_names import name_payloads

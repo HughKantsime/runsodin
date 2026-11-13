@@ -115,7 +115,7 @@ def test_nameless_named_finish_and_second_restart_one_question(case):
     row = case.rows()[0]
     assert row['status'] == 'completed' and row['current_layer'] == 93
     assert row['print_duration_seconds'] is None and row['filament_used_g'] is None
-    assert case.question()['state'] == 'ended_unconfirmed'
+    assert case.question() is None
     with case.engine.connect() as db:
         assert db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 3
         assert db.execute(text('SELECT count(*) FROM alerts WHERE is_dismissed IS FALSE')).scalar_one() == 0
@@ -209,7 +209,7 @@ def test_unanswered_terminal_result(case, state, error, outcome):
     monitor = start(case)
     packet(monitor, gcode_state=state, print_error=error)
     assert case.rows()[0]['status'] == outcome
-    assert case.question()['state'] == 'ended_unconfirmed'
+    assert case.question() is None
     assert len(case.rows()) == 1
 
 
@@ -242,6 +242,7 @@ def test_answer_then_end_records_only_the_chosen_row_and_keeps_claim(case, decis
     rows = case.rows()
     assert len(rows) == (1 if decision == 'same' else 2)
     assert rows[-1]['status'] == 'completed' and rows[-1]['ended_at']
+    assert case.question() is None
     if decision == 'new':
         assert rows[0]['status'] == 'cancelled' and rows[0]['ended_at'] is None
     with case.engine.connect() as db:
@@ -271,17 +272,18 @@ def test_retained_end_cannot_close_question(case):
     packet(monitor, subtask_name='bracket')
     assert case.rows() == before
     packet(monitor, gcode_state='FINISH')
-    assert case.question()['state'] == 'ended_unconfirmed'
+    assert case.question() is None
 
 
 def test_hms_cannot_write_pending_row(case, monkeypatch):
     from modules.notifications import event_dispatcher
-    def fail(*args, **kwargs):
-        pytest.fail('pending question entered HMS terminal writer')
+    from unittest.mock import Mock
+    process = Mock(return_value={})
     monitor = start(case)
-    monkeypatch.setattr(event_dispatcher, 'process_hms_errors', fail)
+    monkeypatch.setattr(event_dispatcher, 'process_hms_errors', process)
     before = case.rows()
     packet(monitor, gcode_state='PAUSE', hms=[{'attr':1,'code':7}], mc_percent=80)
+    assert process.call_args.kwargs['withhold_row_writes'] is True
     assert case.rows() == before
 
 
@@ -359,7 +361,7 @@ def test_answer_racing_terminal_keeps_one_authoritative_outcome(case, decision):
     rows = case.rows()
     assert response.status_code in (200,409)
     if response.status_code == 409:
-        assert len(rows) == 1 and case.question()['state'] == 'ended_unconfirmed'
+        assert len(rows) == 1 and case.question() is None
     else:
         assert len(rows) == (2 if decision == 'new' else 1)
     assert rows[-1]['status'] == 'completed'
@@ -373,7 +375,7 @@ def test_nameless_report_with_generic_plate_path_still_asks(case):
     assert len(case.rows()) == 1 and case.question()['state'] == 'pending'
     packet(monitor, subtask_name='bracket')
     packet(monitor, gcode_state='FINISH')
-    assert len(case.rows()) == 1 and case.question()['state'] == 'ended_unconfirmed'
+    assert len(case.rows()) == 1 and case.question() is None
 
 
 def test_answer_does_not_adopt_a_later_differently_named_print(case):
@@ -383,4 +385,4 @@ def test_answer_does_not_adopt_a_later_differently_named_print(case):
     assert len(case.rows()) == 2
     assert monitor._current_job_id != 241
     assert case.rows()[0]['progress_percent'] == 13
-    assert case.question()['state'] == 'superseded'
+    assert case.question() is None
