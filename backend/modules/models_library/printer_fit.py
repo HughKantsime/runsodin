@@ -37,7 +37,7 @@ def visible_printers(db, current_user):
     from core import license_lock
     from core.rbac import get_org_scope, should_filter_org
     from modules.printers.services import dispatch_unsupported_reason
-    from modules.printers.support_levels import experimental_refusal
+    from modules.printers.services import experimental_refusal
     statement = "SELECT " + _PRINTER_COLUMNS + " FROM printers"
     params = {}
     org = get_org_scope(current_user)
@@ -66,14 +66,14 @@ def visible_printers(db, current_user):
 def fits(file, printer, *, bound=None, tenant=None):
     """True when this file can be scheduled on this printer today."""
     from core.dispatch_identity import ownership_refusal
-    from modules.jobs.scheduler import _printer_identity, _same_printer_model
+    from modules.jobs.services import printer_matches_sliced_model
     from modules.models_library.queue_payload import printer_payload_refusal
     if printer.unavailable or (bound is not None and bound != printer.id):
         return False
     if not file.stored_path or printer_payload_refusal(file, printer):
         return False
     required = (file.printer_model or "").strip()
-    if required and not _same_printer_model(_printer_identity(printer), required):
+    if required and not printer_matches_sliced_model(printer, required):
         return False
     return ownership_refusal(
         {"charged_to_org_id": tenant, "print_file_org_id": file.org_id},

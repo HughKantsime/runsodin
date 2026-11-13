@@ -44,3 +44,10 @@ def scheduler_material_mode(db):
 def set_scheduler_material_mode(db, mode):
     from modules.jobs.scheduler_materials import set_mode
     return set_mode(db, mode)
+
+
+def printer_matches_sliced_model(printer, required_model):
+    """Service-layer entry for other modules: the scheduler's own "is this the printer model the
+    file was sliced for" rule (scheduler._same_printer_model on scheduler._printer_identity)."""
+    from modules.jobs.scheduler import _printer_identity, _same_printer_model
+    return _same_printer_model(_printer_identity(printer), required_model)

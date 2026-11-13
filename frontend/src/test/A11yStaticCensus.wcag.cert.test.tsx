@@ -156,7 +156,8 @@ it('F12-12.7-06 census: scope="col" exists only on a minority of table headers',
   expect(summary.th_scope_col).toBe(18)
   // 2.0.13 adds one unscoped header (inventory reorder table).
   // Bulk receiving adds one mapped header element. Foundry adds one mapped column header and one row header.
-  expect(summary.th_total).toBe(126)
+  // 2.3.0: the readable audit log shows one "What happened" column where four raw columns were.
+  expect(summary.th_total).toBe(123)
   expect(summary.th_scope_col * 2).toBeLessThan(summary.th_total)
   expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/foundry/PrinterRows.tsx', 'components/jobs/JobTableHeader.tsx',
     'pages/analytics/Analytics.tsx'])
