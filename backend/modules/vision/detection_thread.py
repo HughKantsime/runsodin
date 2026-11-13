@@ -22,7 +22,7 @@ from core.db import live_engine as engine
 from core.printer_utils import is_idle_state, is_printing_state
 from core.db_compat import execute_insert_returning_id, sql
 from modules.vision.inference_engine import VisionInferenceEngine
-from modules.vision import frame_storage
+from modules.vision import frame_storage, training_capture
 
 try:
     from core.ws_hub import push_event as ws_push
@@ -64,6 +64,8 @@ def capture_interval(value) -> int:
     return DEFAULT_CAPTURE_INTERVAL
 
 
+_CURRENT_JOB = object()   # default for 'the thread's current print'
+
 class PrinterVisionThread(threading.Thread):
     """Vision monitoring thread for a single actively-printing printer."""
 
@@ -100,6 +102,13 @@ class PrinterVisionThread(threading.Thread):
         self._last_alert: Dict[str, float] = {}
         self._analyzed_frames = 0
         self._first_analysis_at = None
+        # Training capture: sampling clock, the previous tick's frame, and the post-detection burst.
+        self._sampler = training_capture.TrainingSampler()
+        self._previous_frame = None        # (job id, frame) of the last tick, only while collecting
+        self._burst_previous = None        # that frame, if it belongs to the current job
+        self._burst_after = 0              # frames still to save after a detection
+        self._burst_after_job = None
+        self._saved_this_tick = False
 
     def stop(self):
         self._running = False
@@ -117,6 +126,7 @@ class PrinterVisionThread(threading.Thread):
             self._analyzed_frames = 0
             self._first_analysis_at = None
             self._last_alert.clear()
+            self._reset_training_capture()
             for history in self._history.values():
                 history.clear()
         self.current_layer = layer
@@ -153,19 +163,31 @@ class PrinterVisionThread(threading.Thread):
 
     def _capture_and_analyze(self):
         """Capture frame from go2rtc and run detection."""
+        # The camera request can take seconds, and the monitor may move this thread to the next
+        # print meanwhile. A frame is only ever treated as the print that was current when its
+        # capture began: otherwise a picture of print A could be judged, and saved, under
+        # print B's rules (controlled work, exclusions).
+        job_at_capture = self.print_job_id
         frame = self._capture_frame()
-        if frame is None:
+        if frame is None or self.print_job_id != job_at_capture:
             return
 
         layer = self.current_layer
-        analyzed_job = self.print_job_id
+        analyzed_job = job_at_capture
+        self._frame_job = job_at_capture     # the print this tick's frame belongs to (burst saves use it)
         counted_frame = False
         collect = self.settings.get('collect_training_data', 0)
 
-        # Save training data if enabled (every frame, not just detections)
+        # Training frames are sampled (every N seconds) plus a burst around each detection,
+        # not saved on every detection tick. Detection and review frames stay full size.
+        # Whether the tick before was itself saved (by the sampler or a burst, which runs later in
+        # the tick): read it before the reset so that frame is never saved twice.
+        self._burst_previous_saved = self._saved_this_tick
+        self._saved_this_tick = False
+        previous, self._previous_frame = self._previous_frame, ((analyzed_job, frame) if collect else None)
+        self._burst_previous = previous if previous is not None and previous[0] == analyzed_job else None
         if collect:
-            path = frame_storage.save_training_frame(self.printer_id, frame)
-            self._insert_training_sample(path)
+            self._collect_training(frame, analyzed_job)
 
         if not hasattr(self, '_history_generations'):
             self._history_generations = {}
@@ -348,6 +370,9 @@ class PrinterVisionThread(threading.Thread):
             detection_type, confidence, frame_path, bbox
         )
 
+        if detection_type != 'build_plate_empty' and self.settings.get('collect_training_data', 0):
+            self._detection_burst(frame)
+
         from core.base import AlertType, AlertSeverity
 
         # Map detection type to alert type
@@ -402,14 +427,178 @@ class PrinterVisionThread(threading.Thread):
                 and is_printing_state(self.gcode_state)):
             self._auto_pause()
 
-    def _insert_training_sample(self, frame_path: str) -> None:
+    def _training_capture_allowed(self) -> bool:
+        """No training frame is written for controlled work.
+
+        Viewing these frames is already restricted, but a saved picture of a controlled part
+        would still sit on disk for the retention period. Rechecked before every write;
+        if the check or the running print's job link cannot be verified, nothing is saved.
+        """
+        try:
+            from sqlalchemy.orm import Session
+            from core.controlled_parts import any_controlled_data, policies
+            with engine.connect() as conn, Session(bind=conn) as db:
+                if not any_controlled_data(db):
+                    allowed = True
+                elif self.print_job_id is None:
+                    # A print ODIN cannot tie to a job cannot be shown to be uncontrolled.
+                    allowed = False
+                else:
+                    # An empty policy list also means an absent job link, not proof that
+                    # the print is uncontrolled. The monitor may still hold the previous
+                    # print ID: require this to be the printer's only running print.
+                    job_id = db.execute(text(
+                        'SELECT j.id FROM print_jobs pj JOIN jobs j ON j.id=pj.scheduled_job_id '
+                        "WHERE pj.id=:pid AND pj.printer_id=:printer AND pj.status='running' "
+                        "AND NOT EXISTS (SELECT 1 FROM print_jobs other "
+                        "WHERE other.printer_id=pj.printer_id AND other.status='running' "
+                        'AND other.id<>pj.id)'),
+                        {'pid': self.print_job_id, 'printer': self.printer_id}).scalar()
+                    allowed = job_id is not None and not policies(db, 'job', job_id)
+        except Exception:
+            log.warning(f"[{self.printer_name}] Controlled-work check failed; training frame not saved")
+            allowed = False
+        return allowed
+
+    def _reset_training_capture(self) -> None:
+        """A new print starts its own sampling clock; nothing carries over from the last job."""
+        self._sampler.reset()
+        self._previous_frame = None
+        self._burst_previous = None
+        self._burst_after = 0
+
+    def _training_settings(self) -> dict:
+        return self.settings.get('training_capture') or training_capture.resolve_config({}, None)
+
+    def _collect_training(self, frame: np.ndarray, job_id=_CURRENT_JOB) -> None:
+        """Save the scheduled training frame (every N seconds) or the frame after a detection."""
+        config = self._training_settings()
+        after = self._burst_after if self._burst_after_job == self.print_job_id else 0
+        if after > 0:
+            self._burst_after = after - 1
+        elif not self._sampler.due(training_capture.training_interval(config.get('interval_sec'))):
+            return
+        self._save_training_frame(frame, job_id)
+
+    def _detection_burst(self, frame: np.ndarray) -> None:
+        """Up to BURST_FRAMES training frames around a detection: the tick before, this one, the next."""
+        try:
+            # Read before saving the earlier frame: that save also marks this tick as saved.
+            current_saved = self._saved_this_tick
+            if self._burst_previous is not None and not self._burst_previous_saved:
+                self._save_training_frame(self._burst_previous[1], self._burst_previous[0])
+            self._burst_previous = None
+            # The detection's own frame is saved under the print it was captured for, never the
+            # one the thread may have moved to while the detection was being recorded.
+            frame_job = getattr(self, '_frame_job', self.print_job_id)
+            if not current_saved:
+                self._save_training_frame(frame, frame_job)
+            self._burst_after = max(0, training_capture.BURST_FRAMES - 2)
+            self._burst_after_job = frame_job
+        except Exception:
+            log.warning(f"[{self.printer_name}] Detection burst frames not saved", exc_info=True)
+
+    def _save_training_frame(self, frame: np.ndarray, job_id=_CURRENT_JOB) -> bool:
+        """Save one training frame if every rule allows it; True when a frame was written.
+
+        Order matters: controlled work and excluded models are refused before the storage
+        guard runs, so they never raise a storage alert. The crop applies here only.
+        """
+        # `job_id` is the print the frame was captured under. If the thread has moved on, the
+        # rules read below would be another print's: the frame is dropped.
+        if job_id is _CURRENT_JOB:
+            job_id = self.print_job_id
+        if self.print_job_id != job_id:
+            return False
+        if not self._training_capture_allowed() or self._training_job_excluded():
+            return False
+        config = self._training_settings()
+        if config.get('crop_invalid'):
+            log.warning(f"[{self.printer_name}] Training crop is unusable; training frame not saved")
+            return False
+        minimum = config.get('min_free_bytes')
+        if type(minimum) is not int:
+            minimum = training_capture.min_free_bytes(None)
+        if not training_capture.STORAGE_GUARD.has_room(frame_storage.VISION_FRAMES_DIR, minimum, self._storage_alert):
+            return False
+        try:
+            cropped = training_capture.crop_frame(frame, config.get('crop'))
+            if self.print_job_id != job_id:   # moved on while the frame was prepared
+                return False
+            path = frame_storage.save_training_frame(self.printer_id, cropped)
+        except Exception as exc:
+            log.error(f"[{self.printer_name}] Training frame not saved: {exc}")
+            return False
+        self._insert_training_sample(path, job_id)
+        self._sampler.mark()
+        self._saved_this_tick = True
+        return True
+
+    def _training_job_excluded(self) -> bool:
+        """True when the running job's model has the category 'no-training'.
+
+        Fails closed when the check itself fails. A print with no ODIN job or model (started at
+        the printer, or not yet linked in the first moments of a print) has no category to read
+        and is collected; controlled work is refused separately and earlier, and that check does
+        fail closed for an unidentified print once controlled work exists.
+
+        models.category is used because jobs.required_tags is a scheduling constraint (a job
+        needing a tag only runs on printers that carry it), so tagging a job would block it.
+        Checked once a minute per print.
+        """
+        # One print id for the cache lookup, the query and the cache entry: the monitor can move
+        # the thread to another print while the query runs, and print A's answer must never be
+        # stored, or returned, as print B's.
+        job_id = self.print_job_id
+        if job_id is None:
+            return False
+        now = time.monotonic()
+        cached = getattr(self, '_training_excluded', None)
+        if cached and cached[0] == job_id and now - cached[2] < 60:
+            return cached[1]
+        try:
+            with engine.connect() as conn:
+                category = conn.execute(text(
+                    "SELECT m.category FROM print_jobs pj JOIN jobs j ON j.id = pj.scheduled_job_id "
+                    "LEFT JOIN models m ON m.id = j.model_id WHERE pj.id = :pid"),
+                    {"pid": job_id}).scalar()
+            excluded = training_capture.excluded_category(category)
+        except Exception:
+            log.warning(f"[{self.printer_name}] Training exclusion check failed; training frame not saved")
+            excluded = True
+        self._training_excluded = (job_id, excluded, now)
+        if self.print_job_id != job_id:
+            return True   # the print changed meanwhile: this frame is not saved; the next one re-reads
+        return excluded
+
+    def _storage_alert(self, free: int, minimum: int) -> None:
+        """One in-app alert for platform admins when training capture stops for lack of disk space."""
+        from sqlalchemy.orm import Session
+        from core.base import AlertType, AlertSeverity
+        from modules.notifications.models import Alert
+        gib = 1024 ** 3
+        message = (f"Vigil stopped saving training frames: the frames volume has {free / gib:.1f} GB free, "
+                   f"below the {minimum / gib:.1f} GB minimum (Vigil AI settings: training_min_free_gb). "
+                   "Saving resumes by itself once space is freed.")
+        log.warning(message)
+        with engine.begin() as conn, Session(bind=conn) as db:
+            admin_ids = db.execute(text(
+                "SELECT id FROM users WHERE role = 'admin' AND group_id IS NULL AND is_active IS TRUE")).scalars().all()
+            for user_id in admin_ids:
+                db.add(Alert(user_id=user_id, alert_type=AlertType.PRINTER_ERROR, severity=AlertSeverity.WARNING,
+                             title='Vigil training capture paused: low disk space', message=message,
+                             metadata_json={'kind': 'vision_training_storage',
+                                            'free_bytes': free, 'minimum_bytes': minimum}))
+            db.flush()
+
+    def _insert_training_sample(self, frame_path: str, job_id=_CURRENT_JOB) -> None:
         """Index a collected frame for annotation; not a detection (status 'training')."""
         try:
             with engine.begin() as conn:
                 conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: the TRAINING_SAMPLE module constant and sql.now() dialect helper; values are bound
                     "INSERT INTO vision_detections (printer_id, print_job_id, detection_type, confidence, "
                     f"status, frame_path, created_at) VALUES (:pid, :jid, '{TRAINING_SAMPLE}', 0, 'training', :fpath, {sql.now()})"),
-                    {"pid": self.printer_id, "jid": self.print_job_id, "fpath": frame_path})
+                    {"pid": self.printer_id, "jid": self.print_job_id if job_id is _CURRENT_JOB else job_id, "fpath": frame_path})
         except Exception:
             log.warning(f"[{self.printer_name}] Training sample could not be indexed")
 

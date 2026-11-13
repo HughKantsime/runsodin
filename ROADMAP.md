@@ -14,6 +14,10 @@ Updated - see CHANGELOG for current version.
 
 - Printer cards retry missing plate pictures while the background cache builds, with a bounded retry count and cancellation when the active print or display preference changes.
 
+## Prepared: Vigil review fixes
+
+- Fail-closed training capture for unverified job links, fresh controlled-work checks on every write, StrictMode-safe pending review, and corrected labelled-frame retention guidance.
+
 ## Prepared: Education funding and program reports
 
 - Class/program/term aggregates, CSV/PDF, scheduled email and explicit participation/concentrator marks, with small-cell suppression. The Perkins worksheet stays off until a school's reporting fields are confirmed.
