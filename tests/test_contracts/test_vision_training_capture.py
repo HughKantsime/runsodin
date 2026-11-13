@@ -739,3 +739,45 @@ def test_a_failed_running_print_check_saves_nothing(env, monkeypatch):
     monkeypatch.setattr(detection_thread, 'engine', Broken())
     assert thread._save_training_frame(thread.frame) is False
     assert len(env.training()) == 0
+
+
+def test_idle_frames_are_not_saved_while_a_finished_no_training_print_may_still_be_on_the_bed(env):
+    # The excluded print has ended and the monitor has cleared the thread's print id, but the part
+    # is still on the plate: idle frames (plate monitoring) must not be collected.
+    _print(env.db, 9001, 8001, category='no-training')
+    _finish(env.db, 9001)
+    thread = env.make(None)
+    thread._capture_and_analyze()
+    thread._detection_burst(thread.frame)
+    assert len(env.training()) == 0
+    # The next print is ordinary: collection resumes with it, and stays on after it ends.
+    _print(env.db, 9002, 8002, category='Mini Critters')
+    thread.update_layer(0, 9002, 'RUNNING')
+    thread.clock.now += 10
+    thread._capture_and_analyze()
+    assert len(env.training()) == 1
+    _finish(env.db, 9002)
+    thread.update_layer(0, None, 'IDLE')
+    thread.clock.now += 10
+    thread._capture_and_analyze()
+    assert len(env.training()) == 2
+
+
+def test_idle_frames_are_saved_when_the_printer_has_never_printed_or_last_printed_ordinary_work(env):
+    thread = env.make(None)
+    thread._capture_and_analyze()
+    assert len(env.training()) == 1
+
+
+def test_a_failed_idle_exclusion_check_saves_nothing(env, monkeypatch):
+    thread = env.make(None)
+    real = thread._training_print_is_current
+    monkeypatch.setattr(thread, '_training_print_is_current', lambda job_id: True)
+    from modules.vision import detection_thread
+
+    class Broken:
+        def connect(self):
+            raise RuntimeError('database unavailable')
+    monkeypatch.setattr(detection_thread, 'engine', Broken())
+    assert thread._idle_bed_excluded() is True
+    assert real is not None
