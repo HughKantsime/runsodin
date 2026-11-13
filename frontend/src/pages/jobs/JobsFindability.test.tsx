@@ -187,7 +187,7 @@ it('a selection above the server limit of 100 is sent in batches', async () => {
   expect(api.bulk.mock.calls.map(c => c[0].length)).toEqual([100, 35])
   expect(new Set(api.bulk.mock.calls.flatMap(c => c[0])).size).toBe(135)
   expect(api.bulk.mock.calls.every(c => c[1] === 'set_priority')).toBe(true)
-})
+}, 20000)   // selects 150 rows one by one: about 3 s alone, over the 5 s default on a loaded machine or CI runner
 
 it('the extra row of a deep-linked job shows that it is selected', async () => {
   // Regression (Codex sign-off 11-12): its checkbox stayed unchecked while bulk actions included it.
