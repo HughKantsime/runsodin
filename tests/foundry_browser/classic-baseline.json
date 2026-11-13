@@ -74,7 +74,7 @@
     "frontend/src/pages/models/Profiles.tsx": "310ff1e5f29047c7d3287c4ef5f963fd6426257eb6dcf8b3051878c6783b675f",
     "frontend/src/pages/models/Projects.tsx": "203737ecc370503d0196e62438d33832cc30d0c12df2870412dd0c4ef9149793",
     "frontend/src/pages/notifications/Alerts.tsx": "43c8c2cb050befbe9811e8602caf1b660bba2a14dd3ca9aeb3a17d47bba5958b",
-    "frontend/src/pages/orders/Calculator.tsx": "2118ae924865760f62679ae3f7c84e57e7c1e2677f981fb036f395ef0c3d4ce3",
+    "frontend/src/pages/orders/Calculator.tsx": "7380bfeab6a75707296f819eca9bb4aaa56bd297c50c970c182fb7a52fdb84da",
     "frontend/src/pages/orders/Orders.tsx": "2db3bd9aedb28e4c806d2bc656e68f475cd99bcbe717f3a1bb931b61fc33df02",
     "frontend/src/pages/orders/Products.tsx": "004cabca36e560657fadac0de0c86b4775a8e027137f26304caf5d8374c4f2bb",
     "frontend/src/pages/printers/CameraDetail.tsx": "8fcd6c8eb3e47338da1d25cdcdfc1cf8ac015f45531c89054cb27afc1b279894",

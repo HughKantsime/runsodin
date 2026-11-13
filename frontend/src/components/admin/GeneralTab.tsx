@@ -220,8 +220,9 @@ export default function GeneralTab() {
   const toggleUiMode = async (mode) => {
     setUiMode(mode)
     try {
-      const current = await pricingConfig.get()
-      await pricingConfig.update({ ...current, ui_mode: mode })
+      // Send the mode alone: the server keeps every other saved setting, and a save that
+      // carries pricing numbers would mark pricing as set up when nobody set it.
+      await pricingConfig.update({ ui_mode: mode })
       queryClient.invalidateQueries({ queryKey: ['pricing-config'] })
     } catch (e) { console.error('Failed to save UI mode:', e) }
   }

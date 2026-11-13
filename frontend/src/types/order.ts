@@ -192,6 +192,8 @@ export interface PricingConfig {
   default_margin?: number;
   other_costs?: number;
   ui_mode?: string;
+  /** Reported by the server: true once the owner has saved pricing settings. */
+  configured?: boolean;
 }
 
 // ---- Chargebacks ----

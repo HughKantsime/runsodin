@@ -24,6 +24,17 @@ log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Pricing"])
 
+# Stored inside the pricing_config JSON. The same row also holds the interface mode, so the row
+# existing does not mean anyone saved pricing. False is written only when the row is first created
+# by a save that carried no pricing numbers; a row without the key predates it and counts as saved.
+PRICING_SAVED_KEY = "pricing_saved"
+
+
+def _pricing_response(value: dict) -> dict:
+    """Stored settings plus `configured`: whether the owner has saved pricing settings."""
+    shown = {key: item for key, item in value.items() if key != PRICING_SAVED_KEY}
+    return {**shown, "configured": value.get(PRICING_SAVED_KEY) is not False}
+
 
 @router.get("/pricing-config")
 def get_pricing_config(current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
@@ -33,7 +44,7 @@ def get_pricing_config(current_user: dict = Depends(require_role("viewer", scope
     # prices come from generic defaults and are not shown as if they were the owner's numbers.
     if not config:
         return {**DEFAULT_PRICING_CONFIG, "configured": False}
-    return {**config.value, "configured": True}
+    return _pricing_response(config.value)
 
 
 class PricingConfigRequest(PydanticBaseModel):
@@ -87,6 +98,12 @@ def update_pricing_config(
         raise HTTPException(status_code=422, detail={"invalid_fields": fields}) from None
     # Preserve unknown keys while normalizing supported numeric strings.
     merged_config.update(validated.model_dump(exclude_unset=True))
+    # Only a save that carries pricing numbers marks pricing as set up; switching the interface
+    # mode on a fresh install must not make default prices look like the owner's.
+    if config_data.model_fields_set - {"ui_mode"}:
+        merged_config[PRICING_SAVED_KEY] = True
+    elif not config:
+        merged_config[PRICING_SAVED_KEY] = False
     if config:
         config.value = merged_config
     else:
@@ -97,7 +114,7 @@ def update_pricing_config(
     db.refresh(config)
 
     # Same shape as GET; `configured` is reported, never stored.
-    return {**config.value, "configured": True}
+    return _pricing_response(config.value)
 
 
 @router.get("/models/{model_id}/cost")
