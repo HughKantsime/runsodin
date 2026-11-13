@@ -106,6 +106,7 @@ class ConfigUpdate(BaseModel):
     spoolman_url: Optional[str] = None
     blackout_start: Optional[str] = None
     blackout_end: Optional[str] = None
+    blackout_timezone: Optional[str] = None  # IANA name; the quiet-hours clock times are in it
     scheduler_material_mode: Optional[str] = None
 
     @field_validator('spoolman_url')
@@ -128,6 +129,14 @@ class ConfigUpdate(BaseModel):
         if not time_pattern.match(v):
             raise ValueError('Invalid time format. Use HH:MM (e.g., 22:30)')
         return v
+
+    @field_validator('blackout_timezone')
+    @classmethod
+    def validate_timezone(cls, v):
+        if v is None:
+            return v
+        from core.scheduler_settings import check_timezone
+        return check_timezone(v)
 
     @field_validator('scheduler_material_mode')
     @classmethod

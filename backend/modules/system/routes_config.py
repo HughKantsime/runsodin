@@ -592,7 +592,7 @@ async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewe
 @router.get("/config", tags=["Config"])
 def get_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current configuration."""
-    from core.scheduler_settings import get_blackout
+    from core.scheduler_settings import get_blackout, get_blackout_timezone
     from modules.jobs.scheduler_materials import get_mode
     blackout_start, blackout_end = get_blackout(db)
     return {
@@ -600,6 +600,8 @@ def get_config(current_user: dict = Depends(require_role("viewer")), db: Session
         "spoolman_url_from_env": managed_by_environment(),
         "blackout_start": blackout_start,
         "blackout_end": blackout_end,
+        # null: the window was never saved with a time zone, so its clock times are UTC
+        "blackout_timezone": get_blackout_timezone(db),
         "scheduler_material_mode": get_mode(db),
     }
 
@@ -618,16 +620,16 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
             except SpoolmanURLRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from None
         set_spoolman_url(db, config.spoolman_url)
-    if config.blackout_start is not None or config.blackout_end is not None:
+    if config.blackout_start is not None or config.blackout_end is not None or config.blackout_timezone is not None:
         from core.scheduler_settings import set_blackout
-        set_blackout(db, config.blackout_start, config.blackout_end)
+        set_blackout(db, config.blackout_start, config.blackout_end, config.blackout_timezone)
 
     mode_change = {}
     if config.scheduler_material_mode is not None:
         from modules.jobs.scheduler_materials import get_mode, set_mode
         mode_change["scheduler_material_mode"] = {"from": get_mode(db), "to": set_mode(db, config.scheduler_material_mode)}
 
-    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "scheduler_material_mode"] if getattr(config, k) is not None], **mode_change})
+    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "blackout_timezone", "scheduler_material_mode"] if getattr(config, k) is not None], **mode_change})
     db.commit()
     return {"success": True, "message": "Config updated."}
 

@@ -169,16 +169,31 @@ function NetworkSection() {
 }
 
 
-/** One sentence for the scheduler quiet hours. The server applies them in UTC, so the sentence
- *  also gives the viewer's own clock time. Equal start and end means off. */
-export function quietHoursSummary(start: string, end: string, timeZone?: string): string {
+/** One sentence for the scheduler quiet hours. Equal start and end means off. With a saved time
+ *  zone the clock times are in that zone all year. Without one (saved before the zone existed, or
+ *  the server defaults) the server applies them in UTC, so the sentence also gives the viewer's
+ *  own clock time. */
+export function quietHoursSummary(start: string, end: string, zone?: string | null, viewerZone?: string): string {
   if (!start || !end || start === end) return 'Quiet hours are off: the scheduler may start jobs at any time.'
+  if (zone) return `The scheduler will not start jobs between ${start} and ${end}, ${zone} time, all year (daylight-saving changes are followed). Save to apply.`
   const local = (hhmm: string) => {
     const [h, m] = hhmm.split(':').map(Number)
     const at = new Date(Date.UTC(2026, 0, 15, h, m))
-    return at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...(timeZone ? { timeZone } : {}) })
+    return at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...(viewerZone ? { timeZone: viewerZone } : {}) })
   }
   return `The scheduler will not start jobs between ${start} and ${end} UTC (${local(start)} to ${local(end)} your time, standard time). Save to apply.`
+}
+
+/** The IANA time zone this browser is set to. */
+export function browserTimeZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+}
+
+/** Time zones offered for quiet hours: what the browser knows, plus any the caller needs listed. */
+export function timeZoneChoices(...always: string[]): string[] {
+  let known: string[] = []
+  try { known = (Intl as any).supportedValuesOf?.('timeZone') ?? [] } catch { known = [] }
+  return Array.from(new Set([...always.filter(Boolean), 'UTC', ...known])).sort()
 }
 
 const MATERIAL_MODES = [
@@ -229,6 +244,7 @@ export default function GeneralTab() {
     spoolman_url: '',
     blackout_start: '22:30',
     blackout_end: '05:30',
+    blackout_timezone: '', // '' = the window has no saved time zone and is applied in UTC
   })
   const [saved, setSaved] = useState(false)
   const [uiMode, setUiMode] = useState('advanced')
@@ -239,10 +255,15 @@ export default function GeneralTab() {
 
   useEffect(() => {
     if (configData) {
+      const start = configData.blackout_start || '22:30'
+      const end = configData.blackout_end || '05:30'
       setSettings({
         spoolman_url: configData.spoolman_url || '',
-        blackout_start: configData.blackout_start || '22:30',
-        blackout_end: configData.blackout_end || '05:30',
+        blackout_start: start,
+        blackout_end: end,
+        // A window that is on and has no saved zone keeps meaning UTC until the admin says otherwise.
+        // With quiet hours off there is nothing to reinterpret, so a new window starts in this browser's zone.
+        blackout_timezone: configData.blackout_timezone || (start === end ? browserTimeZone() : ''),
       })
     }
   }, [configData])
@@ -283,7 +304,8 @@ export default function GeneralTab() {
   // SPOOLMAN_URL in the server environment overrides the saved URL; the server refuses to change it.
   const spoolmanFromEnv = configData?.spoolman_url_from_env === true
   const handleSave = () => {
-    const { spoolman_url, ...scheduling } = settings
+    const { spoolman_url, blackout_timezone, ...times } = settings
+    const scheduling = blackout_timezone ? { ...times, blackout_timezone } : times
     saveSettings.mutate(spoolmanFromEnv ? scheduling : { spoolman_url, ...scheduling })
   }
 
@@ -422,20 +444,41 @@ export default function GeneralTab() {
         </p>
         <div className="grid grid-cols-2 gap-3 md:gap-4 max-w-md">
           <Input
-            label="Quiet hours start (UTC)"
+            label={`Quiet hours start (${settings.blackout_timezone || 'UTC'})`}
             type="time"
             value={settings.blackout_start}
             onChange={(e) => setSettings(s => ({ ...s, blackout_start: e.target.value }))}
           />
           <Input
-            label="Quiet hours end (UTC)"
+            label={`Quiet hours end (${settings.blackout_timezone || 'UTC'})`}
             type="time"
             value={settings.blackout_end}
             onChange={(e) => setSettings(s => ({ ...s, blackout_end: e.target.value }))}
           />
         </div>
+        <div className="mt-3 max-w-md">
+          <label htmlFor="quiet-hours-timezone" className="block text-sm font-medium mb-1">Quiet hours time zone</label>
+          <select id="quiet-hours-timezone" value={settings.blackout_timezone}
+            className="w-full bg-[var(--brand-input-bg)] text-[var(--brand-text-primary)] border border-[var(--brand-card-border)] rounded-md p-2"
+            onChange={(e) => setSettings(s => ({ ...s, blackout_timezone: e.target.value }))}>
+            {!settings.blackout_timezone && <option value="">UTC (no time zone saved)</option>}
+            {timeZoneChoices(settings.blackout_timezone, browserTimeZone()).map(z => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </div>
+        {configData && !settings.blackout_timezone && settings.blackout_start !== settings.blackout_end && (
+          <div className="mt-3 text-xs text-[var(--brand-text-secondary)]" data-testid="quiet-hours-legacy-notice">
+            <p>
+              These quiet hours were saved without a time zone, so they are applied in UTC, not in your local time.
+              Nothing changes unless you choose a time zone.
+            </p>
+            <button type="button" className="mt-1 underline"
+              onClick={() => setSettings(s => ({ ...s, blackout_timezone: browserTimeZone() }))}>
+              Use my time zone (keeps the same clock hours)
+            </button>
+          </div>
+        )}
         <p className="text-xs text-[var(--brand-text-muted)] mt-2" data-testid="quiet-hours-summary">
-          {quietHoursSummary(settings.blackout_start, settings.blackout_end)}
+          {quietHoursSummary(settings.blackout_start, settings.blackout_end, settings.blackout_timezone)}
         </p>
         {settings.blackout_start !== settings.blackout_end && (
           <button type="button" className="mt-2 text-xs underline text-[var(--brand-text-secondary)]"

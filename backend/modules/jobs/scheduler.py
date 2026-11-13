@@ -54,6 +54,7 @@ class SchedulerConfig:
     blackout_start_minute: int = 30
     blackout_end_hour: int = 5
     blackout_end_minute: int = 30
+    blackout_timezone: Optional[str] = None  # IANA zone of the clock times above; None = UTC
     setup_duration_slots: int = 1  # 15-min slots for color change
     slot_duration_minutes: int = 15
     horizon_days: int = 7
@@ -184,7 +185,16 @@ class Scheduler(SchedulerPlanning):
         return dt.replace(second=0, microsecond=0)
     
     def _is_blackout_time(self, dt: datetime) -> bool:
-        """Check if a time falls within the blackout window."""
+        """Check if a time falls within the blackout window.
+
+        The window's clock times are in config.blackout_timezone, so the instant is read on that
+        zone's clock for its own day (daylight saving included); with no zone it is read as UTC.
+        """
+        if self.config.blackout_timezone:
+            from zoneinfo import ZoneInfo
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(ZoneInfo(self.config.blackout_timezone))
         minutes = dt.hour * 60 + dt.minute
         blackout_start = self.config.blackout_start_hour * 60 + self.config.blackout_start_minute
         blackout_end = self.config.blackout_end_hour * 60 + self.config.blackout_end_minute
@@ -588,8 +598,8 @@ class Scheduler(SchedulerPlanning):
 def run_scheduler(db: Session, config: Optional[SchedulerConfig] = None) -> SchedulerResult:
     """Run the scheduler; without an explicit config it uses the saved blackout hours."""
     if config is None:
-        from core.scheduler_settings import get_blackout
+        from core.scheduler_settings import get_blackout, get_blackout_timezone
         start, end = get_blackout(db)
-        config = SchedulerConfig.from_time_strings(blackout_start=start, blackout_end=end)
+        config = SchedulerConfig.from_time_strings(blackout_start=start, blackout_end=end, blackout_timezone=get_blackout_timezone(db))
     scheduler = Scheduler(config)
     return scheduler.run(db)
