@@ -64,6 +64,10 @@ All notable changes to O.D.I.N. are documented here.
 - ITAR mode now also covers Square: with `ODIN_ITAR_MODE=1` every Square call is refused before any network use, and ODIN refuses to start while a Square connection is stored. Previously an administrator could connect Square on such a server.
 - ITAR mode now refuses to start when single sign-on uses the built-in Microsoft or Google preset without being on the allowed identity-provider list. The sign-in itself was already blocked; the problem now shows at start-up instead of at the first sign-in.
 
+### Changed
+
+- New O.D.I.N. mark: the eye now appears beside the name in the sidebar, the phone header and on the sign-in page, and as the browser tab, home-screen and installed-app icon. Installs without custom branding had no tab icon at all before. A white-labelled install (its own name or logo) is unchanged and never shows the O.D.I.N. mark.
+
 ## [2.1.0] - 2026-11-10
 
 

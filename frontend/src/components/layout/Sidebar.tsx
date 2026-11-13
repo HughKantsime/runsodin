@@ -1,4 +1,5 @@
 import { useTranslation } from '../../contexts/I18nContext'
+import OdinMark from './OdinMark'
 import { useState } from "react"
 import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -233,6 +234,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
                 {branding.logo_url && (
                   <img src={branding.logo_url} alt={branding.app_name} className="h-8 object-contain" />
                 )}
+                <OdinMark className="h-8 w-8" />
                 <div>
                   <h1 className="text-base font-display font-bold leading-tight" style={{ color: 'var(--brand-text-primary)' }}>
                     {branding.app_name}

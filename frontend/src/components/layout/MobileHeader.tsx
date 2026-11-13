@@ -1,4 +1,5 @@
 import { useInRouterContext, useLocation } from 'react-router-dom'
+import OdinMark from './OdinMark'
 import { useFoundry } from '../../hooks/themePreferences'
 import { useEffect, useRef, useState } from 'react'
 import { Menu, Search } from 'lucide-react'
@@ -51,6 +52,7 @@ export default function MobileHeader({ onMenuClick }) {
         {branding.logo_url && (
           <img src={branding.logo_url} alt={branding.app_name} className={foundry ? 'h-6 max-w-8 object-contain shrink-0' : 'h-6 object-contain'} />
         )}
+        <OdinMark className="h-6 w-6" />
         <h1 className={foundry ? 'text-sm font-display font-bold truncate' : 'text-sm font-display font-bold'} style={{ color: 'var(--brand-text-primary)' }}>
           {branding.app_name}
         </h1>
