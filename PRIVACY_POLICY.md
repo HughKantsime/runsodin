@@ -63,23 +63,26 @@ The following data is created and stored by the O.D.I.N. software on your server
 - Spool inventory and consumable stock levels
 - Cost and revenue analytics
 
-### 2.6 No Telemetry, No Phone-Home
+### 2.6 Telemetry and Network Connections
 
 **O.D.I.N. does not:**
 
 - Send telemetry or usage data to Sublab 3DP or any third party
-- Phone home to verify licenses (license validation is performed locally using Ed25519 signatures)
+- Contact Sublab 3DP in the background (no heartbeat, no update check)
 - Require an Internet connection to operate after initial installation
 - Include analytics, tracking pixels, or third-party SDKs
 - Share data with advertisers or data brokers
 
-The only network connections the Software makes are:
+An installed license is verified locally using Ed25519 signatures, with no network call.
 
-- To your printers on your local network (MQTT, HTTP, WebSocket)
-- To your configured notification channels (email SMTP, Discord/Slack webhooks, Telegram, ntfy) — only if you configure them
-- To your configured MQTT broker — only if you enable MQTT republish
+A default installation contacts nothing outside your network by itself. Connections the Software can make:
 
----
+- **Your printers and cameras** on your local network (MQTT, HTTP, WebSocket, RTSP/MJPEG), and local network discovery (mDNS) when an administrator asks for it.
+- **Our license portal**, only when an administrator runs a license action. Activation, re-check and move send the license key, the installation ID and the device key; starting a trial sends the installation ID, the device key and the email address the administrator enters (Section 3.5). Our servers also see the connecting IP address. No print, job, user or student record is sent. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N.; the activation request file also holds the server's hostname and the O.D.I.N. version.
+- **Services an administrator connects:** email (SMTP), notification services (webhooks, Discord, Slack, ntfy, Telegram, Pushover, WhatsApp), an MQTT broker, SIEM streaming, a single sign-on provider, class roster import (Google Classroom, or an LTI platform such as Canvas), Square, and Spoolman if you point O.D.I.N. at one. Each is off until configured.
+- **Push notifications**, only if a user turns them on: the browser vendor's push service, or Apple's push service where the server operator has set it up. The notification text, which can include a job or file name, passes through it.
+
+Home Assistant and dashboards read from O.D.I.N.; O.D.I.N. does not call them.
 
 ## 3. Data Collected by Sublab 3DP
 
@@ -137,13 +140,14 @@ A 14-day Pro trial is started in O.D.I.N. (Settings > License). O.D.I.N. signs t
 - **Email address**, in cleartext on the pending request (to send the confirmation link) and on the trial license key once you confirm (as on a paid license).
 - **A one-way hash (SHA-256) of the normalized email address**, kept with the trial record to enforce one trial per email address.
 - **Installation ID, device public key and its fingerprint** (a SHA-256 hash of the device public key), kept with the trial record to enforce one trial per installation and to bind the trial key to that installation.
+- **Your answer to "How did you hear about O.D.I.N.?"**, only if you choose to give one. It is optional, it is whatever you pick or type, and nothing is inferred automatically (no referrer, campaign tags, cookies or scripts). It is kept on the pending request and on the trial license key record.
 - **The IP address the request came from.** It is kept on the pending request (deleted no later than 48 hours after the request) and on the trial record for 90 days, then removed.
 
 We send the confirmation email through **Resend** (Resend, Inc., United States), which processes your email address and the message only to deliver it. The trial key is shown once on the confirmation page and is not emailed.
 
-**Purpose:** Delivering the trial you asked for and preventing abuse of the one-trial limit.
+**Purpose:** Delivering the trial you asked for and preventing abuse of the one-trial limit. The optional answer is used only to understand where people find O.D.I.N.
 **Legal basis (GDPR):** Steps taken at your request before a contract (Article 6(1)(b)) and our legitimate interest in preventing abuse of free trials (Article 6(1)(f)).
-**Retention:** Pending requests: no more than 48 hours. Trial records (email hash, installation ID, device key fingerprint): as long as needed to enforce one trial per installation and per email address. Request IP on the trial record: 90 days. Trial license key records: as for license records.
+**Retention:** Pending requests (including the optional answer on them): no more than 48 hours. The optional answer on the trial license key record: as for license records. Trial records (email hash, installation ID, device key fingerprint): as long as needed to enforce one trial per installation and per email address. Request IP on the trial record: 90 days. Trial license key records: as for license records.
 
 ---
 
@@ -294,7 +298,7 @@ We strongly recommend:
 | Data Type | Retention Period |
 |-----------|-----------------|
 | License records | Duration of license + 7 years |
-| Pending Pro trial requests (email, email hash, installation ID, device key, IP) | No more than 48 hours |
+| Pending Pro trial requests (email, email hash, installation ID, device key, IP, optional "how did you hear" answer) | No more than 48 hours |
 | Pro trial records (email hash, installation ID, device key fingerprint) | As long as needed to enforce one trial per installation and email |
 | IP address on a Pro trial record | 90 days |
 | Support correspondence | 3 years after last interaction |
