@@ -53,13 +53,18 @@ class PricingConfigRequest(PydanticBaseModel):
     support_min: Optional[int] = Field(default=None, ge=0)
     default_margin: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     other_costs: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    # Optional, 0 when absent (a configuration saved before 2.3.0 prices exactly as it did).
+    selling_fee_percent: Optional[float] = Field(default=None, ge=0, lt=100, allow_inf_nan=False)
+    selling_fee_fixed: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    plate_handling_min: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     ui_mode: Optional[str] = None
 
 
     @field_validator("spool_cost", "spool_weight", "hourly_rate", "electricity_rate",
                      "printer_wattage", "printer_cost", "printer_lifespan", "packaging_cost",
                      "failure_rate", "monthly_rent", "parts_per_month", "post_processing_min",
-                     "packing_min", "support_min", "default_margin", "other_costs", mode="before")
+                     "packing_min", "support_min", "default_margin", "other_costs",
+                     "selling_fee_percent", "selling_fee_fixed", "plate_handling_min", mode="before")
     @classmethod
     def supplied_number(cls, value):
         if value is None or isinstance(value, bool):
@@ -136,32 +141,14 @@ def calculate_model_cost(
 
     material_cost = filament_grams * cost_per_gram
 
-    labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
-    labor_cost = labor_hours * config["hourly_rate"]
-
-    electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
-
-    depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
-
-    packaging_cost = config["packaging_cost"]
-
-    base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
-
-    failure_cost = base_cost * (config["failure_rate"] / 100)
-
-    overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
-
-    subtotal = base_cost + failure_cost + overhead_cost
-
-    margin = model.markup_percent if model.markup_percent is not None else config["default_margin"]
-    suggested_price = subtotal * (1 + margin / 100)
-
-    numeric_results = (
-        filament_grams, print_hours, cost_per_gram, material_cost, labor_cost,
-        electricity_cost, depreciation_cost, packaging_cost, base_cost,
-        failure_cost, overhead_cost, subtotal, margin, suggested_price,
-    )
-    if not all(math.isfinite(value) for value in numeric_results):
+    from modules.models_library.pricing_rule import price_item, all_finite
+    try:
+        priced = price_item(config, material_cost=material_cost, print_hours=print_hours,
+                            units_per_plate=units_per_bed, markup_percent=model.markup_percent)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Selling fee percentage must be under 100") from None
+    margin = priced["markup_percent"]
+    if not all_finite(priced) or not all(math.isfinite(v) for v in (filament_grams, print_hours, cost_per_gram)):
         raise HTTPException(status_code=422, detail="Pricing calculation exceeds supported numeric range")
 
     return {
@@ -174,18 +161,23 @@ def calculate_model_cost(
         "cost_per_gram": round(cost_per_gram, 4),
         "cost_source": cost_source,
         "costs": {
-            "material": round(material_cost, 2),
-            "labor": round(labor_cost, 2),
-            "electricity": round(electricity_cost, 2),
-            "depreciation": round(depreciation_cost, 2),
-            "packaging": round(packaging_cost, 2),
-            "failure": round(failure_cost, 2),
-            "overhead": round(overhead_cost, 2),
-            "other": round(config["other_costs"], 2)
+            "material": round(priced["material"], 2),
+            "labor": round(priced["labor"], 2),
+            "electricity": round(priced["electricity"], 2),
+            "depreciation": round(priced["depreciation"], 2),
+            "packaging": round(priced["packaging"], 2),
+            "failure": round(priced["failure"], 2),
+            "overhead": round(priced["overhead"], 2),
+            "other": round(priced["other"], 2)
         },
-        "subtotal": round(subtotal, 2),
+        "subtotal": round(priced["subtotal"], 2),
+        # "margin_percent" has always held the markup (added on top of cost); kept for
+        # compatibility. "markup_percent" is the same number under its right name.
         "margin_percent": margin,
-        "suggested_price": round(suggested_price, 2)
+        "markup_percent": margin,
+        "selling_fees": round(priced["selling_fees"], 2),
+        "margin_of_price_percent": round(priced["margin_of_price_percent"], 1),
+        "suggested_price": round(priced["price"], 2)
     }
 
 
@@ -282,22 +274,21 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
         if cost_per_gram is None:
             cost_per_gram = config["spool_cost"] / config["spool_weight"]
 
-        # Calculate costs
+        # Calculate costs (one rule, modules/models_library/pricing_rule.py). This list has
+        # always priced from the plate's grams and hours; only the per-plate handling minutes
+        # are shared between the plate's units here.
         material_cost = filament_grams * cost_per_gram
-        labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
-        labor_cost = labor_hours * config["hourly_rate"]
-        electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
-        depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
-        packaging_cost = config["packaging_cost"]
-        base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
-        failure_cost = base_cost * (config["failure_rate"] / 100)
-        overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
-        subtotal = base_cost + failure_cost + overhead_cost
-
+        from modules.models_library.pricing_rule import price_item, all_finite
         margin = model.markup_percent if model.markup_percent else config["default_margin"]
-        suggested_price = subtotal * (1 + margin / 100)
-        # One out-of-range input must never 500 the whole list: report that model's estimate as unknown.
-        priced = all(isinstance(v, (int, float)) and math.isfinite(v) for v in (subtotal, suggested_price, margin))
+        try:
+            rule = price_item(config, material_cost=material_cost, print_hours=print_hours,
+                              units_per_plate=model.units_per_bed or 1, markup_percent=margin)
+            # One out-of-range input must never 500 the whole list: report that model's estimate as unknown.
+            priced = all_finite(rule)
+        except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+            rule, priced = None, False
+        subtotal = rule["subtotal"] if priced else None
+        suggested_price = rule["price"] if priced else None
 
         # Build response
         model_dict = {
@@ -323,6 +314,9 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
             "estimated_cost": round(subtotal, 2) if priced else None,
             "suggested_price": round(suggested_price, 2) if priced else None,
             "margin_percent": margin if priced else None,
+            # The markup actually used ("markup_percent" above is the model's own override, if any).
+            "effective_markup_percent": margin if priced else None,
+            "margin_of_price_percent": round(rule["margin_of_price_percent"], 1) if priced else None,
             "is_favorite": model.is_favorite or False,
             # Bed dimensions from linked print file (for dispatch compatibility warning)
             "bed_x_mm": bed_dims.get(model.id, {}).get("bed_x_mm"),

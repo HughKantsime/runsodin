@@ -441,7 +441,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ### 10.2 Cost Calculator
 - Included in Community and every paid tier, together with pricing configuration
 - Detailed per-model cost breakdown: material, labor, electricity, depreciation, packaging, overhead, failure buffer
-- Configurable manufacturing margin
+- Configurable markup (the percentage added on top of cost), with the resulting margin of the price shown beside it and an equivalent target-margin entry
+- Optional selling fees (a percentage of the price and a fixed amount per sale) and per-plate handling time
 - Per-unit and bulk quantity pricing calculations
 - Dedicated Calculator page
 

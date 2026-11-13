@@ -185,7 +185,7 @@ test('F10-10.2-02 margin from saved config prices the unit and an edited margin 
   await calculator()
   // Per item: $31.95 x 1.25 = $39.94; at 30%: $31.95 x 1.30 = $41.535 -> $41.54.
   expect(money('Recommended Price (per unit)')).toHaveTextContent('$39.94')
-  fireEvent.change(label('Margin'), { target: { value: '30' } })
+  fireEvent.change(label('Markup'), { target: { value: '30' } })
   expect(money('Recommended Price (per unit)')).toHaveTextContent('$41.54')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 30 }), expect.anything()))

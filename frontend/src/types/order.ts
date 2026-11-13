@@ -191,6 +191,10 @@ export interface PricingConfig {
   support_min?: number;
   default_margin?: number;
   other_costs?: number;
+  /** Optional since 2.3.0; absent means 0. */
+  selling_fee_percent?: number;
+  selling_fee_fixed?: number;
+  plate_handling_min?: number;
   ui_mode?: string;
 }
 

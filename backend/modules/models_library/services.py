@@ -92,28 +92,18 @@ def calculate_job_cost(
     if cost_per_gram is None:
         cost_per_gram = config["spool_cost"] / config["spool_weight"]
 
-    # Calculate costs
+    # Calculate costs through the one pricing rule (pricing_rule.py). A job is one plate, so
+    # per-plate handling counts once; with the optional settings absent this is the formula
+    # this function has always used.
     material_cost = filament_grams * cost_per_gram
-    labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
-    labor_cost = labor_hours * config["hourly_rate"]
-    electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
-    depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
-    packaging_cost = config["packaging_cost"]
-    base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
-    failure_cost = base_cost * (config["failure_rate"] / 100)
-    overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
-
-    subtotal = base_cost + failure_cost + overhead_cost
-
-    margin = model.markup_percent if model and model.markup_percent is not None else config["default_margin"]
-    suggested_price = subtotal * (1 + margin / 100)
-
-    numeric_results = (
-        filament_grams, print_hours, cost_per_gram, labor_hours, material_cost,
-        labor_cost, electricity_cost, depreciation_cost, packaging_cost,
-        base_cost, failure_cost, overhead_cost, subtotal, margin, suggested_price,
-    )
-    if not all(math.isfinite(value) for value in numeric_results):
+    from modules.models_library.pricing_rule import price_item, all_finite
+    try:
+        priced = price_item(config, material_cost=material_cost, print_hours=print_hours, units_per_plate=1,
+                            markup_percent=model.markup_percent if model else None)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Selling fee percentage must be under 100") from None
+    subtotal, suggested_price, margin = priced["subtotal"], priced["price"], priced["markup_percent"]
+    if not all_finite(priced) or not all(math.isfinite(value) for value in (filament_grams, print_hours, cost_per_gram)):
         raise HTTPException(
             status_code=422,
             detail="Pricing calculation exceeds supported numeric range",

@@ -39,6 +39,8 @@
       "estimated_cost": 5.72,
       "suggested_price": 8.58,
       "margin_percent": 50.0,
+      "effective_markup_percent": 50.0,
+      "margin_of_price_percent": 33.3,
       "is_favorite": false,
       "bed_x_mm": null,
       "bed_y_mm": null
@@ -69,6 +71,8 @@
       "estimated_cost": 4.57,
       "suggested_price": 6.86,
       "margin_percent": 50.0,
+      "effective_markup_percent": 50.0,
+      "margin_of_price_percent": 33.3,
       "is_favorite": true,
       "bed_x_mm": null,
       "bed_y_mm": null

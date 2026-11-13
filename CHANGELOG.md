@@ -64,6 +64,10 @@ All notable changes to O.D.I.N. are documented here.
 - ITAR mode now also covers Square: with `ODIN_ITAR_MODE=1` every Square call is refused before any network use, and ODIN refuses to start while a Square connection is stored. Previously an administrator could connect Square on such a server.
 - ITAR mode now refuses to start when single sign-on uses the built-in Microsoft or Google preset without being on the allowed identity-provider list. The sign-in itself was already blocked; the problem now shows at start-up instead of at the first sign-in.
 
+### Changed
+
+- Pricing Calculator: the percentage it adds to cost is now correctly called Markup (it was labelled Margin), and the resulting margin is shown under the price. A Target margin field sets the same value the other way round. New optional selling-fee (percentage and fixed) and per-plate handling inputs; with these left at 0 every price is unchanged. Saved settings and prices are unchanged. The cost API also returns `markup_percent`, `selling_fees` and `margin_of_price_percent`.
+
 ## [2.1.0] - 2026-11-10
 
 
