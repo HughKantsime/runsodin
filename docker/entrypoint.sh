@@ -14,10 +14,12 @@ set -Eeuo pipefail
 # value turns ITAR mode on in Python therefore turns it on here too; a value such as "1"
 # wrapped in quotes or stray punctuation is treated as on here as well, which only removes
 # a proxy and can never leave one in place.
+odin_itar_on=0
 odin_itar_mode="${ODIN_ITAR_MODE:-}"
 odin_itar_mode="$(LC_ALL=C; v="${odin_itar_mode}"; v="${v#"${v%%[A-Za-z0-9]*}"}"; v="${v%"${v##*[A-Za-z0-9]}"}"; printf '%s' "${v}")"
 case "$(printf '%s' "${odin_itar_mode}" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes|on)
+        odin_itar_on=1
         odin_ignored_proxies=""
         for odin_variable in $(compgen -e | LC_ALL=C sort); do
             case "$(printf '%s' "${odin_variable}" | tr '[:upper:]' '[:lower:]')" in
@@ -244,8 +246,19 @@ case "$*" in
         # (api.conf, go2rtc its own service): the config on the shared volume stays
         # pending and the API's start-up sync reloads go2rtc. Monitors, vision and
         # reports never rotate.
+        # ITAR mode: go2rtc must never start with a configuration written before this boot
+        # (it can name a camera outside the local network, from before ITAR mode was turned
+        # on). When the preparation fails, the script replaces the file with one that has
+        # no camera sources and exits 10; any other failure refuses to start the container.
         if (cd /app/backend && /usr/sbin/runuser -u odin -- python3 -m scripts.prepare_go2rtc_config); then
             export ODIN_CAMERA_RELAY_SECRET_ROTATED=1
+        else
+            odin_go2rtc_status=$?
+            if [ "${odin_itar_on}" = "1" ] && [ "${odin_go2rtc_status}" != "10" ]; then
+                echo "  ✗ ODIN_ITAR_MODE=1: the camera (go2rtc) configuration could not be prepared and the old one could not be replaced." >&2
+                echo "    O.D.I.N. will not start with a configuration it has not checked. Free space on, or fix the permissions of, the go2rtc configuration folder and start again." >&2
+                exit 1
+            fi
         fi
         ;;
 esac
