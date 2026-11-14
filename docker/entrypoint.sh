@@ -7,17 +7,24 @@ set -Eeuo pipefail
 # container starts (supervisord, the ODIN services, go2rtc, ffmpeg) starts without them.
 # backend/core/itar.py does the same inside each ODIN process, with the same rule
 # (neutralize_environment_proxies). Names are printed, never values.
-# backend/core/itar.py trims the value with Python's str.strip, whose idea of white space is
-# wider than the shell's (it includes the control characters 0x1c-0x1f and Unicode spaces).
-# Matching that list byte for byte in shell is fragile, so this block is deliberately WIDER:
-# it drops every leading and trailing byte that is not an ASCII letter or digit. Whatever
-# value turns ITAR mode on in Python therefore turns it on here too; a value such as "1"
-# wrapped in quotes or stray punctuation is treated as on here as well, which only removes
-# a proxy and can never leave one in place.
+# ODIN_ITAR_MODE is read here exactly as backend/core/itar.py reads it (itar_flag_state):
+# trim the six ASCII white-space characters, lower-case A-Z, then compare.
+#   on:  1 true yes on          off: (unset or empty) 0 false no off
+# Any other value is refused, here and in every ODIN process, with the same message. Before,
+# this block and Python each read such a value in their own way: a value like "1" in quotes
+# removed the proxies and announced ITAR mode here while the backend ran with it off.
 odin_itar_on=0
-odin_itar_mode="${ODIN_ITAR_MODE:-}"
-odin_itar_mode="$(LC_ALL=C; v="${odin_itar_mode}"; v="${v#"${v%%[A-Za-z0-9]*}"}"; v="${v%"${v##*[A-Za-z0-9]}"}"; printf '%s' "${v}")"
-case "$(printf '%s' "${odin_itar_mode}" | tr '[:upper:]' '[:lower:]')" in
+odin_itar_space=$' \t\n\r\v\f'   # the six characters are listed, so no locale changes what is trimmed
+odin_itar_mode="$(LC_ALL=C; v="${ODIN_ITAR_MODE:-}"; v="${v#"${v%%[!"${odin_itar_space}"]*}"}"; v="${v%"${v##*[!"${odin_itar_space}"]}"}"; printf '%s' "${v}" | LC_ALL=C tr 'A-Z' 'a-z')"
+case "${odin_itar_mode}" in
+    ""|0|false|no|off) ;;
+    1|true|yes|on) ;;
+    *)
+        echo "  ✗ ODIN_ITAR_MODE has a value O.D.I.N. does not understand. Use 1, true, yes or on to turn ITAR mode on; use 0, false, no or off, or leave it unset, for off. Refusing to start." >&2
+        exit 1
+        ;;
+esac
+case "${odin_itar_mode}" in
     1|true|yes|on)
         odin_itar_on=1
         odin_ignored_proxies=""
@@ -40,7 +47,7 @@ case "$(printf '%s' "${odin_itar_mode}" | tr '[:upper:]' '[:lower:]')" in
         unset odin_ignored_proxies odin_variable
         ;;
 esac
-unset odin_itar_mode
+unset odin_itar_mode odin_itar_space
 # ITAR-PROXIES-END
 
 # This availability flag is overwritten by trusted startup, never accepted as

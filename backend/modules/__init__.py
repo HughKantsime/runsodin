@@ -5,8 +5,9 @@ and worker is covered here. See core.itar.neutralize_environment_proxies. Does n
 ITAR mode off.
 """
 try:
-    from core.itar import neutralize_environment_proxies
+    from core.itar import neutralize_environment_proxies, refuse_malformed_itar_flag
 except ImportError:  # imported as backend.modules (ops/demo/demo_publisher.py)
-    from ..core.itar import neutralize_environment_proxies
+    from ..core.itar import neutralize_environment_proxies, refuse_malformed_itar_flag
 
+refuse_malformed_itar_flag()  # a value that is neither on nor off stops the process here
 neutralize_environment_proxies()

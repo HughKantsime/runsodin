@@ -511,13 +511,15 @@ def test_the_package_runs_the_neutralizer_before_anything_else(package):
     statements = [node for node in tree.body
                   if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant))]
     assert statements, f"{package}/__init__.py does not run the neutralizer"
-    first, call = statements[0], statements[1]
+    # The flag check comes first: a value that is neither on nor off stops the process.
+    first, check, call = statements[0], statements[1], statements[2]
+    names = "neutralize_environment_proxies, refuse_malformed_itar_flag"
     if isinstance(first, ast.Try):   # modules/: also importable as backend.modules
-        assert ast.unparse(first.handlers[0].body[0]) == "from ..core.itar import neutralize_environment_proxies"
+        assert ast.unparse(first.handlers[0].body[0]) == f"from ..core.itar import {names}"
         first = first.body[0]
     # core/ imports its own module relatively, so it also works as backend.core.
-    assert ast.unparse(first) == ("from .itar import neutralize_environment_proxies" if package == "core"
-                                  else "from core.itar import neutralize_environment_proxies")
+    assert ast.unparse(first) == (f"from .itar import {names}" if package == "core" else f"from core.itar import {names}")
+    assert ast.unparse(check) == "refuse_malformed_itar_flag()"
     assert isinstance(call, ast.Expr) and isinstance(call.value, ast.Call) and not call.value.args
     assert ast.unparse(call.value.func) == "neutralize_environment_proxies"
 
@@ -621,9 +623,9 @@ def test_the_entrypoint_removes_the_proxy_settings_before_any_python_or_supervis
 
 # The shell must read the value exactly as Python does, white space included: a value with a
 # carriage return or a leading newline (a Windows-edited env file) once turned ITAR mode on in
-# Python while the shell block did nothing, leaving go2rtc with the proxy.
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "Yes", "on", " 1 ", "1\r", "\n1", "\t true \r\n", "\v\fON\f",
-                                   "\x1c1\x1c", "\x1d\x1e\x1ftrue", "\x85yes\x85", "\xa0on\xa0", "\u20031\u2003", "\u30001"])
+# Python while the shell block did nothing, leaving go2rtc with the proxy. Values that are
+# neither on nor off are refused by both: tests/test_contracts/test_itar_flag_spellings.py.
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "Yes", "on", " 1 ", "1\r", "\n1", "\t true \r\n", "\v\fON\f"])
 def test_the_entrypoint_block_matches_the_python_rule_with_itar_on(value, monkeypatch):
     monkeypatch.setenv("ODIN_ITAR_MODE", value)
     assert itar.is_itar_mode()
@@ -643,7 +645,7 @@ def test_the_entrypoint_block_matches_the_python_rule_with_itar_on(value, monkey
         assert name in report[0]
 
 
-@pytest.mark.parametrize("value", ["", "0", "false", "off", "no", "2", "o n", " ", "\t", "1 1", "1\t1"])
+@pytest.mark.parametrize("value", ["", "0", "false", "off", "no", "OFF", " No ", " ", "\t", " 0 "])
 def test_the_entrypoint_block_changes_nothing_with_itar_off(value, monkeypatch):
     monkeypatch.setenv("ODIN_ITAR_MODE", value)
     assert not itar.is_itar_mode()

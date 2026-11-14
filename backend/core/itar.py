@@ -52,7 +52,17 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("odin.itar")
 
-_ENABLED_VALUES = {"1", "true", "yes", "on"}
+# The spellings of ODIN_ITAR_MODE. docker/entrypoint.sh accepts exactly the same ones, by the
+# same steps: trim the six ASCII white-space characters, lower-case A-Z, compare. Anything
+# else is refused at start in both places, so the two can never read one value differently.
+_ENABLED_VALUES = frozenset({"1", "true", "yes", "on"})
+_DISABLED_VALUES = frozenset({"", "0", "false", "no", "off"})
+_ASCII_SPACE = " \t\n\r\v\f"
+_ASCII_LOWER = {code: code + 32 for code in range(ord("A"), ord("Z") + 1)}
+ITAR_FLAG_REFUSAL = (
+    "ODIN_ITAR_MODE has a value O.D.I.N. does not understand. Use 1, true, yes or on to turn "
+    "ITAR mode on; use 0, false, no or off, or leave it unset, for off. Refusing to start."
+)
 _LOCAL_V4 = tuple(ipaddress.ip_network(cidr) for cidr in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16",
 ))
@@ -82,9 +92,31 @@ def _is_local_address(addr) -> bool:
     return any(addr in network for network in networks)
 
 
+def itar_flag_state(raw: Optional[str] = None) -> str:
+    """"on", "off" or "invalid" for a value of ODIN_ITAR_MODE (default: the environment's)."""
+    value = os.getenv("ODIN_ITAR_MODE", "") if raw is None else raw
+    value = value.strip(_ASCII_SPACE).translate(_ASCII_LOWER)
+    if value in _ENABLED_VALUES:
+        return "on"
+    return "off" if value in _DISABLED_VALUES else "invalid"
+
+
 def is_itar_mode() -> bool:
-    """Read the env var every call so tests can flip it without restarts."""
-    return os.getenv("ODIN_ITAR_MODE", "").strip().lower() in _ENABLED_VALUES
+    """Read the env var every call so tests can flip it without restarts.
+
+    A value that is neither an "on" nor an "off" spelling counts as on here (every guard
+    stays closed) and stops the process at start: see refuse_malformed_itar_flag.
+    """
+    return itar_flag_state() != "off"
+
+
+def refuse_malformed_itar_flag() -> None:
+    """Stop this process when ODIN_ITAR_MODE is set to something that is not a known
+    spelling of on or off. Runs when the `core` or `modules` package is first imported, so
+    in every ODIN process before it does anything; docker/entrypoint.sh does the same for
+    the container, with the same message."""
+    if itar_flag_state() == "invalid":
+        raise SystemExit(ITAR_FLAG_REFUSAL)
 
 
 # Names only (never a value: a proxy URL can hold a password) of the proxy settings that
