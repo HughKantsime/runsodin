@@ -34,6 +34,8 @@ def stale(tmp_path, monkeypatch):
     path.write_text(STALE)
     (tmp_path / "go2rtc.yaml.sync-state.json").write_text('{"applied": "abc"}')
     monkeypatch.setenv("GO2RTC_CONFIG", str(path))
+    monkeypatch.setattr(prepare, "LAUNCHED_CONFIG_PATH", str(path))   # the file go2rtc is started with
+    monkeypatch.delenv("ODIN_GO2RTC_API_URL", raising=False)          # go2rtc beside the API
 
     def fail():
         raise OSError(28, "No space left on device")
@@ -130,3 +132,67 @@ def test_under_itar_a_prepared_configuration_starts_as_before():
 def test_with_itar_off_the_container_always_starts(status):
     code, output = _entrypoint("", status)
     assert code == 0 and output == f"STARTED rotated={1 if status == 0 else 0}\n"
+
+
+# ---- recheck 1, B(1): the file that is emptied is the file go2rtc is started with ----
+
+def test_the_path_go2rtc_is_started_with_is_one_value_everywhere():
+    assert prepare.LAUNCHED_CONFIG_PATH == prepare.DEFAULT_CONFIG_PATH == "/app/go2rtc/go2rtc.yaml"
+    supervisor = (ROOT / "docker/supervisord.conf").read_text()
+    assert f"command=/usr/local/bin/go2rtc -config {prepare.LAUNCHED_CONFIG_PATH}\n" in supervisor
+    assert supervisor.count("go2rtc -config") == 1
+    from modules.printers import route_utils
+    source = (ROOT / "backend/modules/printers/route_utils.py").read_text()
+    assert f'GO2RTC_CONFIG = os.environ.get("GO2RTC_CONFIG", "{prepare.DEFAULT_CONFIG_PATH}")' in source
+    assert route_utils.GO2RTC_CONFIG
+    compose = (ROOT / "docker-compose.enterprise.yml").read_text()
+    assert "- go2rtc-config:/app/go2rtc\n" in compose and "- go2rtc-config:/config:ro" in compose
+    assert "GO2RTC_CONFIG" not in compose and "GO2RTC_CONFIG" not in (ROOT / "docker-compose.yml").read_text()
+
+
+@pytest.mark.parametrize("preparation_fails", [True, False])
+def test_under_itar_a_config_path_go2rtc_does_not_load_refuses_the_start(tmp_path, monkeypatch, preparation_fails):
+    """GO2RTC_CONFIG=/data/camera.yaml while go2rtc loads the fixed file: emptying (or
+    writing) the first one says nothing about the second, which keeps its public source."""
+    launched, other = tmp_path / "go2rtc.yaml", tmp_path / "camera.yaml"
+    launched.write_text(STALE)
+    other.write_text("streams: {}\n")
+    monkeypatch.setattr(prepare, "LAUNCHED_CONFIG_PATH", str(launched))
+    monkeypatch.setenv("GO2RTC_CONFIG", str(other))
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    from modules.printers import camera_relay
+    called = []
+
+    def rotate():
+        called.append(1)
+        if preparation_fails:
+            raise OSError(28, "No space left on device")
+    monkeypatch.setattr(camera_relay, "rotate_relay_secret", rotate)
+    assert prepare.main() == prepare.CONFIG_PATH_MISMATCH == 12
+    assert called == [], "nothing is prepared for a file go2rtc will not load"
+    assert launched.read_text() == STALE and other.read_text() == "streams: {}\n"
+    assert _entrypoint("1", 12)[0] == 1, "the entrypoint refuses to start"
+
+
+def test_the_same_file_reached_through_a_linked_folder_is_accepted(stale, tmp_path, monkeypatch):
+    folder = tmp_path / "linked-folder"
+    folder.symlink_to(stale.parent, target_is_directory=True)
+    monkeypatch.setenv("GO2RTC_CONFIG", str(folder / stale.name))
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    assert prepare.main() == 10 and "8.8.8.8" not in stale.read_text()
+
+
+def test_a_link_to_the_launched_file_under_another_name_is_refused(stale, tmp_path, monkeypatch):
+    """ODIN replaces a file by renaming a new one into place: that would replace the link
+    and leave the file go2rtc opens untouched."""
+    link = tmp_path / "linked.yaml"
+    link.symlink_to(stale)
+    monkeypatch.setenv("GO2RTC_CONFIG", str(link))
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    assert prepare.main() == 12 and stale.read_text() == STALE and link.is_symlink()
+
+
+def test_with_itar_off_a_different_config_path_is_not_checked(tmp_path, monkeypatch, stale):
+    monkeypatch.setenv("GO2RTC_CONFIG", str(tmp_path / "camera.yaml"))
+    monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    assert prepare.main() == 1 and stale.read_text() == STALE

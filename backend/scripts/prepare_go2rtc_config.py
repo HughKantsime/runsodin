@@ -12,17 +12,45 @@ Exit status:
   10  it could not be written, ITAR mode is on, and the file was replaced with a
       configuration that has no camera sources. go2rtc may start: it has nothing to
       connect to until the API writes a checked configuration.
-  11  it could not be written, ITAR mode is on, and the old file could not be replaced
-      either. The old file may name a camera outside the local network (it can date from
-      before ITAR mode was turned on), so the entrypoint refuses to start the container.
-Under ITAR mode the entrypoint treats every status other than 0 and 10 as 11.
+  11  ITAR mode is on and go2rtc could still have a camera source ODIN has not checked:
+      the old file could not be replaced, or (go2rtc in its own container) the streams the
+      running go2rtc holds could not be reduced to the checked list. The entrypoint refuses
+      to start the container.
+  12  ITAR mode is on and GO2RTC_CONFIG names a different file from the one go2rtc is
+      started with (LAUNCHED_CONFIG_PATH). ODIN would check one file and go2rtc would load
+      another, so the entrypoint refuses to start the container.
+Under ITAR mode the entrypoint treats every status other than 0 and 10 as a refusal.
+
+go2rtc in its own container (the enterprise layout, ODIN_GO2RTC_API_URL): under ITAR mode,
+at every start and whether or not the preparation succeeded, every stream the running
+go2rtc holds that is not in the configuration just checked is removed through its API
+(modules.printers.go2rtc_purge). With ITAR mode off none of this runs.
 """
 import os
 import sys
 
 SAFE_TO_START_WITHOUT_CAMERAS = 10
 STALE_CONFIGURATION_LEFT = 11
+CONFIG_PATH_MISMATCH = 12
 DEFAULT_CONFIG_PATH = "/app/go2rtc/go2rtc.yaml"   # modules.printers.route_utils.GO2RTC_CONFIG
+# The file go2rtc is started with: `-config` in docker/supervisord.conf, and the shared
+# go2rtc-config volume (mounted here at /app/go2rtc, in the go2rtc container at /config) in
+# docker-compose.enterprise.yml. A contract test keeps this and those two files the same.
+LAUNCHED_CONFIG_PATH = "/app/go2rtc/go2rtc.yaml"
+
+
+def config_path() -> str:
+    return os.environ.get("GO2RTC_CONFIG") or DEFAULT_CONFIG_PATH
+
+
+def config_path_is_the_launched_one() -> bool:
+    """True when ODIN writes the very directory entry go2rtc opens: the same file name in
+    the same directory (the directory may be reached through a link). A link to the file
+    under another name does not count: ODIN replaces files by renaming a new one into
+    place, which would replace that link and leave the file go2rtc opens as it was."""
+    ours, launched = os.path.abspath(config_path()), os.path.abspath(LAUNCHED_CONFIG_PATH)
+    return (os.path.basename(ours) == os.path.basename(launched)
+            and os.path.realpath(os.path.dirname(ours)) == os.path.realpath(os.path.dirname(launched)))
 
 
 def empty_config() -> str:
@@ -87,7 +115,31 @@ def _forget_applied_state(path: str) -> None:
         pass
 
 
+def _purge_running_go2rtc(validated: dict) -> bool:
+    """Enterprise layout under ITAR mode: True when the running go2rtc holds no stream
+    outside `validated` (or runs beside the API, where supervisord starts it afresh)."""
+    try:
+        from modules.printers.go2rtc_purge import remove_streams_not_in
+        removed = remove_streams_not_in(validated)
+    except Exception as exc:
+        print(f"  ✗ ODIN_ITAR_MODE=1: the running go2rtc could not be checked for old camera streams "
+              f"({type(exc).__name__}: {exc})", file=sys.stderr)
+        return False
+    if removed:
+        print(f"  ! ODIN_ITAR_MODE=1: removed {len(removed)} camera stream(s) from the running go2rtc that are "
+              "not in the checked configuration", file=sys.stderr)
+    return True
+
+
 def main() -> int:
+    from core.itar import is_itar_mode
+    itar = is_itar_mode()
+    if itar and not config_path_is_the_launched_one():
+        print(f"  ✗ ODIN_ITAR_MODE=1: GO2RTC_CONFIG is {config_path()} but go2rtc is started with "
+              f"{LAUNCHED_CONFIG_PATH}. O.D.I.N. would check one file and go2rtc would load the other. "
+              "Remove GO2RTC_CONFIG or set it to that path.", file=sys.stderr)
+        return CONFIG_PATH_MISMATCH
+    validated, status = {}, 0
     try:
         from core.schema.bootstrap import import_all_models
         import_all_models()  # the Printer mapper needs every related model registered
@@ -97,22 +149,27 @@ def main() -> int:
         rotate_relay_secret()
         db = SessionLocal()
         try:
-            write_go2rtc_config_before_start(_build_go2rtc_config(db))
+            config = _build_go2rtc_config(db)
+            write_go2rtc_config_before_start(config)
+            validated = dict(config.get("streams") or {})
         finally:
             db.close()
     except Exception as exc:  # with ITAR mode off this never blocks start-up
         print(f"go2rtc pre-start config skipped: {type(exc).__name__}", file=sys.stderr)
-        from core.itar import is_itar_mode
-        if not is_itar_mode():
+        if not itar:
             return 1
-        if replace_with_empty_config(os.environ.get("GO2RTC_CONFIG", DEFAULT_CONFIG_PATH)):
-            print("  ! ODIN_ITAR_MODE=1: cameras are off until the camera configuration can be written; "
-                  "go2rtc starts with no camera sources", file=sys.stderr)
-            return SAFE_TO_START_WITHOUT_CAMERAS
-        print("  ✗ ODIN_ITAR_MODE=1: the old go2rtc configuration could not be replaced", file=sys.stderr)
+        validated = {}
+        if not replace_with_empty_config(config_path()):
+            print("  ✗ ODIN_ITAR_MODE=1: the old go2rtc configuration could not be replaced", file=sys.stderr)
+            return STALE_CONFIGURATION_LEFT
+        print("  ! ODIN_ITAR_MODE=1: cameras are off until the camera configuration can be written; "
+              "go2rtc starts with no camera sources", file=sys.stderr)
+        status = SAFE_TO_START_WITHOUT_CAMERAS
+    if itar and not _purge_running_go2rtc(validated):
         return STALE_CONFIGURATION_LEFT
-    print("  ✓ go2rtc configuration prepared")
-    return 0
+    if status == 0:
+        print("  ✓ go2rtc configuration prepared")
+    return status
 
 
 if __name__ == "__main__":

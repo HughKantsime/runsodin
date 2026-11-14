@@ -237,6 +237,9 @@ ITAR_FILES = (
     "modules/archives/timelapse_capture.py", "modules/printers/camera_routes.py",
     "modules/printers/mjpeg_relay.py", "modules/printers/routes_camera_snapshot.py",
     "modules/vision/detection_thread.py",
+    # go2rtc in its own container: streams outside the checked list are removed at start
+    # (tests/test_contracts/test_itar_go2rtc_enterprise_purge.py)
+    "modules/printers/go2rtc_purge.py",
     # PostgreSQL client programs (pg_dump, pg_restore): the server address is checked by
     # core.itar_database.enforce_postgres_command inside _run_pg_tool, which is the only
     # function that gives a client a server (tests/test_contracts/test_itar_postgres_destination.py)
