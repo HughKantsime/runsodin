@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from core import outbound_http
 from modules.organizations import classroom_service, oidc_handler
-from modules.system import routes_license
+from modules.system import routes_health
 
 
 @pytest.fixture
@@ -93,7 +93,7 @@ def test_other_async_callers_preserve_oversize_error_behavior(monkeypatch, trans
             return await handler.get_user_info("token")
         if caller == "jwks":
             return await handler.parse_id_token("unused")
-        return await routes_license._fetch_license_challenge(url, "installation")
+        return await routes_health._fetch_license_challenge(url, "installation")
 
     expected = HTTPException if caller == "license" else ValueError if caller == "jwks" else httpx.HTTPError
     with pytest.raises(expected) as caught:

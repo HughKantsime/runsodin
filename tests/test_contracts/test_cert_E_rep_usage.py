@@ -188,14 +188,14 @@ def test_capture_public_license_wire_for_pro_gate_ui(signed_license, monkeypatch
     """Real signed Community and Pro licenses through the real public /license route."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from modules.system import routes_license
+    from modules.system import routes_health
     monkeypatch.delenv('ODIN_LICENSE_FILE', raising=False)
     bodies = {}
     for tier in ('community', 'pro'):
         _, info = signed_license(tier=tier, features=[], expires_at='2099-01-01')
-        monkeypatch.setattr(routes_license, 'get_license', lambda info=info, **_kwargs: info)
+        monkeypatch.setattr(routes_health, 'get_license', lambda info=info, **_kwargs: info)
         app = FastAPI()
-        app.add_api_route('/license', routes_license.get_license_info)
+        app.add_api_route('/license', routes_health.get_license_info)
         response = TestClient(app).get('/license')
         assert response.status_code == 200
         bodies[tier] = {k: v for k, v in response.json().items() if k != 'license_sha256'}

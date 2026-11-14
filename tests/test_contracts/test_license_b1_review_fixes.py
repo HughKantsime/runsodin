@@ -86,7 +86,7 @@ def test_community_uncertain_clock_keeps_fast_cache(clock_env, tier_license, mon
 
 
 def test_public_status_never_reconciles_or_writes(policy_db, monkeypatch):
-    from modules.system import routes_license
+    from modules.system import routes_health
     import license_manager as lm
     statements = []
     event.listen(policy_db.get_bind(), 'before_cursor_execute', lambda c, cur, s, *args: statements.append(s))
@@ -96,7 +96,7 @@ def test_public_status_never_reconciles_or_writes(policy_db, monkeypatch):
     monkeypatch.setattr(policy, '_lock', broken)
     monkeypatch.setattr(lm.license_clock().store, 'write', broken)
     app = FastAPI()
-    app.add_api_route('/license', routes_license.get_license_info)
+    app.add_api_route('/license', routes_health.get_license_info)
     response = TestClient(app).get('/license')
     assert response.status_code == 200
     assert response.json()['tier'] == 'enterprise'

@@ -10,7 +10,7 @@ from tests.test_contracts.test_cert_G_harness import run_probe
 
 PROBE = r'''
 import types
-from modules.system import routes_license as RH
+from modules.system import routes_health as RH
 MODE = {"challenge": None}
 CALLS = []
 class _Resp:

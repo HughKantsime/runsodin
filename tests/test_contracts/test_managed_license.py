@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from license_manager import license_is_managed_externally, require_license_mutation_enabled
-from modules.system import routes_license
+from modules.system import routes_health
 
 
 def test_managed_license_flag_is_reported_and_mutation_is_forbidden(monkeypatch):
@@ -27,11 +27,11 @@ def test_normal_license_mode_allows_mutation_dependency(monkeypatch):
 @pytest.mark.parametrize(
     "endpoint",
     [
-        routes_license.upload_license,
-        routes_license.remove_license,
-        routes_license.activate_license,
-        routes_license.unactivate_license,
-        routes_license.reactivate_license,
+        routes_health.upload_license,
+        routes_health.remove_license,
+        routes_health.activate_license,
+        routes_health.unactivate_license,
+        routes_health.reactivate_license,
     ],
 )
 def test_every_license_mutation_route_declares_managed_license_guard(endpoint):

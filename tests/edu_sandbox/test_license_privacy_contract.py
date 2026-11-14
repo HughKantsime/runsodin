@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ROUTES = ROOT / "backend" / "modules" / "system" / "routes_license.py"
+ROUTES = ROOT / "backend" / "modules" / "system" / "routes_health.py"
 
 
 def _function(name: str) -> ast.FunctionDef:

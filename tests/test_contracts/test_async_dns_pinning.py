@@ -63,7 +63,7 @@ def test_async_callers_connect_only_to_validated_address(monkeypatch, caller, pr
         elif caller == "classroom":
             await _json_request("GET", url)
         else:
-            from modules.system.routes_license import _fetch_license_challenge
+            from modules.system.routes_health import _fetch_license_challenge
             await _fetch_license_challenge(url, "test-installation")
 
     expected = ClassroomError if caller == "classroom" else (httpx.ConnectError, ValueError, HTTPException)

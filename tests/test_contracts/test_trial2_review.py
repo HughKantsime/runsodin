@@ -66,7 +66,7 @@ def test_trial_request_refuses_anything_but_one_address(device, bad):
 
 TRIAL_ROUTE = r'''
 import types
-from modules.system import routes_license as RH
+from modules.system import routes_health as RH
 PORTAL = {"calls": [], "status": 202}
 class _Resp:
     def __init__(self, status, data): self.status_code = status; self._d = data; self.headers = {"content-type": "application/json"}
