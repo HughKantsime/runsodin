@@ -223,8 +223,10 @@ def load_attempts(db, job_ids):
     result = {identifier: [] for identifier in job_ids}
     if not job_ids:
         return result
-    attempts = _rows(db, "SELECT id,scheduled_job_id,status,started_at,ended_at,print_duration_seconds,spool_snapshot "
-                         "FROM print_jobs WHERE scheduled_job_id IN :ids ORDER BY id", job_ids)
+    attempts = _rows(db, "SELECT p.id,p.scheduled_job_id,p.status,p.started_at,p.ended_at,p.print_duration_seconds,p.spool_snapshot,"
+                         "p.economic_birth_nonce,p.printer_id,c.value AS failure_record FROM print_jobs p "
+                         "LEFT JOIN system_config c ON c.key='quota_attempt:print_failure:' || CAST(p.id AS TEXT) "
+                         "WHERE p.scheduled_job_id IN :ids ORDER BY p.id", job_ids)
     attempt_ids = [row["id"] for row in attempts]
     archived, ledger = {}, {}
     if attempt_ids:
@@ -237,6 +239,7 @@ def load_attempts(db, job_ids):
             if row_kind(row["notes"]) in ("ledger", "auto"):
                 spools = ledger.setdefault(row["print_job_id"], {})
                 spools[row["spool_id"]] = spools.get(row["spool_id"], 0.0) + (row["weight_used_g"] or 0.0)
+    from modules.jobs.print_failure import matches_print
     for row in attempts:
         frozen = _frozen_purchase(_decoded(row["spool_snapshot"]))
         archive = archived.get(row["id"])
@@ -249,6 +252,10 @@ def load_attempts(db, job_ids):
         elif row["id"] in ledger:
             usage = [{"spool_id": spool_id, "grams": grams, "provenance": None}
                      for spool_id, grams in sorted(ledger[row["id"]].items())]
+        correction = _decoded(row['failure_record'])
+        if (correction and correction.get('active') and matches_print(row, correction)
+                and row['status'] == 'failed' and correction['corrected_grams'] == 0):
+            usage = []
         for use in usage or []:
             price, net, reason = frozen.get(use["spool_id"], (None, None, "price_not_recorded"))
             use.update(price=price, net_weight_g=net, reason=reason)

@@ -1,0 +1,102 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
+import PrintFailureControl from './PrintFailureControl'
+import PrintLog from '../../pages/analytics/PrintLog'
+import Archives from '../../pages/archives/Archives'
+import { fetchAPI } from '../../api/client'
+import { canDo } from '../../permissions'
+vi.mock('../../api/client', () => ({ fetchAPI: vi.fn() }))
+vi.mock('../../permissions', () => ({ canDo: vi.fn(() => true) }))
+const correction = { by: 'Operator', at: '2026-11-14T12:00:00Z', reason_label: 'No filament fed / printed air', note: 'Nothing fed.', original_grams: 50, corrected_grams: 0 }
+const item = { id: 903, print_job_id: 902, print_name: 'Synthetic stopped print', printer_display: 'Printer', status: 'cancelled', actual_duration_seconds: 3600, filament_used_grams: 50, tags: [], completed_at: '2026-11-14T11:00:00Z' }
+function wrap(node: React.ReactNode, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  return render(<QueryClientProvider client={client}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>)
+}
+function show(props = {}) { return wrap(<PrintFailureControl printId={902} status="cancelled" endedAt={item.completed_at} grams={50} {...props} />) }
+function open() { fireEvent.click(screen.getByRole('button', { name: 'Mark as failed' })) }
+function choose() { fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'no_filament' } }) }
+beforeEach(() => { vi.mocked(canDo).mockReturnValue(true); vi.mocked(fetchAPI).mockReset() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
+test.each(['classic', 'foundry'])('%s: required reason, note, zero shortcut and save', async family => {
+  document.documentElement.dataset.themeFamily = family
+  vi.mocked(fetchAPI).mockResolvedValue({ id: 902, status: 'failed' })
+  const done = vi.fn(); show({ onCorrected: done }); open()
+  expect(screen.getByRole('button', { name: 'Save failure correction' })).toBeDisabled()
+  choose(); fireEvent.change(screen.getByLabelText('Note (optional)'), { target: { value: 'Nothing fed.' } })
+  fireEvent.click(screen.getByLabelText('No material was used'))
+  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveValue(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Save failure correction' }))
+  await waitFor(() => expect(done).toHaveBeenCalledOnce())
+  expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/mark-failed', { method: 'POST', body: JSON.stringify({ reason: 'no_filament', note: 'Nothing fed.', no_material_used: true }) })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+test('refusal retains form and entered grams', async () => {
+  vi.mocked(fetchAPI).mockRejectedValue(new Error('Material was already deducted from inventory.'))
+  show(); open(); choose()
+  fireEvent.change(screen.getByLabelText('Corrected material use (g, optional)'), { target: { value: '12.5' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save failure correction' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('already deducted')
+  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveValue(12.5)
+  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveAttribute('max', '50')
+  expect(screen.getByLabelText('Note (optional)')).toHaveAttribute('maxlength', '1000')
+  expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/mark-failed', { method: 'POST', body: JSON.stringify({ reason: 'no_filament', note: '', filament_used_g: 12.5, no_material_used: false }) })
+})
+test('provenance and undo endpoint', async () => {
+  vi.mocked(fetchAPI).mockResolvedValue({ id: 902, status: 'cancelled' })
+  const done = vi.fn(); show({ status: 'failed', correction, onCorrected: done })
+  expect(screen.getByText(/Marked as failed by Operator/)).toHaveTextContent(correction.reason_label)
+  expect(screen.getByText(/Original material/)).toHaveTextContent('Original material: 50 g. Corrected material: 0 g.')
+  fireEvent.click(screen.getByRole('button', { name: 'Back to cancelled' }))
+  await waitFor(() => expect(done).toHaveBeenCalledOnce())
+  expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/undo-failure', { method: 'POST' })
+})
+test('read-only viewer sees provenance without controls', () => {
+  vi.mocked(canDo).mockReturnValue(false); show({ status: 'failed', correction })
+  expect(screen.getByText(/Marked as failed by/)).toBeInTheDocument()
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
+})
+test.each(['completed', 'running', 'failed'])('no correction for %s', status => { show({ status }); expect(screen.queryByRole('button')).not.toBeInTheDocument() })
+test('unknown end time and missing physical print have no action', () => {
+  show({ endedAt: null }); expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  cleanup(); show({ printId: undefined }); expect(screen.queryByRole('button')).not.toBeInTheDocument()
+})
+test('pending submit cannot be duplicated', async () => {
+  let finish!: (value: unknown) => void
+  vi.mocked(fetchAPI).mockReturnValue(new Promise(resolve => { finish = resolve }))
+  show(); open(); choose(); fireEvent.click(screen.getByRole('button', { name: 'Save failure correction' }))
+  const saving = screen.getAllByRole('button', { name: 'Saving…' }); saving.forEach(button => fireEvent.click(button))
+  expect(fetchAPI).toHaveBeenCalledOnce()
+  finish({}); await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+})
+test.each([['classic', true], ['foundry', true], ['classic', false], ['foundry', false]])('%s phone=%s: Print Log form and zero grams', (family, phone) => {
+  document.documentElement.dataset.themeFamily = String(family)
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: phone && q === '(max-width: 639px)', addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } })
+  client.setQueryData(['print-log', 1, '', '', ''], { items: [{ ...item, filament_used_grams: 0 }], total: 1 }); client.setQueryData(['printers-list'], [])
+  wrap(<PrintLog />, client); expect(screen.getByText('0.0g')).toBeInTheDocument()
+  if (phone) expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  open(); const panel = screen.getByRole('dialog', { name: 'Mark as failed' }).firstElementChild!
+  if (phone) expect(panel.className).toContain('h-full')
+  if (family === 'foundry') expect(panel).toHaveAttribute('data-foundry-ui', 'modal')
+})
+test.each(['classic', 'foundry'])('%s phone: archive detail has provenance and undo', async family => {
+  document.documentElement.dataset.themeFamily = family
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(max-width: 639px)', addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  vi.mocked(fetchAPI).mockImplementation(async (url: string) => url.startsWith('/archives?') ? { items: [{ ...item, status: 'failed', failure_correction: correction }], total: 1 } : [])
+  wrap(<Archives />); fireEvent.click(await screen.findByRole('button', { name: /Synthetic stopped print/ }))
+  expect(screen.getByText(/Marked as failed by Operator/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Back to cancelled' })).toBeInTheDocument()
+})
+
+test('archive form stays in its existing dialog without nested focus traps', async () => {
+  vi.mocked(fetchAPI).mockImplementation(async (url: string) => url.startsWith('/archives?') ? { items: [item], total: 1 } : [])
+  wrap(<Archives />)
+  fireEvent.click(await screen.findByText('Synthetic stopped print')); open()
+  expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  expect(screen.getByLabelText('Reason')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }))
+  expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument()
+})

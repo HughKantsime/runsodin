@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason and the filament it really used. Failure counts, success rates and filament totals then reflect what happened, and you can undo the change. Material changes are refused when existing inventory or cost records cannot be restored exactly.
+
 ### Added
 
 - Import your Bambu filament catalogue and pick spools by their exact Bambu name. ODIN shows that name on spools and slots; material checks before a print are unchanged.

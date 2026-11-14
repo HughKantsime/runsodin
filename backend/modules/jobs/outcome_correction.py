@@ -45,6 +45,11 @@ def reclassify_outcome(job_id: int, body: OutcomeCorrection,
             or (body.print_id is not None and body.print_id != attempt.id)):
         db.rollback()
         raise HTTPException(409, 'The latest print must have the same terminal outcome as its job')
+    from modules.jobs.print_failure import record
+    saved = record(db, attempt.id)
+    if saved and saved.get('active'):
+        db.rollback()
+        raise HTTPException(409, 'Use Back to cancelled on the print to undo its failure correction.')
     # Historical archive ownership can differ from a job's current owner.
     # Reuse the archive's own audience guard before changing any history.
     try:

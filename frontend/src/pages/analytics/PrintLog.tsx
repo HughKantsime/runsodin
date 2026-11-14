@@ -1,3 +1,4 @@
+import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
@@ -188,12 +189,13 @@ export default function PrintLog() {
                       {item.status}
                     </span>
                   }
+                  actions={<PrintFailureControl printId={item.print_job_id} status={item.status} endedAt={item.completed_at} grams={item.filament_used_grams} correction={item.failure_correction} />}
                   fields={[
                     ['Date', formatDate(item.completed_at)],
                     ['Printer', item.printer_display],
                     ['User', item.user_name || '--'],
                     ['Duration', formatDuration(item.actual_duration_seconds)],
-                    ['Filament', item.filament_used_grams ? `${item.filament_used_grams.toFixed(1)}g` : '--'],
+                    ['Filament', item.filament_used_grams != null ? `${item.filament_used_grams.toFixed(1)}g` : '--'],
                     ...(item.recording_note ? [['Recording', item.recording_note]] : []),
                   ]}
                 />
@@ -217,7 +219,7 @@ export default function PrintLog() {
                 {items.map(item => (
                   <tr key={item.id} className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 transition-colors">
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] text-xs whitespace-nowrap font-mono">{formatDate(item.completed_at)}</td>
-                    <td className="py-2 px-3 font-medium max-w-[200px]">{displayName(item)}{item.recording_note && <p className="text-xs font-normal break-words">{item.recording_note}</p>}</td>
+                    <td className="py-2 px-3 font-medium max-w-[200px]">{displayName(item)}<PrintFailureControl printId={item.print_job_id} status={item.status} endedAt={item.completed_at} grams={item.filament_used_grams} correction={item.failure_correction} />{item.recording_note && <p className="text-xs font-normal break-words">{item.recording_note}</p>}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.user_name || '--'}</td>
                     <td className="py-2 px-3">
@@ -229,7 +231,7 @@ export default function PrintLog() {
                       <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(item.actual_duration_seconds)}</span>
                     </td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
-                      {item.filament_used_grams ? `${item.filament_used_grams.toFixed(1)}g` : '--'}
+                      {item.filament_used_grams != null ? `${item.filament_used_grams.toFixed(1)}g` : '--'}
                     </td>
                   </tr>
                 ))}
