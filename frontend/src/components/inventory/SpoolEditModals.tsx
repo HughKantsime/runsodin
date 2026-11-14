@@ -195,8 +195,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
   const [form, setForm] = useState({
     brand: filament?.brand || '',
     name: filament?.name || '',
-    material: filament ? (['ASA_AERO', 'ASA_CF', 'PET_CF', 'PPA_CF', 'PPS_CF', 'TPU_AMS'].includes(filament.material)
-      ? filament.material.replace(/_/g, '-') : filament.material) : 'PLA',
+    material: filament ? filament.material : 'PLA',
     color_hex: filament?.color_hex || '',
     cost_per_gram: filament?.cost_per_gram ?? ''
   })
@@ -240,7 +239,10 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
           <div>
             <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Material</label>
             <select
-              value={form.material ?? ''}
+              // Normalize only the displayed choice. An unrelated edit must
+              // preserve the stored spelling; explicit choices use exact labels.
+              value={['ASA_AERO', 'ASA_CF', 'PET_CF', 'PPA_CF', 'PPS_CF', 'TPU_AMS'].includes(form.material)
+                ? form.material.replace(/_/g, '-') : form.material ?? ''}
               disabled={!!filament?.catalogue_code}
               onChange={(e) => setForm({ ...form, material: e.target.value })}
               className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"

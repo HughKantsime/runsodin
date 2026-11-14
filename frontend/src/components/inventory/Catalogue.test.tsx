@@ -135,15 +135,14 @@ for (const theme of ['classic', 'foundry']) {
   })
 }
 
-it('editing an imported unknown type retains OTHER and adds no Part B material choices', () => {
+it('editing an imported unknown type retains OTHER; the six newly recognised materials are offered', () => {
   const save = vi.fn()
   const view = render(<EditFilamentModal filament={{ ...entries[0], material: 'OTHER' }} onSave={save} onClose={vi.fn()} />)
   expect(screen.getByRole('combobox')).toHaveValue('OTHER')
   expect(screen.getByRole('combobox')).toBeDisabled()
   for (const label of ['ASA-AERO','ASA-CF','PET-CF','PPA-CF','PPS-CF','TPU-AMS']) {
-    expect(screen.getAllByRole('option').some(option => (option as HTMLOptionElement).value === label)).toBe(false)
+    expect(screen.getAllByRole('option').some(option => (option as HTMLOptionElement).value === label)).toBe(true)
   }
-  expect(screen.getByRole('option', { name: 'PPS-CF', exact: true })).toHaveValue('PPS_CF')
   fireEvent.submit(view.container.ownerDocument.querySelector('form')!)
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ material: 'OTHER' }))
 })

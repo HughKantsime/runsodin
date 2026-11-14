@@ -62,3 +62,14 @@ it.each(six)('existing %s enum spelling selects the correct library option', (ma
   render(<EditFilamentModal filament={{ id:5, brand:'Fixture', name:'Blue', material:material.replace(/-/g,'_') }} onClose={() => {}} onSave={vi.fn()} />)
   expect(screen.getByRole('combobox')).toHaveValue(material)
 })
+
+for (const spelling of ['label', 'enum']) {
+  it.each(six)(`editing an unrelated field preserves existing %s ${spelling} spelling`, (material) => {
+    const stored = spelling === 'enum' ? material.replace(/-/g, '_') : material
+    const onSave = vi.fn()
+    render(<EditFilamentModal filament={{ id:5, brand:'Fixture', name:'Blue', material:stored }} onClose={() => {}} onSave={onSave} />)
+    fireEvent.change(screen.getByDisplayValue('Blue'), { target: { value: 'Renamed' } })
+    fireEvent.submit(screen.getByRole('combobox').closest('form')!)
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: 'Renamed', material: stored }))
+  })
+}

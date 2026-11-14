@@ -119,5 +119,5 @@ def test_postgresql_uses_noncycling_identity_and_composite_pointer_fk():
 def test_frozen_schema_vocabulary_excludes_only_stage_one_materials():
     from core.material_identity import _MATERIALS
     stage_one = {'ASA-AERO', 'ASA-CF', 'PET-CF', 'PPA-CF', 'PPS-CF', 'TPU-AMS'}
-    assert set(SCHEMA_MATERIALS) == _MATERIALS - stage_one
+    assert _MATERIALS == set(SCHEMA_MATERIALS) | stage_one
     assert not set(SCHEMA_MATERIALS) & stage_one
