@@ -118,10 +118,13 @@ def saved_pricing_config(db: Session):
     Same rule as the `configured` flag of GET /pricing-config: until someone saves pricing, costs
     come from generic defaults and are not shown as the owner's numbers.
     """
+    from modules.models_library.routes.pricing import PRICING_SAVED_KEY
     row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
-    if row is None or not isinstance(row.value, dict):
+    # The row also holds the interface mode: one created by a save without pricing numbers is
+    # marked not saved, and counts the same as no row at all.
+    if row is None or not isinstance(row.value, dict) or row.value.get(PRICING_SAVED_KEY) is False:
         return dict(DEFAULT_PRICING_CONFIG), False
-    return row.value, True
+    return {key: item for key, item in row.value.items() if key != PRICING_SAVED_KEY}, True
 
 
 def price_one_item(config, *, material_cost, print_hours):

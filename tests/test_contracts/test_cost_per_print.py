@@ -9,6 +9,8 @@ Pricing and spool prices are those of test_cost_actual.py (machine 0.25 per hour
   actual 22.65 over 4 pieces = 5.6625 -> 5.66; estimate 21.00 over 4 pieces = 5.25
   variance (22.65 - 21.00) / 21.00 = 7.857 % -> 7.9; failed share 0.45 / 22.65 = 1.987 % -> 2.0
 """
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -156,6 +158,30 @@ def test_hidden_until_pricing_is_configured(table_client, table_db, pro_license)
     table_db.commit()
     body = table_client.get("/analytics/cost-per-print").json()
     assert body["configured"] is False and body["rows"] == []
+
+
+def test_hidden_when_only_the_interface_mode_was_saved(table_client, table_db, pro_license):
+    """Switching interface mode creates the settings row marked 'pricing not saved': still hidden."""
+    table_db.execute(text("UPDATE system_config SET value=:value WHERE key='pricing_config'"),
+                     {"value": json.dumps({"ui_mode": "simple", "pricing_saved": False})})
+    table_db.commit()
+    body = table_client.get("/analytics/cost-per-print").json()
+    assert body["configured"] is False and body["rows"] == []
+
+
+def test_the_saved_marker_decides_and_is_not_handed_to_the_pricing_rule(table_db):
+    from modules.models_library.services import DEFAULT_PRICING_CONFIG, saved_pricing_config
+
+    def stored(value):
+        table_db.execute(text("UPDATE system_config SET value=:value WHERE key='pricing_config'"), {"value": json.dumps(value)})
+        table_db.commit()
+        table_db.expire_all()
+        return saved_pricing_config(table_db)
+
+    assert stored({"ui_mode": "simple", "pricing_saved": False}) == (dict(DEFAULT_PRICING_CONFIG), False)
+    assert stored({"hourly_rate": 3.0, "pricing_saved": True}) == ({"hourly_rate": 3.0}, True)
+    # A row saved before the marker existed counts as saved.
+    assert stored({"hourly_rate": 3.0}) == ({"hourly_rate": 3.0}, True)
 
 
 def test_table_and_export_need_a_paid_license_while_the_job_cost_stays_free(table_client, tier_license):

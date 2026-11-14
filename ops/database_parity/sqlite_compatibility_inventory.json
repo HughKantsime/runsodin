@@ -1881,11 +1881,11 @@
       "source": "conn.execute('INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) VALUES(?,?,?,?,?)',"
     },
     {
-      "classification": "dialect-neutral",
+      "classification": "sqlite-provider-only",
       "line": 21,
       "path": "backend/modules/jobs/list_query.py",
       "pattern": "qmark-parameter",
-      "reason": "The job-number search regular expression contains a qmark-like fragment; every query in this file binds SQLAlchemy named parameters, which run unchanged on SQLite and PostgreSQL.",
+      "reason": "Dialect-guarded: SQLite stores job times as text in more than one shape, so ordering and finished_since compare strftime-normalised UTC seconds plus the stored six fraction digits; PostgreSQL compares real timestamps.",
       "source": "_NUMBER = re.compile(r'^(#|job\\s*#?)?\\s*(\\d{1,15})$', re.IGNORECASE)"
     },
     {
@@ -2909,7 +2909,7 @@
       "line": 286,
       "path": "backend/modules/vision/printer_native.py",
       "pattern": "qmark-parameter",
-      "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; every other statement in the file binds SQLAlchemy named parameters",
+      "reason": "Printer detection correlation uses bound qmark reads through the shared monitor DBAPI adapter.",
       "source": "row = conn.execute(\"SELECT id,filename FROM print_jobs WHERE printer_id=? AND id=?\","
     },
     {

@@ -294,14 +294,6 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "transition_job translates named parameters to qmark only for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
     ),
-    "backend/modules/jobs/list_query.py": (
-        "dialect-neutral",
-        "The job-number search regular expression contains a qmark-like fragment; every query in this file binds SQLAlchemy named parameters, which run unchanged on SQLite and PostgreSQL.",
-    ),
-    "backend/modules/vision/printer_native.py": (
-        "dialect-neutral",
-        "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; every other statement in the file binds SQLAlchemy named parameters",
-    ),
     "backend/modules/organizations/education_policy.py": (
         "dialect-neutral",
         "Central policy translates named parameters for the shared DBAPI adapter and uses sqlite3 only to classify integrity exceptions",
