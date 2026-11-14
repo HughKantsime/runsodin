@@ -1,37 +1,27 @@
-"""Owned PostgreSQL contention check, offline and skipped without local binaries."""
-from pathlib import Path
-import shutil
-import subprocess
+"""Owned PostgreSQL contention check for marking a print as failed.
+
+ODIN_RESTART_POSTGRES_TESTS=1 enables it (the same opt-in and disposable Docker server as the
+restart-question PostgreSQL tests); it is skipped otherwise, so local-only work needs no network.
+"""
+import os
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from tests.test_contracts.test_post027_migration_033_postgres import pg_engine  # noqa: F401
+
+pytestmark = pytest.mark.postgresql
 
 
 @pytest.fixture
-def failure_pg(tmp_path):
-    initdb, pg_ctl = shutil.which('initdb'), shutil.which('pg_ctl')
-    if not initdb or not pg_ctl:
-        pytest.skip('Local PostgreSQL binaries unavailable; no download or server connection attempted')
-    pytest.importorskip('psycopg')
-    # Unix socket only: no TCP listener, no credentials or external server.
-    import tempfile
-    with tempfile.TemporaryDirectory(prefix='odin-pg-', dir='/private/tmp') as root:
-        root = Path(root)
-        data, sockets = root / 'data', root / 'sockets'
-        sockets.mkdir()
-        subprocess.run([initdb, '-D', str(data), '-A', 'trust', '-U', 'odin_test', '--no-locale'],
-                       check=True, capture_output=True)
-        subprocess.run([pg_ctl, '-D', str(data), '-l', str(root / 'server.log'),
-                        '-o', f"-k {sockets} -h ''", '-w', 'start'], check=True, capture_output=True)
-        engine = create_engine('postgresql+psycopg://odin_test@/postgres', connect_args={'host': str(sockets)})
-        try:
-            from core.schema import bootstrap_database
-            bootstrap_database(engine, Path(__file__).resolve().parents[2] / 'backend')
-            yield engine
-        finally:
-            engine.dispose()
-            subprocess.run([pg_ctl, '-D', str(data), '-m', 'immediate', '-w', 'stop'], check=True, capture_output=True)
+def failure_pg(request):
+    if os.getenv('ODIN_RESTART_POSTGRES_TESTS') != '1':
+        pytest.skip('Disposable PostgreSQL requires explicit opt-in; disabled for no-network work')
+    from core.schema import bootstrap_database
+    engine = request.getfixturevalue('pg_engine')
+    bootstrap_database(engine)
+    return engine
 
 
 def test_correction_and_undo_while_telemetry_writes_are_open(failure_pg):
