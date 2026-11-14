@@ -1,0 +1,67 @@
+"""O.D.I.N. — Printer Routes (aggregator)
+
+Sub-router responsibilities:
+  route_utils.py        — Shared utilities: SSRF blocklist, camera URL helpers, go2rtc sync, adapter commands
+  routes_crud.py        — Printer CRUD, filament slots, test-connection, bulk-update
+  routes_status.py      — Live status, telemetry, HMS error history
+  routes_controls.py    — Commands: pause, resume, cancel, lights, speed, fans, bed level, movement
+                          (guarded by routes_experimental.experimental_controls_guard)
+  routes_experimental.py — Superadmin opt-in for Experimental printer types; the control guard
+  routes_ams.py         — AMS sync (Moonraker MMU + Bambu)
+  routes_bambu.py       — Bambu test-connection, filament types, manual slot assignment
+  routes_ams_env.py     — AMS environment, current telemetry, AMS slot updates
+  routes_smart_plug.py  — Smart plug power control
+  routes_nozzle.py      — Nozzle lifecycle tracking
+  routes_integrations.py — Read-only database status for Home Assistant
+  routes_filament_check.py — Pre-dispatch filament check: per-job result, superadmin setting
+"""
+
+import logging
+from fastapi import APIRouter, Depends
+
+log = logging.getLogger("odin.api")
+
+router = APIRouter()
+
+from modules.printers import (  # noqa: E402
+    routes_crud,
+    routes_status,
+    routes_controls,
+    routes_experimental,
+    routes_ams,
+    routes_bambu,
+    routes_ams_env,
+    routes_smart_plug,
+    routes_nozzle,
+    routes_filament_slots,
+    routes_dispatch_recovery,
+    routes_start_next,
+    routes_maintenance_state,
+    routes_filament_check,
+    routes_integrations,
+    routes_discovery,
+    routes_plate_thumbnail,
+)
+
+router.include_router(routes_crud.router)
+router.include_router(routes_status.router)
+# Every non-read route here is refused for an Experimental printer without the superadmin opt-in.
+router.include_router(routes_controls.router, dependencies=[Depends(routes_experimental.experimental_controls_guard)])
+router.include_router(routes_experimental.router)
+router.include_router(routes_ams.router)
+router.include_router(routes_bambu.router)
+router.include_router(routes_ams_env.router)
+router.include_router(routes_smart_plug.router)
+router.include_router(routes_nozzle.router)
+router.include_router(routes_dispatch_recovery.router)
+router.include_router(routes_start_next.router)
+router.include_router(routes_maintenance_state.router)
+router.include_router(routes_filament_check.router)
+router.include_router(routes_integrations.router)
+router.include_router(routes_discovery.router)
+router.include_router(routes_plate_thumbnail.router)
+# Phase 2 agent-surface: POST /filament-slots for MCP assign_spool.
+router.include_router(routes_filament_slots.router)
+
+# Re-export shared utilities so camera_routes.py can continue to import from here
+from modules.printers.route_utils import get_camera_url, sync_go2rtc_config  # noqa: F401, E402

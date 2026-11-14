@@ -41,6 +41,30 @@ engine.dispose()
 '''
 
 
+RELEASED057_ARCHIVE_SOURCE = '''
+import json,os,sys
+import core
+assert core.__file__.startswith(sys.argv[1]) and '/preserved' not in core.__file__,core.__file__
+from sqlalchemy import inspect,text
+from core.database_config import create_database_engine
+from core.schema import bootstrap_database
+from core.schema.bootstrap import POST027_MIGRATIONS
+assert POST027_MIGRATIONS[-1][0]=='python:057-slot-feed-policy'
+engine=create_database_engine(os.environ['DATABASE_URL'],role='restore',password_file=os.environ['DATABASE_PASSWORD_FILE'])
+bootstrap_database(engine)
+assert {'do_not_feed','do_not_feed_note'} <= {c['name'] for c in inspect(engine).get_columns('filament_slots')}
+with engine.begin() as c:
+    c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker',:v)"),{'v':json.dumps('source57')})
+    c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,ace_status) VALUES(990570,'Released 057','moonraker',4,'ready')"))
+    c.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(990570,'Released 057','Fixture')"))
+    c.execute(text('INSERT INTO spools(id,filament_id) VALUES(990570,990570)'))
+    c.execute(text('INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note) VALUES(990570,990570,2,:state,TRUE,:note)'),{'state':'{"id":"released057"}', 'note':'Reserved material'})
+    c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990570,'same',990570)"),{'state':'7'*32})
+    print(json.dumps(sorted(row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations')))))
+engine.dispose()
+'''
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix='post027-owned-') as folder:
         root = Path(folder); root.chmod(0o700)
@@ -191,6 +215,55 @@ def main():
         assert facts034['source_schema_version']==34 and facts034['prepared_schema_version']==current_era
         assert leftover()==0
         print('post027-native-published034-frozen-stage-live-upgrade-validated-pass',flush=True)
+
+        # Release 2.2.0 writes an independent archive, then exercises the frozen 057 stage.
+        # Before a later migration ships, simulate a future registry only for identification;
+        # all schema validation, import, bootstrap, staging and application use real sources.
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from core.schema import bootstrap, preserved057
+        from modules.system import pre026_restore_stage as stage
+        released057 = os.environ['POST027_RELEASED057_SOURCE']
+        old057 = fresh('post027_released057'); old057.dispose()
+        env057 = {**os.environ, 'DATABASE_URL':server+'/post027_released057', 'PYTHONPATH':released057, 'PYTHONDONTWRITEBYTECODE':'1'}
+        made057 = subprocess.run([sys.executable,'-c',RELEASED057_ARCHIVE_SOURCE,released057],cwd=root,env=env057,capture_output=True,text=True,timeout=600)
+        assert made057.returncode==0, made057.stderr[-4000:]
+        ledger057 = json.loads(made057.stdout.strip().splitlines()[-1])
+        assert set(ledger057)==set(preserved057.ledger_ids()) and 'python:057-slot-feed-policy' in ledger057
+        archive057 = root/'released057.dump'
+        b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(archive057),'--dbname',server+'/post027_released057'],maintenance,str(credential),root)
+        sha057 = b._sha256(archive057)
+        identify = stage.identify_contract
+        def identify_future(*a):
+            registry = bootstrap.POST027_MIGRATIONS + (('python:099-future-synthetic', 'core.schema.migrations.099_future'),)
+            with patch.object(bootstrap, 'POST027_MIGRATIONS', registry):
+                return identify(*a)
+        routing = patch.object(stage, 'identify_contract', identify_future) if current_era==57 else nullcontext()
+        with routing:
+            assert stage.identify_contract(archive057,target,str(credential),root) is stage.PRESERVED057
+            before = marker()
+            metadata057 = b.validate_postgres_restore(archive057,target,maintenance,**args)
+            assert metadata057['sha256']==sha057 and metadata057['source_schema_version']==57
+            assert metadata057['prepared_schema_version']==current_era and marker()==before
+            staged057 = b.stage_postgres_restore(archive057,target,maintenance,**args)
+            assert staged057['candidate_sha256']==sha057
+            release_sessions(engine)
+            result = b.apply_pending_postgres_restore(target,maintenance,acknowledgement=sha057,**args)
+            assert result['status']=='restored' and marker()=='source57'
+        with engine.connect() as c:
+            ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
+            assert ids==set(ledger057)|set(post_ids)
+            assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990570')).one()==(990570,2,'{"id":"released057"}',True,'Reserved material')
+            assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990570,'same',990570)
+            assert c.execute(text('SELECT ace_status FROM printers WHERE id=990570')).scalar_one()=='ready'
+            validate_executables(c)
+        again057 = bootstrap_database(engine)
+        assert again057['applied']==[] and bootstrap_database(engine)['schema_fingerprint']==again057['schema_fingerprint']
+        backups = b.postgres_paths(root).backups
+        assert b._sha256(archive057)==sha057 and leftover()==0 and has_index(engine)
+        assert not list(backups.glob('.odin-preserved057-*')) and not list(backups.glob('.odin-upgraded029-*'))
+        assert not list(restore_artifacts.journal_dir(backups).glob('.odin-preserved057-*'))
+        print('post027-native-released057-independent-archive-frozen-stage-validated-staged-applied-feed-policy-relationships-preserved-no-leftovers-pass',flush=True)
 
         # Released 056: the decisive proof that preserved056 runs. The archive is written by
         # the released commit's own sources, independent of the bundle being proved.
@@ -474,7 +547,7 @@ def main():
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_published034'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_published034'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 
