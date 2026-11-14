@@ -26,7 +26,8 @@ assert bootstrap_database(engine)['applied']==[]
     result=subprocess.run([sys.executable,'-I','-c',code,str(Path(preserved056.__file__).with_name('runner.py')),str(tmp_path/'old.db')],cwd=tmp_path,capture_output=True,text=True,timeout=90)
     assert result.returncode==0,result.stderr
     engine=create_engine('sqlite:///'+str(tmp_path/'old.db'))
-    assert bootstrap_database(engine)['applied']==[M.MIGRATION_ID]
+    # 057 is applied first on a through-056 database; later migrations may follow it.
+    assert bootstrap_database(engine)['applied'][:1]==[M.MIGRATION_ID]
     assert bootstrap_database(engine)['applied']==[]
     with engine.connect() as c:
         assert c.execute(text('SELECT color,do_not_feed,do_not_feed_note FROM filament_slots')).one()==('retained',0,None)
