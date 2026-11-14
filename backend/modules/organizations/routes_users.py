@@ -81,9 +81,8 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
     server = None
     accepted = False
     try:
-        from core.itar import enforce_host_destination
-        enforce_host_destination(smtp["host"], scheme="smtp")
-        server = smtplib.SMTP(smtp["host"], smtp.get("port", 587 if smtp.get("use_tls", True) else 25), timeout=10)
+        from core.itar_connect import smtp_connection  # ITAR mode: one lookup, connected to the checked address
+        server = smtp_connection(smtp["host"], smtp.get("port", 587 if smtp.get("use_tls", True) else 25), timeout=10)
         if smtp.get("use_tls", True):
             server.starttls()
         if smtp.get("username") and password:

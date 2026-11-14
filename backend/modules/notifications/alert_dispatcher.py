@@ -296,16 +296,15 @@ Manage preferences in Settings > Notifications.
             msg["To"] = user_email
             msg.attach(MIMEText(body, "plain"))
 
-            # v1.8.9 (codex pass 7): runtime ITAR guard on every SMTP
-            # connect — boot-audit alone misses DNS drift.
-            from core.itar import enforce_host_destination
-            enforce_host_destination(smtp_config["host"], scheme="smtp")
+            # ITAR mode: smtp_connection looks the host up once, refuses a public answer
+            # and connects to the address it checked (never to the name again).
+            from core.itar_connect import smtp_connection
 
             if smtp_config.get("use_tls", True):
-                server = smtplib.SMTP(smtp_config["host"], smtp_config.get("port", 587))
+                server = smtp_connection(smtp_config["host"], smtp_config.get("port", 587))
                 server.starttls()
             else:
-                server = smtplib.SMTP(smtp_config["host"], smtp_config.get("port", 25))
+                server = smtp_connection(smtp_config["host"], smtp_config.get("port", 25))
             
             if smtp_config.get("username") and smtp_config.get("password"):
                 server.login(smtp_config["username"], smtp_config["password"])

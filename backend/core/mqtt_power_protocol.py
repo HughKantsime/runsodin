@@ -25,12 +25,12 @@ def send_owned_mqtt_on(snapshot, topic, deadline):
     failed = threading.Event()
     try:
         import paho.mqtt.client as mqtt
-        from core.itar import enforce_host_destination
-        enforce_host_destination(snapshot.host, scheme='mqtt')
+        from core.itar_connect import mqtt_client
         if time.monotonic() >= deadline:
             return 'refused'
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311,
-                             reconnect_on_failure=False)
+        # ITAR mode: one lookup, public refused, connected to the checked address.
+        client = mqtt_client(snapshot.host, snapshot.port, mqtt.CallbackAPIVersion.VERSION2,
+                             protocol=mqtt.MQTTv311, reconnect_on_failure=False)
         def on_connect(client, userdata, flags, reason_code, properties=None):
             code = getattr(reason_code, 'value', reason_code)
             if type(code) is not int or code != 0:

@@ -89,6 +89,9 @@ GUARD_NAMES = frozenset({
     # core.itar
     "enforce_request_destination", "enforce_host_destination", "pin_for_request",
     "is_private_destination", "is_itar_mode",
+    # core.itar_connect: mail and MQTT, looked up once and connected to the checked address
+    # (tests/test_contracts/test_itar_smtp_mqtt_pinning.py)
+    "smtp_connection", "mqtt_client",
     # built on core.itar: pinned HTTP, the webhook posts, Square, Spoolman, go2rtc
     "pinned_async_request", "safe_post", "trusted_post", "refuse_under_itar",
     "spoolman_request", "go2rtc_api_url", "go2rtc_target",
@@ -112,6 +115,7 @@ def guard_names_used(source, filename="<source>"):
 
 ITAR_FILES = (
     "core/itar.py", "core/outbound_http.py", "core/webhook_utils.py",   # the guards themselves
+    "core/itar_connect.py",                                              # the mail and MQTT guards
     "core/spoolman_client.py", "core/mqtt_power_protocol.py",
     "modules/inventory/services.py",                 # Spoolman, through core.spoolman_client.spoolman_request
     "modules/notifications/alert_dispatcher.py", "modules/notifications/channels.py",

@@ -195,8 +195,12 @@ def _get_client():
         client = None
         try:
             import paho.mqtt.client as mqtt
+            from core.itar_connect import mqtt_client
 
-            client = mqtt.Client(
+            # ITAR mode: mqtt_client looks the broker up once, refuses a public answer and
+            # fixes every socket this client opens (reconnects too) to the checked address.
+            client = mqtt_client(
+                config["host"], config["port"],
                 mqtt.CallbackAPIVersion.VERSION2,
                 client_id=f"odin-republish-{int(time.time())}",
                 protocol=mqtt.MQTTv311
@@ -207,11 +211,6 @@ def _get_client():
 
             if config["use_tls"]:
                 client.tls_set()
-
-            # v1.8.9 (codex pass 7): runtime ITAR guard on every MQTT
-            # connect — boot-audit alone misses DNS drift.
-            from core.itar import enforce_host_destination
-            enforce_host_destination(config["host"], scheme="mqtt")
 
             if client.connect(config["host"], config["port"], keepalive=60) != mqtt.MQTT_ERR_SUCCESS:
                 raise RuntimeError("MQTT connection refused")
@@ -358,8 +357,11 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
     client = None
     try:
         import paho.mqtt.client as mqtt
+        from core.itar_connect import mqtt_client
 
-        client = mqtt.Client(
+        # ITAR mode: one lookup, public refused, connected to the checked address.
+        client = mqtt_client(
+            host, port,
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"odin-test-{int(time.time())}",
             protocol=mqtt.MQTTv311
@@ -369,10 +371,6 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
             client.username_pw_set(username, password)
         if use_tls:
             client.tls_set()
-
-        # v1.8.9 (codex pass 7): ITAR guard even on test-connect.
-        from core.itar import enforce_host_destination
-        enforce_host_destination(host, scheme="mqtt")
 
         # connect() only opens the socket; the broker answers in CONNACK.
         answered = threading.Event()

@@ -11,6 +11,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Security
 
 - ITAR mode: a webhook is now sent to the address that was checked. O.D.I.N. looks the webhook's host name up once, checks that answer and connects to it; before, it looked the name up twice, and a name that answered with a local address first and an outside address second was contacted at the outside address. The built-in Telegram, Pushover and WhatsApp senders are checked and connected the same way. With ITAR mode on, a webhook to an address on your local network (10.x, 172.16-31.x, 192.168.x, or IPv6 unique-local) now works and can be saved by IP address; before, ITAR mode refused every webhook. Loopback and link-local addresses and O.D.I.N.'s own ports stay refused. Nothing changes with ITAR mode off.
+- ITAR mode: mail and MQTT now connect to the address that was checked. For the mail server (alerts, reports, password reset and welcome mail) and the MQTT broker (event republishing, its connection test and smart-plug commands), O.D.I.N. looks the host name up once, refuses it unless every address is on the local network, and connects to that address; an MQTT reconnect goes to the same address. Before, the name was checked and then looked up again to connect, so a name that changed its answer could receive the mail password, notifications, reports or plug commands. TLS still uses the configured host name. Nothing changes with ITAR mode off.
 
 ## [2.2.0] - 2026-11-13
 
