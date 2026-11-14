@@ -93,7 +93,7 @@ def main():
         run('docker', 'exec', database, 'psql', '-U', 'postgres', '-d', 'post027_released', '-c',
             "INSERT INTO system_config(key,value) VALUES('historical_marker','\"released1924\"')")
         result = subprocess.run(['docker', 'run', '--rm', '--name', runtime, '--platform', RUNTIME_PLATFORM, '--network', name,
-            '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
+            '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend:/source',  # /source: the proof imports ops.database_parity.audit_integrity_native
             '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
             '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_CURRENT_ONLY='+os.environ.get('POST027_CURRENT_ONLY','0'), '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres',
             '-e', 'POST027_RELEASED056_SOURCE=/source/released056/backend',
