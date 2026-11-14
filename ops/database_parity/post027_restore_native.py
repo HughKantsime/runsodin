@@ -340,6 +340,9 @@ def main():
         exercise(engine)
         # 5. Current-schema backup -> restore round trip keeps data, including a 032 row.
         with engine.begin() as c:
+            # This round trip owns its parent rows; the released archives applied above do not contain them.
+            c.execute(text("INSERT INTO groups(id,name,is_org) VALUES(1,'Roundtrip org',TRUE) ON CONFLICT(id) DO NOTHING"))
+            c.execute(text("INSERT INTO users(id,username,password_hash,role,group_id,is_active) VALUES(3,'roundtrip-user','fixture','viewer',1,TRUE) ON CONFLICT(id) DO NOTHING"))
             c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
             c.execute(text("INSERT INTO dispatch_recovery_global_history(audit_id,actor_id,actor_identity,printer_id,job_id,attempt_handle,snapshot_handle,decision,reason_category,facts) VALUES(990001,3,'roundtrip056',5,226,:attempt,:snapshot,'release','verified_terminal_reconciled',:facts)"),
                       {'attempt':'dr1.'+'a'*64, 'snapshot':'ds1.'+'b'*64, 'facts':'{"owner_org_id":null}'})
