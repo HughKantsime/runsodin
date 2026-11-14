@@ -689,7 +689,10 @@ def enforce_boot_printer_addresses() -> None:
             "ODIN_ITAR_MODE=1 is set but these saved printers have an address outside "
             "the local network:\n"
             + "\n".join(f"  - {entry}" for entry in printers)
-            + "\n\nUnset ODIN_ITAR_MODE, change or remove these printers, then turn it back on."
+            + "\n\nChange or remove these addresses with the offline command, then start again:\n"
+            "  python3 -m scripts.itar_printer_addresses list\n"
+            "It needs no network and does not start O.D.I.N.; docs/ITAR_MODE.md has the full steps. "
+            "Do not start with ITAR mode off to fix this: the printer monitors would contact these addresses."
         )
         log.critical(msg)
         raise RuntimeError(msg)
