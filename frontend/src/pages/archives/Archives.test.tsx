@@ -46,5 +46,16 @@ test('archive detail corrects the exact linked print outcome',async()=>{
  state.data={items:[{...archivedPrint(50),status:'failed',job_id:901,print_job_id:902,failure_correction:{by:'Operator',at:'2026-11-14T12:00:00Z',reason_label:'Other',note:'',original_grams:50,corrected_grams:50}}],total:1}
  mount();fireEvent.click(screen.getByText('Synthetic measurement'))
  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Back to cancelled'}))
+ fireEvent.click(screen.getByRole('button',{name:'Confirm back to cancelled'}))
  expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/undo-failure',{method:'POST'})
+})
+
+test.each(['classic', 'foundry'])('%s retains printer-recorded failed to cancelled action', family => {
+ document.documentElement.dataset.themeFamily=family
+ vi.mocked(fetchAPI).mockReset().mockResolvedValue({status:'cancelled'})
+ state.data={items:[{...archivedPrint(50),status:'failed',job_id:901,print_job_id:902}],total:1}
+ mount();fireEvent.click(screen.getByText('Synthetic measurement'))
+ fireEvent.click(screen.getByRole('button',{name:'Correct outcome to cancelled'}))
+ expect(fetchAPI).toHaveBeenCalledWith('/jobs/901/outcome',{method:'POST',body:JSON.stringify({status:'cancelled',from_status:'failed',print_id:902})})
+ document.documentElement.removeAttribute('data-theme-family')
 })

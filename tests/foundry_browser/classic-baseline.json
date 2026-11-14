@@ -59,7 +59,7 @@
     "frontend/src/pages/analytics/EducationReports.tsx": "23b558ec9f0bc7553b6b8449b81e0ba8d227d6296e67435955e0540f19b51711",
     "frontend/src/pages/analytics/PrintLog.tsx": "ab067a0a213613d825695144d5caaaa487b859d0f365d56b1294e249a62bd219",
     "frontend/src/pages/analytics/Utilization.tsx": "2fcc1f7e5e277fe58df60e933433a03e0ab0d1fc3ec5dea3e8a0786327f2b05c",
-    "frontend/src/pages/archives/Archives.tsx": "f1ac94c9ddff2cfbd8231e6a4535710b5f98fd2b0bcf38de32ac9a0a04108cb4",
+    "frontend/src/pages/archives/Archives.tsx": "9d149efbca8b526d3abbc6802e833e973a821fbec2a42214306adb5387aeefcc",
     "frontend/src/pages/archives/Timelapses.tsx": "4ddc233e0ff813ad762a7b2654d115cc3033b1e93dcb133765d157f7cebae0c5",
     "frontend/src/pages/dashboard/Dashboard.tsx": "4f604005c200bea29251ee14c8c9c5b15c0572340929ea2f56266276a16a32a4",
     "frontend/src/pages/dashboard/Overlay.tsx": "71eb686443427599a0fc936642817735754e9715c0382b0ec8d07c32bf2fb488",

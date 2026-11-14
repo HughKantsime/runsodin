@@ -252,8 +252,17 @@ def test_undo_will_not_overwrite_changed_history(client, review_db, sql):
     assert mark(client).status_code == 200
     review_db.execute(text(sql)); review_db.commit()
     before = tables(review_db)
-    assert undo(client).status_code == 409
-    assert tables(review_db) == before
+    if sql.startswith('UPDATE jobs'):
+        # A job that moved on is preserved, while this print/archive can undo.
+        assert undo(client).status_code == 200
+        after = tables(review_db)
+        assert after['jobs'] == before['jobs']
+        assert after['spools'] == before['spools'] and after['spool_usage'] == before['spool_usage']
+        assert review_db.execute(text('SELECT status FROM print_jobs WHERE id=902')).scalar_one() == 'cancelled'
+        assert review_db.execute(text('SELECT status FROM print_archives WHERE id=903')).scalar_one() == 'cancelled'
+    else:
+        assert undo(client).status_code == 409
+        assert tables(review_db) == before
 
 
 def test_stats_printer_totals_day_counts_and_cost(client, review_db):

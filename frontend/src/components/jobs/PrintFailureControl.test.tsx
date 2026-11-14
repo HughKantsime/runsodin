@@ -49,6 +49,8 @@ test('provenance and undo endpoint', async () => {
   expect(screen.getByText(/Marked as failed by Operator/)).toHaveTextContent(correction.reason_label)
   expect(screen.getByText(/Original material/)).toHaveTextContent('Original material: 50 g. Corrected material: 0 g.')
   fireEvent.click(screen.getByRole('button', { name: 'Back to cancelled' }))
+  expect(fetchAPI).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm back to cancelled' }))
   await waitFor(() => expect(done).toHaveBeenCalledOnce())
   expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/undo-failure', { method: 'POST' })
 })
@@ -99,4 +101,14 @@ test('archive form stays in its existing dialog without nested focus traps', asy
   fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }))
   expect(screen.getAllByRole('dialog')).toHaveLength(1)
   expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument()
+})
+
+test.each([false, true])('undo requires confirmation and can be cancelled, inline=%s', inline => {
+  show({ status: 'failed', correction, inline })
+  fireEvent.click(screen.getByRole('button', { name: 'Back to cancelled' }))
+  expect(fetchAPI).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Confirm back to cancelled' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Keep correction' }))
+  expect(fetchAPI).not.toHaveBeenCalled()
+  expect(screen.queryByRole('button', { name: 'Confirm back to cancelled' })).not.toBeInTheDocument()
 })

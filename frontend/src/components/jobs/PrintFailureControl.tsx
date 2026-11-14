@@ -52,7 +52,17 @@ function Control({ printId, grams, correction, onCorrected, inline = false }: Pr
       setError(failure.message || 'The print could not be updated. Try again.')
     } finally { setPending(false) }
   }
-  const form = (
+  const title = correction ? 'Back to cancelled' : 'Mark as failed'
+  const form = correction ? (
+    <div className="space-y-4">
+      <p>Restore the original cancelled outcome and recorded material use? A job that has moved on will be left as it is.</p>
+      {error && <p role="alert">{error}</p>}
+      <div data-modal-footer className="flex flex-wrap gap-3">
+        <button type="button" disabled={pending} onClick={() => void save(true)} className="min-h-11 px-3">Confirm back to cancelled</button>
+        <button type="button" disabled={pending} onClick={() => setOpen(false)} className="min-h-11 px-3">Keep correction</button>
+      </div>
+    </div>
+  ) : (
     <form className="space-y-4" onSubmit={event => { event.preventDefault(); void save(false) }}>
         <div><label htmlFor={`${id}-reason`}>Reason</label>
           <select id={`${id}-reason`} required value={reason} onChange={event => setReason(event.target.value)} className="block w-full min-h-11 bg-[var(--brand-input-bg)] rounded border border-[var(--brand-card-border)]">
@@ -79,10 +89,10 @@ function Control({ printId, grams, correction, onCorrected, inline = false }: Pr
       <p>Original material: {correction.original_grams == null ? 'Unknown' : `${correction.original_grams} g`}. Corrected material: {correction.corrected_grams == null ? 'Unknown' : `${correction.corrected_grams} g`}.</p>
     </div>}
     {editable && <button type="button" className="min-h-11 underline text-[var(--brand-primary)]" disabled={pending}
-      onClick={() => correction ? void save(true) : setOpen(true)}>{pending ? 'Saving…' : correction ? 'Back to cancelled' : 'Mark as failed'}</button>}
+      onClick={() => setOpen(true)}>{pending ? 'Saving…' : correction ? 'Back to cancelled' : 'Mark as failed'}</button>}
     {error && !open && <p role="alert">{error}</p>}
-    {inline ? open && <section aria-label="Mark as failed">{form}</section> : (
-      <Modal isOpen={open} onClose={() => { if (!pending) setOpen(false) }} title="Mark as failed" size="md">
+    {inline ? open && <section aria-label={title}>{form}</section> : (
+      <Modal isOpen={open} onClose={() => { if (!pending) setOpen(false) }} title={title} size="md">
         {form}
       </Modal>
     )}

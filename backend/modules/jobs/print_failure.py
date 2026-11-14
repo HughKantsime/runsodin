@@ -13,7 +13,7 @@ from core.audit import log_audit
 from core.controlled_parts import allowed
 from core.filament_ledger import prior_attempt_usage
 from core.interfaces.education_policy import is_education_reserved_filename
-from core.order_production import prepare_print_job_write
+from core.order_production import ProductionLinkageChanged, prepare_job_write, prepare_print_job_write
 from core.print_attempts import sqlalchemy_runner
 from core.rbac import check_org_access
 from modules.archives.services import assert_archive_access
@@ -58,30 +58,40 @@ def _same_print(db, identifier, saved):
 
 def matches_print(row, saved):
     return bool(row and row['economic_birth_nonce'] == saved['birth']
-                and str(row['started_at']) == saved['started_at'] and str(row['ended_at']) == saved['ended_at']
-                and row['printer_id'] == saved['printer_id'] and row['scheduled_job_id'] == saved['job_id'])
+                and str(row['started_at']) == saved['started_at']
+                and row['printer_id'] == saved['printer_id'])
 
 
 def annotate(db, rows, *, archive=False, user=None):
     """Only call after the caller has applied the source record's audience rules."""
-    ids = {row.get('print_job_id') if archive else row['id'] for row in rows}
-    keys = [PREFIX + str(identifier) for identifier in ids if identifier is not None]
+    ids = sorted({row.get('print_job_id') if archive else row['id'] for row in rows} - {None})
     values = {}
-    if keys:
-        query = text('SELECT key,value FROM system_config WHERE key IN :keys').bindparams(bindparam('keys', expanding=True))
-        for key, value in db.execute(query, {'keys': keys}):
-            saved = decoded(value)
-            if saved.get('active') and _same_print(db, int(key.removeprefix(PREFIX)), saved):
-                if user is not None:
-                    try:
-                        _load(db, int(key.removeprefix(PREFIX)), user)
-                    except HTTPException:
-                        continue
-                values[key] = {k: saved[k] for k in ('reason', 'reason_label', 'note', 'by', 'at', 'original_grams', 'corrected_grams')}
-    return [dict(row, failure_correction=values.get(PREFIX + str(row.get('print_job_id') if archive else row['id']))) for row in rows]
+    if ids:
+        from core.controlled_history import media_visibility
+        from modules.archives.services import archive_visibility
+        controlled, parameters = media_visibility(user, 'p.scheduled_job_id')
+        audience, bindings = archive_visibility(user)
+        parameters.update(bindings)
+        # One bounded batch for provenance, immutable print identity and read
+        # audience. Job mutation eligibility is deliberately not a read policy.
+        query = text('SELECT p.*,r.org_id AS printer_org,j.charged_to_org_id AS job_org,c.value '
+                     'FROM print_jobs p JOIN printers r ON r.id=p.printer_id '
+                     'LEFT JOIN jobs j ON j.id=p.scheduled_job_id '
+                     'JOIN system_config c ON c.key=:prefix || CAST(p.id AS TEXT) '
+                     'WHERE p.id IN :ids AND (' + controlled + ') AND NOT EXISTS '
+                     '(SELECT 1 FROM print_archives a WHERE a.print_job_id=p.id AND NOT (' + audience + '))'
+                     ).bindparams(bindparam('ids', expanding=True))
+        for start in range(0, len(ids), 500):
+            for row in db.execute(query, dict(parameters, prefix=PREFIX, ids=ids[start:start + 500])).mappings():
+                saved = decoded(row['value'])
+                if (saved.get('active') and matches_print(row, saved)
+                        and check_org_access(user, row['printer_org'])
+                        and check_org_access(user, row['job_org'])):
+                    values[row['id']] = {k: saved[k] for k in ('reason', 'reason_label', 'note', 'by', 'at', 'original_grams', 'corrected_grams')}
+    return [dict(row, failure_correction=values.get(row.get('print_job_id') if archive else row['id'])) for row in rows]
 
 
-def _load(db, identifier, user):
+def _load(db, identifier, user, *, undo=False):
     row = db.execute(text('SELECT p.*,r.org_id AS printer_org FROM print_jobs p JOIN printers r ON r.id=p.printer_id WHERE p.id=:id'),
                      {'id': identifier}).mappings().first()
     if not row or not check_org_access(user, row['printer_org']) or not allowed(db, 'print_job', identifier, user):
@@ -89,9 +99,10 @@ def _load(db, identifier, user):
     job = None
     if row['scheduled_job_id'] is not None:
         job = db.execute(text('SELECT * FROM jobs WHERE id=:id'), {'id': row['scheduled_job_id']}).mappings().first()
-        if not job or not check_org_access(user, job['charged_to_org_id']):
+        if job and not check_org_access(user, job['charged_to_org_id']):
             raise HTTPException(404, 'Print not found')
-        assert_generic_job_mutation_allowed(db, job['id'])
+        if job and not undo:
+            assert_generic_job_mutation_allowed(db, job['id'])
     if any(is_education_reserved_filename(row[k]) for k in ('filename', 'job_name')):
         fail('This print must be managed through its Education workflow.')
     archives = db.execute(text('SELECT * FROM print_archives WHERE print_job_id=:id ORDER BY id'), {'id': identifier}).mappings().all()
@@ -105,7 +116,7 @@ def _load(db, identifier, user):
     return row, job, archives
 
 
-def _settled(db, row, job, archives):
+def _settled(db, row, job, archives, *, undo=False):
     if not row['ended_at'] or row['status'] not in ('cancelled', 'failed'):
         fail('Only a finished, cancelled print can be marked as failed.')
     if not archives:
@@ -123,7 +134,7 @@ def _settled(db, row, job, archives):
         fail('Resolve the pending print start on this printer first.')
     if db.execute(text("SELECT 1 FROM dispatch_sender_registrations WHERE job_id=:job AND state<>'quiesced'"), {'job': row['scheduled_job_id']}).first():
         fail('Resolve the pending print start for this job first.')
-    if job and job['status'] not in ('cancelled', 'failed', 'completed'):
+    if not undo and job and job['status'] not in ('cancelled', 'failed', 'completed'):
         fail('Finish or resolve the linked job before correcting this print.')
     # These immutable observations also retain an outcome. Never contradict them.
     if row['economic_uid'] and db.execute(text('SELECT 1 FROM terminal_filament_measurements WHERE attempt_uid=:uid'), {'uid': row['economic_uid']}).first():
@@ -142,8 +153,8 @@ def _quantity_proof(db, row, archives):
     if uses_external_filament_accounting(row['printer_id']):
         fail('Material for this printer is managed outside ODIN and cannot be corrected here.')
     if prior_attempt_usage(sqlalchemy_runner(db), row['scheduled_job_id'], row['id']) or db.execute(
-            text('SELECT 1 FROM spool_usage WHERE print_job_id=:id OR (job_id=:job AND :job IS NOT NULL)'),
-            {'id': row['id'], 'job': row['scheduled_job_id']}).first():
+            text('SELECT 1 FROM spool_usage WHERE print_job_id=:id'),
+            {'id': row['id']}).first():
         fail('Material was already deducted from inventory. ODIN cannot return and restore that deduction exactly.')
     if db.execute(text('SELECT 1 FROM filament_delivery_outbox WHERE print_job_id=:id'), {'id': row['id']}).first():
         fail('Material was sent to an inventory service and cannot be restored exactly.')
@@ -188,16 +199,20 @@ def change(db, identifier, user, body=None):
     """Caller commits/rolls back the correction, provenance and audit together."""
     if user.get('role') not in ('operator', 'admin'):
         raise HTTPException(403, 'Only operators and administrators can correct a print.')
-    row, _, _ = _load(db, identifier, user)
-    # Serialize with absent restart questions and legacy terminal writers too.
-    # SQLite's first write takes the database writer lock. PG refuses contention
-    # instead of waiting while holding part of a multi-parent lock graph.
-    if db.bind.dialect.name == 'postgresql':
-        db.execute(text('LOCK TABLE printers, jobs, print_jobs, print_archives, printer_dispatch_claims, dispatch_sender_registrations, system_config IN SHARE ROW EXCLUSIVE MODE NOWAIT'))
-    db.execute(text('UPDATE printers SET id=id WHERE id=:id'), {'id': row['printer_id']})
-    prepare_print_job_write(db, identifier)
-    row, job, archives = _load(db, identifier, user)
-    _settled(db, row, job, archives)
+    row, _, _ = _load(db, identifier, user, undo=body is None)
+    # Follow the existing parent -> job -> physical print write order. These
+    # row writes serialize competing corrections without locking telemetry tables.
+    if row['scheduled_job_id'] is not None:
+        prepare_job_write(db, [row['scheduled_job_id']])
+        db.execute(text('UPDATE jobs SET updated_at=updated_at WHERE id=:id'), {'id': row['scheduled_job_id']})
+    try:
+        linked_job, _ = prepare_print_job_write(db, identifier)
+    except ProductionLinkageChanged:
+        fail('The print linkage changed. Reload before correcting this print.')
+    if linked_job != row['scheduled_job_id']:
+        fail('The print linkage changed. Reload before correcting this print.')
+    row, job, archives = _load(db, identifier, user, undo=body is None)
+    _settled(db, row, job, archives, undo=body is None)
     saved = record(db, identifier)
     if body is None:
         return _undo(db, row, job, archives, saved, user)
@@ -233,7 +248,7 @@ def change(db, identifier, user, body=None):
     latest = db.execute(text('SELECT MAX(id) FROM print_jobs WHERE scheduled_job_id=:job'), {'job': row['scheduled_job_id']}).scalar()
     if job and latest == identifier and job['status'] == 'cancelled':
         before['job'] = _image(job, JOB_FIELDS)
-        after['job'] = dict(before['job'], status='failed', fail_reason=REASONS[body.reason], fail_notes=body.note or None)
+        after['job'] = dict(before['job'], status='failed', updated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=' '), fail_reason=REASONS[body.reason], fail_notes=body.note or None)
         _write_job(db, job['id'], after['job'])
     _write_print(db, identifier, after['print'])
     for aid, values in after['archives'].items():
@@ -262,8 +277,7 @@ def _save(db, identifier, saved):
 def _undo(db, row, job, archives, saved, user):
     if not saved or not saved.get('active'):
         fail('This print has no failure correction to undo.')
-    if (row['scheduled_job_id'] != saved['job_id'] or row['printer_id'] != saved['printer_id'] or
-            row['economic_birth_nonce'] != saved['birth'] or str(row['started_at']) != saved['started_at'] or str(row['ended_at']) != saved['ended_at'] or
+    if (not matches_print(row, saved) or
             _image(row, PRINT_FIELDS) != saved['after']['print'] or
             {str(a['id']): _image(a, ARCHIVE_FIELDS) for a in archives} != saved['after']['archives']):
         fail('The print record changed after the correction. It cannot be restored exactly.')
@@ -271,9 +285,12 @@ def _undo(db, row, job, archives, saved, user):
         _quantity_allowed(db, row, archives)
     if saved['before']['job'] is not None:
         latest = db.execute(text('SELECT MAX(id) FROM print_jobs WHERE scheduled_job_id=:job'), {'job': saved['job_id']}).scalar()
-        if not job or latest != row['id'] or _image(job, JOB_FIELDS) != saved['after']['job']:
-            fail('The linked job changed after the correction. It cannot be restored exactly.')
-        _write_job(db, job['id'], saved['before']['job'])
+        if (job and job['id'] == saved['job_id'] and latest == row['id']
+                and _image(job, JOB_FIELDS) == saved['after']['job']):
+            assert_generic_job_mutation_allowed(db, job['id'])
+            _write_job(db, job['id'], saved['before']['job'])
+        # A deleted, requeued or subsequently changed job belongs to its new
+        # workflow. Restore this print/archive only; never overwrite that job.
     _write_print(db, row['id'], saved['before']['print'])
     for aid, values in saved['before']['archives'].items():
         _write_archive(db, int(aid), values)
