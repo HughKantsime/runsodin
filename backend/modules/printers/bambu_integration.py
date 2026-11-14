@@ -47,9 +47,12 @@ BAMBU_FILAMENT_TYPE_MAP = {
     
     # ASA
     "ASA": "ASA",
+    "ASA-AERO": "ASA_AERO",
+    "ASA-CF": "ASA_CF",
     
     # TPU/Flexible
     "TPU": "TPU",
+    "TPU-AMS": "TPU_AMS",
     "TPU-95A": "TPU_95A",
     "TPU-83A": "TPU_83A",
     
@@ -77,7 +80,8 @@ BAMBU_FILAMENT_TYPE_MAP = {
     # High-performance
     "PPS": "PPS",
     "PPS-CF": "PPS_CF",
-    "PPA-CF": "NYLON_CF",
+    "PPA-CF": "PPA_CF",
+    "PET-CF": "PET_CF",
     "PPA-GF": "NYLON_GF",
     
     # Specialty

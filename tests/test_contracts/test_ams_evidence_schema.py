@@ -116,6 +116,8 @@ def test_postgresql_uses_noncycling_identity_and_composite_pointer_fk():
     assert 'ON DELETE CASCADE' in pointer_ddl
 
 
-def test_frozen_schema_vocabulary_matches_current_supported_materials():
+def test_frozen_schema_vocabulary_excludes_only_stage_one_materials():
     from core.material_identity import _MATERIALS
-    assert set(SCHEMA_MATERIALS) == _MATERIALS
+    stage_one = {'ASA-AERO', 'ASA-CF', 'PET-CF', 'PPA-CF', 'PPS-CF', 'TPU-AMS'}
+    assert _MATERIALS == set(SCHEMA_MATERIALS) | stage_one
+    assert not set(SCHEMA_MATERIALS) & stage_one

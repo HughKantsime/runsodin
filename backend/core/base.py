@@ -80,6 +80,13 @@ class FilamentType(str, Enum):
     PPS = "PPS"
     PPS_CF = "PPS_CF"
 
+    # Exact specialty identities; appended to preserve native enum ordering.
+    ASA_AERO = "ASA_AERO"
+    ASA_CF = "ASA_CF"
+    PET_CF = "PET_CF"
+    PPA_CF = "PPA_CF"
+    TPU_AMS = "TPU_AMS"
+
     @classmethod
     def from_bambu_code(cls, bambu_code: str) -> 'FilamentType':
         """Convert Bambu code (e.g. PLA-S) to FilamentType."""
@@ -92,6 +99,9 @@ class FilamentType(str, Enum):
             "PA6-CF": cls.NYLON_CF, "PA-GF": cls.NYLON_GF,
             "PC-ABS": cls.PC_ABS, "PC-CF": cls.PC_CF,
             "PPS-CF": cls.PPS_CF,
+            "ASA-AERO": cls.ASA_AERO, "ASA-CF": cls.ASA_CF,
+            "PET-CF": cls.PET_CF, "PPA-CF": cls.PPA_CF,
+            "TPU-AMS": cls.TPU_AMS,
         }
         normalized = bambu_code.upper().strip()
         if normalized in mapping:
@@ -116,7 +126,7 @@ def slot_filament_value(raw) -> str:
         return mapped.value
     # Preserve the established Moonraker and Bambu protocol aliases, then
     # validate again: some Bambu map entries aren't members of the DB enum.
-    aliases = {"PA-S": "PLA_SUPPORT", "PETG-S": "PLA_SUPPORT", "PET-CF": "PETG_CF"}
+    aliases = {"PA-S": "PLA_SUPPORT", "PETG-S": "PLA_SUPPORT"}
     from modules.printers.bambu_integration import map_bambu_filament_type
     return FilamentType.from_bambu_code(aliases.get(normalized, map_bambu_filament_type(normalized))).value
 

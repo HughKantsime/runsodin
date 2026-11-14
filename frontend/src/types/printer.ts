@@ -27,7 +27,12 @@ export type FilamentType =
   | 'SUPPORT'
   | 'HIPS'
   | 'PPS'
-  | 'PPS_CF';
+  | 'PPS_CF'
+  | 'ASA_AERO'
+  | 'ASA_CF'
+  | 'PET_CF'
+  | 'PPA_CF'
+  | 'TPU_AMS';
 
 // ---- Filament Slots ----
 

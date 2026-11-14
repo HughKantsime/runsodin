@@ -7,6 +7,7 @@ _MATERIALS = frozenset({
     'TPU-83A', 'PA', 'PA-CF', 'PA-GF', 'PA6', 'PA6-CF', 'PA6-GF',
     'PA12-CF', 'PC', 'PC-ABS', 'PC-CF', 'PVA', 'HIPS', 'SUPPORT',
     'SUPPORT-W', 'SUPPORT-G',
+    'ASA-AERO', 'ASA-CF', 'PET-CF', 'PPA-CF', 'PPS-CF', 'TPU-AMS',
 })
 
 
