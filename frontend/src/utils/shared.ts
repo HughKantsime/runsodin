@@ -89,6 +89,7 @@ export function getShortName(slot: string | FilamentSlot | null): string {
 
 /** Material and colour name together, for tooltips and wide rows: "PLA · Galaxy Black". */
 export function slotFullName(slot: string | FilamentSlot | null): string {
+  if (slot && typeof slot !== 'string' && slot.catalogue_name) return slot.catalogue_name
   const short = getShortName(slot)
   const name = slotColorName(slot)
   if (!name || name.toLowerCase() === short.toLowerCase() || short === 'Empty') return short === 'Empty' && name ? name : short

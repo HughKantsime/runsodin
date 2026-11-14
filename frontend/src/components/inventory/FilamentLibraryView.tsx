@@ -50,14 +50,14 @@ export default function FilamentLibraryView() {
   })
 
   // Get unique materials for filter
-  const materials = [...new Set(filaments?.map(f => f.material) || [])]
+  const materials = [...new Set(filaments?.map(f => f.material || 'Unrecognised material') || [])]
 
   const filtered = filaments?.filter(f =>
-    materialFilter === 'all' || f.material === materialFilter
+    materialFilter === 'all' || (f.material || 'Unrecognised material') === materialFilter
   ) || []
 
   // Group by brand
-  const grouped = {}
+  const grouped: Record<string, typeof filtered> = {}
   filtered.forEach(f => {
     if (!grouped[f.brand]) grouped[f.brand] = []
     grouped[f.brand].push(f)
@@ -129,7 +129,7 @@ export default function FilamentLibraryView() {
                     <span className="text-sm text-[var(--brand-text-primary)] truncate block">{f.name}</span>
                   </div>
                   <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] shrink-0">
-                    {f.material}
+                    {f.material || 'Unrecognised material'}
                   </span>
                   {f.cost_per_gram && (
                     <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 shrink-0">

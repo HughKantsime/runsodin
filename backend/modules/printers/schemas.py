@@ -44,6 +44,8 @@ class FilamentSlotUpdate(BaseModel):
 
 
 class FilamentSlotResponse(FilamentSlotBase):
+    catalogue_name: Optional[str] = None
+    catalogue_choices: list[dict] = Field(default_factory=list)
     do_not_feed: bool = False
     do_not_feed_note: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
@@ -70,8 +72,9 @@ class FilamentSlotResponse(FilamentSlotBase):
             return data
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'remaining_weight' and hasattr(data, name)}
         spool = data.assigned_spool
-        from core.tray_identity import decode, preset_label
-        state = decode(data.tray_observation)
+        from core.tray_identity import preset_label
+        from core.display_json import display_tray_state
+        state = display_tray_state(data.tray_observation)
         values['spool_change_pending'] = state.get('pending', False)
         values['observed_state'] = state.get('id')
         # A missing initial weight prevents a percentage, not a known gram

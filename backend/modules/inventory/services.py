@@ -170,3 +170,6 @@ from modules.inventory.slot_assignments import (
     assign_slot, lock_slot_graph, unload_spool_graph, slot_integrity_report,
 )
 from modules.inventory.stale_locations import repair_stale_locations
+
+
+from modules.inventory.catalogue_slots import enrich_catalogue_slots

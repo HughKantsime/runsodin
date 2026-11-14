@@ -3,12 +3,13 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.rbac import require_role, require_action
+from modules.inventory.catalogue import catalogue_fields
 from modules.inventory.models import FilamentLibrary, Spool
 from ._helpers import FilamentCreateRequest, FilamentUpdateRequest
 
@@ -44,6 +45,7 @@ def list_filaments(
         result.append({
             "id": f"lib_{f.id}",
             "source": "library",
+            **catalogue_fields(f),
             "brand": f.brand,
             "name": f.name,
             "material": f.material,
@@ -106,6 +108,7 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
         result.append({
             "id": f"lib_{f.id}",
             "source": "library",
+            **catalogue_fields(f),
             "brand": f.brand,
             "name": f.name,
             "material": f.material,
@@ -132,6 +135,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
     return {
         "id": f"lib_{filament.id}",
         "source": "library",
+        **catalogue_fields(filament),
         "brand": filament.brand,
         "name": filament.name,
         "material": filament.material,
@@ -143,7 +147,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
 
 
 @router.patch("/{filament_id}", tags=["Filaments"])
-def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
+async def update_filament(filament_id: str, updates: FilamentUpdateRequest, request: Request, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -155,7 +159,14 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
 
+    if filament.catalogue_code is not None:
+        from .catalogue import catalogue_admin
+        await catalogue_admin(request, current_user)
     update_data = updates.model_dump(exclude_unset=True)
+    if filament.catalogue_code is not None and any(
+            field in update_data and update_data[field] != getattr(filament, field)
+            for field in ('brand', 'material')):
+        raise HTTPException(409, 'Imported filament brand and material cannot be changed. Add a custom filament instead.')
     # material_cost_per_gram selects by (material, cost_per_gram, id); id is immutable, so
     # changing the rate, or moving a rated row to another material, needs a superadmin.
     if "cost_per_gram" in update_data and update_data["cost_per_gram"] != filament.cost_per_gram:
@@ -179,7 +190,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
 
 
 @router.delete("/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
-def delete_filament(filament_id: str, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
+async def delete_filament(filament_id: str, request: Request, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -190,6 +201,9 @@ def delete_filament(filament_id: str, current_user: dict = Depends(require_actio
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == fid).first()
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
+    if filament.catalogue_code is not None:
+        from .catalogue import catalogue_admin
+        await catalogue_admin(request, current_user)
     if filament.cost_per_gram is not None:
         _require_global_rate_writer(current_user)  # removing a rated row moves the material's rate
     # Spools reference their library filament (spools.filament_id NOT NULL FK).

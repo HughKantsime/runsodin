@@ -59,6 +59,8 @@ class SpoolCreate(PydanticBaseModel):
 
 
 class SpoolUpdate(PydanticBaseModel):
+    filament_id: Optional[int] = Field(default=None, gt=0)
+
     color_name: Optional[str] = Field(default=None, max_length=100)
     _named_color = field_validator('color_name')(SpoolCreate.named_color.__func__)
 

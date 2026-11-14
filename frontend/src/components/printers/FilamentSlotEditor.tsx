@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Search } from 'lucide-react'
 import { printers } from '../../api'
+import { filaments as catalogueApi } from '../../api/inventory'
 import { canDo, getCurrentUser } from '../../permissions'
 import SlotLabel from './SlotLabel'
 import { SpoolRing, Button } from '../ui'
@@ -69,6 +70,8 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   const foundry = useFoundry()
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
+  const [catalogueError, setCatalogueError] = useState('')
+  const [choosing, setChoosing] = useState(false)
   const [feedNote, setFeedNote] = useState(slot.do_not_feed_note || '')
   const [confirmFeed, setConfirmFeed] = useState(false)
   const admin = getCurrentUser()?.role === 'admin'
@@ -86,9 +89,8 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
     return () => document.removeEventListener('keydown', close)
   }, [isEditing])
   const filteredFilaments = allFilaments?.filter(f =>
-    f.display_name.toLowerCase().includes(search.toLowerCase()) ||
-    f.brand.toLowerCase().includes(search.toLowerCase()) ||
-    f.name.toLowerCase().includes(search.toLowerCase())
+    [f.display_name, f.brand, f.name, f.catalogue_type, f.color_hex].some(value =>
+      String(value || '').toLowerCase().includes(search.toLowerCase()))
   ) || []
 
   const spoolmanFilaments = filteredFilaments.filter(f => f.source === 'spoolman')
@@ -136,7 +138,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
 
   const colorHex = slot.color_hex
   const namedColor = slot.color && !/^preset:/i.test(slot.color) && !/^#?[0-9a-f]{6}$/i.test(slot.color) ? slot.color : null
-  const material = namedColor || slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Empty'
+  const material = slot.catalogue_name || namedColor || slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Empty'
   const preset = slot.preset ? `preset: ${slot.preset.replace(/^preset:\s*/i, '')}` : null
 
   return (
@@ -161,6 +163,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
           size={20}
         />
         <SlotLabel text={material} />
+        {!!slot.catalogue_choices?.length && <SlotLabel text="Choose catalogue name" />}
         {slot.do_not_feed && <span title={slot.do_not_feed_note || 'Do not feed'} className="text-xs font-semibold text-[var(--brand-text-primary)] border border-[var(--brand-border)] bg-[var(--brand-card-bg)] rounded px-1 break-words">Do not feed</span>}
         {preset && <SlotLabel text={preset} singleLine />}
         {slot.remaining == null && <SlotLabel text="Remaining unknown" />}
@@ -189,6 +192,17 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 <Button onClick={changeFeed}>Confirm {slot.do_not_feed ? 'allow feeding' : 'do not feed'}</Button>
                 <Button variant="secondary" onClick={() => setConfirmFeed(false)}>Keep current restriction</Button>
               </div>}
+            </div>}
+            {catalogueError && <p role="alert">{catalogueError}</p>}
+            {!!slot.catalogue_choices?.length && <div className="mb-3 space-y-2">
+              <p>Several catalogue entries match this slot. Choose the name for its spool.</p>
+              {!slot.assigned_spool_id && <p>Assign a tracked spool first to remember its name.</p>}
+              {slot.catalogue_choices.map((choice: { id: number; name: string }) => <Button key={choice.id} disabled={!slot.assigned_spool_id || slot.spool_change_pending || choosing} onClick={async () => {
+                setChoosing(true); setCatalogueError('')
+                try { await catalogueApi.chooseSlot(printerId, slot.slot_number, slot.assigned_spool_id!, choice.id); onSave({}); setIsEditing(false) }
+                catch (error: any) { setCatalogueError(error.message || 'Could not save the catalogue name.') }
+                finally { setChoosing(false) }
+              }}>{choice.name}</Button>)}
             </div>}
             {!slot.spool_change_pending && <>
             <div className="relative mb-3">

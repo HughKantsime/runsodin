@@ -19,6 +19,7 @@ import IPAllowlistSettings from '../../components/admin/IPAllowlistSettings'
 import OrgManager from '../../components/admin/OrgManager'
 import LogViewer from '../../components/admin/LogViewer'
 import NotificationsTab from '../../components/admin/NotificationsTab'
+import FilamentCatalogueSettings from '../../components/admin/FilamentCatalogueSettings'
 import GeneralTab from '../../components/admin/GeneralTab'
 import VisionSettingsTab from '../../components/admin/VisionSettingsTab'
 import SystemTab from '../../components/admin/SystemTab'
@@ -54,7 +55,7 @@ export default function Settings() {
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState(() => {
     const requested = searchParams.get('tab')
-    return requested && ['general', 'notifications', 'access', 'integrations', 'vision', 'branding', 'license', 'system', 'logs'].includes(requested) ? requested : 'general'
+    return requested && ['general', 'filaments', 'notifications', 'access', 'integrations', 'vision', 'branding', 'license', 'system', 'logs'].includes(requested) ? requested : 'general'
   })
   const lic = useLicense()
   const { data: pricingData } = useQuery({
@@ -70,6 +71,7 @@ export default function Settings() {
   const PRO_TABS = ['integrations', 'branding']
   const ALL_TABS = [
     { id: 'general', label: 'General', icon: SettingsIcon },
+    { id: 'filaments', label: 'Filaments', icon: Palette },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'access', label: 'Access', icon: Users },
     { id: 'integrations', label: 'Integrations', icon: Webhook },
@@ -105,6 +107,7 @@ export default function Settings() {
 
       {/* ==================== GENERAL TAB ==================== */}
       {shownTab === 'general' && <GeneralTab />}
+      {shownTab === 'filaments' && <FilamentCatalogueSettings />}
 
       {/* ==================== NOTIFICATIONS TAB ==================== */}
       {shownTab === 'notifications' && <NotificationsTab />}

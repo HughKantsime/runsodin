@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Import your Bambu filament catalogue and pick spools by their exact Bambu name. ODIN shows that name on spools and slots; material checks before a print are unchanged.
+
 ### Added
 
 - The status feed and the Home Assistant integration now report how many prints were stopped mid-run today, separate from failed prints.

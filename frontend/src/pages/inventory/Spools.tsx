@@ -399,6 +399,7 @@ export default function Spools() {
       {editingSpool && (
         <EditSpoolModal
           spool={editingSpool}
+          filaments={filaments || []}
           onClose={() => setEditingSpool(null)}
           onSave={handleEditSpool}
         />

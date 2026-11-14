@@ -168,9 +168,9 @@ class FilamentSlot(Base):
     @property
     def remaining(self) -> Optional[float]:
         """Current Bambu measurement, or the assigned balance for other printers."""
-        from core.tray_identity import decode
+        from core.display_json import display_tray_state
         if self.tray_observation:
-            return decode(self.tray_observation).get('remaining')
+            return display_tray_state(self.tray_observation).get('remaining')
         if self.printer and self.printer.api_type == 'bambu':
             return None
         if self.assigned_spool and self.assigned_spool.initial_weight_g and self.assigned_spool.initial_weight_g > 0:

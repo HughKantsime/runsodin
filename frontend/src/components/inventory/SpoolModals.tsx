@@ -1,3 +1,4 @@
+import CataloguePicker from './CataloguePicker'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import { useState, useEffect } from 'react'
@@ -51,22 +52,7 @@ function CreateSpoolForm({ filaments, onClose, onCreate, pending = false, owner 
   return (
     <Modal isOpen={true} onClose={onClose} title="Add New Spool" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Filament Type</label>
-          <select
-            value={form.filament_id}
-            onChange={(e) => setForm({ ...form, filament_id: e.target.value })}
-            required
-            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
-          >
-            <option value="">Select filament...</option>
-            {filaments?.map(f => (
-              <option key={f.id} value={f.id.replace('lib_', '')}>
-                {f.brand} - {f.name} ({f.material})
-              </option>
-            ))}
-          </select>
-        </div>
+        <CataloguePicker filaments={filaments || []} value={form.filament_id} onChange={filament_id => setForm({ ...form, filament_id })} />
 
         <div className="grid grid-cols-2 gap-4">
           <div>

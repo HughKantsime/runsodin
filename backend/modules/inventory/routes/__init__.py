@@ -20,6 +20,9 @@ router.include_router(receive_bulk_router)
 router.include_router(spool_ops_router)
 router.include_router(spools_router)
 router.include_router(filament_slots_router)
+from .catalogue import router as catalogue_router, slot_router as catalogue_slot_router
+router.include_router(catalogue_slot_router)
+router.include_router(catalogue_router)
 router.include_router(drying_logs_router)
 # Phase 2 agent-surface alias for MCP list_filaments tool.
 router.include_router(filament_library_router)
