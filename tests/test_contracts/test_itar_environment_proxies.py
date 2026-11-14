@@ -687,3 +687,19 @@ def test_the_boot_audit_says_nothing_about_proxies_when_none_was_set(environment
     with caplog.at_level("INFO", logger="odin.itar"):
         itar.enforce_boot_config(["http://192.168.1.20:7912"])
     assert not [record for record in caplog.records if "roxy" in record.getMessage()]
+
+
+def test_the_guide_lists_the_health_check_among_the_itar_off_changes():
+    """Recheck 1, item F: accepted as intended, and written down where operators read it."""
+    guide = (ROOT / "docs/ITAR_MODE.md").read_text(encoding="utf-8")
+    section = guide[guide.index("## What changed for installations with ITAR mode off"):]
+    section = section[:section.index("\n## ", 5)]
+    assert "health check never uses a proxy" in section and "--noproxy '*'" in section
+    assert "whether ITAR mode is on or off" in section
+    assert "ODIN_ITAR_MODE" in section and "stops the container at start" in section
+    files = ["Dockerfile", "docker-compose.yml", "docker-compose.enterprise.yml"]
+    for name in files:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "noproxy" in text, name
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "The container health check never uses a proxy, with ITAR mode on or off" in changelog

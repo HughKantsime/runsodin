@@ -23,6 +23,13 @@ With ITAR mode on, the server opens no connection to an address outside the loca
 
 Private (RFC 1918, loopback, link-local) destinations are unaffected.
 
+## What changed for installations with ITAR mode off
+
+ITAR mode off behaves as before, with two intended exceptions in 2.2.1:
+
+- **The container health check never uses a proxy.** The health check in the image and in the Compose files calls O.D.I.N. on `localhost` with `curl --noproxy '*'`, whether ITAR mode is on or off. A request to `localhost` should never go through a proxy; before, with `HTTP_PROXY` or a similar setting in the container, it could be sent to the proxy.
+- **A value of `ODIN_ITAR_MODE` that is not one of the accepted spellings stops the container at start.** Before, such a value (for example `2`) was read as off.
+
 ## The PostgreSQL database
 
 With a PostgreSQL database (the enterprise layout), the database server is a connection like any other. With ITAR mode on, O.D.I.N. refuses to start, and does not start `pg_dump` or `pg_restore`, unless the server is on the local network, and it connects to the address it checked:
