@@ -13,6 +13,17 @@ It is set in the container environment, not in the UI or the database, so a comp
 
 Private (RFC 1918, loopback, link-local) destinations are unaffected.
 
+## The PostgreSQL database
+
+With a PostgreSQL database (the enterprise layout), the database server is a connection like any other. With ITAR mode on, O.D.I.N. refuses to start, and does not start `pg_dump` or `pg_restore`, unless the server is on the local network:
+
+- Checked: the host in `DATABASE_URL` and `DATABASE_MAINTENANCE_URL`, the `host` and `hostaddr` settings in the URL query, and the `PGHOST` and `PGHOSTADDR` environment variables. A name must resolve, and every address it has must be private.
+- A libpq service file (`service=` in the URL, or `PGSERVICE`) is refused, because the address it names is in a file O.D.I.N. does not read. Put the host in the URL.
+- A Unix socket, `localhost`, and the bundled `postgres` service on the Compose network pass.
+- **Not pinned.** This is the one connection whose DNS answer O.D.I.N. does not pin. The check runs at start-up and each time O.D.I.N. opens the database or starts a backup tool, but the PostgreSQL driver (libpq) looks the host name up again itself whenever it connects. If the name could ever answer with an outside address, use the server's IP address or a Unix socket in `DATABASE_URL` instead of a name.
+
+SQLite (the default) has no database connection and is not affected.
+
 ## Allowing an identity provider
 
 A cloud identity provider (Microsoft Entra ID, GCC High, Okta, Google) is public, so by default SSO cannot be used with ITAR mode on. To allow one, list its hostnames:

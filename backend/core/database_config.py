@@ -103,6 +103,17 @@ def application_name(role: str) -> str:
         raise DatabaseConfigurationError(f"Unsupported ODIN database role: {role}") from exc
 
 
+def _refuse_public_postgres_under_itar(url: URL) -> None:
+    """ITAR mode: no engine is built for a PostgreSQL server outside the local network, so
+    every ODIN process refuses to start with such a DATABASE_URL (core.itar_database)."""
+    from core.itar import ItarOutboundBlocked
+    from core.itar_database import enforce_postgres_destination
+    try:
+        enforce_postgres_destination(url)
+    except ItarOutboundBlocked as exc:
+        raise DatabaseConfigurationError(str(exc)) from None
+
+
 # Writers wait this long for SQLite's writer lock before SQLITE_BUSY.
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
@@ -145,6 +156,7 @@ def create_database_engine(
                 cursor.close()
 
         return sqlite_engine
+    _refuse_public_postgres_under_itar(url)
     restore_data_directory = os.getenv('ODIN_DATA_DIR', '/data')
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:
         assert_postgres_restore_ready(restore_data_directory)
