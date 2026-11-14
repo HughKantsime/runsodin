@@ -189,8 +189,9 @@ await check('P-B03', 'new context purges legacy keys but preserves preferences',
 
 await check('P-B04', 'logout clears legacy, Cache Storage, and IndexedDB state', async () => {
   await seedSensitiveStores(page, { bulk: true })
-  await page.getByRole('button', { name: 'Logout', exact: true }).first().click()
-  await page.getByRole('alertdialog', { name: /Confirm Logout/i }).getByRole('button', { name: 'Logout', exact: true }).click()
+  // 2.2: the sidebar control and its confirmation read "Sign out" (was "Logout").
+  await page.getByRole('button', { name: 'Sign out', exact: true }).first().click()
+  await page.getByRole('alertdialog', { name: 'Sign out?', exact: true }).getByRole('button', { name: 'Sign out', exact: true }).click()
   await page.waitForURL('**/login')
   const snapshot = await storageSnapshot(page)
   if (!storageIsSafe(snapshot, true)) throw new Error(`sensitive stores survived logout: ${JSON.stringify(snapshot)}`)

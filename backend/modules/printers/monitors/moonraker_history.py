@@ -2,6 +2,8 @@
 import math
 from datetime import datetime, timezone
 
+from core.datetime_wire import to_storage_utc
+
 TERMINAL = {'completed': 'completed', 'cancelled': 'cancelled', 'error': 'failed',
             'klippy_shutdown': 'failed', 'klippy_disconnect': 'failed', 'interrupted': 'failed'}
 
@@ -63,8 +65,8 @@ def terminal_history(printer, filename, observed_end, *, row_started_at=None):
             if not matches:
                 continue
             candidates.append({'status': TERMINAL[run['status']],
-                'started_at': datetime.fromtimestamp(run['start'], timezone.utc).isoformat(),
-                'ended_at': datetime.fromtimestamp(run['end'], timezone.utc).isoformat(),
+                'started_at': to_storage_utc(datetime.fromtimestamp(run['start'], timezone.utc)),
+                'ended_at': to_storage_utc(datetime.fromtimestamp(run['end'], timezone.utc)),
                 'duration': run['duration']})
         return candidates[0] if len(candidates) == 1 else None
     except Exception:

@@ -45,10 +45,10 @@ test('F16-16.7-02 Simple and Advanced persist mode, preserve other config and up
  mount()
  await screen.findByRole('button',{name:'Vigil AI',exact:true})
  fireEvent.click(screen.getByRole('button',{name:/^Simple /}))
- await waitFor(() => expect(api.update).toHaveBeenCalledWith({ui_mode:'simple',syntheticPreserved:17}))
+ await waitFor(() => expect(api.update).toHaveBeenCalledWith({ui_mode:'simple'}))
  await waitFor(() => expect(screen.queryByRole('button',{name:'Vigil AI',exact:true})).not.toBeInTheDocument())
  fireEvent.click(screen.getByRole('button',{name:/^Advanced /}))
- await waitFor(() => expect(api.update).toHaveBeenCalledWith({ui_mode:'advanced',syntheticPreserved:17}))
+ await waitFor(() => expect(api.update).toHaveBeenCalledWith({ui_mode:'advanced'}))
  await screen.findByRole('button',{name:'Vigil AI',exact:true})
 })
 test.each([['Notifications','Notifications boundary'],['Integrations','Integrations boundary'],['Branding','Branding boundary'],['Vigil AI','Vigil boundary'],['System','System boundary']])('F16-16.7-03 %s tab mounts its assigned section', async (label, content) => {

@@ -10,7 +10,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from modules.system import license_refresh
+import license_manager
+from modules.system import license_refresh, routes_license
 from tests.test_contracts.test_license_offline_import import owned_import  # noqa: F401  (fixture)
 from tests.test_contracts.test_paid_license_binding import device, portal  # noqa: F401  (fixtures)
 
@@ -18,6 +19,7 @@ from core.schema.bootstrap import import_all_models
 
 import_all_models()  # Every mapper registered, so the SystemConfig query works when this file runs alone.
 
+REAL_FIND_LICENSE_FILE = license_manager._find_license_file  # Before any fixture replaces it.
 KEY = "REFRESH-TEST"
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -70,6 +72,7 @@ def app(portal, monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(license_refresh, "_session", lambda: db)
     monkeypatch.setattr(routes, "get_license", lm.get_license)
+    monkeypatch.setattr(routes_license, "get_license", lm.get_license)
 
     def make(issued, expires, **extra):
         return sign(**fields, key=KEY, issued_at=iso(issued), expires_at=iso(expires), **extra).decode()
@@ -84,7 +87,7 @@ def app(portal, monkeypatch):
     def refresh(**body):
         response.clear()
         response.update(status=200, body=body)
-        return asyncio.run(routes.reactivate_license(current_user={"id": 1}, db=db, license_mutation_allowed=None))
+        return asyncio.run(routes_license.reactivate_license(current_user={"id": 1}, db=db, license_mutation_allowed=None))
 
     return SimpleNamespace(lm=lm, routes=routes, path=path, make=make, refresh=refresh, restart=restart,
                            upload=upload, sign=sign, fields=fields, db=db, calls=calls)
@@ -93,7 +96,7 @@ def app(portal, monkeypatch):
 def last_refresh(app):
     """The admin-only answer; the public license answer never carries it."""
     assert "last_refresh" not in app.routes.get_license_info()
-    return app.routes.get_license_last_refresh(current_user={"id": 1})["last_refresh"]
+    return routes_license.get_license_last_refresh(current_user={"id": 1})["last_refresh"]
 
 
 @pytest.mark.parametrize("status", ["renewed", "canceled", "not_renewed_yet", "not_entitled", None])
@@ -103,7 +106,7 @@ def test_refresh_rechecks_disk_identity_inside_installer(app, monkeypatch, statu
     installed_key = KEY if intervening == "same_key" else "OTHER-KEY"
     replacement = app.sign(**app.fields, key=installed_key, issued_at=iso(ago(hours=2)),
                            expires_at=iso(ahead(days=40))).decode()
-    original_install = app.routes.install_portal_license
+    original_install = routes_license.install_portal_license
 
     def concurrent_change(*args, **kwargs):
         # After the route's candidate checks, immediately before installation.
@@ -113,7 +116,7 @@ def test_refresh_rechecks_disk_identity_inside_installer(app, monkeypatch, statu
             app.lm.install_portal_license(replacement)
         return original_install(*args, **kwargs)
 
-    monkeypatch.setattr(app.routes, "install_portal_license", concurrent_change)
+    monkeypatch.setattr(routes_license, "install_portal_license", concurrent_change)
     candidate = app.make(ago(hours=1), ago(minutes=30) if status == "not_entitled" else ahead(days=60))
     with pytest.raises(HTTPException) as exc:
         app.refresh(license_file=candidate, **({"refresh_status": status} if status else {}))
@@ -134,13 +137,13 @@ def test_no_file_answer_does_not_attach_to_a_concurrent_replacement(app, monkeyp
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
     replacement = app.sign(**app.fields, key=KEY if same_key else "OTHER-KEY",
                            issued_at=iso(ago(hours=2)), expires_at=iso(ahead(days=40))).decode()
-    request = app.routes.pinned_async_request
+    request = routes_license.pinned_async_request
 
     async def concurrent_upload(*args, **kwargs):
         app.lm.install_portal_license(replacement)
         return await request(*args, **kwargs)
 
-    monkeypatch.setattr(app.routes, "pinned_async_request", concurrent_upload)
+    monkeypatch.setattr(routes_license, "pinned_async_request", concurrent_upload)
     with pytest.raises(HTTPException) as exc:
         app.refresh(refresh_status=status, ends_at=iso(ahead(days=2)))
     assert exc.value.status_code == 409
@@ -183,6 +186,58 @@ def test_unactivation_cannot_remove_an_intervening_replacement(app, monkeypatch,
                 current_user={"id": 1}, db=app.db, license_mutation_allowed=None))
     assert exc.value.status_code == 409
     assert app.path.read_text() == replacement
+    app.routes.log_audit.assert_not_called()
+    app.restart()
+    assert app.lm.get_license().valid
+
+
+def _lose_license_file(app, monkeypatch):
+    # The fixture's finder always names the path; the real one reports a missing file.
+    monkeypatch.setattr(app.lm, "_find_license_file", lambda: str(app.path) if app.path.exists() else None)
+    app.path.unlink()
+    app.restart()
+    assert not app.path.exists() and app.lm.get_license().license_sha256 == ""
+
+
+def _unactivate_with_key(app, key=KEY):
+    return asyncio.run(app.routes.unactivate_license(
+        app.routes.LicenseUnactivateRequest(key=key),
+        current_user={"id": 1}, db=app.db, license_mutation_allowed=None))
+
+
+def test_unactivation_with_a_key_succeeds_when_no_license_file_is_installed(app, monkeypatch):
+    # The local file was lost or removed; the admin frees the grant by typing the key.
+    audit = []
+    monkeypatch.setattr("core.audit.log_audit", lambda *args, **kwargs: audit.append(args[1]))
+    _lose_license_file(app, monkeypatch)
+    assert _unactivate_with_key(app) == {"status": "unactivated", "tier": "community"}
+    assert [body["key"] for url, body in app.calls if url.endswith("/api/v1/unactivate")] == [KEY]
+    assert audit == ["license.unactivated"]
+    assert not app.path.exists()
+    assert not list(app.path.parent.glob(app.path.name + ".unactivated-*"))
+    app.restart()
+    current = app.lm.get_license()
+    assert not current.valid and current.key == "" and current.tier == "community"
+
+
+@pytest.mark.parametrize("same_key", [False, True])
+def test_unactivation_with_a_key_keeps_a_license_installed_during_the_portal_call(app, monkeypatch, same_key):
+    # Nothing installed when the request started; an upload lands while the portal answers.
+    appeared = app.sign(**app.fields, key=KEY if same_key else "OTHER-KEY",
+                        issued_at=iso(ago(hours=2)), expires_at=iso(ahead(days=40))).decode()
+    request = app.routes.pinned_async_request
+
+    async def concurrent_upload(*args, **kwargs):
+        app.lm.install_portal_license(appeared)
+        return await request(*args, **kwargs)
+
+    monkeypatch.setattr(app.routes, "pinned_async_request", concurrent_upload)
+    _lose_license_file(app, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _unactivate_with_key(app)
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == appeared
+    assert not list(app.path.parent.glob(app.path.name + ".unactivated-*"))
     app.routes.log_audit.assert_not_called()
     app.restart()
     assert app.lm.get_license().valid
@@ -400,6 +455,71 @@ def test_different_file_with_equal_issue_time_cannot_restore_entitlement(app, pa
     assert app.lm.get_license().expires_at == iso(ago(hours=1) if ended else ahead(days=3))
 
 
+@pytest.mark.parametrize("path", ["upload", "refresh"])
+def test_plan_change_with_equal_issue_time_is_installed(app, path):
+    """The license server re-signs a key that has no subscription with the key's stored
+    issue time (odin-site-cf api/_lib/billing/key-entitlement.js `unmanaged`), so an
+    upgrade arrives as a different file with the same issue time and the same end."""
+    issued, end = ago(days=30), ahead(days=300)
+    app.lm.save_license_file(app.make(issued, end, tier="pro"))
+    assert app.lm.get_license().tier == "pro"
+    upgraded = app.make(issued, end, tier="enterprise", max_printers=40)
+    if path == "upload":
+        app.upload(upgraded.encode())
+    else:
+        result = app.refresh(license_file=upgraded, refresh_status="renewed")
+        assert result["valid"] is True and result["tier"] == "enterprise"
+    assert app.path.read_text() == upgraded
+    app.restart()
+    info = app.lm.get_license()
+    assert info.valid and info.tier == "enterprise" and info.max_printers == 40
+
+
+def test_equal_issue_time_file_that_ends_earlier_is_installed(app):
+    issued = ago(days=30)
+    app.lm.save_license_file(app.make(issued, ahead(days=300)))
+    shorter = app.make(issued, ahead(days=10))
+    assert app.lm.install_portal_license(shorter).valid
+    assert app.path.read_text() == shorter
+
+
+def test_identical_file_is_accepted_and_changes_nothing(app):
+    installed = app.make(ago(days=30), ahead(days=300), tier="pro")
+    app.lm.save_license_file(installed)
+    result = app.refresh(license_file=installed, refresh_status="renewed")
+    assert result["valid"] is True and result["tier"] == "pro"
+    assert app.path.read_text() == installed
+
+
+@pytest.mark.parametrize("path", ["upload", "refresh", "install"])
+@pytest.mark.parametrize("same_instant", [False, True])
+def test_pre_refund_file_cannot_be_replayed_after_the_refund_replacement(app, path, same_instant):
+    """After a refund the installed file is the ended replacement. The file held before
+    the refund is refused when it is older, and also if it carried the very same issue
+    time as the replacement: an equal issue time never installs a file that ends later."""
+    refunded_at = ago(hours=2)
+    before_refund = app.make(refunded_at if same_instant else ago(days=20), ahead(days=10), tier="enterprise")
+    if not same_instant:
+        app.lm.save_license_file(before_refund)
+    else:
+        app.lm.save_license_file(app.make(ago(days=20), ahead(days=10)))
+    replacement = app.make(refunded_at, refunded_at + timedelta(seconds=1))
+    assert app.refresh(license_file=replacement, refresh_status="not_entitled")["valid"] is False
+    assert app.path.read_text() == replacement
+    with pytest.raises(HTTPException) as exc:
+        if path == "upload":
+            app.upload(before_refund.encode())
+        elif path == "refresh":
+            app.refresh(license_file=before_refund, refresh_status="renewed")
+        else:
+            app.lm.install_portal_license(before_refund, allow_expired=True, expected_key=KEY)
+    assert exc.value.status_code == 409
+    assert app.path.read_text() == replacement
+    app.restart()
+    info = app.lm.get_license()
+    assert not info.valid and info.max_printers == app.lm.TIERS["community"]["max_printers"]
+
+
 # ---- already-expired replacement ----
 
 def test_expired_replacement_is_installed_and_persists_across_restart(app):
@@ -538,11 +658,11 @@ def test_last_refresh_is_hidden_once_another_license_file_is_installed(app):
 def test_admin_refresh_answer_identifies_the_file_it_describes(app):
     app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
     app.refresh(refresh_status="canceled")
-    result = app.routes.get_license_last_refresh(current_user={"id": 1})
+    result = routes_license.get_license_last_refresh(current_user={"id": 1})
     assert result["license_sha256"] == app.lm.load_license().license_sha256
     assert result["last_refresh"]["status"] == "canceled"
     app.lm.save_license_file(app.make(ago(hours=1), ahead(days=40)))
-    changed = app.routes.get_license_last_refresh(current_user={"id": 1})
+    changed = routes_license.get_license_last_refresh(current_user={"id": 1})
     assert changed["license_sha256"] == app.lm.load_license().license_sha256
     assert changed["license_sha256"] != result["license_sha256"]
     assert changed["last_refresh"] is None
@@ -730,3 +850,160 @@ def test_a_refresh_is_refused_when_the_license_path_is_set_by_configuration(app,
     assert refused.value.status_code == 409 and "ODIN_LICENSE_FILE" in refused.value.detail
     assert pinned.read_text() == before and app.path.read_text() == before
     assert app.lm.get_license().valid
+
+
+@pytest.mark.parametrize("action", ["renewed", "not_entitled", "upload"])
+def test_a_license_folder_link_to_the_configured_file_is_refused_not_replaced(app, monkeypatch, tmp_path, action):
+    """Review finding: LICENSE_DIR/odin.license was a link to the file ODIN_LICENSE_FILE selects.
+    The paths compared equal, the save replaced the link and not that file, and the loader kept
+    reading the old license while the refresh (for example after a refund) reported success."""
+    import os
+    before = app.make(ago(days=30), ahead(days=20))
+    external = tmp_path / "managed-elsewhere" / "customer.license"
+    external.parent.mkdir()
+    external.write_text(before)
+    if app.path.exists():
+        app.path.unlink()
+    app.path.symlink_to(external)
+    monkeypatch.setenv("ODIN_LICENSE_FILE", str(external))
+    monkeypatch.setattr(app.lm, "_find_license_file", REAL_FIND_LICENSE_FILE)  # the real loader
+    app.restart()
+    in_force = app.lm.get_license()
+    assert in_force.valid and in_force.key == KEY and in_force.expires_at == iso(ahead(days=20))
+
+    def folder():
+        return sorted(name for name in os.listdir(app.path.parent) if name != ".odin-license.lock")
+
+    listed = folder()
+    app.routes.log_audit.reset_mock()
+    ends = ago(minutes=1) if action == "not_entitled" else ahead(days=40)
+    candidate = app.make(ago(hours=1), ends)
+    with pytest.raises(HTTPException) as refused:  # No answer is returned, so nothing claims success.
+        if action == "upload":
+            app.upload(candidate.encode())
+        else:
+            app.refresh(license_file=candidate, refresh_status=action)
+    assert refused.value.status_code == 409
+    assert refused.value.detail == app.lm.LICENSE_MANAGED_OUTSIDE
+    assert "managed outside" in refused.value.detail and "ODIN_LICENSE_FILE" in refused.value.detail
+    # Nothing was written: the link is still that link, the file it points to is untouched,
+    # and no staging or recovery file was left in the license folder.
+    assert app.path.is_symlink() and os.readlink(app.path) == str(external)
+    assert external.read_text() == before and folder() == listed
+    app.routes.log_audit.assert_not_called()
+    assert last_refresh(app) is None
+    # The loader still reads what it read before, in this process and after a restart.
+    for _ in range(2):
+        now_in_force = app.lm.get_license()
+        assert now_in_force.valid and now_in_force.license_sha256 == in_force.license_sha256
+        assert app.lm.load_license().license_sha256 == in_force.license_sha256
+        app.restart()
+
+
+def test_a_configured_file_that_is_the_license_folder_file_is_still_replaced(app, monkeypatch):
+    """The ordinary layouts are unchanged: ODIN_LICENSE_FILE naming the license folder's own
+    file (no link) installs as before, and the loader reads the new file."""
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=20)))
+    monkeypatch.setenv("ODIN_LICENSE_FILE", str(app.path))
+    monkeypatch.setattr(app.lm, "_find_license_file", REAL_FIND_LICENSE_FILE)
+    app.restart()
+    replacement = app.make(ago(hours=1), ahead(days=40))
+    result = app.refresh(license_file=replacement, refresh_status="renewed")
+    assert result["status"] == "reactivated" and result["expires_at"] == iso(ahead(days=40))
+    assert not app.path.is_symlink() and app.path.read_text() == replacement
+    app.restart()
+    assert app.lm.get_license().expires_at == iso(ahead(days=40))
+
+
+def _watch_portal(app, monkeypatch):
+    """Every portal contact of an unactivation: the challenge fetch and the POSTs."""
+    contacts = []
+    challenge = app.routes._fetch_license_challenge
+
+    async def recorded_challenge(*args):
+        contacts.append("challenge")
+        return await challenge(*args)
+
+    monkeypatch.setattr(app.routes, "_fetch_license_challenge", recorded_challenge)
+
+    def seen():
+        return contacts + [url.rsplit("/", 1)[-1] for url, _body in app.calls]
+
+    return seen
+
+
+def _grant_held(app):
+    # The stub portal frees a grant only when it receives an unactivate POST.
+    return not [url for url, _body in app.calls if url.endswith("/api/v1/unactivate")]
+
+
+def _assert_nothing_changed(app, seen, before):
+    assert seen() == [] and _grant_held(app)
+    assert app.path.read_bytes() == before
+    assert not list(app.path.parent.glob(app.path.name + ".unactivated-*"))
+    app.routes.log_audit.assert_not_called()
+
+
+@pytest.mark.parametrize("installed_has_key", [True, False])
+def test_unactivation_with_a_different_key_is_refused_before_the_portal(app, monkeypatch, installed_has_key):
+    if installed_has_key:
+        app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    app.restart()
+    assert app.lm.get_license().valid and app.lm.get_license().key == (KEY if installed_has_key else "")
+    before = app.path.read_bytes()
+    seen = _watch_portal(app, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _unactivate_with_key(app, "OTHER-KEY")
+    assert exc.value.status_code == 409
+    assert exc.value.detail == ("The license key entered is not the one installed on this server. Nothing was changed. "
+                                "To unactivate the installed license, send the request without a key.")
+    assert "OTHER-KEY" not in exc.value.detail and KEY not in exc.value.detail
+    _assert_nothing_changed(app, seen, before)
+    app.restart()
+    assert app.lm.get_license().valid
+
+
+@pytest.mark.parametrize("damage", ["garbage", "bad_signature"])
+def test_unactivation_with_a_key_and_an_unreadable_license_file_is_refused_before_the_portal(app, monkeypatch, damage):
+    good = app.make(ago(days=30), ahead(days=5))
+    payload, signature = good.split(".")
+    other = app.make(ago(days=29), ahead(days=5)).split(".")[1]
+    app.path.write_text("not a license" if damage == "garbage" else payload + "." + other)
+    app.restart()
+    assert app.lm.get_license().license_sha256 == ""
+    before = app.path.read_bytes()
+    seen = _watch_portal(app, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _unactivate_with_key(app)
+    assert exc.value.status_code == 409
+    assert exc.value.detail == ("The installed license file cannot be read. Nothing was changed. Remove the file first "
+                                "with \"Remove license\" (DELETE /api/license), then unactivate with the key again.")
+    _assert_nothing_changed(app, seen, before)
+
+    # The advice works: remove the file, then the same request frees the grant.
+    monkeypatch.setattr(app.lm, "_find_license_file", lambda: str(app.path) if app.path.exists() else None)
+    assert app.routes.remove_license(current_user={"id": 1}, db=app.db, license_mutation_allowed=None)["status"] == "removed"
+    assert not app.path.exists() and seen() == []
+    app.restart()
+    assert _unactivate_with_key(app) == {"status": "unactivated", "tier": "community"}
+    assert seen() == ["challenge", "unactivate"] and not _grant_held(app)
+
+
+@pytest.mark.parametrize("typed_key", [None, KEY])
+def test_unactivation_of_the_installed_license_still_frees_the_grant(app, monkeypatch, typed_key):
+    # No key in the request (the installed key is used), or the installed key typed in.
+    audit = []
+    monkeypatch.setattr("core.audit.log_audit", lambda *args, **kwargs: audit.append(args[1]))
+    app.lm.save_license_file(app.make(ago(days=30), ahead(days=5)))
+    app.restart()
+    seen = _watch_portal(app, monkeypatch)
+    if typed_key is None:
+        result = asyncio.run(app.routes.unactivate_license(current_user={"id": 1}, db=app.db, license_mutation_allowed=None))
+    else:
+        result = _unactivate_with_key(app, typed_key)
+    assert result == {"status": "unactivated", "tier": "community"}
+    assert seen() == ["challenge", "unactivate"] and not _grant_held(app)
+    assert [body["key"] for url, body in app.calls if url.endswith("/api/v1/unactivate")] == [KEY]
+    assert audit == ["license.unactivated"]
+    assert not app.path.exists()
+    assert len(list(app.path.parent.glob(app.path.name + ".unactivated-*"))) == 1

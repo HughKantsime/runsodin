@@ -1061,7 +1061,8 @@ def test_history_joins_only_a_job_that_opens_as_the_last_closes_and_keeps_its_cl
     jobs = [history_job('completed', second_start, second_end, total, 803.0), history_job('cancelled', start, first_end, 309.0, 31.0)]
     found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=start)
     assert found['status'] == ('completed' if joined else 'cancelled')
-    assert found['ended_at'] == datetime.fromtimestamp(second_end if joined else first_end, timezone.utc).isoformat()
+    # 2.1.1: history times are stored as naive UTC (no zone), so compare the instant.
+    assert as_utc_datetime(found['ended_at']) == datetime.fromtimestamp(second_end if joined else first_end, timezone.utc)
     assert found['duration'] == (803.0 if joined else 31.0)
 
 
@@ -1080,8 +1081,8 @@ def test_history_joins_a_print_paused_more_than_once():
             history_job('completed', 1200.1, 1300.0, 300.0, 270.0)]
     found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=1000.0)
     assert (found['status'], found['duration']) == ('completed', 270.0)
-    assert found['started_at'] == datetime.fromtimestamp(1000.0, timezone.utc).isoformat()
-    assert found['ended_at'] == datetime.fromtimestamp(1300.0, timezone.utc).isoformat()
+    assert as_utc_datetime(found['started_at']) == datetime.fromtimestamp(1000.0, timezone.utc)
+    assert as_utc_datetime(found['ended_at']) == datetime.fromtimestamp(1300.0, timezone.utc)
 
 
 def test_history_of_a_print_still_in_progress_does_not_speak_for_its_end():

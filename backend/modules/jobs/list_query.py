@@ -10,7 +10,7 @@ only through the same joins and org checks that build the display name, and ever
 import re
 from datetime import timezone
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import and_, case, func, or_, text
 
 from core.base import JobStatus
 from core.printer_display_facts import may_read
@@ -87,7 +87,26 @@ def search_filter(user, q):
         "EXISTS (SELECT 1 FROM order_items qoi JOIN orders qo ON qo.id=qoi.order_id "
         f"WHERE qoi.id=jobs.order_item_id AND LOWER(COALESCE(qo.order_number,'')) {like} "
         f"AND {_org_ok(user, 'qo.org_id')})")
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- every fragment is a literal of this function (fixed columns, _org_ok's fixed predicates); the search text, job id and org are bound
     return text('(' + ' OR '.join(parts) + ')').bindparams(**params)
+
+
+def _instant(db, column):
+    """`column` in a form that orders and compares correctly as stored.
+
+    On SQLite job times are text, in more than one shape: naive UTC 'YYYY-MM-DD HH:MM:SS[.ffffff]'
+    and, in rows written by older versions, ISO 'YYYY-MM-DDTHH:MM:SS[.ffffff]+00:00'. As text they
+    do not sort together ('T' sorts after a space, so an older ISO row of the same day ranked
+    above a newer naive one). SQLite's own strftime reads every shape, including a trailing Z
+    or an offset (which it converts to UTC), and gives the second; the six fraction digits are
+    taken from the stored text so sub-second order is kept. The result is always
+    'YYYY-MM-DD HH:MM:SS.ffffff', or NULL for NULL or unreadable text. PostgreSQL stores real
+    timestamps and is left alone.
+    """
+    if db.get_bind().dialect.name != 'sqlite':
+        return column
+    fraction = case((func.substr(column, 20, 1) == '.', func.substr(column, 21, 6)), else_='000000')
+    return func.strftime('%Y-%m-%d %H:%M:%S', column).concat('.').concat(fraction)
 
 
 def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, finished_since,
@@ -113,9 +132,11 @@ def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, f
         since = finished_since.astimezone(timezone.utc).replace(tzinfo=None) if finished_since.tzinfo else finished_since
         # A job that ended without ever starting (cancelled or rejected while queued) has no
         # actual_end; its last update is when it ended.
-        ended_unstarted = and_(Job.actual_end.is_(None), Job.updated_at >= since,
+        if db.get_bind().dialect.name == 'sqlite':
+            since = since.strftime('%Y-%m-%d %H:%M:%S.%f')   # the text form _instant produces
+        ended_unstarted = and_(Job.actual_end.is_(None), _instant(db, Job.updated_at) >= since,
                                Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.REJECTED]))
-        query = query.filter(or_(and_(Job.actual_end.isnot(None), Job.actual_end >= since), ended_unstarted))
+        query = query.filter(or_(and_(Job.actual_end.isnot(None), _instant(db, Job.actual_end) >= since), ended_unstarted))
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if should_filter_org(current_user, effective_org):
@@ -129,7 +150,7 @@ def list_job_rows(db, current_user, *, statuses, printer_id, unassigned, held, f
     # Priority first; drag-and-drop queue_position orders jobs within a
     # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
     if order == "recent":
-        ordering = (func.coalesce(Job.actual_end, Job.updated_at, Job.created_at).desc(), Job.id.desc())
+        ordering = (_instant(db, func.coalesce(Job.actual_end, Job.updated_at, Job.created_at)).desc(), Job.id.desc())
     else:
         ordering = (Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id)
     rows = query.order_by(*ordering).offset(offset).limit(limit).all()

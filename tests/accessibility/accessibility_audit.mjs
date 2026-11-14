@@ -221,7 +221,9 @@ for (const row of rows) {
               }
             }
           }
-          if (row.id === 'A04') finding.assertions.push({ name: 'jobs table ready', pass: await page.getByRole('table').count() > 0 })
+          // At phone width the Jobs page lists jobs as cards, not a table (2.2.0).
+          if (row.id === 'A04') finding.assertions.push({ name: 'jobs table ready', pass: await page.getByRole('table').count() > 0
+            || (width <= 390 && (await page.locator('[data-testid="job-card"]').count() > 0 || await page.getByText(/No (order |ad-hoc )?jobs found/).count() > 0)) })
           if (row.id === 'A05') finding.assertions.push({ name: 'file input and upload action', pass: await page.locator('input[type=file]').count() > 0 && await page.locator('label[for="file-upload"]').count() > 0 })
           if (row.id === 'A06') finding.assertions.push({ name: 'access groups and quotas ready', pass: await page.getByRole('heading', { name: 'Groups', exact: true }).count() > 0 && await page.getByText(/Print Quotas/i).count() > 0 })
           if (row.id === 'A07') finding.assertions.push({ name: 'backup retention and privacy ready', pass: await page.getByText(/Database Backups/i).count() > 0 && await page.getByText(/Data Retention/i).count() > 0 && await page.getByText(/Privacy & Data/i).count() > 0 })

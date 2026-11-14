@@ -31,9 +31,11 @@ def test_login_feedback_valid_login_and_logout(page: Page):
     page.locator("#login-password").fill(PERSONAS["admin"][1])
     page.get_by_role("button", name="Sign In", exact=True).click()
     expect(page.get_by_role("heading", name="Dashboard", exact=True)).to_be_visible(timeout=20_000)
-    page.get_by_role("button", name="Logout", exact=True).click()
-    expect(page.get_by_role("heading", name="Confirm Logout", exact=True)).to_be_visible()
-    page.get_by_role("button", name="Logout", exact=True).last.click()
+    # 2.2: the sidebar foot names who is signed in and offers "Sign out" (was "Logout").
+    page.get_by_role("button", name="Sign out", exact=True).click()
+    confirm = page.get_by_role("alertdialog", name="Sign out?", exact=True)
+    expect(confirm.get_by_role("heading", name="Sign out?", exact=True)).to_be_visible()
+    confirm.get_by_role("button", name="Sign out", exact=True).click()
     page.wait_for_url(f"{BASE_URL}/login", timeout=20_000)
 
 
@@ -49,7 +51,9 @@ def test_admin_operational_navigation_and_seeded_content(role_page_factory):
     for path, heading, content in checks:
         _goto(page, path)
         expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible(timeout=20_000)
-        expect(page.get_by_text(content, exact=False).first).to_be_visible(timeout=20_000)
+        # The first match a user can see: 2.2 folds the Models statistics (whose "Most Printed"
+        # tile repeats the seeded model's name) into a closed "Library statistics" section.
+        expect(page.get_by_text(content, exact=False).filter(visible=True).first).to_be_visible(timeout=20_000)
 
 
 def test_community_gates_and_access_tab_behavior(role_page_factory):

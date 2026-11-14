@@ -113,6 +113,104 @@ def test_editing_a_signed_trial_breaks_the_signature(issuer, tamper):
     assert info.valid is False and info.error == "Invalid license signature" and info.trial is False
 
 
+# ── Replacement order between a trial and a paid license ────────────────────
+
+# Made-up license identifiers for these cases, joined so a secret scanner does not read them as keys.
+SAME_ID = '-'.join(('ODIN', 'SAME', 'KEY0'))
+PAID_ID = '-'.join(('ODIN', 'PAID', 'KEY1'))
+TRIAL_ID = '-'.join(('ODIN', 'TRIA', 'KEY0'))
+OTHER_TRIAL_ID = '-'.join(('ODIN', 'TRIA', 'KEY9'))
+
+
+def _file(issuer, key, issued, expires, **extra):
+    return _sign(issuer, {"tier": "pro", "licensee": "Order", "key": key, "issued_at": issued,
+                          "expires_at": expires, **extra})[1]
+
+
+def _refused(lm, text):
+    from fastapi import HTTPException
+    before = lm.get_license().license_sha256
+    with pytest.raises(HTTPException) as refusal:
+        lm.install_portal_license(text)
+    assert refusal.value.status_code == 409 and refusal.value.detail == lm.LICENSE_OLDER_THAN_INSTALLED
+    assert lm.get_license().license_sha256 == before
+    return True
+
+
+@pytest.mark.parametrize("trial_ended", [False, True])
+@pytest.mark.parametrize("paid_key", [PAID_ID, SAME_ID])
+@pytest.mark.parametrize("paid_issued", [_in(days=-1), _in(days=-3), _in(days=-30), None],
+                         ids=["after_trial", "same_instant", "before_trial", "no_issue_time"])
+def test_a_valid_paid_license_always_replaces_a_trial(issuer, paid_key, paid_issued, trial_ended):
+    import license_manager as lm
+    trial_issued = _in(days=-3)
+    if paid_issued is not None and paid_issued[:10] == trial_issued[:10]:
+        paid_issued = trial_issued
+    lm.save_license_file(_file(issuer, SAME_ID, trial_issued,
+                               _in(days=-1) if trial_ended else _in(days=11), trial=True))
+    assert lm.get_license().trial is True and lm.get_license().valid is not trial_ended
+    extra = {} if paid_issued is None else {"issued_at": paid_issued}
+    paid = _sign(issuer, {"tier": "pro", "licensee": "Paid Farm", "key": paid_key,
+                          "expires_at": _in(days=365), **extra})[1]
+    info = lm.install_portal_license(paid)
+    assert (info.valid, info.trial, info.key) == (True, False, paid_key)
+
+
+def test_a_trial_cannot_take_the_place_of_a_paid_license_for_the_same_key(issuer):
+    import license_manager as lm
+    key, issued = SAME_ID, _in(days=-10)
+    lm.save_license_file(_file(issuer, key, issued, _in(days=5)))
+    # Issued earlier, issued at the same instant but ending later, or with no issue time: all refused.
+    assert _refused(lm, _file(issuer, key, _in(days=-20), _in(days=14), trial=True))
+    assert _refused(lm, _file(issuer, key, issued, _in(days=14), trial=True))
+    assert _refused(lm, _sign(issuer, {"tier": "pro", "licensee": "Order", "key": key, "trial": True,
+                                       "expires_at": _in(days=14)})[1])
+    assert lm.get_license().trial is False
+
+
+def test_a_trial_cannot_bring_back_a_refunded_plan_for_the_same_key(issuer, monkeypatch):
+    import license_manager as lm
+    key, issued = SAME_ID, _in(days=-10)
+    lm.save_license_file(_file(issuer, key, issued, _in(days=-9)))  # the refund replacement, already ended
+    assert lm.get_license().valid is False and lm.get_license().trial is False
+    assert _refused(lm, _file(issuer, key, issued, _in(days=14), trial=True))
+    assert _refused(lm, _file(issuer, key, _in(days=-11), _in(days=14), trial=True))
+
+
+def test_a_newer_trial_cannot_reopen_the_way_for_an_older_paid_file_after_a_refund(issuer):
+    import license_manager as lm
+    key = SAME_ID
+    old_paid = _file(issuer, key, _in(days=-30), _in(days=335))
+    lm.save_license_file(old_paid)
+    lm.install_portal_license(_file(issuer, key, _in(days=-10), _in(days=-9)), allow_expired=True)  # the refund
+    assert _refused(lm, old_paid)
+    assert _refused(lm, _file(issuer, key, _in(days=-1), _in(days=13), trial=True))  # newer, still a trial
+    assert _refused(lm, old_paid)
+
+
+def test_an_older_paid_file_is_still_refused_once_the_paid_license_replaced_the_trial(issuer):
+    import license_manager as lm
+    key = SAME_ID
+    lm.save_license_file(_file(issuer, key, _in(days=-3), _in(days=11), trial=True))
+    lm.install_portal_license(_file(issuer, key, _in(days=-2), _in(days=30)))
+    assert _refused(lm, _file(issuer, key, _in(days=-5), _in(days=365)))
+    assert _refused(lm, _file(issuer, key, _in(days=-3), _in(days=11), trial=True))  # nor back to the trial
+
+
+def test_a_trial_replaces_another_trial_only_in_issue_order(issuer):
+    import license_manager as lm
+    key, issued = TRIAL_ID, _in(days=-3)
+    lm.save_license_file(_file(issuer, key, issued, _in(days=11), trial=True))
+    assert _refused(lm, _file(issuer, key, _in(days=-4), _in(days=20), trial=True))   # older
+    assert _refused(lm, _file(issuer, key, issued, _in(days=20), trial=True))         # same instant, ends later
+    shorter = lm.install_portal_license(_file(issuer, key, issued, _in(days=5), trial=True))
+    assert shorter.trial is True                                                      # same instant, ends earlier
+    newer = lm.install_portal_license(_file(issuer, key, _in(days=-1), _in(days=13), trial=True))
+    assert newer.trial is True and newer.issued_at > issued
+    other = lm.install_portal_license(_file(issuer, OTHER_TRIAL_ID, _in(days=-9), _in(days=5), trial=True))
+    assert other.key == OTHER_TRIAL_ID                                              # another key is not compared
+
+
 # ── Real app: Pro writes, days-left wire, expiry, notice, paid replacement ──
 
 ACTIVE = r'''

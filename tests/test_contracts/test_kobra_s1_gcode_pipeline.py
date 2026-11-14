@@ -74,6 +74,8 @@ def s1(creators, review_db, tmp_path, monkeypatch):
     monkeypatch.setattr(moonraker.MoonrakerPrinter, 'upload_file', upload)
     monkeypatch.setattr(moonraker, 'urlopen', read_back)
     monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', send)
+    from tests.test_contracts.s1_preflight_test_support import passing_preflight
+    passing_preflight(monkeypatch)
     def upload_file(raw, name='real-print.gcode'):
         response = client.post('/api/print-files/upload', headers=auth(), files={'file': (name, raw, 'application/octet-stream')})
         assert response.status_code == 200, response.text

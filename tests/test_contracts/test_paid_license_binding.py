@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 from fastapi import HTTPException
+from modules.system import routes_license
 from tests.test_contracts.test_license_offline_import import owned_import
 
 CONTRACT = json.loads((Path(__file__).parent / 'fixtures/paid_binding_portal.json').read_text())
@@ -103,8 +104,9 @@ def portal(device, monkeypatch):
     from modules.system import routes_health as routes
     from core import itar, outbound_http
     (upload, path, old, audit, db, lm, sign), fields = device
-    monkeypatch.setattr(routes, 'get_installation_id', lm.get_installation_id)
-    monkeypatch.setattr(routes, 'get_device_keypair', lm.get_device_keypair)
+    for module in (routes, routes_license):
+        monkeypatch.setattr(module, 'get_installation_id', lm.get_installation_id)
+        monkeypatch.setattr(module, 'get_device_keypair', lm.get_device_keypair)
     monkeypatch.setattr(itar, 'pin_for_request', lambda _: nullcontext())
     calls = []
     response = dict(status=200, body={'license_file': sign(**fields).decode()})
@@ -117,6 +119,7 @@ def portal(device, monkeypatch):
         return real_client(transport=httpx.MockTransport(upstream), **kwargs)
     async def challenge(*args): return 'fresh-test-challenge'
     monkeypatch.setattr(routes, '_fetch_license_challenge', challenge)
+    monkeypatch.setattr(routes_license, '_fetch_license_challenge', challenge)
     monkeypatch.setattr(outbound_http.httpx, 'Client', client)
     def activate(**kwargs):
         return asyncio.run(routes.activate_license(routes.LicenseActivateRequest(key='TEST-ONLY', **kwargs), current_user={'id':1}, license_mutation_allowed=None))
@@ -241,7 +244,7 @@ def test_bound_reactivation_preserves_file_on_failure(portal, failure):
         response['body'] = {'license_file': sign(**fields, max_users=374).decode()}
         db.commit.side_effect = RuntimeError('test audit commit failure')
     with pytest.raises(HTTPException):
-        asyncio.run(routes.reactivate_license(current_user={'id':1}, db=db, license_mutation_allowed=None))
+        asyncio.run(routes_license.reactivate_license(current_user={'id':1}, db=db, license_mutation_allowed=None))
     assert calls[0][1]['paid_binding'] == 'device-v1'
     assert path.read_text() == installed and lm.get_license().valid
 
@@ -282,7 +285,7 @@ def test_exact_portal_outbound_keys(portal, bound):
         binding_protocol='device-v1' if bound else None), current_user={'id': 1}).body)
     assert set(offline) == {'key', 'activation_request'}
     assert set(offline['activation_request']) == offline_keys
-    asyncio.run(routes.reactivate_license(current_user={'id': 1}, db=db, license_mutation_allowed=None))
+    asyncio.run(routes_license.reactivate_license(current_user={'id': 1}, db=db, license_mutation_allowed=None))
     refresh = calls[-1][1]
     assert set(refresh) == refresh_keys
     if bound:
@@ -304,7 +307,7 @@ def test_portal_auth_status_preserved(portal, status, bound, action, structured)
         if action == 'activate':
             activate()
         else:
-            asyncio.run(routes.reactivate_license(current_user={'id': 1}, db=db, license_mutation_allowed=None))
+            asyncio.run(routes_license.reactivate_license(current_user={'id': 1}, db=db, license_mutation_allowed=None))
     assert exc.value.status_code == status
     assert path.read_text() == installed
 

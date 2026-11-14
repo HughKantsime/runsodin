@@ -14,6 +14,7 @@ from modules.organizations.branding import AMBER_DEFAULTS, Branding, default_bra
 import_all_models()
 GREEN = {column: old for column, (old, _new) in AMBER_DEFAULTS.items()}
 AMBER = {column: new for column, (_old, new) in AMBER_DEFAULTS.items()}
+DONE_MARKER = 'branding_amber_default_2_2'  # the system_config row the one-time step leaves behind
 
 
 @pytest.fixture
@@ -75,7 +76,7 @@ def test_no_branding_row_yet_still_marks_done(engine):
     assert saved(engine) is None
     assert _apply_amber_default_branding(engine) == 0
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT 1 FROM system_config WHERE key='branding_amber_default_2_2'")).first()
+        assert connection.execute(text('SELECT 1 FROM system_config WHERE key=:marker'), {'marker': DONE_MARKER}).first()
 
 
 def _ratio(a, b):

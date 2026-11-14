@@ -69,13 +69,16 @@ def _ws(job_id: int, status: str, message: str):
 
 
 class NoStartMessage(str):
-    """A dispatch failure message that proves no print command was sent.
+    """A dispatch failure message that proves no real print start was sent.
 
-    Returned only when the Bambu FTPS upload itself failed, so ``start_print``
-    was never reached. Orchestration releases the claim instead of fencing the
-    printer as uncertain (specs/ftps-upload-serialization.md, part B). Any
-    string operation on it yields a plain ``str``, which fences again.
+    Used for upload failures and S1 refusals before the real start boundary.
+    Orchestration can release the claim instead of fencing the printer as
+    uncertain. Any string operation on it yields a plain ``str``.
     """
+
+
+class PreflightNoStartMessage(NoStartMessage):
+    """Only a verified missing-file decoy was possible; even a new hold is clean."""
 
 
 def _upload_failure_message(result) -> NoStartMessage:
@@ -141,6 +144,8 @@ def _gate_refusal_message(gate):
     if refusal is None:
         refusal = GateRefusal("gate_rejected", "Post-upload callback refused print start")
     detail = refusal.detail.removeprefix(refusal.code + ": ")
+    if refusal.code == 's1_start_unknown':
+        return refusal.code + ': ' + detail
     return ("Post-upload printer and AMS checks refused print start "
             f"({refusal.code}: {detail}); no print command was sent")
 

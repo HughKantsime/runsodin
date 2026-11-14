@@ -18,7 +18,7 @@ SEED = secrets.token_hex(32)
 PORTAL_STUB = r'''
 import types, base64 as _b64
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from modules.system import routes_health as RH
+from modules.system import routes_health as RH, routes_license as RL
 # License keys are generated per run (no key-shaped literals in the repo).
 PRO_KEY = "-".join(["ODIN", "CERT", "PROK", secrets.token_hex(2).upper()])
 PORTAL = {"keys": {PRO_KEY: "pro"}, "activations": {}, "nonces": set(), "calls": [], "down": False,
@@ -66,7 +66,7 @@ class FakeAsyncClient:
         return _Resp(200, {"license_file": _issue(key, inst)})
 async def fake_request(method, url, *, timeout=5, **kwargs):
     return await getattr(FakeAsyncClient(), method.lower())(url, **kwargs)
-RH.pinned_async_request = fake_request
+RH.pinned_async_request = RL.pinned_async_request = fake_request
 '''
 
 FLOW = PORTAL_STUB + r'''

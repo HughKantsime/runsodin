@@ -48,6 +48,7 @@
       ],
       "timelapse_enabled": false,
       "machine_type": "A1",
+      "training_warnings": [],
       "feeding_slot": 3,
       "chamber_temp": 5.0,
       "plate_clear_confirmed_at": null,
@@ -264,7 +265,8 @@
       "has_api_key": true,
       "camera_enabled": false,
       "camera_source": "auto",
-      "training_warnings": []
+      "experimental_actions_enabled": false,
+      "support_level": "supported"
     },
     {
       "name": "Cert Voron",
@@ -304,6 +306,7 @@
       ],
       "timelapse_enabled": false,
       "machine_type": null,
+      "training_warnings": [],
       "feeding_slot": null,
       "chamber_temp": null,
       "plate_clear_confirmed_at": null,
@@ -327,7 +330,8 @@
       "has_api_key": false,
       "camera_enabled": true,
       "camera_source": "configured",
-      "training_warnings": []
+      "experimental_actions_enabled": false,
+      "support_level": "supported"
     },
     {
       "name": "Cert MK4",
@@ -365,6 +369,7 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "training_warnings": [],
       "feeding_slot": null,
       "chamber_temp": null,
       "plate_clear_confirmed_at": null,
@@ -388,7 +393,8 @@
       "has_api_key": false,
       "camera_enabled": true,
       "camera_source": "configured",
-      "training_warnings": []
+      "experimental_actions_enabled": false,
+      "support_level": "supported"
     },
     {
       "name": "Cert Centauri",
@@ -426,6 +432,7 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "training_warnings": [],
       "feeding_slot": null,
       "chamber_temp": null,
       "plate_clear_confirmed_at": null,
@@ -449,7 +456,8 @@
       "has_api_key": false,
       "camera_enabled": true,
       "camera_source": null,
-      "training_warnings": []
+      "experimental_actions_enabled": false,
+      "support_level": "supported"
     }
   ],
   "telemetry_301": [

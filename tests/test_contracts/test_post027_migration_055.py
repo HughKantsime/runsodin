@@ -15,9 +15,9 @@ def test_literal_registry_orders_released_then_controlled_migrations():
                    and any(getattr(t, 'id', None) == 'POST027_MIGRATIONS' for t in n.targets)]
     assert len(assignments) == 1
     assert ast.literal_eval(assignments[0].value) == POST027_MIGRATIONS
-    assert [mid for mid, _ in POST027_MIGRATIONS][-4:] == [
+    assert [mid for mid, _ in POST027_MIGRATIONS][-5:] == [
         'python:053-term-retention', 'python:054-controlled-parts', 'python:055-controlled-history',
-        'python:056-dispatch-recovery-global']
+        'python:056-dispatch-recovery-global', 'python:057-slot-feed-policy']
 
 
 def test_history_repair_commits_a_valid_audit_chain(tmp_path):

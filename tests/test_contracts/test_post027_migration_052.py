@@ -85,3 +85,48 @@ def test_native_postgres_fresh_repeat(pg_engine):
     bootstrap_database(pg_engine)
     assert bootstrap_database(pg_engine)['applied']==[]
     with pg_engine.begin() as c:M.apply(c);M.validate(c)
+
+
+def test_second_starter_never_meets_the_first_starters_comparison_tables(tmp_path):
+    """052 validates against fixed-name tables: they must stay inside the starter's write transaction."""
+    import threading
+    from sqlalchemy import event
+    engine = create_engine('sqlite:///' + str(tmp_path / 'starters.db'), connect_args={'timeout': 30})
+    bootstrap_database(engine)
+    built, colliding, release, results = threading.Event(), threading.Event(), threading.Event(), {}
+    comparison = 'CREATE TABLE _validate_traceability_records'
+
+    def before(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith(comparison) and built.is_set():
+            colliding.set()  # The second starter is about to create the same table.
+
+    def after(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith(comparison) and not built.is_set():
+            results['in_transaction'] = cursor.connection.in_transaction
+            built.set()
+            release.wait(30)  # Hold the first starter between CREATE and DROP.
+
+    def start(name):
+        try:
+            results[name] = bootstrap_database(engine)['applied']
+        except Exception as error:  # noqa: BLE001 - the assertion below reports it
+            results[name] = repr(error)
+
+    event.listen(engine, 'before_cursor_execute', before)
+    event.listen(engine, 'after_cursor_execute', after)
+    try:
+        first = threading.Thread(target=start, args=('first',))
+        first.start()
+        assert built.wait(30)
+        second = threading.Thread(target=start, args=('second',))
+        second.start()
+        colliding.wait(2)  # Fixed: the second starter is waiting for the writer instead.
+        release.set()
+        first.join(60)
+        second.join(60)
+        assert not first.is_alive() and not second.is_alive()
+        # The write transaction is what keeps the tables private, whatever the second starter's timing.
+        assert results == {'in_transaction': True, 'first': [], 'second': []}
+    finally:
+        release.set()
+        engine.dispose()

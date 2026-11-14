@@ -257,24 +257,36 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             # before any message suffix turns the marker into a plain str.
                             no_command = (type(result[0]) is bool and not result[0]
                                           and isinstance(result[1], dispatch.NoStartMessage))
-                            if no_command:
-                                # A maintenance hold set while the upload ran keeps the fence.
+                            preflight_no_start = no_command and isinstance(result[1], dispatch.PreflightNoStartMessage)
+                            # A maintenance hold set while the dispatch ran keeps the fence for EVERY
+                            # refusal that is not a start check: the upload-failed marker above and a
+                            # gate's own clean_no_start alike (an S1 upload failure sets the latter, and
+                            # used to release the claim under a hold). If the hold cannot be read, keep
+                            # the fence.
+                            held = False
+                            if type(result[0]) is bool and not result[0] and not preflight_no_start:
                                 from modules.printers.maintenance_gate import refusal as maintenance_refusal
                                 try:
-                                    no_command = not maintenance_refusal(engine, job['printer_id'])
+                                    held = bool(maintenance_refusal(engine, job['printer_id']))
                                 except Exception:
-                                    no_command = False
+                                    held = True
+                            if held:
+                                no_command = False
                             if derived:
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
                             if filament.warning and result[0] is True:
                                 result = (result[0], result[1] + '; ' + filament.warning)
-                            _require_target(target_handle)
+                            # A decoy cannot start a print. Loss of target ownership
+                            # must stop it, but does not turn it into a real-start fence.
+                            if not preflight_no_start:
+                                _require_target(target_handle)
                             accepted=type(result[0]) is bool and result[0]
                             # A hold arriving after admission retains inventory-maint's
                             # conservative fence; initial holds refuse before any claim.
                             gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
-                            clean_refusal = (not accepted and (getattr(before_start, 'clean_no_start', False) or no_command)
-                                and gate_code != 'printer_maintenance_hold')
+                            clean_refusal = (not accepted and not held
+                                and (getattr(before_start, 'clean_no_start', False) or no_command)
+                                and (gate_code != 'printer_maintenance_hold' or preflight_no_start))
                             from modules.printers.dispatch_background import audit_actor
                             actor = audit_actor()
                             recorded = (dispatch_claims.release_unstarted(engine, claim.token) if clean_refusal else

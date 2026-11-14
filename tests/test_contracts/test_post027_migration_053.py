@@ -126,7 +126,13 @@ def test_constraint_drift_is_refused(tmp_path, drift):
 
 
 def test_preserved046_orm_baseline_is_byte_exact():
+    import json
     from pathlib import Path
     from core.schema import preserved046
     root = Path(preserved046.__file__).parent
-    assert (root/'overlay/core/schema/orm_baselines.json').read_bytes() == (root.parent/'orm_baselines.json').read_bytes()
+    catalog = json.loads((root.parent/'orm_baselines.json').read_text())
+    # 057 (2.2.0) changes the models, so it pins one new baseline. Every baseline
+    # released through 046 must still serialize to the frozen bytes without it.
+    assert set(catalog) - set(json.loads((root/'overlay/core/schema/orm_baselines.json').read_text())) == {'slot_feed_policy_057_20261112'}
+    del catalog['slot_feed_policy_057_20261112']
+    assert (root/'overlay/core/schema/orm_baselines.json').read_bytes() == (json.dumps(catalog, indent=2) + '\n').encode()

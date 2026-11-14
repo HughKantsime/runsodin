@@ -196,6 +196,8 @@ export interface PricingConfig {
   selling_fee_fixed?: number;
   plate_handling_min?: number;
   ui_mode?: string;
+  /** Reported by the server: true once the owner has saved pricing settings. */
+  configured?: boolean;
 }
 
 // ---- Chargebacks ----

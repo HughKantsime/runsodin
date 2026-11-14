@@ -16,7 +16,7 @@ from sqlalchemy.pool import NullPool
 
 # Values are bounded facts, never arbitrary strings or copies of transport messages.
 DETAILS = {
-    'dispatch_uploading': {}, 'dispatch_starting': {}, 'dispatch_dispatched': {},
+    'dispatch_uploading': {}, 'dispatch_starting': {'preflight_result': str, 'decoys_sent': int, 'seconds': (int, float)}, 'dispatch_dispatched': {},
     'dispatch_failed': {}, 'nozzle_unverified': {'geometry_unverified': bool}, 'gate_refused': {'gate': str}, 'started': {}, 'paused': {}, 'resumed': {},
     'runout': {'slot': int}, 'hms': {},
     'completed': {'duration_seconds': (int,float)}, 'failed': {'duration_seconds': (int,float)},
@@ -42,6 +42,10 @@ def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
     detail = {} if detail is None else dict(detail)
     if set(detail) - set(DETAILS[kind]):raise ValueError('Invalid timeline detail field')
     for key,value in detail.items():
+        if kind == 'dispatch_starting' and key == 'preflight_result':
+            if value not in ('passed', 'refused'):
+                raise ValueError('Invalid preflight result')
+            continue
         if kind == 'nozzle_unverified' and key == 'geometry_unverified' and type(value) is bool:
             continue
         if kind == 'gate_refused' and key == 'gate' and isinstance(value, str) and _CODE.fullmatch(value):
@@ -50,6 +54,10 @@ def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
             raise ValueError('Invalid timeline detail value')
     if code is not None and (kind not in ('hms','gate_refused','runout','paused') or not isinstance(code,str) or not _CODE.fullmatch(code)):
         raise ValueError('Invalid timeline code')
+    if kind == 'dispatch_starting' and 'preflight_result' in detail:
+        # Fixed customer wording also renders in the existing generic timeline UI.
+        outcome = 'passed' if detail['preflight_result'] == 'passed' else 'did not pass'
+        detail['message'] = f"Printer start check {outcome}. Checks sent: {detail.get('decoys_sent', 0)}. Time: {detail.get('seconds', 0):g} seconds."
     return dict(id=uuid.uuid4().hex,job=job_id,kind=kind,printer=printer_id,attempt=print_attempt_uid,
                 org=org_id,code=code,detail=json.dumps(detail,sort_keys=True),occurred=utc(occurred_at) if occurred_at is not None else now())
 

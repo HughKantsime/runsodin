@@ -84,6 +84,7 @@ def _prepare_directory(directory: Path) -> None:
     for path in (root, directory.parent, directory):
         try:
             os.mkdir(path, 0o700)
+            # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions -- a directory: 0700 is owner-only, and the owner needs the search bit to reach the 0600 files inside
             os.chmod(path, 0o700)
         except FileExistsError:
             pass
