@@ -184,7 +184,7 @@ GUARD_NAMES = frozenset({
     # core.itar_database: the PostgreSQL server address, before an engine is built
     # (create_database_engine) or a client program is started (_run_pg_tool)
     # (tests/test_contracts/test_itar_postgres_destination.py)
-    "enforce_postgres_destination", "_run_pg_tool", "pin_driver_arguments", "pinned_client_environment",
+    "enforce_postgres_destination", "_run_pg_tool", "pinned_driver_arguments", "pinned_client_environment",
 })
 
 

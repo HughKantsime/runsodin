@@ -69,10 +69,19 @@ def engines(monkeypatch, tmp_path):
     class Built(list):
         def connect(self, **driver_arguments):
             """Run the newest engine's do_connect listener on the arguments the dialect
-            would hand the driver, and return them as the driver would receive them."""
+            built, and return what the driver receives. `driver_arguments` must come back
+            unchanged: SQLAlchemy shares that one dictionary between all connections."""
+            before = dict(driver_arguments)
+
+            class Dialect:
+                @staticmethod
+                def connect(*cargs, **received):
+                    return received
+            received = dict(driver_arguments)
             for listener in listeners.get("do_connect", [])[-1:]:
-                listener(None, None, [], driver_arguments)
-            return driver_arguments
+                received = listener(Dialect, None, [], driver_arguments)
+            assert driver_arguments == before, "the shared connect arguments were changed"
+            return received
 
         def listener_names(self):
             return sorted(listeners)
@@ -269,10 +278,136 @@ def test_sqlite_is_never_checked(itar_on, tmp_path, monkeypatch):
     assert itar_database.enforce_postgres_destination("sqlite:////data/odin.db") is None
 
 
+# ---- real SQLAlchemy connection dispatch (recheck 3, finding 1) ----
+#
+# SQLAlchemy builds ONE connect-arguments dictionary per engine and hands the same object to
+# every physical connection. Round 3 wrote `hostaddr` into it: the first connection worked,
+# and every later one (pool growth, reconnect, recovery after a failed first attempt) found
+# that `hostaddr` and was refused as a form ODIN cannot pin.
+
+class _Driver:
+    """A DBAPI module for a real SQLAlchemy engine: sqlite3 in everything but connect(),
+    which records the arguments it is given (as psycopg.connect would receive them) and
+    returns a working in-memory connection, or fails the way a driver does."""
+
+    def __init__(self):
+        import sqlite3
+        import types
+        self.module = types.ModuleType("recording_dbapi")
+        for name in dir(sqlite3):
+            if not name.startswith("__"):
+                setattr(self.module, name, getattr(sqlite3, name))
+        self.module.connect = self.connect
+        self.sqlite3, self.received, self.fail_next = sqlite3, [], 0
+
+    def connect(self, *args, **kwargs):
+        self.received.append(dict(kwargs))
+        if self.fail_next:
+            self.fail_next -= 1
+            raise self.sqlite3.OperationalError("connection to server failed")
+        return self.sqlite3.connect(":memory:")
+
+
+def _real_engine(monkeypatch, poolclass=None, **connect_args):
+    """A real SQLAlchemy engine with ODIN's connect listener on it. The dialect is SQLite's,
+    because no PostgreSQL driver is installed here; the part under test (SQLAlchemy's
+    do_connect dispatch and its shared arguments dictionary) is the same for every dialect."""
+    import sqlalchemy
+    from sqlalchemy.pool import NullPool
+    driver = _Driver()
+    engine = sqlalchemy.create_engine("sqlite://", module=driver.module, poolclass=poolclass or NullPool,
+                                      connect_args={"host": "db.plant.example", "port": 5432, **connect_args})
+    database_config._pin_postgres_connections_under_itar(engine)
+    return engine, driver
+
+
+def _pins(driver):
+    return [(arguments.get("host"), arguments.get("hostaddr")) for arguments in driver.received]
+
+
+def test_three_physical_connections_in_a_row_each_reach_the_driver_with_a_pin(monkeypatch):
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    for name in PG_ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
+    resolver = Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    engine, driver = _real_engine(monkeypatch)
+    for _ in range(3):
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("select 1").scalar() == 1
+    assert _pins(driver) == [("db.plant.example", PRIVATE)] * 3
+    assert resolver.calls == ["db.plant.example"] * 3, "one fresh lookup for each connection"
+
+
+def test_each_connection_gets_the_address_of_its_own_lookup(monkeypatch):
+    """The database moves to another local address between connections: the second
+    connection is pinned to the new answer, not to a pin left over from the first."""
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    answers = iter([(PRIVATE,), ("10.0.0.9",), (PUBLIC,), (PRIVATE,)])
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", lambda host, *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0)) for address in next(answers)])
+    engine, driver = _real_engine(monkeypatch)
+    engine.connect().close()
+    engine.connect().close()
+    with pytest.raises(ItarOutboundBlocked):
+        engine.connect()                       # a public answer: the driver is not called
+    engine.connect().close()
+    assert _pins(driver) == [("db.plant.example", PRIVATE), ("db.plant.example", "10.0.0.9"),
+                             ("db.plant.example", PRIVATE)]
+
+
+def test_a_reconnect_after_a_failed_first_attempt_works(monkeypatch):
+    """The database is not up when ODIN first connects. The retry must not be refused."""
+    import sqlalchemy.exc
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    from sqlalchemy.pool import QueuePool
+    engine, driver = _real_engine(monkeypatch, poolclass=QueuePool)
+    driver.fail_next = 1
+    with pytest.raises(sqlalchemy.exc.OperationalError):
+        engine.connect()
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql("select 1").scalar() == 1
+    assert _pins(driver) == [("db.plant.example", PRIVATE)] * 2
+
+
+def test_a_pool_that_grows_and_reconnects_keeps_working(monkeypatch):
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    from sqlalchemy.pool import QueuePool
+    engine, driver = _real_engine(monkeypatch, poolclass=QueuePool)
+    first, second = engine.connect(), engine.connect()        # the pool opens a second connection
+    first.invalidate()                                        # a dropped connection is replaced
+    assert first.exec_driver_sql("select 1").scalar() == 1
+    first.close()
+    second.close()
+    engine.dispose()
+    engine.connect().close()                                  # and after the pool is emptied
+    assert _pins(driver) == [("db.plant.example", PRIVATE)] * 4
+
+
+def test_a_hostaddr_the_caller_supplied_is_still_refused_on_every_connection(monkeypatch):
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    engine, driver = _real_engine(monkeypatch, hostaddr="10.1.1.1,")
+    for _ in range(2):
+        with pytest.raises(ItarOutboundBlocked, match="`hostaddr`"):
+            engine.connect()
+    assert driver.received == []
+
+
+def test_with_itar_off_a_real_engine_gets_no_listener_and_no_pin(monkeypatch):
+    monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    resolver = Resolver(monkeypatch, {})
+    engine, driver = _real_engine(monkeypatch)
+    for _ in range(2):
+        engine.connect().close()
+    assert _pins(driver) == [("db.plant.example", None)] * 2 and resolver.calls == []
+
+
 def test_the_real_driver_is_called_with_the_checked_address(monkeypatch, tmp_path):
-    """Nothing replaced but the driver's connect function: a real SQLAlchemy engine hands
-    psycopg `hostaddr` next to `host`. Skipped where psycopg is not installed (it is not on
-    the development Mac; CI has it)."""
+    """The real PostgreSQL dialect and a replaced psycopg.connect, three connections in a
+    row. Skipped where psycopg is not installed (it is not on the development Mac; CI has
+    it); the tests above cover the same dispatch with SQLite's dialect."""
     psycopg = pytest.importorskip("psycopg")
     secret = tmp_path / "pw"
     secret.write_text("x\n")
@@ -292,9 +427,10 @@ def test_the_real_driver_is_called_with_the_checked_address(monkeypatch, tmp_pat
         raise Stop()
     monkeypatch.setattr(psycopg, "connect", connect)
     engine = create_database_engine("postgresql://odin@postgres:5432/odin", role="backup", password_file=str(secret))
-    with pytest.raises(Stop):
-        engine.connect()
-    assert given[0]["host"] == "postgres" and given[0]["hostaddr"] == PRIVATE
+    for _ in range(3):
+        with pytest.raises(Stop):
+            engine.connect()
+    assert [(kwargs["host"], kwargs["hostaddr"]) for kwargs in given] == [("postgres", PRIVATE)] * 3
 
 
 # ---- the PostgreSQL client programs (pg_dump, pg_restore, psql) ----

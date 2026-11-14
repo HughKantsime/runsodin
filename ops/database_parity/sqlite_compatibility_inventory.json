@@ -314,7 +314,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 156,
+      "line": 160,
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -322,7 +322,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 169,
+      "line": 173,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -330,7 +330,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 171,
+      "line": 175,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -338,7 +338,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 172,
+      "line": 176,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",

@@ -127,9 +127,13 @@ def _pin_postgres_connections_under_itar(engine: Engine) -> None:
         return
 
     @event.listens_for(engine, "do_connect")
-    def _connect_to_the_checked_address(_dialect, _connection_record, _cargs, cparams) -> None:
-        from core.itar_database import pin_driver_arguments
-        pin_driver_arguments(cparams)   # raises ItarOutboundBlocked: no connection is opened
+    def _connect_to_the_checked_address(dialect, _connection_record, cargs, cparams):
+        # SQLAlchemy hands every connection of this engine the SAME cparams dictionary, so it
+        # is left as it is: this connection gets its own copy with its own freshly checked
+        # address, and the driver is called here (a do_connect listener that returns a
+        # connection replaces SQLAlchemy's own identical dialect.connect call).
+        from core.itar_database import pinned_driver_arguments
+        return dialect.connect(*cargs, **pinned_driver_arguments(cparams))   # raises ItarOutboundBlocked first
 
 
 # Writers wait this long for SQLite's writer lock before SQLITE_BUSY.

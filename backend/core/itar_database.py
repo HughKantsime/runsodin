@@ -101,25 +101,33 @@ def enforce_postgres_destination(database_url, environ=None):
     return None if _is_socket(url.host) else checked_address(url.host, url.port)
 
 
-def pin_driver_arguments(cparams: dict, environ=None) -> None:
-    """Connection time. `cparams` is what SQLAlchemy's dialect is about to hand the driver.
-    Under ITAR mode, add `hostaddr`: the checked address of the one `host` in it. Refuses
-    (ItarOutboundBlocked, so no connection is opened) anything but one host or a socket."""
+def pinned_driver_arguments(cparams: dict, environ=None) -> dict:
+    """Connection time. `cparams` is what SQLAlchemy's dialect built for the driver. Returns
+    a NEW dictionary for this one connection: the same arguments plus, under ITAR mode,
+    `hostaddr`, the freshly checked address of the one `host` in them.
+
+    `cparams` is never changed. SQLAlchemy keeps that one dictionary for the life of the
+    engine and hands it to every connection: a pin written into it would be found again by
+    the next connection (and refused as a `hostaddr` ODIN did not put there), and would go
+    stale. Refuses (ItarOutboundBlocked, so no connection is opened) anything but one host
+    or a socket."""
+    arguments = dict(cparams)
     if not is_itar_mode():
-        return
+        return arguments
     environ = os.environ if environ is None else environ
     for name in REFUSED_ENVIRONMENT:
         if name in environ:
             raise _refuse(f"{name} is set in the environment")
     for key in ("hostaddr", "service"):
-        if key in cparams:
+        if key in arguments:
             raise _refuse(f"the database connection carries `{key}`")
-    host = cparams.get("host")
+    host = arguments.get("host")
     if _is_socket(host):
-        return
-    if "," in str(host) or "," in str(cparams.get("port") or ""):
+        return arguments
+    if "," in str(host) or "," in str(arguments.get("port") or ""):
         raise _refuse("the database connection names more than one host")
-    cparams["hostaddr"] = checked_address(host, cparams.get("port"))
+    arguments["hostaddr"] = checked_address(host, arguments.get("port"))
+    return arguments
 
 
 def _dbname_arguments(command) -> list:
