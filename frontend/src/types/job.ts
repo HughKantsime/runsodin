@@ -175,6 +175,10 @@ export interface TimelineResponse {
 // ---- Print Jobs (MQTT tracked) ----
 
 export interface PrintJob {
+  awaiting_confirmation?: boolean;
+  recording_note?: string;
+  duration_verified?: boolean;
+  usage_verified?: boolean;
   display_name?: string | null;
   progress_percent: number | null;
   error_code: string | null;

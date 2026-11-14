@@ -3,7 +3,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import PrinterDetail from './PrinterDetail'
-vi.mock('../../permissions', () => ({canDo: () => true}))
+vi.mock('../../permissions', () => ({canDo: () => true, canAccessPage: () => false}))
 vi.mock('../../components/printers/MaintenanceBanner', () => ({default: () => null}))
 vi.mock('../../components/printers/DispatchRecoveryPanel', () => ({default: () => null}))
 vi.mock('../../api/client', () => ({fetchAPI: vi.fn().mockResolvedValue([])}))
@@ -18,4 +18,13 @@ test('printer detail renders pause cause and opens explicit tray configuration',
  expect(screen.queryByText('Stale fan error')).not.toBeInTheDocument()
  fireEvent.click(screen.getByText('Configure AMS tray'))
  expect(screen.getByLabelText('preset_id')).toBeRequired()
+})
+
+test('Foundry opens recovery when following a restart question alert',async()=>{
+ document.documentElement.dataset.themeFamily='foundry'
+ try {
+  render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/printers/9#dispatch-recovery']}><Routes><Route path="/printers/:id" element={<PrinterDetail/>}/></Routes></MemoryRouter></QueryClientProvider>)
+  const summary=await screen.findByText('Printer status and recovery')
+  expect(summary.closest('details')).toHaveAttribute('open')
+ } finally {document.documentElement.removeAttribute('data-theme-family')}
 })

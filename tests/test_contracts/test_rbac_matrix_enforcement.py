@@ -135,6 +135,21 @@ def recovery_request(user):
     snapshot=C[user].get(f"/api/printers/{pid}/dispatch-recovery").json()
     return ("post",f"/api/printers/{pid}/dispatch-recovery/hold",{"json":{"attempt_handle":snapshot["attempt_handle"],"snapshot_handle":snapshot["snapshot_handle"],"reason_category":"investigation"}})
 
+def restart_question_request(user):
+    from datetime import datetime, timedelta, timezone
+    from core.restart_questions import observe
+    pid = printer()
+    jid = job(status="scheduled", printer_id=pid)
+    identifier = next(SEQ)
+    sql("INSERT INTO printer_dispatch_claims(printer_id,job_id,physical_key,configuration_key,payload_sha256,token,owner_org_id,state) VALUES(:p,:j,:physical,:configuration,:payload,:token,1,'uncertain')",
+        p=pid,j=jid,physical=f"{pid:064x}",configuration="b"*64,payload="c"*64,token=f"{pid:032x}")
+    sql("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at) VALUES(:id,:p,'Matrix print','running',:at)",
+        id=identifier,p=pid,at=(datetime.now(timezone.utc)-timedelta(hours=1)).isoformat())
+    from core.db import engine
+    with engine.begin() as conn:
+        question = observe(conn, pid, datetime.now(timezone.utc), {'gcode_state':'RUNNING','subtask_name':'Matrix print'})
+    return ('post', f'/api/printers/{pid}/dispatch-recovery/restart-question', {'json': {'question_id':question['id'], 'answer':'same'}})
+
 def training_request(user, action):
     import uuid
     center = next(SEQ)
@@ -167,6 +182,7 @@ CASES = {
     "education.training_manage": lambda u: training_request(u, 'manage'),
     "education.training_take": lambda u: training_request(u, 'take'),
     "printers.dispatch_recovery": recovery_request,
+    "printers.answer_restart_question": restart_question_request,
     "users.restore_superadmin": restore_request,
     "education.reorder": education_reorder_request,
     "education.roster_manage": lambda u: ("get", "/api/education/roster", {}),
@@ -371,7 +387,7 @@ def test_widening_the_key_admits_the_previously_refused_role(matrix, key):
     r = matrix["results"][key]
     if key == "education.roster_manage":
         assert r["widened_refused"]["status"] == 403, r
-    elif key in {"users.restore_superadmin", "printers.dispatch_recovery"}:
+    elif key in {"users.restore_superadmin", "printers.dispatch_recovery", "printers.answer_restart_question"}:
         # Recovery retains its independent admin floor. Widening the matrix must not bypass the independent Super Admin guard.
         assert _denied(r["widened_refused"]), r
     else:

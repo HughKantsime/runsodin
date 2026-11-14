@@ -40,6 +40,7 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "jobs.deliver": ["admin", "operator"],
     "jobs.inspection_policy": ["admin"],
     "printers.dispatch_recovery": ["admin"],
+    "printers.answer_restart_question": ["admin", "operator"],
     "settings.edit": ["admin"],
     "users.restore_superadmin": ["admin"],
     # Education grants still decide which centers a principal may reorder.

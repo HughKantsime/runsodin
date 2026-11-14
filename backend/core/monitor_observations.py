@@ -67,10 +67,14 @@ def live_state(conn, printer_id, since):
     value = conn.execute(text('SELECT value FROM system_config WHERE key=:key'),
                          {'key': cache_key(printer_id)}).scalar_one_or_none()
     try:
-        observation = json.loads(value)
-        at = observation['at']
-        if at >= since and 0 <= time.time() - at <= MAX_REPORT_AGE:
-            return observation['state']
-    except (ValueError, TypeError, KeyError):
+        # PostgreSQL returns the stored JSON already decoded; SQLite returns text.
+        if isinstance(value, memoryview):
+            value = value.tobytes()
+        observation = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
+        at, state = observation['at'], observation['state']
+        if (isinstance(state, str) and isinstance(at, (int, float)) and not isinstance(at, bool)
+                and at >= since and 0 <= time.time() - at <= MAX_REPORT_AGE):
+            return state
+    except (ValueError, TypeError, KeyError, OverflowError):
         pass
     return None

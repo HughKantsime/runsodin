@@ -194,6 +194,7 @@ export default function PrintLog() {
                     ['User', item.user_name || '--'],
                     ['Duration', formatDuration(item.actual_duration_seconds)],
                     ['Filament', item.filament_used_grams ? `${item.filament_used_grams.toFixed(1)}g` : '--'],
+                    ...(item.recording_note ? [['Recording', item.recording_note]] : []),
                   ]}
                 />
               ))}
@@ -216,7 +217,7 @@ export default function PrintLog() {
                 {items.map(item => (
                   <tr key={item.id} className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 transition-colors">
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] text-xs whitespace-nowrap font-mono">{formatDate(item.completed_at)}</td>
-                    <td className="py-2 px-3 font-medium truncate max-w-[200px]">{displayName(item)}</td>
+                    <td className="py-2 px-3 font-medium max-w-[200px]">{displayName(item)}{item.recording_note && <p className="text-xs font-normal break-words">{item.recording_note}</p>}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.user_name || '--'}</td>
                     <td className="py-2 px-3">

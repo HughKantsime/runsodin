@@ -11,6 +11,7 @@ import { number, state, utc } from './data'
 
 export function PrintTelemetry({ job, now = Date.now(), printing = false }: { job?: PrintJob; now?: number; printing?: boolean }) {
   if (!job) return null
+  if (job.awaiting_confirmation) return <p role="status">Waiting for print confirmation in Dispatch Recovery.</p>
   const percent = number(job.progress_percent) && job.progress_percent >= 0 && job.progress_percent <= 100 ? job.progress_percent : null
   const remaining = number(job.remaining_minutes) && job.remaining_minutes >= 0 ? job.remaining_minutes : null
   return <div className="f-progress">
@@ -45,6 +46,7 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
     {statusDetail}
     {job && <p className="f-job">{displayName(job)}</p>}
     <PrintTelemetry job={job} now={now} printing={isPrintingState(printer.gcode_state)} />
+    {job?.recording_note && <p>{job.recording_note}</p>}
     {next && <div className="f-next"><p>Next: {displayName(next)}</p>
       {next.hold && <p>Waiting on you · job held</p>}
       {Number.isFinite(utc(next.scheduled_start)) && <p className="f-mono">Scheduled {new Date(utc(next.scheduled_start)).toLocaleString()}</p>}

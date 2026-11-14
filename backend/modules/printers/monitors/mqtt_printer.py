@@ -59,6 +59,8 @@ AMS_SYNC_MAX_ATTEMPTS = 5
 AMS_SYNC_RETRY_BASE_SECONDS = 10
 AMS_SYNC_RETRY_MAX_SECONDS = 300
 
+MONITOR_STARTED_AT = datetime.now(timezone.utc)
+
 # A failed reconciliation retries on later reports, backing off because each attempt
 # opens a connection under self._lock and can wait out the database busy timeout.
 RECOVERY_RETRY_BASE_SECONDS = 10
@@ -75,6 +77,7 @@ class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""
 
     def __init__(self, printer_id: int, name: str, ip: str, serial: str, access_code: str):
+        self._monitor_started_at = MONITOR_STARTED_AT
         self.printer_id = printer_id
         self.name = name
         self.ip = ip
@@ -103,6 +106,8 @@ class PrinterMonitor:
         self._live_mqtt_state = None
         self._connection_retired = False
         self._transport_offline = False
+        from modules.printers.monitors.restart_question import initialize
+        initialize(self, sys.modules[__name__])
 
     def connect(self) -> bool:
         """Connect to printer MQTT.
@@ -244,6 +249,9 @@ class PrinterMonitor:
             self._recovery_pending = True
             return
         self._recovery_pending = False
+        from modules.printers.monitors.restart_question import handle
+        if handle(self, sys.modules[__name__]):
+            return
         ended_state = self._recover_rows()
         if ended_state is None:
             if not self._recovery_pending:
@@ -625,33 +633,34 @@ class PrinterMonitor:
         log.info(f"[{self.name}] State: {old_state} -> {new_state}")
 
         from core.job_timeline import for_printer
-        # Entering RUNNING or PAUSE without a tracked job = new job
-        if new_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
-            if old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE', 'PAUSE'):
-                self._job_started()
+        if not getattr(self, '_restart_blocks_rows', False):
+            # Entering RUNNING or PAUSE without a tracked job = new job
+            if new_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
+                if old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE', 'PAUSE'):
+                    self._job_started()
 
-        # First-seen FINISH/FAILED, nothing tracked: the print may have ended unwatched.
-        # Recovery runs only once per connect and a status can arrive after its wait.
-        elif new_state in ('FINISH', 'FAILED') and old_state is None and not self._current_job_id:
-            self._reconcile_running_rows()
+            # First-seen FINISH/FAILED, nothing tracked: the print may have ended unwatched.
+            # Recovery runs only once per connect and a status can arrive after its wait.
+            elif new_state in ('FINISH', 'FAILED') and old_state is None and not self._current_job_id:
+                self._reconcile_running_rows()
 
-        # RUNNING/PAUSE -> FINISH = Job completed
-        elif new_state == 'FINISH' and old_state in ('RUNNING', 'PAUSE'):
-            self._job_ended('completed')
+            # RUNNING/PAUSE -> FINISH = Job completed
+            elif new_state == 'FINISH' and old_state in ('RUNNING', 'PAUSE'):
+                self._job_ended('completed')
 
-        # RUNNING/PAUSE -> FAILED = Job failed
-        elif new_state == 'FAILED' and old_state in ('RUNNING', 'PAUSE'):
-            # Bambu also reports an explicit user cancellation as FAILED.
-            error = self._state.get('print_error')
-            cancelled = error in (0x0300400C, 0x0500400E, str(0x0300400C), str(0x0500400E))
-            self._job_ended('cancelled' if cancelled else 'failed')
+            # RUNNING/PAUSE -> FAILED = Job failed
+            elif new_state == 'FAILED' and old_state in ('RUNNING', 'PAUSE'):
+                # Bambu also reports an explicit user cancellation as FAILED.
+                error = self._state.get('print_error')
+                cancelled = error in (0x0300400C, 0x0500400E, str(0x0300400C), str(0x0500400E))
+                self._job_ended('cancelled' if cancelled else 'failed')
 
-        # RUNNING/PAUSE -> IDLE = Job cancelled
-        elif new_state == 'IDLE' and old_state in ('RUNNING', 'PAUSE'):
-            self._job_ended('cancelled')
+            # RUNNING/PAUSE -> IDLE = Job cancelled
+            elif new_state == 'IDLE' and old_state in ('RUNNING', 'PAUSE'):
+                self._job_ended('cancelled')
 
         # FINISH/FAILED -> IDLE = printer fully settled, attempt next queued job
-        elif new_state == 'IDLE' and old_state in ('FINISH', 'FAILED'):
+        if new_state == 'IDLE' and old_state in ('FINISH', 'FAILED'):
             Thread(target=self._try_dispatch, daemon=True).start()
 
         if new_state == 'PAUSE' and old_state != 'PAUSE':
@@ -678,6 +687,12 @@ class PrinterMonitor:
         # Guard: already tracking a job — skip duplicate start
         if self._current_job_id:
             log.debug(f"[{self.name}] _job_started called but already tracking job {self._current_job_id}")
+            return True
+
+        from modules.printers.monitors.restart_question import handle
+        if handle(self, sys.modules[__name__]):
+            return False
+        if self._current_job_id:
             return True
 
         # Check for existing running job in DB (e.g. after reconnect)

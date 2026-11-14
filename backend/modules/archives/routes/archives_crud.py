@@ -290,7 +290,7 @@ def archive_log(
         text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             f"SELECT a.id, a.print_name, a.printer_id, a.user_id, a.status, "
             f"a.started_at, a.completed_at, a.actual_duration_seconds, "
-            f"a.filament_used_grams, a.cost_estimate, a.tags, "
+            f"a.filament_used_grams, a.cost_estimate, a.tags, a.notes AS recording_note, "
             f"p.name AS printer_name, p.nickname AS printer_nickname, "
             f"u.username AS user_name "
             f"FROM print_archives a "

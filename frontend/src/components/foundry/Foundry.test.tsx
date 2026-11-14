@@ -326,3 +326,17 @@ it('a short block hides a label that cannot fit while preserving its full access
     expect(button.querySelector('span')).toHaveStyle({ visibility: 'hidden' })
   } finally { clientWidth.mockRestore(); scrollWidth.mockRestore() }
 })
+
+it.each(['card', 'banner', 'camera'])('%s does not show frozen progress while awaiting confirmation', surface => {
+ const job = print({ awaiting_confirmation: true, progress_percent: 13, current_layer: 6, total_layers: 93, remaining_minutes: 615 })
+ if (surface === 'card') mount(<PrinterCard printer={printer()} job={job} />)
+ if (surface === 'banner') mount(<NeedsYouBanner printers={[printer({ gcode_state: 'PAUSE' })]} prints={[job]} />)
+ if (surface === 'camera') mount(<CameraView cameras={[{ id: 1, name: 'Test press' } as Camera]} printers={[printer()]} prints={[job]} />)
+ expect(screen.getByText(/Waiting for print confirmation/)).toBeVisible()
+ expect(screen.queryByRole('progressbar')).toBeNull()
+ expect(screen.queryByText(/13%|L 6\/93|Est. done/)).toBeNull()
+})
+it('shows why duration and usage are unverified', () => {
+ mount(<PrinterCard printer={printer()} job={print({ recording_note: 'First seen mid-print; full duration and filament use are unverified.', duration_verified: false, usage_verified: false })} />)
+ expect(screen.getByText(/full duration and filament use are unverified/)).toBeVisible()
+})

@@ -72,6 +72,16 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
     printer = db.execute(text('SELECT org_id FROM printers WHERE id=:id'), {'id':printer_id}).first()
     if printer is None or not check_org_access(current_user, printer.org_id):
         raise HTTPException(404, {'code':'not_found','message':'Printer not found'})
+    from core.restart_questions import visible as restart_question
+    from core.rbac import is_scoped_token, token_scope_granted
+    from core.rbac_policy import action_roles
+    question = restart_question(db, printer_id, current_user)
+    can_answer = (current_user.get('role') in ('admin', 'operator')
+                  and (current_user.get('role') == 'admin' and current_user.get('group_id') is None
+                       or current_user.get('role') in action_roles(db, 'printers.answer_restart_question'))
+                  and (not is_scoped_token(current_user) or token_scope_granted(current_user.get('_token_scopes', []), 'write:printers')))
+    confirmation = {'restart_question': question,
+                    'answer_restart_question': bool(can_answer and question and question['state'] == 'pending')}
     try:
         evidence = capture(db,printer_id,current_user,lambda conn,pid=printer_id:configured_identity(pid,conn))
     except HTTPException as error:
@@ -87,13 +97,11 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
                     if printer.org_id is None else
                     'ODIN has no start record to show you for this printer. If a print start looks stuck, ask an '
                     'administrator to investigate; a missing record is not permission to send the print again. ')
-        return {'state':'investigation_required','refresh_required':False,'release_available':False,
+        return {**confirmation, 'state':'investigation_required','refresh_required':False,'release_available':False,
                 'actions':{'hold':False,'reconcile_retain':False,'release':False},
                 'blockers':['evidence_authority_unavailable'],'guidance':guidance+GUIDANCE}
     claim,job = evidence['claim'],evidence['job']
     visible = evidence['visible']
-    from core.rbac import is_scoped_token, token_scope_granted
-    from core.rbac_policy import action_roles
     can_write = (current_user.get('role')=='admin'
                  and (current_user.get('group_id') is None or 'admin' in action_roles(db,'printers.dispatch_recovery'))
                  and (not is_scoped_token(current_user) or token_scope_granted(current_user.get('_token_scopes',[]),'write:printers')))
@@ -151,6 +159,7 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         'refresh':{'method':'GET','endpoint':f'/api/printers/{printer_id}/dispatch-recovery'}}
     if result['refresh_required']:
         result['guidance'] = 'Wait for fresh monitor telemetry, then use Refresh evidence or GET '+result['refresh']['endpoint']+'. '+GUIDANCE
+    result.update(confirmation)
     if visible:
         result.update(attempt_handle=evidence['attempt'],snapshot_handle=evidence['snapshot'])
     return result
@@ -169,3 +178,17 @@ def retain_dispatch_recovery(body:RetainRequest,printer_id:int=Path(gt=0),curren
 @router.post('/printers/{printer_id}/dispatch-recovery/release',tags=['Printers'],dependencies=[Depends(require_action('printers.dispatch_recovery'))])
 def release_dispatch_recovery(body:ReleaseRequest,printer_id:int=Path(gt=0),current_user:dict=Depends(require_role('admin',scope='write:printers')),db:Session=Depends(get_db)):
     return mutate(db,printer_id,current_user,body,'release',lambda conn,pid=printer_id:configured_identity(pid,conn))
+
+
+class RestartAnswer(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    question_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    answer: Literal['same', 'new']
+
+
+@router.post('/printers/{printer_id}/dispatch-recovery/restart-question', tags=['Printers'], dependencies=[Depends(require_action('printers.answer_restart_question'))])
+def answer_restart_question(body: RestartAnswer, printer_id: int = Path(gt=0),
+                            current_user: dict = Depends(require_role('operator', scope='write:printers')),
+                            db: Session = Depends(get_db)):
+    from core.restart_questions import answer
+    return answer(db, printer_id, current_user, body.question_id, body.answer)

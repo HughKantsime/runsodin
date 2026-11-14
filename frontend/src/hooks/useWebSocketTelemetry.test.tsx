@@ -58,3 +58,19 @@ it.each([
  expect(updated[2]).toEqual(jobs[2])
  expect(client.getQueryData(['printers'])).toMatchObject([{ id: 199, mc_percent: fields.progress ?? 37, speed_level: fields.speed_level ?? 2, speed_percent: fields.speed_percent ?? 100 }])
 })
+
+it.each(['alert_new', 'restart_question_changed'])('refreshes the recovery question on %s without sending an answer', async type => {
+ let socket: any
+ class Socket { onmessage: any; constructor() { socket = this } close() {} }
+ vi.stubGlobal('WebSocket', Socket)
+ vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ token: 'synthetic-local-token' }) })))
+ const client = new QueryClient()
+ const invalidate = vi.spyOn(client, 'invalidateQueries')
+ const wrapper = ({children}: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+ renderHook(() => useWebSocket(), {wrapper})
+ await waitFor(() => expect(socket?.onmessage).toBeTypeOf('function'))
+ act(() => socket.onmessage({data: JSON.stringify({type, data:{printer_id:9,restart_question_id:'synthetic'}})}))
+ expect(invalidate).toHaveBeenCalledWith({queryKey:['dispatch-recovery',9]})
+ expect(invalidate).toHaveBeenCalledWith({queryKey:['alerts']})
+ expect(fetch).toHaveBeenCalledTimes(1)
+})

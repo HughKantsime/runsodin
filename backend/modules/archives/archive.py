@@ -27,12 +27,13 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
     import math
     from core.db_compat import as_utc_datetime
     from .attempt_accounting import account_archive
+    from core.restart_questions import ENDED_UNKNOWN
     try:
         with get_db() as conn:
             cur = conn.cursor()
             try:
-                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'')=?)",
-                            (print_job_id, printer_id, CLOSED_UNKNOWN))
+                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'') IN (?,?))",
+                            (print_job_id, printer_id, CLOSED_UNKNOWN, ENDED_UNKNOWN))
                 if cur.rowcount != 1:
                     conn.rollback()
                     return None
@@ -46,10 +47,10 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     conn.commit()
                     return existing[0]
                 cur.execute('SELECT job_name,started_at,ended_at,scheduled_job_id,status,'
-                            'spool_snapshot,filament_used_g,print_duration_seconds '
+                            'spool_snapshot,filament_used_g,print_duration_seconds,error_code '
                             'FROM print_jobs WHERE id=?', (print_job_id,))
                 pj = cur.fetchone()
-                name, started, ended, scheduled, stored_status, snapshot_json, measured, duration = pj
+                name, started, ended, scheduled, stored_status, snapshot_json, measured, duration, error_code = pj
                 if result_status is not None and result_status != stored_status:
                     conn.rollback()
                     return None
@@ -101,6 +102,15 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                         accounting_snapshot = captured
                 except (ValueError, TypeError):
                     pass  # account_archive records an explicit invalid-snapshot reason.
+                from core.restart_questions import load
+                from core.dispatch_observation_executor import TransactionView
+                # Ordinary print ends do not perform a restart-provenance lookup.
+                snapshot_source = captured.get('source') if isinstance(captured, dict) else None
+                restart = (load(TransactionView(conn), f"restart_print:{print_job_id}")
+                           if error_code == 'Ended while unconfirmed; duration and filament use are unverified.'
+                           or snapshot_source == 'bambu-operator-first-seen-mid-print' else None)
+                unconfirmed = bool(restart and restart.get("outcome") == "ended_unconfirmed")
+                midprint = bool(restart and restart.get("first_seen_mid_print"))
                 from .ownership import capture_content_owner
                 current_owner = capture_content_owner(conn, scheduled)
                 captured_owner = captured.get('content_owner') if isinstance(captured, dict) else None
@@ -130,7 +140,11 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                      duration,grams,cost,thumbnail,path,file_id,plates or 1,
                      owner_org,owner_state,owner_source,education_id))
                 archive_id = cur.fetchone()[0] if sql.is_postgres else cur.lastrowid
-                if owner_state == 'known':
+                if unconfirmed or midprint:
+                    cur.execute('UPDATE print_archives SET actual_duration_seconds=NULL,filament_used_grams=NULL,cost_estimate=NULL,notes=? WHERE id=?',
+                                ('First seen mid-print; full duration and filament use are unverified.' if midprint else 'Ended while unconfirmed; duration and filament use are unverified.', archive_id))
+                    accounting_state, reason = 'unresolved', 'first_seen_mid_print' if midprint else 'ended_while_unconfirmed'
+                elif owner_state == 'known':
                     accounting_state, reason, _ = account_archive(conn, archive_id=archive_id,
                         print_job_id=print_job_id, printer_id=printer_id, snapshot_json=accounting_snapshot,
                         scheduled_job_id=scheduled, measured_grams=measured, success=status=='completed')
@@ -138,7 +152,7 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     accounting_state, reason = 'unresolved', 'archive_ownership_unresolved'
                 cur.execute('UPDATE print_archives SET accounting_state=?,accounting_reason=? WHERE id=?',
                             (accounting_state, reason, archive_id))
-                _retain_terminal_safely(conn, print_job_id, archive_id=archive_id, ownership_known=owner_state=='known', reconciliation_reason=reason)
+                _retain_terminal_safely(conn, print_job_id, archive_id=archive_id, ownership_known=owner_state=='known' and not (unconfirmed or midprint), reconciliation_reason=reason)
                 conn.commit()
                 return archive_id
             except BaseException:

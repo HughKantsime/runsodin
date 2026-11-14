@@ -44,6 +44,11 @@ class _Result:
         return row
     def scalar_one(self):
         return self.one()[0]
+    def scalar(self):
+        row=self.fetchone()
+        return row[0] if row is not None else None
+    def scalars(self):
+        return (row[0] for row in self)
 
 class TransactionView:
     def __init__(self,executor):
