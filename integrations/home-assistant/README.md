@@ -8,6 +8,7 @@ Read-only print farm status from an ODIN server. Home Assistant talks only to OD
 - Optional: a separate camera-only token (`read:cameras`) for camera entities through ODIN's relay.
 - Next job, Waiting on, Out of service and the day and queue totals need an ODIN that reports status schema 2 (2.2.0). Against an older ODIN (schema 1) those entities report unknown and everything else works as before.
 - Spools loaded, Last print finished, Plate cleared, the Status time attributes and the Next job attributes `queued_after`, `short_spools` and `ready` (integration 0.3.0) need the ODIN release after 2.2.0. Against an older ODIN they report unknown and everything else works as before.
+- Plates stopped today (integration 0.4.0) needs ODIN 2.3.0 or later. Against an older ODIN that does not send the count, this sensor is unavailable.
 
 ## Install
 - **Manual:** copy `custom_components/odin` into your Home Assistant `config/custom_components/` and restart.
@@ -34,10 +35,18 @@ Each printer gets one device with these entities:
 The ODIN fleet device has:
 - Printers printing, paused, in error and offline.
 - Queue length, with the next unassigned jobs (up to 5) as the `next_unassigned` attribute.
-- Plates done today and Plates failed today (counted since local midnight on the ODIN server).
+- Plates done today, Plates failed today and Plates stopped today (counted since midnight in ODIN's farm time zone). Stopped prints are counted separately from failed prints.
 - Queued hours (estimated hours in the queue, 1 decimal) and Queued jobs without estimate.
 
 Polling defaults to every 20 s (10-120 s in the options). v1 has no controls.
+
+## Status feed day totals
+`GET /api/v1/integrations/home-assistant/status` returns `fleet.today` with `plates_done`,
+`plates_failed`, `plates_stopped` and `since` (farm midnight as a UTC timestamp). These count
+print records that ended since that midnight with status `completed`, `failed` and `cancelled`,
+respectively. Only visible printers and jobs count; a print without a scheduled job counts
+with its printer. Each count is 0 when no records qualify. `plates_stopped` is an additive
+field; the status schema version stays 2.
 
 ## Development
 ```bash

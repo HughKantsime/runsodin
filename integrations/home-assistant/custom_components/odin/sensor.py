@@ -164,6 +164,7 @@ def _next_unassigned_attrs(fleet: dict[str, Any]) -> dict[str, Any] | None:
 class OdinSensorDescription(SensorEntityDescription):
     value: Callable[[dict[str, Any]], Any]
     attrs: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+    unavailable_when_missing: bool = False
 
 
 PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
@@ -212,6 +213,8 @@ FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
                           value=lambda f: _today(f, "plates_done")),
     OdinSensorDescription(key="plates_failed_today", state_class=SensorStateClass.TOTAL,
                           value=lambda f: _today(f, "plates_failed")),
+    OdinSensorDescription(key="plates_stopped_today", state_class=SensorStateClass.TOTAL,
+                          value=lambda f: _today(f, "plates_stopped"), unavailable_when_missing=True),
     OdinSensorDescription(key="queued_hours", device_class=SensorDeviceClass.DURATION,
                           native_unit_of_measurement=UnitOfTime.HOURS, state_class=SensorStateClass.MEASUREMENT,
                           suggested_display_precision=1, value=lambda f: _hours(f.get("queued_hours"))),
@@ -259,6 +262,10 @@ class OdinFleetSensor(CoordinatorEntity[OdinCoordinator], SensorEntity):
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{description.key}"
         self._attr_translation_key = description.key
         self._attr_device_info = fleet_device(coordinator)
+
+    @property
+    def available(self) -> bool:
+        return super().available and (not self.entity_description.unavailable_when_missing or self.native_value is not None)
 
     @property
     def native_value(self) -> Any:
