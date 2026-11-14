@@ -294,9 +294,10 @@ class ElegooPrinter:
             # SDCP has no TLS: connect to the policy-validated IP literal so
             # neither this connect nor a reconnect can be DNS-rebound.
             from core.webhook_utils import device_connect_ip
+            from modules.printers.sdcp_websocket import websocket_app
             address = device_connect_ip(self.host, self.port)
             shown = f"[{address}]" if ":" in address else address
-            ws = websocket.WebSocketApp(
+            ws = websocket_app(  # under ITAR mode it follows no redirect away from this address
                 f"ws://{shown}:{self.port}/websocket",  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design — Elegoo SDCP printer protocol uses ws:// on LAN, no TLS in printer firmware
                 on_message=self._on_message,
                 on_error=self._on_error,

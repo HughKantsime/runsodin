@@ -134,6 +134,7 @@ ITAR_FILES = (
     "modules/printers/bambu_integration.py", "modules/printers/bambu_chamber_camera.py",
     "modules/printers/adapters/anycubic_lan.py", "modules/printers/adapters/bambu.py",
     "modules/printers/adapters/elegoo.py", "modules/printers/adapters/moonraker.py",
+    "modules/printers/sdcp_websocket.py",   # Elegoo WebSocket: no redirect under ITAR mode (is_itar_mode)
     "modules/printers/adapters/prusalink.py",
     # new in 2.2.0: enforce_request_destination before every request, then prusalink's pinned device_request
     "modules/printers/adapters/octoprint.py", "modules/printers/adapters/ultimaker.py",
