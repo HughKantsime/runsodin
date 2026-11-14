@@ -240,3 +240,18 @@ def test_the_running_check_asks_only_this_machines_health_port(monkeypatch):
     source = (ROOT / "backend/scripts/itar_printer_addresses.py").read_text(encoding="utf-8")
     assert source.count('http.client.HTTPConnection("127.0.0.1", port, timeout=2)') == 1
     assert "urllib" not in source and "requests" not in source and "httpx" not in source
+
+
+def test_the_guide_and_the_refusal_do_not_claim_the_command_never_uses_the_network():
+    """Recheck 1, item E: with PostgreSQL the command opens a database connection. What it
+    never does is contact a printer."""
+    guide = (ROOT / "docs/ITAR_MODE.md").read_text(encoding="utf-8")
+    section = guide[guide.index("## If O.D.I.N. refuses to start because of a saved printer"):]
+    assert "contacts no printer" in section
+    assert "With a PostgreSQL database it connects to that database" in section
+    assert "opens no network connection" not in section and "no network at all" not in section
+    refusal = (ROOT / "backend/core/itar.py").read_text(encoding="utf-8")
+    assert "It needs no network" not in refusal and "It contacts no printer" in refusal
+    command = (ROOT / "backend/scripts/itar_printer_addresses.py").read_text(encoding="utf-8")
+    assert "It opens no network connection" not in command
+    assert "with a PostgreSQL database it connects to\nthat database" in command

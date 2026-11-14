@@ -40,7 +40,7 @@ SQLite (the default) has no database connection and is not affected.
 
 ## If O.D.I.N. refuses to start because of a saved printer
 
-With ITAR mode on, O.D.I.N. does not start while a saved printer has an IP address outside the local network; the log names the printers. The UI is not available then. Do not start O.D.I.N. with ITAR mode off to fix it: the printer monitors would start and contact those addresses before you could change them. Use the offline command instead. It only reads and writes the database: it starts no O.D.I.N. service, opens no network connection and looks no name up, and ITAR mode stays on.
+With ITAR mode on, O.D.I.N. does not start while a saved printer has an IP address outside the local network; the log names the printers. The UI is not available then. Do not start O.D.I.N. with ITAR mode off to fix it: the printer monitors would start and contact those addresses before you could change them. Use the offline command instead. It only reads and writes the database: it starts no O.D.I.N. service, contacts no printer and looks no printer name up, and ITAR mode stays on. With the default SQLite database it uses no network. With a PostgreSQL database it connects to that database, at its checked local address, and to nothing else.
 
 1. Stop the container: `docker compose stop odin`.
 2. List the printers that are refused:
@@ -60,7 +60,7 @@ With ITAR mode on, O.D.I.N. does not start while a saved printer has an IP addre
 
 Exit status: 0 done (for `list`: none left), 1 `list` found a printer, 2 wrong usage or a refused address, 3 the database could not be read, 4 the address changed since it was read (nothing written), 5 the O.D.I.N. API is running.
 
-With the default SQLite database you can also run the command with no network at all, which shows that it needs none. Use your image name and data folder:
+With the default SQLite database you can also run the command in a container that has no network, which shows that it needs none there (this does not work with PostgreSQL, where the command must reach the database). Use your image name and data folder:
 
     docker run --rm --network none --entrypoint python3 -w /app/backend -v "$PWD/odin-data:/data" <odin image> -m scripts.itar_printer_addresses list
 

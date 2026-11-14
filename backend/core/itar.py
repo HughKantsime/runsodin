@@ -691,7 +691,8 @@ def enforce_boot_printer_addresses() -> None:
             + "\n".join(f"  - {entry}" for entry in printers)
             + "\n\nChange or remove these addresses with the offline command, then start again:\n"
             "  python3 -m scripts.itar_printer_addresses list\n"
-            "It needs no network and does not start O.D.I.N.; docs/ITAR_MODE.md has the full steps. "
+            "It contacts no printer and does not start O.D.I.N. (with a PostgreSQL database it connects to "
+            "that database only); docs/ITAR_MODE.md has the full steps. "
             "Do not start with ITAR mode off to fix this: the printer monitors would contact these addresses."
         )
         log.critical(msg)
