@@ -20,7 +20,7 @@ export function csvRecords(source: string): string[][] {
   row.push(cell.trim()); if (row.some(Boolean)) rows.push(row)
   return rows
 }
-const materials = new Set('PLA PLA-S PLA-CF PLA-SILK PLA-MATTE PLA-AERO PETG PETG-CF ABS ABS-GF ASA TPU TPU-95A TPU-83A PA PA-CF PA-GF PA6 PA6-CF PA6-GF PA12-CF PC PC-ABS PC-CF PVA HIPS SUPPORT SUPPORT-W SUPPORT-G'.split(' '))
+const materials = new Set('PLA PLA-S PLA-CF PLA-SILK PLA-MATTE PLA-AERO PETG PETG-CF ABS ABS-GF ASA TPU TPU-95A TPU-83A PA PA-CF PA-GF PA6 PA6-CF PA6-GF PA12-CF PC PC-ABS PC-CF PVA HIPS SUPPORT SUPPORT-W SUPPORT-G ASA-AERO ASA-CF PET-CF PPA-CF PPS-CF TPU-AMS'.split(' '))
 const fields = ['brand', 'product_line', 'material', 'color_name', 'color_hex', 'quantity', 'initial_weight_g', 'spool_weight_g', 'storage_location', 'sealed', 'vendor', 'note']
 export const csvExample = 'brand,product_line,material,color_name,quantity,storage_location\nBambu Lab,PLA Matte,PLA,Nardo Gray,1,Shelf A'
 export interface PreviewRow { row: ReceiveRolls; errors: string[]; newProduct: boolean }

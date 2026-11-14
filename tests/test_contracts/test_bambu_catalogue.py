@@ -182,12 +182,12 @@ def test_import_audit_failure_rolls_back(inventory_client, review_db, monkeypatc
 
 
 @pytest.mark.parametrize('name', ['ASA Aero','ASA-CF','PET-CF','PPA-CF','PPS-CF','TPU for AMS'])
-def test_part_b_types_stay_unrecognised(name):
+def test_part_b_types_are_recognised(name):
     from core.material_identity import canonical_reported_material
-    assert base_material(name) is None
-    assert canonical_reported_material(BAMBU_TYPES[name]) is None
+    assert base_material(name) == BAMBU_TYPES[name]
+    assert canonical_reported_material(BAMBU_TYPES[name]) == BAMBU_TYPES[name]
     entry = payload(); entry['data'][0]['fila_type'] = name
-    assert parse_catalogue(json.dumps(entry))[0]['material'] == 'OTHER'
+    assert parse_catalogue(json.dumps(entry))[0]['material'] == BAMBU_TYPES[name]
     assert material_match('OTHER', BAMBU_TYPES[name]) is None
 
 

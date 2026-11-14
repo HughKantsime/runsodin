@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { Modal } from '../ui'
 
 // Match the existing exact material labels used by catalogue relabelling.
-const catalogueMaterials = new Set('PLA PLA-S PLA-CF PLA-SILK PLA-MATTE PLA-AERO PETG PETG-CF ABS ABS-GF ASA TPU TPU-95A TPU-83A PA PA-CF PA-GF PA6 PA6-CF PA6-GF PA12-CF PC PC-ABS PC-CF PVA HIPS SUPPORT SUPPORT-W SUPPORT-G'.split(' '))
+const catalogueMaterials = new Set('PLA PLA-S PLA-CF PLA-SILK PLA-MATTE PLA-AERO PETG PETG-CF ABS ABS-GF ASA TPU TPU-95A TPU-83A PA PA-CF PA-GF PA6 PA6-CF PA6-GF PA12-CF PC PC-ABS PC-CF PVA HIPS SUPPORT SUPPORT-W SUPPORT-G ASA-AERO ASA-CF PET-CF PPA-CF PPS-CF TPU-AMS'.split(' '))
 function catalogueMaterial(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 32 || /[\x00-\x1f]/.test(value)) return null
   const material = value.trim().toUpperCase().replace(/_/g, '-')
@@ -195,7 +195,8 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
   const [form, setForm] = useState({
     brand: filament?.brand || '',
     name: filament?.name || '',
-    material: filament ? filament.material : 'PLA',
+    material: filament ? (['ASA_AERO', 'ASA_CF', 'PET_CF', 'PPA_CF', 'PPS_CF', 'TPU_AMS'].includes(filament.material)
+      ? filament.material.replace(/_/g, '-') : filament.material) : 'PLA',
     color_hex: filament?.color_hex || '',
     cost_per_gram: filament?.cost_per_gram ?? ''
   })
@@ -253,6 +254,11 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
               <option value="PETG_CF">PETG-CF</option>
               <option value="ABS">ABS</option>
               <option value="ASA">ASA</option>
+              <option value="ASA-AERO">ASA Aero</option>
+              <option value="ASA-CF">ASA-CF</option>
+              <option value="PET-CF">PET-CF</option>
+              <option value="PPA-CF">PPA-CF</option>
+              <option value="TPU-AMS">TPU for AMS</option>
               <option value="TPU">TPU</option>
               <option value="PA">Nylon (PA)</option>
               <option value="NYLON_CF">Nylon-CF</option>
@@ -261,7 +267,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
               <option value="PC_ABS">PC-ABS</option>
               <option value="PC_CF">PC-CF</option>
               <option value="PPS">PPS</option>
-              <option value="PPS_CF">PPS-CF</option>
+              <option value="PPS-CF">PPS-CF</option>
               <option value="PVA">PVA (Support)</option>
               <option value="HIPS">HIPS</option>
             </select>

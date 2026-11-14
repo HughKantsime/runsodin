@@ -245,3 +245,24 @@ synthetic future registry only during archive identification to exercise the
 preserved stage; live bootstrap still runs the real registry. The import matrix also confirms the documented 039–045 missing
 `backup_failure_alerts` defect in preserved046. These existing PostgreSQL restore
 defects remain separate, explicitly expected failures; no old bundle is repaired here.
+
+### 059 — six exact filament materials (Stage 1)
+
+`python:059-six-materials` appends `ASA_AERO`, `ASA_CF`, `PET_CF`, `PPA_CF`,
+`TPU_AMS` to PostgreSQL's shared `filamenttype` enum with `ALTER TYPE ... ADD VALUE`.
+`PPS_CF` already exists. The migration pins the old and current label order and
+validates all four consumers (slots, jobs, models, presets), refusing drift before
+recording its checksum. SQLite's `VARCHAR(11)` needs no DDL. No table is rebuilt
+and no stored material is relabelled by the migration. The column manifest and
+its ORM baseline remain unchanged.
+
+After schema application, startup backfills only non-custom catalogue entries
+with a catalogue code, material `OTHER`, and one of the six known catalogue type
+aliases. Each conditional update is audited in the same transaction; repeat
+startup is a no-op. Existing slot family values are left intact.
+
+The `020` durable AMS evidence schema and its pins remain frozen. Ordinary Bambu
+AMS dispatch uses the fresh in-memory report and succeeds on an exact match;
+the Education AMS-read workflow fails persistence and returns 409 for these six.
+Stage 2 is not included. Released 056/057 native restore assertions retain
+`current_era` and `post_ids`; both now also validate enum 059 after upgrade.

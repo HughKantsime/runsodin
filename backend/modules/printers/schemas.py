@@ -26,6 +26,15 @@ class FilamentSlotCreate(FilamentSlotBase):
 
 
 class FilamentSlotUpdate(BaseModel):
+    @field_validator("filament_type", mode="before")
+    @classmethod
+    def exact_material_label(cls, value):
+        if isinstance(value, str) and value in {
+            "ASA-AERO", "ASA-CF", "PET-CF", "PPA-CF", "PPS-CF", "TPU-AMS"
+        }:
+            return FilamentType.from_bambu_code(value)
+        return value
+
     do_not_feed: Optional[StrictBool] = None
     do_not_feed_note: Optional[str] = Field(default=None, max_length=200)
 

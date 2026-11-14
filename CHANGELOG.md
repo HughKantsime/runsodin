@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Six more Bambu materials are recognised: ASA-CF, ASA Aero, PET-CF, PPA-CF, PPS-CF and TPU for AMS. On Bambu AMS printers and the Kobra S1, a print that needs one of them starts only when the slot reports exactly that material. Before, ODIN stored some under a similar material's name (for example PET-CF as PETG-CF) and then refused the print at the final check. Existing slots correct themselves on the next printer report or reassignment; imported catalogue entries previously marked Other are corrected automatically. Generic Moonraker printers still have no material-verification gate. Education continues to refuse abrasive materials, and its saved AMS tray checks cannot yet accept these six materials.
+
 ### Added
 
 - Import your Bambu filament catalogue and pick spools by their exact Bambu name. ODIN shows that name on spools and slots; material checks before a print are unchanged.

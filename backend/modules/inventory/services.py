@@ -173,3 +173,9 @@ from modules.inventory.stale_locations import repair_stale_locations
 
 
 from modules.inventory.catalogue_slots import enrich_catalogue_slots
+
+
+def backfill_catalogue_materials(connection):
+    """Startup repair of newly recognized catalogue materials, in the caller's transaction."""
+    from modules.inventory.catalogue import backfill_catalogue_materials as backfill
+    backfill(connection)
