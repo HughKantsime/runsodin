@@ -23,6 +23,10 @@ All notable changes to O.D.I.N. are documented here.
 
 - The container health check never uses a proxy, with ITAR mode on or off: the health check in the image and in the Compose files calls O.D.I.N. on `localhost` directly and ignores `HTTP_PROXY` and similar settings. This is intentional. Before, with a proxy setting in the container, the health check request could be sent to the proxy instead of to O.D.I.N.
 
+### Fixed
+
+- PostgreSQL installations: O.D.I.N. can read a printer's stored live state again. Before, features that check whether a printer is really printing before acting, such as Vigil's automatic pause, saw no state on PostgreSQL and did nothing. SQLite installations were not affected.
+
 ## [2.2.0] - 2026-11-13
 
 
