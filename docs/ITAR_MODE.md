@@ -30,7 +30,7 @@ ITAR mode covers the O.D.I.N. server's own processes: the API, the printer monit
 A camera relay (go2rtc) that you run as a separate container, as in the enterprise Compose layout, is outside it. O.D.I.N. does not start or stop that container, and **O.D.I.N. cannot verify what a separately run relay has loaded or what it connects to.** What O.D.I.N. does for it with ITAR mode on:
 
 - It writes only camera sources on the local network into the camera file the relay reads. If it cannot build that file it replaces it with one that lists no cameras, and it does not start if even that cannot be written.
-- Each time the API container starts, it asks the relay once to restart so that it reads that file again. If the request fails, the log has a line containing `WARNING` that says the relay could not be restarted. Nothing else happens: O.D.I.N. still starts.
+- Each time the API container starts, it asks the relay to restart so that it reads that file again (more than one request can be sent: a retry with the previous relay password, and the API's normal camera sync a moment later). If a request fails, the log has a line containing `WARNING` that says the relay could not be restarted, and O.D.I.N. still starts.
 
 What you must do:
 

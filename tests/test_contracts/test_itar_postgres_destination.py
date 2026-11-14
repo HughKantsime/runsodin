@@ -69,19 +69,15 @@ def engines(monkeypatch, tmp_path):
     class Built(list):
         def connect(self, **driver_arguments):
             """Run the newest engine's do_connect listener on the arguments the dialect
-            built, and return what the driver receives. `driver_arguments` must come back
-            unchanged: SQLAlchemy shares that one dictionary between all connections."""
+            built, and return what the driver then receives. The listener returns nothing
+            (so the rest of SQLAlchemy's dispatch still runs) and may change only `hostaddr`
+            in the dictionary SQLAlchemy shares between all connections."""
             before = dict(driver_arguments)
-
-            class Dialect:
-                @staticmethod
-                def connect(*cargs, **received):
-                    return received
-            received = dict(driver_arguments)
             for listener in listeners.get("do_connect", [])[-1:]:
-                received = listener(Dialect, None, [], driver_arguments)
-            assert driver_arguments == before, "the shared connect arguments were changed"
-            return received
+                assert listener(None, None, [], driver_arguments) is None, "the dispatch was ended"
+            assert {k: v for k, v in driver_arguments.items() if k != "hostaddr"} == before, \
+                "something other than the pin was changed"
+            return dict(driver_arguments)
 
         def listener_names(self):
             return sorted(listeners)
@@ -353,6 +349,38 @@ def test_each_connection_gets_the_address_of_its_own_lookup(monkeypatch):
     engine.connect().close()
     assert _pins(driver) == [("db.plant.example", PRIVATE), ("db.plant.example", "10.0.0.9"),
                              ("db.plant.example", PRIVATE)]
+
+
+def test_a_listener_added_after_odins_still_runs_and_can_refuse(monkeypatch):
+    """ODIN's listener must not end the do_connect dispatch: a listener registered later
+    (another guard) still runs, sees the pin, and its refusal still stops the driver."""
+    from sqlalchemy import event
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    engine, driver = _real_engine(monkeypatch)
+    seen = []
+
+    @event.listens_for(engine, "do_connect")
+    def _later_guard(_dialect, _record, _cargs, cparams):
+        seen.append(cparams.get("hostaddr"))
+        if len(seen) == 2:
+            raise RuntimeError("refused by the later guard")
+
+    engine.connect().close()
+    with pytest.raises(RuntimeError, match="later guard"):
+        engine.connect()
+    engine.connect().close()
+    assert seen == [PRIVATE] * 3
+    assert _pins(driver) == [("db.plant.example", PRIVATE)] * 2, "the refused connection never reached the driver"
+
+
+def test_a_hostaddr_odin_did_not_write_is_refused_on_any_connection(monkeypatch):
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    engine, driver = _real_engine(monkeypatch, hostaddr=PUBLIC)
+    with pytest.raises(ItarOutboundBlocked):
+        engine.connect()
+    assert driver.received == []
 
 
 def test_a_reconnect_after_a_failed_first_attempt_works(monkeypatch):

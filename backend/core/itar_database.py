@@ -130,6 +130,27 @@ def pinned_driver_arguments(cparams: dict, environ=None) -> dict:
     return arguments
 
 
+def pin_shared_arguments(cparams: dict, issued: set, environ=None) -> None:
+    """Connection time, inside SQLAlchemy's do_connect dispatch. Writes this connection's
+    freshly checked address into the engine's shared arguments dictionary, in place, so the
+    rest of the dispatch (later listeners, SQLAlchemy's own connect) carries on.
+
+    `issued` holds every address this engine's listener has written. A `hostaddr` found in
+    the dictionary that is not one of them was put there by something else and is refused,
+    exactly as on the first connection. Under ITAR off nothing is changed."""
+    if not is_itar_mode():
+        return
+    original = {key: value for key, value in cparams.items() if key != "hostaddr"}
+    if "hostaddr" in cparams and cparams["hostaddr"] not in issued:
+        original["hostaddr"] = cparams["hostaddr"]      # refused by pinned_driver_arguments
+    pinned = pinned_driver_arguments(original, environ)
+    if "hostaddr" in pinned:
+        issued.add(pinned["hostaddr"])
+        cparams["hostaddr"] = pinned["hostaddr"]
+    else:
+        cparams.pop("hostaddr", None)                   # a socket: nothing to pin
+
+
 def _dbname_arguments(command) -> list:
     arguments = [str(item) for item in command]
     found = []

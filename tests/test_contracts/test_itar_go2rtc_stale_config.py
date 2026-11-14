@@ -343,7 +343,7 @@ def test_the_guide_says_what_itar_mode_covers_and_that_a_separate_relay_is_not_v
                    "O.D.I.N. cannot verify what a separately run relay has loaded or what it connects to.",
                    "Restart the relay container yourself after turning ITAR mode on",
                    "Restrict the relay container's network to the camera subnet",
-                   "asks the relay once to restart", "`WARNING`", "O.D.I.N. still starts"):
+                   "asks the relay to restart", "more than one request can be sent", "`WARNING`", "O.D.I.N. still starts"):
         assert needed in section, needed
-    for claim in ("checks that it loaded", "the API container does not start", "restart and check"):
+    for claim in ("checks that it loaded", "the API container does not start", "restart and check", "once to restart"):
         assert claim not in guide, claim
