@@ -76,17 +76,59 @@ def _validate_webhook_url(url: str) -> None:
     if any(host.startswith(p) for p in _BLOCKED_HOSTNAME_PREFIXES):
         raise HTTPException(status_code=400, detail="Webhook URL targets a blocked host")
 
+    from core.itar import is_itar_mode
+    if is_itar_mode():
+        # The only webhook ITAR mode can send goes to the local network, so a literal
+        # local-network address is accepted here and a literal public one is refused.
+        try:
+            literal = str(ipaddress.ip_address(host))
+        except ValueError:
+            return  # a name: checked, and pinned, when the webhook is sent
+        if _itar_webhook_refusal(literal):
+            raise HTTPException(
+                status_code=400,
+                detail="ITAR mode is on: a webhook address must be on the local network")
+        return
+
     if _is_disallowed_address(host):
         raise HTTPException(status_code=400, detail="Webhook URL targets a blocked host")
 
 
-def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
+def _itar_webhook_refusal(ip_str: str):
+    """Why ITAR mode refuses a webhook to this address, or None when it is allowed.
+
+    Under ITAR mode the only webhook ODIN may send goes to the local network, so the
+    public-only SSRF rule cannot apply as written. What is kept of it: loopback,
+    link-local (cloud metadata), unspecified and multicast addresses, and ODIN's own
+    service ports, stay refused. What is left is RFC 1918 and IPv6 unique-local space.
+    """
+    from core.itar import is_private_destination
+    if not is_private_destination(ip_str.split("%", 1)[0]):
+        return "ODIN_ITAR_MODE=1 refused outbound request: the address is outside the local network"
+    if is_blocked_device_address(ip_str):
+        return "the address is loopback, link-local or otherwise reserved"
+    return None
+
+
+def _resolve_and_pin(url: str, local_only: bool = False) -> tuple[list[str], int, str, str]:
     """Resolve the URL's hostname, validate every returned address, and
     return the tuple needed to pin the upcoming connection:
         (validated_ips, port, original_hostname, scheme)
 
     Return all validated IPs in resolver order for dual-stack fallback.
+
+    The name is looked up ONCE and one rule is applied to that one answer. By default
+    every address must be public (SSRF). With `local_only` (safe_post and trusted_post
+    pass it under ITAR mode) every address must be on the local network instead (see
+    _itar_webhook_refusal). The caller pins the connection to the returned addresses, so
+    no later answer can replace them.
     """
+    itar = local_only
+
+    def refusal(ip_str):
+        if itar:
+            return _itar_webhook_refusal(ip_str)
+        return "private/reserved" if _is_disallowed_address(ip_str) else None
     if not url:
         raise WebhookSSRFError("Empty webhook URL")
     parsed = urllib.parse.urlparse(url)
@@ -100,14 +142,18 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
     # Literal IP path
     try:
         addr = ipaddress.ip_address(host)
+    except ValueError:
+        addr = None  # hostname
+    if addr is not None:
         ip_str = str(addr)
-        if _is_disallowed_address(ip_str):
+        if itar and (_itar_webhook_refusal(ip_str) or is_own_service_endpoint(ip_str, port)):
+            reason = _itar_webhook_refusal(ip_str) or "it is one of ODIN's own services"
+            raise WebhookSSRFError(f"Webhook URL {host} refused: {reason}")
+        if not itar and _is_disallowed_address(ip_str):
             raise WebhookSSRFError(
                 f"Webhook URL targets a private/reserved address: {host}"
             )
         return [ip_str], port, host, parsed.scheme
-    except ValueError:
-        pass  # hostname
 
     # Hostname path: resolve, reject if ANY resolved address is private.
     try:
@@ -121,11 +167,18 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
     disallowed: list[str] = []
     for _fam, _type, _proto, _canon, sockaddr in infos:
         ip_str = sockaddr[0]
-        if _is_disallowed_address(ip_str):
+        if refusal(ip_str) or (itar and is_own_service_endpoint(ip_str, port)):
             disallowed.append(ip_str)
         elif ip_str not in seen:
             validated.append(ip_str)
             seen.add(ip_str)
+    if disallowed and itar:
+        # Same all-or-nothing rule: one address outside the local network (or one of the
+        # reserved kinds) refuses the whole answer.
+        raise WebhookSSRFError(
+            f"ODIN_ITAR_MODE=1 refused outbound request: webhook hostname {host!r} resolves "
+            f"to address(es) {disallowed} that are outside the local network or reserved"
+        )
     if disallowed:
         # All-or-nothing: any private resolution is a refusal. Don't fall
         # back to "use the public ones and ignore the private ones" —
@@ -235,9 +288,10 @@ def safe_post(url: str, **kwargs):
     trust_env=False prevents a proxy from doing a second, unpinned lookup.
     Context-local pins let concurrent dispatches proceed independently.
 
-    v1.8.9: when `ODIN_ITAR_MODE=1`, refuses public destinations at
-    call time (before DNS pinning). Private destinations (internal
-    webhooks to logging / ticketing systems) are still allowed.
+    When `ODIN_ITAR_MODE=1` the rule applied to that same single answer is the
+    opposite one: every address must be on the local network (RFC 1918 or IPv6
+    unique-local; not loopback, link-local or one of ODIN's own service ports).
+    Internal webhooks to logging / ticketing systems are the only kind allowed.
 
     For HARDCODED third-party APIs (Telegram bot API, Pushover, WhatsApp
     Graph API) use trusted_post() instead — those targets are not user-
@@ -248,14 +302,11 @@ def safe_post(url: str, **kwargs):
     httpx.HTTPError unchanged.
     """
     import httpx as _httpx
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    from core.itar import is_itar_mode
 
-    try:
-        enforce_request_destination(url)
-    except ItarOutboundBlocked as exc:
-        raise WebhookSSRFError(str(exc)) from exc
-
-    validated_ips, port, hostname, _scheme = _resolve_and_pin(url)
+    # One lookup. _resolve_and_pin applies the ITAR rule or the SSRF rule to that one
+    # answer; a separate ITAR lookup before it let a second, different answer be pinned.
+    validated_ips, port, hostname, _scheme = _resolve_and_pin(url, local_only=is_itar_mode())
     timeout = kwargs.pop("timeout", 10)
     with _pin_dns(hostname, port, validated_ips):
         with _httpx.Client(trust_env=False, timeout=timeout) as client:
@@ -291,12 +342,7 @@ def trusted_post(url: str, **kwargs):
     for ITAR notifications.
     """
     import httpx as _httpx
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
-
-    try:
-        enforce_request_destination(url)
-    except ItarOutboundBlocked as exc:
-        raise WebhookSSRFError(str(exc)) from exc
+    from core.itar import is_itar_mode
 
     parsed = urllib.parse.urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -313,6 +359,14 @@ def trusted_post(url: str, **kwargs):
         )
 
     timeout = kwargs.pop("timeout", 10)
+    if is_itar_mode():
+        # These hosts are public, so this is refused unless the name answers with local
+        # addresses only (an internal relay). One lookup, checked, and the connection is
+        # pinned to it with no proxy: a later public answer is never used.
+        validated_ips, port, hostname, _scheme = _resolve_and_pin(url, local_only=True)
+        with _pin_dns(hostname, port, validated_ips):
+            with _httpx.Client(trust_env=False, timeout=timeout) as client:
+                return client.post(url, **kwargs)
     # No DNS pin, no trust_env override — these are trusted targets whose
     # hostnames we own at compile time. Egress proxy is honored.
     return _httpx.post(url, timeout=timeout, **kwargs)
@@ -336,6 +390,13 @@ def resolve_and_check_webhook_url(url: str) -> str:
     host = parsed.hostname
     if not host:
         raise WebhookSSRFError(f"Webhook URL has no hostname: {url!r}")
+
+    from core.itar import is_itar_mode
+    if is_itar_mode():
+        # No lookup here under ITAR mode: safe_post does the one lookup, applies the
+        # local-network rule to it and pins the connection. The public-only rule below
+        # would refuse every webhook ITAR mode permits.
+        return url
 
     # Literal IP — use the already-loaded address
     try:
