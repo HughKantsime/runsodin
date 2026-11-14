@@ -44,7 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
-    _entry("jobs.print_failure", "change/_load/_settled/_quantity_allowed/_undo", "job/print/archive/inventory", "correct finished cancelled print", "jobs.edit and write:jobs; operator/admin; printer and job owner, archive audience, controlled-parts and Education mutation guards; no terminal event delivery", ("Print Log", "archive", "printer history"), "test_mark_print_failed.py", "guarded"),
+    _entry("jobs.print_failure", "change/_load/_settled", "job/print/archive", "correct the outcome of a finished cancelled print (outcome only: no quantity, cost or inventory write)", "jobs.edit and write:jobs; operator/admin; printer and job owner, archive audience, controlled-parts and Education mutation guards; no terminal event delivery", ("Print Log", "archive", "printer history"), "test_mark_print_failed.py", "guarded"),
     _entry('printers.monitors.restart_question', 'initialize/handle/clear_finished', 'print/job/printer', 'read/mutate', 'Bambu startup candidate check and scoped durable decision; receipt and Education exclusions', (), 'test_restart_question_review.py', 'guarded'),
     _entry('notifications.restart_alerts', 'stage/resolve', 'printer/job/alert', 'in-app delivery', 'shared recipient policy; active scoped operators and administrators; caller transaction', (), 'test_restart_ask_operator.py', 'guarded'),
     _entry('core.restart_questions', 'observe/answer/visible', 'print/job/printer', 'read/mutate', 'Bambu unbound physical rows only; receipt and Education rows excluded; scoped operator/admin print confirmation; separate admin-only claim recovery', (), 'test_restart_ask_operator.py', 'guarded'),
