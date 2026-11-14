@@ -118,26 +118,27 @@ def _pin_postgres_connections_under_itar(engine: Engine) -> None:
     """ITAR mode: every connection this engine opens (the first, pooled ones, reconnects)
     goes to an address that was checked for that connection. The one host SQLAlchemy is
     about to hand the driver is looked up once, every address must be on the local network,
-    and the first is written as libpq `hostaddr`; libpq then connects to it without a lookup
-    of its own and still verifies a TLS certificate against the host name. With ITAR mode
-    off no listener is added: the engine is exactly what it was (ITAR mode is set in the
-    environment for the process)."""
+    and the first is added as libpq `hostaddr`; libpq then connects to it without a lookup
+    of its own and still verifies a TLS certificate against the host name.
+
+    The check sits on this engine's own dialect object, around the one call that reaches the
+    driver. That is after every `do_connect` listener has run (so other listeners still run
+    and can refuse, and nothing a listener changed escapes the check), and each call works
+    on its own copy of the arguments (SQLAlchemy shares one dictionary between all
+    connections; it is never changed, so two connections opened at once cannot see each
+    other's address). With ITAR mode off nothing is wrapped: the engine is exactly what it
+    was (ITAR mode is set in the environment for the process)."""
     from core.itar import is_itar_mode
     if not is_itar_mode():
         return
+    dialect = engine.dialect
+    driver_connect = dialect.connect
 
-    issued: set = set()
+    def _connect_to_the_checked_address(*cargs, **cparams):
+        from core.itar_database import pinned_driver_arguments
+        return driver_connect(*cargs, **pinned_driver_arguments(cparams))   # raises ItarOutboundBlocked first
 
-    @event.listens_for(engine, "do_connect")
-    def _connect_to_the_checked_address(_dialect, _connection_record, _cargs, cparams):
-        # SQLAlchemy hands every connection of this engine the SAME cparams dictionary and
-        # then calls the driver with it. The pin is written into that dictionary and this
-        # listener returns nothing, so later do_connect listeners and SQLAlchemy's own
-        # connect still run. Each connection overwrites the previous connection's pin with
-        # its own freshly checked address (one assignment: the dictionary is never without a
-        # checked address between two connections). A `hostaddr` ODIN did not write is refused.
-        from core.itar_database import pin_shared_arguments
-        pin_shared_arguments(cparams, issued)   # raises ItarOutboundBlocked before any connection
+    dialect.connect = _connect_to_the_checked_address
 
 
 # Writers wait this long for SQLite's writer lock before SQLITE_BUSY.

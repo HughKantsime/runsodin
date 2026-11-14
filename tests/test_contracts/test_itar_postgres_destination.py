@@ -63,26 +63,38 @@ def engines(monkeypatch, tmp_path):
     monkeypatch.setattr(database_config, "assert_postgres_restore_ready", lambda *a, **k: None)
 
     class Engine:
-        pass
+        def __init__(self):
+            received = self.received = []
+
+            class Dialect:
+                @staticmethod
+                def connect(*cargs, **arguments):
+                    received.append(arguments)
+                    return arguments
+            self.dialect = Dialect()
     listeners = {}
 
     class Built(list):
+        engines = []
+
         def connect(self, **driver_arguments):
-            """Run the newest engine's do_connect listener on the arguments the dialect
-            built, and return what the driver then receives. The listener returns nothing
-            (so the rest of SQLAlchemy's dispatch still runs) and may change only `hostaddr`
-            in the dictionary SQLAlchemy shares between all connections."""
+            """Hand the arguments the dialect built to the newest engine's dialect.connect,
+            the one call that reaches the driver, and return what the driver receives.
+            `driver_arguments` must come back unchanged: SQLAlchemy shares that one
+            dictionary between all connections."""
             before = dict(driver_arguments)
-            for listener in listeners.get("do_connect", [])[-1:]:
-                assert listener(None, None, [], driver_arguments) is None, "the dispatch was ended"
-            assert {k: v for k, v in driver_arguments.items() if k != "hostaddr"} == before, \
-                "something other than the pin was changed"
-            return dict(driver_arguments)
+            received = self.engines[-1].dialect.connect(**driver_arguments)
+            assert driver_arguments == before, "the shared connect arguments were changed"
+            return received
 
         def listener_names(self):
             return sorted(listeners)
     built = Built()
-    monkeypatch.setattr(database_config, "create_engine", lambda url, **kw: built.append(url) or Engine())
+    def create(url, **kw):
+        built.append(url)
+        built.engines.append(Engine())
+        return built.engines[-1]
+    monkeypatch.setattr(database_config, "create_engine", create)
 
     def listens_for(_target, name, *a, **k):
         return lambda function: listeners.setdefault(name, []).append(function) or function
@@ -370,8 +382,52 @@ def test_a_listener_added_after_odins_still_runs_and_can_refuse(monkeypatch):
     with pytest.raises(RuntimeError, match="later guard"):
         engine.connect()
     engine.connect().close()
-    assert seen == [PRIVATE] * 3
+    assert seen == [None] * 3, "the shared arguments never carry a pin"
     assert _pins(driver) == [("db.plant.example", PRIVATE)] * 2, "the refused connection never reached the driver"
+
+
+@pytest.mark.parametrize("change", [lambda c: c.__setitem__("hostaddr", PUBLIC),
+                                    lambda c: c.__setitem__("host", "elsewhere.example,db.plant.example")],
+                         ids=["adds-a-public-hostaddr", "names-two-hosts"])
+def test_what_a_later_listener_changes_is_still_checked_before_the_driver(monkeypatch, change):
+    from sqlalchemy import event
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    Resolver(monkeypatch, {"db.plant.example": (PRIVATE,)})
+    engine, driver = _real_engine(monkeypatch)
+    event.listen(engine, "do_connect", lambda _d, _r, _a, cparams: change(cparams))
+    with pytest.raises(ItarOutboundBlocked):
+        engine.connect()
+    assert driver.received == []
+
+
+def test_two_connections_opened_at_once_each_use_their_own_checked_address(monkeypatch):
+    """Thread A's lookup answers 10.0.0.1 and thread B's 10.0.0.2; each driver call must
+    carry the address of its own lookup, whatever the interleaving."""
+    import threading
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    local = threading.local()
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", lambda host, *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", (local.address, 0))])
+    engine, driver = _real_engine(monkeypatch)
+    barrier = threading.Barrier(2)
+    seen = {}
+    original = driver.module.connect
+
+    def connect(*cargs, **arguments):
+        seen[threading.current_thread().name] = arguments.get("hostaddr")
+        return original(*cargs, **arguments)
+    monkeypatch.setattr(driver.module, "connect", connect)
+
+    def open_one(address):
+        local.address = address
+        barrier.wait()
+        engine.connect().close()
+    threads = [threading.Thread(target=open_one, args=(address,), name=address) for address in ("10.0.0.1", "10.0.0.2")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert seen == {"10.0.0.1": "10.0.0.1", "10.0.0.2": "10.0.0.2"}
 
 
 def test_a_hostaddr_odin_did_not_write_is_refused_on_any_connection(monkeypatch):

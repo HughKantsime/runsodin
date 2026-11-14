@@ -108,8 +108,8 @@ def pinned_driver_arguments(cparams: dict, environ=None) -> dict:
 
     `cparams` is never changed. SQLAlchemy keeps that one dictionary for the life of the
     engine and hands it to every connection: a pin written into it would be found again by
-    the next connection (and refused as a `hostaddr` ODIN did not put there), and would go
-    stale. Refuses (ItarOutboundBlocked, so no connection is opened) anything but one host
+    the next connection (and refused as a `hostaddr` ODIN did not put there), would go
+    stale, and could be read by another connection being opened at the same moment. Refuses (ItarOutboundBlocked, so no connection is opened) anything but one host
     or a socket."""
     arguments = dict(cparams)
     if not is_itar_mode():
@@ -128,27 +128,6 @@ def pinned_driver_arguments(cparams: dict, environ=None) -> dict:
         raise _refuse("the database connection names more than one host")
     arguments["hostaddr"] = checked_address(host, arguments.get("port"))
     return arguments
-
-
-def pin_shared_arguments(cparams: dict, issued: set, environ=None) -> None:
-    """Connection time, inside SQLAlchemy's do_connect dispatch. Writes this connection's
-    freshly checked address into the engine's shared arguments dictionary, in place, so the
-    rest of the dispatch (later listeners, SQLAlchemy's own connect) carries on.
-
-    `issued` holds every address this engine's listener has written. A `hostaddr` found in
-    the dictionary that is not one of them was put there by something else and is refused,
-    exactly as on the first connection. Under ITAR off nothing is changed."""
-    if not is_itar_mode():
-        return
-    original = {key: value for key, value in cparams.items() if key != "hostaddr"}
-    if "hostaddr" in cparams and cparams["hostaddr"] not in issued:
-        original["hostaddr"] = cparams["hostaddr"]      # refused by pinned_driver_arguments
-    pinned = pinned_driver_arguments(original, environ)
-    if "hostaddr" in pinned:
-        issued.add(pinned["hostaddr"])
-        cparams["hostaddr"] = pinned["hostaddr"]
-    else:
-        cparams.pop("hostaddr", None)                   # a socket: nothing to pin
 
 
 def _dbname_arguments(command) -> list:
