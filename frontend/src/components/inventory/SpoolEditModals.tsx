@@ -241,7 +241,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
             <select
               // Normalize only the displayed choice. An unrelated edit must
               // preserve the stored spelling; explicit choices use exact labels.
-              value={['ASA_AERO', 'ASA_CF', 'PET_CF', 'PPA_CF', 'PPS_CF', 'TPU_AMS'].includes(form.material)
+              value={['ASA_AERO', 'ASA_CF', 'PET_CF', 'PPA_CF', 'TPU_AMS'].includes(form.material)
                 ? form.material.replace(/_/g, '-') : form.material ?? ''}
               disabled={!!filament?.catalogue_code}
               onChange={(e) => setForm({ ...form, material: e.target.value })}
@@ -269,7 +269,8 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
               <option value="PC_ABS">PC-ABS</option>
               <option value="PC_CF">PC-CF</option>
               <option value="PPS">PPS</option>
-              <option value="PPS-CF">PPS-CF</option>
+              {/* PPS-CF existed before the other five: its stored value stays PPS_CF. */}
+              <option value="PPS_CF">PPS-CF</option>
               <option value="PVA">PVA (Support)</option>
               <option value="HIPS">HIPS</option>
             </select>

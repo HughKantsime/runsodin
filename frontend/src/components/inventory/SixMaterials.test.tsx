@@ -10,6 +10,8 @@ const six = [
   ['ASA-AERO', 'ASA Aero'], ['ASA-CF', 'ASA-CF'], ['PET-CF', 'PET-CF'],
   ['PPA-CF', 'PPA-CF'], ['PPS-CF', 'PPS-CF'], ['TPU-AMS', 'TPU for AMS'],
 ]
+// PPS-CF was already a library choice and keeps storing PPS_CF; the five new ones store their exact label.
+const stored = (material: string) => material === 'PPS-CF' ? 'PPS_CF' : material
 afterEach(() => { cleanup(); document.documentElement.dataset.themeFamily = 'classic'; vi.unstubAllGlobals() })
 
 for (const theme of ['classic', 'foundry']) {
@@ -18,10 +20,10 @@ for (const theme of ['classic', 'foundry']) {
     const onSave = vi.fn()
     render(<EditFilamentModal filament={{ id: 'lib_5', brand: 'Fixture', name: 'Blue', material: 'PLA' }} onClose={() => {}} onSave={onSave} />)
     const option = screen.getByRole('option', { name: label })
-    expect(option).toHaveValue(material)
-    fireEvent.change(option.parentElement!, { target: { value: material } })
+    expect(option).toHaveValue(stored(material))
+    fireEvent.change(option.parentElement!, { target: { value: stored(material) } })
     fireEvent.submit(option.closest('form')!)
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ material }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ material: stored(material) }))
   })
 
   it.each(six)(`${theme}: slot editor selects %s at phone width`, (material, label) => {
@@ -60,7 +62,7 @@ it.each(six)('CSV receiving accepts %s and preserves exact identity', (material,
 
 it.each(six)('existing %s enum spelling selects the correct library option', (material) => {
   render(<EditFilamentModal filament={{ id:5, brand:'Fixture', name:'Blue', material:material.replace(/-/g,'_') }} onClose={() => {}} onSave={vi.fn()} />)
-  expect(screen.getByRole('combobox')).toHaveValue(material)
+  expect(screen.getByRole('combobox')).toHaveValue(stored(material))
 })
 
 for (const spelling of ['label', 'enum']) {
