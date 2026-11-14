@@ -100,8 +100,8 @@ def _itar_webhook_refusal(ip_str: str):
     Under ITAR mode the only webhook ODIN may send goes to the local network, so the
     public-only SSRF rule cannot apply as written. What is kept of it: loopback,
     link-local (cloud metadata), unspecified and multicast addresses, ODIN's own
-    service ports, and its configured go2rtc API and PostgreSQL server (see
-    _is_odin_service), stay refused. What is left is RFC 1918 and IPv6 unique-local space.
+    service ports, and the port of its configured go2rtc API and PostgreSQL server on
+    any host (see _is_odin_service), stay refused. What is left is RFC 1918 and IPv6 unique-local space.
     """
     from core.itar import is_private_destination
     if not is_private_destination(ip_str.split("%", 1)[0]):
@@ -111,11 +111,32 @@ def _itar_webhook_refusal(ip_str: str):
     return None
 
 
+def _plain_address(value):
+    """An ip_address with an IPv4 address carried inside IPv6 (mapped, compatible, NAT64)
+    reduced to that IPv4 address, so both spellings of one host compare equal."""
+    addr = value if isinstance(value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) \
+        else ipaddress.ip_address(str(value).split("%", 1)[0])
+    return _embedded_ipv4(addr) or addr
+
+
 def _is_odin_service(ip_str: str, port: int) -> bool:
     """ITAR mode permits a webhook to the local network, which is where ODIN's own services
-    are. Refused: ODIN's fixed service ports on its own addresses, and the go2rtc API and
-    PostgreSQL server this installation is configured with, on whatever port they use."""
-    return is_own_service_endpoint(ip_str, port) or is_configured_service_endpoint(ip_str, port)
+    are. Refused: the port of the configured PostgreSQL server or go2rtc API on ANY host
+    (configured_service_ports: no lookup, so nothing can disagree with the pinned answer),
+    and ODIN's fixed service ports on its own addresses, compared in one spelling."""
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return True
+    if port in configured_service_ports():
+        return True
+    if port not in own_service_ports():
+        return False
+    try:
+        address = _plain_address(ip_str)
+    except ValueError:
+        return True
+    return address in {_plain_address(own) for own in own_interface_addresses()}
 
 
 def _resolve_and_pin(url: str, local_only: bool = False) -> tuple[list[str], int, str, str]:
@@ -619,62 +640,34 @@ def is_own_service_endpoint(ip, port) -> bool:
     return addr in own or (embedded is not None and embedded in own)
 
 
-def configured_service_endpoints() -> list:
-    """(host, port) of the services this installation is configured to use, read from the
-    environment now: go2rtc's API (ODIN_GO2RTC_API_URL, whatever port it names) and the
-    PostgreSQL server(s) (DATABASE_URL, DATABASE_MAINTENANCE_URL, PGHOST, PGHOSTADDR).
-    Hosts are returned as written (a name or an address); nothing is looked up here."""
-    found = []
+def configured_service_ports() -> frozenset:
+    """The port numbers of the services this installation is configured to use, read from
+    the environment now, with no lookup: the PostgreSQL server (the port in DATABASE_URL and
+    DATABASE_MAINTENANCE_URL, or 5432) and the go2rtc API (the port in ODIN_GO2RTC_API_URL,
+    or the scheme's own port, 80 or 443, when it names none: that is where the request goes).
+
+    Used for webhooks under ITAR mode, where the test is the port alone, on any host. A host
+    comparison would need a name lookup that can disagree with the one the webhook is
+    pinned to; a port needs none.
+    """
+    ports = set()
     go2rtc_url = (os.environ.get("ODIN_GO2RTC_API_URL") or "").strip()
     if go2rtc_url:
         try:
             parsed = urllib.parse.urlsplit(go2rtc_url)
-            if parsed.hostname:
-                found.append((parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 1984)))
+            ports.add(parsed.port or (443 if parsed.scheme.lower() == "https" else 80))
         except ValueError:
             pass
     for name in ("DATABASE_URL", "DATABASE_MAINTENANCE_URL"):
         value = (os.environ.get(name) or "").strip()
-        if not value.startswith(("postgresql", "postgres")):
+        if not value.lower().startswith(("postgresql", "postgres")):
             continue
         try:
-            from sqlalchemy.engine import make_url
-            url = make_url(value)
-            if url.host and not url.host.startswith("/"):
-                found.append((url.host, url.port or 5432))
-        except Exception:
-            # Unreadable here means unreadable for the engine too: ODIN is not running on it.
-            continue
-    return list(dict.fromkeys(found))
-
-
-def is_configured_service_endpoint(ip, port) -> bool:
-    """True when (ip, port) is go2rtc's API or the PostgreSQL server this installation is
-    configured with. A configured host name is looked up only when the port matches; if it
-    cannot be looked up then, the answer is True (it cannot be shown to be another host)."""
-    try:
-        addr = ipaddress.ip_address(str(ip).split("%", 1)[0])
-        port = int(port)
-    except (TypeError, ValueError):
-        return True
-    candidates = {addr}
-    embedded = _embedded_ipv4(addr)
-    if embedded is not None:
-        candidates.add(embedded)
-    for host, service_port in configured_service_endpoints():
-        if int(service_port) != port:
-            continue
-        try:
-            addresses = {ipaddress.ip_address(host.strip("[]").split("%", 1)[0])}
+            authority = urllib.parse.urlsplit(value)
+            ports.add(authority.port or 5432)
         except ValueError:
-            try:
-                addresses = {ipaddress.ip_address(info[4][0].split("%", 1)[0])
-                             for info in _real_getaddrinfo(host, None)}
-            except (socket.gaierror, OSError, UnicodeError, ValueError):
-                return True
-        if candidates & addresses:
-            return True
-    return False
+            ports.add(5432)
+    return frozenset(ports)
 
 
 def split_device_host(value: str):

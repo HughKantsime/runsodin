@@ -199,7 +199,12 @@ def test_the_public_only_rule_other_callers_ask_for_does_not_change_with_the_mod
         webhook_utils._resolve_and_pin(f"https://{PRIVATE}/x")
 
 
-# ---- recheck 1, item C: ODIN's configured services are not webhook targets ----
+# ---- item C: the ports of ODIN's configured services are not webhook ports ----
+#
+# Recheck 1: with ITAR mode permitting local webhooks, go2rtc on a custom port and the
+# PostgreSQL server were valid webhook targets. Recheck 2: comparing hosts needed a second
+# name lookup that could disagree with the pinned one, and missed effective ports. Round 3:
+# the test is the port alone, on any host, with no lookup.
 
 @pytest.fixture
 def services(monkeypatch):
@@ -207,64 +212,94 @@ def services(monkeypatch):
     monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://10.2.0.8:1999")
     monkeypatch.setenv("DATABASE_URL", "postgresql://odin@postgres:5432/odin")
     monkeypatch.setenv("DATABASE_MAINTENANCE_URL", "postgresql://odin_maintenance@10.2.0.9:6432/postgres")
-    for name in ("PGHOST", "PGHOSTADDR", "PGSERVICE", "PGPORT"):
-        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(webhook_utils, "own_interface_addresses", lambda: frozenset())
+    lookups = []
 
     def resolver(host, *args, **kwargs):
-        table = {"postgres": "10.2.0.7", "hooks.plant.example": "10.2.0.7", "go2rtc-alias.plant.example": "10.2.0.8",
-                 "tickets.plant.example": "10.2.0.50"}
-        if host not in table:
-            raise socket.gaierror(socket.EAI_NONAME, "unknown")
-        return _answer(table[host])
+        lookups.append(host)
+        return _answer({"db": "10.1.1.1"}.get(host, "10.2.0.50"))
     monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", resolver)
+    return lookups
 
 
 @pytest.mark.parametrize("url", [
-    "http://10.2.0.8:1999/api/restart",                    # go2rtc's API on its configured port
-    "http://go2rtc-alias.plant.example:1999/api/streams",  # the same address under another name
-    "http://10.2.0.7:5432/",                               # the PostgreSQL server DATABASE_URL names
-    "http://hooks.plant.example:5432/",                    # a name that resolves to it
-    "http://10.2.0.9:6432/",                               # the maintenance URL's server and port
+    "http://10.2.0.8:1999/api/restart",          # go2rtc's API on its configured port
+    "http://10.2.0.7:5432/",                     # the port DATABASE_URL names
+    "http://10.2.0.9:6432/",                     # the maintenance URL's port
+    "http://tickets.plant.example:5432/hook",    # the same port on ANY host: no host is compared
+    "http://[fd12:3456::9]:1999/hook",
 ])
-def test_a_webhook_to_a_configured_service_is_refused_under_itar(itar_on, client, services, url):
+def test_a_webhook_on_a_configured_service_port_is_refused_under_itar(itar_on, client, services, url):
     with pytest.raises(WebhookSSRFError):
         safe_post(url, json={})
     assert client.made == []
 
 
-@pytest.mark.parametrize("url", [
-    "http://10.2.0.8:8080/hook",                 # the go2rtc host, another port: not its API
-    "http://10.2.0.7:9000/hook",                 # the database host, another port
-    "http://tickets.plant.example:5432/hook",    # port 5432 on a host that is not the database
-    "http://tickets.plant.example/hook",
-])
+@pytest.mark.parametrize("url", ["http://10.2.0.8:8080/hook", "http://10.2.0.7:9000/hook",
+                                 "http://tickets.plant.example/hook", "https://tickets.plant.example/hook"])
 def test_other_local_webhooks_still_work_under_itar(itar_on, client, services, url):
     assert safe_post(url, json={}).status_code == 200
 
 
-def test_a_configured_name_that_cannot_be_looked_up_refuses_the_matching_port(itar_on, client, services, monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "postgresql://odin@gone.plant.example:5432/odin")
+def test_the_exclusion_makes_no_lookup_of_its_own(itar_on, client, services, monkeypatch):
+    """Recheck 2, finding 7: the database is `db:5432`; a webhook to http://db:5432/ was
+    looked up once for the pin and again for the exclusion, and the two answers differed."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://odin@db:5432/odin")
     with pytest.raises(WebhookSSRFError):
-        safe_post("http://tickets.plant.example:5432/hook", json={})
-    assert safe_post("http://tickets.plant.example:8443/hook", json={}).status_code == 200
+        safe_post("http://db:5432/", json={})
+    assert services == ["db"], "one lookup: the webhook's own"
+    assert webhook_utils.configured_service_ports() == {1999, 5432, 6432} and services == ["db"]
 
 
-def test_the_exclusions_are_read_from_the_configuration(services, monkeypatch):
-    assert webhook_utils.configured_service_endpoints() == [("10.2.0.8", 1999), ("postgres", 5432), ("10.2.0.9", 6432)]
-    monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://go2rtc")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:////data/odin.db")
-    monkeypatch.delenv("DATABASE_MAINTENANCE_URL")
-    monkeypatch.setenv("PGHOSTADDR", "10.9.9.9")
-    assert webhook_utils.configured_service_endpoints() == [("go2rtc", 1984)], "SQLite has no server"
+@pytest.mark.parametrize("environment, ports", [
+    ({"DATABASE_URL": "postgresql://u@10.1.1.1/d"}, {5432}),                           # no port: 5432
+    ({"DATABASE_URL": "postgresql+psycopg://u@[::ffff:10.1.1.1]:6000/d"}, {6000}),
+    ({"DATABASE_URL": "postgres://u@/d"}, {5432}),                                     # the socket's port number
+    ({"DATABASE_URL": "sqlite:////data/odin.db"}, set()),                              # SQLite has no server
+    ({"ODIN_GO2RTC_API_URL": "http://go2rtc"}, {80}),                                  # where an http URL goes
+    ({"ODIN_GO2RTC_API_URL": "https://go2rtc.plant.example"}, {443}),
+    ({"ODIN_GO2RTC_API_URL": "http://go2rtc:1984"}, {1984}),
+    ({}, set()),                                                                       # go2rtc beside the API: fixed list
+])
+def test_the_ports_are_the_effective_ones(monkeypatch, environment, ports):
+    for name in ("DATABASE_URL", "DATABASE_MAINTENANCE_URL", "ODIN_GO2RTC_API_URL"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    assert webhook_utils.configured_service_ports() == ports
+
+
+def test_a_go2rtc_url_without_a_port_refuses_its_real_port_not_1984(itar_on, client, services, monkeypatch):
+    monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://10.2.0.8")
+    with pytest.raises(WebhookSSRFError):
+        safe_post("http://10.2.0.8/api/restart", json={})
+    assert safe_post("http://10.2.0.60:1984/hook", json={}).status_code == 200
+
+
+@pytest.mark.parametrize("own, webhook", [("::ffff:10.1.1.1", "http://10.1.1.1:8000/x"),
+                                          ("10.1.1.1", "http://[::ffff:10.1.1.1]:8000/x"),
+                                          ("10.1.1.1", "http://10.1.1.1:8555/x")])
+def test_the_fixed_list_compares_one_spelling_of_an_address(itar_on, client, services, monkeypatch, own, webhook):
+    """ODIN's own address written as IPv4-mapped IPv6 on one side and plain IPv4 on the other."""
+    monkeypatch.setattr(webhook_utils, "own_interface_addresses",
+                        lambda: frozenset({webhook_utils.ipaddress.ip_address(own)}))
+    with pytest.raises(WebhookSSRFError):
+        safe_post(webhook, json={})
+    assert safe_post("http://10.1.1.2:8000/x", json={}).status_code == 200, "another host, same fixed port"
 
 
 def test_with_itar_off_the_configured_services_change_nothing(itar_off, client, services, monkeypatch):
     """ITAR off: every private address was and is refused; a public one is not compared with
     the configured services (no new refusal)."""
-    monkeypatch.setenv("ODIN_GO2RTC_API_URL", f"http://{PUBLIC}:1999")
-    monkeypatch.setattr(webhook_utils, "is_configured_service_endpoint",
-                        lambda *a: pytest.fail("the configured services were consulted with ITAR mode off"))
+    monkeypatch.setattr(webhook_utils, "configured_service_ports",
+                        lambda: pytest.fail("the configured services were consulted with ITAR mode off"))
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", lambda host, *a, **k: _answer(PUBLIC))
     assert safe_post(f"http://{PUBLIC}:1999/hook", json={}).status_code == 200
+    assert safe_post("http://hooks.example.com:5432/hook", json={}).status_code == 200
     with pytest.raises(WebhookSSRFError, match="private/reserved"):
         safe_post("http://10.2.0.8:1999/api/restart", json={})
+
+
+def test_the_per_host_lookup_is_gone():
+    for name in ("configured_service_endpoints", "is_configured_service_endpoint"):
+        assert not hasattr(webhook_utils, name)
