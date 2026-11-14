@@ -242,16 +242,25 @@ def test_the_running_check_asks_only_this_machines_health_port(monkeypatch):
     assert "urllib" not in source and "requests" not in source and "httpx" not in source
 
 
-def test_the_guide_and_the_refusal_do_not_claim_the_command_never_uses_the_network():
-    """Recheck 1, item E: with PostgreSQL the command opens a database connection. What it
-    never does is contact a printer."""
+def test_the_guide_and_the_refusal_say_exactly_which_connections_the_command_makes(monkeypatch):
+    """Rechecks 1 and 2, item E: the command contacts no printer; `set` and `clear` probe
+    ODIN's own health port on this machine; with PostgreSQL it connects to that database.
+    Earlier texts said "no network", then "no network with SQLite"; neither was true."""
     guide = (ROOT / "docs/ITAR_MODE.md").read_text(encoding="utf-8")
     section = guide[guide.index("## If O.D.I.N. refuses to start because of a saved printer"):]
-    assert "contacts no printer" in section
-    assert "With a PostgreSQL database it connects to that database" in section
-    assert "opens no network connection" not in section and "no network at all" not in section
-    refusal = (ROOT / "backend/core/itar.py").read_text(encoding="utf-8")
-    assert "It needs no network" not in refusal and "It contacts no printer" in refusal
     command = (ROOT / "backend/scripts/itar_printer_addresses.py").read_text(encoding="utf-8")
-    assert "It opens no network connection" not in command
-    assert "with a PostgreSQL database it connects to\nthat database" in command
+    import core.db
+    from types import SimpleNamespace
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    monkeypatch.setattr(core.db, "SessionLocal", lambda: SimpleNamespace(
+        execute=lambda statement: SimpleNamespace(fetchall=lambda: [(2, "Remote X1C", PUBLIC)]), close=lambda: None))
+    with pytest.raises(RuntimeError) as refused:
+        itar.enforce_boot_printer_addresses()
+    for text in (section, command.split('"""')[1], str(refused.value)):
+        flat = " ".join(text.split())
+        assert "contacts no printer" in flat
+        assert "probe O.D.I.N.'s own health port on this machine" in flat \
+            or "probe ODIN's own health port on this machine" in flat
+        assert "PostgreSQL database it connects to that database" in flat
+        for wrong in ("opens no network connection", "no network at all", "It needs no network", "uses no network"):
+            assert wrong not in flat, wrong

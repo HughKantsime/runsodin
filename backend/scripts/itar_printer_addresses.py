@@ -4,9 +4,10 @@ With ODIN_ITAR_MODE on, O.D.I.N. refuses to start while a saved printer has an I
 outside the local network. The server is not running then, so the address cannot be fixed
 in the UI, and starting once with ITAR mode off would start the printer monitors, which
 would contact that address. This command fixes it without starting anything: it only reads
-and writes the database. It contacts no printer and looks no printer name up. With the
-default SQLite database it uses no network at all; with a PostgreSQL database it connects to
-that database (under ITAR mode, to its checked local address) and to nothing else.
+and writes the database. It contacts no printer and looks no printer name up. `set` and
+`clear` probe ODIN's own health port on this machine (127.0.0.1); with a PostgreSQL database
+it connects to that database (under ITAR mode, to its checked local address). It makes no
+other connection.
 
 usage (from /app/backend in the container; see docs/ITAR_MODE.md for the docker command):
   python3 -m scripts.itar_printer_addresses list
