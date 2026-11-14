@@ -34,6 +34,7 @@ def _no_request(monkeypatch):
         raise AssertionError("the printer was contacted or its credentials were read")
     monkeypatch.setattr(crypto, "decrypt", refuse)
     monkeypatch.setattr(httpx, "Client", refuse)
+    monkeypatch.setattr(httpx, "get", refuse)  # 2.2.0: the check goes through route_utils.pinned_device_get
     monkeypatch.setattr(troubleshooting, "ftps_checks", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
 
@@ -89,11 +90,20 @@ def test_the_printer_check_still_runs_on_the_local_network_and_without_itar(monk
     _resolves_to(monkeypatch, address)
     monkeypatch.setattr(crypto, "decrypt", lambda value: "key")
     monkeypatch.setattr(httpx, "Client", _Client)
+    # 2.2.0 sends this request with httpx.get through route_utils.pinned_device_get (device
+    # destination policy, pinned address): no environment proxy, no redirects.
+    settings = []
+
+    def get(url, headers=None, auth=None, **kwargs):
+        settings.append(kwargs)
+        return _Client().get(url, headers=headers, auth=auth)
+    monkeypatch.setattr(httpx, "get", get)
     _Client.sent = []
     printer = SimpleNamespace(id=1, api_host="printer.example", api_type="moonraker", api_key="stored")
     result = troubleshooting.printer_checks(printer)
     assert [c["status"] for c in result["checks"]] == ["pass", "pass"]
     assert _Client.sent == [(f"http://{address}:7125/printer/info", {"X-Api-Key": "key"})]
+    assert settings == [{"trust_env": False, "follow_redirects": False, "timeout": 5}]
 
 
 # ---- 2. go2rtc address ----
