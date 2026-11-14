@@ -72,6 +72,11 @@ def secret(tmp_path, monkeypatch):
     monkeypatch.delenv("ODIN_GO2RTC_API_URL", raising=False)
     monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
     camera_relay.rotate_relay_secret()
+    # A separate go2rtc that has already been restarted with the checked configuration: these
+    # tests are about where each request goes. The gate itself is tested in
+    # test_itar_go2rtc_restart_gate.py.
+    from modules.printers import go2rtc_gate
+    go2rtc_gate._write_gate({"mark": go2rtc_gate.MARK_PREFIX + "0", "names": [], "state": "passed"})
 
 
 def _proxies(monkeypatch):
@@ -217,16 +222,21 @@ def _mjpeg(monkeypatch):
     asyncio.run(run())
 
 
-def _purge(monkeypatch):
-    """Start-up clean-up of a separate go2rtc (ITAR mode only in production; the function
-    itself sends the same request in both modes, always without a proxy)."""
-    from modules.printers import go2rtc_purge
-    assert go2rtc_purge.remove_streams_not_in({"printer_9": "rtsp://192.168.1.40/s", "printer_9_mjpeg": "x"}) == []
+def _gate(monkeypatch):
+    """The restart gate's own two requests (ITAR mode only in production; the function sends
+    the same requests in both modes, always without a proxy). The fake go2rtc lists
+    printer_9, which stands in for the mark of the file it loaded."""
+    from modules.printers import go2rtc_gate
+    monkeypatch.setattr(go2rtc_gate, "_sleep", lambda seconds: None)
+    go2rtc_gate._write_gate({"mark": go2rtc_gate.MARK_PREFIX + "x", "names": ["printer_9", "printer_9_mjpeg"],
+                             "state": "pending"})
+    monkeypatch.setattr(go2rtc_gate, "_read_gate", lambda real=go2rtc_gate._read_gate: {**real(), "mark": "printer_9"})
+    go2rtc_gate.pass_gate_now()
 
 
 # file -> (how to make it send, paths it requests, trust_env it asked for with ITAR mode off)
 CALLERS = {
-    "modules/printers/go2rtc_purge.py": (_purge, ["/api/streams"], [False]),
+    "modules/printers/go2rtc_gate.py": (_gate, ["/api/restart", "/api/streams"], [False, False]),
     "modules/printers/route_utils.py": (_reload, ["/api/restart"], [True]),
     "modules/vision/detection_thread.py": (_vision_frame, ["/api/frame.jpeg"], [True]),
     "modules/archives/timelapse_capture.py": (_timelapse_frame, ["/api/frame.jpeg"], [True]),
@@ -294,9 +304,9 @@ def test_without_itar_each_go2rtc_caller_is_unchanged(monkeypatch, secret, calle
 
 
 # Beside the API go2rtc is restarted by supervisord, not over HTTP: route_utils sends nothing,
-# and there is no separate go2rtc for go2rtc_purge to clean.
+# and there is no separate go2rtc for the restart gate.
 @pytest.mark.parametrize("caller", sorted(set(CALLERS) - {"modules/printers/route_utils.py",
-                                                          "modules/printers/go2rtc_purge.py"}))
+                                                          "modules/printers/go2rtc_gate.py"}))
 def test_itar_turns_proxies_off_for_the_default_loopback_go2rtc(monkeypatch, secret, caller):
     drive, paths, _ = CALLERS[caller]
     monkeypatch.setenv("ODIN_ITAR_MODE", "1")
@@ -572,10 +582,13 @@ def test_every_go2rtc_stream_source_is_the_relay_a_checked_address_or_go2rtc_its
     assert writers == {"modules/printers/route_utils.py", "scripts/prepare_go2rtc_config.py"}
     prepare = (BACKEND / "scripts" / "prepare_go2rtc_config.py").read_text(encoding="utf-8")
     assert '"streams: {}\\n"' in prepare and "streams[" not in prepare
-    # go2rtc_purge only lists and DELETEs streams; it never adds one.
-    purge = (BACKEND / "modules" / "printers" / "go2rtc_purge.py").read_text(encoding="utf-8")
-    assert '"PUT"' not in purge and '"POST"' not in purge and '"PATCH"' not in purge
-    assert purge.count('"DELETE"') == 1 and purge.count('"GET"') == 2
+    # The only stream it adds itself is the empty mark (no source: it connects to nothing).
+    assert prepare.count("mark: []") == 1 and prepare.count("{mark}: []") == 1
+    # go2rtc_gate restarts go2rtc and lists its streams; it never adds or changes one.
+    gate = (BACKEND / "modules" / "printers" / "go2rtc_gate.py").read_text(encoding="utf-8")
+    code = ast.unparse(ast.parse(gate))   # without comments
+    assert "PUT" not in code.replace("INPUT", "") and "PATCH" not in code and "DELETE" not in code
+    assert code.count("'/api/restart'") == 1 and code.count("'/api/streams'") == 1 and "/api/config" not in code
 
 
 @pytest.mark.parametrize("camera", ["rtsp://cam.example:554/s", "rtsps://user:pw@8.8.4.4:322/live",
