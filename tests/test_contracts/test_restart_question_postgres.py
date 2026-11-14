@@ -105,8 +105,8 @@ def seed_product(engine, monkeypatch):
                                   "VALUES(:name,'fixture','operator',TRUE,:org) RETURNING id"),
                              {'name': suffix, 'org': org_id}).scalar_one()
         printer_id = db.execute(text("INSERT INTO printers(name,api_type,org_id) "
-                                     "VALUES('Synthetic','bambu',:org) RETURNING id"),
-                                {'org': org_id}).scalar_one()
+                                     "VALUES(:name,'bambu',:org) RETURNING id"),
+                                {'name': f'Synthetic {suffix}', 'org': org_id}).scalar_one()
         job_id = db.execute(text("INSERT INTO jobs(item_name,printer_id,charged_to_org_id,status,hold) "
                                  "VALUES('Retained start',:printer,:org,'scheduled',TRUE) RETURNING id"),
                             {'printer': printer_id, 'org': org_id}).scalar_one()

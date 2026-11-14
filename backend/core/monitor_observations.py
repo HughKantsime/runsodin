@@ -67,7 +67,8 @@ def live_state(conn, printer_id, since):
     value = conn.execute(text('SELECT value FROM system_config WHERE key=:key'),
                          {'key': cache_key(printer_id)}).scalar_one_or_none()
     try:
-        observation = json.loads(value)
+        # PostgreSQL returns the stored JSON already decoded; SQLite returns text.
+        observation = json.loads(value) if isinstance(value, str) else value
         at = observation['at']
         if at >= since and 0 <= time.time() - at <= MAX_REPORT_AGE:
             return observation['state']
