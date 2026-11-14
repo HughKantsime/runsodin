@@ -217,8 +217,16 @@ def _mjpeg(monkeypatch):
     asyncio.run(run())
 
 
+def _purge(monkeypatch):
+    """Start-up clean-up of a separate go2rtc (ITAR mode only in production; the function
+    itself sends the same request in both modes, always without a proxy)."""
+    from modules.printers import go2rtc_purge
+    assert go2rtc_purge.remove_streams_not_in({"printer_9": "rtsp://192.168.1.40/s", "printer_9_mjpeg": "x"}) == []
+
+
 # file -> (how to make it send, paths it requests, trust_env it asked for with ITAR mode off)
 CALLERS = {
+    "modules/printers/go2rtc_purge.py": (_purge, ["/api/streams"], [False]),
     "modules/printers/route_utils.py": (_reload, ["/api/restart"], [True]),
     "modules/vision/detection_thread.py": (_vision_frame, ["/api/frame.jpeg"], [True]),
     "modules/archives/timelapse_capture.py": (_timelapse_frame, ["/api/frame.jpeg"], [True]),
@@ -285,8 +293,10 @@ def test_without_itar_each_go2rtc_caller_is_unchanged(monkeypatch, secret, calle
     assert wire.trust_env == trust_env
 
 
-# Beside the API go2rtc is restarted by supervisord, not over HTTP: route_utils sends nothing.
-@pytest.mark.parametrize("caller", sorted(set(CALLERS) - {"modules/printers/route_utils.py"}))
+# Beside the API go2rtc is restarted by supervisord, not over HTTP: route_utils sends nothing,
+# and there is no separate go2rtc for go2rtc_purge to clean.
+@pytest.mark.parametrize("caller", sorted(set(CALLERS) - {"modules/printers/route_utils.py",
+                                                          "modules/printers/go2rtc_purge.py"}))
 def test_itar_turns_proxies_off_for_the_default_loopback_go2rtc(monkeypatch, secret, caller):
     drive, paths, _ = CALLERS[caller]
     monkeypatch.setenv("ODIN_ITAR_MODE", "1")
@@ -557,7 +567,15 @@ def test_every_go2rtc_stream_source_is_the_relay_a_checked_address_or_go2rtc_its
         if "go2rtc" in text and ('"streams"' in text or "'streams'" in text or "streams[" in text
                                  or "api/streams?" in text):
             writers.add(relative)
-    assert writers == {"modules/printers/route_utils.py"}
+    # scripts/prepare_go2rtc_config.py reads the streams it has just built (to compare with a
+    # running go2rtc) and, when the build fails under ITAR mode, writes an EMPTY streams section.
+    assert writers == {"modules/printers/route_utils.py", "scripts/prepare_go2rtc_config.py"}
+    prepare = (BACKEND / "scripts" / "prepare_go2rtc_config.py").read_text(encoding="utf-8")
+    assert '"streams: {}\\n"' in prepare and "streams[" not in prepare
+    # go2rtc_purge only lists and DELETEs streams; it never adds one.
+    purge = (BACKEND / "modules" / "printers" / "go2rtc_purge.py").read_text(encoding="utf-8")
+    assert '"PUT"' not in purge and '"POST"' not in purge and '"PATCH"' not in purge
+    assert purge.count('"DELETE"') == 1 and purge.count('"GET"') == 2
 
 
 @pytest.mark.parametrize("camera", ["rtsp://cam.example:554/s", "rtsps://user:pw@8.8.4.4:322/live",

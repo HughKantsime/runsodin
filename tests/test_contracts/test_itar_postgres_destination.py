@@ -73,8 +73,12 @@ def engines(monkeypatch, tmp_path):
             """What the driver is given for a new connection: the newest engine's do_connect
             listener runs on the parameters SQLAlchemy built from the URL."""
             parameters = {"host": "from-the-url"}
-            listeners["do_connect"][-1](None, None, [], parameters)
+            for listener in listeners.get("do_connect", [])[-1:]:
+                listener(None, None, [], parameters)
             return parameters
+
+        def listener_names(self):
+            return sorted(listeners)
     built = Built()
     monkeypatch.setattr(database_config, "create_engine", lambda url, **kw: built.append(url) or Engine())
 
@@ -332,6 +336,15 @@ def test_with_itar_off_nothing_is_added_to_a_connection(engines, monkeypatch):
     resolver = Resolver(monkeypatch, NAMES)
     create_database_engine("postgresql://odin@db.example.com/odin")
     assert engines.connect_parameters() == {"host": "from-the-url"} and resolver.calls == []
+    assert engines.listener_names() == ["checkout", "connect"], "the engine has the listeners it had in 2.2.0"
+    create_database_engine("postgresql://odin@db.example.com/odin", role="backup")
+    assert engines.listener_names() == ["checkout", "connect"], "a backup engine still has none of its own"
+
+
+def test_under_itar_every_role_gets_the_connect_listener(engines, itar_on):
+    for role in ("api", "backup", "restore", "reports"):
+        create_database_engine("postgresql://odin@postgres/odin", role=role)
+        assert engines.connect_parameters()["hostaddr"] == PRIVATE, role
 
 
 def test_the_real_driver_is_called_with_the_checked_address(monkeypatch, tmp_path):
