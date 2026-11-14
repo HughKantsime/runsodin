@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
 from core.display_names import name_payloads, human_name
+from modules.jobs.services import annotate_print_failures
 from core.audit import audit_download, export_filters
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
@@ -196,7 +197,7 @@ def list_archives(
     ).fetchall()
 
     return {
-        "items": name_payloads(db, 'archive', [_archive_row_to_dict(r) for r in rows], user),
+        "items": annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(r) for r in rows], user), archive=True, user=user),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -288,7 +289,7 @@ def archive_log(
 
     rows = db.execute(
         text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            f"SELECT a.id, a.print_name, a.printer_id, a.user_id, a.status, "
+            f"SELECT a.id, a.print_job_id, a.print_name, a.printer_id, a.user_id, a.status, "
             f"a.started_at, a.completed_at, a.actual_duration_seconds, "
             f"a.filament_used_grams, a.cost_estimate, a.tags, a.notes AS recording_note, "
             f"p.name AS printer_name, p.nickname AS printer_nickname, "
@@ -313,7 +314,7 @@ def archive_log(
         d["tags"] = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
         items.append(d)
 
-    return {"items": name_payloads(db, 'archive', items, user), "total": total, "page": page, "per_page": per_page}
+    return {"items": annotate_print_failures(db, name_payloads(db, 'archive', items, user), archive=True, user=user), "total": total, "page": page, "per_page": per_page}
 
 
 @router.get("/archives/log/export", tags=["Archives"])
@@ -409,7 +410,7 @@ def get_archive(
     if not row:
         raise HTTPException(status_code=404, detail="Archive not found")
     _check_archive_org_access(db, dict(row._mapping)["id"], user)
-    return name_payloads(db, 'archive', [_archive_row_to_dict(row)], user)[0]
+    return annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(row)], user), archive=True, user=user)[0]
 
 
 @router.patch("/archives/{archive_id}", tags=["Archives"])

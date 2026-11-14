@@ -33,6 +33,8 @@ def reclassify_outcome(job_id: int, body: OutcomeCorrection,
     assert_generic_job_mutation_allowed(db, job_id)
     if body.status == body.from_status:
         raise HTTPException(400, 'Only failed ↔ cancelled corrections are allowed')
+    # Released in 2.2.0 in both directions: API clients keep cancelled -> failed here. The screens send
+    # cancelled prints to Mark as failed, which also records a reason and can be undone.
     # The state-machine UPDATE locks the job and guards concurrent reset/retry.
     owner_guard = 'charged_to_org_id IS NULL' if job.charged_to_org_id is None else 'charged_to_org_id=:correction_org'
     if not transition_job(db, job_id, body.status, 'outcome_correction', from_states=[body.from_status],
@@ -45,6 +47,11 @@ def reclassify_outcome(job_id: int, body: OutcomeCorrection,
             or (body.print_id is not None and body.print_id != attempt.id)):
         db.rollback()
         raise HTTPException(409, 'The latest print must have the same terminal outcome as its job')
+    from modules.jobs.print_failure import record
+    saved = record(db, attempt.id)
+    if saved and saved.get('active'):
+        db.rollback()
+        raise HTTPException(409, 'Use Back to cancelled on the print to undo its failure correction.')
     # Historical archive ownership can differ from a job's current owner.
     # Reuse the archive's own audience guard before changing any history.
     try:

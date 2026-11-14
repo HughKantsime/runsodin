@@ -3,6 +3,9 @@
 import type { PaginatedResponse } from './common';
 
 export interface Archive {
+  print_job_id?: number;
+  failure_correction_allowed?: boolean;
+  failure_correction?: import('./job').FailureCorrection | null;
   display_name?: string | null;
   print_name: string;
   printer_display: string;

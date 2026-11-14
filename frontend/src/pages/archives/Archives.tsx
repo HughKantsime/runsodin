@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import OutcomeCorrection from '../../components/jobs/OutcomeCorrection'
+import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import { RowCard, RowCardList } from '../../components/ui/RowCard'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { canDo } from '../../permissions'
@@ -238,7 +239,8 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
           </div>
         </div>
 
-        <OutcomeCorrection key={`${archive.id}:${archive.status}`} jobId={archive.job_id} printId={archive.print_job_id} status={archive.status} onCorrected={onClose} />
+        {!archive.failure_correction && <OutcomeCorrection key={archive.id} jobId={archive.job_id} printId={archive.print_job_id} status={archive.status} onCorrected={onClose} />}
+        <PrintFailureControl canCorrect={archive.failure_correction_allowed} inline key={`${archive.id}:${archive.status}`} printId={archive.print_job_id} status={archive.status} endedAt={archive.completed_at} correction={archive.failure_correction} onCorrected={onClose} />
         {archive.accounting_state === 'unresolved' && <div className="mb-4 rounded-md border border-amber-500/40 p-3 text-sm" role="status">
           <p>Filament consumption is unattributed.</p>
           {archive.consumption?.map((item, index) => <p key={index}>

@@ -59,3 +59,8 @@ def job_actual_costs(db, jobs, config):
     from modules.jobs.cost_actual import cost_actual, load_attempts
     attempts = load_attempts(db, [job.id for job in jobs])
     return {job.id: cost_actual(attempts[job.id], config) for job in jobs}
+
+
+def annotate_print_failures(db, rows, *, archive=False, user=None):
+    from .print_failure import annotate
+    return annotate(db, rows, archive=archive, user=user)

@@ -131,7 +131,8 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   // Square stock send confirmation adds one shared, focus-trapped Modal; 2.0.13 adds
   // dispatch-recovery confirmation, roll receiving and QR label Modals.
   // 2.0.24 adds the bulk shelf receiving Modal.
-  expect(summary.shared_modal_call_sites).toBe(39)
+  // Marking a cancelled print as failed adds one shared, named Modal.
+  expect(summary.shared_modal_call_sites).toBe(40)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
   // Super Admin restore adds one named, focus-trapped confirmation dialog.
   // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
@@ -139,7 +140,7 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   expect(summary.custom_dialog_role_elements).toHaveLength(24)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
   expect(dialogOnly).toBe(22)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(58)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(59)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 

@@ -161,7 +161,8 @@ def get_print_jobs(
         jobs.append(job)
 
     from core.display_names import name_payloads
-    return name_payloads(db, 'print_job', jobs, current_user)
+    from modules.jobs.print_failure import annotate
+    return annotate(db, name_payloads(db, 'print_job', jobs, current_user), user=current_user)
 
 
 @router.get("/print-jobs/stats", tags=["Print Jobs"])

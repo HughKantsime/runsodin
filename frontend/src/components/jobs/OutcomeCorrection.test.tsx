@@ -23,8 +23,8 @@ test('job and archive corrections send the guarded terminal pair', async () => {
 })
 test('refusal remains visible', async () => {
   vi.mocked(fetchAPI).mockRejectedValue(new Error('Job changed; reload'))
-  show('cancelled')
-  fireEvent.click(screen.getByText('Correct outcome to failed'))
+  show('failed')
+  fireEvent.click(screen.getByText('Correct outcome to cancelled'))
   expect(await screen.findByRole('alert')).toHaveTextContent('Job changed; reload')
 })
 test('live jobs and users without jobs edit have no correction', () => {
@@ -39,4 +39,9 @@ test('job page row exposes the correction for a failed job', () => {
     onAction={vi.fn()} isSelected={false} onToggleSelect={vi.fn()}
   /></tbody></table></QueryClientProvider>)
   expect(screen.getByRole('button',{name:'Correct outcome to cancelled'})).toBeInTheDocument()
+})
+
+test('cancelled prints require the reason form instead of the legacy control', () => {
+  show('cancelled')
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
 })

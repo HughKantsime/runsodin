@@ -1,3 +1,4 @@
+import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import ActiveHms from '../../components/printers/ActiveHms'
 import PrinterDetectionLink from '../../components/printers/PrinterDetectionLink'
 import PrinterNumber from '../../components/ui/PrinterNumber'
@@ -289,17 +290,18 @@ export default function PrinterDetail() {
             {jobList.slice(0, 10).map(job => (
               <div
                 key={job.id}
-                className="flex items-center justify-between py-2 border-b border-[var(--brand-card-border)] last:border-0"
+                className="flex flex-wrap gap-2 items-center justify-between py-2 border-b border-[var(--brand-card-border)] last:border-0"
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate" style={{ color: 'var(--brand-text-primary)' }}>
-                    {job.file_name || job.name || 'Untitled'}
+                    {job.display_name || job.job_name || job.file_name || job.name || 'Untitled'}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>
                     {job.started_at ? parseServerDate(job.started_at).toLocaleDateString() : ''}
                     {job.duration ? ` \u2022 ${formatDuration(job.duration)}` : ''}
                   </p>
                 </div>
+                <PrintFailureControl canCorrect={job.failure_correction_allowed} printId={job.id} status={job.status} endedAt={job.ended_at} correction={job.failure_correction} />
                 <StatusBadge status={job.status || 'pending'} size="sm" kind="job" />
               </div>
             ))}

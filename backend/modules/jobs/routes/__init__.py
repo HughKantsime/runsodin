@@ -30,3 +30,6 @@ router.include_router(cost_router)
 
 from modules.jobs.outcome_correction import router as outcome_correction_router
 router.include_router(outcome_correction_router)
+
+from .print_failure import router as print_failure_router
+router.include_router(print_failure_router)
