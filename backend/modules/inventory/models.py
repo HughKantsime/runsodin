@@ -8,7 +8,7 @@ Owns tables: spools, filament_library, spool_usage, drying_logs,
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    ForeignKey, Enum as SQLEnum, Text, JSON
+    ForeignKey, Enum as SQLEnum, Text, JSON, Index, text
 )
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
@@ -28,6 +28,13 @@ class FilamentLibrary(Base):
     cost_per_gram = Column(Float, nullable=True)  # Per-material pricing ($/g)
     is_custom = Column(Boolean, default=False)  # User-added vs built-in
     created_at = Column(DateTime, server_default=func.now())
+
+    catalogue_type = Column(String(100), nullable=True)
+    catalogue_code = Column(String(100), nullable=True)
+    catalogue_colors = Column(JSON, nullable=True)
+    __table_args__ = (Index('uq_filament_catalogue_code', 'brand', 'catalogue_code', unique=True,
+                           sqlite_where=text('catalogue_code IS NOT NULL'),
+                           postgresql_where=text('catalogue_code IS NOT NULL')),)
 
     # Relationships
     spools = relationship("Spool", back_populates="filament")

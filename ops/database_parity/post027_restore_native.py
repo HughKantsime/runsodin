@@ -290,9 +290,9 @@ def main():
         before = marker()
         metadata056 = b.validate_postgres_restore(archive056,target,maintenance,**args)
         assert metadata056['sha256']==sha056 and metadata056['source_schema_version']==56
-        assert metadata056['prepared_schema_version']==current_era==57 and metadata056['prepared_sha256']!=sha056
+        assert metadata056['prepared_schema_version']==current_era and metadata056['prepared_sha256']!=sha056
         assert marker()==before and b._sha256(archive056)==sha056 and leftover()==0 and not owned_files()
-        print('post027-native-released056-validated-source-era-56-prepared-era-57-target-untouched-pass',flush=True)
+        print('post027-native-released056-validated-source-era-56-prepared-current-era-target-untouched-pass',flush=True)
         staged056 = b.stage_postgres_restore(archive056,target,maintenance,**args)
         assert staged056['candidate_sha256']==sha056
         release_sessions(engine)
@@ -300,7 +300,7 @@ def main():
         assert result['status']=='restored' and marker()=='source56'
         with engine.connect() as c:
             ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
-            assert ids==set(ledger056)|{'python:057-slot-feed-policy'}
+            assert ids==set(ledger056)|set(post_ids)  # 057 and every later migration
             assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990560')).one()==(990560,2,'{"id":"released056"}',False,None)
             assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990560,'same',990560)
             assert c.execute(text('SELECT ace_status FROM printers WHERE id=990560')).scalar_one() is None

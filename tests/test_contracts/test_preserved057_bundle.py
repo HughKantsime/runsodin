@@ -25,10 +25,12 @@ def test_released_220_exact_ledger_and_routing(tmp_path, monkeypatch):
     monkeypatch.setattr(backup, '_run_pg_tool', lambda *a: '')
     monkeypatch.setattr(backup, '_toc_inventory', lambda *a: None)
     from core.schema import bootstrap
-    # While 057 is current the normal validator handles it. A later build uses the bundle.
-    assert stage.identify_contract(tmp_path/'old.dump', 'postgresql://localhost/odin', None, tmp_path) is None
-    monkeypatch.setattr(bootstrap, 'POST027_MIGRATIONS', bootstrap.POST027_MIGRATIONS +
-                        (('python:099-future-synthetic', 'core.schema.migrations.099_future'),))
+    # While 057 is the newest migration the normal validator handles its archives; once a later
+    # migration exists (058 onward) the same archive is routed to this bundle for real.
+    if bootstrap.POST027_MIGRATIONS[-1][0] == 'python:057-slot-feed-policy':
+        assert stage.identify_contract(tmp_path/'old.dump', 'postgresql://localhost/odin', None, tmp_path) is None
+        monkeypatch.setattr(bootstrap, 'POST027_MIGRATIONS', bootstrap.POST027_MIGRATIONS +
+                            (('python:099-future-synthetic', 'core.schema.migrations.099_future'),))
     assert stage.identify_contract(tmp_path/'old.dump', 'postgresql://localhost/odin', None, tmp_path) is stage.PRESERVED057
 
 

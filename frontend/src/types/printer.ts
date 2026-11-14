@@ -32,6 +32,8 @@ export type FilamentType =
 // ---- Filament Slots ----
 
 export interface FilamentSlot {
+  catalogue_name?: string | null;
+  catalogue_choices?: { id: number; name: string }[];
   do_not_feed?: boolean;
   do_not_feed_note?: string | null;
   id: number;

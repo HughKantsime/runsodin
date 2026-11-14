@@ -1,0 +1,5 @@
+{"total":3,"data":[
+{"fila_id":"test-1","fila_type":"PLA Matte","fila_color_code":"ODIN-TEST-ORBIT","fila_color_name":{"en":"Invented Orbit","xx":"Invented"},"fila_color":["#1234ABFF"],"fila_color_type":1,"color_code":"test-orbit"},
+{"fila_id":"test-2","fila_type":"PLA Silk+","fila_color_code":"ODIN-TEST-TWILIGHT","fila_color_name":{"en":"Invented Twilight"},"fila_color":["#1234ABFF","#6789CD80"],"fila_color_type":2,"color_code":"test-twilight"},
+{"fila_id":"test-3","fila_type":"Unlisted Test Polymer","fila_color_code":"ODIN-TEST-COMET","fila_color_name":{"en":"Invented Comet"},"fila_color":["#ABC123FF","#BCD23480","#CDE345FF","#DEF45600"],"fila_color_type":4,"color_code":"test-comet"}
+]}

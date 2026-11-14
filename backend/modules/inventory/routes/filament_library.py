@@ -23,6 +23,7 @@ from core.rbac import (
     require_any_scope,
     require_role,
 )
+from modules.inventory.catalogue import catalogue_fields
 from modules.inventory.models import FilamentLibrary
 
 log = logging.getLogger("odin.api")
@@ -55,6 +56,7 @@ def list_filament_library(
         {
             "id": f"lib_{f.id}",
             "source": "library",
+            **catalogue_fields(f),
             "brand": f.brand,
             "name": f.name,
             "material": f.material,

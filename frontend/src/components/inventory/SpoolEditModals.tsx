@@ -1,8 +1,18 @@
+import CataloguePicker from './CataloguePicker'
 import { useState, useEffect } from 'react'
 import { Modal } from '../ui'
 
-export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose: () => void; onSave: (data: any) => void }) {
+// Match the existing exact material labels used by catalogue relabelling.
+const catalogueMaterials = new Set('PLA PLA-S PLA-CF PLA-SILK PLA-MATTE PLA-AERO PETG PETG-CF ABS ABS-GF ASA TPU TPU-95A TPU-83A PA PA-CF PA-GF PA6 PA6-CF PA6-GF PA12-CF PC PC-ABS PC-CF PVA HIPS SUPPORT SUPPORT-W SUPPORT-G'.split(' '))
+function catalogueMaterial(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 32 || /[\x00-\x1f]/.test(value)) return null
+  const material = value.trim().toUpperCase().replace(/_/g, '-')
+  return catalogueMaterials.has(material) ? material : null
+}
+
+export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spool: any; filaments?: any[]; onClose: () => void; onSave: (data: any) => void }) {
   const [form, setForm] = useState({
+    filament_id: String(spool?.filament_id || ''),
     remaining_weight_g: spool?.remaining_weight_g ?? '',
     spool_weight_g: spool?.spool_weight_g ?? 250,
     pa_profile: spool?.pa_profile ?? '',
@@ -41,6 +51,7 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
     }
     onSave({
       id: spool.id,
+      ...(form.filament_id !== String(spool.filament_id || '') ? { filament_id: Number(form.filament_id) } : {}),
       ...(core !== (spool.spool_weight_g ?? 250) ? { spool_weight_g: core } : {}),
       // Only a changed link is sent: an existing (possibly duplicate) link is not re-written.
       ...(spoolmanId !== (spool.spoolman_spool_id ?? null) ? { spoolman_spool_id: spoolmanId } : {}),
@@ -54,6 +65,17 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
   };
 
   if (!spool) return null;
+
+  const material = catalogueMaterial(spool.filament_material)
+  const choices = filaments.filter(f => f.source !== 'spoolman' && (
+    String(f.id).replace('lib_', '') === String(spool.filament_id) ||
+    (f.catalogue_code != null && material !== null && catalogueMaterial(f.material) === material)
+  ))
+  if (!choices.some(f => String(f.id).replace('lib_', '') === String(spool.filament_id))) {
+    choices.unshift({ id: spool.filament_id, brand: spool.filament_brand,
+      name: spool.filament_name || 'Current filament', material: spool.filament_material })
+  }
+
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Edit Spool" size="md">
@@ -76,6 +98,10 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {filaments.length > 0 && <>
+          <CataloguePicker filaments={choices} value={form.filament_id} onChange={filament_id => setForm({ ...form, filament_id })} />
+          <p className="text-sm text-[var(--brand-text-muted)]">Only the current filament and catalogue entries with the same material are shown.</p>
+        </>}
         {error && <p role="alert" className="text-red-400 text-sm">{error}</p>}
         <div>
           <label htmlFor="spool-pa-profile" className="block text-sm text-[var(--brand-text-muted)] mb-1">PA Profile</label>
@@ -169,7 +195,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
   const [form, setForm] = useState({
     brand: filament?.brand || '',
     name: filament?.name || '',
-    material: filament?.material || 'PLA',
+    material: filament ? filament.material : 'PLA',
     color_hex: filament?.color_hex || '',
     cost_per_gram: filament?.cost_per_gram ?? ''
   })
@@ -189,6 +215,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
           <input
             type="text"
             value={form.brand}
+            disabled={!!filament?.catalogue_code}
             onChange={(e) => setForm({ ...form, brand: e.target.value })}
             required
             placeholder="Bambu Lab, Polymaker, eSUN..."
@@ -212,10 +239,13 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
           <div>
             <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Material</label>
             <select
-              value={form.material}
+              value={form.material ?? ''}
+              disabled={!!filament?.catalogue_code}
               onChange={(e) => setForm({ ...form, material: e.target.value })}
               className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             >
+              {form.material == null && <option value="">Material unrecognised</option>}
+              {form.material === 'OTHER' && <option value="OTHER">Other (material unrecognised)</option>}
               <option value="PLA">PLA</option>
               <option value="PLA-S">PLA-S (Support)</option>
               <option value="PLA-CF">PLA-CF</option>

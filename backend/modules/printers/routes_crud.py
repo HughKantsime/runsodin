@@ -1,6 +1,7 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
 from core.base import FilamentType, slot_filament_value
 from core.printer_maintenance import enrich_maintenance
+from modules.inventory.services import enrich_catalogue_slots
 from core.printer_display_facts import enrich_printer_facts
 
 from modules.inventory.services import assign_slot
@@ -72,7 +73,7 @@ def list_printers(
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
-    return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, name_printers(db, printers, current_user)), current_user))
+    return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, printers, current_user), current_user)), current_user))
 
 
 @router.get("/printers/tags", tags=["Printers"])
@@ -230,7 +231,7 @@ def get_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
-    return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, name_printers(db, [printer], current_user)), current_user))[0]
+    return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, [printer], current_user), current_user)), current_user))[0]
 
 
 @router.patch("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
@@ -341,7 +342,7 @@ def list_filament_slots(printer_id: int, current_user: dict = Depends(require_ro
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
-    enriched = enrich_printers([printer])[0]
+    enriched = enrich_printers(enrich_catalogue_slots(db, [printer], current_user))[0]
     return enriched.filament_slots if hasattr(enriched, "filament_slots") else printer.filament_slots
 
 

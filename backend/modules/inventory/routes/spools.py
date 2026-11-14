@@ -105,6 +105,7 @@ def list_spools(
         spool_dict = {
             "id": s.id,
             "filament_id": s.filament_id,
+            "catalogue_code": s.filament.catalogue_code if s.filament else None,
             "color_name": s.color_name,
             "color_hex": s.color_hex,
             "qr_code": s.qr_code,
@@ -286,6 +287,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
     return {
         "id": spool.id,
         "filament_id": spool.filament_id,
+        "catalogue_code": spool.filament.catalogue_code if spool.filament else None,
         "color_name": spool.color_name,
         "color_hex": spool.color_hex,
         "qr_code": spool.qr_code,
@@ -356,6 +358,12 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
         log_audit(db, "spool.purchase_evidence_updated", "spool", spool_id,
                   {"state": "cleared" if purchase is None else "recorded"})
 
+
+    filament_id = update_data.pop('filament_id', None)
+    if filament_id is not None and filament_id != spool.filament_id:
+        from modules.inventory.catalogue_slots import select_spool_filament
+        select_spool_filament(db, spool, filament_id, current_user)
+        log_audit(db, 'spool.catalogue_selected', 'spool', spool.id, {'filament_id': spool.filament_id})
 
     if "spool_weight_g" in update_data:
         if update_data["spool_weight_g"] == spool.spool_weight_g:

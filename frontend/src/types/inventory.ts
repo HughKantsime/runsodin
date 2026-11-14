@@ -139,6 +139,9 @@ export interface SpoolListFilters {
 // ---- Filament Library ----
 
 export interface Filament {
+  catalogue_type?: string | null;
+  catalogue_code?: string | null;
+  catalogue_colors?: string[] | null;
   id: number;
   brand: string;
   name: string;
