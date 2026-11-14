@@ -15,7 +15,7 @@ ENDPOINTS=[
 
 @pytest.fixture
 def authority_client(owned_import,monkeypatch):
-    from modules.system import routes_health as routes
+    from modules.system import routes_license as routes
     from core.dependencies import get_current_user
     from core.db import get_db
     upload,path,signed,audit,db,lm,sign=owned_import

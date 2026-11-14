@@ -361,7 +361,7 @@ def test_at_expiry_the_license_reports_trial_ended_without_a_restart(expired):
 UPGRADE = r'''
 import types
 from datetime import datetime, timedelta, timezone
-from modules.system import routes_health as RH
+from modules.system import routes_license as RH
 KEYS = {"-".join(["ODIN", "TRIA", "LKEY", secrets.token_hex(2).upper()]): "trial",
         "-".join(["ODIN", "PAID", "PKEY", secrets.token_hex(2).upper()]): "paid"}
 TRIAL_KEY, PAID_KEY = list(KEYS)

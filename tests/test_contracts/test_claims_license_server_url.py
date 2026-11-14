@@ -32,7 +32,7 @@ def test_license_server_url_env_override(monkeypatch):
 def _run_activate(monkeypatch, url):
     import core.itar as itar
     from core import outbound_http
-    from modules.system import routes_health as rh
+    from modules.system import routes_license as rh
 
     captured = {}
 

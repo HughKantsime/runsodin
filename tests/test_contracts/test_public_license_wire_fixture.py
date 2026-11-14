@@ -8,12 +8,12 @@ from tests.test_contracts.test_license_user_limits import signed_license
 
 
 def test_public_license_wire_capture(signed_license, monkeypatch):
-    from modules.system import routes_health
+    from modules.system import routes_license
     _, info = signed_license(max_users=500, max_printers=20, expires_at='2099-01-01')
     monkeypatch.delenv('ODIN_LICENSE_FILE', raising=False)
-    monkeypatch.setattr(routes_health, 'get_license', lambda **kwargs:info)
+    monkeypatch.setattr(routes_license, 'get_license', lambda **kwargs:info)
     app = FastAPI()
-    app.add_api_route('/license', routes_health.get_license_info)
+    app.add_api_route('/license', routes_license.get_license_info)
     response = TestClient(app).get('/license')
     assert response.status_code == 200
     body = response.json()

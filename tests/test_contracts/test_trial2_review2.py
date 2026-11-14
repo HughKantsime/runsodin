@@ -79,7 +79,7 @@ def test_paid_license_partial_device_binding_is_rejected(issuer):
 
 PROBE = r'''
 import types
-from modules.system import routes_health as RH
+from modules.system import routes_license as RH
 PORTAL = {"calls": [], "answer": (202, {"status": "request_received"}, "application/json")}
 class _Resp:
     def __init__(self, status, data, ctype):

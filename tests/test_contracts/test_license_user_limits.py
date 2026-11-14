@@ -84,12 +84,12 @@ def test_expired_license_keeps_community_limit(signed_license):
 def test_null_education_limit_reaches_public_api(signed_license, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from modules.system import routes_health
+    from modules.system import routes_license
 
     _, info = signed_license(max_users=None)
-    monkeypatch.setattr(routes_health, "get_license", lambda **kwargs: info)
+    monkeypatch.setattr(routes_license, "get_license", lambda **kwargs: info)
     app = FastAPI()
-    app.add_api_route("/license", routes_health.get_license_info)
+    app.add_api_route("/license", routes_license.get_license_info)
     response = TestClient(app).get("/license")
     assert response.status_code == 200
     assert response.json()["max_users"] is None  # O13: Education is unlimited
@@ -135,7 +135,7 @@ def test_school_can_create_second_user_and_provision_oidc(signed_license, tmp_pa
 def test_signed_printer_and_user_caps_and_public_json(signed_license, monkeypatch, tier, caps):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from modules.system import routes_health
+    from modules.system import routes_license
 
     lm, info = signed_license(tier=tier, **caps)
     assert info.valid
@@ -152,9 +152,9 @@ def test_signed_printer_and_user_caps_and_public_json(signed_license, monkeypatc
             with pytest.raises(HTTPException) as exc:
                 check(expected)
             assert exc.value.status_code == 403
-    monkeypatch.setattr(routes_health, "get_license", lambda **kwargs: info)
+    monkeypatch.setattr(routes_license, "get_license", lambda **kwargs: info)
     app = FastAPI()
-    app.add_api_route("/license", routes_health.get_license_info)
+    app.add_api_route("/license", routes_license.get_license_info)
     response = TestClient(app).get("/license")
     assert response.status_code == 200
     # Strict JSON serialization ensures unlimited remains null, never Infinity.

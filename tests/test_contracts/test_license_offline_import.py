@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 @pytest.fixture
 def owned_import(tmp_path, monkeypatch):
     import license_manager as lm
-    from modules.system import routes_health as routes
+    from modules.system import routes_license as routes
     key=Ed25519PrivateKey.generate()
     monkeypatch.setattr(lm,'ODIN_PUBLIC_KEY',key.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo).decode())
     monkeypatch.setattr(lm,'LICENSE_DIR',str(tmp_path))
@@ -139,9 +139,9 @@ def test_http_import_requires_system_admin_write_authority(owned_import,principa
     from fastapi.testclient import TestClient
     from core.dependencies import get_current_user
     from core.db import get_db
-    from modules.system import routes_health
+    from modules.system import routes_license
     upload,path,signed,audit,db,lm,sign=owned_import
-    app=FastAPI();app.add_api_route('/license/upload',routes_health.upload_license,methods=['POST'])
+    app=FastAPI();app.add_api_route('/license/upload',routes_license.upload_license,methods=['POST'])
     app.dependency_overrides[get_current_user]=lambda:{'id':1,**principal}
     app.dependency_overrides[get_db]=lambda:db
     with TestClient(app) as client:
@@ -156,10 +156,10 @@ def test_http_write_admin_import_respects_managed_license_guard(owned_import,mon
     from fastapi.testclient import TestClient
     from core.dependencies import get_current_user
     from core.db import get_db
-    from modules.system import routes_health
+    from modules.system import routes_license
     upload,path,signed,audit,db,lm,sign=owned_import
     monkeypatch.setenv('ODIN_LICENSE_READ_ONLY','1' if managed else '0')
-    app=FastAPI();app.add_api_route('/license/upload',routes_health.upload_license,methods=['POST'])
+    app=FastAPI();app.add_api_route('/license/upload',routes_license.upload_license,methods=['POST'])
     app.dependency_overrides[get_current_user]=lambda:{'id':1,'role':'admin','group_id':None,'_auth_kind':'user_api_token','_token_scopes':['write']}
     app.dependency_overrides[get_db]=lambda:db
     with TestClient(app) as client:

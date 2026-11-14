@@ -100,7 +100,7 @@ def test_trial_restriction_and_expiry_preserved(device):
 
 @pytest.fixture
 def portal(device, monkeypatch):
-    from modules.system import routes_health as routes
+    from modules.system import routes_license as routes
     from core import itar, outbound_http
     (upload, path, old, audit, db, lm, sign), fields = device
     monkeypatch.setattr(routes, 'get_installation_id', lm.get_installation_id)
@@ -161,7 +161,7 @@ def test_bound_challenge_failure_never_posts(portal, monkeypatch):
 
 
 def test_conversion_is_not_an_api_option():
-    from modules.system import routes_health as routes
+    from modules.system import routes_license as routes
     assert 'convert_to_device_binding' not in routes.LicenseActivateRequest.model_fields
     assert 'confirm_purchase_wide' not in routes.LicenseActivateRequest.model_fields
 
@@ -198,7 +198,7 @@ def test_network_failure_keeps_current_file(portal, monkeypatch):
 
 
 def test_offline_request_explicitly_carries_protocol(device):
-    from modules.system import routes_health as routes
+    from modules.system import routes_license as routes
     result = routes.build_activation_request(routes.OfflineActivationRequestBody(
         key='TEST-ONLY', nonce='fresh-offline-challenge', binding_protocol='device-v1'), current_user={'id':1})
     request = json.loads(result.body)['activation_request']
