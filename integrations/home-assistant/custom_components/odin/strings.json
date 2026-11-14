@@ -85,6 +85,7 @@
       "queue_length": {"name": "Queue length"},
       "plates_done_today": {"name": "Plates done today"},
       "plates_failed_today": {"name": "Plates failed today"},
+      "plates_stopped_today": {"name": "Plates stopped today"},
       "queued_hours": {"name": "Queued hours"},
       "queued_unestimated": {"name": "Queued jobs without estimate"}
     },

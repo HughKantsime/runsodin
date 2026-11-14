@@ -124,13 +124,31 @@ def _integer(value):
         return None
 
 
-@router.get("/integrations/home-assistant/status", tags=["Integrations"])
+@router.get("/integrations/home-assistant/status", tags=["Integrations"], responses={
+    200: {"content": {"application/json": {"schema": {
+        "type": "object", "properties": {"fleet": {
+            "type": "object", "properties": {"today": {
+                "type": "object", "required": ["plates_done", "plates_failed", "plates_stopped", "since"],
+                "properties": {
+                    "plates_done": {"type": "integer", "minimum": 0, "description": "Prints completed today."},
+                    "plates_failed": {"type": "integer", "minimum": 0, "description": "Prints failed today."},
+                    "plates_stopped": {"type": "integer", "minimum": 0, "description": "Prints stopped mid-run today."},
+                    "since": {"type": "string", "format": "date-time", "description": "Midnight in the farm time zone, in UTC."},
+                },
+            }},
+        }},
+    }}}},
+})
 def home_assistant_status(
     current_user: dict = Depends(require_role("viewer", scope="read:printers")),
     _jobs_scope: dict = Depends(require_scope("read:jobs")),
     db: Session = Depends(get_db),
 ):
-    """Fleet and per-printer status for Home Assistant. Read-only, database only."""
+    """Fleet and per-printer status for Home Assistant. Read-only, database only.
+
+    fleet.today counts completed, failed and stopped prints separately since midnight
+    in the farm time zone. Only prints visible to the caller count.
+    """
     now = datetime.now(timezone.utc)
     query = db.query(Printer).filter(Printer.is_active.isnot(False))
     scope = get_org_scope(current_user)

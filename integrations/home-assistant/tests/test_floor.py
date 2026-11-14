@@ -1,7 +1,7 @@
 """Print-floor entities (status schema 2) and their behaviour against an older ODIN (schema 1)."""
 import pytest
 
-from homeassistant.const import STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from custom_components.odin.api import OdinSchemaError, validate_status
 
@@ -84,6 +84,35 @@ async def test_schema_2_fleet_entities(hass, aioclient_mock, status_v2):
     queue = hass.states.get("sensor.odin_fleet_queue_length")
     assert queue.state == "4"
     assert [job["name"] for job in queue.attributes["next_unassigned"]] == ["Gear"]
+
+
+@pytest.mark.parametrize("count", [0, 3])
+async def test_stopped_sensor_reads_the_count(hass, aioclient_mock, status_v2, count):
+    status_v2["fleet"]["today"]["plates_stopped"] = count
+    aioclient_mock.get(STATUS_URL, json=status_v2)
+    await _setup(hass)
+    stopped = hass.states.get("sensor.odin_fleet_plates_stopped_today")
+    assert stopped.state == str(count)
+    assert stopped.attributes["state_class"] == "total"
+    assert hass.states.get("sensor.odin_fleet_plates_failed_today").state == "1"
+
+
+@pytest.mark.parametrize("version", [1, 2])
+async def test_stopped_sensor_is_unavailable_on_older_servers(hass, aioclient_mock, status, status_v2, version):
+    payload = status if version == 1 else status_v2
+    aioclient_mock.get(STATUS_URL, json=payload)
+    await _setup(hass)
+    assert hass.states.get("sensor.odin_fleet_plates_stopped_today").state == STATE_UNAVAILABLE
+    payload["fleet"].setdefault("today", {})["plates_stopped"] = 3
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(STATUS_URL, json=payload)
+    await _poll(hass)
+    assert hass.states.get("sensor.odin_fleet_plates_stopped_today").state == "3"
+    del payload["fleet"]["today"]["plates_stopped"]
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(STATUS_URL, json=payload)
+    await _poll(hass)
+    assert hass.states.get("sensor.odin_fleet_plates_stopped_today").state == STATE_UNAVAILABLE
 
 
 async def test_maintenance_hold_shows_as_out_of_service(hass, aioclient_mock, status_v2):

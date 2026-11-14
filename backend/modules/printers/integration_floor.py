@@ -212,13 +212,13 @@ def day_start(now, zone=None):
 
 def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
     start = day_start(now, zone)
-    result = {"plates_done": 0, "plates_failed": 0, "since": iso(start)}
+    result = {"plates_done": 0, "plates_failed": 0, "plates_stopped": 0, "since": iso(start)}
     if not printer_ids:
         return result
     # The exact test is on parsed instants below. This text bound only keeps the scan to recent
     # rows (this feed is polled every few seconds): the date prefix sorts the same in every
     # stored form, and two days cover any UTC offset.
-    clauses = ["p.printer_id IN :pids", "p.status IN ('completed', 'failed')", "p.ended_at >= :day"]
+    clauses = ["p.printer_id IN :pids", "p.status IN ('completed', 'failed', 'cancelled')", "p.ended_at >= :day"]
     params = {"pids": list(printer_ids), "day": (start.astimezone(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")}
     # A print that belongs to a job counts only when the caller could list that job (the queue's
     # own predicates: org, archived Education, controlled parts). A print with no job is the
@@ -233,7 +233,7 @@ def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
         # Monitors store both naive UTC and ISO timestamps with offsets; text order is not time order.
         ended = _instant(ended_at)
         if ended is not None and ended >= start:
-            result["plates_done" if status == "completed" else "plates_failed"] += 1
+            result[{"completed": "plates_done", "failed": "plates_failed", "cancelled": "plates_stopped"}[status]] += 1
     return result
 
 
