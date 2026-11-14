@@ -30,7 +30,8 @@ export default function FilamentCatalogueSettings() {
     {(error || mutation.error) && <p role="alert">{error || mutation.error?.message}</p>}
     {mutation.data && <div role="status" className="break-words">
       <p>{mutation.data.created} entries added; {mutation.data.updated} entries updated.</p>
-      {mutation.data.preserved > 0 && <p>Existing material types were kept for {mutation.data.preserved} entries.</p>}
+      {!!mutation.data.skipped?.length && <p>Skipped because the material type changed: {mutation.data.skipped.map(entry => entry.catalogue_code).join(', ')}. Existing entries were left unchanged.</p>}
+      {mutation.data.preserved > (mutation.data.skipped?.length || 0) && <p>Existing material types were kept for {mutation.data.preserved - (mutation.data.skipped?.length || 0)} entries.</p>}
       {mutation.data.unrecognised_types.length > 0 && <p>These types can be displayed but cannot pass material checks: {mutation.data.unrecognised_types.join(', ')}.</p>}
     </div>}
   </section>

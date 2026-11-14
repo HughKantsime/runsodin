@@ -52,7 +52,7 @@ def test_matte_uses_pla_without_relaxing_gates():
 def test_import_repeat_unknown_multicolour_audit(inventory_client, review_db):
     response = upload(inventory_client)
     assert response.status_code == 200, response.text
-    assert response.json() == dict(created=3, updated=0, preserved=0, unrecognised_types=['Unlisted Test Polymer'])
+    assert response.json() == dict(created=3, updated=0, preserved=0, skipped=[], unrecognised_types=['Unlisted Test Polymer'])
     rows = review_db.query(FilamentLibrary).filter(FilamentLibrary.catalogue_code.isnot(None)).order_by(FilamentLibrary.id).all()
     assert [r.material for r in rows] == ['PLA','PLA','OTHER']
     assert rows[1].color_hex == '1234AB' and rows[1].catalogue_colors == ['#1234ABFF','#6789CD80']
@@ -77,7 +77,9 @@ def test_reimport_preserves_used_identity_and_price(inventory_client, review_db)
     assert response.json()['preserved'] == 1
     review_db.expire_all()
     assert row.material == 'PLA' and row.catalogue_type == 'PLA Matte' and row.cost_per_gram == 0.123
-    assert row.color_hex == '789ABC' and row.catalogue_colors == ['#789ABC80']
+    assert row.name == 'PLA Matte Invented Orbit'
+    assert row.color_hex == '1234AB' and row.catalogue_colors == ['#1234ABFF']
+    assert response.json()['skipped'] == [{'catalogue_code': row.catalogue_code, 'reason': 'type_changed'}]
     assert review_db.get(Spool,sid).filament_id == row.id
 
 

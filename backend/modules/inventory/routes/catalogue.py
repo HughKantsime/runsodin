@@ -42,10 +42,8 @@ from pydantic import BaseModel, Field
 from core.rbac import require_action, check_org_access
 from core.interfaces.filament_ownership import ensure_local_filament_management
 from modules.printers.models import Printer, FilamentSlot
-from modules.inventory.slot_assignments import lock_slot_graph
-from modules.inventory.catalogue_slots import reported_slot, select_spool_filament
+from modules.inventory.catalogue_slots import reported_slot, select_spool_filament, guard_catalogue_slots
 from modules.inventory.catalogue import matching_entries
-from core.display_json import display_object
 
 
 class CatalogueChoice(BaseModel):
@@ -68,16 +66,10 @@ def choose_slot_catalogue(printer_id: int, slot_number: int, body: CatalogueChoi
     slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=slot_number).first()
     if slot is None:
         raise HTTPException(404, 'Slot not found')
-    lock_slot_graph(db, slot.id, body.spool_id)
-    db.refresh(slot)
+    guard_catalogue_slots(db, body.spool_id, slot)
     db.refresh(printer)
     if not check_org_access(current_user, printer.org_id):
         raise HTTPException(404, 'Printer not found')
-    state = display_object(slot.tray_observation) if slot.tray_observation else {}
-    if state is None or ('pending' in state and type(state['pending']) is not bool):
-        raise HTTPException(409, 'The spool-change state is unknown. Refresh and confirm the spool before choosing its catalogue name.')
-    if slot.assigned_spool_id != body.spool_id or state.get('pending'):
-        raise HTTPException(409, 'Assign and confirm the spool in this slot before choosing its catalogue name.')
     material, color = reported_slot(slot)
     if body.filament_id not in {f.id for f in matching_entries(db, material, color)}:
         raise HTTPException(409, 'This filament does not match the reported material and colour. Refresh the slot and try again.')

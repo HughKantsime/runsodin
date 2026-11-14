@@ -62,7 +62,7 @@ export const spools = {
 };
 
 export const filaments = {
-  importBambu: (file: File): Promise<{ created: number; updated: number; preserved: number; unrecognised_types: string[] }> => fetchAPI('/filaments/import-bambu', { method: 'POST', body: file }),
+  importBambu: (file: File): Promise<{ created: number; updated: number; preserved: number; skipped: { catalogue_code: string; reason: string }[]; unrecognised_types: string[] }> => fetchAPI('/filaments/import-bambu', { method: 'POST', body: file }),
   chooseSlot: (printerId: number, slot: number, spoolId: number, filamentId: number): Promise<{ success: boolean }> => fetchAPI(`/printers/${printerId}/slots/${slot}/catalogue`, { method: 'POST', body: JSON.stringify({ spool_id: spoolId, filament_id: filamentId }) }),
   list: (): Promise<Filament[]> => fetchAPI('/filaments'),
   combined: (): Promise<Filament[]> => fetchAPI('/filaments/combined'),

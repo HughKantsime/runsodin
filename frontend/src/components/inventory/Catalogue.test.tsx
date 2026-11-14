@@ -17,9 +17,9 @@ vi.mock('../../permissions', () => ({ getCurrentUser: () => auth, canDo: () => t
 const entries = [
   { id: 'lib_12', brand: 'Bambu Lab', name: 'PLA Matte Invented Orbit', material: 'PLA', color_hex: '1234AB', catalogue_type: 'PLA Matte', catalogue_code: 'ODIN-TEST-ORBIT' },
   { id: 'lib_13', brand: 'Bambu Lab', name: 'PLA Silk+ Invented Twilight', material: 'PLA', color_hex: '1234AB', catalogue_type: 'PLA Silk+', catalogue_code: 'ODIN-TEST-TWILIGHT' },
-  { id: 'lib_14', brand: 'Synthetic', name: 'Custom Comet', material: 'PETG', color_hex: '789ABC' },
+  { id: 'lib_14', brand: 'Synthetic', name: 'Custom Comet', material: 'PLA', color_hex: '789ABC' },
 ].map(f => ({ ...f, source: 'library', display_name: `${f.brand} ${f.name}` }))
-const spool = { id: 7, filament_id: 14, filament_name: 'Custom Comet', remaining_weight_g: 500, initial_weight_g: 1000, spool_weight_g: 250 }
+const spool = { id: 7, filament_id: 14, filament_name: 'Custom Comet', filament_material: 'PLA', remaining_weight_g: 500, initial_weight_g: 1000, spool_weight_g: 250 }
 const slot = { id: 1, slot_number: 1, color_hex: '1234AB', material_type: 'PLA', remaining: null, assigned_spool_id: 7, spool_confirmed: true }
 function provider(child: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -76,7 +76,7 @@ for (const theme of ['classic', 'foundry']) {
 }
 
 it('imports a supplied file and reports unknown types', async () => {
-  vi.mocked(filaments.importBambu).mockResolvedValue({ created: 3, updated: 0, preserved: 0, unrecognised_types: ['Synthetic Polymer'] })
+  vi.mocked(filaments.importBambu).mockResolvedValue({ created: 3, updated: 0, preserved: 0, skipped: [], unrecognised_types: ['Synthetic Polymer'] })
   provider(<FilamentCatalogueSettings />)
   expect(screen.getByText(/from your own Bambu Studio installation/)).toBeInTheDocument()
   const file = new File(['{"total":0,"data":[]}'], 'invented.json', { type: 'application/json' })
@@ -170,4 +170,39 @@ it('unknown spool-change state blocks catalogue and assignment actions without o
   fireEvent.click(screen.getByRole('button', { name: entries[0].name }))
   expect(filaments.chooseSlot).not.toHaveBeenCalled()
   expect(save).not.toHaveBeenCalled()
+})
+
+it.each(['classic', 'foundry'])('%s: edit offers only the current filament and same-material catalogue entries', family => {
+  document.documentElement.dataset.themeFamily = family
+  const choices = [
+    ...entries,
+    { id: 'lib_15', name: 'Wrong material', material: 'PETG', catalogue_code: 'ODIN-TEST-WRONG' },
+    { id: 'lib_16', name: 'Another custom PLA', material: 'PLA' },
+    { id: 'spool_17', name: 'External PLA', material: 'PLA', source: 'spoolman', catalogue_code: 'ODIN-TEST-EXTERNAL' },
+    { id: 'lib_18', name: 'Lowercase PLA', material: ' pla ', catalogue_code: 'ODIN-TEST-LOWER' },
+  ]
+  const save = vi.fn()
+  provider(<EditSpoolModal spool={{ ...spool, filament_material: 'PLA' }} filaments={choices} onClose={vi.fn()} onSave={save} />)
+  expect(screen.getAllByRole('option').map(o => (o as HTMLOptionElement).value)).toEqual(['', '12', '13', '14', '18'])
+  expect(screen.getByText('Only the current filament and catalogue entries with the same material are shown.')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Filament'), { target: { value: '18' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ filament_id: 18 }))
+})
+
+it.each(['OTHER', 'Invented polymer', undefined])('unknown material %s keeps only the current filament', material => {
+  provider(<EditSpoolModal spool={{ ...spool, filament_material: material }} filaments={[
+    { id: 'lib_15', name: 'Unrecognised catalogue entry', material, catalogue_code: 'ODIN-TEST-UNKNOWN' },
+  ]} onClose={vi.fn()} onSave={vi.fn()} />)
+  expect(screen.getAllByRole('option').map(o => (o as HTMLOptionElement).value)).toEqual(['', '14'])
+})
+
+
+it('shows which catalogue entries were skipped because their material changed', async () => {
+  vi.mocked(filaments.importBambu).mockResolvedValue({ created: 0, updated: 2, preserved: 1,
+    skipped: [{ catalogue_code: 'ODIN-TEST-ORBIT', reason: 'type_changed' }], unrecognised_types: [] })
+  provider(<FilamentCatalogueSettings />)
+  fireEvent.change(screen.getByLabelText('Catalogue file'), { target: { files: [new File(['{}'], 'invented.json')] } })
+  fireEvent.click(screen.getByRole('button', { name: 'Import Bambu catalogue' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('Skipped because the material type changed: ODIN-TEST-ORBIT. Existing entries were left unchanged.')
 })

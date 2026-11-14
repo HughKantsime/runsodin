@@ -2,7 +2,7 @@
 import json
 import re
 
-from sqlalchemy import text, func
+from sqlalchemy import text
 from core.material_identity import canonical_reported_material
 from modules.inventory.models import FilamentLibrary
 
@@ -88,6 +88,7 @@ def import_catalogue(db, entries):
     elif connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
         connection.exec_driver_sql('BEGIN IMMEDIATE')
     created = updated = preserved = 0
+    skipped = []
     existing = {row.catalogue_code: row for row in db.query(FilamentLibrary).filter(
         FilamentLibrary.brand == 'Bambu Lab',
         FilamentLibrary.catalogue_code.in_([entry['catalogue_code'] for entry in entries])).all()}
@@ -98,14 +99,17 @@ def import_catalogue(db, entries):
             db.add(row)
             created += 1
         else:
-            # Repeat imports change names and colours only, even if a spool is
-            # concurrently created. Material identity never depends on a racy count.
-            preserved += int(row.material != entry['material'] or row.catalogue_type != entry['catalogue_type'])
+            # Never apply a different material's name or colours to this identity.
+            if row.material != entry['material']:
+                preserved += 1
+                skipped.append(dict(catalogue_code=row.catalogue_code, reason='type_changed'))
+                continue
+            preserved += int(row.catalogue_type != entry['catalogue_type'])
             for field in ('name', 'color_hex', 'catalogue_colors'):
                 setattr(row, field, entry[field])
             updated += 1
     db.flush()
-    return dict(created=created, updated=updated, preserved=preserved,
+    return dict(created=created, updated=updated, preserved=preserved, skipped=skipped,
                 unrecognised_types=sorted({e['catalogue_type'] for e in entries if e['material'] == 'OTHER'}))
 
 
@@ -113,13 +117,21 @@ def catalogue_fields(filament):
     return {field: getattr(filament, field) for field in ('catalogue_type', 'catalogue_code', 'catalogue_colors')}
 
 
-def matching_entries(db, material, color):
+def catalogue_key(material, color):
+    """The same material/RGB identity for display and accepting a choice."""
     material = canonical_reported_material(material)
     if not isinstance(color, str):
-        return []
+        return None
     color = color.lstrip('#').upper()
     if material is None or not re.fullmatch('[0-9A-F]{6}([0-9A-F]{2})?', color):
+        return None
+    return material, color[:6]
+
+
+def matching_entries(db, material, color):
+    key = catalogue_key(material, color)
+    if key is None:
         return []
-    return db.query(FilamentLibrary).filter(
-        FilamentLibrary.catalogue_code.isnot(None), FilamentLibrary.material == material,
-        func.upper(FilamentLibrary.color_hex) == color[:6]).order_by(FilamentLibrary.id).all()
+    entries = db.query(FilamentLibrary).filter(
+        FilamentLibrary.catalogue_code.isnot(None)).order_by(FilamentLibrary.id).all()
+    return [entry for entry in entries if catalogue_key(entry.material, entry.color_hex) == key]

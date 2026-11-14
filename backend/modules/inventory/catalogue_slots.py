@@ -9,6 +9,8 @@ from core.display_json import display_object, display_tray_state
 from core.material_identity import canonical_reported_material
 from core.rbac import check_org_access
 from modules.inventory.models import FilamentLibrary, Spool
+from modules.inventory.catalogue import catalogue_key
+from modules.inventory.slot_assignments import lock_slot_graph
 from modules.printers.models import FilamentSlot
 
 
@@ -30,17 +32,6 @@ def reported_slot(slot):
             return None, None
         return facts[0].get('type'), facts[0].get('color_hex')
     return getattr(slot.filament_type, 'value', slot.filament_type), slot.color_hex
-
-
-def _key(material, color):
-    import re
-    material = canonical_reported_material(material)
-    if not isinstance(color, str):
-        return None
-    color = color.lstrip('#').upper()
-    if material is None or not re.fullmatch('[0-9A-F]{6}([0-9A-F]{2})?', color):
-        return None
-    return material, color[:6]
 
 
 def _labels(slot, actor, candidates):
@@ -70,13 +61,13 @@ def enrich_catalogue_slots(db, printers, actor):
     entries = db.query(FilamentLibrary).filter(FilamentLibrary.catalogue_code.isnot(None)).order_by(FilamentLibrary.id).all()
     by_key, by_printer = defaultdict(list), defaultdict(list)
     for entry in entries:
-        key = _key(entry.material, entry.color_hex)
+        key = catalogue_key(entry.material, entry.color_hex)
         if key:
             by_key[key].append(entry)
     parents = {p.id: p for p in printers}
     for slot in slots:
         set_committed_value(slot, 'printer', parents[slot.printer_id])
-        labels = _labels(slot, actor, by_key.get(_key(*reported_slot(slot)), []))
+        labels = _labels(slot, actor, by_key.get(catalogue_key(*reported_slot(slot)), []))
         slot.catalogue_name = labels['catalogue_name']
         slot.catalogue_choices = labels['catalogue_choices']
         by_printer[slot.printer_id].append(slot)
@@ -85,8 +76,30 @@ def enrich_catalogue_slots(db, printers, actor):
     return printers
 
 
+def guard_catalogue_slots(db, spool_id, slot=None):
+    """Reuse the assignment writer boundary before reading spool-change state."""
+    lock_slot_graph(db, slot.id if slot is not None else None, spool_id)
+    slots = db.query(FilamentSlot).filter(
+        FilamentSlot.assigned_spool_id == spool_id).populate_existing().all()
+    if slot is not None:
+        db.refresh(slot)
+        if slot.assigned_spool_id != spool_id:
+            raise HTTPException(409, 'Assign and confirm the spool in this slot before choosing its catalogue name.')
+    for assigned in slots:
+        state = display_object(assigned.tray_observation) if assigned.tray_observation else {}
+        if state is None or ('pending' in state and type(state['pending']) is not bool):
+            raise HTTPException(409, 'The spool-change state is unknown. Refresh and confirm the spool before choosing its catalogue name.')
+        if state.get('pending'):
+            raise HTTPException(409, 'Assign and confirm the spool in this slot before choosing its catalogue name.')
+    return slots
+
+
 def select_spool_filament(db, spool, filament_id, actor):
     """Store the choice on the spool, preserving any measured spool colour."""
+    if not check_org_access(actor, spool.org_id):
+        raise HTTPException(404, 'Spool not found')
+    slots = guard_catalogue_slots(db, spool.id)
+    db.refresh(spool, ['filament_id', 'filament', 'org_id'])
     if not check_org_access(actor, spool.org_id):
         raise HTTPException(404, 'Spool not found')
     filament = db.query(FilamentLibrary).filter_by(id=filament_id).first()
@@ -96,7 +109,6 @@ def select_spool_filament(db, spool, filament_id, actor):
         return filament
     # A spool with no library filament has no material to keep: refused below, never a crash.
     material = canonical_reported_material(spool.filament.material if spool.filament else None)
-    slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).populate_existing().all()
     for slot in slots:
         if canonical_reported_material(reported_slot(slot)[0]) != material:
             raise HTTPException(409, 'The spool and the slot disagree about the material. Confirm the spool before choosing its catalogue name.')

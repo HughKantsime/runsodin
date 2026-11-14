@@ -2,6 +2,14 @@ import CataloguePicker from './CataloguePicker'
 import { useState, useEffect } from 'react'
 import { Modal } from '../ui'
 
+// Match the existing exact material labels used by catalogue relabelling.
+const catalogueMaterials = new Set('PLA PLA-S PLA-CF PLA-SILK PLA-MATTE PLA-AERO PETG PETG-CF ABS ABS-GF ASA TPU TPU-95A TPU-83A PA PA-CF PA-GF PA6 PA6-CF PA6-GF PA12-CF PC PC-ABS PC-CF PVA HIPS SUPPORT SUPPORT-W SUPPORT-G'.split(' '))
+function catalogueMaterial(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 32 || /[\x00-\x1f]/.test(value)) return null
+  const material = value.trim().toUpperCase().replace(/_/g, '-')
+  return catalogueMaterials.has(material) ? material : null
+}
+
 export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spool: any; filaments?: any[]; onClose: () => void; onSave: (data: any) => void }) {
   const [form, setForm] = useState({
     filament_id: String(spool?.filament_id || ''),
@@ -58,7 +66,11 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
 
   if (!spool) return null;
 
-  const choices = filaments.filter(f => f.source !== 'spoolman')
+  const material = catalogueMaterial(spool.filament_material)
+  const choices = filaments.filter(f => f.source !== 'spoolman' && (
+    String(f.id).replace('lib_', '') === String(spool.filament_id) ||
+    (f.catalogue_code != null && material !== null && catalogueMaterial(f.material) === material)
+  ))
   if (!choices.some(f => String(f.id).replace('lib_', '') === String(spool.filament_id))) {
     choices.unshift({ id: spool.filament_id, brand: spool.filament_brand,
       name: spool.filament_name || 'Current filament', material: spool.filament_material })
@@ -86,7 +98,10 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {filaments.length > 0 && <CataloguePicker filaments={choices} value={form.filament_id} onChange={filament_id => setForm({ ...form, filament_id })} />}
+        {filaments.length > 0 && <>
+          <CataloguePicker filaments={choices} value={form.filament_id} onChange={filament_id => setForm({ ...form, filament_id })} />
+          <p className="text-sm text-[var(--brand-text-muted)]">Only the current filament and catalogue entries with the same material are shown.</p>
+        </>}
         {error && <p role="alert" className="text-red-400 text-sm">{error}</p>}
         <div>
           <label htmlFor="spool-pa-profile" className="block text-sm text-[var(--brand-text-muted)] mb-1">PA Profile</label>
