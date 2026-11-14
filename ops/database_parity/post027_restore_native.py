@@ -336,6 +336,9 @@ def main():
         with admin.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS post027_tamper056 WITH (FORCE)')
         print('post027-native-released056-checksum-ledger-and-schema-refusals-target-untouched-pass',flush=True)
 
+        from core.audit_integrity import verify
+        from core.audit_receipts import seal
+        from core.audit_heads import advance_head
         from ops.database_parity.audit_integrity_native import exercise
         exercise(engine)
         # 5. Current-schema backup -> restore round trip keeps data, including a 032 row.
@@ -368,7 +371,12 @@ def main():
             c.execute(text("INSERT INTO audit_siem_destinations(id,name,kind,endpoint,enabled,tls) VALUES('roundtrip_e1','Owned SIEM','syslog','syslog://192.0.2.10:6514',0,1)"))
             c.execute(text("INSERT INTO audit_logs(id,action) VALUES(990001,'roundtrip_e1')"))
             c.execute(text("INSERT INTO audit_siem_outbox(destination_id,audit_id,attempts) VALUES('roundtrip_e1',990001,2)"))
-            c.execute(text("INSERT INTO audit_integrity_status(id,checked_at,result) VALUES(1,123,:r)"), {'r':'{"ok":true}'})
+            # A real signed verification result: a hand-written status row is, correctly, rejected as unauthentic.
+            audit_check = {**verify(c), 'checked_at': time.time()}
+            assert audit_check['ok'], audit_check
+            audit_status = json.dumps(seal(audit_check, c))
+            c.execute(text("INSERT INTO audit_integrity_status(id,checked_at,result) VALUES(1,:t,:r)"),
+                      {'t': audit_check['checked_at'], 'r': audit_status})
             c.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(990046,'Fixture','Roundtrip')"))
             c.execute(text("INSERT INTO spools(id,filament_id) VALUES(990046,990046)"))
             # 046 and 057: an observed, flagged slot on an ACE printer, with its confirmation.
@@ -388,6 +396,10 @@ def main():
             seed_roster(c)
             c.execute(text("INSERT INTO traceability_records(job_id,attempt,snapshot,snapshot_sha256,captured_at,inspection_result,inspected_by) VALUES(990034,0,'{}','44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a','2026-11-05T00:00:00Z','pass',3)"))
             c.execute(text("INSERT INTO traceability_policies(owner_id,org_id,target_kind,target_key,required) VALUES(1,1,'printer_tag','roundtrip052',1)"))
+        advance_head(audit_check)
+        with engine.connect() as c:
+            before_backup = verify(c)
+            assert before_backup['ok'], before_backup
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -410,11 +422,11 @@ def main():
             assert c.execute(text("SELECT decision,spool_id FROM tray_confirmations WHERE slot_id=990046")).one() == ('same',990046)
             assert c.execute(text("SELECT do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990046")).one() == (True,'Feed fault')
             assert c.execute(text("SELECT ace_status FROM printers WHERE id=990046")).scalar_one() == '{"auto_refill":1}'
-            from core.audit_integrity import verify
-            assert verify(c)['ok']
+            after_restore = verify(c)
+            assert after_restore['ok'], after_restore
             assert c.execute(text("SELECT name FROM audit_siem_destinations WHERE id='roundtrip_e1'")).scalar_one() == 'Owned SIEM'
             assert c.execute(text("SELECT attempts FROM audit_siem_outbox WHERE destination_id='roundtrip_e1' AND audit_id=990001")).scalar_one() == 2
-            assert c.execute(text("SELECT result FROM audit_integrity_status WHERE id=1")).scalar_one() == '{"ok":true}'
+            assert c.execute(text("SELECT result FROM audit_integrity_status WHERE id=1")).scalar_one() == audit_status
             assert c.execute(text("SELECT name FROM education_trainings WHERE id='roundtrip048'")).scalar_one() == 'Safety'
             assert c.execute(text("SELECT training_revision FROM education_training_records WHERE training_id='roundtrip048'")).scalar_one() == 1
             from ops.database_parity.education_classes_fixtures import verify as verify_classes
