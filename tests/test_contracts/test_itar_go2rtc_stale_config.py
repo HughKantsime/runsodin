@@ -11,6 +11,17 @@ sources (exit 10, go2rtc may start), and if even that fails the entrypoint refus
 the container (exit 11, or any other status). With ITAR mode off nothing changes (exit 1,
 file untouched, container starts).
 
+What this protects is the FILE go2rtc is started with, which in the single container is
+everything: supervisord starts go2rtc after the preparation, from that file.
+
+A go2rtc run as its own container (the enterprise layout) is outside what ODIN can verify
+(decision of 2026-11-13, after three review rounds: merged configuration files, no process
+identity, state that outlives a mode change). There, under ITAR mode, the preparation
+sends that go2rtc ONE request to restart after the checked file is written, best effort:
+a failure is a WARNING in the log, changes no exit status and records nothing. The tests at
+the end of this file pin exactly that and no more. go2rtc is a stub there (httpx.post is
+replaced); no go2rtc runs.
+
 The entrypoint tests run the real shell block from docker/entrypoint.sh with the Python
 command replaced by a fixed exit status. The image itself is not built or started here.
 """
@@ -196,3 +207,143 @@ def test_with_itar_off_a_different_config_path_is_not_checked(tmp_path, monkeypa
     monkeypatch.setenv("GO2RTC_CONFIG", str(tmp_path / "camera.yaml"))
     monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
     assert prepare.main() == 1 and stale.read_text() == STALE
+
+
+# ---- a go2rtc run as its own container: one best-effort restart request, no claim ----
+
+SEPARATE = "http://10.9.0.8:1984"
+
+
+@pytest.fixture
+def separate(tmp_path, monkeypatch):
+    """ITAR mode on, go2rtc at its own address, and a preparation that can succeed or fail."""
+    import core.db
+    import httpx
+    from modules.printers import camera_relay, route_utils
+    path = tmp_path / "go2rtc.yaml"
+    path.write_text(STALE)
+    monkeypatch.setenv("GO2RTC_CONFIG", str(path))
+    monkeypatch.setattr(prepare, "LAUNCHED_CONFIG_PATH", str(path))
+    monkeypatch.setenv("ODIN_CAMERA_RELAY_SECRET_FILE", str(tmp_path / "relay-secret"))
+    monkeypatch.delenv("ODIN_CAMERA_RELAY_BASE_URL", raising=False)
+    monkeypatch.setenv("ODIN_GO2RTC_API_URL", SEPARATE)
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    camera_relay.rotate_relay_secret()
+    monkeypatch.setattr(camera_relay, "rotate_relay_secret", lambda: None)
+
+    class Session:
+        def close(self):
+            pass
+    monkeypatch.setattr(core.db, "SessionLocal", Session)
+    state = {"preparation_fails": False, "answer": 200, "raises": None, "requests": [], "written": []}
+
+    def build(db):
+        if state["preparation_fails"]:
+            raise OSError(28, "No space left on device")
+        return {"streams": {"printer_4": "rtsp://192.168.1.40:554/s"}}
+    monkeypatch.setattr(route_utils, "_build_go2rtc_config", build)
+    monkeypatch.setattr(route_utils, "write_go2rtc_config_before_start", lambda config: state["written"].append(config))
+
+    def post(url, **kwargs):
+        assert state["written"] or "8.8.8.8" not in path.read_text(), "asked to restart before the file was safe"
+        state["requests"].append(("POST", url, kwargs.get("trust_env")))
+        if state["raises"] is not None:
+            raise state["raises"]
+        return httpx.Response(state["answer"])
+    monkeypatch.setattr(httpx, "post", post)
+    for name in ("get", "request", "put", "delete", "patch"):
+        monkeypatch.setattr(httpx, name, lambda *a, **k: pytest.fail("only one restart request is sent"))
+    state["path"], state["folder"] = path, tmp_path
+    return state
+
+
+def _nothing_recorded(state):
+    """No pass/fail state is kept anywhere next to the configuration or the relay secret."""
+    names = sorted(item.name for item in state["folder"].iterdir())
+    return [name for name in names if "gate" in name or "itar" in name]
+
+
+def test_a_separate_go2rtc_is_asked_once_to_restart_after_the_checked_file_is_written(separate, capsys):
+    assert prepare.main() == 0
+    assert separate["requests"] == [("POST", f"{SEPARATE}/api/restart", False)]
+    assert "asked the separate camera relay (go2rtc) to restart" in capsys.readouterr().out
+    assert _nothing_recorded(separate) == []
+
+
+def test_after_a_failed_preparation_the_emptied_file_is_what_go2rtc_is_asked_to_reload(separate):
+    separate["preparation_fails"] = True
+    assert prepare.main() == prepare.SAFE_TO_START_WITHOUT_CAMERAS
+    assert "8.8.8.8" not in separate["path"].read_text()
+    assert [request[:2] for request in separate["requests"]] == [("POST", f"{SEPARATE}/api/restart")]
+
+
+@pytest.mark.parametrize("failure", ["error_answer", "not_reachable", "timeout", "credentials", "unexpected"])
+@pytest.mark.parametrize("preparation_fails", [False, True])
+def test_a_restart_that_fails_is_a_warning_and_nothing_else(separate, capsys, failure, preparation_fails):
+    import httpx
+    separate["preparation_fails"] = preparation_fails
+    if failure == "error_answer":
+        separate["answer"] = 500
+    elif failure == "credentials":
+        separate["answer"] = 401
+    elif failure == "not_reachable":
+        separate["raises"] = httpx.ConnectError("refused")
+    elif failure == "timeout":
+        separate["raises"] = httpx.ReadTimeout("slow")
+    else:
+        separate["raises"] = RuntimeError("anything else")
+    assert prepare.main() == (10 if preparation_fails else 0), "the exit status is what it would have been"
+    logged = capsys.readouterr().err
+    assert logged.count("WARNING") == 1
+    assert "could not be restarted" in logged and "Restart that container by hand." in logged
+    assert _nothing_recorded(separate) == []
+    code, output = _entrypoint("1", 10 if preparation_fails else 0)
+    assert code == 0 and "STARTED" in output, "the container starts either way"
+
+
+def test_a_separate_go2rtc_address_odin_refuses_is_a_warning_and_no_request(separate, capsys, monkeypatch):
+    monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://8.8.4.4:1984")
+    assert prepare.main() == 0
+    assert separate["requests"] == [] and "WARNING" in capsys.readouterr().err
+
+
+def test_go2rtc_beside_the_api_is_not_asked_to_restart(separate, monkeypatch):
+    """supervisord starts it after this script, from the checked file."""
+    monkeypatch.delenv("ODIN_GO2RTC_API_URL")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("supervisorctl was called before supervisord runs"))
+    assert prepare.main() == 0 and separate["requests"] == []
+
+
+def test_with_itar_off_a_separate_go2rtc_is_not_asked_to_restart(separate, monkeypatch):
+    monkeypatch.delenv("ODIN_ITAR_MODE")
+    assert prepare.main() == 0
+    separate["preparation_fails"] = True
+    assert prepare.main() == 1
+    assert separate["requests"] == [] and separate["path"].read_text() == STALE
+
+
+def test_the_gate_and_the_stream_purge_are_gone_and_go2rtc_target_is_as_it_was():
+    printers = ROOT / "backend/modules/printers"
+    assert not (printers / "go2rtc_gate.py").exists() and not (printers / "go2rtc_purge.py").exists()
+    access = (printers / "go2rtc_access.py").read_text(encoding="utf-8")
+    script = (ROOT / "backend/scripts/prepare_go2rtc_config.py").read_text(encoding="utf-8")
+    for gone in ("go2rtc_gate", "require_gate", "Go2rtcNotChecked", "_gate"):
+        assert gone not in access, gone
+    for gone in ("go2rtc_gate", "go2rtc_purge", "new_mark", "odin_boot_check", "open_gate"):
+        assert gone not in script, gone
+    assert "def go2rtc_target() -> Go2rtcTarget:" in access
+    assert script.count("_go2rtc_reload()") == 1 and script.count("ask_separate_go2rtc_to_restart()") == 2
+
+
+def test_the_guide_says_what_itar_mode_covers_and_that_a_separate_relay_is_not_verified():
+    guide = (ROOT / "docs/ITAR_MODE.md").read_text(encoding="utf-8")
+    section = guide[guide.index("## What ITAR mode covers"):]
+    section = section[:section.index("\n## ", 5)]
+    for needed in ("the O.D.I.N. server's own processes",
+                   "O.D.I.N. cannot verify what a separately run relay has loaded or what it connects to.",
+                   "Restart the relay container yourself after turning ITAR mode on",
+                   "Restrict the relay container's network to the camera subnet",
+                   "asks the relay once to restart", "`WARNING`", "O.D.I.N. still starts"):
+        assert needed in section, needed
+    for claim in ("checks that it loaded", "the API container does not start", "restart and check"):
+        assert claim not in guide, claim

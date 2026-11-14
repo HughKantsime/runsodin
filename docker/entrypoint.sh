@@ -263,7 +263,7 @@ case "$*" in
             odin_go2rtc_status=$?
             if [ "${odin_itar_on}" = "1" ] && [ "${odin_go2rtc_status}" != "10" ]; then
                 echo "  ✗ ODIN_ITAR_MODE=1: the camera (go2rtc) configuration could not be prepared, and go2rtc could still use a camera source O.D.I.N. has not checked (the reason is in the lines above)." >&2
-                echo "    O.D.I.N. will not start like that. Free space on, or fix the permissions of, the go2rtc configuration folder; unset GO2RTC_CONFIG; or restart the go2rtc container; then start again." >&2
+                echo "    O.D.I.N. will not start like that. Free space on, or fix the permissions of, the go2rtc configuration folder, or unset GO2RTC_CONFIG, then start again." >&2
                 exit 1
             fi
         fi

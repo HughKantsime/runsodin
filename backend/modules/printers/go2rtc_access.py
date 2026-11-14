@@ -40,18 +40,6 @@ class Go2rtcUrlRefused(ItarOutboundBlocked, HTTPException):
         HTTPException.__init__(self, 409, ITAR_REFUSAL)
 
 
-ITAR_NOT_RESTARTED = ("Cameras are turned off: ITAR mode is on and go2rtc has not yet been restarted "
-                      "with the checked camera configuration.")
-
-
-class Go2rtcNotChecked(Go2rtcUrlRefused):
-    """ITAR mode is on, go2rtc is its own service, and it has not (yet) been shown to run
-    the configuration ODIN checked (modules.printers.go2rtc_gate). Nothing is sent to it."""
-
-    def __init__(self):
-        HTTPException.__init__(self, 409, ITAR_NOT_RESTARTED)
-
-
 class Go2rtcTarget(NamedTuple):
     """Where one go2rtc request goes, from one check of the address."""
     url: str             # base URL to send to
@@ -97,13 +85,8 @@ def _checked_address():
     return pinned, host, remote
 
 
-def go2rtc_target(_gate: bool = True) -> Go2rtcTarget:
+def go2rtc_target() -> Go2rtcTarget:
     """The address and httpx settings for a request to go2rtc's API, from one check.
-
-    Under ITAR mode with go2rtc as its own service, the caller gets a target only once
-    go2rtc has been restarted with the checked configuration (go2rtc_gate.require_gate, which
-    does that on the first contact); otherwise Go2rtcNotChecked is raised and the caller
-    sends nothing. `_gate=False` is for the gate's own two requests.
 
     Callers build the request from this one value: `target.url` plus the path, and
     `**target.client_kwargs` on the client (or on httpx.get/post/stream).
@@ -117,12 +100,6 @@ def go2rtc_target(_gate: bool = True) -> Go2rtcTarget:
         kwargs["trust_env"] = should_trust_env()
         if host is not None:
             kwargs["headers"] = {"Host": host}
-        if remote and _gate:
-            from modules.printers import go2rtc_gate
-            try:
-                go2rtc_gate.require_gate()
-            except (go2rtc_gate.Go2rtcNotRunning, go2rtc_gate.Go2rtcGateFailed):
-                raise Go2rtcNotChecked() from None
     return Go2rtcTarget(url, kwargs, remote)
 
 

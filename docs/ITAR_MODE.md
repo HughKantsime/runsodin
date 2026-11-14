@@ -17,11 +17,26 @@ With ITAR mode on, the server opens no connection to an address outside the loca
 - Webhooks: only a webhook on your local network (10.x, 172.16-31.x, 192.168.x, or IPv6 unique-local) is sent, to the address that was checked. Loopback and link-local addresses are refused, and so are O.D.I.N.'s own ports on its own addresses. **A webhook also cannot use the database's or the camera relay's port number, on any host:** the port in `DATABASE_URL` and `DATABASE_MAINTENANCE_URL` (5432 when the URL names none) and the port in `ODIN_GO2RTC_API_URL` (80 for `http://`, 443 for `https://`, when the URL names none). If your webhook receiver listens on one of those numbers, move it to another port. The built-in Telegram, Pushover and WhatsApp senders are public services and stay off.
 - Mail (SMTP) and MQTT (event republishing, its connection test, smart-plug commands): the server's name is looked up once and the connection, and every MQTT reconnect, goes to that checked address. TLS still uses the configured host name.
 - Printers, cameras and smart plugs outside the local network are not contacted. An Elegoo printer cannot redirect its WebSocket connection to another address.
-- Cameras (go2rtc): if the camera configuration cannot be written when the container starts, go2rtc starts with no cameras instead of the previous file; if the previous file cannot be replaced, the container does not start. `GO2RTC_CONFIG` must be unset or name the file go2rtc is started with (`/app/go2rtc/go2rtc.yaml`); any other path stops the container at start, because O.D.I.N. would check one file while go2rtc loaded another. When go2rtc runs as its own container (the enterprise layout), O.D.I.N. does not start or stop it, and go2rtc keeps the cameras it loaded in memory. So each time the API container starts, after writing the checked configuration, O.D.I.N. tells the running go2rtc to restart (through go2rtc's own API), waits for it to answer again, and checks that it loaded exactly the cameras O.D.I.N. wrote. If that fails (go2rtc answers with an error, not in time, with a certificate error, rejects O.D.I.N.'s credentials, or lists a camera O.D.I.N. did not write), the API container does not start. If nothing is listening at go2rtc's address, it is not running: the API starts, cameras stay off, and the same restart and check is done before the first request any O.D.I.N. service sends to go2rtc. Expect one go2rtc restart, and a short camera interruption, at each start of the API container.
+- Cameras (go2rtc): if the camera configuration cannot be written when the container starts, go2rtc starts with no cameras instead of the previous file; if the previous file cannot be replaced, the container does not start. `GO2RTC_CONFIG` must be unset or name the file go2rtc is started with (`/app/go2rtc/go2rtc.yaml`); any other path stops the container at start, because O.D.I.N. would check one file while go2rtc loaded another. A camera relay run as its own container is a different case: see "What ITAR mode covers" below.
 - Environment proxy settings are ignored, so identity-provider traffic needs a direct route. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and every other variable whose name ends in `_PROXY` (either case) are removed from the environment of the container and of every O.D.I.N. process, and `NO_PROXY` is set to `*`. Start-up logs the names that were set and ignored, never their values. A go2rtc that runs as its own container (the enterprise layout) is not started by O.D.I.N.: do not give that container proxy settings.
 - Push (APNs) and the hardcoded third-party notification APIs stay off.
 
 Private (RFC 1918, loopback, link-local) destinations are unaffected.
+
+## What ITAR mode covers
+
+ITAR mode covers the O.D.I.N. server's own processes: the API, the printer monitors, vision, timelapse, reports, and the camera relay (go2rtc) when it runs inside the O.D.I.N. container, where O.D.I.N. starts it from a camera file it has just checked.
+
+A camera relay (go2rtc) that you run as a separate container, as in the enterprise Compose layout, is outside it. O.D.I.N. does not start or stop that container, and **O.D.I.N. cannot verify what a separately run relay has loaded or what it connects to.** What O.D.I.N. does for it with ITAR mode on:
+
+- It writes only camera sources on the local network into the camera file the relay reads, and it does not start if it cannot write that file.
+- Each time the API container starts, it asks the relay once to restart so that it reads that file again. If the request fails, the log has a line starting with `WARNING` that says the relay could not be restarted. Nothing else happens: O.D.I.N. still starts.
+
+What you must do:
+
+- **Restart the relay container yourself after turning ITAR mode on**, and whenever the log shows that warning. Until it restarts, the relay keeps the cameras it loaded before, which can include a camera outside the local network.
+- **Restrict the relay container's network to the camera subnet**, with your container network or firewall rules, so that it cannot reach anything else whatever it has loaded. O.D.I.N. cannot do this for you.
+- Do not give the relay a second configuration file or extra `-config` arguments: O.D.I.N. only knows about the file it writes.
 
 ## What changed for installations with ITAR mode off
 
