@@ -614,8 +614,9 @@ async def _overlay_frame(printer_id: int) -> bytes:
             del _snapshot_frames[stale]
         frame, missing = bytearray(), False
         try:
-            async with httpx.AsyncClient(trust_env=False, **go2rtc_client_kwargs()) as client:
-                async with client.stream("GET", f"{go2rtc_api_url()}/api/frame.jpeg",
+            go2rtc = go2rtc_target()  # one address check; trust_env stays off in both modes, as before
+            async with httpx.AsyncClient(**{**go2rtc.client_kwargs, "trust_env": False}) as client:
+                async with client.stream("GET", f"{go2rtc.url}/api/frame.jpeg",
                                          params={"src": mjpeg_stream_name(printer_id)}, timeout=15,
                                          follow_redirects=False) as upstream:
                     if upstream.status_code != 200:
