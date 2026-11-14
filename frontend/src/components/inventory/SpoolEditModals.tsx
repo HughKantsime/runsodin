@@ -58,6 +58,13 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
 
   if (!spool) return null;
 
+  const choices = filaments.filter(f => f.source !== 'spoolman')
+  if (!choices.some(f => String(f.id).replace('lib_', '') === String(spool.filament_id))) {
+    choices.unshift({ id: spool.filament_id, brand: spool.filament_brand,
+      name: spool.filament_name || 'Current filament', material: spool.filament_material })
+  }
+
+
   return (
     <Modal isOpen={true} onClose={onClose} title="Edit Spool" size="md">
       <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md">
@@ -79,7 +86,7 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {filaments.length > 0 && <CataloguePicker filaments={filaments} value={form.filament_id} onChange={filament_id => setForm({ ...form, filament_id })} />}
+        {filaments.length > 0 && <CataloguePicker filaments={choices} value={form.filament_id} onChange={filament_id => setForm({ ...form, filament_id })} />}
         {error && <p role="alert" className="text-red-400 text-sm">{error}</p>}
         <div>
           <label htmlFor="spool-pa-profile" className="block text-sm text-[var(--brand-text-muted)] mb-1">PA Profile</label>

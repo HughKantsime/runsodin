@@ -147,3 +147,27 @@ it('editing an imported unknown type retains OTHER and adds no Part B material c
   fireEvent.submit(view.container.ownerDocument.querySelector('form')!)
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ material: 'OTHER' }))
 })
+
+it.each(['missing', 'spoolman', 'empty'])('saves unrelated spool edits when current filament is %s', kind => {
+  const save = vi.fn()
+  const list = kind === 'empty' ? [] : kind === 'spoolman'
+    ? [{ ...entries[0], id: 'spool_14', source: 'spoolman' }] : entries.slice(0, 2)
+  provider(<EditSpoolModal spool={spool} filaments={list} onClose={vi.fn()} onSave={save} />)
+  fireEvent.change(screen.getByPlaceholderText('Any notes...'), { target: { value: 'New note' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ notes: 'New note' }))
+  expect(save.mock.calls[0][0]).not.toHaveProperty('filament_id')
+  if (list.length) expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Custom Comet')
+})
+
+it('unknown spool-change state blocks catalogue and assignment actions without offering confirmation', () => {
+  const save = vi.fn()
+  render(<FilamentSlotEditor slot={{ ...slot, spool_change_pending: true, observed_state: null,
+    catalogue_choices: [{ id: 12, name: entries[0].name }] }} allFilaments={entries} spools={[]} printerId={9} onSave={save} />)
+  fireEvent.click(screen.getByTestId('filament-slot'))
+  expect(screen.getByRole('button', { name: entries[0].name })).toBeDisabled()
+  expect(screen.queryByPlaceholderText('Search filaments...')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: entries[0].name }))
+  expect(filaments.chooseSlot).not.toHaveBeenCalled()
+  expect(save).not.toHaveBeenCalled()
+})

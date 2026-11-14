@@ -4,9 +4,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-- Import your Bambu filament catalogue and pick spools by their exact Bambu name. ODIN shows that name on spools and slots; material checks before a print are unchanged.
-
 ### Added
+
+- Import your Bambu filament catalogue and pick spools by their exact Bambu name. ODIN shows that name on spools and slots; material checks before a print are unchanged.
 
 - The status feed and the Home Assistant integration now report how many prints were stopped mid-run today, separate from failed prints.
 - New: every finished print shows what it actually cost next to its estimate. On a finished job (the Cost link on its row in Jobs, and the job's detail in the Timeline) you see "Estimate $A, actual $B", the difference, and a breakdown: the filament each spool really gave, at the price that spool had when the print started; the hours the printer really ran, at your current electricity and machine rates; and labour, packaging, other costs and overhead from your pricing settings, marked as not measured. Failed and cancelled attempts are counted and listed, so the estimate's failure allowance is not added on top. When something was not recorded (for example a spool with no purchase price) the total is shown as "at least" with the reason, never as the full cost; a job finished by hand with no print on record says "no usage recorded". Nothing is shown until pricing has been saved. Free on every tier. `GET /api/v1/jobs/{id}/cost` returns the same figures to whoever may read the job; nothing new is stored. Pro: Analytics gains a "Cost per print" table by model or by product (pieces made, average actual cost per piece, the estimate, how far apart they are, and the share spent on failed attempts), with a CSV export, and each model card shows its average actual cost per piece. An average appears once a model or product has three completed prints with full cost records; prints with missing records are left out of it and counted beside it. School submissions are not included, and work limited to a group stays limited to that group. `GET /api/v1/analytics/cost-per-print?from=&to=&group=model|product` and `GET /api/v1/export/cost-per-print`.

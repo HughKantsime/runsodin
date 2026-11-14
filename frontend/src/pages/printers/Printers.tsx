@@ -393,7 +393,10 @@ export default function Printers() {
                 spools={spoolsData}
                 onDelete={(id) => setDeleteConfirmId(id)}
                 onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })}
-                onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })}
+                onUpdateSlot={(pid, slot, data) => {
+                  if (Object.keys(data).length === 0) queryClient.invalidateQueries({ queryKey: ['printers'] })
+                  else updateSlot.mutate({ printerId: pid, slotNumber: slot, data })
+                }}
                 onEdit={handleEdit}
                 onSyncAms={handleSyncAms}
                 hasCamera={cameraIds.has(printer.id)}

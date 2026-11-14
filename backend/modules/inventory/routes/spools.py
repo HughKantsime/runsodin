@@ -359,11 +359,10 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
                   {"state": "cleared" if purchase is None else "recorded"})
 
 
-    if "filament_id" in update_data:
+    filament_id = update_data.pop('filament_id', None)
+    if filament_id is not None and filament_id != spool.filament_id:
         from modules.inventory.catalogue_slots import select_spool_filament
-        if update_data['filament_id'] is None:
-            raise HTTPException(400, 'Choose a filament for this spool.')
-        select_spool_filament(db, spool, update_data.pop('filament_id'), current_user)
+        select_spool_filament(db, spool, filament_id, current_user)
         log_audit(db, 'spool.catalogue_selected', 'spool', spool.id, {'filament_id': spool.filament_id})
 
     if "spool_weight_g" in update_data:

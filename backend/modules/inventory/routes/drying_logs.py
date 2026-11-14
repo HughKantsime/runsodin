@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+from anyio.from_thread import run
 
 from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
@@ -147,7 +148,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
 
 
 @router.patch("/{filament_id}", tags=["Filaments"])
-async def update_filament(filament_id: str, updates: FilamentUpdateRequest, request: Request, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
+def update_filament(filament_id: str, updates: FilamentUpdateRequest, request: Request, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -161,7 +162,7 @@ async def update_filament(filament_id: str, updates: FilamentUpdateRequest, requ
 
     if filament.catalogue_code is not None:
         from .catalogue import catalogue_admin
-        await catalogue_admin(request, current_user)
+        run(catalogue_admin, request, current_user)
     update_data = updates.model_dump(exclude_unset=True)
     if filament.catalogue_code is not None and any(
             field in update_data and update_data[field] != getattr(filament, field)
@@ -190,7 +191,7 @@ async def update_filament(filament_id: str, updates: FilamentUpdateRequest, requ
 
 
 @router.delete("/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
-async def delete_filament(filament_id: str, request: Request, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
+def delete_filament(filament_id: str, request: Request, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -203,7 +204,7 @@ async def delete_filament(filament_id: str, request: Request, current_user: dict
         raise HTTPException(status_code=404, detail="Filament not found")
     if filament.catalogue_code is not None:
         from .catalogue import catalogue_admin
-        await catalogue_admin(request, current_user)
+        run(catalogue_admin, request, current_user)
     if filament.cost_per_gram is not None:
         _require_global_rate_writer(current_user)  # removing a rated row moves the material's rate
     # Spools reference their library filament (spools.filament_id NOT NULL FK).

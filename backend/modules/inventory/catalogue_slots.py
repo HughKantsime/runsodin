@@ -66,7 +66,7 @@ def enrich_catalogue_slots(db, printers, actor):
     if not printers:
         return printers
     slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id.in_([p.id for p in printers])).options(
-        joinedload(FilamentSlot.assigned_spool).joinedload(Spool.filament)).all()
+        joinedload(FilamentSlot.assigned_spool).joinedload(Spool.filament)).order_by(FilamentSlot.slot_number).all()
     entries = db.query(FilamentLibrary).filter(FilamentLibrary.catalogue_code.isnot(None)).order_by(FilamentLibrary.id).all()
     by_key, by_printer = defaultdict(list), defaultdict(list)
     for entry in entries:
@@ -92,5 +92,16 @@ def select_spool_filament(db, spool, filament_id, actor):
     filament = db.query(FilamentLibrary).filter_by(id=filament_id).first()
     if filament is None:
         raise HTTPException(404, 'Filament not found')
+    if spool.filament_id == filament.id:
+        return filament
+    # A spool with no library filament has no material to keep: refused below, never a crash.
+    material = canonical_reported_material(spool.filament.material if spool.filament else None)
+    slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).populate_existing().all()
+    for slot in slots:
+        if canonical_reported_material(reported_slot(slot)[0]) != material:
+            raise HTTPException(409, 'The spool and the slot disagree about the material. Confirm the spool before choosing its catalogue name.')
+    if (filament.catalogue_code is None or material is None
+            or canonical_reported_material(filament.material) != material):
+        raise HTTPException(409, 'Choose a catalogue filament with the same material as this spool.')
     spool.filament_id = filament.id
     return filament

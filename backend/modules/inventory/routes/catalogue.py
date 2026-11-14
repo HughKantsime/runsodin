@@ -1,6 +1,7 @@
 """Local file import for the installation-wide filament library."""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from fastapi.concurrency import run_in_threadpool
 from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import require_superadmin
@@ -26,6 +27,10 @@ async def import_bambu_catalogue(request: Request,
         entries = parse_catalogue(raw)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+    return await run_in_threadpool(_import_and_commit, db, entries)
+
+
+def _import_and_commit(db, entries):
     result = import_catalogue(db, entries)
     log_audit(db, 'filament.catalogue_imported', 'filament_library', None,
               {key: value for key, value in result.items() if key != 'unrecognised_types'})
@@ -40,7 +45,7 @@ from modules.printers.models import Printer, FilamentSlot
 from modules.inventory.slot_assignments import lock_slot_graph
 from modules.inventory.catalogue_slots import reported_slot, select_spool_filament
 from modules.inventory.catalogue import matching_entries
-from core.display_json import display_tray_state
+from core.display_json import display_object
 
 
 class CatalogueChoice(BaseModel):
@@ -68,12 +73,18 @@ def choose_slot_catalogue(printer_id: int, slot_number: int, body: CatalogueChoi
     db.refresh(printer)
     if not check_org_access(current_user, printer.org_id):
         raise HTTPException(404, 'Printer not found')
-    if slot.assigned_spool_id != body.spool_id or display_tray_state(slot.tray_observation).get('pending'):
+    state = display_object(slot.tray_observation) if slot.tray_observation else {}
+    if state is None or ('pending' in state and type(state['pending']) is not bool):
+        raise HTTPException(409, 'The spool-change state is unknown. Refresh and confirm the spool before choosing its catalogue name.')
+    if slot.assigned_spool_id != body.spool_id or state.get('pending'):
         raise HTTPException(409, 'Assign and confirm the spool in this slot before choosing its catalogue name.')
     material, color = reported_slot(slot)
     if body.filament_id not in {f.id for f in matching_entries(db, material, color)}:
         raise HTTPException(409, 'This filament does not match the reported material and colour. Refresh the slot and try again.')
-    select_spool_filament(db, slot.assigned_spool, body.filament_id, current_user)
-    log_audit(db, 'spool.catalogue_selected', 'spool', body.spool_id, {'filament_id': body.filament_id})
+    spool = slot.assigned_spool
+    changed = spool.filament_id != body.filament_id
+    select_spool_filament(db, spool, body.filament_id, current_user)
+    if changed:
+        log_audit(db, 'spool.catalogue_selected', 'spool', body.spool_id, {'filament_id': body.filament_id})
     db.commit()
     return {'success': True}

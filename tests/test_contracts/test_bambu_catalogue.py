@@ -132,6 +132,7 @@ def test_slot_one_many_none_and_remembered_on_spool(inventory_client, review_db,
     assert many['catalogue_name'] is None and len(many['catalogue_choices'])==2
     choice=many['catalogue_choices'][1]
     inventory_client.app.dependency_overrides[get_current_user]=lambda:USER
+    review_db.get(FilamentLibrary,990).material = 'PLA'; review_db.commit()
     sid=inventory_client.post('/api/spools',json={'filament_id':990}).json()['id']
     slot.assigned_spool_id=sid; review_db.commit()
     before=(slot.filament_type,slot.color_hex,slot.tray_observation,printer.ace_status)
@@ -276,7 +277,7 @@ def test_response_resolution_has_constant_query_count_40_by_16(inventory_client,
     for i in range(40):
         printer = Printer(name=f'Synthetic display {i}',api_type='moonraker',slot_count=16)
         review_db.add(printer); review_db.flush()
-        for n in range(1,17):
+        for n in range(16,0,-1):
             review_db.add(FilamentSlot(printer_id=printer.id,slot_number=n,
                 filament_type=FilamentType.PLA,color_hex='1234AB',
                 tray_observation=json.dumps({'observed':{'type':'PLA','color':'1234AB'}}) if n % 2 else None,
@@ -293,6 +294,7 @@ def test_response_resolution_has_constant_query_count_40_by_16(inventory_client,
         event.remove(review_db.bind,'before_cursor_execute',count)
     assert len(statements) == 2
     assert len(result) == 40 and sum(len(p['filament_slots']) for p in result) == 640
+    assert all([s['slot_number'] for s in p['filament_slots']] == list(range(1, 17)) for p in result)
     assert all(s['catalogue_name']==name and s['catalogue_choices']==[] for p in result for s in p['filament_slots'])
 
 
@@ -300,7 +302,8 @@ def test_spool_patch_preserves_link_then_financial_lock_order(inventory_client, 
     from modules.inventory.routes import spools
     from modules.inventory import catalogue_slots
     upload(inventory_client)
-    fid = review_db.query(FilamentLibrary).filter_by(catalogue_code='ODIN-TEST-COMET').one().id
+    fid = review_db.query(FilamentLibrary).filter_by(catalogue_code='ODIN-TEST-ORBIT').one().id
+    review_db.get(FilamentLibrary,990).material = 'PLA'; review_db.commit()
     sid = inventory_client.post('/api/spools',json={'filament_id':990}).json()['id']
     order = []
     for module, name in [(spools,'_serialize_spoolman_link'),(spools,'require_financial_owner'),

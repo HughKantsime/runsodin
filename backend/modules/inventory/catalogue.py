@@ -2,7 +2,7 @@
 import json
 import re
 
-from sqlalchemy import text
+from sqlalchemy import text, func
 from core.material_identity import canonical_reported_material
 from modules.inventory.models import FilamentLibrary
 
@@ -88,8 +88,11 @@ def import_catalogue(db, entries):
     elif connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
         connection.exec_driver_sql('BEGIN IMMEDIATE')
     created = updated = preserved = 0
+    existing = {row.catalogue_code: row for row in db.query(FilamentLibrary).filter(
+        FilamentLibrary.brand == 'Bambu Lab',
+        FilamentLibrary.catalogue_code.in_([entry['catalogue_code'] for entry in entries])).all()}
     for entry in entries:
-        row = db.query(FilamentLibrary).filter_by(brand='Bambu Lab', catalogue_code=entry['catalogue_code']).first()
+        row = existing.get(entry['catalogue_code'])
         if row is None:
             row = FilamentLibrary(brand='Bambu Lab', is_custom=False, **entry)
             db.add(row)
@@ -119,4 +122,4 @@ def matching_entries(db, material, color):
         return []
     return db.query(FilamentLibrary).filter(
         FilamentLibrary.catalogue_code.isnot(None), FilamentLibrary.material == material,
-        FilamentLibrary.color_hex == color[:6]).order_by(FilamentLibrary.id).all()
+        func.upper(FilamentLibrary.color_hex) == color[:6]).order_by(FilamentLibrary.id).all()
