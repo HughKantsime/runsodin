@@ -641,15 +641,20 @@ def is_own_service_endpoint(ip, port) -> bool:
 
 
 def configured_service_ports() -> frozenset:
-    """The port numbers of the services this installation is configured to use, read from
-    the environment now, with no lookup: the PostgreSQL server (the port in DATABASE_URL and
-    DATABASE_MAINTENANCE_URL, or 5432) and the go2rtc API (the port in ODIN_GO2RTC_API_URL,
-    or the scheme's own port, 80 or 443, when it names none: that is where the request goes).
+    """The port numbers of the services this installation is configured to use, with no
+    lookup: the PostgreSQL server (the port in the database URL and the maintenance URL, or
+    5432) and the go2rtc API (the port in ODIN_GO2RTC_API_URL, or the scheme's own port, 80
+    or 443, when it names none: that is where the request goes).
+
+    The database URLs are read from core.config.settings, the object the engine is built
+    from, never from os.environ: the settings also come from a .env file and from variable
+    names in any letter case, which a look at os.environ["DATABASE_URL"] would miss.
 
     Used for webhooks under ITAR mode, where the test is the port alone, on any host. A host
     comparison would need a name lookup that can disagree with the one the webhook is
     pinned to; a port needs none.
     """
+    from core import config
     ports = set()
     go2rtc_url = (os.environ.get("ODIN_GO2RTC_API_URL") or "").strip()
     if go2rtc_url:
@@ -658,13 +663,12 @@ def configured_service_ports() -> frozenset:
             ports.add(parsed.port or (443 if parsed.scheme.lower() == "https" else 80))
         except ValueError:
             pass
-    for name in ("DATABASE_URL", "DATABASE_MAINTENANCE_URL"):
-        value = (os.environ.get(name) or "").strip()
+    for value in (config.settings.database_url, config.settings.database_maintenance_url):
+        value = str(value or "").strip()
         if not value.lower().startswith(("postgresql", "postgres")):
             continue
         try:
-            authority = urllib.parse.urlsplit(value)
-            ports.add(authority.port or 5432)
+            ports.add(urllib.parse.urlsplit(value).port or 5432)
         except ValueError:
             ports.add(5432)
     return frozenset(ports)

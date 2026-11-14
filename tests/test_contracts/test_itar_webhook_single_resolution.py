@@ -206,12 +206,20 @@ def test_the_public_only_rule_other_callers_ask_for_does_not_change_with_the_mod
 # name lookup that could disagree with the pinned one, and missed effective ports. Round 3:
 # the test is the port alone, on any host, with no lookup.
 
+def _database(monkeypatch, url, maintenance=None):
+    """The database the application is configured with: the settings object the engine is
+    built from (core.config.settings), not the process environment."""
+    from core import config
+    monkeypatch.setattr(config.settings, "database_url", url)
+    monkeypatch.setattr(config.settings, "database_maintenance_url", maintenance)
+
+
 @pytest.fixture
 def services(monkeypatch):
     """go2rtc on a custom port and PostgreSQL by name, as an enterprise install configures them."""
     monkeypatch.setenv("ODIN_GO2RTC_API_URL", "http://10.2.0.8:1999")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://odin@postgres:5432/odin")
-    monkeypatch.setenv("DATABASE_MAINTENANCE_URL", "postgresql://odin_maintenance@10.2.0.9:6432/postgres")
+    _database(monkeypatch, "postgresql://odin@postgres:5432/odin",
+              "postgresql://odin_maintenance@10.2.0.9:6432/postgres")
     monkeypatch.setattr(webhook_utils, "own_interface_addresses", lambda: frozenset())
     lookups = []
 
@@ -244,29 +252,72 @@ def test_other_local_webhooks_still_work_under_itar(itar_on, client, services, u
 def test_the_exclusion_makes_no_lookup_of_its_own(itar_on, client, services, monkeypatch):
     """Recheck 2, finding 7: the database is `db:5432`; a webhook to http://db:5432/ was
     looked up once for the pin and again for the exclusion, and the two answers differed."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql://odin@db:5432/odin")
+    _database(monkeypatch, "postgresql://odin@db:5432/odin")
     with pytest.raises(WebhookSSRFError):
         safe_post("http://db:5432/", json={})
     assert services == ["db"], "one lookup: the webhook's own"
-    assert webhook_utils.configured_service_ports() == {1999, 5432, 6432} and services == ["db"]
+    assert webhook_utils.configured_service_ports() == {1999, 5432} and services == ["db"]
 
 
-@pytest.mark.parametrize("environment, ports", [
-    ({"DATABASE_URL": "postgresql://u@10.1.1.1/d"}, {5432}),                           # no port: 5432
-    ({"DATABASE_URL": "postgresql+psycopg://u@[::ffff:10.1.1.1]:6000/d"}, {6000}),
-    ({"DATABASE_URL": "postgres://u@/d"}, {5432}),                                     # the socket's port number
-    ({"DATABASE_URL": "sqlite:////data/odin.db"}, set()),                              # SQLite has no server
-    ({"ODIN_GO2RTC_API_URL": "http://go2rtc"}, {80}),                                  # where an http URL goes
-    ({"ODIN_GO2RTC_API_URL": "https://go2rtc.plant.example"}, {443}),
-    ({"ODIN_GO2RTC_API_URL": "http://go2rtc:1984"}, {1984}),
-    ({}, set()),                                                                       # go2rtc beside the API: fixed list
+@pytest.mark.parametrize("database, maintenance, go2rtc, ports", [
+    ("postgresql://u@10.1.1.1/d", None, None, {5432}),                           # no port: 5432
+    ("postgresql+psycopg://u@[::ffff:10.1.1.1]:6000/d", None, None, {6000}),
+    ("postgres://u@/d", None, None, {5432}),                                     # the socket's port number
+    ("postgresql://u@db:6432/d", "postgresql://m@db:7432/postgres", None, {6432, 7432}),
+    ("sqlite:////data/odin.db", None, None, set()),                              # SQLite has no server
+    ("sqlite:////data/odin.db", None, "http://go2rtc", {80}),                    # where an http URL goes
+    ("sqlite:////data/odin.db", None, "https://go2rtc.plant.example", {443}),
+    ("sqlite:////data/odin.db", None, "http://go2rtc:1984", {1984}),
 ])
-def test_the_ports_are_the_effective_ones(monkeypatch, environment, ports):
-    for name in ("DATABASE_URL", "DATABASE_MAINTENANCE_URL", "ODIN_GO2RTC_API_URL"):
-        monkeypatch.delenv(name, raising=False)
-    for name, value in environment.items():
-        monkeypatch.setenv(name, value)
+def test_the_ports_are_the_effective_ones(monkeypatch, database, maintenance, go2rtc, ports):
+    monkeypatch.delenv("ODIN_GO2RTC_API_URL", raising=False)
+    if go2rtc:
+        monkeypatch.setenv("ODIN_GO2RTC_API_URL", go2rtc)
+    _database(monkeypatch, database, maintenance)
     assert webhook_utils.configured_service_ports() == ports
+
+
+@pytest.mark.parametrize("how", ["lower_case_variable", "env_file", "upper_case_variable"])
+def test_the_database_port_comes_from_the_settings_the_engine_is_built_from(itar_on, client, monkeypatch, tmp_path, how):
+    """Recheck 3, finding 5: the application reads its database URL through its settings,
+    which also take a .env file and variable names in any letter case. The exclusion read
+    os.environ["DATABASE_URL"] only: with `database_url=postgresql://odin@10.9.0.7:6432/odin`
+    the server used that database and a webhook to http://10.9.0.7:6432/ was accepted."""
+    from core import config
+    for name in ("DATABASE_URL", "database_url", "DATABASE_MAINTENANCE_URL", "database_maintenance_url",
+                 "ODIN_GO2RTC_API_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    url, maintenance = "postgresql://odin@10.9.0.7:6432/odin", "postgresql://odin_maintenance@10.9.0.7:7432/postgres"
+    if how == "lower_case_variable":
+        monkeypatch.setenv("database_url", url)
+        monkeypatch.setenv("database_maintenance_url", maintenance)
+    elif how == "env_file":
+        (tmp_path / ".env").write_text(f"DATABASE_URL={url}\nDatabase_Maintenance_Url={maintenance}\n")
+    else:
+        monkeypatch.setenv("DATABASE_URL", url)
+        monkeypatch.setenv("DATABASE_MAINTENANCE_URL", maintenance)
+    effective = config.Settings()                      # what the application would load
+    assert effective.database_url == url, "the engine is built from this"
+    monkeypatch.setattr(config, "settings", effective)
+    monkeypatch.setattr(webhook_utils, "own_interface_addresses", lambda: frozenset())
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", lambda host, *a, **k: _answer("10.9.0.50"))
+    assert webhook_utils.configured_service_ports() == {6432, 7432}
+    for port in (6432, 7432):
+        with pytest.raises(WebhookSSRFError):
+            safe_post(f"http://10.9.0.7:{port}/", json={})
+    assert safe_post("http://10.9.0.7:8080/hook", json={}).status_code == 200
+
+
+def test_the_exclusion_does_not_read_the_database_url_from_the_environment(monkeypatch):
+    """A DATABASE_URL in os.environ that the settings object does not hold (set after the
+    settings were loaded) is not what the engine uses, and is not what is excluded."""
+    monkeypatch.delenv("ODIN_GO2RTC_API_URL", raising=False)
+    _database(monkeypatch, "postgresql://odin@db:6432/odin")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://odin@elsewhere:9999/odin")
+    assert webhook_utils.configured_service_ports() == {6432}
+    source = webhook_utils.configured_service_ports.__code__
+    assert "DATABASE_URL" not in source.co_consts and "DATABASE_MAINTENANCE_URL" not in source.co_consts
 
 
 def test_a_go2rtc_url_without_a_port_refuses_its_real_port_not_1984(itar_on, client, services, monkeypatch):
