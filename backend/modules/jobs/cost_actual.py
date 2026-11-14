@@ -211,6 +211,35 @@ def _rows(db, statement, ids):
     return found
 
 
+def load_recorded_usage(db, attempt_ids):
+    """The common archive-first, ledger-second material source for cost and corrections."""
+    archived, ledger = {}, {}
+    if attempt_ids:
+        for row in _rows(db, "SELECT print_job_id,accounting_state,consumption_json FROM print_archives "
+                             "WHERE print_job_id IN :ids ORDER BY id", attempt_ids):
+            archived.setdefault(row["print_job_id"], row)
+        from core.filament_ledger import row_kind
+        for row in _rows(db, "SELECT print_job_id,spool_id,weight_used_g,notes FROM spool_usage "
+                             "WHERE print_job_id IN :ids ORDER BY id", attempt_ids):
+            if row_kind(row["notes"]) in ("ledger", "auto"):
+                spools = ledger.setdefault(row["print_job_id"], {})
+                spools[row["spool_id"]] = spools.get(row["spool_id"], 0.0) + (row["weight_used_g"] or 0.0)
+    result = {}
+    for identifier in attempt_ids:
+        archive = archived.get(identifier)
+        entries = _decoded(archive["consumption_json"]) if archive and archive["accounting_state"] in _ACCOUNTED else None
+        usage = None
+        if isinstance(entries, list) and entries and all(
+                isinstance(item, dict) and type(item.get("spool_id")) is int for item in entries):
+            usage = [{"spool_id": item["spool_id"], "grams": item.get("grams_used"),
+                      "provenance": item.get("quantity_provenance")} for item in entries]
+        elif identifier in ledger:
+            usage = [{"spool_id": spool_id, "grams": grams, "provenance": None}
+                     for spool_id, grams in sorted(ledger[identifier].items())]
+        result[identifier] = usage
+    return result
+
+
 def load_attempts(db, job_ids):
     """{job_id: [attempt, ...]} in cost_actual's input shape, for jobs the caller may already see.
 
@@ -228,34 +257,17 @@ def load_attempts(db, job_ids):
                          "LEFT JOIN system_config c ON c.key='quota_attempt:print_failure:' || CAST(p.id AS TEXT) "
                          "WHERE p.scheduled_job_id IN :ids ORDER BY p.id", job_ids)
     attempt_ids = [row["id"] for row in attempts]
-    archived, ledger = {}, {}
-    if attempt_ids:
-        for row in _rows(db, "SELECT print_job_id,accounting_state,consumption_json FROM print_archives "
-                             "WHERE print_job_id IN :ids ORDER BY id", attempt_ids):
-            archived.setdefault(row["print_job_id"], row)
-        from core.filament_ledger import row_kind
-        for row in _rows(db, "SELECT print_job_id,spool_id,weight_used_g,notes FROM spool_usage "
-                             "WHERE print_job_id IN :ids ORDER BY id", attempt_ids):
-            if row_kind(row["notes"]) in ("ledger", "auto"):
-                spools = ledger.setdefault(row["print_job_id"], {})
-                spools[row["spool_id"]] = spools.get(row["spool_id"], 0.0) + (row["weight_used_g"] or 0.0)
+    recorded = load_recorded_usage(db, attempt_ids)
     from modules.jobs.print_failure import matches_print
     for row in attempts:
         frozen = _frozen_purchase(_decoded(row["spool_snapshot"]))
-        archive = archived.get(row["id"])
-        entries = _decoded(archive["consumption_json"]) if archive and archive["accounting_state"] in _ACCOUNTED else None
-        usage = None
-        if isinstance(entries, list) and entries and all(
-                isinstance(item, dict) and type(item.get("spool_id")) is int for item in entries):
-            usage = [{"spool_id": item["spool_id"], "grams": item.get("grams_used"),
-                      "provenance": item.get("quantity_provenance")} for item in entries]
-        elif row["id"] in ledger:
-            usage = [{"spool_id": spool_id, "grams": grams, "provenance": None}
-                     for spool_id, grams in sorted(ledger[row["id"]].items())]
+        usage = recorded[row["id"]]
         correction = _decoded(row['failure_record'])
         if (correction and correction.get('active') and matches_print(row, correction)
-                and row['status'] == 'failed' and correction['corrected_grams'] == 0):
-            usage = []
+                and correction.get('quantity_changed') and usage is None):
+            grams = correction['corrected_grams']
+            usage = [] if grams == 0 else [{'spool_id': None, 'grams': grams,
+                                           'provenance': 'operator_corrected'}]
         for use in usage or []:
             price, net, reason = frozen.get(use["spool_id"], (None, None, "price_not_recorded"))
             use.update(price=price, net_weight_g=net, reason=reason)

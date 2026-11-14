@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ArchivesPage from './Archives'
 import { fetchAPI } from '../../api/client'
 vi.mock('../../api/client', () => ({ fetchAPI: vi.fn() }))
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ role: 'admin', group_id: 1 }) }))
 const state=vi.hoisted(()=>({data:undefined as any,loading:false,error:false,compare:undefined as any,refetch:vi.fn()}))
 vi.mock('@tanstack/react-query',()=>({
  useQuery:({queryKey}:any)=>queryKey[0]==='archives'?{data:state.data,isLoading:state.loading,isError:state.error,refetch:state.refetch}:queryKey[0]==='archive-compare'?{data:state.compare,isLoading:false}:queryKey[0]==='archive-ams-preview'?{data:undefined,isLoading:false}:{data:[]},
@@ -43,7 +43,7 @@ test('comparison distinguishes recorded zero filament and cost from unknown',()=
 
 test('archive detail corrects the exact linked print outcome',async()=>{
  vi.mocked(fetchAPI).mockResolvedValue({status:'cancelled'})
- state.data={items:[{...archivedPrint(50),status:'failed',job_id:901,print_job_id:902,failure_correction:{by:'Operator',at:'2026-11-14T12:00:00Z',reason_label:'Other',note:'',original_grams:50,corrected_grams:50}}],total:1}
+ state.data={items:[{...archivedPrint(50),status:'failed',job_id:901,print_job_id:902,failure_correction_allowed:true,failure_correction:{by:'Operator',at:'2026-11-14T12:00:00Z',reason_label:'Other',note:'',original_grams:50,corrected_grams:50}}],total:1}
  mount();fireEvent.click(screen.getByText('Synthetic measurement'))
  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Back to cancelled'}))
  fireEvent.click(screen.getByRole('button',{name:'Confirm back to cancelled'}))

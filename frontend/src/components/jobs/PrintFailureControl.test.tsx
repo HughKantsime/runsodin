@@ -6,18 +6,18 @@ import PrintFailureControl from './PrintFailureControl'
 import PrintLog from '../../pages/analytics/PrintLog'
 import Archives from '../../pages/archives/Archives'
 import { fetchAPI } from '../../api/client'
-import { canDo } from '../../permissions'
+import { canDo, getCurrentUser } from '../../permissions'
 vi.mock('../../api/client', () => ({ fetchAPI: vi.fn() }))
-vi.mock('../../permissions', () => ({ canDo: vi.fn(() => true) }))
+vi.mock('../../permissions', () => ({ canDo: vi.fn(() => true), getCurrentUser: vi.fn(() => ({ role: 'admin', group_id: 1 })) }))
 const correction = { by: 'Operator', at: '2026-11-14T12:00:00Z', reason_label: 'No filament fed / printed air', note: 'Nothing fed.', original_grams: 50, corrected_grams: 0 }
-const item = { id: 903, print_job_id: 902, print_name: 'Synthetic stopped print', printer_display: 'Printer', status: 'cancelled', actual_duration_seconds: 3600, filament_used_grams: 50, tags: [], completed_at: '2026-11-14T11:00:00Z' }
+const item = { failure_correction_allowed: true, id: 903, print_job_id: 902, print_name: 'Synthetic stopped print', printer_display: 'Printer', status: 'cancelled', actual_duration_seconds: 3600, filament_used_grams: 50, tags: [], completed_at: '2026-11-14T11:00:00Z' }
 function wrap(node: React.ReactNode, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(<QueryClientProvider client={client}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>)
 }
-function show(props = {}) { return wrap(<PrintFailureControl printId={902} status="cancelled" endedAt={item.completed_at} grams={50} {...props} />) }
+function show(props = {}) { return wrap(<PrintFailureControl canCorrect printId={902} status="cancelled" endedAt={item.completed_at} grams={50} {...props} />) }
 function open() { fireEvent.click(screen.getByRole('button', { name: 'Mark as failed' })) }
 function choose() { fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'no_filament' } }) }
-beforeEach(() => { vi.mocked(canDo).mockReturnValue(true); vi.mocked(fetchAPI).mockReset() })
+beforeEach(() => { vi.mocked(canDo).mockReturnValue(true); vi.mocked(getCurrentUser).mockReturnValue({ username: 'Admin', role: 'admin', group_id: 1 }); vi.mocked(fetchAPI).mockReset() })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
 test.each(['classic', 'foundry'])('%s: required reason, note, zero shortcut and save', async family => {
   document.documentElement.dataset.themeFamily = family
@@ -26,7 +26,7 @@ test.each(['classic', 'foundry'])('%s: required reason, note, zero shortcut and 
   expect(screen.getByRole('button', { name: 'Save failure correction' })).toBeDisabled()
   choose(); fireEvent.change(screen.getByLabelText('Note (optional)'), { target: { value: 'Nothing fed.' } })
   fireEvent.click(screen.getByLabelText('No material was used'))
-  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveValue(0)
+  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveValue('0')
   fireEvent.click(screen.getByRole('button', { name: 'Save failure correction' }))
   await waitFor(() => expect(done).toHaveBeenCalledOnce())
   expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/mark-failed', { method: 'POST', body: JSON.stringify({ reason: 'no_filament', note: 'Nothing fed.', no_material_used: true }) })
@@ -38,8 +38,8 @@ test('refusal retains form and entered grams', async () => {
   fireEvent.change(screen.getByLabelText('Corrected material use (g, optional)'), { target: { value: '12.5' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save failure correction' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('already deducted')
-  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveValue(12.5)
-  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveAttribute('max', '50')
+  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveValue('12.5')
+  expect(screen.getByLabelText('Corrected material use (g, optional)')).toHaveAttribute('inputmode', 'decimal')
   expect(screen.getByLabelText('Note (optional)')).toHaveAttribute('maxlength', '1000')
   expect(fetchAPI).toHaveBeenCalledWith('/print-jobs/902/mark-failed', { method: 'POST', body: JSON.stringify({ reason: 'no_filament', note: '', filament_used_g: 12.5, no_material_used: false }) })
 })
@@ -98,7 +98,7 @@ test('archive form stays in its existing dialog without nested focus traps', asy
   fireEvent.click(await screen.findByText('Synthetic stopped print')); open()
   expect(screen.getAllByRole('dialog')).toHaveLength(1)
   expect(screen.getByLabelText('Reason')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: /^Cancel$/ }))
   expect(screen.getAllByRole('dialog')).toHaveLength(1)
   expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument()
 })
@@ -111,4 +111,70 @@ test.each([false, true])('undo requires confirmation and can be cancelled, inlin
   fireEvent.click(screen.getByRole('button', { name: 'Keep correction' }))
   expect(fetchAPI).not.toHaveBeenCalled()
   expect(screen.queryByRole('button', { name: 'Confirm back to cancelled' })).not.toBeInTheDocument()
+})
+
+test.each(['operator', 'admin', 'custom', 'viewer'])('role %s agrees with backend even when jobs.edit is granted', role => {
+  vi.mocked(getCurrentUser).mockReturnValue({ username: 'User', role, group_id: 1 })
+  show()
+  expect(screen.queryByRole('button', { name: 'Mark as failed' }) !== null).toBe(['operator', 'admin'].includes(role))
+})
+
+test('platform superadmin bypasses the configured jobs.edit matrix', () => {
+  vi.mocked(getCurrentUser).mockReturnValue({ username: 'Admin', role: 'admin', group_id: null })
+  vi.mocked(canDo).mockReturnValue(false)
+  show(); expect(screen.getByRole('button', { name: 'Mark as failed' })).toBeInTheDocument()
+})
+
+test('out-of-tenant history never offers a correction even with jobs.edit', () => {
+  show({ canCorrect: false })
+  expect(screen.queryByRole('button', { name: 'Mark as failed' })).not.toBeInTheDocument()
+})
+
+test.each(['1e400', 'NaN', 'Infinity', '-1', 'abc'])('rejects invalid grams %s without submitting', value => {
+  show({ grams: null }); open(); choose()
+  fireEvent.change(screen.getByLabelText('Corrected material use (g, optional)'), { target: { value } })
+  fireEvent.submit(screen.getByRole('button', { name: 'Save failure correction' }).closest('form')!)
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter a finite number of grams, zero or greater.')
+  expect(fetchAPI).not.toHaveBeenCalled()
+})
+
+test('rejects grams above the recorded amount without submitting', () => {
+  show(); open(); choose()
+  fireEvent.change(screen.getByLabelText('Corrected material use (g, optional)'), { target: { value: '51' } })
+  fireEvent.submit(screen.getByRole('button', { name: 'Save failure correction' }).closest('form')!)
+  expect(screen.getByRole('alert')).toHaveTextContent('cannot exceed the recorded amount')
+  expect(fetchAPI).not.toHaveBeenCalled()
+})
+
+test('undo displays preserved work before refreshing or closing', async () => {
+  vi.mocked(fetchAPI).mockResolvedValue({ status: 'cancelled', warnings: ['Material accounting changed; current grams were left unchanged.'] })
+  const done = vi.fn(); show({ status: 'failed', correction, onCorrected: done })
+  fireEvent.click(screen.getByRole('button', { name: 'Back to cancelled' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm back to cancelled' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('current grams were left unchanged')
+  expect(done).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+  await waitFor(() => expect(done).toHaveBeenCalledOnce())
+})
+
+test.each(['cancelled', 'failed', 'completed'])('archive retains legacy outcome control for %s when applicable', async status => {
+  vi.mocked(fetchAPI).mockImplementation(async (url: string) => url.startsWith('/archives?') ? { items: [{ ...item, job_id: 901, status }], total: 1 } : [])
+  wrap(<Archives />); fireEvent.click(await screen.findByText('Synthetic stopped print'))
+  const button = screen.queryByRole('button', { name: /Correct outcome to/ })
+  expect(button !== null).toBe(status !== 'completed')
+})
+
+test('legacy outcome error is reset when selecting another archive', async () => {
+  const first = { ...item, job_id: 901, status: 'failed' }
+  const second = { ...first, id: 904, print_job_id: 905, print_name: 'Second archive' }
+  vi.mocked(fetchAPI).mockImplementation(async (url: string) => {
+    if (url.startsWith('/archives?')) return { items: [first, second], total: 2 }
+    if (url.endsWith('/outcome')) throw new Error('First archive refusal')
+    return []
+  })
+  wrap(<Archives />); fireEvent.click(await screen.findByText('Synthetic stopped print'))
+  fireEvent.click(screen.getByRole('button', { name: 'Correct outcome to cancelled' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('First archive refusal')
+  fireEvent.click(screen.getByText('Second archive'))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })

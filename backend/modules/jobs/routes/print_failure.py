@@ -21,6 +21,7 @@ class MarkPrintFailed(BaseModel):
     @field_validator('note')
     @classmethod
     def plain_note(cls, value):
+        value = value.replace('\r\n', '\n')
         if any(ord(char) < 32 and char not in '\n\t' for char in value) or '<' in value or '>' in value:
             raise ValueError('Use plain text for the note.')
         return value.strip()
@@ -44,9 +45,10 @@ def mark_print_failed(print_id: int, body: MarkPrintFailed, db: Session = Depend
                       user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
     """Mark one finished cancelled print as failed, with a required reason.
 
-    Optional grams must not exceed recorded use. Inventory-backed, externally
-    managed, multi-filament and retained-cost corrections are refused when exact
-    restoration is unavailable. No alert or notification is sent.
+    Optional grams must not exceed recorded use. Unattributed multi-filament use
+    is spread proportionally. Inventory-backed, externally managed and retained
+    cost corrections are refused when exact restoration is unavailable.
+    No alert or notification is sent.
     """
     return _apply(db, print_id, user, body)
 
@@ -54,9 +56,9 @@ def mark_print_failed(print_id: int, body: MarkPrintFailed, db: Session = Depend
 @router.post('/print-jobs/{print_id}/undo-failure')
 def undo_print_failure(print_id: int, db: Session = Depends(get_db),
                        user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
-    """Back to cancelled: restore the saved outcome and figures exactly.
+    """Back to cancelled: restore the saved outcome and unchanged figures exactly.
 
-    Refuses missing corrections, changed history or inventory that can no longer
-    be restored. The original and corrected values remain in the audit log.
+    Later accounting and job workflow changes are preserved and reported in
+    warnings. The original, corrected and undo details remain in the audit log.
     """
     return _apply(db, print_id, user)

@@ -175,6 +175,7 @@ export interface TimelineResponse {
 // ---- Print Jobs (MQTT tracked) ----
 
 export interface PrintJob {
+  failure_correction_allowed?: boolean;
   failure_correction?: FailureCorrection | null;
   awaiting_confirmation?: boolean;
   recording_note?: string;

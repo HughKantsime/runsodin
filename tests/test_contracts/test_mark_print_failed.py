@@ -51,7 +51,7 @@ def test_exact_restore_and_audit(client, review_db, grams):
     assert response.status_code == 200, response.text
     assert review_db.execute(text('SELECT status FROM jobs WHERE id=901')).scalar_one() == 'failed'
     assert tuple(review_db.execute(text('SELECT status,filament_used_g FROM print_jobs WHERE id=902')).one()) == ('failed', 50 if grams is None else grams)
-    assert tuple(review_db.execute(text('SELECT status,filament_used_grams,cost_estimate FROM print_archives WHERE id=903')).one()) == ('failed', 50 if grams is None else grams, 4.25)
+    assert tuple(review_db.execute(text('SELECT status,filament_used_grams,cost_estimate FROM print_archives WHERE id=903')).one()) == ('failed', 50 if grams is None else grams, 4.25 if grams is None else 4.25 * grams / 50)
     assert snapshot(review_db) == effects  # no notifications, inventory or timeline delivery
     assert undo(client).status_code == 200
     assert tables(review_db) == before
@@ -185,14 +185,26 @@ def test_stock_shapes_refused(client, review_db, state, reason):
 ])
 def test_spool_and_multiple_filament_shapes_refused(client, review_db, snapshot):
     review_db.execute(text('UPDATE print_jobs SET spool_snapshot=:value WHERE id=902'), {'value': json.dumps(snapshot)}); review_db.commit()
-    assert mark(client, dict(BODY, filament_used_g=0)).status_code == 409
+    before = tables(review_db)
+    if 'material_plan' in snapshot:
+        # Zero for every unattributed filament is exact even without ratios.
+        assert mark(client, dict(BODY, filament_used_g=0)).status_code == 200
+        assert [e['grams_used'] for e in json.loads(review_db.execute(text('SELECT consumption_json FROM print_archives WHERE id=903')).scalar_one())] == [0, 0]
+        assert undo(client).status_code == 200
+        assert tables(review_db) == before
+    else:
+        assert mark(client, dict(BODY, filament_used_g=0)).status_code == 409
+        assert tables(review_db) == before
 
 
 def test_multiple_filaments_outcome_only_and_exact_undo(client, review_db):
     consumption = json.dumps([{'spool_id': None, 'grams_used': 20}, {'spool_id': None, 'grams_used': 30}], indent=2)
     review_db.execute(text('UPDATE print_archives SET consumption_json=:value WHERE id=903'), {'value': consumption}); review_db.commit()
     before = tables(review_db)
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 409
+    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
+    assert [e['grams_used'] for e in json.loads(review_db.execute(text('SELECT consumption_json FROM print_archives WHERE id=903')).scalar_one())] == [0, 0]
+    assert undo(client).status_code == 200
+    assert tables(review_db) == before
     assert mark(client).status_code == 200
     assert undo(client).status_code == 200
     assert tables(review_db) == before
@@ -261,8 +273,17 @@ def test_undo_will_not_overwrite_changed_history(client, review_db, sql):
         assert review_db.execute(text('SELECT status FROM print_jobs WHERE id=902')).scalar_one() == 'cancelled'
         assert review_db.execute(text('SELECT status FROM print_archives WHERE id=903')).scalar_one() == 'cancelled'
     else:
-        assert undo(client).status_code == 409
-        assert tables(review_db) == before
+        response = undo(client)
+        assert response.status_code == 200 and response.json()['warnings']
+        after = tables(review_db)
+        # Only the outcomes and this correction's job metadata are restored;
+        # neither table's subsequently edited material fields may be overwritten.
+        for table in ('print_jobs', 'print_archives'):
+            status_index = list(review_db.execute(text('SELECT * FROM ' + table)).keys()).index('status')
+            assert [r[:status_index] + r[status_index + 1:] for r in after[table]] == [r[:status_index] + r[status_index + 1:] for r in before[table]]
+        assert after['spools'] == before['spools'] and after['spool_usage'] == before['spool_usage']
+        assert review_db.execute(text('SELECT status FROM print_jobs WHERE id=902')).scalar_one() == 'cancelled'
+        assert review_db.execute(text('SELECT status FROM print_archives WHERE id=903')).scalar_one() == 'cancelled'
 
 
 def test_stats_printer_totals_day_counts_and_cost(client, review_db):
