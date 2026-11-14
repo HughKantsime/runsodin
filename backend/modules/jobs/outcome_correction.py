@@ -33,6 +33,8 @@ def reclassify_outcome(job_id: int, body: OutcomeCorrection,
     assert_generic_job_mutation_allowed(db, job_id)
     if body.status == body.from_status:
         raise HTTPException(400, 'Only failed ↔ cancelled corrections are allowed')
+    # Released in 2.2.0 in both directions: API clients keep cancelled -> failed here. The screens send
+    # cancelled prints to Mark as failed, which also records a reason and can be undone.
     # The state-machine UPDATE locks the job and guards concurrent reset/retry.
     owner_guard = 'charged_to_org_id IS NULL' if job.charged_to_org_id is None else 'charged_to_org_id=:correction_org'
     if not transition_job(db, job_id, body.status, 'outcome_correction', from_states=[body.from_status],

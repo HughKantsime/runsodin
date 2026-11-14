@@ -6,7 +6,7 @@ import { canDo } from '../../permissions'
 type Props = { jobId: number; printId?: number; status: string; onCorrected?: () => void }
 
 export default function OutcomeCorrection(props: Props) {
-  if (!props.jobId || !['failed', 'cancelled'].includes(props.status) || !canDo('jobs.edit')) return null
+  if (!props.jobId || props.status !== 'failed' || !canDo('jobs.edit')) return null
   return <CorrectionControl {...props} />
 }
 
@@ -14,7 +14,7 @@ function CorrectionControl({ jobId, printId, status, onCorrected }: Props) {
   const client = useQueryClient()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
-  const target = status === 'failed' ? 'cancelled' : 'failed'
+  const target = 'cancelled'
   return <span>
     <button type="button" disabled={pending} onClick={async () => {
       if (pending || !canDo('jobs.edit')) return

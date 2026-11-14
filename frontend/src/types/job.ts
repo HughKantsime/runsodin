@@ -275,5 +275,4 @@ export interface RecentTerminalJob {
 
 export interface FailureCorrection {
   by: string; at: string; reason_label: string; note: string;
-  original_grams: number | null; corrected_grams: number | null;
 }

@@ -15,8 +15,6 @@ class MarkPrintFailed(BaseModel):
     model_config = ConfigDict(extra='forbid')
     reason: Literal['no_filament', 'filament_supply', 'first_layer', 'came_loose', 'under_extrusion', 'printer_fault', 'power_connection', 'other']
     note: str = Field(default='', max_length=1000)
-    filament_used_g: float | None = Field(default=None, ge=0, allow_inf_nan=False, strict=True)
-    no_material_used: bool = Field(default=False, strict=True)
 
     @field_validator('note')
     @classmethod
@@ -45,9 +43,7 @@ def mark_print_failed(print_id: int, body: MarkPrintFailed, db: Session = Depend
                       user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
     """Mark one finished cancelled print as failed, with a required reason.
 
-    Optional grams must not exceed recorded use. Unattributed multi-filament use
-    is spread proportionally. Inventory-backed, externally managed and retained
-    cost corrections are refused when exact restoration is unavailable.
+    This changes the outcome only. Recorded filament and cost stay as they are.
     No alert or notification is sent.
     """
     return _apply(db, print_id, user, body)
@@ -56,9 +52,9 @@ def mark_print_failed(print_id: int, body: MarkPrintFailed, db: Session = Depend
 @router.post('/print-jobs/{print_id}/undo-failure')
 def undo_print_failure(print_id: int, db: Session = Depends(get_db),
                        user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
-    """Back to cancelled: restore the saved outcome and unchanged figures exactly.
+    """Back to cancelled: restore only outcomes still belonging to this correction.
 
-    Later accounting and job workflow changes are preserved and reported in
+    Later outcomes, new archives and job workflow changes are preserved and reported in
     warnings. The original, corrected and undo details remain in the audit log.
     """
     return _apply(db, print_id, user)

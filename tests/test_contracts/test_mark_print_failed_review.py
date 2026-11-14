@@ -10,7 +10,7 @@ from tests.test_contracts.test_mark_print_failed import (
 @pytest.mark.parametrize('change', ['end_time', 'deleted_job', 'requeued_job', 'later_print', 'later_print_deducted'])
 def test_undo_survives_mutable_job_and_end_time(client, review_db, change):
     from modules.jobs.cost_actual import load_attempts
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
+    assert mark(client).status_code == 200
     if change == 'end_time':
         review_db.execute(text("UPDATE print_jobs SET ended_at='2026-11-14 11:00:03' WHERE id=902"))
     elif change == 'deleted_job':
@@ -29,9 +29,9 @@ def test_undo_survives_mutable_job_and_end_time(client, review_db, change):
     c, issue = client
     result = c.get(URL, headers=issue(['read:jobs']))
     assert result.status_code == 200
-    assert result.json()['failure_correction']['corrected_grams'] == 0
+    assert result.json()['failure_correction']['reason'] == BODY['reason']
     if change != 'deleted_job':
-        assert load_attempts(review_db, [901])[901][0]['usage'] == []
+        assert load_attempts(review_db, [901])[901][0]['usage'] is None
     stock_before = list(review_db.execute(text('SELECT * FROM spools')))
     usage_before = list(review_db.execute(text('SELECT * FROM spool_usage')))
     job_before = review_db.execute(text('SELECT * FROM jobs WHERE id=901')).first()
@@ -73,7 +73,7 @@ def test_annotation_is_one_batch_and_never_calls_mutation_guards(client, review_
     finally:
         event.remove(review_db.bind, 'before_cursor_execute', capture)
     assert all(row['failure_correction']['note'] == BODY['note'] for row in annotated)
-    assert len(queries) == 1
+    assert len(queries) == 2  # one permission lookup, one bounded provenance batch
 
 
 def test_read_provenance_ignores_job_mutation_guard(client, review_db, monkeypatch):

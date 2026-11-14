@@ -43,15 +43,14 @@ def undo(client):
     return c.post(URL + '/undo-failure', headers=issue(['write:jobs']))
 
 
-@pytest.mark.parametrize('grams', [None, 0, 12.25, 50])
-def test_exact_restore_and_audit(client, review_db, grams):
+def test_exact_restore_and_audit(client, review_db):
     before = tables(review_db)
     effects = snapshot(review_db)
-    response = mark(client, dict(BODY, **({} if grams is None else {'filament_used_g': grams})))
+    response = mark(client)
     assert response.status_code == 200, response.text
     assert review_db.execute(text('SELECT status FROM jobs WHERE id=901')).scalar_one() == 'failed'
-    assert tuple(review_db.execute(text('SELECT status,filament_used_g FROM print_jobs WHERE id=902')).one()) == ('failed', 50 if grams is None else grams)
-    assert tuple(review_db.execute(text('SELECT status,filament_used_grams,cost_estimate FROM print_archives WHERE id=903')).one()) == ('failed', 50 if grams is None else grams, 4.25 if grams is None else 4.25 * grams / 50)
+    assert tuple(review_db.execute(text('SELECT status,filament_used_g FROM print_jobs WHERE id=902')).one()) == ('failed', 50)
+    assert tuple(review_db.execute(text('SELECT status,filament_used_grams,cost_estimate FROM print_archives WHERE id=903')).one()) == ('failed', 50, 4.25)
     assert snapshot(review_db) == effects  # no notifications, inventory or timeline delivery
     assert undo(client).status_code == 200
     assert tables(review_db) == before
@@ -67,15 +66,15 @@ def test_exact_restore_and_audit(client, review_db, grams):
     assert correction['before'] == reversal['before']
 
 
-def test_zero_shortcut_and_read_surfaces(client, review_db):
+def test_correction_read_surfaces(client, review_db):
     c, issue = client
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
+    assert mark(client).status_code == 200
     headers = issue(['read:jobs'])
     for path in (URL, '/archives/903'):
         response = c.get(path, headers=headers)
         assert response.status_code == 200, response.text
-        assert response.json()['failure_correction']['corrected_grams'] == 0
-        assert response.json()['failure_correction']['original_grams'] == 50
+        assert response.json()['failure_correction']['reason'] == BODY['reason']
+        assert 'corrected_grams' not in response.json()['failure_correction']
     for path in ('/print-jobs', '/archives', '/archives/log'):
         response = c.get(path, headers=headers)
         assert response.status_code == 200, response.text
@@ -163,46 +162,17 @@ def test_deduction_cannot_be_refunded_or_rededucted(client, review_db):
     assert result.deducted
     review_db.commit()
     before = tables(review_db)
-    response = mark(client, dict(BODY, no_material_used=True))
-    assert response.status_code == 409 and 'deducted' in response.json()['detail']
-    assert tables(review_db) == before
-    # Outcome-only remains possible, without claiming an inventory return.
     assert mark(client).status_code == 200
     assert undo(client).status_code == 200
     assert tables(review_db) == before
-
-
-@pytest.mark.parametrize('state,reason', [('accounted', None), ('reconciliation_required', 'inventory_shortfall'),
-                                         ('externally_managed', 'external_accounting'), ('unresolved', 'spool_change_pending')])
-def test_stock_shapes_refused(client, review_db, state, reason):
-    review_db.execute(text('UPDATE print_archives SET accounting_state=:state,accounting_reason=:reason WHERE id=903'), {'state': state, 'reason': reason}); review_db.commit()
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 409
-
-
-@pytest.mark.parametrize('snapshot', [
-    {'slots': [{'spool_id': 901}]}, {'located_spools': [{'spool_id': 901}]},
-    {'material_plan': {'allocations': [{'spool_id': None}, {'spool_id': None}]}},
-])
-def test_spool_and_multiple_filament_shapes_refused(client, review_db, snapshot):
-    review_db.execute(text('UPDATE print_jobs SET spool_snapshot=:value WHERE id=902'), {'value': json.dumps(snapshot)}); review_db.commit()
-    before = tables(review_db)
-    if 'material_plan' in snapshot:
-        # Zero for every unattributed filament is exact even without ratios.
-        assert mark(client, dict(BODY, filament_used_g=0)).status_code == 200
-        assert [e['grams_used'] for e in json.loads(review_db.execute(text('SELECT consumption_json FROM print_archives WHERE id=903')).scalar_one())] == [0, 0]
-        assert undo(client).status_code == 200
-        assert tables(review_db) == before
-    else:
-        assert mark(client, dict(BODY, filament_used_g=0)).status_code == 409
-        assert tables(review_db) == before
 
 
 def test_multiple_filaments_outcome_only_and_exact_undo(client, review_db):
     consumption = json.dumps([{'spool_id': None, 'grams_used': 20}, {'spool_id': None, 'grams_used': 30}], indent=2)
     review_db.execute(text('UPDATE print_archives SET consumption_json=:value WHERE id=903'), {'value': consumption}); review_db.commit()
     before = tables(review_db)
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
-    assert [e['grams_used'] for e in json.loads(review_db.execute(text('SELECT consumption_json FROM print_archives WHERE id=903')).scalar_one())] == [0, 0]
+    assert mark(client).status_code == 200
+    assert review_db.execute(text('SELECT consumption_json FROM print_archives WHERE id=903')).scalar_one() == consumption
     assert undo(client).status_code == 200
     assert tables(review_db) == before
     assert mark(client).status_code == 200
@@ -210,25 +180,9 @@ def test_multiple_filaments_outcome_only_and_exact_undo(client, review_db):
     assert tables(review_db) == before
 
 
-def test_unattributed_single_filament_is_changed_and_restored(client, review_db):
-    consumption = '[ {"spool_id": null, "grams_used": 50, "reason": "no_bound_spool"} ]'
-    review_db.execute(text('UPDATE print_archives SET consumption_json=:value WHERE id=903'), {'value': consumption}); review_db.commit()
-    before = tables(review_db)
-    assert mark(client, dict(BODY, filament_used_g=12.5)).status_code == 200
-    assert json.loads(review_db.execute(text('SELECT consumption_json FROM print_archives WHERE id=903')).scalar_one())[0]['grams_used'] == 12.5
-    assert undo(client).status_code == 200
-    assert tables(review_db) == before
-
-
-@pytest.mark.parametrize('value', [51, 100000])
-def test_increase_refused(client, review_db, value):
-    assert mark(client, dict(BODY, filament_used_g=value)).status_code == 409
-
-
-def test_unknown_grams_refused(client, review_db):
+def test_unknown_grams_preserved(client, review_db):
     review_db.execute(text('UPDATE print_jobs SET filament_used_g=NULL WHERE id=902'))
     review_db.execute(text('UPDATE print_archives SET filament_used_grams=NULL WHERE id=903')); review_db.commit()
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 409
     assert mark(client).status_code == 200
     assert undo(client).status_code == 200
     assert review_db.execute(text('SELECT filament_used_g FROM print_jobs WHERE id=902')).scalar_one() is None
@@ -274,7 +228,7 @@ def test_undo_will_not_overwrite_changed_history(client, review_db, sql):
         assert review_db.execute(text('SELECT status FROM print_archives WHERE id=903')).scalar_one() == 'cancelled'
     else:
         response = undo(client)
-        assert response.status_code == 200 and response.json()['warnings']
+        assert response.status_code == 200
         after = tables(review_db)
         # Only the outcomes and this correction's job metadata are restored;
         # neither table's subsequently edited material fields may be overwritten.
@@ -299,13 +253,13 @@ def test_stats_printer_totals_day_counts_and_cost(client, review_db):
     before = stats()
     printer = tuple(review_db.execute(text('SELECT total_print_count,total_print_hours FROM printers WHERE id=9')).one())
     assert totals()['plates_stopped'] == 1 and totals()['plates_failed'] == 0
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
+    assert mark(client).status_code == 200
     assert stats()['failed_jobs'] == before['failed_jobs'] + 1
     assert stats()['total_jobs'] == before['total_jobs'] and stats()['total_hours'] == before['total_hours']
     assert tuple(review_db.execute(text('SELECT total_print_count,total_print_hours FROM printers WHERE id=9')).one()) == printer
     assert totals()['plates_stopped'] == 0 and totals()['plates_failed'] == 1
     attempts = load_attempts(review_db, [901])[901]
-    assert attempts[0]['outcome'] == 'failed' and attempts[0]['usage'] == []
+    assert attempts[0]['outcome'] == 'failed' and attempts[0]['usage'] is None
     assert undo(client).status_code == 200
     assert stats() == before and totals()['plates_stopped'] == 1 and totals()['plates_failed'] == 0
     assert load_attempts(review_db, [901])[901][0]['usage'] is None
@@ -318,7 +272,7 @@ def test_audit_failure_rolls_back_all_records(client, review_db, monkeypatch):
     monkeypatch.setattr(service, 'log_audit', broken)
     before = tables(review_db)
     with pytest.raises(RuntimeError, match='Synthetic audit'):
-        mark(client, dict(BODY, no_material_used=True))
+        mark(client)
     assert tables(review_db) == before
     assert service.record(review_db, 902) is None
 
@@ -327,7 +281,10 @@ def test_api_documents_both_operations(client):
     schema = client[0].app.openapi()
     for path in ('/print-jobs/{print_id}/mark-failed', '/print-jobs/{print_id}/undo-failure'):
         assert schema['paths'][path]['post']['description']
-    assert schema['components']['schemas']['MarkPrintFailed']['required'] == ['reason']
+    body_schema = schema['components']['schemas']['MarkPrintFailed']
+    assert body_schema['required'] == ['reason']
+    assert set(body_schema['properties']) == {'reason', 'note'}
+    assert body_schema['additionalProperties'] is False
 
 
 @pytest.mark.parametrize('member,expected', [(False, 404), (True, 200)])
@@ -351,21 +308,10 @@ def test_shared_printer_does_not_disclose_correction_note(client, review_db):
 
 
 @pytest.mark.parametrize('value', ['broken', '[]', '{"material_plan": []}', '{"slots": [1]}'])
-def test_malformed_material_record_refused(client, review_db, value):
+def test_malformed_material_record_does_not_block_outcome(client, review_db, value):
     review_db.execute(text('UPDATE print_jobs SET spool_snapshot=:value WHERE id=902'), {'value': value}); review_db.commit()
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 409
-
-
-def test_external_accounting_refused(client, monkeypatch):
-    from core.config import settings
-    monkeypatch.setattr(settings, 'external_filament_accounting_printers', {9})
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 409
-
-
-def test_archive_estimate_can_be_corrected_without_overwriting_unknown_original(client, review_db):
-    review_db.execute(text('UPDATE print_jobs SET filament_used_g=NULL WHERE id=902')); review_db.commit()
     before = tables(review_db)
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
+    assert mark(client).status_code == 200
     assert undo(client).status_code == 200
     assert tables(review_db) == before
 
@@ -407,21 +353,22 @@ def test_measured_or_reconciled_spools_are_never_refunded(client, review_db, mea
         record_ams_measurement(run, 901, 420, 9)
     review_db.commit()
     before = tables(review_db)
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 409
+    assert mark(client).status_code == 200
+    assert undo(client).status_code == 200
     assert tables(review_db) == before
 
 
-def test_cost_per_print_uses_zero_material_and_restores_unknown_cost(client, review_db):
+def test_cost_per_print_retains_material_and_total(client, review_db):
     from modules.jobs.cost_actual import cost_actual, load_attempts
     from tests.test_contracts.test_cost_actual import PRICING
     def cost():
         return cost_actual(load_attempts(review_db, [901])[901], PRICING)
     before = cost()
     assert before['material']['complete'] is False
-    assert mark(client, dict(BODY, no_material_used=True)).status_code == 200
+    assert mark(client).status_code == 200
     after = cost()
-    assert after['material']['amount'] == 0 and after['material']['complete'] is True
-    assert after['total'] == 5.5  # 1 hour x .25 + settings 5.25; zero material
+    assert after['material'] == before['material']
+    assert after['total'] == before['total']
     assert after['failed_attempts']['count'] == 1
     assert undo(client).status_code == 200
     assert cost() == before
@@ -441,7 +388,7 @@ def test_historical_attempt_does_not_change_completed_retry(client, review_db):
 from tests.test_contracts.test_private_attempt_valuation_route import private_attempt, creators
 
 
-def test_retained_measurement_refuses_correction(private_attempt, review_db):
+def test_retained_measurement_is_untouched_by_outcome_correction(private_attempt, review_db):
     from modules.archives.measured_filament import retain_terminal
     from modules.jobs.routes.print_failure import router
     c, auth, _, identifier = private_attempt
@@ -456,9 +403,12 @@ def test_retained_measurement_refuses_correction(private_attempt, review_db):
     review_db.execute(text('DELETE FROM printer_dispatch_claims'))
     review_db.execute(text("UPDATE dispatch_sender_registrations SET state='quiesced',finished_at=CURRENT_TIMESTAMP,cleanup_evidence_key=:key"), {'key': 'a' * 64})
     review_db.commit()
+    before = snapshot(review_db)
     response = c.post(f'/print-jobs/{identifier}/mark-failed', headers=auth('platform'), json=BODY)
-    assert response.status_code == 409 and 'retained material cost record' in response.json()['detail'], response.text
-    assert review_db.execute(text('SELECT status FROM print_jobs WHERE id=:id'), {'id': identifier}).scalar_one() == 'cancelled'
+    assert response.status_code == 200, response.text
+    assert snapshot(review_db) == before
+    assert c.post(f'/print-jobs/{identifier}/undo-failure', headers=auth('platform')).status_code == 200
+    assert snapshot(review_db) == before
 
 
 def test_home_assistant_feed_counts_the_day_the_print_ended(client, review_db, monkeypatch):

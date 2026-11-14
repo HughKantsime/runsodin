@@ -301,7 +301,7 @@ export default function PrinterDetail() {
                     {job.duration ? ` \u2022 ${formatDuration(job.duration)}` : ''}
                   </p>
                 </div>
-                <PrintFailureControl canCorrect={job.failure_correction_allowed} printId={job.id} status={job.status} endedAt={job.ended_at} grams={job.filament_used_g} correction={job.failure_correction} />
+                <PrintFailureControl canCorrect={job.failure_correction_allowed} printId={job.id} status={job.status} endedAt={job.ended_at} correction={job.failure_correction} />
                 <StatusBadge status={job.status || 'pending'} size="sm" kind="job" />
               </div>
             ))}
