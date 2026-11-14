@@ -36,8 +36,11 @@ guard's name, or mentioning one in a comment or string does not count.
 What this test still cannot prove (review 2026-11-13, finding 7). It does no data-flow
 analysis, so:
   - it does not show that the guard's result is used, or that the guarded address is the one
-    the client connects to: a file that calls is_itar_mode() once and then makes an
-    unguarded requests.get(...) elsewhere passes here;
+    the client connects to. A guard call whose result is thrown away still passes: a file
+    that contains a bare `is_itar_mode()` statement, or `pin_for_request(url)` outside a
+    `with`, and then makes an unguarded requests.get(...) is accepted here (recheck
+    2026-11-13 accepted this limit: the check is a syntactic tripwire on the file, and
+    test_a_discarded_guard_call_still_passes_which_is_a_known_limit records it);
   - it does not see a program whose name is built at run time (a variable, a setting, a
     joined string), a network call reached through getattr or a wrapper in another package,
     or a connection opened by a C extension (OpenCV's ffmpeg) or by a library this list does
@@ -430,6 +433,18 @@ def test_a_comment_docstring_string_or_lookalike_is_not_a_guard(source):
 ])
 def test_a_guard_called_in_code_is_found(source, expected):
     assert guard_names_used(source) == expected
+
+
+@pytest.mark.parametrize("source", [
+    "from core.itar import is_itar_mode\nimport requests\nis_itar_mode()\nrequests.get('http://x')",
+    "from core.itar import pin_for_request\nimport requests\npin_for_request('http://h')\nrequests.get('http://x')",
+    "import requests\ndef f(url):\n    enforce_host_destination('other-host')\n    return requests.get(url)",
+])
+def test_a_discarded_guard_call_still_passes_which_is_a_known_limit(source):
+    """Not a guarantee, a record of what this check cannot see (module docstring): the guard
+    is called, so the file passes, although nothing ties the call to the connection. If the
+    matcher is ever taught to refuse these, this test should be turned around."""
+    assert guard_names_used(source)
 
 
 # ---- the detector itself ----
