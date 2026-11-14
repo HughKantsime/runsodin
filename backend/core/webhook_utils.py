@@ -639,8 +639,9 @@ def configured_service_endpoints() -> list:
             continue
         try:
             from sqlalchemy.engine import make_url
-            from core.itar_database import postgres_destinations
-            found.extend(postgres_destinations(make_url(value)))
+            url = make_url(value)
+            if url.host and not url.host.startswith("/"):
+                found.append((url.host, url.port or 5432))
         except Exception:
             # Unreadable here means unreadable for the engine too: ODIN is not running on it.
             continue

@@ -32,14 +32,16 @@ ITAR mode off behaves as before, with two intended exceptions in 2.2.1:
 
 ## The PostgreSQL database
 
-With a PostgreSQL database (the enterprise layout), the database server is a connection like any other. With ITAR mode on, O.D.I.N. refuses to start, and does not start `pg_dump` or `pg_restore`, unless the server is on the local network, and it connects to the address it checked:
+With a PostgreSQL database (the enterprise layout), the database server is a connection like any other. With ITAR mode on, O.D.I.N. connects only to a server on the local network, at the address it checked.
 
-- Checked: the host in `DATABASE_URL` and `DATABASE_MAINTENANCE_URL`, the `host` and `hostaddr` settings in the URL query, and the `PGHOST` and `PGHOSTADDR` environment variables. A name must resolve, and every address it has must be private.
-- A libpq service file (`service=` in the URL, or `PGSERVICE`) is refused, because the address it names is in a file O.D.I.N. does not read. Put the host in the URL.
-- A Unix socket, `localhost`, and the bundled `postgres` service on the Compose network pass.
-- **Pinned.** Each time O.D.I.N. opens a database connection (the first one, pooled ones and reconnects), it looks the server's name up once, checks the answer, and gives that address to the PostgreSQL driver (libpq `hostaddr`), which connects to it without a lookup of its own. `pg_dump` and `pg_restore` get the checked address the same way (`PGHOSTADDR`). The host name is still used to verify the server's TLS certificate. With several hosts in the URL, each gets one checked address, in the same order. A `hostaddr` you put in the URL yourself, or `PGHOSTADDR` in the environment, must be local addresses and is used as given.
+The PostgreSQL driver can be told where to connect in many ways, each with its own precedence. O.D.I.N. does not try to follow them all. With ITAR mode on it accepts one form, which it can pin with certainty, and refuses to start with any other:
 
-SQLite (the default) has no database connection and is not affected.
+- **Accepted:** one host in the address part of `DATABASE_URL` and `DATABASE_MAINTENANCE_URL`, a name or an IP address with an optional port, for example `postgresql://odin@postgres:5432/odin`; or no host at all, which is the local Unix socket (`postgresql://odin@/odin`). The bundled `postgres` service on the Compose network is this form.
+- **Refused at start:** more than one host (`@db1,db2`); `host=`, `hostaddr=`, `port=` or `service=` after the `?` in the URL; and `PGHOST`, `PGHOSTADDR`, `PGPORT`, `PGSERVICE` or `PGSERVICEFILE` in the container environment. The message names what was found. Put the one host and its port in the address part of the URL and remove the rest.
+- **Checked:** the host name must resolve, and every address it has must be private.
+- **Pinned:** each time O.D.I.N. opens a database connection (the first one, pooled ones and reconnects), it looks the host name up once, checks the answer, and gives the first address to the PostgreSQL driver (libpq `hostaddr`), which connects to it without a lookup of its own. `pg_dump` and `pg_restore` get the checked address the same way (`PGHOSTADDR`, set by O.D.I.N. for that program only). The host name is still used to verify the server's TLS certificate.
+
+SQLite (the default) has no database connection and is not affected. With ITAR mode off every form works as before.
 
 ## Printer discovery (mDNS): the one multicast exception
 

@@ -184,8 +184,7 @@ GUARD_NAMES = frozenset({
     # core.itar_database: the PostgreSQL server address, before an engine is built
     # (create_database_engine) or a client program is started (_run_pg_tool)
     # (tests/test_contracts/test_itar_postgres_destination.py)
-    "enforce_postgres_destination", "enforce_postgres_command", "_run_pg_tool",
-    "pinned_hostaddr", "pinned_client_environment",
+    "enforce_postgres_destination", "_run_pg_tool", "pin_driver_arguments", "pinned_client_environment",
 })
 
 
@@ -245,7 +244,7 @@ ITAR_FILES = (
     # (tests/test_contracts/test_itar_go2rtc_enterprise_purge.py)
     "modules/printers/go2rtc_purge.py",
     # PostgreSQL client programs (pg_dump, pg_restore): the server address is checked by
-    # core.itar_database.enforce_postgres_command inside _run_pg_tool, which is the only
+    # core.itar_database.pinned_client_environment inside _run_pg_tool, which is the only
     # function that gives a client a server (tests/test_contracts/test_itar_postgres_destination.py)
     "modules/system/postgres_backup_service.py", "modules/system/postgres_archive_inventory.py",
     "modules/system/postgres_restore_guards.py", "modules/system/postgres_restore_validation.py",
