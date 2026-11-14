@@ -119,6 +119,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.056_dispatch_recovery_global",
         "core.schema.migrations.057_slot_feed_policy",
         "core.schema.migrations.058_filament_catalogue",
+        "core.schema.migrations.059_six_materials",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

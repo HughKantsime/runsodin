@@ -91,7 +91,8 @@ with engine.begin() as c:
     with engine.begin() as c:
         apply_python_migration(c,'core.schema.migrations.057_slot_feed_policy')
         evidence_before = c.exec_driver_sql("SELECT sql FROM sqlite_master WHERE name='ams_report_trays'").scalar_one()
-    assert bootstrap_database(engine)['applied'] == [M.MIGRATION_ID]
+    from core.schema.bootstrap import POST027_MIGRATIONS
+    assert bootstrap_database(engine)['applied'] == [mid for mid, _ in POST027_MIGRATIONS if int(mid.split(':')[1][:3]) >= 58]
     assert bootstrap_database(engine)['applied'] == []
     with engine.connect() as c:
         assert c.exec_driver_sql('SELECT name,material,catalogue_code FROM filament_library WHERE id=98765').one() == ('Retained','OTHER',None)

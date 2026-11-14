@@ -13,7 +13,7 @@ from tests.test_contracts.test_education_review_workflow import review_db
 
 @pytest.mark.parametrize('raw,expected', [('', 'empty'), (None, 'empty'), ('EMPTY','empty'),
     ('unknown','Unknown'), ('PLA+','PLA'), ('pla+','PLA'), ('Silk PLA','OTHER'),
-    ('PA-S','PLA_SUPPORT'), ('PET-CF','PETG_CF'), ('PA6-GF','NYLON_GF'),
+    ('PA-S','PLA_SUPPORT'), ('PET-CF','PET_CF'), ('PA6-GF','NYLON_GF'),
     ('ABS-GF','OTHER'), ('PLA-SILK','PLA'), ('PETG_CF','PETG_CF')])
 def test_slot_value(raw, expected):
     assert slot_filament_value(raw) == expected

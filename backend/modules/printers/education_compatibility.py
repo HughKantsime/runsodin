@@ -42,6 +42,11 @@ _MATERIAL_ALIASES = {
     "pccf": "PC_CF",
     "pps": "PPS",
     "ppscf": "PPS_CF",
+    "asaaero": "ASA_AERO",
+    "asacf": "ASA_CF",
+    "petcf": "PET_CF",
+    "ppacf": "PPA_CF",
+    "tpuams": "TPU_AMS",
 }
 
 _ABRASIVE_MATERIALS = {
@@ -51,6 +56,9 @@ _ABRASIVE_MATERIALS = {
     "NYLON_GF",
     "PC_CF",
     "PPS_CF",
+    "ASA_CF",
+    "PET_CF",
+    "PPA_CF",
 }
 
 

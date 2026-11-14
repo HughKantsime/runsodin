@@ -138,3 +138,30 @@ def matching_entries(db, material, color):
     entries = db.query(FilamentLibrary).filter(
         FilamentLibrary.catalogue_code.isnot(None)).order_by(FilamentLibrary.id).all()
     return [entry for entry in entries if catalogue_key(entry.material, entry.color_hex) == key]
+
+
+def backfill_catalogue_materials(connection):
+    """Recognize formerly unsupported catalogue identities, with an atomic audit.
+
+    Custom rows and deliberate material choices remain untouched. The conditional
+    update makes repeated startup and concurrent starters harmless.
+    """
+    materials = {'ASA-AERO', 'ASA-CF', 'PET-CF', 'PPA-CF', 'PPS-CF', 'TPU-AMS'}
+    rows = connection.execute(text(
+        "SELECT id,catalogue_type FROM filament_library WHERE catalogue_code IS NOT NULL "
+        "AND is_custom=FALSE AND material='OTHER'"
+    )).all()
+    for row_id, catalogue_type in rows:
+        material = base_material(catalogue_type)
+        if material not in materials:
+            continue
+        changed = connection.execute(text(
+            "UPDATE filament_library SET material=:material WHERE id=:id AND material='OTHER' "
+            "AND is_custom=FALSE AND catalogue_code IS NOT NULL AND catalogue_type=:catalogue_type"
+        ), dict(id=row_id, material=material, catalogue_type=catalogue_type)).rowcount
+        if changed:
+            connection.execute(text(
+                'INSERT INTO audit_logs(action,entity_type,entity_id,details) '
+                'VALUES(:action,:entity,:id,:details)'
+            ), dict(action='filament.catalogue_material_recognized', entity='filament_library', id=row_id,
+                    details=json.dumps({'before': 'OTHER', 'after': material})))
