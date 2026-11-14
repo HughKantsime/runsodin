@@ -21,9 +21,37 @@ Classes:
            to the proxy. Under ITAR mode no ODIN process has a proxy in its environment
            (core.itar.neutralize_environment_proxies, tests/test_contracts/
            test_itar_environment_proxies.py); an entry that depends on that says so.
-"The file references a guard" is a tripwire, not a proof: the behaviour is proven by the
+What puts a file on the list (found by parsing, never by matching text):
+  - importing a network library (NETWORK_MODULES), in any import form;
+  - asyncio's connection calls, however asyncio is named: `asyncio.open_connection`,
+    `import asyncio as aio; aio.open_connection`, `from asyncio import open_connection`,
+    and the same call on an event loop object (`loop.create_connection`);
+  - starting a program that opens connections itself (NETWORK_PROGRAMS: curl, wget, ffmpeg,
+    ffprobe, pg_dump, pg_restore, psql, go2rtc): its name as the first item of an argument
+    list, as the command given to subprocess / os.system, or passed by itself to any call.
+
+An itar file must CALL one of the guards. Importing a guard, defining a function with a
+guard's name, or mentioning one in a comment or string does not count.
+
+What this test still cannot prove (review 2026-11-13, finding 7). It does no data-flow
+analysis, so:
+  - it does not show that the guard's result is used, or that the guarded address is the one
+    the client connects to: a file that calls is_itar_mode() once and then makes an
+    unguarded requests.get(...) elsewhere passes here;
+  - it does not see a program whose name is built at run time (a variable, a setting, a
+    joined string), a network call reached through getattr or a wrapper in another package,
+    or a connection opened by a C extension (OpenCV's ffmpeg) or by a library this list does
+    not name;
+  - it does not read backend/core/schema/preserved*/ (frozen copies of old releases used
+    only to check migrations; they are not imported by the running server) or test folders;
+  - SQLAlchemy is not a listed library: every file imports it. The one place a PostgreSQL
+    engine is built, and the one function that gives a client program a server, are checked
+    in test_itar_postgres_destination.py.
+"The file calls a guard" is a tripwire, not a proof: the behaviour is proven by the
 per-client tests (test_itar_mode.py, test_itar_square_and_sso_presets.py,
-test_itar_local_client_destinations.py, test_itar_device_destinations.py and the others).
+test_itar_local_client_destinations.py, test_itar_device_destinations.py,
+test_itar_webhook_single_resolution.py, test_itar_smtp_mqtt_pinning.py,
+test_itar_websocket_redirects.py, test_itar_postgres_destination.py and the others).
 """
 import ast
 from pathlib import Path
@@ -31,18 +59,54 @@ from pathlib import Path
 import pytest
 
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
-# Importing any of these (or a submodule) puts a file on the reviewed list. Database drivers
-# are left out on purpose: the database is ODIN's own store, not an egress path.
+# Importing any of these (or a submodule) puts a file on the reviewed list. The PostgreSQL
+# drivers are on it: under ITAR mode the database server is a destination like any other.
 NETWORK_MODULES = frozenset({
     "requests", "httpx", "urllib.request", "urllib3", "aiohttp", "http.client", "smtplib", "paho",
-    "websocket", "websockets", "ftplib", "socket", "ssl", "pywebpush",
+    "websocket", "websockets", "ftplib", "socket", "ssl", "pywebpush", "psycopg", "psycopg2", "asyncpg",
 })
 # asyncio is not a network module, but these calls open a connection without importing one.
 NETWORK_CALLS = frozenset({"open_connection", "create_connection", "create_datagram_endpoint"})
+# Programs that open connections themselves. Starting one puts the file on the reviewed list.
+NETWORK_PROGRAMS = frozenset({"curl", "wget", "ffmpeg", "ffprobe", "pg_dump", "pg_dumpall", "pg_restore", "psql",
+                              "go2rtc"})
+_LAUNCHERS = frozenset({"run", "Popen", "call", "check_call", "check_output", "system", "popen",
+                        "create_subprocess_exec", "create_subprocess_shell"})
 
 
 def _is_network_module(name):
     return any(name == module or name.startswith(module + ".") for module in NETWORK_MODULES)
+
+
+def _program(node, exact=False):
+    """The network program a string constant names: its first word (or, with `exact`, the
+    whole string), with any directory removed. None when it names none."""
+    if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return None
+    words = [node.value] if exact else node.value.split()
+    name = words[0].rsplit("/", 1)[-1] if words else ""
+    return name if name in NETWORK_PROGRAMS and " " not in words[0] else None
+
+
+def _called_name(call):
+    return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
+
+
+def network_programs(source, filename="<source>"):
+    """Network programs a Python source starts, as "program:<name>" (see the module docstring
+    for the three forms that are found)."""
+    found = set()
+    for node in ast.walk(ast.parse(source, filename=filename)):
+        names = []
+        if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+            names.append(_program(node.elts[0]))
+        elif isinstance(node, ast.Call):
+            if _called_name(node) in _LAUNCHERS and node.args:
+                names.append(_program(node.args[0]))
+            names.extend(_program(value, exact=True)
+                         for value in list(node.args) + [keyword.value for keyword in node.keywords])
+        found.update(f"program:{name}" for name in names if name)
+    return found
 
 
 def network_imports(source, filename="<source>"):
@@ -50,12 +114,22 @@ def network_imports(source, filename="<source>"):
 
     Covers `import a, b`, `import a.b as c`, `from a import b`, `from a.b import c`, an
     attribute use such as `urllib.request` after a bare `import urllib`, a string-literal
-    `importlib.import_module("a")` / `__import__("a")`, and asyncio's connection calls.
+    `importlib.import_module("a")` / `__import__("a")`, asyncio's connection calls under any
+    name for asyncio (and on an event loop object), and the programs network_programs finds.
     Relative imports are this project's own modules and are ignored. Raises SyntaxError for
     a file that does not parse.
     """
-    found = set()
-    for node in ast.walk(ast.parse(source, filename=filename)):
+    tree = ast.parse(source, filename=filename)
+    asyncio_names, module_names = {"asyncio"}, set()
+    for node in ast.walk(tree):   # first: what each imported name stands for
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bound = alias.asname or alias.name.split(".")[0]
+                module_names.add(bound)
+                if alias.name == "asyncio" or alias.name.startswith("asyncio."):
+                    asyncio_names.add(bound)
+    found = network_programs(source, filename)
+    for node in ast.walk(tree):
         names = []
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
@@ -63,24 +137,33 @@ def network_imports(source, filename="<source>"):
             if node.level or not node.module:
                 continue
             names = [node.module] + [f"{node.module}.{alias.name}" for alias in node.names]
+            if node.module == "asyncio" or node.module.startswith("asyncio."):
+                found.update(f"asyncio.{alias.name}" for alias in node.names if alias.name in NETWORK_CALLS)
         elif isinstance(node, ast.Attribute):
             try:
                 names = [ast.unparse(node)] if isinstance(node.value, (ast.Name, ast.Attribute)) else []
             except Exception:
                 names = []
-            if node.attr in NETWORK_CALLS and names and names[0].startswith("asyncio."):
-                found.add(names[0])
+            if node.attr in NETWORK_CALLS:
+                root = node.value
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                root_name = root.id if isinstance(root, ast.Name) else None
+                # asyncio under any name, or a method of some object (an event loop). A call
+                # on another imported module (socket.create_connection) is that module's.
+                if root_name in asyncio_names or root_name not in module_names:
+                    found.add(f"asyncio.{node.attr}")
         elif isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant) \
                 and isinstance(node.args[0].value, str):
-            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
-            if called in ("import_module", "__import__"):
+            if _called_name(node) in ("import_module", "__import__"):
                 names = [node.args[0].value]
         found.update(name for name in names if _is_network_module(name))
     return found
 
 
 # The guards. A file passes only when its code (never a comment, docstring or other string)
-# uses one of these names: as a call, an attribute, an import or its own definition.
+# CALLS one of these names, directly, as an attribute, or under the name it imported it as.
+# An import alone, or a function that merely has a guard's name, does not pass.
 GUARD_NAMES = frozenset({
     # core.webhook_utils device destinations: ITAR-aware since device_destination_ips checks
     # every resolved address (tests/test_contracts/test_itar_device_destinations.py)
@@ -95,21 +178,27 @@ GUARD_NAMES = frozenset({
     # built on core.itar: pinned HTTP, the webhook posts, Square, Spoolman, go2rtc
     "pinned_async_request", "safe_post", "trusted_post", "refuse_under_itar",
     "spoolman_request", "go2rtc_api_url", "go2rtc_target",
+    # core.itar_database: the PostgreSQL server address, before an engine is built
+    # (create_database_engine) or a client program is started (_run_pg_tool)
+    # (tests/test_contracts/test_itar_postgres_destination.py)
+    "enforce_postgres_destination", "enforce_postgres_command", "_run_pg_tool",
 })
 
 
 def guard_names_used(source, filename="<source>"):
-    """The guard names a Python source uses in code, found by parsing it."""
+    """The guard names a Python source calls, found by parsing it."""
+    tree = ast.parse(source, filename=filename)
+    aliases = {}   # the name a guard was imported as -> the guard
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in GUARD_NAMES and alias.asname:
+                    aliases[alias.asname] = alias.name
     used = set()
-    for node in ast.walk(ast.parse(source, filename=filename)):
-        if isinstance(node, ast.Name):
-            used.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            used.add(node.attr)
-        elif isinstance(node, ast.alias):
-            used.add(node.name.rsplit(".", 1)[-1])
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            used.add(node.name)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = _called_name(node)
+            used.add(aliases.get(name, name) if isinstance(node.func, ast.Name) else name)
     return used & GUARD_NAMES
 
 
@@ -148,6 +237,12 @@ ITAR_FILES = (
     "modules/archives/timelapse_capture.py", "modules/printers/camera_routes.py",
     "modules/printers/mjpeg_relay.py", "modules/printers/routes_camera_snapshot.py",
     "modules/vision/detection_thread.py",
+    # PostgreSQL client programs (pg_dump, pg_restore): the server address is checked by
+    # core.itar_database.enforce_postgres_command inside _run_pg_tool, which is the only
+    # function that gives a client a server (tests/test_contracts/test_itar_postgres_destination.py)
+    "modules/system/postgres_backup_service.py", "modules/system/postgres_archive_inventory.py",
+    "modules/system/postgres_restore_guards.py", "modules/system/postgres_restore_validation.py",
+    "modules/system/pre026_restore_stage.py",
 )
 
 # local: file -> what it can reach. Re-audited one by one on 2026-11-13, and again the same
@@ -178,6 +273,19 @@ LOCAL_FILES = {
         "no connection of its own: httpx is imported and not used; printers go through the adapters",
     "modules/printers/routes_bambu.py": "no connection: httpx is imported and not used",
     "modules/reporting/routes/analytics.py": "no connection: httpx is imported and not used",
+    "core/account_lifetime_schema.py":
+        "no connection of its own: checks that a connection SQLAlchemy already opened is a psycopg.Connection; "
+        "the engine is built, and its server checked under ITAR mode, in core.database_config",
+    "core/dispatch_target_lock.py":
+        "no connection of its own: reads psycopg's TransactionStatus of a connection SQLAlchemy already opened",
+    "core/timelapse_derivative_worker.py":
+        "no connection: ffmpeg and ffprobe are given only /proc/self/fd/<n> files and pipes, never a URL",
+    "core/timelapse_media_worker.py":
+        "no connection: ffmpeg and ffprobe are given only /proc/self/fd/<n> files and pipe:0, never a URL",
+    "core/timelapse_probe_worker.py":
+        "no connection: ffmpeg is given only a /proc/self/fd/<n> file, never a URL",
+    "modules/system/backup_api_export.py":
+        "no connection: pg_restore reads an archive file and prints it; it is given no server (no --dbname)",
 }
 
 REVIEWED = {**{name: "itar" for name in ITAR_FILES}, **{name: "local" for name in LOCAL_FILES}}
@@ -248,6 +356,27 @@ def test_the_local_files_with_a_fixed_address_still_have_only_that_address():
     for caller in ("demo.py", "live_shadow.py", "live_replay.py"):
         source = (BACKEND / "modules/printers/telemetry" / caller).read_text(encoding="utf-8")
         assert "LocalBroker(host" not in source and "LocalBroker(\"" not in source
+    # ffmpeg / ffprobe in the timelapse workers: every input and output is a file descriptor
+    # path or a pipe, and no argument holds a URL scheme.
+    for worker in ("timelapse_derivative_worker.py", "timelapse_media_worker.py", "timelapse_probe_worker.py"):
+        source = (BACKEND / "core" / worker).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        strings = [node.value for node in ast.walk(tree)
+                   if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+        assert not [text for text in strings if "://" in text], worker
+        inputs = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.List):
+                for flag, value in zip(node.elts, node.elts[1:]):
+                    if isinstance(flag, ast.Constant) and flag.value == "-i":
+                        inputs.append(ast.unparse(value))
+        assert inputs and all(text == "'pipe:0'" or text.startswith("'/proc/self/fd/' + str(") for text in inputs), \
+            (worker, inputs)
+    export = (BACKEND / "modules/system/backup_api_export.py").read_text(encoding="utf-8")
+    assert "--dbname" not in export and "'-d'" not in export and export.count("subprocess.run(") == 1
+    for name in ("core/account_lifetime_schema.py", "core/dispatch_target_lock.py"):
+        assert not {use for use in _uses((BACKEND / name).read_text(encoding="utf-8"), "psycopg")
+                    if use.split(".")[1] in ("connect", "AsyncConnection", "ConnectionPool")}, name
     mdns = (BACKEND / "modules/printers/mdns_discovery.py").read_text(encoding="utf-8")
     assert 'MDNS_GROUP = "224.0.0.251"' in mdns and mdns.count(".sendto(") == 1
     assert "sock.sendto(build_query(), (MDNS_GROUP, MDNS_PORT))" in mdns
@@ -264,6 +393,14 @@ def test_the_local_files_with_a_fixed_address_still_have_only_that_address():
     "import requests\nnote = 'pinned_device_destination'",
     "from core.webhook_utils import WebhookSSRFError, _pin_dns",
     "import itar_helper\nitar_helper.go()",
+    # review 2026-11-13 finding 7: a guard that is imported, named or defined but never called
+    "from core.itar import is_itar_mode\nimport requests\nrequests.get('http://x')",
+    "from core.webhook_utils import device_urlopen as urlopen",
+    "from core import itar\ncheck = itar.enforce_host_destination",
+    "def refuse_under_itar():\n    pass",
+    "def safe_post(url):\n    import requests\n    return requests.post(url)",
+    "is_itar_mode = True\nprint(is_itar_mode)",
+    "guards = {'pin_for_request': None}\nguards['pin_for_request']",
 ])
 def test_a_comment_docstring_string_or_lookalike_is_not_a_guard(source):
     assert guard_names_used(source) == set()
@@ -274,10 +411,14 @@ def test_a_comment_docstring_string_or_lookalike_is_not_a_guard(source):
     ("from core import webhook_utils\nwebhook_utils.device_request('GET', 'http://h')", {"device_request"}),
     ("def f(host):\n    from core.itar import enforce_host_destination\n    enforce_host_destination(host)",
      {"enforce_host_destination"}),
-    ("def refuse_under_itar():\n    pass", {"refuse_under_itar"}),
-    ("from core.webhook_utils import device_urlopen as urlopen", {"device_urlopen"}),
+    ("def refuse_under_itar():\n    pass\nrefuse_under_itar()", {"refuse_under_itar"}),
+    ("from core.webhook_utils import device_urlopen as urlopen\nurlopen('http://h')", {"device_urlopen"}),
+    ("from core.itar import pin_for_request\nwith pin_for_request('http://h'):\n    pass", {"pin_for_request"}),
+    ("async def f(url):\n    return await pinned_async_request('GET', url)", {"pinned_async_request"}),
+    ("from modules.system import postgres_backup_service as service\nservice._run_pg_tool(['pg_dump'], 'u', None, '.')",
+     {"_run_pg_tool"}),
 ])
-def test_a_guard_used_in_code_is_found(source, expected):
+def test_a_guard_called_in_code_is_found(source, expected):
     assert guard_names_used(source) == expected
 
 
@@ -304,6 +445,27 @@ def test_a_guard_used_in_code_is_found(source, expected):
     ("import importlib\nimportlib.import_module('requests')", {"requests"}),
     ("__import__('httpx')", {"httpx"}),
     ("import asyncio\nasync def f():\n    await asyncio.open_connection('h', 1)", {"asyncio.open_connection"}),
+    # review 2026-11-13 finding 7: asyncio under another name, and programs that connect
+    ("from asyncio import open_connection", {"asyncio.open_connection"}),
+    ("from asyncio import open_connection as connect, sleep", {"asyncio.open_connection"}),
+    ("import asyncio as aio\nasync def f():\n    await aio.open_connection('h', 1)", {"asyncio.open_connection"}),
+    ("import asyncio as aio\naio.get_event_loop().create_connection(None, 'h', 1)", {"asyncio.create_connection"}),
+    ("def f(loop):\n    return loop.create_datagram_endpoint(None, remote_addr=('h', 1))",
+     {"asyncio.create_datagram_endpoint"}),
+    ("import socket\nsocket.create_connection(('h', 1))", {"socket", "socket.create_connection"}),
+    ("import subprocess\nsubprocess.run(['curl', '-s', 'http://x'])", {"program:curl"}),
+    ("import subprocess\nsubprocess.Popen(('/usr/bin/wget', 'http://x'))", {"program:wget"}),
+    ("import subprocess\nsubprocess.check_output('curl -s http://x', shell=True)", {"program:curl"}),
+    ("import os\nos.system('wget http://x')", {"program:wget"}),
+    ("import asyncio\nasync def f():\n    await asyncio.create_subprocess_exec('ffmpeg', '-i', 'rtsp://x')",
+     {"program:ffmpeg"}),
+    ("command = ['pg_dump', '--dbname', url]", {"program:pg_dump"}),
+    ("argv = ['/usr/bin/ffprobe', '-i', source]", {"program:ffprobe"}),
+    ("import shutil\nexecutable = shutil.which('pg_restore')", {"program:pg_restore"}),
+    ("launch(command('ffmpeg', ['-i', source]))", {"program:ffmpeg"}),
+    ("run(['psql', '-c', 'select 1'])\nstart(binary='go2rtc')", {"program:psql", "program:go2rtc"}),
+    ("import psycopg", {"psycopg"}),
+    ("from psycopg.pq import TransactionStatus", {"psycopg.pq", "psycopg.pq.TransactionStatus"}),
 ])
 def test_the_detector_finds_every_import_form(source, expected):
     assert network_imports(source) == expected
@@ -321,6 +483,14 @@ def test_the_detector_finds_every_import_form(source, expected):
     "text = 'import requests'",
     "# import requests",
     "import asyncio\nasyncio.sleep(1)",
+    "import asyncio as aio\naio.sleep(1)",
+    "from asyncio import sleep, gather",
+    "import subprocess\nsubprocess.run(['supervisorctl', 'restart', 'go2rtc'])",   # not started here
+    "log.warning('go2rtc refused every ODIN credential')",
+    "source = f'ffmpeg:{url}#video=mjpeg'",
+    "LOGS = {'go2rtc': '/data/go2rtc.log'}",
+    '"""Runs pg_dump and curl."""\n# ffmpeg',
+    "import subprocess\nsubprocess.run(['docker', '--version'])",
 ])
 def test_the_detector_ignores_relative_imports_and_lookalikes(source):
     assert network_imports(source) == set()
