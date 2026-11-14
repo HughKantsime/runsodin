@@ -44,7 +44,7 @@ def farm(review_db, monkeypatch):
 
     def run(*argv):
         out = io.StringIO()
-        return tool.main(list(argv), session_factory=factory, out=out), out.getvalue()
+        return tool.main(list(argv), session_factory=factory, out=out, running=lambda: False), out.getvalue()
 
     def host(printer_id):
         review_db.expire_all()
@@ -145,3 +145,98 @@ def test_the_refusal_and_the_guide_point_to_the_command_and_not_to_turning_itar_
                    "scripts.itar_printer_addresses clear", "--network none", "--entrypoint"):
         assert needed in section, needed
     assert "Do not start O.D.I.N. with ITAR mode off" in section
+
+
+# ---- recheck 1, item D: a running server cannot be overwritten ----
+
+def test_an_address_changed_between_the_read_and_the_write_is_not_overwritten(farm, monkeypatch):
+    """The UI of a running server saves a new address after this command read the old one.
+    Before: the command overwrote it and the audit entry said it had replaced the old one."""
+    run, host, db = farm
+    from core import webhook_utils
+    normalize = webhook_utils.normalize_device_host
+
+    def ui_saves_meanwhile(value):
+        other = sessionmaker(bind=db.get_bind())()
+        other.execute(text("UPDATE printers SET api_host='192.168.1.77' WHERE id=21"))
+        other.commit()
+        other.close()
+        return normalize(value)
+    monkeypatch.setattr(webhook_utils, "normalize_device_host", ui_saves_meanwhile)
+    code, output = run("set", "21", "192.168.1.60")
+    assert code == 4 and "changed since it was read; nothing was written" in output
+    assert host(21) == "192.168.1.77", "the server's change is kept"
+    assert db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='itar.printer_address_changed'")).scalar() == 0
+    monkeypatch.setattr(webhook_utils, "normalize_device_host", normalize)
+    assert run("set", "21", "192.168.1.60")[0] == 0
+    row = db.execute(text("SELECT details FROM audit_logs WHERE action='itar.printer_address_changed'")).scalar()
+    assert "192.168.1.77" in str(row) and PUBLIC not in str(row), "the audit entry names the address really replaced"
+
+
+def test_clearing_an_address_that_changed_meanwhile_is_not_written_either(farm, monkeypatch):
+    run, host, db = farm
+    from sqlalchemy.orm import Session
+    real_execute = Session.execute
+    state = {"done": False}
+
+    def execute(self, statement, *args, **kwargs):
+        if str(statement).startswith("UPDATE printers SET api_host = :host") and not state["done"]:
+            state["done"] = True
+            other = sessionmaker(bind=db.get_bind())()
+            real_execute(other, text("UPDATE printers SET api_host='10.0.0.99' WHERE id=22"))
+            other.commit()
+            other.close()
+        return real_execute(self, statement, *args, **kwargs)
+    monkeypatch.setattr(Session, "execute", execute)
+    code, _output = run("clear", "22")
+    monkeypatch.setattr(Session, "execute", real_execute)
+    assert code == 4 and host(22) == "10.0.0.99"
+
+
+def test_a_printer_with_no_address_can_be_given_one(farm):
+    run, host, db = farm
+    db.execute(text("UPDATE printers SET api_host=NULL WHERE id=23"))
+    db.commit()
+    assert run("set", "23", "10.0.0.23")[0] == 0 and host(23) == "10.0.0.23"
+
+
+def test_writes_are_refused_while_the_api_is_running_unless_forced(farm):
+    _run, host, db = farm
+    factory = sessionmaker(bind=db.get_bind())
+
+    def run(*argv):
+        out = io.StringIO()
+        return tool.main(list(argv), session_factory=factory, out=out, running=lambda: True), out.getvalue()
+    for argv in (("set", "21", "192.168.1.60"), ("clear", "22")):
+        code, output = run(*argv)
+        assert code == 5 and "is running on this machine" in output
+    assert host(21) == PUBLIC and host(22) == "203.0.113.7:7125"
+    assert run("list")[0] == 1, "reading is allowed"
+    assert run("set", "21", "192.168.1.60", "--force-running")[0] == 0 and host(21) == "192.168.1.60"
+    assert run("clear", "22", "--force-running")[0] == 0 and host(22) is None
+
+
+def test_the_running_check_asks_only_this_machines_health_port(monkeypatch):
+    """A real listener on 127.0.0.1 stands in for the API; a free port stands in for none."""
+    import threading
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    seen = []
+
+    def serve():
+        conn, _ = listener.accept()
+        seen.append(conn.recv(200))
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        conn.close()
+    threading.Thread(target=serve, daemon=True).start()
+    monkeypatch.setenv("PORT", str(port))
+    monkeypatch.setenv("HTTP_PROXY", "http://203.0.113.9:3128")   # must not be used
+    assert tool.api_is_running() is True
+    assert seen[0].startswith(b"GET /health HTTP/1.1")
+    listener.close()
+    assert tool.api_is_running() is False
+    source = (ROOT / "backend/scripts/itar_printer_addresses.py").read_text(encoding="utf-8")
+    assert source.count('http.client.HTTPConnection("127.0.0.1", port, timeout=2)') == 1
+    assert "urllib" not in source and "requests" not in source and "httpx" not in source

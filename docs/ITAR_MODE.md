@@ -54,7 +54,11 @@ With ITAR mode on, O.D.I.N. does not start while a saved printer has an IP addre
 
 4. Run `list` again until it reports none, then start O.D.I.N.: `docker compose up -d`.
 
-`set` refuses an address outside the local network. A host name is accepted without being looked up; it is checked every time O.D.I.N. connects to the printer. Each change is written to the audit log (`itar.printer_address_changed`). Exit status: 0 done (for `list`: none left), 1 `list` found a printer, 2 wrong usage or a refused address, 3 the database could not be read.
+`set` refuses an address outside the local network. A host name is accepted without being looked up; it is checked every time O.D.I.N. connects to the printer. Each change is written to the audit log (`itar.printer_address_changed`) with the address that was replaced.
+
+`set` and `clear` are for a stopped server. They refuse to run while the O.D.I.N. API answers on the same machine (add `--force-running` to write anyway); that check cannot see an API running in another container, so stop it yourself as in step 1. The write itself only replaces the address the command read: if the address was changed in between, for example in the UI of a server that was still running, nothing is written, the command says so, and you run it again.
+
+Exit status: 0 done (for `list`: none left), 1 `list` found a printer, 2 wrong usage or a refused address, 3 the database could not be read, 4 the address changed since it was read (nothing written), 5 the O.D.I.N. API is running.
 
 With the default SQLite database you can also run the command with no network at all, which shows that it needs none. Use your image name and data folder:
 

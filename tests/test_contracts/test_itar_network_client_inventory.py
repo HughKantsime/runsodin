@@ -288,6 +288,9 @@ LOCAL_FILES = {
         "no connection: ffmpeg and ffprobe are given only /proc/self/fd/<n> files and pipe:0, never a URL",
     "core/timelapse_probe_worker.py":
         "no connection: ffmpeg is given only a /proc/self/fd/<n> file, never a URL",
+    "scripts/itar_printer_addresses.py":
+        "loopback: the fixed address 127.0.0.1 on ODIN's own API port, to see whether the API is running before "
+        "the recovery command writes; http.client reads no proxy from the environment",
     "modules/system/backup_api_export.py":
         "no connection: pg_restore reads an archive file and prints it; it is given no server (no --dbname)",
 }
@@ -376,6 +379,9 @@ def test_the_local_files_with_a_fixed_address_still_have_only_that_address():
                         inputs.append(ast.unparse(value))
         assert inputs and all(text == "'pipe:0'" or text.startswith("'/proc/self/fd/' + str(") for text in inputs), \
             (worker, inputs)
+    recovery = (BACKEND / "scripts/itar_printer_addresses.py").read_text(encoding="utf-8")
+    assert _uses(recovery, "http.client") == {"http.client.HTTPConnection"}
+    assert recovery.count('http.client.HTTPConnection("127.0.0.1", port, timeout=2)') == 1
     export = (BACKEND / "modules/system/backup_api_export.py").read_text(encoding="utf-8")
     assert "--dbname" not in export and "'-d'" not in export and export.count("subprocess.run(") == 1
     for name in ("core/account_lifetime_schema.py", "core/dispatch_target_lock.py"):
