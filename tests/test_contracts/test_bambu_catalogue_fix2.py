@@ -94,9 +94,30 @@ def test_the_spool_picker_knows_exactly_the_materials_the_backend_recognises():
     assert set(listed.group(1).split(' ')) == set(material_identity._MATERIALS)
 
 
-def test_a_respelled_stored_material_is_not_a_type_change(client_db=None):
-    from modules.inventory import catalogue
-    from core.material_identity import canonical_reported_material
-    assert canonical_reported_material(' pla ') == canonical_reported_material('PLA') == 'PLA'
-    source = Path(catalogue.__file__).read_text()
-    assert "canonical_reported_material(row.material) != canonical_reported_material(entry['material'])" in source
+@pytest.mark.parametrize('stored,imported,allowed', [
+    (' pla ', 'PLA Matte', True),
+    ('PET-CF', 'Unlisted Test Polymer', False),
+    ('OTHER', 'Unlisted Test Polymer', True),
+    ('PLA', 'PETG HF', False),
+])
+def test_reimport_material_comparison(inventory_client, review_db, stored, imported, allowed):
+    _, _, spool, target = setup_choice(inventory_client, review_db)
+    spool.filament_id = target.id
+    target.material = stored
+    target.cost_per_gram = 0.123
+    review_db.commit()
+    before = {c.name: getattr(target, c.name) for c in target.__table__.columns}
+    data = payload()
+    data['data'][0].update(fila_type=imported, fila_color=['#789ABC80'])
+    data['data'][0]['fila_color_name']['en'] = 'Invented Revised'
+    response = upload(inventory_client, data)
+    assert response.status_code == 200, response.text
+    review_db.refresh(target)
+    expected = dict(before)
+    if allowed:
+        expected.update(name=f'{imported} Invented Revised',
+                        color_hex='789ABC', catalogue_colors=['#789ABC80'])
+    assert {c.name: getattr(target, c.name) for c in target.__table__.columns} == expected
+    assert response.json()['updated'] == (3 if allowed else 2)
+    assert response.json()['skipped'] == ([] if allowed else [
+        {'catalogue_code': target.catalogue_code, 'reason': 'type_changed'}])

@@ -292,7 +292,7 @@ def main():
         assert metadata056['sha256']==sha056 and metadata056['source_schema_version']==56
         assert metadata056['prepared_schema_version']==current_era and metadata056['prepared_sha256']!=sha056
         assert marker()==before and b._sha256(archive056)==sha056 and leftover()==0 and not owned_files()
-        print('post027-native-released056-validated-source-era-56-prepared-era-57-target-untouched-pass',flush=True)
+        print('post027-native-released056-validated-source-era-56-prepared-current-era-target-untouched-pass',flush=True)
         staged056 = b.stage_postgres_restore(archive056,target,maintenance,**args)
         assert staged056['candidate_sha256']==sha056
         release_sessions(engine)
