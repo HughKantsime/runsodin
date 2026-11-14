@@ -9,9 +9,16 @@ Now, under ITAR mode, no engine is built and no PostgreSQL client is started unl
 server (URL host, `host` / `hostaddr` in the query, PGHOST, PGHOSTADDR) is on the local
 network; a libpq service file is refused. Unix sockets and localhost pass.
 
-Not proven here, and not done by ODIN: the connection is not pinned inside libpq (it looks
-the name up again when it connects). No PostgreSQL server, psycopg or pg_dump runs in these
-tests: SQLAlchemy's create_engine and subprocess.run are replaced and record their calls.
+Recheck 2026-11-13 (finding 4 still open): the check threw the validated address away and
+gave libpq the name, which libpq looked up again for the connection and for every later
+pooled connection. Now the checked address is handed to libpq as `hostaddr` (the engine,
+for each connection it opens) and as PGHOSTADDR (the client programs); `host` is kept, so
+libpq still verifies a TLS certificate against the name.
+
+No PostgreSQL server, psycopg or pg_dump runs in these tests: SQLAlchemy's create_engine and
+subprocess.run are replaced and record their calls, and the engine's connect listener is
+called directly. That libpq connects to `hostaddr` without a lookup and keeps `host` for
+certificate verification is libpq's documented behaviour; it is not exercised here.
 """
 import socket
 import subprocess
@@ -47,7 +54,6 @@ NAMES = {"postgres": (PRIVATE,), "db.example.com": (PUBLIC,), "mixed.example.com
 @pytest.fixture
 def engines(monkeypatch, tmp_path):
     """Engines SQLAlchemy was asked to build (none is built)."""
-    built = []
     secret = tmp_path / "db-password"
     secret.write_text("secret\n")
     secret.chmod(0o600)
@@ -58,8 +64,23 @@ def engines(monkeypatch, tmp_path):
 
     class Engine:
         pass
+    listeners = {}
+
+    class Built(list):
+        """Engines SQLAlchemy was asked to build."""
+
+        def connect_parameters(self):
+            """What the driver is given for a new connection: the newest engine's do_connect
+            listener runs on the parameters SQLAlchemy built from the URL."""
+            parameters = {"host": "from-the-url"}
+            listeners["do_connect"][-1](None, None, [], parameters)
+            return parameters
+    built = Built()
     monkeypatch.setattr(database_config, "create_engine", lambda url, **kw: built.append(url) or Engine())
-    monkeypatch.setattr(database_config.event, "listens_for", lambda *a, **k: (lambda function: function))
+
+    def listens_for(_target, name, *a, **k):
+        return lambda function: listeners.setdefault(name, []).append(function) or function
+    monkeypatch.setattr(database_config.event, "listens_for", listens_for)
     return built
 
 
@@ -249,3 +270,134 @@ def test_destinations_are_read_the_way_libpq_reads_them():
     assert read(make_url("postgresql://u@[fd00::5]:5433/d"), {}) == [("fd00::5", 5433)]
     with pytest.raises(ItarOutboundBlocked):
         read(make_url("postgresql://u@h/d"), {"PGSERVICE": "x"})
+
+
+# ---- recheck 1, item A: the connection goes to the checked address (libpq hostaddr) ----
+
+def test_each_connection_is_given_the_checked_address_and_keeps_the_host_name(engines, itar_on):
+    create_database_engine("postgresql://odin@postgres:5432/odin")
+    assert engines.connect_parameters() == {"host": "from-the-url", "hostaddr": PRIVATE}
+
+
+def test_a_name_that_changes_its_answer_never_reaches_libpq(engines, monkeypatch):
+    """Local when ODIN starts, public afterwards: libpq is never handed the name to look up
+    for itself, and a later (pooled) connection whose lookup is public is refused."""
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    answers = iter([(PRIVATE,), (PRIVATE,), (PUBLIC,), ("10.0.0.9",)])
+    lookups = []
+
+    def resolver(host, *args, **kwargs):
+        lookups.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0)) for address in next(answers)]
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", resolver)
+    create_database_engine("postgresql://odin@db.plant.example/odin")       # lookup 1: start-up check
+    assert engines.connect_parameters()["hostaddr"] == PRIVATE              # lookup 2: first connection
+    with pytest.raises(ItarOutboundBlocked):
+        engines.connect_parameters()                                        # lookup 3: public, no connection
+    assert engines.connect_parameters()["hostaddr"] == "10.0.0.9"           # the database moved, still local
+    assert lookups == ["db.plant.example"] * 4, "one lookup per connection, and its answer is the one used"
+
+
+@pytest.mark.parametrize("url, expected", [
+    (f"postgresql://odin@{PRIVATE}:5432/odin", PRIVATE),
+    ("postgresql://odin@localhost/odin", "127.0.0.1"),
+    ("postgresql://odin@[fd00:12::5]:5432/odin", "fd00:12::5"),
+    ("postgresql://odin@/odin?host=postgres:5432&host=10.1.2.3:5433", f"{PRIVATE},10.1.2.3"),
+    ("postgresql://odin@postgres,localhost/odin", f"{PRIVATE},127.0.0.1"),
+    ("postgresql://odin@/odin?host=/var/run/postgresql&host=postgres", f",{PRIVATE}"),
+])
+def test_one_address_per_host_in_the_same_order(engines, itar_on, url, expected):
+    create_database_engine(url)
+    assert engines.connect_parameters()["hostaddr"] == expected
+
+
+@pytest.mark.parametrize("url", ["postgresql://odin@/odin", "postgresql://odin@/odin?host=/var/run/postgresql",
+                                 f"postgresql://odin@postgres/odin?hostaddr={PRIVATE}"])
+def test_a_socket_and_a_url_with_its_own_hostaddr_get_nothing_added(engines, itar_on, url):
+    create_database_engine(url)
+    assert engines.connect_parameters() == {"host": "from-the-url"}
+
+
+def test_an_address_in_the_environment_is_checked_and_used_as_given(engines, itar_on, monkeypatch):
+    monkeypatch.setenv("PGHOSTADDR", "10.7.7.7")
+    create_database_engine("postgresql://odin@postgres/odin")
+    assert engines.connect_parameters()["hostaddr"] == "10.7.7.7"
+    monkeypatch.setenv("PGHOSTADDR", "db.example.com")       # libpq wants a number here
+    with pytest.raises(ItarOutboundBlocked):
+        engines.connect_parameters()
+
+
+def test_with_itar_off_nothing_is_added_to_a_connection(engines, monkeypatch):
+    monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    resolver = Resolver(monkeypatch, NAMES)
+    create_database_engine("postgresql://odin@db.example.com/odin")
+    assert engines.connect_parameters() == {"host": "from-the-url"} and resolver.calls == []
+
+
+def test_the_real_driver_is_called_with_the_checked_address(monkeypatch, tmp_path):
+    """Nothing replaced but the driver's connect function: a real SQLAlchemy engine hands
+    psycopg `hostaddr` next to `host`. Skipped where psycopg is not installed (it is not on
+    the development Mac; CI has it)."""
+    psycopg = pytest.importorskip("psycopg")
+    secret = tmp_path / "pw"
+    secret.write_text("x\n")
+    secret.chmod(0o600)
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    for name in ("PGHOST", "PGHOSTADDR", "PGSERVICE", "PGPORT"):
+        monkeypatch.delenv(name, raising=False)
+    Resolver(monkeypatch, NAMES)
+    monkeypatch.setattr(database_config, "assert_postgres_restore_ready", lambda *a, **k: None)
+    given = []
+
+    class Stop(Exception):
+        pass
+
+    def connect(*args, **kwargs):
+        given.append(kwargs)
+        raise Stop()
+    monkeypatch.setattr(psycopg, "connect", connect)
+    engine = create_database_engine("postgresql://odin@postgres:5432/odin", role="backup", password_file=str(secret))
+    with pytest.raises(Stop):
+        engine.connect()
+    assert given[0]["host"] == "postgres" and given[0]["hostaddr"] == PRIVATE
+
+
+def _environment_of(service, monkeypatch):
+    seen = []
+
+    def run(command, **kwargs):
+        seen.append(kwargs["env"])
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+    monkeypatch.setattr(service.subprocess, "run", run)
+    return seen
+
+
+def test_a_client_program_is_given_the_checked_address(clients, monkeypatch):
+    service, _started, secret, directory = clients
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    answers = iter([(PRIVATE,), (PRIVATE,), (PUBLIC,)])
+    monkeypatch.setattr(webhook_utils, "_real_getaddrinfo", lambda host, *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0)) for address in next(answers)])
+    seen = _environment_of(service, monkeypatch)
+    url = "postgresql://odin_maintenance@db.plant.example:5432/postgres?application_name=odin-restore"
+    service._run_pg_tool(_dump(url), "postgresql://odin@db.plant.example/odin", secret, directory)
+    assert seen[0]["PGHOSTADDR"] == PRIVATE, "pg_dump connects to this address and looks nothing up"
+    assert "db.plant.example" in " ".join(_dump(url)), "the name stays in the URL for TLS verification"
+
+
+def test_a_client_with_no_server_or_with_its_own_hostaddr_gets_nothing_added(clients, itar_on, monkeypatch):
+    service, _started, secret, directory = clients
+    seen = _environment_of(service, monkeypatch)
+    target = "postgresql://odin@postgres/odin"
+    service._run_pg_tool(["pg_restore", "--list", "/tmp/x.dump"], target, secret, directory)
+    service._run_pg_tool(_dump(f"postgresql://odin@postgres/odin?hostaddr={PRIVATE}"), target, secret, directory)
+    assert ["PGHOSTADDR" in environment for environment in seen] == [False, False]
+
+
+def test_with_itar_off_a_client_environment_is_unchanged(clients, monkeypatch):
+    service, _started, secret, directory = clients
+    monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    seen = _environment_of(service, monkeypatch)
+    url = "postgresql://odin@db.example.com/odin"
+    service._run_pg_tool(_dump(url), url, secret, directory)
+    assert "PGHOSTADDR" not in seen[0]

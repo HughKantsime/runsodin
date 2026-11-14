@@ -114,6 +114,20 @@ def _refuse_public_postgres_under_itar(url: URL) -> None:
         raise DatabaseConfigurationError(str(exc)) from None
 
 
+def _pin_postgres_connections_under_itar(engine: Engine, url: URL) -> None:
+    """ITAR mode: every connection this engine opens (the first, pooled ones, reconnects)
+    goes to an address that was checked for that connection. The server's name is looked
+    up once, every address must be on the local network, and the address is given to libpq
+    as `hostaddr`; libpq then connects to it without a lookup of its own and still verifies
+    a TLS certificate against the host name. With ITAR mode off the listener adds nothing."""
+    @event.listens_for(engine, "do_connect")
+    def _connect_to_the_checked_address(_dialect, _connection_record, _cargs, cparams) -> None:
+        from core.itar_database import pinned_hostaddr
+        hostaddr = pinned_hostaddr(url)   # raises ItarOutboundBlocked: no connection is opened
+        if hostaddr:
+            cparams["hostaddr"] = hostaddr
+
+
 # Writers wait this long for SQLite's writer lock before SQLITE_BUSY.
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
@@ -171,6 +185,7 @@ def create_database_engine(
         # writes and reads (core.db_compat.as_utc_datetime).
         connect_args={"application_name": application_name(role), "options": "-c TimeZone=UTC"},
     )
+    _pin_postgres_connections_under_itar(engine, url)
     engine._odin_restore_barrier_required = role not in _RESTORE_LOCK_EXEMPT_ROLES
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:
         @event.listens_for(engine, "connect")

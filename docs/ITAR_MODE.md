@@ -8,7 +8,7 @@ Accepted values: `1`, `true`, `yes` or `on` turn it on; `0`, `false`, `no`, `off
 
 ## The promise
 
-With ITAR mode on, the server opens no connection to an address outside the local network. Every guarded connection goes to the same address that was checked: a host name is looked up once, the answer is checked, and the connection is made to that answer. Redirects to another address are not followed, and proxy settings from the environment are ignored. The exceptions are listed on this page: an identity provider you allow by name, the PostgreSQL connection (checked, not pinned), and printer discovery (a local-link multicast query).
+With ITAR mode on, the server opens no connection to an address outside the local network. Every guarded connection goes to the same address that was checked: a host name is looked up once, the answer is checked, and the connection is made to that answer. Redirects to another address are not followed, and proxy settings from the environment are ignored. The exceptions are listed on this page: an identity provider you allow by name, and printer discovery (a local-link multicast query).
 
 ## What it blocks
 
@@ -25,12 +25,12 @@ Private (RFC 1918, loopback, link-local) destinations are unaffected.
 
 ## The PostgreSQL database
 
-With a PostgreSQL database (the enterprise layout), the database server is a connection like any other. With ITAR mode on, O.D.I.N. refuses to start, and does not start `pg_dump` or `pg_restore`, unless the server is on the local network:
+With a PostgreSQL database (the enterprise layout), the database server is a connection like any other. With ITAR mode on, O.D.I.N. refuses to start, and does not start `pg_dump` or `pg_restore`, unless the server is on the local network, and it connects to the address it checked:
 
 - Checked: the host in `DATABASE_URL` and `DATABASE_MAINTENANCE_URL`, the `host` and `hostaddr` settings in the URL query, and the `PGHOST` and `PGHOSTADDR` environment variables. A name must resolve, and every address it has must be private.
 - A libpq service file (`service=` in the URL, or `PGSERVICE`) is refused, because the address it names is in a file O.D.I.N. does not read. Put the host in the URL.
 - A Unix socket, `localhost`, and the bundled `postgres` service on the Compose network pass.
-- **Not pinned.** This is the one connection whose DNS answer O.D.I.N. does not pin. The check runs at start-up and each time O.D.I.N. opens the database or starts a backup tool, but the PostgreSQL driver (libpq) looks the host name up again itself whenever it connects. If the name could ever answer with an outside address, use the server's IP address or a Unix socket in `DATABASE_URL` instead of a name.
+- **Pinned.** Each time O.D.I.N. opens a database connection (the first one, pooled ones and reconnects), it looks the server's name up once, checks the answer, and gives that address to the PostgreSQL driver (libpq `hostaddr`), which connects to it without a lookup of its own. `pg_dump` and `pg_restore` get the checked address the same way (`PGHOSTADDR`). The host name is still used to verify the server's TLS certificate. With several hosts in the URL, each gets one checked address, in the same order. A `hostaddr` you put in the URL yourself, or `PGHOSTADDR` in the environment, must be local addresses and is used as given.
 
 SQLite (the default) has no database connection and is not affected.
 

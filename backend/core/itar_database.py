@@ -3,20 +3,26 @@
 The database is ODIN's own store, but it is still a connection: with ITAR mode on, a
 DATABASE_URL (or DATABASE_MAINTENANCE_URL) that names a public PostgreSQL server would send
 every row to it. Under ITAR mode ODIN refuses to build an engine for, or start a PostgreSQL
-client (pg_dump, pg_restore, psql) against, a server whose host is not on the local network.
+client (pg_dump, pg_restore, psql) against, a server whose host is not on the local network,
+and it connects to the address it checked.
 
-What is checked: the host in the URL, the libpq overrides `host` and `hostaddr` in the URL
-query, and the PGHOST and PGHOSTADDR environment variables (libpq reads those itself, and
-PGHOSTADDR replaces the address even when the URL names a host). A libpq service
-(`service=` in the query, PGSERVICE) can name a host in a file ODIN does not read, so it is
-refused. A Unix socket directory, `localhost` and an empty host (libpq's default socket)
-pass. SQLite has no connection and is never checked.
+Checked: the host in the URL, the libpq overrides `host` and `hostaddr` in the URL query,
+and the PGHOST and PGHOSTADDR environment variables (libpq reads those itself). A libpq
+service (`service=` in the query, PGSERVICE) can name a host in a file ODIN does not read,
+so it is refused. A Unix socket directory, `localhost` and an empty host (libpq's default
+socket) pass. SQLite has no connection and is never checked.
 
-What is NOT done: the connection is not pinned. libpq (psycopg and the PostgreSQL client
-programs) looks the host name up again each time it connects, and ODIN does not replace
-that lookup. The check here is repeated every time an engine is built or a client program
-is started, not on each new pooled connection. docs/ITAR_MODE.md says so: use an IP
-address, a Unix socket, or a name your own resolver controls.
+Pinned, through libpq's own `hostaddr`: libpq connects to `hostaddr` without looking the
+name up and keeps `host` for TLS certificate verification. Each host name is looked up
+once, every address it has must be local, and one of those addresses is handed to libpq:
+  - the SQLAlchemy engine gets it as the `hostaddr` connection parameter each time it opens
+    a connection (a new lookup, a new check, and the connection goes to that answer), so
+    pooled and later connections are covered and a database that moves to another local
+    address is still found;
+  - a client program gets it in PGHOSTADDR.
+With several hosts there is one address per host, in the same order (a socket entry gets an
+empty one). A `hostaddr` already in the URL, or PGHOSTADDR in the environment, must be local
+addresses and is used as given.
 
 With ITAR mode off nothing here runs.
 """
@@ -86,27 +92,87 @@ def postgres_destinations(url: URL, environ=None) -> list[tuple[str, int]]:
     return found
 
 
-def enforce_postgres_destination(database_url, environ=None) -> None:
-    """Raise ItarOutboundBlocked when ITAR mode is on and `database_url` (a string or a
-    SQLAlchemy URL) is a PostgreSQL URL whose server is not on the local network.
+def _literal_local(entry: str) -> bool:
+    import ipaddress
+    from core.itar import _is_local_address
+    try:
+        return _is_local_address(ipaddress.ip_address(entry.strip("[]").split("%", 1)[0]))
+    except ValueError:
+        return False   # libpq wants a numeric address here; a name is not one
 
-    Each name is looked up once and every address it has must be local; a name that does
-    not resolve is refused. No-op with ITAR mode off and for SQLite.
+
+def pinned_hostaddr(database_url, environ=None):
+    """Check a PostgreSQL URL under ITAR mode and return the `hostaddr` value libpq must
+    connect with, or None when there is nothing to add.
+
+    None: ITAR mode off, SQLite, a Unix socket, or a URL that already carries `hostaddr`
+    (checked here, used as given). Otherwise the comma list of checked addresses, one per
+    host in libpq's order, or PGHOSTADDR as given when the environment sets it.
+    Each name is looked up ONCE here; the caller hands the result to libpq, which then
+    looks nothing up. Raises ItarOutboundBlocked for a server that is not on the local
+    network, a name that does not resolve, or a libpq service.
     """
     if not is_itar_mode():
-        return
+        return None
+    environ = os.environ if environ is None else environ
     try:
         url = database_url if isinstance(database_url, URL) else make_url(database_url)
     except Exception as exc:
         raise ItarOutboundBlocked("ITAR mode is on and the database URL could not be read") from exc
     if url.get_backend_name() not in _POSTGRES_BACKENDS:
-        return
+        return None
     from core.itar_connect import local_network_addresses
-    for host, port in postgres_destinations(url, environ):
-        try:
-            local_network_addresses(host, port, "postgresql")
-        except ItarOutboundBlocked as exc:
-            raise ItarOutboundBlocked(REFUSAL) from exc
+    postgres_destinations(url, environ)   # refuses a libpq service
+    ports = [url.port, *_values(url.query.get("port")), environ.get("PGPORT")]
+    try:
+        port = int(next(value for value in ports if value))
+    except (StopIteration, ValueError):
+        port = DEFAULT_PORT
+    in_url = _values(url.query.get("hostaddr"))
+    in_environment = _values(environ.get("PGHOSTADDR"))
+    if not all(_literal_local(entry) for entry in in_url + in_environment):
+        raise ItarOutboundBlocked(REFUSAL)
+    url_hosts = _values(url.host) + _values(url.query.get("host"))
+    environment_hosts = _values(environ.get("PGHOST"))
+    pinned = []
+    try:
+        # libpq uses PGHOST only when the URL names no host; it is checked either way.
+        for index, entry in enumerate(url_hosts + environment_hosts):
+            used = index < len(url_hosts) or not url_hosts
+            if _is_socket(entry):
+                address = ""
+            else:
+                host, host_port = _split_entry(entry, port)
+                addresses = local_network_addresses(host, host_port, "postgresql")
+                address = next((item for item in addresses if ":" not in item), addresses[0])
+            if used:
+                pinned.append(address)
+    except ItarOutboundBlocked as exc:
+        raise ItarOutboundBlocked(REFUSAL) from exc
+    if in_url:
+        return None
+    if in_environment:
+        return ",".join(in_environment)
+    return ",".join(pinned) if any(pinned) else None
+
+
+def enforce_postgres_destination(database_url, environ=None) -> None:
+    """Raise ItarOutboundBlocked when ITAR mode is on and `database_url` (a string or a
+    SQLAlchemy URL) is a PostgreSQL URL whose server is not on the local network.
+    No-op with ITAR mode off and for SQLite. Callers that go on to connect use
+    pinned_hostaddr, which makes the same check and returns the address to connect to."""
+    pinned_hostaddr(database_url, environ)
+
+
+def _dbname_arguments(command) -> list:
+    arguments = [str(item) for item in command]
+    found = []
+    for index, item in enumerate(arguments):
+        if item in ("--dbname", "-d") and index + 1 < len(arguments):
+            found.append(arguments[index + 1])
+        elif item.startswith("--dbname="):
+            found.append(item.split("=", 1)[1])
+    return found
 
 
 def enforce_postgres_command(command, database_url=None, environ=None) -> None:
@@ -114,12 +180,22 @@ def enforce_postgres_command(command, database_url=None, environ=None) -> None:
     `database_url` when given. No-op with ITAR mode off."""
     if not is_itar_mode():
         return
-    targets = [database_url] if database_url else []
-    arguments = [str(item) for item in command]
-    for index, item in enumerate(arguments):
-        if item in ("--dbname", "-d") and index + 1 < len(arguments):
-            targets.append(arguments[index + 1])
-        elif item.startswith("--dbname="):
-            targets.append(item.split("=", 1)[1])
-    for target in targets:
+    for target in ([database_url] if database_url else []) + _dbname_arguments(command):
         enforce_postgres_destination(target, environ)
+
+
+def pinned_client_environment(command, environment, database_url=None) -> dict:
+    """`environment` for a PostgreSQL client program, with PGHOSTADDR set to the checked
+    address of the server the command names (its --dbname / -d value), so the program
+    connects there without looking the name up. Returned unchanged with ITAR mode off, for
+    a command that names no server, and when the URL carries its own hostaddr.
+    Raises ItarOutboundBlocked like enforce_postgres_command, which it includes."""
+    if not is_itar_mode():
+        return environment
+    if database_url:
+        enforce_postgres_destination(database_url, environment)
+    pinned = [pinned_hostaddr(target, environment) for target in _dbname_arguments(command)]
+    pinned = [value for value in pinned if value]
+    if len(pinned) > 1:
+        raise ItarOutboundBlocked("ITAR mode is on and a PostgreSQL client was given more than one server")
+    return {**environment, "PGHOSTADDR": pinned[0]} if pinned else environment

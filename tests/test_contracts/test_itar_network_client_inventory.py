@@ -182,6 +182,7 @@ GUARD_NAMES = frozenset({
     # (create_database_engine) or a client program is started (_run_pg_tool)
     # (tests/test_contracts/test_itar_postgres_destination.py)
     "enforce_postgres_destination", "enforce_postgres_command", "_run_pg_tool",
+    "pinned_hostaddr", "pinned_client_environment",
 })
 
 

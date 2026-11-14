@@ -291,14 +291,14 @@ def _run_pg_tool(command: list[str], database_url: str, password_file: str | Non
     if not executable:
         raise RestoreEnvironmentError(f"Required PostgreSQL client is unavailable: {command[0]}")
     command = [executable, *command[1:]]
-    # ITAR mode: no PostgreSQL client is started against a server outside the local network.
+    # ITAR mode: no PostgreSQL client is started against a server outside the local network,
+    # and the client is given the checked address (PGHOSTADDR), so it looks no name up itself.
     from core.itar import ItarOutboundBlocked
-    from core.itar_database import enforce_postgres_command
+    from core.itar_database import pinned_client_environment
     try:
-        enforce_postgres_command(command, database_url)
+        environment = pinned_client_environment(command, os.environ.copy(), database_url)
     except ItarOutboundBlocked as exc:
         raise RestoreEnvironmentError(str(exc)) from None
-    environment = os.environ.copy()
     environment.pop("PGPASSFILE", None)
     environment["PGPASSWORD"] = _postgres_password(password_file)
     try:
