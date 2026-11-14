@@ -39,13 +39,13 @@ def handle(monitor, runtime):
         return True
     observation = (monitor._state.get('gcode_state'), monitor._state.get('subtask_name') or monitor._state.get('gcode_file'))
     try:
-        from core.restart_questions import observe, fingerprint
+        from core.restart_questions import begin_transaction, observe, fingerprint
         from core.dispatch_observation_executor import TransactionView
         with runtime.get_db() as conn:
             if monitor._restart_snapshot is not None and observation == monitor._restart_observation:
                 if fingerprint(TransactionView(conn), monitor.printer_id) == monitor._restart_snapshot:
                     return True
-            conn.execute('BEGIN IMMEDIATE')
+            begin_transaction(conn)
             question = observe(conn, monitor.printer_id, monitor._monitor_started_at, monitor._state)
             if question and question['state'] in ('pending', 'investigation'):
                 monitor._restart_snapshot = fingerprint(TransactionView(conn), monitor.printer_id)
@@ -89,9 +89,9 @@ def clear_finished(monitor, runtime):
     """Consume an answered instruction once the normal terminal writer commits."""
     if not getattr(monitor, '_restart_check_needed', False):
         return
-    from core.restart_questions import load, clear, locked, read_row
+    from core.restart_questions import begin_transaction, load, clear, locked, read_row
     with runtime.get_db() as conn:
-        conn.execute('BEGIN IMMEDIATE')
+        begin_transaction(conn)
         with locked(conn) as db:
             question = load(db, f'restart_question:{monitor.printer_id}')
             if question and question['state'] in ('same', 'new'):

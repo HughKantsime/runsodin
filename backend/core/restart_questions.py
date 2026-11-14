@@ -34,6 +34,12 @@ def save(db, key, value):
                {'key': key, 'value': json.dumps(value)})
 
 
+def begin_transaction(executor):
+    """Open the caller-owned transaction before taking restart-question locks."""
+    db = TransactionView(executor)
+    db.execute(text('BEGIN IMMEDIATE' if db.dialect.name == 'sqlite' else 'BEGIN'))
+
+
 @contextmanager
 def locked(executor):
     """Serialize both processes, including absent question keys, without a new table.
@@ -41,7 +47,7 @@ def locked(executor):
     The existing membership fence protects receipt/Education exclusions. NOWAIT
     table locks also fence concurrent legacy terminal writers on PostgreSQL; a
     busy database refuses the observation/answer, never falls through to INSERT.
-    SQLite callers begin IMMEDIATE before entering here.
+    Callers use begin_transaction before entering here.
     """
     from core.attempt_start_transaction import start_transaction
     with start_transaction(executor) as scope:
@@ -292,8 +298,7 @@ def answer(db, printer_id, actor, question_id, decision):
     from core.rbac import check_org_access
     try:
         db.rollback()
-        if db.get_bind().dialect.name == 'sqlite':
-            db.execute(text('BEGIN IMMEDIATE'))
+        begin_transaction(db)
         with locked(db) as view:
             question = load(view, f'restart_question:{printer_id}')
             if not question:

@@ -14,6 +14,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- PostgreSQL installations can now save either answer to a print confirmation after a restart. If the records are busy, the question stays open so you can try again.
+
 - Operators and administrators can now confirm a print after a restart on printers without an organization. Questions close when their records are closed while the printer is idle, and viewers can see both answer buttons disabled.
 
 - After a restart during a print, ODIN no longer creates a second record for it. If it cannot be sure the print is the same one, it asks once in Dispatch Recovery and keeps one record while waiting. Live readings and fault alerts continue; changed records close the question with an explanation.
