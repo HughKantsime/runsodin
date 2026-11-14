@@ -66,6 +66,11 @@ def choose_slot_catalogue(printer_id: int, slot_number: int, body: CatalogueChoi
     slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=slot_number).first()
     if slot is None:
         raise HTTPException(404, 'Slot not found')
+    # Access first: a caller who may not see the spool learns nothing about its slot or state.
+    from modules.inventory.models import Spool
+    wanted = db.query(Spool).filter_by(id=body.spool_id).first()
+    if wanted is None or not check_org_access(current_user, wanted.org_id):
+        raise HTTPException(404, 'Spool not found')
     guard_catalogue_slots(db, body.spool_id, slot)
     db.refresh(printer)
     if not check_org_access(current_user, printer.org_id):

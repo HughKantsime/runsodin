@@ -100,7 +100,9 @@ def import_catalogue(db, entries):
             created += 1
         else:
             # Never apply a different material's name or colours to this identity.
-            if row.material != entry['material']:
+            # Compared by the same exact-label rule as matching, so a stored spelling such as ' pla ' is not a change.
+            if (row.material != entry['material']
+                    and canonical_reported_material(row.material) != canonical_reported_material(entry['material'])):
                 preserved += 1
                 skipped.append(dict(catalogue_code=row.catalogue_code, reason='type_changed'))
                 continue

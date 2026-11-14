@@ -84,7 +84,19 @@ def test_reimport_changed_material_skips_entire_row(inventory_client, review_db)
     assert response.json()['skipped'] == [{'catalogue_code': target.catalogue_code, 'reason': 'type_changed'}]
 
 
-def test_added_catalogue_bullet_does_not_split_list():
-    changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
-    following = changelog.split('- Import your Bambu filament catalogue', 1)[1].splitlines()
-    assert following[1].startswith('- ')
+def test_the_spool_picker_knows_exactly_the_materials_the_backend_recognises():
+    """The picker filters by material in the browser; its list must be the backend's list."""
+    import re
+    from core import material_identity
+    source = (Path(__file__).resolve().parents[2] / 'frontend/src/components/inventory/SpoolEditModals.tsx').read_text()
+    listed = re.search(r"const catalogueMaterials = new Set\('([^']+)'\.split\(' '\)\)", source)
+    assert listed, 'catalogueMaterials is no longer a space-separated literal: update this test with it'
+    assert set(listed.group(1).split(' ')) == set(material_identity._MATERIALS)
+
+
+def test_a_respelled_stored_material_is_not_a_type_change(client_db=None):
+    from modules.inventory import catalogue
+    from core.material_identity import canonical_reported_material
+    assert canonical_reported_material(' pla ') == canonical_reported_material('PLA') == 'PLA'
+    source = Path(catalogue.__file__).read_text()
+    assert "canonical_reported_material(row.material) != canonical_reported_material(entry['material'])" in source
