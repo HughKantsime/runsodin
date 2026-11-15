@@ -18,7 +18,7 @@ vi.mock('../../api', async () => {
     printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() },
   }
 })
-vi.mock('../../permissions', () => ({ canDo: () => true, clearSensitiveBrowserState: vi.fn() }))
+vi.mock('../../permissions', () => ({ canDo: () => true, canAccessPage: () => true, getCurrentUser: () => ({ id: 1, role: 'admin' }), clearSensitiveBrowserState: vi.fn() }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
 
 const transport = vi.fn()
@@ -32,9 +32,10 @@ describe('F17 dashboard widget shows upcoming and overdue tasks from the real st
   it('renders the overdue and due-soon tasks, hides the healthy one, and links to Maintenance', async () => {
     const c = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } }); clients.push(c)
     c.setQueryData(['stats'], { jobs: {} }); c.setQueryData(['jobs', 'active'], []); c.setQueryData(['print-jobs'], [])
-    c.setQueryData(['printers'], [])
+    c.setQueryData(['printers', 'active', 1, null], [])
     c.setQueryData(['maintenance-status'], wire.status)
     render(<QueryClientProvider client={c}><MemoryRouter><I18nProvider><Route /><Dashboard /></I18nProvider></MemoryRouter></QueryClientProvider>)
+    expect(screen.queryByText("This section couldn't load")).not.toBeInTheDocument()
     const widget = screen.getByRole('heading', { name: 'Maintenance Due' }).parentElement!
     expect(within(widget).getByText('Synthetic service')).toBeInTheDocument()
     expect(within(widget).getByText('certDops due soon')).toBeInTheDocument()

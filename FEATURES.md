@@ -693,9 +693,9 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Maintenance alerts widget with progress bars and overdue badges
 
 ### 16.7 Settings Consolidation
-- 9 tabs in Advanced view; 8 in Simple view (Vigil AI is hidden)
+- 10 tabs in Advanced view; 9 in Simple view (Vigil AI is hidden)
 - Simple/Advanced view toggle
-- Sub-sections: General, Notifications, Access, Integrations, Vigil AI (Advanced only), Branding, License, System, Logs
+- Sub-sections: General, Filaments, Notifications, Access, Integrations, Vigil AI (Advanced only), Branding, License, System, Logs
 
 ### 16.8 Live Application Log Viewer
 - Real-time log viewer in Settings → Logs tab (admin-only)

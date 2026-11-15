@@ -41,7 +41,14 @@ test('an older server that does not say is treated as configured: no prompt', ()
   state.pricing = { ui_mode: 'advanced' }
   mount()
   expect(screen.queryByTestId('pricing-prompt')).toBeNull()
-  state.pricing = undefined
-  cleanup(); mount()
+  expect(screen.getByText(/Cost per item:/)).toBeInTheDocument()
+  expect(screen.getByText(/Price per item:/)).toBeInTheDocument()
+})
+
+test.each([undefined, null])('unavailable pricing settings (%s): no setup prompt or default prices', pricing => {
+  state.pricing = pricing
+  mount()
   expect(screen.queryByTestId('pricing-prompt')).toBeNull()
+  expect(screen.queryByText(/Cost per item:/)).toBeNull()
+  expect(screen.queryByText(/Price per item:/)).toBeNull()
 })

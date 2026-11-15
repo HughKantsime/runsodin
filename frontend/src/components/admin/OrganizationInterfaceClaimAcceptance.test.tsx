@@ -18,7 +18,7 @@ function calls(path: string, method: string) { return boundary.fetch.mock.calls.
 async function manager() { show(<OrgManager />); await screen.findByText(org.name); await screen.findByRole('option', { name: 'Unassigned user' }); await screen.findByRole('option', { name: 'Fixture printer' }) }
 function selectFor(option: string) { return screen.getByRole('option', { name: option, exact: true }).closest('select')! }
 async function settingsAccess() { show(<Settings />); fireEvent.click(screen.getByRole('button', { name: 'Access', exact: true })); await screen.findByText('Existing member', { selector: 'p' }) }
-function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, json: async () => data, text: async () => JSON.stringify(data) } }
+function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, headers: new Headers(), json: async () => data, text: async () => JSON.stringify(data) } }
 beforeEach(() => {
   vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false
   boundary.fetch.mockImplementation(async (url: unknown, options: any = {}) => {
