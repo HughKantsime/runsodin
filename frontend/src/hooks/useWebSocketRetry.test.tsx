@@ -64,6 +64,26 @@ describe('live updates token retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('does not schedule a retry or request a token when the socket closes after unmount', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, 'synthetic-local-token'))
+    vi.stubGlobal('fetch', fetchMock)
+    const { unmount } = renderHook(() => useWebSocket(), { wrapper })
+    await settle(0)
+    expect(sockets).toHaveLength(1)
+    const socket = sockets[0]
+    act(() => socket.onopen())
+    // Browsers deliver close asynchronously, after effect cleanup has cleared its timer.
+    socket.close = vi.fn(() => setTimeout(() => socket.onclose(), 0))
+    unmount()
+    expect(socket.close).toHaveBeenCalledTimes(1)
+    await settle(0)
+    const pendingTimers = vi.getTimerCount()
+    await settle(120000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(sockets).toHaveLength(1)
+    expect(pendingTimers).toBe(0)
+  })
+
   it('a later failure starts the backoff again from 5 seconds after a good connection', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(reply(429)).mockResolvedValueOnce(reply(200, 'synthetic-local-token')).mockResolvedValueOnce(reply(429)).mockResolvedValue(reply(200, 'synthetic-local-token'))
     vi.stubGlobal('fetch', fetchMock)
