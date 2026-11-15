@@ -4,7 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-## [2.2.1] - 2026-11-14
+## [2.2.1] - 2026-11-15
 
 
 <!-- summary: ITAR mode hardening: every connection goes to the address that was checked. -->

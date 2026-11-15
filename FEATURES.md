@@ -760,7 +760,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
-- Air-gap friendly — works without network after initial activation
+- Air-gap friendly — works without network after activation, and activation itself can be done offline through another internet-connected device
 - Offline clock rollback detection: 24-hour skew tolerance, process monotonic time and durable file/database checkpoints; see [limits and recovery](docs/LICENSE_ENFORCEMENT.md)
 - Expiry refreshes frontend capabilities at the deadline, on window focus and after feature-denial responses
 - Printer/user creation services enforce capacity for API, setup, SSO and roster/CSV import entry points
