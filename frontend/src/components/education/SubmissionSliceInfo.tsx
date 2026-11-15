@@ -29,7 +29,7 @@ export default function SubmissionSliceInfo({ id, revision, printerId, orgId, au
   return <section className="my-2 text-xs" aria-label="Slice and loaded filament information">
     {data.plates.map(p => <div key={p.plate}>
       <strong>Plate {p.plate}</strong> · Estimated {p.estimated_seconds ? `${Math.round(Number(p.estimated_seconds) / 60)} min` : 'time unavailable'}
-      {p.filaments.map(f => <p key={f.source_slot}>Sliced {f.material || 'unknown material'} · {f.color || 'unknown color'} · source slot {f.source_slot}</p>)}
+      {p.filaments.map(f => <p key={f.source_slot}>Sliced {f.material ? materialLabel(f.material) : 'unknown material'} · {f.color || 'unknown color'} · source slot {f.source_slot}</p>)}
     </div>)}
     {printerId && <div><strong>Loaded printer slots</strong><p>{data.freshness}</p>
       {data.slots.map(s => foundry ? <div key={s.slot_number}><SlotTile slot={s} /><p>Observed {s.loaded_at || 'time unknown'}</p></div> : <p key={s.slot_number}>Slot {s.slot_number}: {materialLabel(s.filament_type)} · {s.color_hex || 'unknown color'} · observed {s.loaded_at || 'time unknown'}</p>)}

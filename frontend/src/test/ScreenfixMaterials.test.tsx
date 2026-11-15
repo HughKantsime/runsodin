@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import ts from 'typescript'
+import { join } from 'node:path'
+import { readFileSync, readdirSync } from 'node:fs'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { materialLabel } from '../utils/shared'
@@ -42,13 +44,65 @@ it.each(['classic', 'foundry'])('%s mapping shows catalogue then material, and e
     expect(screen.getByRole('button', { name: /ASA-CF Invented Black.*ASA-CF/ })).toHaveTextContent('ASA-CF Invented Black ASA-CF')
   } else expect(screen.getByRole('option', { name: /ASA-CF Invented Black ASA-CF/ })).toBeInTheDocument()
 })
-it('slot renderers do not interpolate raw material properties as visible text', () => {
-  for (const path of ['components/foundry/SlotTile.tsx', 'components/printers/PrinterCard.tsx', 'components/printers/PrinterPanels.tsx', 'components/ui/SpoolRing.tsx', 'components/shared/AmsMappingEditor.tsx']) {
-    const source = readFileSync(`src/${path}`, 'utf8')
-    expect(source, path).not.toMatch(/text=\{(?:slot\.(?:filament_type|material_type)|ext\.material)\}/)
-    expect(source, path).not.toMatch(/slot\.catalogue_name\s*\|\|\s*slot\.material_type/)
-    expect(source, path).not.toMatch(/>\s*\{(?:slot\.(?:filament_type|material_type)|req\.material|material)(?:\s*\|\|[^}]+)?\}\s*</)
+// Search every component source, not a maintained list of renderers. Inspect text
+// and display attributes, leaving raw API values, keys and form values alone.
+// This is a syntax guard, not type/data-flow analysis: indirect props, helper
+// return values, computed keys and material fields with other names need render tests.
+function rawMaterialDisplays(source: string, path = 'fixture.tsx') {
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const fields = /^(material|material_type|filament_type|filament_material|default_filament_type)$/
+  const initializers = new Map<string, ts.Expression>()
+  const collect = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) initializers.set(node.name.text, node.initializer)
+    ts.forEachChild(node, collect)
   }
+  collect(file)
+  const raw = (node: ts.Node, seen = new Set<string>()): boolean => {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) return false
+    if (ts.isCallExpression(node) && node.expression.getText(file) === 'materialLabel') return false
+    if (ts.isPropertyAccessExpression(node)) {
+      // Nozzle metallurgy is not a filament enum (e.g. hardened steel).
+      return fields.test(node.name.text) && node.expression.getText(file) !== 'nozzle'
+    }
+    if (ts.isPropertyAssignment(node)) return raw(node.initializer, seen)
+    if (ts.isIdentifier(node)) {
+      if (seen.has(node.text)) return false
+      const initializer = initializers.get(node.text)
+      return initializer ? raw(initializer, new Set([...seen, node.text])) : fields.test(node.text)
+    }
+    if (ts.isConditionalExpression(node)) return raw(node.whenTrue, seen) || raw(node.whenFalse, seen)
+    if (ts.isBinaryExpression(node)) {
+      if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return raw(node.right, seen)
+      if (![ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.PlusToken].includes(node.operatorToken.kind)) return false
+    }
+    return ts.forEachChild(node, child => raw(child, seen) || undefined) || false
+  }
+  const failures: string[] = []
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxExpression(node) && node.expression) {
+      const parent = node.parent
+      const display = !ts.isJsxAttribute(parent) || /^(text|label|title|aria-label)$/.test(parent.name.getText(file))
+      if (display && raw(node.expression)) failures.push(`${path}:${file.getLineAndCharacterOfPosition(node.getStart()).line + 1}: ${node.getText(file)}`)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return failures
+}
+it('all component material displays use the label function', () => {
+  const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name)
+    return entry.isDirectory() ? sources(path) : /\.[jt]sx$/.test(path) && !/\.test\.|__tests__/.test(path) ? [path] : []
+  })
+  const failures = sources('src/components').flatMap(path => {
+    const source = readFileSync(path, 'utf8')
+    return /material|filament_type/.test(source) ? rawMaterialDisplays(source, path) : []
+  })
+  expect(failures).toEqual([])
+})
+it('material guard catches text, fallbacks, aliases and accessible labels even beside a formatted value', () => {
+  expect(rawMaterialDisplays('const label = row.material; const ui = <><td>{row.material}</td><span>{slot.catalogue_name || slot.material_type}</span><SlotLabel text={req.material} /><button aria-label={`Set threshold for ${row.material}`}>{materialLabel(row.material)}</button><p>{label}</p></>')).toHaveLength(5)
+  expect(rawMaterialDisplays('const label = materialLabel(row.material); const ui = <><p>{label}</p><p>{row.material && materialLabel(row.material)}</p><option value={row.material}>{materialLabel(row.material)}</option><p>{nozzle.material}</p></>')).toEqual([])
 })
 
 it.each(['ASA_CF', 'TPU_AMS', 'ASA_AERO', 'PET_CF', 'PPA_CF', 'PPS_CF'] as FilamentType[])('%s compact tiles use the short label and full tiles retain the long label', code => {

@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import ModelPlates from './ModelPlates'
 import { FileFactChips, PrinterFitLine } from './FileFacts'
 import { useState, useEffect, useRef } from 'react'
@@ -36,7 +37,7 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             <h3 className="font-medium text-sm md:text-base truncate">{model.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
               {model.default_filament_type && (
-                <span className="text-xs px-1.5 py-0.5 bg-[var(--brand-input-bg)] text-[var(--brand-muted)] rounded-md">{model.default_filament_type}</span>
+                <span className="text-xs px-1.5 py-0.5 bg-[var(--brand-input-bg)] text-[var(--brand-muted)] rounded-md">{materialLabel(model.default_filament_type)}</span>
               )}
               {model.variant_count > 1 && (
                 <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded-md">{model.variant_count} variants</span>

@@ -10,6 +10,8 @@ import tailwind from '@tailwindcss/postcss'
 import CataloguePicker from '../components/inventory/CataloguePicker'
 import FilamentCatalogueSettings from '../components/admin/FilamentCatalogueSettings'
 import FilamentLibraryView from '../components/inventory/FilamentLibraryView'
+import SpoolGrid from '../components/inventory/SpoolGrid'
+import ExpandableNote from '../components/ui/ExpandableNote'
 import SpoolCard from '../components/inventory/SpoolCard'
 import SlotTile from '../components/foundry/SlotTile'
 import PrinterCard from '../components/foundry/PrinterCard'
@@ -141,6 +143,64 @@ describe.skipIf(process.env.ODIN_BROWSER_RENDER !== '1')('phone-width rendered l
         const labels = page.getByRole('dialog').locator('.f-slot-label')
         expect(await labels.evaluateAll(labels => labels.every(label => label.scrollHeight <= label.clientHeight + 1))).toBe(true)
         fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      }
+    } finally { await page.close() }
+  })
+
+  it.each(['classic', 'foundry'])('%s: spool columns follow available width in both grids and wrap whole words', async family => {
+    document.documentElement.dataset.themeFamily = family
+    const spools = Array.from({ length: 6 }, (_, id) => ({ id, status: 'active', filament_brand: 'Bambu Lab', filament_name: 'Support for PLA', filament_material: 'PLA', color_name: 'White', remaining_weight_g: 1000, percent_remaining: 100 })) as any
+    const page = await browser.newPage()
+    try {
+      await page.route('**/*', route => route.abort())
+      for (const grouped of [false, true]) {
+        const view = mount(<div data-foundry-page="/spools"><SpoolGrid spools={spools} sortBy="printer" groupByPrinter={grouped} searchQuery="" selectedSpools={new Set()} onToggleSelect={noop} onLoad={noop} onUnload={noop} onUse={noop} onArchive={noop} onEdit={noop} onDry={noop} /></div>)
+        // Main content after sidebar/padding: 3 old tracks at 1024 left
+        // 201px cards after the 28px selection gutter. Test the real constraint.
+        for (const [viewport, available, columns] of [[390, 358, 1], [1024, 720, 2], [1440, 1136, 3]]) {
+          await page.setViewportSize({ width: viewport, height: 900 })
+          await page.setContent(`<!doctype html><html data-theme-family="${family}"><head><style>${css}</style></head><body><main style="width:${available}px">${view.container.innerHTML}</main></body></html>`)
+          const grid = page.locator('main .grid').first()
+          const widths = await grid.locator(':scope > div').evaluateAll(items => items.map(item => item.querySelector('[style]')!.getBoundingClientRect().width))
+          expect(Math.min(...widths)).toBeGreaterThanOrEqual(300)
+          expect(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(columns)
+          const title = page.locator('h3 span').filter({ hasText: 'Bambu Lab' }).first()
+          expect(await title.evaluate(el => getComputedStyle(el).wordBreak)).toBe('normal')
+          expect(await title.evaluate(el => getComputedStyle(el).overflowWrap)).toBe('break-word')
+          // A word that fits must stay on a single line (range per character).
+          expect(await title.evaluate(el => {
+            const text = el.firstChild!
+            const tops = Array.from({ length: 5 }, (_, i) => { const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1); return range.getBoundingClientRect().top })
+            return new Set(tops).size
+          })).toBe(1)
+          expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport)
+        }
+        view.unmount()
+      }
+    } finally { await page.close() }
+  })
+
+  it.each(['classic', 'foundry'])('%s: all three disclosure close controls measure at least 44px at 1440', async family => {
+    document.documentElement.dataset.themeFamily = family
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(320)
+    const disclosures = [
+      { title: 'Full note', trigger: 'Show full note', ui: <ExpandableNote text={name} /> },
+      { title: 'Filaments', trigger: 'Filaments', ui: <PrinterCard printer={{ id: 1, name: 'Printer', api_type: 'bambu', filament_slots: [{ slot_number: 1, filament_type: 'PLA' }] } as any} /> },
+      { title: 'Filament name', trigger: 'Show full filament name', ui: <SpoolCard spool={{ id: 1, filament_name: name, status: 'active' } as any} onLoad={noop} onUnload={noop} onUse={noop} onArchive={noop} onEdit={noop} onDry={noop} /> },
+    ]
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+    try {
+      await page.route('**/*', route => route.abort())
+      for (const { title, trigger, ui } of disclosures) {
+        const view = mount(ui)
+        fireEvent.click(screen.getByRole('button', { name: trigger }))
+        await page.setContent(`<!doctype html><html data-theme-family="${family}"><head><style>${css}</style></head><body>${document.body.innerHTML}</body></html>`)
+        const close = page.getByRole('dialog', { name: title }).getByRole('button', { name: 'Close', exact: true })
+        const box = (await close.boundingBox())!
+        expect(box.height, title).toBeGreaterThanOrEqual(44)
+        expect(box.width, title).toBeGreaterThanOrEqual(44)
+        view.unmount()
       }
     } finally { await page.close() }
   })

@@ -1,4 +1,4 @@
-// Mobile web pass, slice 3: Modal is a full-screen sheet under 640 px and unchanged above.
+// Mobile web pass, slice 3: Modal is a full-screen sheet under 640 px with 44px close controls at every width.
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import Modal from './Modal'
@@ -37,7 +37,7 @@ test('phone: alert dialogs keep their compact layout', () => {
   expect(alertPanel).toHaveClass('max-h-[90vh]')
 })
 
-test('640 px and above: classes and DOM order are unchanged', () => {
+test('640 px and above: panel layout is unchanged and close is a 44px target', () => {
   viewport(false)
   render(<Modal isOpen onClose={() => {}} title="T">body</Modal>)
   expect(screen.getByRole('dialog').className).toBe('fixed inset-0 bg-black/60 flex justify-center z-50 p-0 sm:p-4 items-end sm:items-center')
@@ -45,7 +45,7 @@ test('640 px and above: classes and DOM order are unchanged', () => {
   expect(panel().children).toHaveLength(2)
   expect(panel().children[0].className).toBe('flex items-center justify-between p-4 sm:p-6 pb-0')
   expect(panel().children[1].className).toBe('p-4 sm:p-6')
-  expect(screen.getByLabelText('Close').className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]')
+  expect(screen.getByLabelText('Close').className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 flex items-center justify-center')
 })
 
 test('no matchMedia (jsdom default) renders the desktop layout', () => {

@@ -104,7 +104,7 @@ export default function Modal({
               onClick={onClose}
               className={sheet
                 ? 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] -mr-2 min-h-11 min-w-11 flex items-center justify-center'
-                : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]'}
+                : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 flex items-center justify-center'}
               aria-label="Close"
             >
               <X size={20} />

@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useEffect, useState } from 'react'
 import { fetchAPI } from '../../api/client'
 import { canDo } from '../../permissions'
@@ -43,7 +44,7 @@ export default function TraySettings({ printerId }: { printerId: number }) {
       {presets.length > 0 && <label className="block">Reported preset<select aria-label="Reported preset" defaultValue="" onChange={event => {
         const selected = presets[Number(event.target.value)]
         if (selected) setPreset({ ...selected, nozzle_temp_min: String(selected.nozzle_temp_min), nozzle_temp_max: String(selected.nozzle_temp_max) })
-      }}><option value="" disabled>Select preset</option>{presets.map((item, index) => <option key={index} value={index}>{item.preset_id} · {item.material} · {item.nozzle_temp_min}–{item.nozzle_temp_max} C</option>)}</select></label>}
+      }}><option value="" disabled>Select preset</option>{presets.map((item, index) => <option key={index} value={index}>{item.preset_id} · {materialLabel(item.material)} · {item.nozzle_temp_min}–{item.nozzle_temp_max} C</option>)}</select></label>}
       <label className="block">AMS (0–3)<input aria-label="AMS" type="number" min="0" max="3" required value={ams} onChange={event => setAms(event.target.value)} /></label>
       <label className="block">Slot (0–3)<input aria-label="Slot" type="number" min="0" max="3" required value={slot} onChange={event => setSlot(event.target.value)} /></label>
       {(['preset_id', 'material', 'nozzle_temp_min', 'nozzle_temp_max'] as const).map(key => <label className="block" key={key}>

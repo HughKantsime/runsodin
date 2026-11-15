@@ -31,7 +31,7 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
   const fullName = `${spool.filament_brand || ''} ${spool.filament_name || ''}`.trim()
   const { ref: titleRef, overflow: titleClamped } = useTextOverflow<HTMLSpanElement>(fullName)
   const [nameOpen, setNameOpen] = useState(false)
-  const title = <span ref={titleRef} className="line-clamp-2 md:line-clamp-3 break-words">{fullName}</span>
+  const title = <span ref={titleRef} className="line-clamp-2 md:line-clamp-3 break-normal [overflow-wrap:break-word]">{fullName}</span>
   const nameControl = titleClamped && <button type="button" className="min-h-11 text-xs underline text-[var(--brand-primary)]"
     aria-expanded={nameOpen} onClick={event => { event.stopPropagation(); setNameOpen(true) }}>Show full filament name</button>
   // The server sends remaining_weight_g = null when the balance is unknown (percent_remaining is then 0).

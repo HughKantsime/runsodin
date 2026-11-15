@@ -29,6 +29,7 @@ it.each(['classic', 'foundry'])('disclosure dialogs in %s are named, trap focus,
     const dialog = screen.getByRole('dialog', { name: title })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     const close = within(dialog).getByRole('button', { name: 'Close' })
+    expect(close).toHaveClass('min-h-11', 'min-w-11')
     expect(close).toHaveFocus()
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
     expect(dialog.contains(document.activeElement)).toBe(true)
