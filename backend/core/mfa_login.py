@@ -37,7 +37,8 @@ def read_required_mfa(db):
     raise HTTPException(status_code=503,detail='MFA policy is unavailable. Try again later.')
 
 
-def login_mfa_response(db,user_id,expected_password_hash=None):
+def login_mfa_response(db,user_id,expected_password_hash=None,*,commit=True):
+    """Prepare MFA continuation; commit=False joins the caller's audit transaction."""
     user=_locked_user(db,user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401,detail='Invalid authentication session')
@@ -58,7 +59,7 @@ def login_mfa_response(db,user_id,expected_password_hash=None):
     try:
         db.execute(text("INSERT INTO mfa_enrollments(jti,user_id,expires_at,state,created_at) VALUES(:jti,:uid,:exp,'pending',:now)"),
                    {'jti':payload['jti'],'uid':user.id,'exp':payload['exp'],'now':time.time()})
-        db.commit()
+        if commit:db.commit()
     except Exception:
         try:db.rollback()
         except Exception:pass

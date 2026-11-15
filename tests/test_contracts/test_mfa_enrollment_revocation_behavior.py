@@ -40,11 +40,12 @@ def test_reset_after_password_verification_cannot_mint_new_enrollment(reset_clie
     link=seed_link(review_db);replacement=new_password()
     original=routes_auth._record_login_attempt
     def reset_after_verified(db,ip,username,success):
-        recorded=original(db,ip,username,success)
+        # Password verification has finished, but the attempt now joins the
+        # login transaction. Reset before its first write reserves SQLite.
         if success:
             result=client.post('/auth/reset-password',json={'token':link,'new_password':replacement})
             assert result.status_code==200
-        return recorded
+        return original(db,ip,username,success)
     monkeypatch.setattr(routes_auth,'_record_login_attempt',reset_after_verified)
     response=client.post('/auth/login',data={'username':'student','password':old_password})
     assert response.status_code==401
@@ -52,6 +53,7 @@ def test_reset_after_password_verification_cannot_mint_new_enrollment(reset_clie
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM mfa_enrollments')).scalar_one()==0
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
+        assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one()==0
 
 
 @pytest.mark.parametrize('action',['reset','change','revoke_all'])

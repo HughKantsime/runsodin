@@ -204,6 +204,7 @@ def test_http_ambiguous_attempt_commit_does_not_issue_session(login_client,revie
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
         assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one()==1
+        assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='auth.login'")).scalar_one()==1
 
 
 def test_http_audit_staging_failure_does_not_issue_session(login_client,review_db,monkeypatch):
@@ -248,3 +249,61 @@ def test_http_session_insert_failure_does_not_issue_untracked_token(login_client
     assert 'session' not in response.cookies
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
+
+
+@pytest.mark.parametrize('mode', ['ordinary', 'mfa', 'mfa_setup'])
+@pytest.mark.parametrize('failure', ['none', 'mfa', 'session', 'audit_stage', 'audit_flush'])
+def test_successful_attempt_and_outcome_audit_commit_together(
+        login_client, review_db, monkeypatch, mode, failure):
+    from core import mfa_login
+    from sqlalchemy import event
+
+    if mode == 'mfa':
+        review_db.execute(text('UPDATE users SET mfa_enabled=1 WHERE id=1'))
+    elif mode == 'mfa_setup':
+        review_db.execute(text("INSERT INTO system_config(key,value) VALUES('require_mfa','true')"))
+    review_db.commit()
+    action = 'auth.login' if mode == 'ordinary' else 'login_success'
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError('synthetic MFA handling failure')
+
+    if failure == 'mfa':
+        monkeypatch.setattr(mfa_login, 'login_mfa_response', unavailable)
+    original_add = Session.add
+
+    def add(self, entry, *args, **kwargs):
+        if failure == 'audit_stage' and getattr(entry, 'action', None) == action:
+            raise RuntimeError('synthetic outcome audit staging failure')
+        return original_add(self, entry, *args, **kwargs)
+
+    monkeypatch.setattr(Session, 'add', add)
+
+    def refuse(conn, cursor, statement, params, context, executemany):
+        if statement.lstrip().startswith('INSERT'):
+            if failure == 'audit_flush' and 'INSERT INTO audit_logs ' in statement:
+                raise RuntimeError('synthetic outcome audit persistence failure')
+            if failure == 'session' and 'active_sessions ' in statement:
+                raise RuntimeError('synthetic session persistence failure')
+
+    engine = review_db.get_bind()
+    event.listen(engine, 'before_cursor_execute', refuse)
+    try:
+        response = login_client.request()
+    finally:
+        event.remove(engine, 'before_cursor_execute', refuse)
+
+    succeeds = failure == 'none' or (failure == 'session' and mode != 'ordinary')
+    assert (response.status_code == 200) is succeeds
+    if not succeeds:
+        assert 'session' not in response.cookies
+    with Session(engine) as fresh:
+        assert fresh.execute(text(
+            'SELECT COUNT(*) FROM login_attempts WHERE success=1')).scalar_one() == int(succeeds)
+        assert fresh.execute(text('SELECT COUNT(*) FROM audit_logs')).scalar_one() == int(succeeds)
+        assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one() == int(
+            succeeds and mode == 'ordinary')
+        assert fresh.execute(text('SELECT COUNT(*) FROM mfa_enrollments')).scalar_one() == int(
+            succeeds and mode == 'mfa_setup')
+    if succeeds:
+        assert [row[0] for row in _sign_in_rows(review_db)] == [action]
