@@ -257,3 +257,25 @@ def test_host_jsonschema_requirement_fails_closed(state, monkeypatch):
     else:
         with pytest.raises((AssertionError, importlib.metadata.PackageNotFoundError)):
             exec(compile(check, 'promote', 'exec'), {})
+
+
+def test_cv05_requires_native_restore_receipt_and_documents_match():
+    component = next(row for row in load_inventory()['components'] if row['id'] == 'CV05')
+    receipt = '{native}/database-parity/restore-proof/post027-restore-native.json'
+    assert receipt in component['expected_artifacts']
+    assert 'post027-restore-native.json=pass' in component['json_status']
+    assert component['command'] == ['make', 'test-database-parity', 'CANDIDATE_PYTHON=python3.11']
+    makefile = (ROOT / 'Makefile').read_text()
+    target = makefile.split('test-database-parity:', 1)[1].split('\n\n', 1)[0]
+    assert target.index('-m ops.database_parity.runner') < target.index('-m ops.database_parity.run_post027_restore')
+    workflow = workflow_text()
+    assert 'make trusted-validation-gate PYTHON=python3.11' in workflow
+    steps = yaml.safe_load(workflow)['jobs']['validate']['steps']
+    upload = next(step for step in steps if step['name'] == 'Save native PostgreSQL restore proof receipt')
+    assert upload['with']['path'].endswith(receipt.replace('{native}', '/native'))
+    assert upload['with']['if-no-files-found'] == 'error'
+    scope = (ROOT / 'docs/TRUSTED_VALIDATION_SCOPE.md').read_text()
+    assert 'Required native PostgreSQL restore proof (CV05)' in scope
+    assert 'post027-restore-native.json=pass' in scope
+    for doc in ('docs/SCHEMA_MIGRATIONS.md', 'ops/RUNBOOK.md'):
+        assert 'ops/database_parity/restore_baselines.json' in (ROOT / doc).read_text()

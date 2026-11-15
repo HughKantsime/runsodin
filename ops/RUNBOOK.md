@@ -86,6 +86,30 @@ images live in the GitHub Container Registry. Data lives in a mounted volume.
 # owned by the later immutable-evidence workflow.
 ```
 
+Before preparing the next candidate, record every successful release since 2.2.0
+in `ops/database_parity/restore_baselines.json`: version, `target_digest` from its
+successful production promotion receipt, and schema era from
+`backend/core/schema/released_post027_ledgers.json`. Commit the entry with the
+next candidate, including patch releases with an unchanged schema. The 2.2.1
+receipt is currently pending; its TODO test deliberately fails until recorded.
+Never substitute a guessed digest or mutable tag.
+
+At the same point, check the preserved restore bundle procedure in
+`docs/SCHEMA_MIGRATIONS.md`: record the candidate ledger before publication and
+freeze a new bundle from the released commit when a later migration would strand
+its backups. Existing preserved bundles stay byte-frozen. The baseline image
+record identifies a published runtime; bundle metadata identifies released source
+and ledger history. Neither replaces the other.
+
+CV05 now requires the native PostgreSQL restore proof after database parity. It
+selects the newest release strictly below the candidate's `VERSION`, takes its
+native backup and restores it with candidate sources. Missing release entries,
+images, facts or receipts fail the gate. Before merging this gate, ODIN Dev must
+run `python3.11 -m ops.database_parity.run_post027_restore` once on odin-ci outside
+Trusted Validation, recording the receipt and duration. Do not start it while a
+Trusted Validation is running. See `docs/TRUSTED_VALIDATION_SCOPE.md` for evidence
+locations, owned cleanup and runtime requirements.
+
 Current GitHub Actions surface:
 1. **Trusted Validation** — manual dispatch only, exact owner and candidate ref/SHA.
 2. **Ten local gates** — release control, contracts, security, candidate, database

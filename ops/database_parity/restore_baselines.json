@@ -1,0 +1,16 @@
+{
+  "first_required_release": "2.2.0",
+  "releases": [
+    {
+      "version": "2.2.0",
+      "image_digest": "sha256:dcf61600a60357c204e6eb0284b4ed2f3f49465376bec6552213dd809393217b",
+      "schema_era": 57
+    },
+    {
+      "version": "2.2.1",
+      "image_digest": null,
+      "schema_era": null,
+      "todo": "Record version, target_digest and ledger era from the successful production receipt; no receipt is available in this checkout."
+    }
+  ]
+}

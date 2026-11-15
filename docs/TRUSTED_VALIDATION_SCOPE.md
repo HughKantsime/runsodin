@@ -35,12 +35,69 @@ This proves the selected licensed behavior, not vendor-license activation.
 | CV02 | contracts | About 12,600 in-process contract tests, run in batches. They cover module boundaries, RBAC, migrations, and Pro, Education and Enterprise behaviour under the substituted trust root. Backend logic for orders, products, consumables, maintenance, branding, report schedules, analytics, webhooks, SSO, permissions, groups and quotas is proved here. | Any test in `tests/test_contracts/live_environment_inventory.txt`. Those need a built image, Docker, network, an external checkout or a real model. CV02 deselects exactly that list and fails if the marked set differs from it. They run in the certification batches (`ops/run_contract_batches.sh` with `CERT_B/H/ENT_IMAGE`, `CERT_H_DOCS_BUILD`, `CERT_H_NETWORK`, `ODIN_SITE_DOCS`, `ODIN_REAL_VISION_MODEL`), with receipts, outside this gate. Also not proved: the compiled UI and the exact image. |
 | CV03 | security | gitleaks, pip-audit, the npm-audit policy, bandit, semgrep, hadolint, and the operational-security and readiness/deploy-parity tests. | Runtime penetration testing. Live TLS and edge configuration. |
 | CV04 | candidate | That the exact image builds and boots through its entrypoint on a fresh volume. Setup claim, seeding, personas and 2.0 RBAC (for example, models.delete is admin-only). The perimeter. WebSocket tokens and metrics. Generic upload, revision and queue lifecycles. The invoice for an existing order renders with the image's packaged fonts. Every Pro write and Pro read is refused with the licence error, and existing records stay readable. In the compiled UI (Playwright, desktop and mobile): Community gates (Pro pages, locked Integrations and Branding tabs, the Access tab open with its SSO and permission notices), the locked report-schedule form, and the free features end to end. The signed Pro fixture additionally proves archive CSV download and denied-download feedback. The free features include Quick Print of a sliced 3MF (disabled, with the reason, for an unsliced one), the MFA and OIDC continuation, the IP allowlist with its lock-out guard, retention, tokens, cameras, profiles, models and printers. | Pro journeys beyond the archive CSV download (see "Gaps" below). Vendor-issued licence activation. PostgreSQL (CV04 runs on SQLite). Real printers. |
-| CV05 | database-parity | On the exact image, for SQLite and twice for PostgreSQL 16: readiness, setup, personas, RBAC, CRUD, organisation scope, the relationship graph, identity paths, backup authorisation, WebSocket and background writes. Education org CRUD under a temporary signed test issuer, Community refusal of webhooks and report schedules, and admin-only model delete. Five legacy upgrades with an idempotent second run, and refusal of malformed upgrades. Least-privilege PostgreSQL roles. The offline restore runs as `odin` on the application data volume, as the entrypoint does: wrong acknowledgement, live session, external dependency, success, rollback, and recovery from interruption. The runtime then restarts on the restored data. It also runs 140 host-side provider assertions. | Licensed behavior beyond the Education org workflow. Vendor-issued licence activation. The compiled UI. Restoring across versions beyond the five legacy fixtures. Managed or hosted PostgreSQL. |
+| CV05 | database-parity | On the exact image, for SQLite and twice for PostgreSQL 16: readiness, setup, personas, RBAC, CRUD, organisation scope, the relationship graph, identity paths, backup authorisation, WebSocket and background writes. Education org CRUD under a temporary signed test issuer, Community refusal of webhooks and report schedules, and admin-only model delete. Five legacy upgrades with an idempotent second run, and refusal of malformed upgrades. Least-privilege PostgreSQL roles. The offline restore runs as `odin` on the application data volume, as the entrypoint does: wrong acknowledgement, live session, external dependency, success, rollback, and recovery from interruption. The runtime then restarts on the restored data. It also runs 140 host-side provider assertions. The required native PostgreSQL restore proof restores a backup created by the recorded previous release, checks the current migration registry, and retains the historical and coordinator checks. | Licensed behavior beyond the Education org workflow. Vendor-issued licence activation. The compiled UI. Restores from eras 039–046 remain outside this proof. Managed or hosted PostgreSQL. |
 | CV06 | edu-readiness | Deterministic, code-controlled EDU gates: foundation, privacy, SQLite backup/restore, hardware contracts, browser journey, load, accessibility and security. This includes the licence-context frontend unit tests that `test-edu` names. | Live TLS, legal sources and physical hardware (`make verify-edu-live`, outside this gate). A real Education licence. |
 | CV07 | edu-sandbox | The EDU sandbox lifecycle and productisation contracts. A prepare, status and purge smoke on the unlicensed exact image. | The licensed sandbox lifecycle. Activation needs a normally signed, installation-bound Education licence, which is blocked externally. |
 | CV08 | hardware-certification | A code-controlled replay of the four printer protocols against pinned fixtures and simulators. | Physical printers. Firmware drift. |
 | CV09 | telemetry-contracts | The Telemetry V2 contract tests (`tests/test_telemetry`). | A live broker. Load. |
 | CV10 | telemetry-v2-smoke | The Telemetry V2 smoke against a live MQTT broker (`tests/stress/mqtt/run_ci_smoke.sh`). | Production-scale load. |
+
+## Required native PostgreSQL restore proof (CV05)
+
+`make test-database-parity` runs the existing parity runner, then
+`python3.11 -m ops.database_parity.run_post027_restore`. Both must pass. The proof
+stays inside **CV05**, since it shares the serial Docker phase and PostgreSQL
+scope; CV01–CV10, eligibility, and the aggregate's skip-fails policy are unchanged.
+The workflow checks out the exact candidate SHA before the aggregate. A missing
+step, image, pull, receipt, fact, or final pass marker fails CV05. The inventory
+requires `post027-restore-native.json=pass` as well as the existing parity manifest.
+
+`ops/database_parity/restore_baselines.json` records version, image digest and
+schema era, starting at 2.2.0. Selection uses the newest recorded release strictly
+below `VERSION`, including the release-ledger inventory so a missing image entry
+cannot silently choose an older release. The candidate's own ledger entry is
+excluded: its image does not exist yet. Add each successful release's entry from
+its production receipt before validating the next candidate, even when its schema
+has not changed. An explicit pending 2.2.1 record fails closed until the real
+receipt is available. The offline contract includes an intentionally failing TODO
+for that receipt; it is neither skipped nor marked as an expected failure.
+
+The prior image's own backup service writes the archive; candidate sources restore
+it. Destination expectations use the live registry. The original 31 native facts
+and six coordinator facts remain; a new previous-release backup fact makes **32
+native facts**, ending with `post027-native-pass`. Historical source-era checks
+remain fixed to the history they prove. The receipt records every fact, baseline
+digest, full candidate commit, source cleanliness, archive hash and phase durations.
+It lives at `native/database-parity/restore-proof/post027-restore-native.json`
+inside the validation run. CV05 hashes it like its other artifacts; practical
+evidence retains that hash. The workflow also uploads the receipt as
+`odin-postgresql-restore-proof-<run-id>-<attempt>` alongside the sanitized evidence
+artifact, preserving the existing promotion artifact layout.
+
+Docker and public registry pulls are required on the validation runner: the
+recorded prior ODIN digest, `ghcr.io/hughkantsime/odin:v1.9.24`, and the pinned
+PostgreSQL image. The job hook checks dispatch identity, not registry access;
+the documented egress rule blocks production's address, not public registries.
+No runner permissions or network policy are changed here. Runtime has not been
+measured on odin-ci for this addition. CV05 retains its 3,600-second total budget;
+the native proof has a 3,000-second limit, plus bounded cleanup, and individual
+commands also time out. These are limits, not duration forecasts. A slow run
+fails; measure the required standalone odin-ci run before merge.
+
+`POST027_STAGING` selects the standalone receipt directory;
+`ODIN_DATABASE_PARITY_ARTIFACT_ROOT` places it under validation evidence.
+`POST027_CONTAINER_PREFIX` must start with `odin-restore-proof-`;
+`POST027_RUNTIME_PLATFORM` defaults to `linux/amd64`. Runtime image overrides and
+`POST027_CURRENT_ONLY` are refused by the required proof. The runner supplies
+`PYTHONPATH=/source/backend:/source` to the native process (both import roots are
+needed), and the coordinator uses `/source/backend`.
+
+Each run appends a random suffix to the prefix. A host lock protects each prefix;
+startup removes only resources bearing its exact ownership label **and** prefix.
+Containers use tmpfs instead of anonymous image volumes. Cleanup runs after
+success, failure, timeout, SIGINT and SIGTERM. SIGKILL cannot run cleanup (the
+outer aggregate uses it on timeout); the next run with that prefix reaps residue.
+Never use blanket Docker prune. The existing serial CV05 placement is retained.
 
 ## api_load limits for 2.0
 
@@ -267,7 +324,7 @@ Environment overrides are per subprocess, never writes to the parent environment
 | CV02 `test-contracts-structured` | `structured_targets.contracts` runs eight `contract_batches` workers, each with unique basetemp/JUnit/log and disabled pytest cache. Owned test DBs, HTTP/broker/PostgreSQL fixtures remain process/test scoped; the existing exact live-environment inventory is unchanged. Certification families stay together. **Writes frontend source fixtures and application-certification receipts in the checkout.** | `native/contracts` and `batches/*`; certification captures under `artifacts/application-certification`. Cannot overlap any image build or CV06 frontend build. CV08/CV09 share phase 1 but do not access these captures (verification below). |
 | CV03 `security-structured` | Operational tests, gitleaks, pip-audit, npm-audit policy, bandit, semgrep, hadolint. No image build/container. Scanners read source/lockfiles; npm audit does not install or rewrite dependencies. Scanner caches stay in the private HOME. | `native/security`, with distinct subgate files and homes. The npm exception policy can hash the entire frontend tree. CV03 runs alone after CV02 finishes and before the Docker worker starts; CV06's standalone scanner output runs later. |
 | CV04 `test-candidate` | `release_gate.runner`: `odin-candidate:candidate-<run-id>`; names prefixed `odin-candidate-`, owned network/volume; Docker-assigned loopback HTTP port. Playwright contexts/profiles temporary; no browser install. | `native/candidate/<id>`, including Playwright output. Serial with other image builders; never concurrent with fixture producers. |
-| CV05 `test-database-parity` | `database_parity.runner`: `odin-dbparity:parity-<run-id>`; `odin-pg-*` and `odin-sqlite-parity-*` resources, PostgreSQL 16, isolated data volumes and container topology. Random `.odin-db-parity*` secret files in checkout, with cleanup. | `native/database-parity/<id>`. Serial Docker phase also avoids another build traversing these temporary files. |
+| CV05 `test-database-parity` | `database_parity.runner`: `odin-dbparity:parity-<run-id>`; `odin-pg-*` and `odin-sqlite-parity-*` resources, PostgreSQL 16, isolated data volumes and container topology. Random `.odin-db-parity*` secret files in checkout, with cleanup. | `native/database-parity/<id>` plus `native/database-parity/restore-proof/post027-restore-native.json`. The native proof uses labelled `odin-restore-proof-*` resources and its own source copy. Serial Docker phase also avoids another build traversing temporary files. |
 | CV06 `test-edu-readiness` | Full existing EDU chain, including frontend/dist builds, browser servers, tmp DBs, hardware tests, api_load, accessibility and standalone security. `api_load` thresholds and repetition timeouts unchanged. | `native/edu-readiness`; legacy standalone security output remains exclusive. Runs last and alone, not concurrently with CV10 or CV02. |
 | CV07 `test-edu-sandbox` | First runs sandbox/license contracts, then `edu_sandbox.certify` prepare/status/purge. Sandbox-specific image and `odin-edu-<sandbox-id>` project, networks, volumes, proxy/helper containers and loopback port. State in `.odin-edu-sandboxes/<id>`. | `native/edu-sandbox/<id>`; prerequisite JUnit uses a temporary directory. Serial Docker phase; no shared sandbox ID. |
 | CV08 `test-hardware-certification` | `hardware_certification.runner` uses locked `.hardware-cert-venv` and replay fixtures/simulators; no physical printers or Docker. Simulators own ephemeral loopback listeners; test state is temporary. | `native/hardware/<id>`, distinct from CV02 captures. Serial with CV09, concurrent only with CV02. |
@@ -363,7 +420,7 @@ candidate when comparing it to a Trusted Validation run.
 For a long SSH run, use `tmux` on the VM, attach to the session and invoke the
 precheck there. An SSH disconnect then leaves the session alive. A killed session
 or gate can still leave Docker resources; inspect owned residue before retrying.
-No signal cleanup claim is made for daemon-owned containers.
+The native restore proof handles SIGINT/SIGTERM and reaps its labelled residue on the next start; no signal cleanup claim is made here for other daemon-owned containers.
 
 ## Publication and promotion stay on the Mac
 

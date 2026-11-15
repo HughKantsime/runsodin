@@ -141,3 +141,21 @@ def test_retained_text_artifact_is_redacted_and_fails_gate(tmp_path):
     assert result["status"] == "fail"
     assert "BEGIN PRIVATE KEY" not in artifact.read_text()
     assert "BEGIN PRIVATE KEY" not in json.dumps(result)
+
+
+@pytest.mark.parametrize('receipt_status', ['pass', 'fail', None])
+def test_cv05_restore_receipt_is_required_and_hashed(tmp_path, receipt_status):
+    from ops.release_control.policy import load_inventory
+    from ops.release_control.run_gate import sha256
+    component = next(row for row in load_inventory()['components'] if row['id'] == 'CV05')
+    code = "from pathlib import Path; import json; p=Path('native/database-parity/one'); p.mkdir(parents=True); (p/'manifest.json').write_text(json.dumps({'status':'PASS'})); (p/'index.html').write_text('parity'); "
+    if receipt_status is not None:
+        code += "p=Path('native/database-parity/restore-proof'); p.mkdir(); (p/'post027-restore-native.json').write_text(json.dumps({'status':" + repr(receipt_status) + "}));"
+    result = execute(gate_id='cv05', command=[sys.executable,'-c',code],
+        output=tmp_path/'result.json', cwd=tmp_path, timeout=5,
+        expected_artifacts=[p.format(native='native') for p in component['expected_artifacts']],
+        json_status=component['json_status'])
+    assert result['status'] == ('pass' if receipt_status == 'pass' else 'fail')
+    if receipt_status is not None:
+        receipt = tmp_path/'native/database-parity/restore-proof/post027-restore-native.json'
+        assert {'path':str(receipt), 'sha256':sha256(receipt)} in result['artifacts']

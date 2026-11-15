@@ -139,6 +139,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           remote_sha="$(git ls-remote --heads origin "refs/heads/$TARGET_REF" | awk '{print $1}')"
           test "$remote_sha" = "$TARGET_SHA"
+          # CV05 includes the required native PostgreSQL restore proof and its hashed receipt.
           make trusted-validation-gate PYTHON=python3.11
 
       - name: Build practical release evidence
@@ -153,5 +154,14 @@ jobs:
         with:
           name: odin-trusted-validation-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save native PostgreSQL restore proof receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: odin-postgresql-restore-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/native/database-parity/restore-proof/post027-restore-native.json
           if-no-files-found: error
           retention-days: 30

@@ -238,7 +238,7 @@ def main():
             registry = bootstrap.POST027_MIGRATIONS + (('python:099-future-synthetic', 'core.schema.migrations.099_future'),)
             with patch.object(bootstrap, 'POST027_MIGRATIONS', registry):
                 return identify(*a)
-        routing = patch.object(stage, 'identify_contract', identify_future) if current_era==57 else nullcontext()
+        routing = patch.object(stage, 'identify_contract', identify_future) if set(ledger057) >= set(post_ids) else nullcontext()
         with routing:
             assert stage.identify_contract(archive057,target,str(credential),root) is stage.PRESERVED057
             before = marker()
@@ -253,7 +253,7 @@ def main():
         with engine.connect() as c:
             ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
             assert ids==set(ledger057)|set(post_ids)
-            if current_era >= 59:
+            if any(module == 'core.schema.migrations.059_six_materials' for _, module in POST027_MIGRATIONS):
                 importlib.import_module('core.schema.migrations.059_six_materials').validate(c)
             assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990570')).one()==(990570,2,'{"id":"released057"}',True,'Reserved material')
             assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990570,'same',990570)
@@ -303,7 +303,7 @@ def main():
         with engine.connect() as c:
             ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
             assert ids==set(ledger056)|set(post_ids)  # 057 and every later migration
-            if current_era >= 59:
+            if any(module == 'core.schema.migrations.059_six_materials' for _, module in POST027_MIGRATIONS):
                 importlib.import_module('core.schema.migrations.059_six_materials').validate(c)
             assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990560')).one()==(990560,2,'{"id":"released056"}',False,None)
             assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990560,'same',990560)
@@ -563,10 +563,39 @@ def main():
             preserved029.subprocess.Popen = real_popen
         print('post027-native-killed-child-no-stage-or-validation-database-or-dump-left-pass', flush=True)
 
+        # The recorded previous release produced this native backup with its own
+        # installed service. Restore it with candidate code, then compare the ledger
+        # with the live registry; the expected destination era is never a constant.
+        baseline_target = server + '/post027_baseline_target'
+        baseline_engine = fresh('post027_baseline_target')
+        bootstrap_database(baseline_engine)
+        baseline_archive = Path('/source/baseline.dump')
+        baseline_sha = b._sha256(baseline_archive)
+        baseline_metadata = b.validate_postgres_restore(baseline_archive, baseline_target, maintenance, **args)
+        baseline_era = int(os.environ['POST027_BASELINE_ERA'])
+        if baseline_era == current_era:
+            assert baseline_metadata['restore_validated']
+        else:
+            assert baseline_metadata['source_schema_version'] == baseline_era
+            assert baseline_metadata['prepared_schema_version'] == current_era
+        b.stage_postgres_restore(baseline_archive, baseline_target, maintenance, **args)
+        release_sessions(baseline_engine)
+        restored = b.apply_pending_postgres_restore(baseline_target, maintenance, acknowledgement=baseline_sha, **args)
+        assert restored['status'] == 'restored'
+        with baseline_engine.connect() as c:
+            assert c.execute(text("SELECT value FROM system_config WHERE key='historical_marker'")).scalar_one() == 'previous-release'
+            restored_ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
+            assert {migration_id for migration_id in restored_ids if migration_id.startswith('python:') and migration_id not in set(facts[27]['ledger'])} == set(post_ids)
+            validate_executables(c)
+        assert bootstrap_database(baseline_engine)['applied'] == [] and leftover() == 0
+        assert b._sha256(baseline_archive) == baseline_sha
+        baseline_engine.dispose()
+        print('post027-native-previous-release-backup-restored-current-registry-data-pass', flush=True)
+
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_published034'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 

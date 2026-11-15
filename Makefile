@@ -42,6 +42,7 @@ test-candidate: ## Build and test one exact disposable ODIN candidate image
 
 test-database-parity: ## Build and test SQLite/PostgreSQL parity twice with HTML evidence
 	$(CANDIDATE_PYTHON) -m ops.database_parity.runner
+	$(CANDIDATE_PYTHON) -m ops.database_parity.run_post027_restore
 
 test-hardware-certification: ## Run four-protocol code-controlled replay with HTML evidence
 	$(HARDWARE_PYTHON) -m ops.hardware_certification.runner
