@@ -287,9 +287,11 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
     result = []
     for model in models:
         file = schedule_files.get(model.id)
-        # Calculate cost for this model
-        filament_grams = model.total_filament_grams or 0
-        print_hours = model.build_time_hours or 1.0
+        # Price one sellable item, just like /models/{id}/cost. Stored grams and
+        # hours describe a plate; keep those response fields unchanged.
+        units_per_bed = model.units_per_bed if model.units_per_bed and model.units_per_bed > 0 else 1
+        filament_grams = (model.total_filament_grams or 0) / units_per_bed
+        print_hours = (model.build_time_hours if model.build_time_hours is not None else 1.0) / units_per_bed
 
         # Try to get per-material cost
         material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
@@ -297,21 +299,19 @@ def list_models_with_pricing(*, category, org_id, db, current_user, variant_rows
         if cost_per_gram is None:
             cost_per_gram = config["spool_cost"] / config["spool_weight"]
 
-        # Calculate costs (one rule, modules/models_library/pricing_rule.py). This list has
-        # always priced from the plate's grams and hours; only the per-plate handling minutes
-        # are shared between the plate's units here.
+        # The shared rule keeps item labor intact and divides only plate handling.
         material_cost = filament_grams * cost_per_gram
         from modules.models_library.pricing_rule import price_item, all_finite
-        margin = model.markup_percent if model.markup_percent else config["default_margin"]
         try:
             rule = price_item(config, material_cost=material_cost, print_hours=print_hours,
-                              units_per_plate=model.units_per_bed or 1, markup_percent=margin)
+                              units_per_plate=units_per_bed, markup_percent=model.markup_percent)
             # One out-of-range input must never 500 the whole list: report that model's estimate as unknown.
             priced = all_finite(rule)
         except (ValueError, TypeError, ZeroDivisionError, OverflowError):
             rule, priced = None, False
         subtotal = rule["subtotal"] if priced else None
         suggested_price = rule["price"] if priced else None
+        margin = rule["markup_percent"] if priced else None
 
         # Build response
         model_dict = {
