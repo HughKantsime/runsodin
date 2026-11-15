@@ -505,7 +505,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ### 11.3 RBAC (Role-Based Access Control)
 - Three roles: admin, operator, viewer
 - Authentication enforced on all 451 API endpoints: every non-public route must authenticate (route census test plus a live probe of every route), with an RBAC matrix of 1,800+ tests covering most routes
-- Viewer: read-only, plus job submission (jobs wait for approval when approval mode is on; otherwise they join the queue)
+- Viewer: read permitted resources and submit jobs by default (jobs wait for approval when approval mode is on; otherwise they join the queue)
 - Operator: day-to-day production (create/edit jobs, spools, models, products and maintenance; create, schedule and ship orders — order edits are admin-only)
 - Admin: full system control (users, settings, branding, SSO, webhooks, backups, license, pricing)
 - Permission matrix (Settings → Access → Permissions, Pro): the server enforces every action key on every API route that performs that action, and every page key on its web page route (RoleGate) and on the page-only API reads (Timeline, Analytics, Education reports); a change applies on the next request. The platform superadmin is never locked out, and routes outside the matrix (account self-service, user and organization administration, platform settings) keep their fixed role check
@@ -566,8 +566,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Printer API keys, smart-plug tokens, SMTP/MQTT passwords, OIDC client secret and API-token secrets are never returned by the API (v1.3.57); webhook URLs are returned decrypted to admins for editing
 
 ### 12.4 GDPR data rights (export and anonymization) (v1.3.0)
-- Full JSON export of all user data
-- Anonymization endpoint that preserves analytics while removing PII
+- JSON export includes supported user records and file metadata; each audit-history selection is limited to 1,000 entries
+- Erasure anonymizes supported identifiers while retaining operational records; personal information may remain in retained text and excluded copies
 
 ### 12.5 Data Retention Policies (v1.3.0)
 - Configurable TTL per data type (completed jobs, audit logs, alert history), applied by manual cleanup; timelapse TTL is stored but not yet applied
@@ -834,7 +834,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 22. Deployment
 
 ### 22.1 Docker
-- Single container with supervisord managing all 11 processes (backend, mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor, anycubic_lan_monitor, go2rtc, vision_monitor, timelapse_capture, report_runner, db_guardian)
+- Single container with supervisord managing the backend, printer monitors and support processes (backend, mqtt_monitor, moonraker_monitor, prusalink_monitor, octoprint_monitor, ultimaker_monitor, elegoo_monitor, anycubic_lan_monitor, go2rtc, vision_monitor, timelapse_capture, report_runner, db_guardian)
 - Container runs as non-root `odin` user (v1.3.59)
 - `docker compose up` deployment
 - Volume mount for persistent data (database, backups, uploads, logs, secrets, timelapses)

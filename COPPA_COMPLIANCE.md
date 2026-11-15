@@ -36,7 +36,7 @@ Schools should confirm that their use of O.D.I.N. falls within the "school autho
 
 ### 3.1 What O.D.I.N. Collects
 
-O.D.I.N. collects only the data necessary to manage 3D printer operations:
+O.D.I.N. stores operational data and configured school records:
 
 | Data Element | Required? | Can Be Anonymized? | Notes |
 |-------------|-----------|-------------------|-------|
@@ -47,6 +47,8 @@ O.D.I.N. collects only the data necessary to manage 3D printer operations:
 | Approval records | If enabled | Partially | Tracks who approved print jobs |
 
 When roster import is enabled, O.D.I.N. receives provider user identifiers, email addresses and class memberships; Google Classroom import also receives names.
+
+When Education features are used, O.D.I.N. can store assignment grades, feedback, assessment history, and training quiz scores and completion records.
 
 ### 3.2 What O.D.I.N. Does NOT Collect
 
@@ -104,7 +106,7 @@ Schools deploying O.D.I.N. for students under 13 should adopt the following prac
 
 - **Use anonymized usernames** — assign non-identifying labels such as "student_01", "maker_A3", or class-period codes instead of real names
 - **Disable or omit email fields** — email is not required for O.D.I.N. to function; leave it blank for under-13 accounts
-- **Assign the Viewer role** — restrict students to read-only access; have teachers/staff submit print jobs on their behalf if needed
+- **Configure student permissions** — Viewers can read permitted resources and submit jobs by default; configure permissions and approval requirements to enforce the school’s intended restrictions.
 
 ### 6.2 Access Controls
 

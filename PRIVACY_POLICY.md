@@ -177,9 +177,9 @@ If you store personal data in O.D.I.N. (e.g., user accounts, customer names in o
 
 O.D.I.N. includes tools to assist with data protection compliance:
 
-- **GDPR data export:** Full JSON export of all user data (all tiers)
-- **Anonymization:** Anonymize user records while preserving analytics (all tiers)
-- **Data retention policies:** Configurable TTL per data type (all tiers)
+- **GDPR data export:** JSON export includes supported user records and file metadata; each audit-history selection is limited to 1,000 entries (all tiers).
+- **Anonymization:** Erasure anonymizes supported identifiers while retaining operational records; personal information may remain in retained text and excluded copies (all tiers).
+- **Data retention policies:** Configurable TTL for completed jobs, audit logs and alert history, applied by manual cleanup (all tiers); age-based timelapse cleanup is not applied in this release.
 - **Audit log:** Searchable local history of the audited activity described below.
 
 
@@ -207,8 +207,8 @@ To exercise any of these rights, contact us at **sublab3dp@gmail.com**. We will 
 
 For data stored on your O.D.I.N. instance, you have full control. You can:
 
-- Export all data at any time (database backups, CSV exports, GDPR data export)
-- Delete any data at any time
+- Back up the database and export supported records through CSV and GDPR exports; preserve required files separately
+- Delete eligible data or anonymize supported identifiers, subject to retention controls and the exclusions described in Section 6.2
 - Uninstall the Software and retain your database
 - Anonymize user records (all tiers)
 
@@ -231,7 +231,7 @@ O.D.I.N. is not directed at children under 13. We do not knowingly collect perso
 When O.D.I.N. is used in educational settings (K-12 schools) under the Education Tier:
 
 - The school or educational institution acts as the data controller and provides consent on behalf of students under COPPA
-- Student data is stored entirely on the school's own infrastructure — Sublab 3DP does not receive or process student data
+- Student records are stored in the school’s deployment; enabled integrations and push services may receive copies of selected data
 - The school is responsible for obtaining appropriate parental consent where required by COPPA or applicable state law
 - Student accounts within O.D.I.N. are managed by the school's administrators
 
@@ -314,7 +314,10 @@ You control retention for all data on your O.D.I.N. instance. The Software inclu
 - Telemetry snapshots: 90 days
 - HMS error history: 90 days
 - AMS environment data: 90 days
-- Audit logs, jobs, and other records: indefinite (until you delete them)
+- Audit logs: 365 days, applied by manual cleanup
+- Alert history: 90 days, applied by manual cleanup
+- Completed jobs: no age-based cleanup by default
+- Timelapses: a 30-day TTL is configured, but age-based timelapse cleanup is not applied in this release
 
 ---
 

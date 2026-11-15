@@ -42,8 +42,8 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 - httpOnly session cookie auth (XSS-resistant); Bearer token and X-API-Key fallbacks for API clients
 - Role-based access control (Viewer / Operator / Admin) enforced on all 200+ API endpoints — auth expectations documented in a 1507-test RBAC matrix with CI coverage gate
 - OIDC/SSO support for enterprise identity providers (redirect_uri pinning, secure code exchange)
-- Rate limiting: 10 failed logins per 5-minute window per IP (account-level); global slowapi limiter (10 req/min auth, 30 req/min upload)
-- Account lockout after 5 failed attempts (15-minute cooldown)
+- Login limits count 10 failures per IP within five minutes; individual routes also have per-IP request limits
+- Accounts are blocked while at least five failures remain in the rolling 15-minute window
 - Password complexity enforcement (8+ chars, upper + lower + number)
 - Password change immediately revokes every other session; the session that made the change stays signed in
 - MFA (TOTP) pending tokens blacklisted on use — prevents session duplication
@@ -51,7 +51,7 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 - Container runs as non-root `odin` user; go2rtc HLS/API bound to 127.0.0.1 (no direct external access)
 
 ### Data Protection
-- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, Discord/Slack/Telegram/ntfy webhook URLs, org-level webhook settings, OIDC auth codes
+- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, Discord/Slack/Telegram/ntfy webhook URLs, org-level webhook settings, and the access token held behind single-use OIDC exchange codes
 - Camera RTSP credentials never persisted to DB — generated on-demand from the encrypted API key
 - API keys stripped from all printer API responses
 - Auto-generated secrets on first run (no hardcoded defaults in production); API_KEY startup warning if unset
@@ -59,11 +59,11 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 - Push notifications, if a user turns them on, pass the notification text through the browser vendor's push service, or through Apple's push service where the server operator has set that up. Integrations an administrator connects (email, notification services such as webhooks, Discord, Slack, ntfy, Telegram, Pushover and WhatsApp, single sign-on, class roster import, Square, Spoolman, MQTT, SIEM streaming, and smart-plug control through Home Assistant, Tasmota or MQTT) contact the service they are pointed at.
 - Opening the API documentation causes your browser to request assets from jsDelivr and FastAPI's website; ReDoc also requests Google Fonts.
 - With `ODIN_ITAR_MODE=1`, O.D.I.N. checks selected configured destinations at startup and refuses non-private destinations at call time in its webhook, license, roster, SIEM, email and MQTT clients. Square is turned off entirely. Sign-in can use a private identity provider; public identity-provider hosts require `ODIN_ITAR_ALLOWED_IDP_HOSTS` and HTTPS on port 443. Browser and mobile push are turned off.
-- SQLite database with WAL mode for safe concurrent access
+- SQLite database with WAL mode by default; PostgreSQL is also supported
 - Docker base images pinned to SHA256 digests; go2rtc binary SHA256-verified at build time
 
 ### Network Security
-- All printer communication stays on your local network
+- Printer communication uses the configured device addresses; configure private destinations and network controls for LAN-only operation
 - No cloud service is needed to run O.D.I.N., and it makes no background calls to the vendor (no heartbeat, no update check)
 - An installed license is verified locally (Ed25519 signature validation) with no network call. Activating a key contacts runsodin.com unless you activate by file
 - Camera streams proxied through go2rtc (credentials not exposed to browser)

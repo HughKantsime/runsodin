@@ -29,7 +29,7 @@ O.D.I.N. runs as a single Docker container on hardware controlled by the institu
 | Cloud dependency | None |
 | Telemetry / phone-home | No vendor telemetry or background vendor calls. License actions an administrator runs contact runsodin.com. Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N. |
 | Analytics sent to vendor | None |
-| Data storage location | Local SQLite database at `/data/odin.db` |
+| Data storage location | SQLite at `/data/odin.db` by default, or a configured PostgreSQL database |
 | Network requirements | Local network only by default; integrations and license actions you run use the internet |
 | License validation | An installed license is verified locally (Ed25519), no internet required; activation can be done by file |
 
@@ -57,9 +57,10 @@ O.D.I.N. stores operational data and configured school records; the institution 
 
 When roster import is enabled, O.D.I.N. receives provider user identifiers, email addresses and class memberships; Google Classroom import also receives names.
 
+When Education features are used, O.D.I.N. can store assignment grades, feedback, assessment history, and training quiz scores and completion records.
+
 ### 3.2 Data O.D.I.N. Does NOT Collect
 
-- Student grades or academic records
 - Social Security numbers or demographic data
 - Parent/guardian information
 - Disciplinary records
@@ -97,7 +98,7 @@ O.D.I.N. implements role-based access control with three tiers:
 |------|------------|
 | **Admin** | Full system access: user management, configuration, all data |
 | **Operator** | Printer operations, job management, model uploads |
-| **Viewer** | Read-only access to dashboards and job status |
+| **Viewer** | Read permitted resources and submit jobs by default; approval depends on configuration |
 
 Additional access control features:
 
@@ -107,7 +108,7 @@ Additional access control features:
 - **Session management** with active session tracking and token blacklisting
 - **Audit logging** — Selected authentication, operational and administrative actions are logged
 
-Institutions can configure roles to enforce least-privilege access. For example, students can be assigned the Viewer role to limit their access to read-only dashboards.
+Viewers can read permitted resources and submit jobs by default; configure permissions and approval requirements to enforce the school’s intended restrictions.
 
 ---
 
@@ -134,8 +135,8 @@ Institutions should establish internal procedures for handling FERPA access and 
 
 The institution controls all backup and recovery processes:
 
-- Database is a single SQLite file (`/data/odin.db`) using WAL mode
-- Standard filesystem backup tools apply
+- O.D.I.N. supports SQLite (WAL mode, the default) and PostgreSQL
+- Use O.D.I.N.’s consistent database backup mechanism — SQLite snapshots or PostgreSQL dump archives — and separately preserve required files and secrets
 - Backups remain within the institution's infrastructure
 - O.D.I.N. does not replicate its database or backups to any external server
 
