@@ -28,6 +28,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
 
 - The model library card now shows cost per item, matching the calculator. Before, a plate with several items showed the whole plate's cost. Price is also per item, cards say how many items fit on a plate, and a model markup of 0 is honoured.

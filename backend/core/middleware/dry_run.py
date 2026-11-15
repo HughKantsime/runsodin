@@ -93,7 +93,13 @@ def _build_supported_matcher() -> list[tuple[str, Pattern[str]]]:
     Called once at module load. The middleware hot path iterates this list;
     small (single-digit to low-double-digit size) so linear scan is fine.
     """
-    return [(method, _compile_route_template(path)) for method, path in DRY_RUN_SUPPORTED_ROUTES]
+    matcher = []
+    for method, path in DRY_RUN_SUPPORTED_ROUTES:
+        matcher.append((method, _compile_route_template(path)))
+        # Module registration mounts these same handlers under both prefixes.
+        if path.startswith("/api/v1/"):
+            matcher.append((method, _compile_route_template("/api/" + path[len("/api/v1/"):])))
+    return matcher
 
 
 async def dry_run_middleware(request: Any, call_next: Callable):
