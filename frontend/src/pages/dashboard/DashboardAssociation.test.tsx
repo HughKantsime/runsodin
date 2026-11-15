@@ -8,7 +8,7 @@ it('associates only running jobs with the matching printer in the actual dashboa
  const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
  const base = { last_seen: new Date().toISOString(), gcode_state: 'RUNNING', filament_slots: [] }
  client.setQueryData(['stats'], { jobs: {} })
- client.setQueryData(['printers'], [{ ...base, id: 199, name: 'Printer Alpha' }, { ...base, id: 200, name: 'Printer Beta' }])
+ client.setQueryData(['printers', 'active', null, null], [{ ...base, id: 199, name: 'Printer Alpha' }, { ...base, id: 200, name: 'Printer Beta' }])
  client.setQueryData(['jobs', 'active'], [])
  client.setQueryData(['print-jobs'], [
   { id: 1, printer_id: 199, status: 'completed', job_name: 'Old completed', progress_percent: 100, started_at: '2026-10-11T10:00:00Z' },

@@ -22,6 +22,20 @@ describe('checklist request URLs', () => {
     await models.list(2)
     expect(fetchAPI).toHaveBeenLastCalledWith('/models?org_id=2')
   })
+  it('keeps model filters on browsers without URLSearchParams.size', async () => {
+    const size = Object.getOwnPropertyDescriptor(URLSearchParams.prototype, 'size')
+    try {
+      Reflect.deleteProperty(URLSearchParams.prototype, 'size')
+      await models.list(2, 1)
+      expect(fetchAPI).toHaveBeenLastCalledWith('/models?org_id=2&limit=1')
+      await models.list(2)
+      expect(fetchAPI).toHaveBeenLastCalledWith('/models?org_id=2')
+      await models.list()
+      expect(fetchAPI).toHaveBeenLastCalledWith('/models')
+    } finally {
+      if (size) Object.defineProperty(URLSearchParams.prototype, 'size', size)
+    }
+  })
   it('scopes the file existence read and includes scheduled files', async () => {
     await expect(printFiles.any(2)).resolves.toBe(false)
     expect(fetchAPI).toHaveBeenCalledWith('/print-files?limit=1&include_scheduled=true&org_id=2')

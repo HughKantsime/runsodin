@@ -61,7 +61,7 @@
     "frontend/src/pages/analytics/Utilization.tsx": "2fcc1f7e5e277fe58df60e933433a03e0ab0d1fc3ec5dea3e8a0786327f2b05c",
     "frontend/src/pages/archives/Archives.tsx": "fc2ee5f9206e011893018c2ef2fb0a458555d256a05fc0a3d8ec0914db59cf69",
     "frontend/src/pages/archives/Timelapses.tsx": "4ddc233e0ff813ad762a7b2654d115cc3033b1e93dcb133765d157f7cebae0c5",
-    "frontend/src/pages/dashboard/Dashboard.tsx": "4f604005c200bea29251ee14c8c9c5b15c0572340929ea2f56266276a16a32a4",
+    "frontend/src/pages/dashboard/Dashboard.tsx": "199ae9ca8e9b6882324cf8261f08f143bd01490e3d4ef4336eda6fd5174f656a",
     "frontend/src/pages/dashboard/Overlay.tsx": "71eb686443427599a0fc936642817735754e9715c0382b0ec8d07c32bf2fb488",
     "frontend/src/pages/dashboard/TVDashboard.tsx": "31050b49cdbbb3c44380f4d490e09d2de4dc416a664e2a734d74875341a72264",
     "frontend/src/pages/education/EducationWorkbench.tsx": "c4aaa1605fb96000b973bed54f2773339825823660418fd6417622ea2e4b0436",

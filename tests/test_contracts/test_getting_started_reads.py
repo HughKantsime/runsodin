@@ -43,6 +43,28 @@ def test_selected_org_filters_before_limit(checklist_client, path):
 
 
 @pytest.mark.parametrize('path', ['/models', '/print-files', '/print-jobs'])
+def test_selected_org_includes_shared_but_not_foreign_rows(checklist_client, path):
+    client, _ = checklist_client
+    response = client.get(path, params={'org_id': 2, 'limit': 100, 'include_scheduled': True})
+    assert response.status_code == 200, response.text
+    assert {row['id'] for row in response.json() if row['id'] >= 101} == {102, 103}
+
+
+@pytest.mark.parametrize('path', ['/models', '/print-files', '/print-jobs'])
+@pytest.mark.parametrize('role', ['operator', 'viewer'])
+@pytest.mark.parametrize('selected_org', [None, 2])
+def test_unassigned_non_admin_only_sees_shared_rows(checklist_client, path, role, selected_org):
+    client, actor = checklist_client
+    actor.update(role=role, group_id=None)
+    params = {'include_scheduled': True}
+    if selected_org is not None:
+        params['org_id'] = selected_org
+    response = client.get(path, params=params)
+    assert response.status_code == 200, response.text
+    assert {row['id'] for row in response.json() if row['id'] >= 101} == {103}
+
+
+@pytest.mark.parametrize('path', ['/models', '/print-files', '/print-jobs'])
 @pytest.mark.parametrize('group,expected', [(1, {101, 103}), (None, {101, 102, 103})])
 def test_default_scope_is_unchanged(checklist_client, path, group, expected):
     client, actor = checklist_client

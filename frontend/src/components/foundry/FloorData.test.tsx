@@ -11,7 +11,7 @@ vi.mock('../../api', async () => ({
   printers: { list: async () => [] },
   printJobs: { list: async () => [] },
 }))
-vi.mock('../../permissions', () => ({ canAccessPage: (page: string) => page === 'alerts' }))
+vi.mock('../../permissions', () => ({ getCurrentUser: () => null, canAccessPage: (page: string) => page === 'alerts' }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 it('fetches floor notices once per refresh with 2,500 alerts available and keeps every paused printer', async () => {

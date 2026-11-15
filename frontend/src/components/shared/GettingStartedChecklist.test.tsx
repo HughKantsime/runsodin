@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import GettingStartedChecklist from './GettingStartedChecklist'
+import { useFleet } from '../foundry/data'
 import classicDashboard from '../../pages/dashboard/Dashboard.tsx?raw'
 import floor from '../foundry/Floor.tsx?raw'
 import app from '../../App.tsx?raw'
@@ -49,7 +50,7 @@ beforeEach(() => {
   h.files.mockReset().mockResolvedValue(false)
   h.models.mockReset().mockResolvedValue([])
 })
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('Getting started checklist: lines tick from real state', () => {
   it('a fresh install shows five lines, none done, each linking to where it is done', async () => {
@@ -234,6 +235,59 @@ describe('Getting started checklist: where it lives', () => {
 
 
 describe('Getting started checklist: review regressions', () => {
+  it('shares the dashboard fleet request on mount and refresh', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    function DashboardFleet() { useFleet(); return null }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><DashboardFleet /><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    await card()
+    expect(h.printers).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000) })
+    expect(h.printers).toHaveBeenCalledTimes(2)
+    await act(async () => { await client.invalidateQueries() })
+    expect(h.printers).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps a selected organization separate from the dashboard all-org fleet', async () => {
+    function DashboardFleet() { useFleet(); return null }
+    h.orgId = 2
+    h.printers.mockImplementation((_active, _tag, orgId) => Promise.resolve(orgId == null ? [online()] : []))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><DashboardFleet /><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    expect(done(await card())).toEqual([])
+    expect(h.printers).toHaveBeenCalledWith(true, '', null)
+    expect(h.printers).toHaveBeenCalledWith(true, '', 2)
+  })
+
+  it('does not reuse another user\'s fleet data', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    h.printers.mockResolvedValue([online()])
+    const view = show(client)
+    expect(done(await card())).toEqual(['printer-added', 'printer-online'])
+    h.user = { id: 8, role: 'admin' }
+    h.printers.mockResolvedValue([])
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(done(screen.getByRole('region', { name: 'Getting started' }))).toEqual([]))
+    expect(h.printers).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts a tracked print when scheduled jobs cannot be read', async () => {
+    h.orgId = 2
+    h.jobs.mockRejectedValue(new Error('503'))
+    h.tracked.mockResolvedValue([{ id: 21, status: 'completed' }])
+    show()
+    expect(done(await card())).toEqual(['job-sent'])
+    expect(h.tracked).toHaveBeenCalledWith({ limit: 1, org_id: 2 })
+  })
+
+  it('leaves sent state unknown when both job reads fail', async () => {
+    h.jobs.mockRejectedValue(new Error('503'))
+    h.tracked.mockRejectedValue(new Error('503'))
+    show()
+    expect(step(await card(), 'job-sent')).toBeNull()
+    expect(localStorage.getItem('odin_getting_started_dismissed:7')).toBeNull()
+  })
+
   it.each(['running', 'completed', 'failed', 'cancelled'])('counts a monitor-recorded %s print without a scheduled job', async status => {
     h.tracked.mockResolvedValue([{ id: 21, status }])
     show()

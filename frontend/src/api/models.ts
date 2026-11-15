@@ -189,7 +189,8 @@ export const models = {
     const query = new URLSearchParams()
     if (orgId != null && typeof orgId !== 'object') query.set('org_id', String(orgId))
     if (limit != null) query.set('limit', String(limit))
-    return fetchAPI('/models' + (query.size ? '?' + query.toString() : ''))
+    const qs = query.toString()
+    return fetchAPI('/models' + (qs ? '?' + qs : ''))
   },
   listWithPricing: (category?: string | null, orgId: number | null = null, filters: ModelLibraryFilters = {}): Promise<ModelWithPricing[]> => {
     const query = new URLSearchParams()

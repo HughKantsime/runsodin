@@ -14,7 +14,8 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, Circle } from 'lucide-react'
 import { Button, Card } from '../ui'
-import { printers as printersApi, jobs as jobsApi, models as modelsApi, printFiles, printJobs } from '../../api'
+import { jobs as jobsApi, models as modelsApi, printFiles, printJobs } from '../../api'
+import { useFleet } from '../foundry/data'
 import { useOrg } from '../../contexts/OrgContext'
 import { canAccessPage, canDo, getCurrentUser } from '../../permissions'
 import { isOnline } from '../../utils/shared'
@@ -54,13 +55,23 @@ export default function GettingStartedChecklist() {
   const show = userId != null && !!user && user.role !== 'viewer' && !dismissed
 
   // Keep every completion read scoped to the selected organization and user.
-  const fleet = useQuery({ queryKey: ['getting-started', 'printers', userId, orgId], queryFn: () => printersApi.list(true, '', orgId), enabled: show, refetchInterval: 30000 })
+  const fleet = useFleet(orgId, { enabled: show })
   const files = useQuery({ queryKey: ['getting-started', 'file', userId, orgId], queryFn: () => hasFileOrModel(orgId), enabled: show, refetchInterval: 30000, retry: false })
   const sent = useQuery({
     queryKey: ['getting-started', 'job-sent', userId, orgId],
     queryFn: async () => {
-      if ((await jobsApi.list(SENT_STATUSES, orgId, { limit: 1 })).length > 0) return true
-      return (await printJobs.list({ limit: 1, ...(orgId != null ? { org_id: orgId } : {}) })).length > 0
+      let scheduledReadFailed = false
+      let scheduledError: unknown
+      try {
+        if ((await jobsApi.list(SENT_STATUSES, orgId, { limit: 1 })).length > 0) return true
+      } catch (error) {
+        scheduledReadFailed = true
+        scheduledError = error
+      }
+      if ((await printJobs.list({ limit: 1, ...(orgId != null ? { org_id: orgId } : {}) })).length > 0) return true
+      // Empty monitor history cannot establish "not sent" if scheduled jobs are unknown.
+      if (scheduledReadFailed) throw scheduledError
+      return false
     },
     enabled: show, refetchInterval: 30000, retry: false,
   })
