@@ -45,7 +45,8 @@ def plate_source(db, owner, user, recipe, hashes):
     if printer is None or not db.execute(text('SELECT 1 FROM models WHERE id=:id AND ' + scope),
                                          {'id': payload['model_id'], 'owner': owner}).first():
         return None, 'The recipe\'s printer or model is no longer in this organization. Qualify a new recipe.'
-    file = db.execute(text('SELECT id,model_id,stored_path FROM print_files WHERE id=:id'), {'id': payload['print_file_id']}).mappings().first()
+    file = db.execute(text('SELECT id,model_id,stored_path FROM print_files WHERE id=:id AND ' + scope),
+                      {'id': payload['print_file_id'], 'owner': owner}).mappings().first()
     if file is None or file['model_id'] != payload['model_id'] or not file['stored_path'] or not os.path.isfile(file['stored_path']):
         return None, 'The recipe\'s print file is no longer available. Qualify a new recipe.'
     if db.execute(text('SELECT 1 FROM education_submissions WHERE print_file_id=:id'), {'id': file['id']}).first():

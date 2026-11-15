@@ -279,10 +279,13 @@ def build(db, owner, user, known, *, now=None):
     def minimum(product_id):
         return assortment.rule(policy['products'].get(str(product_id)))['minimum_main_batch'] or 1
 
+    hidden_products = {o['product_id'] for recipe in recipes
+                       if recipe.get('payload') and not can_see(recipe['payload']['model_id'])
+                       for o in recipe['outputs']}
     rows = []
     for product in active:
         numbers = assortment.numbers(policy['products'][str(product.id)])
-        way = coming.get(product.id, {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0})
+        way = (coming.get(product.id) if product.id not in hidden_products else None) or {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
         demand = orders.get(product.id)
         row = {'product_id': product.id, 'product_name': product.name, **numbers, 'status': 'blocked', 'reason': '', 'below_point': None,
                'on_hand': None, 'shortfall': None, 'plates_needed': 0, 'recipe': None, 'rank': None, 'rank_reason': None,
@@ -290,6 +293,11 @@ def build(db, owner, user, known, *, now=None):
                'open_orders': {'pieces': demand['pieces'], 'oldest': str(demand['oldest']) if demand['oldest'] else None} if demand else None,
                'velocity': sold.get(product.id)}
         rows.append(row)
+        # Do not reveal restricted production through totals, job IDs or derived shortfalls.
+        # Blocking also prevents a visible alternative recipe from duplicating hidden work.
+        if product.id in hidden_products:
+            row['reason'] = 'The plate that makes this product is controlled work you cannot see.'
+            continue
         mapping = mappings.get(str(product.id))
         if not mapping:
             row['reason'] = 'Map this product to a Square item to see its stock.' if doc else 'Connect Square and map this product to see its stock.'
@@ -334,29 +342,26 @@ def build(db, owner, user, known, *, now=None):
         if row['shortfall'] == 0:
             row.update(status='below', reason=f"Below its point, but {way['pieces']} piece(s) already on the way cover it.")
             continue
-        candidates, hidden = [], False
+        candidates, run_plates = [], {}
         for recipe in recipes:
             main = next((o for o in recipe['outputs'] if o['product_id'] == product.id and o['kind'] == 'main'), None)
             if main is None or recipe.get('qualified') is not True or not recipe.get('payload'):
                 continue
-            if any(o['kind'] == 'main' and o['expected'] < minimum(o['product_id']) for o in recipe['outputs']):
-                continue
-            if not can_see(recipe['payload']['model_id']):
-                hidden = True
-                continue
+            run_plates[recipe['id']] = max(
+                plates_for(row['shortfall'], main['expected'], numbers['minimum_batch']),
+                *(math.ceil(minimum(o['product_id']) / o['expected']) for o in recipe['outputs'] if o['kind'] == 'main'))
             per_plate_hours = hours.get(recipe['payload'].get('print_file_id'))
             candidates.append({'id': recipe['id'], 'name': recipe['name'], 'pieces_per_plate': main['expected'],
                                'printer_id': recipe['payload']['printer_id'], 'materials': recipe['materials'],
                                'hours_per_plate': per_plate_hours,
                                'hours_per_piece': round(per_plate_hours / main['expected'], 3) if per_plate_hours else None})
         if not candidates:
-            row['reason'] = ('The plate that makes this product is controlled work you cannot see.' if hidden else
-                             'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.')
+            row['reason'] = 'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.'
             continue
         # Cheapest known print time per piece first; unknown times last; then the bigger plate.
         candidates.sort(key=lambda c: (c['hours_per_piece'] is None, c['hours_per_piece'] or 0, -c['pieces_per_plate'], c['id']))
         row['recipe'] = candidates[0]
-        row['plates_needed'] = plates_for(row['shortfall'], candidates[0]['pieces_per_plate'], numbers['minimum_batch'])
+        row['plates_needed'] = run_plates[candidates[0]['id']]
         row.update(status='below', reason=f"Needs {row['shortfall']} more to reach {wanted}.")
     return rank(rows), len(products) > LIMIT
 

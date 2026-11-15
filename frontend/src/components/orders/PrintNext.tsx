@@ -13,6 +13,9 @@ export function age(seconds: number): string {
 }
 
 const plates = (count: number) => `${count} plate${count === 1 ? '' : 's'}`
+// Match QueueItem and QueueRequest limits; remaining demand is shown after reload.
+const MAX_PLATES = 50, MAX_PRODUCTS = 100
+const queueItem = (row: PrintNextRow): QueueItem => ({ product_id: row.product_id, recipe_id: row.recipe!.id, plates: Math.min(row.plates_needed, MAX_PLATES) })
 const label = (row: PrintNextRow) => row.status === 'ok' ? 'In stock' : row.status === 'blocked' ? 'Blocked' : row.plates_needed > 0 ? 'Print' : 'Covered'
 const tone: Record<string, string> = {
   Print: 'border-amber-500/60 text-amber-500', Covered: 'border-sky-500/60 text-sky-500',
@@ -52,7 +55,7 @@ export default function PrintNext() {
   if (!allowed) return null
   const rows = list?.rows ?? []
   const suggested = rows.filter(r => r.status === 'below' && r.plates_needed > 0 && r.recipe)
-  const all = suggested.map(r => ({ product_id: r.product_id, recipe_id: r.recipe!.id, plates: r.plates_needed }))
+  const all = suggested.slice(0, MAX_PRODUCTS).map(queueItem)
   const names = new Map(rows.map(r => [r.product_id, r.product_name]))
   const stock = list?.stock
   return <section aria-labelledby="print-next-title" aria-busy={busy} className="mb-6 rounded-md border border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] p-4">
@@ -77,8 +80,9 @@ export default function PrintNext() {
     {list?.truncated && <p className="mt-2 text-sm">Only the first 1,000 products are checked.</p>}
     {suggested.length > 0 && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <label className="flex min-h-[44px] items-center gap-2 text-sm"><input type="checkbox" checked={ready} disabled={busy} onChange={e => setReady(e.target.checked)} />Queue as ready (skip the hold)</label>
-      <button type="button" className={button} disabled={busy} onClick={() => void send(all)}>Queue all suggested ({plates(all.reduce((sum, item) => sum + item.plates, 0))})</button>
+      <button type="button" className={button} disabled={busy} onClick={() => void send(all)}>{suggested.length > MAX_PRODUCTS ? `Queue next ${MAX_PRODUCTS} products` : 'Queue all suggested'} ({plates(all.reduce((sum, item) => sum + item.plates, 0))})</button>
     </div>}
+    {suggested.length > MAX_PRODUCTS && <p className="mt-2 text-sm">Queue up to {MAX_PRODUCTS} products at a time. Remaining suggestions appear after the list reloads.</p>}
     {!list && busy && <p role="status" className="mt-3 text-sm">Reading stock…</p>}
     <ol className="mt-3 space-y-3" aria-label="Products, most urgent first">
       {rows.map(row => { const state = label(row); return <li key={row.product_id} className="rounded-md border border-[var(--brand-card-border)] p-3 text-sm break-words">
@@ -87,9 +91,10 @@ export default function PrintNext() {
             <h3 className="font-medium">{row.rank ? `${row.rank}. ` : ''}{row.product_name} <span className={`ml-1 inline-block rounded border px-1.5 py-0.5 text-xs ${tone[state]}`}>{state}</span></h3>
             <p>{row.rank_reason ? `${row.rank_reason} ` : ''}{row.reason}</p>
           </div>
-          {row.status === 'below' && row.plates_needed > 0 && row.recipe && <button type="button" className={`${button} shrink-0 border-[var(--brand-primary)]`} disabled={busy} aria-label={`Queue ${plates(row.plates_needed)} for ${row.product_name}`}
-            onClick={() => void send([{ product_id: row.product_id, recipe_id: row.recipe!.id, plates: row.plates_needed }])}>Queue {plates(row.plates_needed)}</button>}
+          {row.status === 'below' && row.plates_needed > 0 && row.recipe && <button type="button" className={`${button} shrink-0 border-[var(--brand-primary)]`} disabled={busy} aria-label={`Queue ${plates(queueItem(row).plates)} for ${row.product_name}`}
+            onClick={() => void send([queueItem(row)])}>Queue {plates(queueItem(row).plates)}</button>}
         </div>
+        {row.recipe && row.plates_needed > MAX_PLATES && <p className="mt-2">{plates(row.plates_needed)} suggested; queue up to {MAX_PLATES} at a time. Remaining demand appears after the list reloads.</p>}
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
           <div><dt className="text-xs text-[var(--brand-text-secondary)]">On hand</dt><dd>{row.on_hand ? `${row.on_hand.quantity} · ${row.on_hand.source === 'snapshot' ? 'last recorded ' : 'read '}${age(row.on_hand.age_seconds)}` : 'Unknown'}</dd></div>
           <div><dt className="text-xs text-[var(--brand-text-secondary)]">Print below / up to</dt><dd>{row.reorder_point} / {row.target}</dd></div>

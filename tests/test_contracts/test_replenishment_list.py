@@ -184,15 +184,25 @@ def test_uninspected_output_and_pieces_waiting_for_square_count_as_on_the_way(fl
     assert entry['shortfall'] == 20 - 2 - 9
 
 
-def test_smallest_batch_excludes_a_small_plate_and_names_what_is_missing(floor):
-    plate(floor, yield_count=3)
-    numbers(floor, point=5, target=10, smallest=4)
+@pytest.mark.parametrize('target,smallest,needed', [(5, 4, 2), (10, 4, 3), (10, 3, 3)])
+def test_smallest_batch_applies_to_the_run_of_small_plates(floor, target, smallest, needed):
+    recipe = plate(floor, yield_count=3)
+    numbers(floor, point=5, target=target, smallest=smallest)
     entry = row(floor)
-    assert entry['status'] == 'blocked' and entry['below_point'] is True and entry['recipe'] is None and entry['plates_needed'] == 0
-    assert 'no qualified recipe' in entry['reason']
-    numbers(floor, point=5, target=10, smallest=3)
+    assert entry['status'] == 'below' and entry['below_point'] is True
+    assert entry['recipe']['pieces_per_plate'] == 3 and entry['plates_needed'] == needed
+    answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': needed}])
+    assert answer.status_code == 200 and answer.json()['queued'][0]['plates'] == needed
+    assert len(held_jobs(floor)) == needed
+
+
+def test_smallest_batch_covers_every_main_output_in_a_mixed_run(floor):
+    plate(floor, outputs=[{'product_id': 101, 'kind': 'main', 'expected': 5},
+                          {'product_id': 104, 'kind': 'main', 'expected': 3}])
+    numbers(floor, target=5)
+    numbers(floor, 104, smallest=7)
     entry = row(floor)
-    assert entry['status'] == 'below' and entry['recipe']['pieces_per_plate'] == 3 and entry['plates_needed'] == 3  # ceil(8 / 3)
+    assert entry['status'] == 'below' and entry['plates_needed'] == 3
 
 
 def test_legacy_policy_without_numbers_prints_one_batch(floor):
@@ -550,6 +560,45 @@ def test_controlled_plate_follows_existing_visibility(floor, monkeypatch):
 
 
 # ---- queue ----------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize('file_owner', [2, None])
+def test_queue_refuses_a_file_outside_the_exact_tenant(floor, file_owner):
+    recipe = plate(floor)
+    numbers(floor)
+    floor['db'].execute(text('UPDATE print_files SET org_id=:owner WHERE id=301'), {'owner': file_owner})
+    floor['db'].commit()
+    answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}])
+    assert answer.status_code == 200, answer.text
+    assert answer.json()['queued'] == []
+    assert 'no longer available' in answer.json()['skipped'][0]['reason']
+    assert held_jobs(floor) == []
+
+
+@pytest.mark.parametrize('work', ['pending', 'scheduled', 'printing', 'completed', 'inspected'])
+def test_hidden_model_never_exposes_production_evidence(floor, work):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    if work == 'inspected':
+        assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    else:
+        floor['db'].execute(text('UPDATE jobs SET status=:status WHERE id IN (301,302)'), {'status': work})
+    db = floor['db']
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Restricted')"))
+    db.execute(text("INSERT INTO controlled_files(file_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(301,'CUI',1,'Secure',7,'test','2026-11-01')"))
+    db.commit()
+    floor['user']['role'] = 'operator'
+    entry = row(floor)
+    assert entry['on_the_way'] == {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
+    assert entry['status'] == 'blocked' and entry['recipe'] is None and entry['plates_needed'] == 0
+    assert entry['shortfall'] is None and 'controlled work you cannot see' in entry['reason']
+    answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}])
+    assert answer.status_code == 200 and answer.json()['queued'] == [] and held_jobs(floor) == []
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,:user)'), {'user': floor['user']['id']})
+    db.commit()
+    entry = row(floor)
+    expected = {'pieces': 9, 'job_ids': [301], 'awaiting_stock': 4} if work == 'inspected' else {'pieces': 10, 'job_ids': [301, 302], 'awaiting_stock': 0}
+    assert entry['on_the_way'] == expected and entry['shortfall'] == 18 - expected['pieces']
 
 def test_queue_creates_held_jobs_through_the_shared_queue_path_and_a_second_click_adds_none(floor, monkeypatch):
     recipe = plate(floor)

@@ -87,6 +87,27 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Print next list
     expect(item('Mini').querySelector('dl')).toHaveClass('grid-cols-2', 'sm:grid-cols-4')
     expect(container.innerHTML).not.toMatch(/min-w-\[|w-\[\d+px\]|whitespace-nowrap/)
   })
+
+  it('limits a large suggestion to 50 plates and shows the amount it will queue', async () => {
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: [{ ...base, plates_needed: 51 }] }))
+    vi.mocked(replenishment.queue).mockResolvedValue({ queued: [], skipped: [] })
+    render(<PrintNext />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue 50 plates for Mini' }))
+    await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(2))
+    expect(replenishment.queue).toHaveBeenCalledExactlyOnceWith([{ product_id: 1, recipe_id: base.recipe!.id, plates: 50 }], false)
+    expect(screen.getByText(/51 plates suggested; queue up to 50 at a time/)).toBeVisible()
+  })
+
+  it('limits bulk queueing to the first 100 products and 50 plates per product', async () => {
+    const many = Array.from({ length: 101 }, (_, index) => ({ ...base, product_id: index + 1, product_name: `Part ${index + 1}`, plates_needed: 51 }))
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: many }))
+    vi.mocked(replenishment.queue).mockResolvedValue({ queued: [], skipped: [] })
+    render(<PrintNext />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue next 100 products (5000 plates)' }))
+    await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(2))
+    expect(replenishment.queue).toHaveBeenCalledExactlyOnceWith(many.slice(0, 100).map(r => ({ product_id: r.product_id, recipe_id: r.recipe!.id, plates: 50 })), false)
+    expect(screen.getByText(/Queue up to 100 products at a time/)).toBeVisible()
+  })
 })
 
 it('keeps Refresh off until Square may be read again', async () => {
