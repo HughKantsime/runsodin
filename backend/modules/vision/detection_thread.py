@@ -33,9 +33,8 @@ except ImportError:
 
 log = logging.getLogger('vision_monitor')
 
-from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+from modules.printers.go2rtc_access import go2rtc_target
 
-GO2RTC_BASE = go2rtc_api_url()  # loopback in the single container; ODIN_GO2RTC_API_URL otherwise
 ALERT_COOLDOWN = 60  # minimum seconds between same-type alerts per printer
 DETECTION_TYPES = ['spaghetti', 'first_layer', 'detachment', 'build_plate_empty']
 # Collected training frames are stored as status='training' rows, never as detections.
@@ -313,9 +312,12 @@ class PrinterVisionThread(threading.Thread):
     def _capture_frame(self) -> Optional[np.ndarray]:
         """Fetch a JPEG frame from go2rtc snapshot API."""
         import httpx
-        url = f"{GO2RTC_BASE}/api/frame.jpeg?src=printer_{self.printer_id}"
         try:
-            resp = httpx.get(url, timeout=5, **go2rtc_client_kwargs())
+            # The address is checked for each frame (loopback in the single container;
+            # ODIN_GO2RTC_API_URL otherwise), never once at import.
+            go2rtc = go2rtc_target()
+            url = f"{go2rtc.url}/api/frame.jpeg?src=printer_{self.printer_id}"
+            resp = httpx.get(url, timeout=5, **go2rtc.client_kwargs)
             if resp.status_code != 200:
                 return None
             img_array = np.frombuffer(resp.content, dtype=np.uint8)

@@ -22,7 +22,7 @@ _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.2.0"
+    __version__ = "2.2.1"
 
 
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
@@ -370,7 +370,7 @@ def create_app() -> FastAPI:
     from core.db import engine, Base, get_db
     from core.auth import decode_token
     from core.registry import registry
-    from core.itar import is_itar_mode, enforce_boot_config
+    from core.itar import is_itar_mode, enforce_boot_config, env_configured_urls
 
     # v1.8.9: ITAR boot-audit. If ODIN_ITAR_MODE=1, every configured
     # outbound destination must resolve to a private/loopback range or
@@ -391,6 +391,7 @@ def create_app() -> FastAPI:
         enforce_boot_config([
             settings.license_server_url,
             getattr(settings, "spoolman_url", "") or "",
+            *env_configured_urls(),
         ])
 
     # ODIN-142 Wake 2b: Bambu MQTT broker policy boot audit.
@@ -470,6 +471,9 @@ def create_app() -> FastAPI:
                     len(db_urls),
                 )
                 enforce_boot_config(db_urls)
+            # Saved printers with a public IP address (reported by id and name only).
+            from core.itar import enforce_boot_printer_addresses
+            enforce_boot_printer_addresses()
 
         # Validate all declared dependencies are satisfied
         registry.validate_dependencies()

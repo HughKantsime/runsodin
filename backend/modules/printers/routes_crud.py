@@ -471,6 +471,10 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
     try:
         _check_ssrf_blocklist(request.api_host)
     except HTTPException as exc:
+        # ITAR mode's refusal stays an HTTP 400 that says why, as released in 2.2.1.
+        from core.webhook_utils import ITAR_DEVICE_REFUSAL
+        if exc.detail == ITAR_DEVICE_REFUSAL:
+            raise
         # blocked_address when policy refused it, unreachable when the name did not resolve.
         return failed(reason_for_exception(exc.__cause__), "ODIN cannot use this printer address.")
     api_type = request.api_type.lower()

@@ -551,7 +551,7 @@ Environment variables the backend reads at startup (set in
 | `CORS_ORIGINS` | `localhost:8000,localhost:3000` | Add your real host |
 | `ODIN_HOST_IP` | "" | Host LAN IP for WebRTC ICE — required for camera streaming |
 | `TZ` | `America/New_York` | Log timestamps + scheduler |
-| `ODIN_ITAR_MODE` | `0` | `1` enables fail-closed ITAR mode: boot audit + runtime DNS pin + no public egress |
+| `ODIN_ITAR_MODE` | `0` | `1` enables fail-closed ITAR mode for O.D.I.N.'s own processes: boot audit + runtime DNS pin + no public egress (a separately run camera relay is outside it, see docs/ITAR_MODE.md) |
 
 **Secret storage**: `ENCRYPTION_KEY` and `JWT_SECRET_KEY` should ideally live in a secret manager (Vault, 1Password, etc.) and be injected at container start. Bare env values in `docker-compose.yml` on disk work but are less good.
 

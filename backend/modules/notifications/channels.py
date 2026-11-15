@@ -339,15 +339,14 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
             except Exception:
                 pass  # already plaintext
 
-        # v1.8.9 (codex pass 7): runtime ITAR guard — block public SMTP.
-        from core.itar import enforce_host_destination
-        enforce_host_destination(host, scheme="smtp")
+        # ITAR mode: one lookup, public refused, connected to the checked address.
+        from core.itar_connect import smtp_connection
 
         if use_tls:
-            server = smtplib.SMTP(host, port, timeout=10)
+            server = smtp_connection(host, port, timeout=10)
             server.starttls()
         else:
-            server = smtplib.SMTP(host, port, timeout=10)
+            server = smtp_connection(host, port, timeout=10)
 
         try:
             if username and password:

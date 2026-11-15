@@ -314,7 +314,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 127,
+      "line": 165,
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -322,7 +322,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 140,
+      "line": 178,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -330,7 +330,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 142,
+      "line": 180,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -338,7 +338,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 143,
+      "line": 181,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -2210,7 +2210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 214,
+      "line": 239,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
@@ -2218,7 +2218,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 231,
+      "line": 256,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
@@ -2634,7 +2634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 608,
+      "line": 615,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2642,7 +2642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 702,
+      "line": 709,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2650,7 +2650,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 751,
+      "line": 758,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2658,7 +2658,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 795,
+      "line": 802,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2906,7 +2906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 372,
+      "line": 374,
       "path": "backend/modules/vision/printer_native.py",
       "pattern": "qmark-parameter",
       "reason": "Printer detection correlation uses bound qmark reads through the shared monitor DBAPI adapter.",

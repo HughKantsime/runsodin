@@ -143,12 +143,14 @@ def fresh_sdcp_status_is_idle(creds: dict, deadline: float) -> bool:
         import websocket
         from core.webhook_utils import device_connect_ip
         from modules.printers.adapters.elegoo import SDCPCommand, sdcp_request_frame
+        from modules.printers.sdcp_websocket import connection_options
         address = device_connect_ip(host, port)
         shown = f'[{address}]' if ':' in address else address
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
-        conn = websocket.create_connection(f'ws://{shown}:{port}/websocket', timeout=remaining)  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP is ws:// on the LAN
+        # connection_options(): under ITAR mode no redirect is followed away from this address
+        conn = websocket.create_connection(f'ws://{shown}:{port}/websocket', timeout=remaining, **connection_options())  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP is ws:// on the LAN
         conn.send(json.dumps(sdcp_request_frame(mainboard, SDCPCommand.STATUS_REQUEST, None, str(uuid.uuid4()))))
         while True:
             remaining = deadline - time.monotonic()

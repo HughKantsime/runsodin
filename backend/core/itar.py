@@ -52,7 +52,17 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("odin.itar")
 
-_ENABLED_VALUES = {"1", "true", "yes", "on"}
+# The spellings of ODIN_ITAR_MODE. docker/entrypoint.sh accepts exactly the same ones, by the
+# same steps: trim the six ASCII white-space characters, lower-case A-Z, compare. Anything
+# else is refused at start in both places, so the two can never read one value differently.
+_ENABLED_VALUES = frozenset({"1", "true", "yes", "on"})
+_DISABLED_VALUES = frozenset({"", "0", "false", "no", "off"})
+_ASCII_SPACE = " \t\n\r\v\f"
+_ASCII_LOWER = {code: code + 32 for code in range(ord("A"), ord("Z") + 1)}
+ITAR_FLAG_REFUSAL = (
+    "ODIN_ITAR_MODE has a value O.D.I.N. does not understand. Use 1, true, yes or on to turn "
+    "ITAR mode on; use 0, false, no or off, or leave it unset, for off. Refusing to start."
+)
 _LOCAL_V4 = tuple(ipaddress.ip_network(cidr) for cidr in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16",
 ))
@@ -82,9 +92,93 @@ def _is_local_address(addr) -> bool:
     return any(addr in network for network in networks)
 
 
+def itar_flag_state(raw: Optional[str] = None) -> str:
+    """"on", "off" or "invalid" for a value of ODIN_ITAR_MODE (default: the environment's)."""
+    value = os.getenv("ODIN_ITAR_MODE", "") if raw is None else raw
+    value = value.strip(_ASCII_SPACE).translate(_ASCII_LOWER)
+    if value in _ENABLED_VALUES:
+        return "on"
+    return "off" if value in _DISABLED_VALUES else "invalid"
+
+
 def is_itar_mode() -> bool:
-    """Read the env var every call so tests can flip it without restarts."""
-    return os.getenv("ODIN_ITAR_MODE", "").strip().lower() in _ENABLED_VALUES
+    """Read the env var every call so tests can flip it without restarts.
+
+    A value that is neither an "on" nor an "off" spelling counts as on here (every guard
+    stays closed) and stops the process at start: see refuse_malformed_itar_flag.
+    """
+    return itar_flag_state() != "off"
+
+
+def refuse_malformed_itar_flag() -> None:
+    """Stop this process when ODIN_ITAR_MODE is set to something that is not a known
+    spelling of on or off. Runs when the `core` or `modules` package is first imported, so
+    in every ODIN process before it does anything; docker/entrypoint.sh does the same for
+    the container, with the same message."""
+    if itar_flag_state() == "invalid":
+        raise SystemExit(ITAR_FLAG_REFUSAL)
+
+
+# Names only (never a value: a proxy URL can hold a password) of the proxy settings that
+# were removed. Set so a process started later can still report them: docker/entrypoint.sh
+# removes the settings before any ODIN process exists.
+IGNORED_PROXIES_ENV = "ODIN_ITAR_IGNORED_PROXIES"
+_PROXY_NAME = re.compile(r"[A-Za-z0-9_]*_proxy", re.IGNORECASE)
+
+
+def _is_proxy_variable(name: str) -> bool:
+    """HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, FTP_PROXY, WS_PROXY, WSS_PROXY, MQTT_PROXY,
+    SOCKS_PROXY and any other `<scheme>_proxy`, in either case. urllib (and so requests,
+    httpx and paho) reads every variable whose name ends in `_proxy`. NO_PROXY is not one."""
+    return bool(_PROXY_NAME.fullmatch(name)) and name.lower() != "no_proxy"
+
+
+def ignored_environment_proxies() -> tuple[str, ...]:
+    """Names of the proxy settings ITAR mode removed for this container or process."""
+    names = (os.getenv(IGNORED_PROXIES_ENV) or "").split(",")
+    return tuple(sorted({name.strip() for name in names if _is_proxy_variable(name.strip())}))
+
+
+def neutralize_environment_proxies() -> tuple[str, ...]:
+    """Under ITAR mode, remove every proxy setting from this process's environment.
+
+    Why here and not client by client: requests, httpx, urllib, websocket-client, paho,
+    aiohttp, the ffmpeg library inside OpenCV, and every program ODIN starts (ffmpeg,
+    pg_dump, Python workers) each read the proxy from the environment in their own way.
+    Under ITAR mode every permitted destination is on the local network (a listed
+    identity provider is the one exception, and needs a direct route), so no request
+    needs a proxy, and a proxy outside the network would receive the request, its
+    headers and its body. Removing the variables covers every library and every child
+    process at once; the per-client `trust_env=False` settings stay as a second layer.
+
+    NO_PROXY is set to `*` as well: every library and program above treats that as "use
+    no proxy for any host", so a proxy variable set later (a supervisor `environment=`
+    line, a wrapper script) is still not used.
+
+    Runs when the `core` or `modules` package is first imported (their __init__.py), so
+    it is done before any ODIN code builds a client. docker/entrypoint.sh does the same
+    for the programs supervisord starts. Safe to call again: the second call finds
+    nothing. Logs the names once, never the values. Does nothing with ITAR mode off:
+    operators rely on a corporate proxy there (see should_trust_env).
+
+    Returns the names removed by this call that held a value.
+    """
+    if not is_itar_mode():
+        return ()
+    names = sorted(name for name in os.environ if _is_proxy_variable(name))
+    ignored = tuple(name for name in names if os.environ[name].strip())
+    for name in names:
+        del os.environ[name]  # also unsets it for C libraries and child processes
+    os.environ["NO_PROXY"] = os.environ["no_proxy"] = "*"
+    if ignored:
+        os.environ[IGNORED_PROXIES_ENV] = ",".join(
+            sorted(set(ignored) | set(ignored_environment_proxies())))
+        log.warning(
+            "ODIN_ITAR_MODE=1: ignoring the proxy settings %s. ITAR mode does not use a "
+            "proxy; every connection is made directly.",
+            ", ".join(ignored),
+        )
+    return ignored
 
 
 def _parses_as_ip(entry: str) -> bool:
@@ -345,15 +439,39 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
         )
         log.critical(msg)
         raise RuntimeError(msg)
+    # Proxy settings are reported, not refused: unlike a public URL they can be dropped
+    # without losing anything (see neutralize_environment_proxies).
+    ignored = ignored_environment_proxies()
+    proxies = (
+        f" The proxy settings {', '.join(ignored)} were set and are ignored." if ignored else ""
+    )
     allowance = sorted(allowed_idp_hosts())
     if allowance:
         log.info(
             "ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private "
-            "or on the identity-provider allowance (%s=%s).",
-            IDP_HOSTS_ENV, ",".join(allowance),
+            "or on the identity-provider allowance (%s=%s).%s",
+            IDP_HOSTS_ENV, ",".join(allowance), proxies,
         )
     else:
-        log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.")
+        log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.%s", proxies)
+
+
+def env_configured_urls() -> list[str]:
+    """Outbound destinations set by environment variable, for the boot audit.
+
+    ODIN_GO2RTC_API_URL: the go2rtc clients (cameras, snapshots, timelapse, vision) are
+    treated as local, so the address they are given must be loopback or on the local
+    network. modules/printers/go2rtc_access.py refuses it again at each use.
+
+    ODIN_CAMERA_RELAY_BASE_URL: go2rtc is given this address, with a camera token, to
+    fetch HTTP cameras through ODIN. modules/printers/camera_relay.py refuses it again
+    each time the go2rtc configuration is built.
+    """
+    urls = [(os.getenv("ODIN_GO2RTC_API_URL") or "").strip()]
+    relay = (os.getenv("ODIN_CAMERA_RELAY_BASE_URL") or "").strip()
+    if relay:
+        urls.append(relay)
+    return urls
 
 
 def collect_db_configured_urls() -> list[str]:
@@ -511,6 +629,77 @@ def collect_db_configured_urls() -> list[str]:
     return urls
 
 
+def _literal_address(host: str):
+    """`host` as an ip_address when it is an IP literal in any form the resolver accepts
+    (dotted, short, hexadecimal, octal, IPv6), else None. Never does a name lookup."""
+    try:
+        return ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host))
+    except (OSError, ValueError):
+        return None
+
+
+def saved_printers_outside_local_network() -> list[str]:
+    """Saved printers whose address is an IP literal outside the local network, as
+    "printer <id> (<name>)". Only the id and name are returned: no address, no credential.
+
+    Names are not looked up here: a printer that is switched off or a slow resolver must
+    not delay or block start-up. A printer saved by name is checked on every connection
+    by core.webhook_utils.device_destination_ips, like every other printer.
+    """
+    from core.db import SessionLocal
+    from core.webhook_utils import DeviceDestinationBlocked, split_device_host
+    from sqlalchemy import text as sa_text
+
+    found: list[str] = []
+    db = SessionLocal()
+    try:
+        try:
+            rows = db.execute(sa_text("SELECT id, name, api_host FROM printers ORDER BY id")).fetchall()
+        except Exception as exc:
+            log.debug("ITAR audit: printers table not queryable: %s", exc)
+            return found
+        for printer_id, name, api_host in rows:
+            try:
+                host, _port = split_device_host(str(api_host or ""))
+            except DeviceDestinationBlocked:
+                continue
+            address = _literal_address(host)
+            if address is not None and not _is_local_address(address):
+                found.append(f"printer {printer_id} ({name})")
+    finally:
+        db.close()
+    return found
+
+
+def enforce_boot_printer_addresses() -> None:
+    """Refuse to start under ITAR mode while a saved printer has a public IP address.
+
+    The connection itself is already refused; this shows the problem at start-up.
+    No-op with ITAR mode off.
+    """
+    if not is_itar_mode():
+        return
+    printers = saved_printers_outside_local_network()
+    if printers:
+        msg = (
+            "ODIN_ITAR_MODE=1 is set but these saved printers have an address outside "
+            "the local network:\n"
+            + "\n".join(f"  - {entry}" for entry in printers)
+            + "\n\nChange or remove these addresses with the offline command, then start again:\n"
+            "  python3 -m scripts.itar_printer_addresses list\n"
+            "It contacts no printer and does not start O.D.I.N. (`set` and `clear` probe O.D.I.N.'s own health "
+            "port on this machine; with a PostgreSQL database it connects to that database); "
+            "docs/ITAR_MODE.md has the full steps. "
+            "Do not start with ITAR mode off to fix this: the printer monitors would contact these addresses."
+        )
+        log.critical(msg)
+        raise RuntimeError(msg)
+
+
 class ItarOutboundBlocked(Exception):
     """Raised by the HTTP client guard when a public destination is
     attempted in ITAR mode."""
@@ -603,7 +792,7 @@ def pin_for_request(url: str):
     wrapping an AsyncClient request in this context does not pin its DNS.
     """
     if not is_itar_mode() or not url:
-        yield
+        yield None
         return
 
     parsed = urlparse(url)
@@ -677,7 +866,39 @@ def pin_for_request(url: str):
     # pin + socket.getaddrinfo override installed by webhook_utils.
     from core.webhook_utils import _pin_dns
     with _pin_dns(host, port, validated_ips):
-        yield
+        yield validated_ips
+
+
+def pinned_literal_url(url: str) -> tuple[str, Optional[str]]:
+    """`url` with its host name replaced by the address that passed the ITAR check.
+
+    For a connection the ContextVar pin cannot cover: an AsyncClient, a client that
+    outlives the call, or another program (go2rtc, ffmpeg) that connects on ODIN's
+    behalf. The name is looked up once, by pin_for_request, with its rule (every
+    address on the local network, a mixed answer refused, an unresolvable name
+    refused); the URL then carries one of those addresses, so nothing looks the name
+    up again. An IPv4 address is preferred: ODIN's API and go2rtc listen on IPv4.
+
+    Returns (url, host). `host` is the original `name[:port]` for a Host header, or
+    None when the URL was not changed: ITAR mode off, an empty URL, or a URL that
+    already holds an IP address. Raises ItarOutboundBlocked.
+    """
+    if not is_itar_mode() or not url:
+        return url, None
+    with pin_for_request(url) as addresses:
+        pass
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    try:
+        ipaddress.ip_address(host)
+        return url, None
+    except ValueError:
+        pass
+    address = next((ip for ip in addresses if ":" not in ip), addresses[0])
+    authority = parsed.netloc.rsplit("@", 1)
+    shown = f"[{address}]" if ":" in address else address
+    netloc = "@".join(authority[:-1] + [shown + (f":{parsed.port}" if parsed.port else "")])
+    return parsed._replace(netloc=netloc).geturl(), authority[-1]
 
 
 def enforce_request_destination(url: str) -> None:

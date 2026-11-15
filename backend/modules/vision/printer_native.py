@@ -346,12 +346,14 @@ def _snapshot(printer_id, kind):
 
 async def _snapshot_bytes(printer_id):
     import httpx
-    from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+    from modules.printers.go2rtc_access import go2rtc_target
+    # One check gives the address and the client settings together (pinned under ITAR mode).
+    go2rtc = go2rtc_target()
     # A socket inactivity timeout resets between phases/chunks. Cancellation covers
     # the entire request, including headers and a slow or stalled streaming body.
     async with asyncio.timeout(SNAPSHOT_SECONDS):
-        async with httpx.AsyncClient(timeout=SNAPSHOT_SECONDS, **go2rtc_client_kwargs()) as client:
-            async with client.stream('GET', f'{go2rtc_api_url()}/api/frame.jpeg',
+        async with httpx.AsyncClient(timeout=SNAPSHOT_SECONDS, **go2rtc.client_kwargs) as client:
+            async with client.stream('GET', f'{go2rtc.url}/api/frame.jpeg',
                                      params={'src': f'printer_{printer_id}'}) as response:
                 if response.status_code != 200:
                     return None

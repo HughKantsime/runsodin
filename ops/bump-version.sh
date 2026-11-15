@@ -73,6 +73,9 @@ fi
 
 ok "On branch ${BRANCH} with a clean tree"
 
+# Legal revision dates must match their text before any release files change.
+node "$REPO_ROOT/ops/legal-revision.mjs" --check
+
 # --- Step 1: Update version files ---
 step "Updating version files"
 
@@ -128,10 +131,10 @@ sedi "s/const CACHE_NAME = 'odin-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'/const C
     "$REPO_ROOT/frontend/public/sw.js"
 ok "frontend/public/sw.js → odin-v$VERSION"
 
-# Release date: CHANGELOG.md and the legal pages carry it as one placeholder.
+# Release date: replace the placeholder in CHANGELOG.md only.
 RELEASE_DATE="$(date +%Y-%m-%d)"
 node "$REPO_ROOT/ops/set-release-date.mjs" "$VERSION" "$RELEASE_DATE"
-ok "Release date $RELEASE_DATE set in CHANGELOG.md TERMS_OF_SERVICE.md PRIVACY_POLICY.md"
+ok "Release date $RELEASE_DATE set in CHANGELOG.md"
 
 # --- Step 1b: Regenerate design tokens ---
 step "Regenerating design tokens"
@@ -146,7 +149,7 @@ fi
 # --- Step 2: Commit ---
 step "Creating version bump commit"
 
-git add CHANGELOG.md TERMS_OF_SERVICE.md PRIVACY_POLICY.md VERSION frontend/package.json frontend/package-lock.json backend/core/app.py docker-compose.yml install/install.sh install/install.ps1 frontend/public/sw.js frontend/src/design-tokens.css design/
+git add CHANGELOG.md VERSION frontend/package.json frontend/package-lock.json backend/core/app.py docker-compose.yml install/install.sh install/install.ps1 frontend/public/sw.js frontend/src/design-tokens.css design/
 git commit -m "release: bump version to $VERSION"
 ok "Committed: release: bump version to $VERSION"
 

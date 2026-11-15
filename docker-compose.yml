@@ -15,7 +15,7 @@ services:
   odin:
     build: .
     # For published image, comment out 'build' above and use:
-    # image: ghcr.io/hughkantsime/odin:v2.2.0
+    # image: ghcr.io/hughkantsime/odin:v2.2.1
     container_name: odin
     restart: unless-stopped
     ports:
@@ -58,7 +58,7 @@ services:
     # network_mode: host
     
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      test: ["CMD", "curl", "--noproxy", "*", "-f", "http://localhost:8000/health/ready"]
       interval: 30s
       timeout: 5s
       retries: 3

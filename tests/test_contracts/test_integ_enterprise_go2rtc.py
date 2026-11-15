@@ -138,7 +138,8 @@ def test_frame_consumers_use_the_configured_go2rtc_with_credentials(remote, monk
         importlib.reload(detection_thread)
     from modules.archives import timelapse_capture
     source = Path(timelapse_capture.__file__).read_text()
-    assert "auth=go2rtc_client_kwargs().get('auth')" in source and "GO2RTC_BASE = go2rtc_api_url()" in source
+    assert "go2rtc = go2rtc_target()" in source and "base=go2rtc.url" in source
+    assert "auth=options.pop('auth',None),options=options" in source
 
 
 def test_no_backend_code_hardcodes_go2rtc_loopback_api():

@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from modules.printers.route_utils import mjpeg_stream_name
-from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+from modules.printers.go2rtc_access import go2rtc_target
 
 log = logging.getLogger("odin.api")
 STREAMS = []  # oldest first; only modified on the API event loop
@@ -71,17 +71,19 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
     try:
         # Same rule as the WebRTC route: sync only when go2rtc answers and lacks the
         # stream; an unreachable go2rtc is reported, never "fixed" by a restart.
+        go2rtc = go2rtc_target()  # one address check for the probe and the stream
+        go2rtc_client = {**go2rtc.client_kwargs, "trust_env": False}
         try:
-            async with httpx.AsyncClient(trust_env=False, **go2rtc_client_kwargs()) as probe:
-                listed = await probe.get(f"{go2rtc_api_url()}/api/streams", timeout=2.0)
+            async with httpx.AsyncClient(**go2rtc_client) as probe:
+                listed = await probe.get(f"{go2rtc.url}/api/streams", timeout=2.0)
             known = listed.json() if listed.status_code == 200 else None
         except (httpx.HTTPError, ValueError):
             raise HTTPException(status_code=502, detail="go2rtc is not reachable")
         if isinstance(known, dict) and stream_name not in known:
             await run_in_threadpool(sync)
-        client = httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(10.0, read=30.0), **go2rtc_client_kwargs())
+        client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0), **go2rtc_client)
         try:
-            upstream = await client.send(client.build_request("GET", f"{go2rtc_api_url()}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
+            upstream = await client.send(client.build_request("GET", f"{go2rtc.url}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
         except httpx.HTTPError:
             raise HTTPException(status_code=502, detail="go2rtc is not reachable")
         content_type = upstream.headers.get("content-type", "")
