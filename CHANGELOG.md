@@ -4,8 +4,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-- Fixed Print next: hide work in progress unless you can see every restricted part in the farm, and stop stock planning when saved production records are incomplete or belong to another farm.
-
 ### Added
 
 - If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason. Failure counts and success rates then reflect what happened, and you can undo the change. Recorded filament and cost are not changed.
@@ -30,6 +28,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Fixed Print next: hide work in progress unless you can see every restricted part in the farm, and stop stock planning when saved production records are incomplete or belong to another farm.
 - Operators and administrators can confirm prints after a restart. Changed records are checked again before recording resumes, answers saved before recording resumes survive another restart, and waiting screens and unverified print totals now explain their status.
 - PostgreSQL installations can now save either answer to a print confirmation after a restart. If the records are busy, the question stays open so you can try again.
 - Operators and administrators can now confirm a print after a restart on printers without an organization. Questions close when their records are closed while the printer is idle, and viewers can see both answer buttons disabled.

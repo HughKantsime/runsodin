@@ -75,14 +75,14 @@ def queue(db, user, data):
     if not _is_platform_superadmin(user) and user.get('role') not in action_roles(db, 'jobs.create'):
         raise HTTPException(403, 'Insufficient permissions')
     owner = store.tenant(user)
-    # Stock knowledge first (it may read Square, read-only, outside any lock), then authority under locks.
+    visible = replenishment.full_view(db, owner, user)
+    if not visible:
+        raise HTTPException(403, replenishment.HIDDEN_WORK)
+    # Only cleared callers may use the stock-read budget. Remote reads stay outside locks.
     known = replenishment.stock(db, owner)
     if known['error']:
         known = {**known, 'counts': {}}
     store.lock_owner(db, owner, user)
-    visible = replenishment.full_view(db, owner, user)
-    if not visible:
-        raise HTTPException(403, replenishment.HIDDEN_WORK)
     # One queue request at a time per owner, including the global owner 0.
     if db.execute(update(SystemConfig).where(SystemConfig.key == assortment.key(owner)).values(value=SystemConfig.value)
                   .execution_options(synchronize_session=False)).rowcount != 1:

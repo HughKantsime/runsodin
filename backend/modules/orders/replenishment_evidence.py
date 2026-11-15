@@ -1,4 +1,6 @@
 """All-or-nothing local production scan and same-owner reference validation."""
+import uuid
+
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy import select, text
 
@@ -82,8 +84,13 @@ class Ownership:
                     self.require(fields[key], item)
                 else:
                     self.references(item)
-            if isinstance(value, shapes.OutsideBinding) and value.owner != self.owner:
-                problem('Outside print ownership')
+            if isinstance(value, shapes.OutsideBinding):
+                if value.owner != self.owner:
+                    problem('Outside print ownership')
+                revision = value.recipe_revision
+                outside = revision.outside_print_evidence
+                self.physical(revision.reference_observation_uid,
+                              print_job_id=outside.print_job_id if outside else None)
             if isinstance(value, shapes.BOM):
                 for key in value.components.keys() | value.sources.keys():
                     self.require('model', int(key))
@@ -159,6 +166,8 @@ def scan(db, owner):
         # Ignore shadow columns; validate only the authoritative recipe reference.
         detail.recipe_id = row['recipe_id']
         ownership.references(detail)
+        if detail.outside_binding is not None and detail.outside_binding.recipe_id != row['recipe_id']:
+            problem('Receipt recipe identity')
         if detail.job_uid != row['job_uid']:
             problem('Receipt job identity')
         if detail.job_id is not None:
@@ -183,10 +192,18 @@ def scan(db, owner):
             if rid != component.id:
                 problem('Component identity')
             ownership.physical(component.physical_uid, job_id=component.job_id)
-        for finish in finishing.finishes.values():
+        allocated = {}
+        for request_id, finish in finishing.finishes.items():
+            # Finishing stores request IDs as keys and derives receipt IDs from them.
+            if finish.id != uuid.uuid5(uuid.NAMESPACE_URL, f'odin:finish:{owner}:{request_id}').hex:
+                problem('Finishing identity')
             for allocation in finish.allocations:
                 if allocation.receipt_id not in finishing.components:
                     problem('Finishing allocation')
+                used = allocated.get(allocation.receipt_id, 0) + allocation.quantity
+                if used > finishing.components[allocation.receipt_id].accepted:
+                    problem('Finishing allocation')
+                allocated[allocation.receipt_id] = used
             if finish.id in receipts:
                 problem('Receipt identity')
             receipts[finish.id] = finish

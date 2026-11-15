@@ -270,10 +270,10 @@ def build(db, owner, user, known, *, now=None, visible=None):
             row['reason'] = 'No stock count has been read for this product yet.'
             continue
         row['on_hand'] = {'quantity': quantity, 'read_at': iso(read_at), 'age_seconds': max(0, int((now - read_at).total_seconds())), 'source': source}
+        row['below_point'] = quantity < numbers['reorder_point']
         if not visible or scan_problem:
             continue
         uncovered = bool(demand) and demand['pieces'] > quantity
-        row['below_point'] = quantity < numbers['reorder_point']
         if not row['below_point'] and not uncovered:
             row.update(status='ok', shortfall=0, reason='At or above its reorder point.')
             continue
@@ -309,7 +309,8 @@ def build(db, owner, user, known, *, now=None, visible=None):
         for row in rows:
             for field in PLANNING_FIELDS:
                 row.pop(field, None)
-            row.update(status='blocked', reason=HIDDEN_WORK if not visible else scan_problem)
+            problem = HIDDEN_WORK if not visible else scan_problem
+            row.update(status='blocked', reason=f"{row['reason']} {problem}" if row['reason'] else problem)
         rows.sort(key=lambda r: (r['product_name'].lower(), r['product_id']))
     else:
         rows = rank(rows)
