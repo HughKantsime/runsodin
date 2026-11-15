@@ -31,7 +31,7 @@ Self-hosted print farm management that combines multi-protocol printer support, 
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
 - **Spool Inventory** — Filament tracking with QR labels, AMS integration, PA profiles, low-stock alerts, bidirectional Spoolman sync (pull inventory + push consumption), and CSV export
 - **Notifications** — Discord, Slack, Telegram, ntfy, WhatsApp, Pushover, email, and browser push
-- **Security** — TOTP MFA, IP allowlisting and an audit log on every tier; roles (admin/operator/viewer) and single sign-on (Microsoft Entra ID, Google Workspace or any OpenID Connect provider) in Pro and up; audit export, integrity verification, SIEM streaming and traceability in Enterprise
+- **Security** — TOTP MFA, IP allowlisting and an audit log on every tier. Roles (admin/operator/viewer) and single sign-on (Microsoft Entra ID, Google Workspace or any OpenID Connect provider) need Pro or higher. Audit export, integrity verification, SIEM streaming and traceability need Enterprise.
 - **Native Companion Apps** — iOS and iPadOS apps with fleet view; macOS coming soon ([odin-native](https://github.com/HughKantsime/odin-native))
 - **Single Container Deploy** — One `docker compose up`; the backend, printer monitors and support processes run under one supervisor
 
