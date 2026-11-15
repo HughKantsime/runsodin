@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const branding = vi.hoisted(() => ({ current: { app_name: 'O.D.I.N.', logo_url: null as string | null } }))
-vi.mock('../../BrandingContext', () => ({ useBranding: () => branding.current }))
+vi.mock('../../BrandingContext', () => ({ useBranding: () => ({ ...branding.current, brandingResolved: true }) }))
 
 import OdinMark, { showsOdinMark } from './OdinMark'
 
@@ -37,7 +37,7 @@ describe('ODIN mark', () => {
 describe('default icon files', () => {
   // The page has always pointed at /favicon.svg, but no such file shipped: every install
   // without custom branding had no tab icon.
-  it.each(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'odin-icon-192.svg', 'odin-icon-512.svg', 'odin-mark.svg'])('%s exists', (name) => {
+  it.each(['favicon.svg', 'favicon-neutral.svg', 'favicon-32.png', 'apple-touch-icon.png', 'odin-icon-192.svg', 'odin-icon-512.svg', 'odin-mark.svg'])('%s exists', (name) => {
     expect(existsSync(resolve(PUBLIC, name))).toBe(true)
   })
 
@@ -51,7 +51,7 @@ describe('default icon files', () => {
   })
 
   it('the SVG icons are plain paths: no scripts, no external references, no fonts', () => {
-    for (const name of ['favicon.svg', 'odin-icon-192.svg', 'odin-icon-512.svg', 'odin-mark.svg']) {
+    for (const name of ['favicon.svg', 'favicon-neutral.svg', 'odin-icon-192.svg', 'odin-icon-512.svg', 'odin-mark.svg']) {
       const svg = readFileSync(resolve(PUBLIC, name), 'utf8')
       // url(#id) is a reference inside the same file (the iris clip); anything else would reach outside it.
       expect(svg, name).not.toMatch(/<script|href=|<text|<image|url\((?!#)/i)
