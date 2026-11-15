@@ -423,6 +423,61 @@ def test_repeated_queued_reports_coalesce_without_losing_transitions(native, mon
     assert len(detections(native.db)) == 2 and len(native.alerts) == 2
 
 
+@pytest.mark.parametrize('failure', ['load', 'insert', 'save', 'clear'])
+def test_database_failure_retries_queued_transitions_in_order(native, monkeypatch, failure):
+    from sqlalchemy import event
+    from sqlalchemy.exc import OperationalError
+
+    workers = []
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    monkeypatch.setattr(native.module, '_start_worker', lambda target, *args: workers.append((target, args)))
+    monitor = native.monitor()
+    if failure == 'clear':
+        # The clear must also survive a failed write, or the recurrence is lost.
+        native.module._observe(monitor, {'0C00030000030008'}, None, 201, 'current.3mf')
+        target, args = workers.pop(0)
+        target(*args)
+    reports = ([], SPAGHETTI_HMS) if failure == 'clear' else (SPAGHETTI_HMS, [], SPAGHETTI_HMS)
+    with monitor._lock:
+        for hms in reports:
+            native.module.observe(monitor, {'hms': hms})
+    pending = list(monitor._native_detection_pending)
+    engine = native.db.get_bind()
+    statements = {'load': 'SELECT value FROM system_config', 'insert': 'INSERT INTO vision_detections',
+                  'save': 'INSERT INTO system_config', 'clear': 'INSERT INTO system_config'}
+    failures = []
+
+    def fail_once(conn, cursor, statement, parameters, context, executemany):
+        if not failures and statement.startswith(statements[failure]):
+            failures.append(statement)
+            raise OperationalError(statement, parameters, RuntimeError('Synthetic transient database failure'))
+
+    event.listen(engine, 'before_cursor_execute', fail_once)
+    try:
+        target, args = workers.pop(0)
+        target(*args)
+    finally:
+        event.remove(engine, 'before_cursor_execute', fail_once)
+    assert len(failures) == 1
+    assert monitor._native_detection_running is False
+    assert list(monitor._native_detection_pending or []) == pending
+    assert len(detections(native.db)) == (1 if failure == 'clear' else 0)
+    assert len(native.alerts) == (1 if failure == 'clear' else 0)  # failed transactions never dispatch alerts
+    # A later clear restarts the worker even though the original error is gone.
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': []})
+    target, args = workers.pop(0)
+    target(*args)
+    assert monitor._native_detection_pending is None
+    assert monitor._native_detection_running is False
+    assert monitor._native_detection_codes == frozenset()
+    rows = detections(native.db)
+    assert len(rows) == 2 and [row['print_job_id'] for row in rows] == [201, 201]
+    for target, args in workers:
+        target(*args)
+    assert len(native.alerts) == 2
+
+
 def test_aborted_drain_restarts_on_next_report_without_losing_queue(native, monkeypatch):
     workers = []
     monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)

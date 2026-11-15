@@ -718,6 +718,48 @@ def test_unidentified_receipt_work_requires_full_controlled_access(floor, damage
     assert entry['shortfall'] == 14
 
 
+@pytest.mark.parametrize('role', ['operator', 'admin'])
+@pytest.mark.parametrize('identity', ['absent', 'null'])
+def test_receipt_without_print_identity_uses_unknown_work_policy(floor, role, identity):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    answer = floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe))
+    assert answer.status_code == 200, answer.text
+    db = floor['db']
+    definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+    definition.pop('print_job_id', None)
+    if identity == 'null':
+        definition['print_job_id'] = None
+    db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    db.commit()
+    floor['user']['role'] = role
+    # No controlled data: the receipt and the other uninspected run are shown.
+    expected = {'pieces': 9, 'job_ids': [301], 'awaiting_stock': 4}
+    assert row(floor)['on_the_way'] == expected
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Restricted')"))
+    db.execute(text('UPDATE jobs SET charged_to_org_id=1 WHERE id=300'))
+    db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(300,'CUI',1,'Secure',7,'test','2026-11-01')"))
+    db.commit()
+    # The receipt's job/model are visible, but the missing print identity is not
+    # proof that the physical work is visible. Admin has no audience bypass.
+    entry = row(floor)
+    assert entry['on_the_way'] == {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
+    assert entry['on_hand']['quantity'] == 2
+    assert (entry['reorder_point'], entry['target'], entry['minimum_batch']) == (5, 20, 1)
+    assert entry['status'] == 'blocked' and entry['shortfall'] is None
+    assert entry['recipe'] is None and entry['plates_needed'] == 0
+    assert 'controlled work you cannot see' in entry['reason']
+    answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}])
+    assert answer.status_code == 200 and answer.json()['queued'] == [] and held_jobs(floor) == []
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,:user)'),
+               {'user': floor['user']['id']})
+    db.commit()
+    entry = row(floor)
+    assert entry['on_the_way'] == expected and entry['shortfall'] == 9
+    assert entry['recipe']['id'] == recipe['id'] and entry['plates_needed'] == 2
+
+
 def test_finishing_receipt_without_recipe_requires_full_controlled_access(floor):
     from tests.test_contracts.test_finishing_workflow import bom, component, finish_body
     preview = bom(floor['batch'])

@@ -177,7 +177,7 @@ def on_the_way(db, owner, recipes, can_see):
         # recipe_id. Missing evidence must use the caller's unknown-work policy.
         restricted = (not can_see('job', detail.get('job_id')) or
                       not can_see('model', recipe_models.get(detail.get('recipe_id'))) or
-                      ('print_job_id' in detail and not can_see('print_job', detail['print_job_id'])))
+                      not can_see('print_job', detail.get('print_job_id')))
         for output in detail['outputs']:
             if output['accepted'] > 0:
                 # Inspected pieces that Square does not count yet.

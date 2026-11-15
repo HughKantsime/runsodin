@@ -210,6 +210,12 @@ def _drain_observations(monitor):
             except Exception:
                 log.warning('Printer camera detection not recorded for printer %s; will retry',
                             monitor.printer_id, exc_info=True)
+                # Keep the failed transition ahead of later clears/recurrences.
+                # The next report restarts the worker without a tight retry loop.
+                with monitor._lock:
+                    monitor._native_detection_pending.appendleft(observation)
+                    monitor._native_detection_running = False
+                return
             observation = None
     except BaseException:
         # Leave interrupted work for the next report to restart; never swallow exit.
