@@ -267,13 +267,19 @@ def test_cv05_requires_native_restore_receipt_and_documents_match():
     assert component['command'] == ['make', 'test-database-parity', 'CANDIDATE_PYTHON=python3.11']
     makefile = (ROOT / 'Makefile').read_text()
     target = makefile.split('test-database-parity:', 1)[1].split('\n\n', 1)[0]
-    assert target.index('-m ops.database_parity.runner') < target.index('-m ops.database_parity.run_post027_restore')
+    assert '-m ops.database_parity.runner' in target
+    parity = (ROOT / 'ops/database_parity/runner.py').read_text()
+    assert parity.index('ops.database_parity.run_post027_restore"') < parity.index('image_lifecycle.finalize()')
+    assert 'POST027_CANDIDATE_IMAGE=image_id' in parity
     workflow = workflow_text()
     assert 'make trusted-validation-gate PYTHON=python3.11' in workflow
     steps = yaml.safe_load(workflow)['jobs']['validate']['steps']
     upload = next(step for step in steps if step['name'] == 'Save native PostgreSQL restore proof receipt')
     assert upload['with']['path'].endswith(receipt.replace('{native}', '/native'))
     assert upload['with']['if-no-files-found'] == 'error'
+    assert 'always() && hashFiles(' in upload['if']
+    assert 'post027-restore-native.json' in upload['if']
+    assert "!= ''" in upload['if']
     scope = (ROOT / 'docs/TRUSTED_VALIDATION_SCOPE.md').read_text()
     assert 'Required native PostgreSQL restore proof (CV05)' in scope
     assert 'post027-restore-native.json=pass' in scope

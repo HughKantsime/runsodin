@@ -2,6 +2,11 @@
   "first_required_release": "2.2.0",
   "releases": [
     {
+      "version": "1.9.24",
+      "image_digest": "sha256:4ca8b96f8e0d41f3a8f046f9d33f678ec91f0a021188488661a368d59cb26e75",
+      "schema_era": 27
+    },
+    {
       "version": "2.2.0",
       "image_digest": "sha256:dcf61600a60357c204e6eb0284b4ed2f3f49465376bec6552213dd809393217b",
       "schema_era": 57

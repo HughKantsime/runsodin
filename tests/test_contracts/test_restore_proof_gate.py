@@ -86,14 +86,19 @@ def test_candidate_does_not_need_its_unpublished_digest(tmp_path):
 
 def test_recorded_releases_have_baselines():
     baselines.check_release_coverage(ROOT, (ROOT / 'VERSION').read_text().strip())
+    # One repository coverage test owns the pending production receipt failure.
+    row = next(row for row in baselines.load_baselines()['releases'] if row['version'] == '2.2.1')
+    baselines.require_record(row)
 
 
 def test_todo_2_2_1_production_receipt_is_recorded():
-    # Intentionally failing closed, not skipped/xfail: the spec requires the real
-    # production receipt before a 2.3.0 candidate may pass. Never invent its digest.
-    rows = baselines.load_baselines()['releases']
-    row = next(row for row in rows if row['version'] == '2.2.1')
-    baselines.require_record(row)
+    # Diagnostic regression; the repository coverage test above owns the failure.
+    with pytest.raises(ValueError) as error:
+        baselines.require_record({'version': '2.2.1', 'image_digest': None})
+    message = str(error.value)
+    for required in ('version=2.2.1', 'image_digest=target_digest', 'successful production receipt',
+                     'schema_era', 'ops/database_parity/restore_baselines.json'):
+        assert required in message
 
 
 @pytest.fixture
@@ -110,6 +115,8 @@ def fake_docker(tmp_path, monkeypatch):
     monkeypatch.setenv('POST027_CONTAINER_PREFIX', 'odin-restore-proof-test-' + tmp_path.name[-20:])
     monkeypatch.delenv('POST027_CURRENT_ONLY', raising=False)
     monkeypatch.delenv('POST027_RUNTIME_REF', raising=False)
+    monkeypatch.setenv('POST027_CANDIDATE_IMAGE', 'sha256:' + 'c' * 64)
+    monkeypatch.setattr(support, 'state_directory', lambda: tmp_path / 'private-state', raising=False)
     calls = []
     mode = {'failure': None}
     archive = io.BytesIO()
@@ -120,6 +127,7 @@ def fake_docker(tmp_path, monkeypatch):
         if args[0] == 'git':
             if 'rev-parse' in args: value = 'b'*40+'\n'
             elif 'archive' in args: value = archive.getvalue()
+            elif 'status' in args: value = mode.get('dirty', '')
             else: value = ''
             return SimpleNamespace(returncode=0, stdout=value, stderr='')
         assert args[0] == 'docker', args
@@ -130,7 +138,7 @@ def fake_docker(tmp_path, monkeypatch):
         if args[1:3] == ('image','inspect') or args[1:3] == ['image','inspect']:
             if mode['failure'] == 'missing-image':
                 return SimpleNamespace(returncode=1, stdout='', stderr='missing image')
-            value = DIGEST
+            value = ('sha256:' + 'c' * 64) if args[-1] == 'sha256:' + 'c' * 64 else DIGEST
         elif args[1] == 'cp':
             Path(args[-1]).write_bytes(b'owned archive'); value = ''
         elif args[1] == 'run' and '_baseline' in args[args.index('--name')+1]:
@@ -149,7 +157,9 @@ def fake_docker(tmp_path, monkeypatch):
         elif args[1] == 'run' and args[args.index('--name')+1].endswith('_released'):
             value = '{}'
         else: value = ''
-        return SimpleNamespace(returncode=0, stdout=value, stderr='')
+        if args[1] == 'run' and args[-1].endswith(('post027_restore_native.py', 'post027_coordinator_native.py')):
+            value += mode.get('extra_output', '')
+        return SimpleNamespace(returncode=0, stdout=value, stderr=mode.get('stderr', ''))
     monkeypatch.setattr(subprocess, 'run', fake)
     return calls, mode, tmp_path / 'evidence/post027-restore-native.json'
 
@@ -243,3 +253,291 @@ def test_required_proof_refuses_scope_and_image_overrides(fake_docker, monkeypat
     assert runner.main() == 1
     assert 'cannot skip' in json.loads(path.read_text())['error']
     assert not any(args[0] == 'docker' for args in calls)
+
+
+@pytest.fixture(autouse=True)
+def private_proof_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(support, 'state_directory', lambda: tmp_path / 'private-state', raising=False)
+
+
+def test_restore_uses_candidate_image_and_previous_release_only_for_backup(fake_docker):
+    calls, _, path = fake_docker
+    assert runner.main() == 0
+    for args in calls:
+        if args[:2] == ['docker', 'run'] and args[-1].endswith(('post027_restore_native.py', 'post027_coordinator_native.py')):
+            assert 'sha256:' + 'c' * 64 in args
+            assert DIGEST not in args
+    assert json.loads(path.read_text())['candidate_image'] == 'sha256:' + 'c' * 64
+
+
+def test_no_candidate_image_fails_closed(fake_docker, monkeypatch):
+    calls, _, path = fake_docker
+    monkeypatch.delenv('POST027_CANDIDATE_IMAGE')
+    assert runner.main() == 1
+    assert 'candidate image' in json.loads(path.read_text())['error'].lower()
+    assert not any(args[:2] == ('docker', 'pull') for args in calls)
+
+
+def test_child_logs_use_existing_redaction(fake_docker):
+    _, mode, path = fake_docker
+    mode['extra_output'] = '\nJWT_SECRET_KEY=synthetic-regression-value'
+    mode['stderr'] = 'Authorization: Bearer synthetic-regression-token'
+    assert runner.main() == 0
+    for log in path.parent.glob('*.log'):
+        assert 'synthetic-regression' not in log.read_text()
+        assert '[REDACTED]' in log.read_text()
+    assert len(list(path.parent.glob('*.log'))) == 2
+
+
+def test_source_and_dump_are_outside_evidence(fake_docker):
+    calls, _, path = fake_docker
+    assert runner.main() == 0
+    copied = next(Path(args[-1]) for args in calls if args[:2] == ('docker', 'cp'))
+    assert not copied.is_relative_to(path.parent)
+    assert not copied.parent.exists()
+
+
+@pytest.mark.parametrize('dirty', [' M backend/main.py\0', '?? ops/uncommitted.py\0', ' M frontend/src/App.tsx\0'])
+def test_dirty_candidate_fails_closed(fake_docker, dirty):
+    calls, mode, path = fake_docker
+    mode['dirty'] = dirty
+    assert runner.main() == 1
+    assert 'dirty' in json.loads(path.read_text())['error'].lower()
+    assert not any(args[0] == 'docker' for args in calls)
+
+
+def test_generated_gate_fixture_is_excluded(tmp_path):
+    subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
+    fixture = tmp_path / 'frontend/src/test-fixtures/cert-C-models-wire.json'
+    fixture.parent.mkdir(parents=True); fixture.write_text('{}')
+    assert not runner.source_is_dirty(tmp_path)
+    other = fixture.with_name('unrecognized.json'); other.write_text('{}')
+    assert runner.source_is_dirty(tmp_path)
+    other.unlink()
+    static = fixture.with_name('job-completion-wire.json'); static.write_text('{}')
+    assert runner.source_is_dirty(tmp_path)
+
+
+def test_historical_image_is_pinned_in_baseline_table():
+    row = next(row for row in baselines.load_baselines()['releases'] if row['version'] == '1.9.24')
+    recorded = json.loads((ROOT / 'backend/core/schema/orm_baselines.json').read_text())['published_1_9_13_to_1_9_24']['image']
+    assert row['image_digest'] == recorded.split('@')[1]
+    assert runner.RELEASED_IMAGE.endswith('@' + row['image_digest'])
+
+
+def test_lock_refuses_symlink(monkeypatch, tmp_path):
+    import hashlib
+    prefix = 'odin-restore-proof-symlink'
+    state = support.state_directory(); state.mkdir(mode=0o700)
+    target = tmp_path / 'target'; target.write_text('untouched')
+    (state / (hashlib.sha256(prefix.encode()).hexdigest() + '.lock')).symlink_to(target)
+    monkeypatch.setattr(support, 'cleanup', lambda _: None)
+    with pytest.raises(OSError):
+        with support.owned_run(prefix):
+            pytest.fail('followed lock symlink')
+    assert target.read_text() == 'untouched'
+
+
+def test_stale_staging_is_cleaned_at_next_start(monkeypatch):
+    monkeypatch.setattr(support, 'cleanup', lambda _: None)
+    prefix = 'odin-restore-proof-stale'
+    with support.owned_run(prefix) as source:
+        assert isinstance(source, Path)
+        stale = source
+    stale.mkdir(parents=True)
+    (stale / 'baseline.dump').write_bytes(b'prior killed run')
+    with support.owned_run(prefix) as source:
+        assert source == stale
+        assert not source.exists()
+    assert not stale.exists()
+
+
+def test_initial_failure_receipt_precedes_work(fake_docker, monkeypatch):
+    _, _, path = fake_docker
+    observed = []
+    def interrupted(*args):
+        observed.append(json.loads(path.read_text()))
+        raise KeyboardInterrupt
+    monkeypatch.setattr(runner, 'prove', interrupted)
+    assert runner.main() == 1
+    assert observed and observed[0]['status'] == 'fail' and observed[0]['passed'] is False
+    assert json.loads(path.read_text())['status'] == 'fail'
+
+
+def test_proof_kill_leaves_failure_receipt(tmp_path):
+    code = """
+import contextlib, os, signal
+from pathlib import Path
+from ops.database_parity import run_post027_restore as r
+r.run = lambda *a, **kw: 'b' * 40 if 'rev-parse' in a else ''
+r.select_baseline = lambda *a: {}
+r.owned_run = lambda *a: contextlib.nullcontext(Path('/unused-source'))
+r.prove = lambda *a: os.kill(os.getpid(), signal.SIGKILL)
+r.main()
+"""
+    result = subprocess.run([sys.executable, '-c', code], cwd=ROOT,
+                            env={**os.environ, 'POST027_STAGING': str(tmp_path)}, capture_output=True)
+    assert result.returncode == -signal.SIGKILL
+    receipt = json.loads((tmp_path / 'post027-restore-native.json').read_text())
+    assert receipt['status'] == 'fail' and receipt['passed'] is False
+
+
+def test_cv05_budget_covers_parity_proof_and_cleanup():
+    inventory = json.loads((ROOT / 'ops/release_control/inventory.json').read_text())
+    cv05 = next(row for row in inventory['components'] if row['id'] == 'CV05')
+    assert cv05['timeout_seconds'] >= 3600 + support.PROOF_TIMEOUT + support.CLEANUP_ALLOWANCE
+
+
+def test_baseline_embedded_script_imports_and_signatures():
+    import ast
+    import hashlib
+    import importlib
+    import inspect
+    import sqlalchemy
+    from sqlalchemy.engine import Engine, Connection
+    tree = ast.parse(runner.BASELINE_BACKUP_SOURCE)
+    compile(tree, '<baseline-backup>', 'exec')
+    # Resolve the preserved 057 inventory without importing current product code.
+    # Each selected file must match the preserved manifest's hash.
+    manifest = json.loads((ROOT / 'backend/core/schema/preserved057/manifest.json').read_text())
+    def preserved(relative):
+        for path in (ROOT / 'backend/core/schema').glob('preserved*/**/' + relative):
+            if hashlib.sha256(path.read_bytes()).hexdigest() == manifest['sources'][relative]:
+                return ast.parse(path.read_text())
+        pytest.fail('Missing preserved source: ' + relative)
+
+    def exported(module, name):
+        relative = module.replace('.', '/')
+        relative += '/__init__.py' if module == 'core.schema' else '.py'
+        source = preserved(relative)
+        for node in source.body:
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                args = node.args
+                for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs):
+                    arg.annotation = None
+                args.defaults = [ast.Constant(None) for _ in args.defaults]
+                args.kw_defaults = [ast.Constant(None) if v is not None else None for v in args.kw_defaults]
+                definition = ast.FunctionDef(name=name, args=args, body=[ast.Pass()], decorator_list=[])
+                namespace = {}
+                exec(compile(ast.fix_missing_locations(ast.Module(body=[definition], type_ignores=[])), '<signature>', 'exec'), namespace)
+                return namespace[name]
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if (alias.asname or alias.name) == name:
+                        return exported(node.module, alias.name)
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(isinstance(t, ast.Name) and t.id == name for t in targets):
+                    return object()
+        pytest.fail(f'Missing preserved export: {module}.{name}')
+
+    imports = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports[alias.asname or alias.name] = importlib.import_module(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                imports[alias.asname or alias.name] = (exported(node.module, alias.name)
+                    if node.module.startswith(('core', 'modules')) else getattr(importlib.import_module(node.module), alias.name))
+    signatures = {
+        'root.mkdir': inspect.signature(Path('.').mkdir),
+        'path.write_text': inspect.signature(Path('.').write_text),
+        'path.chmod': inspect.signature(Path('.').chmod),
+        'engine.dispose': inspect.signature(Engine.dispose),
+        'engine.begin': inspect.signature(Engine.begin),
+        'c.execute': inspect.signature(Connection.execute),
+        'str': inspect.signature(lambda value: None),
+        'int': inspect.signature(lambda value: None),
+        'os.environ.update': inspect.signature(lambda **kwargs: None),
+    }
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        name = ast.unparse(call.func)
+        if name in signatures:
+            signature = signatures[name]
+        elif name.endswith('.split'):
+            assert name.startswith('POST027_MIGRATIONS[-1][0].split')
+            signature = inspect.signature(''.split)
+        else:
+            parts = name.split('.')
+            target = imports.get(parts[0], print if parts[0] == 'print' else None)
+            assert target is not None, name
+            for part in parts[1:]:
+                target = getattr(target, part)
+            signature = inspect.signature(target)
+        args = [None] * len(call.args)
+        if name in ('engine.dispose', 'engine.begin', 'c.execute'):
+            args.insert(0, None)
+        signature.bind(*args, **{kw.arg: None for kw in call.keywords})
+
+
+@pytest.mark.parametrize('over_budget', [False, True])
+def test_parity_hands_built_image_to_proof_before_cleanup(tmp_path, monkeypatch, over_budget):
+    from ops.database_parity import runner as parity
+    calls = []
+    clock = [0]
+    monkeypatch.setattr(parity.time, 'monotonic', lambda: clock[0])
+    image = 'sha256:' + 'c' * 64
+    secret_file = tmp_path / 'owned-input'; secret_file.touch()
+    monkeypatch.setattr(parity, '_generate_parity_secrets', lambda: {})
+    monkeypatch.setattr(parity, '_write_secret_bundle', lambda _: secret_file)
+    lifecycle = SimpleNamespace(
+        begin=lambda: None, mark_build_attempted=lambda: None,
+        docker_build_owner_args=lambda: [], establish_final_image=lambda _: None,
+        freeze_ownership=lambda: None, finalize=lambda: calls.append('image-cleanup') or [],
+        evidence=lambda: {}, ownership_capture_attempted=True, final_image_id=image)
+    monkeypatch.setattr(parity, 'DisposableImageLifecycle', lambda *a, **k: lifecycle)
+    monkeypatch.setattr(parity, '_docker_resources', lambda _: set())
+    monkeypatch.setattr(parity, 'read_iidfile', lambda _: image)
+    monkeypatch.setattr(parity, 'verify_built_image', lambda *a, **k: image)
+    monkeypatch.setattr(parity, '_assert_image_metadata', lambda _: image)
+    monkeypatch.setattr(parity, '_run_sqlite_exact_image', lambda *a: ('ok', {}))
+    monkeypatch.setattr(parity, 'inspect_junit', lambda _: {'passed': 140})
+    monkeypatch.setattr(parity, '_extract_database_evidence', lambda _: {})
+    monkeypatch.setattr(parity, '_extract_topology_evidence', lambda *a: {})
+    monkeypatch.setattr(parity, '_sanitize_and_assert_artifacts', lambda *a: None)
+    monkeypatch.setattr(parity, 'render_report', lambda *a: None)
+    proof_dir = tmp_path / 'restore-proof'
+    def command(args, **kwargs):
+        calls.append((args, kwargs))
+        if over_budget and args == ['./ops/database_parity/run_restore_drill.sh']:
+            clock[0] = 3601
+        if args[:2] == ['docker', 'build']:
+            assert json.loads((proof_dir / 'post027-restore-native.json').read_text())['status'] == 'fail'
+        if args[-1] == 'ops.database_parity.run_post027_restore':
+            assert kwargs['env']['POST027_CANDIDATE_IMAGE'] == image
+            assert kwargs['env']['POST027_STAGING'] == str(proof_dir.resolve())
+            assert kwargs['timeout'] == support.PROOF_TIMEOUT + support.CLEANUP_ALLOWANCE
+        return SimpleNamespace(stdout='3.3.5 pg_restore (PostgreSQL) 16. postgres'
+            ' postgresql-runtime: PASS postgres-legacy-upgrades: PASS fixtures=5 postgres-offline-restore: PASS', returncode=0)
+    monkeypatch.setattr(parity, '_command', command)
+    assert parity.run('proof-handoff', tmp_path, 'owned-test-image') == int(over_budget)
+    proof_calls = [i for i, call in enumerate(calls) if isinstance(call, tuple)
+                   and call[0][-1] == 'ops.database_parity.run_post027_restore']
+    if over_budget:
+        assert not proof_calls
+        assert json.loads((proof_dir / 'post027-restore-native.json').read_text())['status'] == 'fail'
+    else:
+        assert len(proof_calls) == 1
+        assert proof_calls[0] < calls.index('image-cleanup')
+
+
+@pytest.mark.parametrize('before,after', [
+    ('maintenance_password_file=', 'nonexistent_password_argument='),
+    ('from core.schema import bootstrap_database', 'from core.schema import nonexistent_bootstrap'),
+])
+def test_offline_wiring_rejects_broken_baseline_api(monkeypatch, before, after):
+    monkeypatch.setattr(runner, 'BASELINE_BACKUP_SOURCE', runner.BASELINE_BACKUP_SOURCE.replace(before, after))
+    with pytest.raises((TypeError, pytest.fail.Exception)):
+        test_baseline_embedded_script_imports_and_signatures()
+
+
+def test_receipt_replacement_preserves_failure_until_complete(tmp_path, monkeypatch):
+    runner.write_incomplete_receipt(tmp_path)
+    def interrupted(*args):
+        raise InterruptedError('interrupted before replacing receipt')
+    monkeypatch.setattr(Path, 'replace', interrupted)
+    with pytest.raises(InterruptedError):
+        runner.write_receipt(tmp_path, {'passed': True, 'status': 'pass'})
+    receipt = json.loads((tmp_path / 'post027-restore-native.json').read_text())
+    assert receipt['status'] == 'fail'

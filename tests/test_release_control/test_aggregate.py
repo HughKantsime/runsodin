@@ -190,9 +190,9 @@ def test_inventory_rejects_incomplete_or_unsafe_schedule(tmp_path, monkeypatch, 
         policy.load_inventory()
 
 
-def test_component_timeouts_remain_unchanged():
+def test_component_timeouts_include_separate_restore_proof_budget():
     assert [c["timeout_seconds"] for c in aggregate.load_inventory()["components"]] == [
-        2700, 5700, 2700, 2700, 3600, 5400, 3600, 1800, 1800, 1200,
+        2700, 5700, 2700, 2700, 7200, 5400, 3600, 1800, 1800, 1200,
     ]
 
 

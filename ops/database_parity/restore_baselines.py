@@ -37,7 +37,7 @@ def load_baselines(root=ROOT):
 
 def require_record(row):
     if row.get('image_digest') is None:
-        raise ValueError(f"TODO: record the successful production receipt for {row['version']} before validating a later candidate")
+        raise ValueError(f"TODO: record version={row['version']}, image_digest=target_digest from its successful production receipt, and schema_era=the last released ledger era in ops/database_parity/restore_baselines.json before validating a later candidate")
     return row
 
 

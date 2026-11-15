@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,11 +19,13 @@ import uuid
 # Also support the historical direct-script entrypoint from the repository root.
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from ops.database_parity.restore_baselines import ROOT, select_baseline
+from ops.database_parity.restore_baselines import ROOT, load_baselines, select_baseline
+from ops.release_gate.policy import redact_text
 from ops.database_parity.restore_proof_support import DEFAULT_PREFIX, LABEL, owned_run, run, validate_facts
 
 IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
-RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin:v1.9.24'
+RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin@' + next(
+    row['image_digest'] for row in load_baselines()['releases'] if row['version'] == '1.9.24')
 
 # No candidate source is imported by this process: all imports come from the
 # digest-pinned previous release. Its native backup service writes the archive.
@@ -53,7 +56,13 @@ def prove(root, staging, source, name, prefix, baseline, receipt):
     label = LABEL + '=' + prefix
     runtime_ref = 'ghcr.io/hughkantsime/odin@' + baseline['image_digest']
     runtime_platform = os.environ.get('POST027_RUNTIME_PLATFORM', 'linux/amd64')
-    files = [line for line in run('git', '-C', str(root), 'ls-files', '--cached', '--others', '--exclude-standard', 'backend', 'ops', 'docker').splitlines()
+    candidate = os.environ.get('POST027_CANDIDATE_IMAGE', '')
+    if not re.fullmatch(r'sha256:[0-9a-f]{64}', candidate):
+        raise ValueError('The restore proof requires the built candidate image content ID')
+    receipt['candidate_image'] = run('docker', 'image', 'inspect', '--format', '{{.Id}}', candidate).strip()
+    if receipt['candidate_image'] != candidate:
+        raise RuntimeError('The candidate image identity differs from the built image')
+    files = [line for line in run('git', '-C', str(root), 'ls-files', '--cached', 'backend', 'ops', 'docker').splitlines()
              if not line.startswith(('backend/vision_models_default/', 'backend/static/'))
                  and not any(part.startswith('.env') for part in Path(line).parts)]
     for relative in files:
@@ -127,16 +136,15 @@ def prove(root, staging, source, name, prefix, baseline, receipt):
         '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres',
         '-e', 'POST027_BASELINE_ERA='+str(baseline['schema_era']),
         '-e', 'POST027_RELEASED056_SOURCE=/source/released056/backend',
-        '-e', 'POST027_RELEASED057_SOURCE=/source/released057/backend', receipt['runtime_image'],
+        '-e', 'POST027_RELEASED057_SOURCE=/source/released057/backend', receipt['candidate_image'],
         '-c', 'exec runuser -u odin -- python /source/ops/database_parity/post027_restore_native.py'],
         text=True, capture_output=True, timeout=5400)
     log = staging / 'post027-restore-native-stdout.log'
-    log.write_text(result.stdout + '\n--- stderr ---\n' + result.stderr[-20000:])
+    log.write_text(redact_text(result.stdout + '\n--- stderr ---\n' + result.stderr[-20000:], ()))
     receipt['native_returncode'] = result.returncode
     if result.returncode:
         raise RuntimeError('The native restore proof failed; see its local log')
-    receipt['native_facts'] = [line for line in result.stdout.splitlines() if line.startswith('post027-native-')]
-    validate_facts(result.stdout, 'native')
+    receipt['native_facts'] = validate_facts(result.stdout, 'native')
     receipt['durations']['native_seconds'] = round(time.monotonic() - phase_started, 3)
     # Enterprise-compose ownership: root shell like the entrypoint, secrets owned by odin (10001), 0400.
     phase_started = time.monotonic()
@@ -144,14 +152,79 @@ def prove(root, staging, source, name, prefix, baseline, receipt):
         '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
         '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
         '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', '-w', '/source/backend',
-        receipt['runtime_image'], '-c', 'exec python /source/ops/database_parity/post027_coordinator_native.py'],
+        receipt['candidate_image'], '-c', 'exec python /source/ops/database_parity/post027_coordinator_native.py'],
         text=True, capture_output=True, timeout=5400)
-    (staging / 'post027-coordinator-native-stdout.log').write_text(coordinator.stdout + '\n--- stderr ---\n' + coordinator.stderr[-20000:])
+    (staging / 'post027-coordinator-native-stdout.log').write_text(redact_text(coordinator.stdout + '\n--- stderr ---\n' + coordinator.stderr[-20000:], ()))
     if coordinator.returncode:
         raise RuntimeError('The restore coordinator proof failed; see its local log')
-    receipt['coordinator_facts'] = [line for line in coordinator.stdout.splitlines() if line.startswith('post027-coordinator-')]
-    validate_facts(coordinator.stdout, 'coordinator')
+    receipt['coordinator_facts'] = validate_facts(coordinator.stdout, 'coordinator')
     receipt['durations']['coordinator_seconds'] = round(time.monotonic() - phase_started, 3)
+
+
+GENERATED_FIXTURES = (
+    'ams-file-source-wire.json',
+    'cert-A-printers-wire.json',
+    'cert-B-wire.json',
+    'cert-C-consumables-search-wire.json',
+    'cert-C-consumables-wire.json',
+    'cert-C-model-revisions-wire.json',
+    'cert-C-models-wire.json',
+    'cert-C-products-wire.json',
+    'cert-C-spools-wire.json',
+    'cert-C-upload-wire.json',
+    'cert-C-vision-detections-wire.json',
+    'cert-E-ana-analytics.json',
+    'cert-E-ana-export-jobs.json',
+    'cert-E-ana-failures.json',
+    'cert-E-ana-models.json',
+    'cert-E-ana-pricing-config.json',
+    'cert-E-ana-print-jobs-energy.json',
+    'cert-E-ana-stats-7.json',
+    'cert-E-integ-branding.json',
+    'cert-E-integ-ws-telemetry.json',
+    'cert-E-notif-admin.json',
+    'cert-E-notif-alerts.json',
+    'cert-E-notif-org-settings.json',
+    'cert-E-rep-chargeback-wire.json',
+    'cert-E-rep-license-wire.json',
+    'cert-E-rep-schedules-wire.json',
+    'cert-E-rep-usage-wire.json',
+    'certD-jobsA-approval-wire.json',
+    'certD-jobsB-wire.json',
+    'certD-jobsC-wire.json',
+    'certDops-audit-wire.json',
+    'certDops-backup-wire.json',
+    'certDops-bulk-jobs-wire.json',
+    'certDops-maintenance-status-wire.json',
+    'chargeback-wire-owned.json',
+    'public-license-wire-owned.json',
+    'remote-access.json',
+    's1-gcode-preview-wire.json',
+    's1-start-next-suggestion-wire.json',
+    'schedule-ams-wire.json',
+    'trial-license-wire.json',
+)
+
+def source_is_dirty(root):
+    # CV02 writes these frontend JSON fixtures; none is part of the source copy.
+    status = run('git', '-C', str(root), 'status', '--porcelain', '-z', '--untracked-files=all',
+                 '--', '.', *(':(exclude)frontend/src/test-fixtures/' + name for name in GENERATED_FIXTURES))
+    return bool(status)
+
+
+def write_receipt(staging, receipt):
+    staging.mkdir(parents=True, exist_ok=True)
+    path = staging / 'post027-restore-native.json'
+    temporary = path.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(receipt, indent=2) + '\n')
+    temporary.replace(path)
+
+
+def write_incomplete_receipt(staging):
+    write_receipt(staging, {
+        'passed': False, 'status': 'fail',
+        'error': 'CV05 restore proof did not finish (not reached, interrupted or killed)',
+    })
 
 
 def main():
@@ -161,18 +234,22 @@ def main():
     staging.mkdir(parents=True, exist_ok=True)
     prefix = os.environ.get('POST027_CONTAINER_PREFIX', DEFAULT_PREFIX)
     name = prefix + uuid.uuid4().hex[:12]
-    source = staging / ('src-' + uuid.uuid4().hex[:12])
+    source = None
     receipt = {'passed': False, 'status': 'fail', 'durations': {}, 'native_facts': [], 'coordinator_facts': []}
+    # A SIGKILL cannot execute finally. Leave failure evidence before doing work.
+    write_incomplete_receipt(staging)
     try:
         receipt['candidate_commit'] = run('git', '-C', str(ROOT), 'rev-parse', 'HEAD').strip()
-        receipt['source_dirty'] = bool(run('git', '-C', str(ROOT), 'status', '--porcelain', '--untracked-files=normal'))
+        receipt['source_dirty'] = source_is_dirty(ROOT)
+        if receipt['source_dirty']:
+            raise ValueError('The restore proof refuses a dirty candidate source tree')
         receipt['candidate_version'] = (ROOT / 'VERSION').read_text().strip()
         baseline = select_baseline(receipt['candidate_version'], ROOT)
         receipt['baseline'] = baseline
         receipt['postgres_image'] = IMAGE
         if os.environ.get('POST027_CURRENT_ONLY') not in (None, '', '0') or os.environ.get('POST027_RUNTIME_REF'):
             raise ValueError('The required restore proof cannot skip checks or override its released image')
-        with owned_run(prefix):
+        with owned_run(prefix) as source:
             prove(ROOT, staging, source, name, prefix, baseline, receipt)
         receipt.update(passed=True, status='pass')
     except subprocess.TimeoutExpired:
@@ -180,12 +257,11 @@ def main():
     except (Exception, KeyboardInterrupt) as error:
         receipt['error'] = str(error) if isinstance(error, (RuntimeError, ValueError, InterruptedError)) else 'The restore proof failed: ' + type(error).__name__
     finally:
-        shutil.rmtree(source, ignore_errors=True)
-        receipt['source_copy_removed'] = not source.exists()
+        receipt['source_copy_removed'] = source is None or not source.exists()
         if not receipt['source_copy_removed']:
             receipt.update(passed=False, status='fail', error='The restore proof source copy could not be removed')
         receipt['durations']['total_seconds'] = round(time.monotonic() - started, 3)
-        (staging / 'post027-restore-native.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        write_receipt(staging, receipt)
     print('PostgreSQL restore proof: ' + receipt['status'] + (': ' + receipt['error'] if 'error' in receipt else ''))
     return 0 if receipt['passed'] else 1
 

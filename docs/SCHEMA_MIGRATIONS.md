@@ -57,7 +57,10 @@ This document explains how to add a database schema migration numbered 030 or hi
 
    `test_post027_registry_inventory.py` already checks, for every registered migration, that a booted schema holds exactly `canonical_tables()`. It catches a table missing from the inventory without any PostgreSQL run.
 7. **Run the PostgreSQL proof.**
-   `python3.11 -m ops.database_parity.run_post027_restore`
+   `make test-database-parity CANDIDATE_PYTHON=python3.11`
+   This builds the candidate image and runs the proof before removing it. A standalone
+   `python3.11 -m ops.database_parity.run_post027_restore` requires
+   `POST027_CANDIDATE_IMAGE=sha256:<built-candidate-image-id>`; it fails closed without it.
    This is also a required part of Trusted Validation CV05. Missing images, failed pulls, timeouts, incomplete facts and skipped checks fail the gate. It must cover:
    - a native backup made by the newest recorded release below `VERSION`, restored by candidate code to the live migration registry;
    - fresh PostgreSQL boot, twice;

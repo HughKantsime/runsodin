@@ -44,8 +44,10 @@ This proves the selected licensed behavior, not vendor-license activation.
 
 ## Required native PostgreSQL restore proof (CV05)
 
-`make test-database-parity` runs the existing parity runner, then
-`python3.11 -m ops.database_parity.run_post027_restore`. Both must pass. The proof
+`make test-database-parity` runs the existing parity runner, which invokes
+`python3.11 -m ops.database_parity.run_post027_restore` before cleaning up its
+built candidate image. Both must pass. The previous release creates the backup;
+the candidate image and candidate source perform the restore and upgrade. The proof
 stays inside **CV05**, since it shares the serial Docker phase and PostgreSQL
 scope; CV01–CV10, eligibility, and the aggregate's skip-fails policy are unchanged.
 The workflow checks out the exact candidate SHA before the aggregate. A missing
@@ -75,24 +77,37 @@ evidence retains that hash. The workflow also uploads the receipt as
 artifact, preserving the existing promotion artifact layout.
 
 Docker and public registry pulls are required on the validation runner: the
-recorded prior ODIN digest, `ghcr.io/hughkantsime/odin:v1.9.24`, and the pinned
+recorded prior ODIN digest, the recorded v1.9.24 digest in `ops/database_parity/restore_baselines.json`, and the pinned
 PostgreSQL image. The job hook checks dispatch identity, not registry access;
 the documented egress rule blocks production's address, not public registries.
 No runner permissions or network policy are changed here. Runtime has not been
-measured on odin-ci for this addition. CV05 retains its 3,600-second total budget;
-the native proof has a 3,000-second limit, plus bounded cleanup, and individual
-commands also time out. These are limits, not duration forecasts. A slow run
+measured on odin-ci for this addition. CV05 has a 7,200-second total budget:
+3,600 seconds for parity, a separate 3,000-second proof limit, and 600 seconds
+for cleanup. Individual commands also time out. A failure receipt is written
+before parity and before proof work, so SIGKILL leaves failure evidence. These are limits, not duration forecasts. A slow run
 fails; measure the required standalone odin-ci run before merge.
 
 `POST027_STAGING` selects the standalone receipt directory;
 `ODIN_DATABASE_PARITY_ARTIFACT_ROOT` places it under validation evidence.
 `POST027_CONTAINER_PREFIX` must start with `odin-restore-proof-`;
 `POST027_RUNTIME_PLATFORM` defaults to `linux/amd64`. Runtime image overrides and
-`POST027_CURRENT_ONLY` are refused by the required proof. The runner supplies
+`POST027_CURRENT_ONLY` are refused by the required proof.
+`POST027_CANDIDATE_IMAGE` must be the built candidate content ID; a missing image
+fails closed. The parity runner supplies it before its image cleanup. The runner supplies
 `PYTHONPATH=/source/backend:/source` to the native process (both import roots are
 needed), and the coordinator uses `/source/backend`.
 
-Each run appends a random suffix to the prefix. A host lock protects each prefix;
+Each run appends a random suffix to the prefix. The existing prefix lock is
+opened without following symlinks in the runner account's private
+`~/.cache/odin-restore-proof` directory (independent of isolated HOME/TMPDIR).
+Source and dump staging also lives there, outside evidence, and is removed on
+exit or at the next start after a kill. Dirty candidate source fails; only the enumerated CV02-generated
+JSON fixtures under `frontend/src/test-fixtures/` are excepted and excluded from
+the backend/ops/docker source copy. Retained child logs use the gate redactor.
+Offline tests compile the baseline script and check imports and call signatures
+against preserved source. They cannot verify image-installed dependencies,
+registry digest platform availability, PostgreSQL execution or runtime duration.
+The prefix lock protects cleanup;
 startup removes only resources bearing its exact ownership label **and** prefix.
 Containers use tmpfs instead of anonymous image volumes. Cleanup runs after
 success, failure, timeout, SIGINT and SIGTERM. SIGKILL cannot run cleanup (the
@@ -260,19 +275,19 @@ build context and all four components build from the checkout.
 |---|---|---|---|
 | 1 | [CV02] alongside [CV08, CV09] | max(d02, d08 + d09) = **4,166 s / 69.4 min** | CV02 measured on odin-ci; CV08/CV09 each use their 1,800 s inventory timeout as an unmeasured upper estimate (sum 3,600 s). |
 | 2 | [CV03] | d03 = **2,700 s / 45 min** | Inventory timeout; no separate measured duration in the source docs. |
-| 3 | [CV01, CV04, CV05, CV07] | d01 + d04 + d05 + d07 = **12,600 s / 210 min** | Inventory timeouts: 2,700 + 2,700 + 3,600 + 3,600 s. |
+| 3 | [CV01, CV04, CV05, CV07] | d01 + d04 + d05 + d07 = **16,200 s / 270 min** | Inventory timeouts: 2,700 + 2,700 + 7,200 + 3,600 s. |
 | 4 | [CV10] | d10 = **1,200 s / 20 min** | Inventory timeout; fixed port/database and absolute /tmp paths need exclusivity. |
 | 5 | [CV06] | d06 = **5,400 s / 90 min** | Inventory timeout; api_load needs the host idle. |
 
 These are a critical-path model with conservative placeholders, **not measured
 expected runtime** for phases 2–5. The model holds component durations constant;
 CPU/I/O contention with CV08/CV09 may increase CV02 beyond its prior 4,166 s
-measurement and must be measured on the VM. At those inputs total wall time is 26,066 s
-(434.4 min), versus a serial sum of 29,666 s: CV08/CV09 fit entirely behind CV02,
+measurement and must be measured on the VM. At those inputs total wall time is 29,666 s
+(494.4 min), versus a serial sum of 33,266 s: CV08/CV09 fit entirely behind CV02,
 saving their combined duration (up to 3,600 s at the placeholders). Using CV02's
-5,700 s timeout instead gives a 27,600 s / 460 min aggregate timeout envelope;
+5,700 s timeout instead gives a 31,200 s / 520 min aggregate timeout envelope;
 that exceeds the unchanged 360-minute workflow cap. The old schedule's worst-case
-envelope also exceeded that cap. No timeout is increased here. Replace the
+envelope also exceeded that cap. CV05 includes the additional restore-proof budget above. Replace the
 placeholders with the next complete run's durations before forecasting a release.
 The spec's approximately 85 minutes for CV01–CV05 implies roughly 934 seconds for
 CV01+CV03+CV04+CV05 after subtracting CV02, but does not provide per-component
@@ -306,7 +321,7 @@ JSON artifacts, JUnit cases and findings use inventory order. Console status lin
 print and flush at component completion. `duration_seconds` retains its original
 sum-of-component-durations meaning. Wall time is logged separately because the
 unchanged schema forbids additional properties. Schema version, component IDs,
-evidence rules and all timeouts are unchanged.
+evidence rules are unchanged; CV05 includes the restore-proof budget above.
 
 ### Resource audit by Make target
 

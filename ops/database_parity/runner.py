@@ -458,8 +458,13 @@ def _run_sqlite_exact_image(
 def run(run_id: str, artifact_root: Path, image: str) -> int:
     if not RUN_ID.fullmatch(run_id):
         raise GatePolicyError("invalid database parity run ID")
+    parity_started = time.monotonic()
     artifact_dir = artifact_root / run_id
     artifact_dir.mkdir(parents=True, exist_ok=False)
+    from ops.database_parity.run_post027_restore import write_incomplete_receipt
+    from ops.database_parity.restore_proof_support import PROOF_TIMEOUT, CLEANUP_ALLOWANCE
+    proof_dir = artifact_root.resolve() / 'restore-proof'
+    write_incomplete_receipt(proof_dir)
     phases: list[dict[str, object]] = []
     database_evidence: list[dict[str, object]] = []
     topology_evidence: list[dict[str, object]] = []
@@ -635,6 +640,16 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
                 started,
                 "API/RBAC/WebSocket/background writes, five legacy upgrades, malformed refusal, least-privilege roles, and restore recovery passed",
             )
+
+        if time.monotonic() - parity_started > 3600:
+            raise GatePolicyError("database parity exceeded its 3600s budget before the restore proof")
+        active_phase = "native-restore-proof"
+        started = time.monotonic()
+        proof_env = os.environ.copy()
+        proof_env.update(POST027_CANDIDATE_IMAGE=image_id, POST027_STAGING=str(proof_dir))
+        _command([sys.executable, "-m", "ops.database_parity.run_post027_restore"],
+                 env=proof_env, timeout=PROOF_TIMEOUT + CLEANUP_ALLOWANCE)
+        _phase(phases, active_phase, started, "previous release restored with candidate code and image")
 
         active_phase = "cleanup"
         started = time.monotonic()

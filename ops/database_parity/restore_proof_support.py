@@ -3,6 +3,10 @@ from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
+import os
+import pwd
+import shutil
+import stat
 from pathlib import Path
 import re
 import signal
@@ -10,6 +14,13 @@ import subprocess
 
 LABEL = 'app.odin.restore-proof'
 DEFAULT_PREFIX = 'odin-restore-proof-'
+PROOF_TIMEOUT = 3000
+CLEANUP_ALLOWANCE = 600
+
+
+def state_directory():
+    # The account home is stable even when the gate isolates HOME and TMPDIR.
+    return Path(pwd.getpwuid(os.getuid()).pw_dir) / '.cache/odin-restore-proof'
 
 
 def run(*args, timeout=120):
@@ -59,12 +70,18 @@ def cleanup(prefix):
 
 
 @contextmanager
-def owned_run(prefix, timeout=3000):
+def owned_run(prefix, timeout=PROOF_TIMEOUT):
     if not re.fullmatch(r'odin-restore-proof-[A-Za-z0-9_.-]{0,48}', prefix):
         raise ValueError('Restore proof container prefix must start with odin-restore-proof-')
-    # Stable across checkouts and isolated HOME/TMPDIR, unlike a per-run lock.
-    lock_path = Path('/tmp') / ('odin-restore-proof-' + hashlib.sha256(prefix.encode()).hexdigest() + '.lock')
-    with lock_path.open('a') as lock:
+    state = state_directory()
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = state.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError('Restore proof state directory must be private and runner-owned')
+    key = hashlib.sha256(prefix.encode()).hexdigest()
+    source = state / (key + '-source')
+    lock_path = state / (key + '.lock')
+    with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600), 'a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -76,15 +93,21 @@ def owned_run(prefix, timeout=3000):
             raise RuntimeError(f'The restore proof timed out after {timeout} seconds')
         handlers[signal.SIGALRM] = signal.signal(signal.SIGALRM, timed_out)
         try:
-            cleanup(prefix)  # Reap a killed prior run before creating anything.
             signal.alarm(timeout)
-            yield
+            if source.exists():
+                shutil.rmtree(source)
+            cleanup(prefix)  # Reap a killed prior run before creating anything.
+            yield source
         finally:
             signal.alarm(0)
             for sig in handlers:
                 signal.signal(sig, signal.SIG_IGN)
             try:
-                cleanup(prefix)
+                try:
+                    cleanup(prefix)
+                finally:
+                    if source.exists():
+                        shutil.rmtree(source)
             finally:
                 for sig, handler in handlers.items():
                     signal.signal(sig, handler)
