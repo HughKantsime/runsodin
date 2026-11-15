@@ -152,3 +152,56 @@ def test_queue_refuses_a_file_outside_the_exact_tenant(floor, file_owner):
     assert answer.json()['queued'] == []
     assert 'File ownership scan' in answer.json()['skipped'][0]['reason']
     assert held_jobs(floor) == []
+
+
+@pytest.mark.parametrize('kind', ['file', 'job'])
+@pytest.mark.parametrize('mark_owner', [None, 2])
+@pytest.mark.parametrize('role', ['operator', 'admin'])
+def test_shared_path_restrictions_hide_planning_count_and_refuse_queue(floor, tier_license, kind, mark_owner, role):
+    from core.controlled_parts import allowed
+    from modules.orders.services import print_next_count
+    from modules.printers.routes_integrations import router
+    from tests.test_contracts.test_replenishment_list import join_audience
+    floor['app'].include_router(router)
+    tier_license('pro')
+    recipe = plate(floor)
+    numbers(floor, target=20)
+    numbers(floor, 104)
+    floor['user']['role'] = role
+    db = floor['db']
+    db.execute(text("INSERT INTO print_files(id,filename,stored_path,org_id) VALUES(501,'alias.gcode',:path,:owner)"),
+               {'path': str(floor['plate']), 'owner': mark_owner})
+    db.execute(text("INSERT INTO jobs(id,item_name,model_id,print_file_id,status,charged_to_org_id,quantity) "
+                    "VALUES(600,'Pending plate',301,301,'pending',1,1)"))
+    if kind == 'job':
+        db.execute(text("INSERT INTO jobs(id,item_name,print_file_id,status,charged_to_org_id) "
+                        "VALUES(501,'Marked alias',501,'cancelled',:owner)"), {'owner': mark_owner})
+    db.commit()
+    before = row(floor)
+    assert before['on_the_way'] == {'pieces': 5, 'job_ids': [600], 'awaiting_stock': 0}
+    assert before['shortfall'] == 13 and before['plates_needed'] == 3
+    assert print_next_count(db, floor['user']) == 1
+    ha_url = '/integrations/home-assistant/status'
+    assert floor['client'].get(ha_url).json()['fleet']['print_next_count'] == 1
+    restrict(floor, kind=kind, identifier=501)
+    assert not allowed(db, 'file', 301, floor['user'])
+    assert not allowed(db, 'job', 600, floor['user'])
+    result = listed(floor)
+    assert result['work_hidden'] is True
+    assert_no_planning(result)
+    assert print_next_count(db, floor['user']) is None
+    response = floor['client'].get(ha_url)
+    assert response.status_code == 200, response.text
+    assert 'print_next_count' not in response.json()['fleet']
+    item = {'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}
+    jobs_before = held_jobs(floor)
+    answer = queue(floor, [item])
+    assert answer.status_code == 403 and answer.json()['detail'] == replenishment.HIDDEN_WORK
+    assert held_jobs(floor) == jobs_before
+    join_audience(floor)
+    after = row(floor)
+    for field in replenishment.PLANNING_FIELDS:
+        assert after[field] == before[field]
+    assert floor['client'].get(ha_url).json()['fleet']['print_next_count'] == 1
+    answer = queue(floor, [item])
+    assert answer.status_code == 200 and answer.json()['queued'], answer.text

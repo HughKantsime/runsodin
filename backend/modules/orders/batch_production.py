@@ -102,7 +102,7 @@ def recipe(db, owner, recipe_id, *, resolve_legacy=True):
     row = db.execute(select(recipes).where(recipes.c.id == recipe_id, recipes.c.owner == owner)).mappings().one_or_none()
     if row is None:
         raise HTTPException(404, 'Recipe not found')
-    spec = {'id': row['id'], **json.loads(row['definition'])}
+    spec = {**json.loads(row['definition']), 'id': row['id']}
     if resolve_legacy and spec.get('version') == 1:
         from modules.orders.recipe_matching import resolve_legacy_recipe
         spec = resolve_legacy_recipe(db, owner, spec)
@@ -174,7 +174,7 @@ def stage_recipe(db, owner, data, evidence, source):
 
 
 def receipt_public(row):
-    return {'id':row['id'], 'recipe_id':row['recipe_id'], **json.loads(row['definition'])}
+    return {**json.loads(row['definition']), 'id':row['id'], 'recipe_id':row['recipe_id']}
 
 
 def inspect_batch(db, user, data):

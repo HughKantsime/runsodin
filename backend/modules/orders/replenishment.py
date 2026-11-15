@@ -151,16 +151,8 @@ PLANNING_FIELDS = ('on_the_way', 'shortfall', 'rank', 'rank_reason', 'recipe', '
 
 def full_view(db, owner, user):
     """One farm-wide gate; orphaned marks require clearance too. Admin is no bypass."""
-    from core.controlled_parts import member
-    audiences = db.execute(text('''
-        SELECT c.audience_id FROM controlled_files c LEFT JOIN print_files f ON f.id=c.file_id
-        WHERE f.id IS NULL OR COALESCE(f.org_id,0)=:owner
-        UNION SELECT c.audience_id FROM controlled_jobs c LEFT JOIN jobs j ON j.id=c.job_id
-        WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
-        UNION SELECT c.audience_id FROM controlled_job_tombstones c LEFT JOIN jobs j ON j.id=c.job_id
-        WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
-    '''), {'owner': owner}).scalars()
-    return all(member(db, user, audience) for audience in audiences)
+    from core.controlled_parts import member, owner_audiences
+    return all(member(db, user, audience) for audience in owner_audiences(db, owner))
 
 
 def open_orders(db, owner):
