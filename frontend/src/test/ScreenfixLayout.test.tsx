@@ -79,7 +79,7 @@ it.each(['classic', 'foundry'])('%s modal close target stays inside the header a
   for (const width of [390, 1440]) {
     for (const alert of [false, true]) {
       for (const title of ['Filament name', 'Change the filament catalogue assignment for the printer beside the workshop window']) {
-        const page = await pageFor(<Modal isOpen onClose={noop} title={title} alert={alert}>Body</Modal>, width, family)
+        const page = await pageFor(<div className={family === 'foundry' ? 'f-page' : undefined}><Modal isOpen onClose={noop} title={title} alert={alert}>Body</Modal></div>, width, family)
         try {
           const bounds = await page.getByLabel('Close', { exact: true }).evaluate(button => {
             const rect = (node: Element) => {
@@ -105,16 +105,36 @@ it.each(['classic', 'foundry'])('%s modal close target stays inside the header a
   }
 })
 
-it.each(['classic', 'foundry'])('%s desktop header height is independent of the enlarged close target', async family => {
-  const page = await pageFor(<Modal isOpen onClose={noop} title="Filament name">Body</Modal>, 1440, family)
+it.each(['classic', 'foundry'].flatMap(family => [390, 1440].flatMap(width => [false, true].map(alert => ({ family, width, alert })))))(
+  '$family modal geometry matches 27d98a59 at $width (alert=$alert)', async ({ family, width, alert }) => {
+  const page = await pageFor(<div className={family === 'foundry' ? 'f-page' : undefined}><Modal isOpen onClose={noop} title="Filament name" alert={alert}>Body</Modal></div>, width, family)
   try {
-    const heights = await page.getByLabel('Close', { exact: true }).evaluate(button => {
+    const geometry = await page.getByLabel('Close', { exact: true }).evaluate((button, sheet) => {
       const header = button.parentElement!
-      const enlarged = header.getBoundingClientRect().height
-      // Recreate the original 20px icon-only target with no negative margins.
-      Object.assign((button as HTMLElement).style, { minHeight: '20px', minWidth: '20px', height: '20px', width: '20px', margin: '0' })
-      return { enlarged, original: header.getBoundingClientRect().height }
-    })
-    expect(heights.enlarged).toBe(heights.original)
+      const measure = () => {
+        const origin = header.parentElement!.getBoundingClientRect()
+        const rect = (node: Element) => {
+          const { x, y, width, height } = node.getBoundingClientRect()
+          return { x: x - origin.x, y: y - origin.y, width, height }
+        }
+        return { header: rect(header), body: rect(header.nextElementSibling!), button: rect(button), icon: rect(button.querySelector('svg')!) }
+      }
+      const current = measure()
+      // Original classes from 27d98a59, under the same real theme CSS. Do not
+      // force 20px: Foundry and Classic phone already supplied a 44px target.
+      header.className = sheet
+        ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]'
+        : 'flex items-center justify-between p-4 sm:p-6 pb-0'
+      button.className = 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]' + (sheet
+        ? ' -mr-2 min-h-11 min-w-11 flex items-center justify-center' : '')
+      return { current, original: measure() }
+    }, width < 640 && !alert)
+    expect(geometry.current.button.width).toBeGreaterThanOrEqual(44)
+    expect(geometry.current.button.height).toBeGreaterThanOrEqual(44)
+    expect(geometry.current.header).toEqual(geometry.original.header)
+    expect(geometry.current.body).toEqual(geometry.original.body)
+    if (family === 'foundry' || (width < 640 && !alert)) {
+      expect(geometry.current).toEqual(geometry.original)
+    }
   } finally { await page.close() }
 })

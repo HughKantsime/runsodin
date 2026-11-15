@@ -35,6 +35,10 @@ test('phone: alert dialogs keep their compact layout', () => {
   const alertPanel = screen.getByRole('alertdialog').firstElementChild as HTMLElement
   expect(alertPanel).not.toHaveClass('h-full')
   expect(alertPanel).toHaveClass('max-h-[90vh]')
+  expect(alertPanel.children[0]).toHaveClass('pb-0')
+  // Phones already have a 44px target. Desktop's offset must not shrink this header.
+  expect(screen.getByLabelText('Close')).toHaveClass('min-h-11', 'min-w-11', 'sm:-my-3')
+  expect(screen.getByLabelText('Close')).not.toHaveClass('-my-3')
 })
 
 test('640 px and above: panel layout is unchanged and close is a 44px target', () => {
@@ -43,9 +47,9 @@ test('640 px and above: panel layout is unchanged and close is a 44px target', (
   expect(screen.getByRole('dialog').className).toBe('fixed inset-0 bg-black/60 flex justify-center z-50 p-0 sm:p-4 items-end sm:items-center')
   expect(panel().className.trim()).toBe('bg-[var(--brand-card-bg)] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-xl sm:rounded-lg')
   expect(panel().children).toHaveLength(2)
-  expect(panel().children[0].className).toBe('flex items-center justify-between p-4 sm:p-6 pb-3')
+  expect(panel().children[0].className).toBe('flex items-center justify-between p-4 sm:p-6 pb-0')
   expect(panel().children[1].className).toBe('p-4 sm:p-6')
-  expect(screen.getByLabelText('Close').className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 -my-3 -mr-3 flex items-center justify-center')
+  expect(screen.getByLabelText('Close').className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 sm:-my-3 -mr-3 flex items-center justify-center')
 })
 
 test('no matchMedia (jsdom default) renders the desktop layout', () => {

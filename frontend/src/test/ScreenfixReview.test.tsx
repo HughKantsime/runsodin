@@ -8,10 +8,34 @@ import FilamentSlotEditor from '../components/printers/FilamentSlotEditor'
 import PrinterCard from '../components/foundry/PrinterCard'
 import SpoolCard from '../components/inventory/SpoolCard'
 import AmsMappingEditor from '../components/shared/AmsMappingEditor'
+import Modal from '../components/ui/Modal'
 vi.mock('../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ role: 'admin' }) }))
 vi.mock('../components/inventory/PurchaseEvidenceModal', () => ({ default: () => null }))
 const noop = () => {}
 const name = 'ASA-CF Invented very long catalogue colour name'
+// Layout inputs from Modal.tsx at 27d98a59. Pixel/tap-target checks live in
+// ScreenfixLayout, where the actual theme CSS is loaded in Chromium.
+it.each(['classic', 'foundry'].flatMap(family => [390, 1440].flatMap(width => [false, true].map(alert => ({ family, width, alert })))))(
+  '$family modal preserves original header/body layout inputs at $width (alert=$alert)',
+  ({ family, width, alert }) => {
+    document.documentElement.dataset.themeFamily = family
+    vi.stubGlobal('matchMedia', () => ({ matches: width < 640 }))
+    mount(<Modal isOpen onClose={noop} title="Filament name" alert={alert}>Body</Modal>)
+    const close = screen.getByRole('button', { name: 'Close' })
+    const header = close.parentElement!
+    const sheet = width < 640 && !alert
+    expect(header.className).toBe(sheet
+      ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]'
+      : 'flex items-center justify-between p-4 sm:p-6 pb-0')
+    expect(header.nextElementSibling!.className).toBe(sheet
+      ? 'flex-1 min-h-0 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] [&_input]:text-base [&_select]:text-base [&_textarea]:text-base [&_[data-modal-footer]]:sticky [&_[data-modal-footer]]:bottom-0 [&_[data-modal-footer]]:z-10 [&_[data-modal-footer]]:bg-[var(--brand-card-bg)] [&_[data-modal-footer]]:pb-3'
+      : 'p-4 sm:p-6')
+    if (sheet || family === 'foundry') {
+      expect(close.className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]' + (sheet
+        ? ' -mr-2 min-h-11 min-w-11 flex items-center justify-center' : ''))
+    }
+  },
+)
 it.each(['classic', 'foundry'])('disclosure dialogs in %s are named, trap focus, close on Escape and restore focus', family => {
   document.documentElement.dataset.themeFamily = family
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32)
@@ -29,7 +53,9 @@ it.each(['classic', 'foundry'])('disclosure dialogs in %s are named, trap focus,
     const dialog = screen.getByRole('dialog', { name: title })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     const close = within(dialog).getByRole('button', { name: 'Close' })
-    expect(close).toHaveClass('min-h-11', 'min-w-11')
+    // Both themes' 44px targets are checked with their real CSS in ScreenfixLayout.
+    // Foundry supplies the size through theme rules, not Tailwind button classes.
+    expect(close).toHaveAccessibleName('Close')
     expect(close).toHaveFocus()
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
     expect(dialog.contains(document.activeElement)).toBe(true)

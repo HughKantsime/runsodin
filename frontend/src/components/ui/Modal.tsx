@@ -91,7 +91,7 @@ export default function Modal({
         onClick={(e) => e.stopPropagation()}
       >
         {(title || (sheet && !ownHeader)) && (
-          <div className={sheet ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]' : 'flex items-center justify-between p-4 sm:p-6 pb-3'}>
+          <div className={sheet ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]' : 'flex items-center justify-between p-4 sm:p-6 pb-0'}>
             {title ? (
               <h2
                 id={titleId}
@@ -107,8 +107,8 @@ export default function Modal({
                 : foundry
                   // Foundry already gives every button a 44 px target: leave its header as it was.
                   ? 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]'
-                  // Classic: a 44 px tap target that does not make the header taller.
-                  : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 -my-3 -mr-3 flex items-center justify-center'}
+                  // Classic phones already had a 44 px target; only desktop needs the margin offset.
+                  : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 sm:-my-3 -mr-3 flex items-center justify-center'}
               aria-label="Close"
             >
               <X size={20} />
