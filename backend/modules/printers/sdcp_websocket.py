@@ -2,8 +2,8 @@
 
 The adapter connects to the address that passed the device policy
 (core.webhook_utils.device_connect_ip). websocket-client then follows up to three HTTP
-redirects by itself: a printer on the local network that answers `302 Location:
-ws://<public address>/...` would make ODIN connect there with no further check. Under ITAR
+redirects by itself: a printer on the local network that answers with a 302 redirect to a
+WebSocket address on a public host would make ODIN connect there with no further check. Under ITAR
 mode redirects are turned off, so the only connection is the one to the checked address.
 With ITAR mode off nothing here changes how the library behaves.
 """

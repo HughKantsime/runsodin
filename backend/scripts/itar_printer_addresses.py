@@ -119,11 +119,13 @@ def change_address(db, printer_id: int, address, out) -> int:
     # Compare-and-swap: replace the address only if it is still the one read above, so a
     # change made in between by a running server is never overwritten, and the audit entry's
     # "from" is the value this statement really replaced.
-    unchanged = "api_host IS NULL" if before is None else "api_host = :before"
-    parameters = {"host": after, "id": printer_id}
-    if before is not None:
-        parameters["before"] = before
-    swapped = db.execute(text(f"UPDATE printers SET api_host = :host WHERE id = :id AND {unchanged}"), parameters)
+    # Two fixed statements (no SQL is built from values): NULL needs IS NULL, not "= :before".
+    if before is None:
+        swapped = db.execute(text("UPDATE printers SET api_host = :host WHERE id = :id AND api_host IS NULL"),
+                             {"host": after, "id": printer_id})
+    else:
+        swapped = db.execute(text("UPDATE printers SET api_host = :host WHERE id = :id AND api_host = :before"),
+                             {"host": after, "id": printer_id, "before": before})
     if swapped.rowcount != 1:
         db.rollback()
         print(f"printer {printer_id} ({name}): the address changed since it was read; nothing was written. "

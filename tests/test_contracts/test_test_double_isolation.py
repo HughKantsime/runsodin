@@ -97,3 +97,34 @@ def test_target_patched_twice_rebinds_the_importer_to_the_pre_test_value():
     finally:
         probe.unlink()
     assert result.returncode == 0, (result.stdout + result.stderr)[-3000:]
+
+
+def test_backend_code_reached_through_a_tests_parent_path_is_not_a_test_double():
+    """A backend module imported through a ``tests/../backend`` path entry has a raw
+    ``__file__`` that starts with the tests folder. Its functions are backend code: a backend
+    module that imports one of them must not be reported as holding a test double (2.2.1:
+    ``backend/modules/__init__.py`` imports two functions from ``core.itar`` and failed the
+    Education gate this way)."""
+    probe = _ROOT / "tests" / "test_contracts" / "_test_parent_path_probe_tmp.py"
+    probe.write_text(
+        "import importlib.util, os, sys\n"
+        "def test_a_binds_a_backend_function_loaded_through_the_tests_folder():\n"
+        "    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+        "    raw = os.path.join(root, 'tests', '..', 'backend', 'core', 'itar.py')\n"
+        "    spec = importlib.util.spec_from_file_location('probe_parent_path_itar', raw)\n"
+        "    module = importlib.util.module_from_spec(spec)\n"
+        "    sys.modules['probe_parent_path_itar'] = module\n"
+        "    spec.loader.exec_module(module)\n"
+        "    assert module.__file__.startswith(os.path.join(root, 'tests') + os.sep)\n"
+        "    import modules\n"
+        "    modules._probe_parent_path_function = module.is_itar_mode\n"
+        "def test_b_runs_after_it():\n"
+        "    import modules\n"
+        "    assert callable(modules._probe_parent_path_function)\n"
+    )
+    try:
+        result = _run_in_one_process(str(probe))
+    finally:
+        probe.unlink()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "outlived" not in result.stdout + result.stderr
