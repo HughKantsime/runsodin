@@ -4,7 +4,8 @@
 **Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Version:** 1.3.27
 **Date:** February 2026
-**Contact:** sublab3dp@gmail.com
+**Revised:** November 2026. Network connection and third-party sections reviewed against O.D.I.N. 2.2.0; other sections as issued for 1.3.27.
+**Contact:** support@runsodin.com
 
 > This document is provided as a technical reference for K-12 schools evaluating O.D.I.N. for COPPA compliance. It does not constitute legal advice. Schools should consult qualified legal counsel to confirm compliance with their specific obligations under COPPA (15 U.S.C. §§ 6501-6506; 16 CFR Part 312).
 
@@ -35,36 +36,41 @@ Schools should confirm that their use of O.D.I.N. falls within the "school autho
 
 ### 3.1 What O.D.I.N. Collects
 
-O.D.I.N. collects only the data necessary to manage 3D printer operations:
+O.D.I.N. stores operational data and configured school records:
 
 | Data Element | Required? | Can Be Anonymized? | Notes |
 |-------------|-----------|-------------------|-------|
 | Username | Yes | Yes | Can use non-identifying labels (e.g., "student_01", "maker_lab_7") |
-| Email address | No | Yes / Omittable | Can be disabled entirely for student accounts |
+| Email address | No | Yes / Omittable | Can be left out for accounts an administrator creates by hand; class roster import and single sign-on provisioning bring in the email address |
 | User role | Yes | N/A | System role (viewer/operator/admin), not personal information |
 | Print job records | Yes | Partially | Job metadata linked to username; anonymized usernames reduce identifiability |
 | Approval records | If enabled | Partially | Tracks who approved print jobs |
 
+When roster import is enabled, O.D.I.N. receives provider user identifiers, email addresses and class memberships; Google Classroom import also receives names.
+
+When Education features are used, O.D.I.N. can store assignment grades, feedback, assessment history, and training quiz scores and completion records.
+
 ### 3.2 What O.D.I.N. Does NOT Collect
 
-- Full legal names (unless used as usernames — avoidable)
-- Home addresses, phone numbers, or parent/guardian contact information
+- Home addresses, phone numbers, or parent/guardian contact information for student accounts (the optional order and shipping features hold customer addresses; those are business records, not student account fields)
 - Social Security numbers or government identifiers
 - Photographs, video, or audio of students
 - Geolocation data
 - Persistent identifiers for tracking across sites or services
 - Cookies sent to third parties
-- Any data transmitted to Sublab 3DP or any third party
+- Any student data transmitted to Sublab 3DP
 
-### 3.3 No Third-Party Data Sharing
+### 3.3 Network Connections and Third-Party Data Sharing
 
-O.D.I.N. does not transmit any data to:
+License actions send the data described below to Sublab 3DP; they do not send student records. O.D.I.N. does not transmit data to:
 
-- Sublab 3DP
 - Advertising networks
 - Analytics services
 - Data brokers
-- Any external server (unless the school explicitly configures webhook integrations)
+
+Enabled integrations (notification services, email, single sign-on, class roster import, smart-plug control, MQTT, SIEM streaming, Square and Spoolman) contact their configured services. Push notifications, if a user turns them on, pass the notification text, which can include a job or file name, through the browser vendor's push service, or through Apple's push service where the server operator has set that up. Opening the API documentation causes your browser to request assets from jsDelivr and FastAPI's website; ReDoc also requests Google Fonts.
+
+License actions an administrator runs contact runsodin.com. An administrator can also ask O.D.I.N. to check whether the license server is reachable (`GET /api/system/license-server-status`, administrators only); the web app does not call it, nothing schedules it, and it sends no installation data (the portal sees the connecting IP address). Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N.
 
 ---
 
@@ -73,10 +79,10 @@ O.D.I.N. does not transmit any data to:
 Sublab 3DP does not interact with children at any point:
 
 - O.D.I.N. is installed by school IT staff, not by students
-- User accounts are created by school administrators, not by students self-registering
+- User accounts are created by school administrators, by class roster import, or by single sign-on provisioning that an administrator turns on; students do not self-register with Sublab 3DP
 - Sublab 3DP has no access to deployed instances
 - There is no cloud service, registration portal, or website where children provide information to Sublab 3DP
-- License validation uses air-gap Ed25519 signatures — no internet connection or data exchange with Sublab 3DP is required
+- An installed license is verified locally with Ed25519 signatures, with no internet connection. Activating a license online sends the items listed in Section 3.3; it can be done by file instead
 
 ---
 
@@ -100,7 +106,7 @@ Schools deploying O.D.I.N. for students under 13 should adopt the following prac
 
 - **Use anonymized usernames** — assign non-identifying labels such as "student_01", "maker_A3", or class-period codes instead of real names
 - **Disable or omit email fields** — email is not required for O.D.I.N. to function; leave it blank for under-13 accounts
-- **Assign the Viewer role** — restrict students to read-only access; have teachers/staff submit print jobs on their behalf if needed
+- **Configure student permissions** — Viewers can read permitted resources and submit jobs by default; configure permissions and approval requirements to enforce the school’s intended restrictions.
 
 ### 6.2 Access Controls
 
@@ -111,8 +117,8 @@ Schools deploying O.D.I.N. for students under 13 should adopt the following prac
 ### 6.3 Data Retention and Deletion
 
 - **Establish a retention schedule** — delete student accounts and associated data at the end of each school year or when students leave
-- **Use the GDPR erasure endpoint** (`DELETE /api/v1/gdpr/erase`) to permanently remove all data associated with a student's account
-- **Use the GDPR export endpoint** (`GET /api/v1/gdpr/export`) to fulfill parental inspection requests
+- **Use the GDPR erasure endpoint** (`DELETE /api/v1/users/{user_id}/erase`) to anonymize supported user data; retained operational records and excluded copies are not all deleted
+- **Use the GDPR export endpoint** (`GET /api/v1/users/{user_id}/export`) to export supported user data for parental inspection requests
 
 ### 6.4 Notification Webhooks
 
@@ -132,7 +138,7 @@ O.D.I.N. protects stored data with:
 | Authentication | JWT tokens (HS256, 24-hour expiry) + API key |
 | Role-based access | Admin / Operator / Viewer tiers |
 | Session management | Active session tracking, token blacklisting |
-| Audit logging | All user actions logged |
+| Audit logging | Selected authentication, operational and administrative actions are logged |
 
 Schools should deploy O.D.I.N. behind a TLS-terminating reverse proxy (nginx, Traefik, etc.) to encrypt data in transit. O.D.I.N. does not provide native TLS. This is important for protecting children's information in transit on the network.
 
@@ -155,7 +161,7 @@ O.D.I.N. contains:
 - No advertising of any kind
 - No behavioral tracking or profiling
 - No cookies used for third-party tracking
-- No fingerprinting or persistent identifiers sent externally
+- No persistent identifiers are sent for cross-site behavioral tracking; license actions send the installation identifiers described in Section 3.3
 - No gamification designed to encourage excessive data sharing
 
 ---
@@ -164,10 +170,10 @@ O.D.I.N. contains:
 
 Sublab 3DP attests that:
 
-1. O.D.I.N. does not collect personal information directly from children
-2. O.D.I.N. does not transmit any data to Sublab 3DP or any third party
+1. Sublab 3DP does not collect personal information from children. The school's own O.D.I.N. installation records student account activity and submissions on the school's server; none of it is sent to Sublab 3DP
+2. License actions send the data described in Section 3.3 to Sublab 3DP, but no student records through those actions. Enabled integrations, push notifications and browser requests for API-documentation assets make the connections described in Section 3.3
 3. O.D.I.N. does not contain advertising or third-party tracking
-4. O.D.I.N.'s license validation is air-gap compatible and does not require data exchange
+4. License activation can be done entirely by file; online activation sends the items in Section 3.3
 5. Sublab 3DP has no access to any deployed O.D.I.N. instance
 
 Schools should maintain a copy of this attestation and any supplementary agreements with Sublab 3DP as part of their COPPA compliance documentation.

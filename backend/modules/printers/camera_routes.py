@@ -36,7 +36,7 @@ from modules.archives.models import Timelapse
 from core.timelapse_access import assert_timelapse_access,timelapse_visibility,visible_printer_name,inherit_timelapse_owner
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
 from modules.printers.bambu_chamber_camera import SOURCE as CHAMBER_CAMERA_SOURCE
-from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+from modules.printers.go2rtc_access import go2rtc_target
 from modules.printers.controlled_camera import frame_guard as _controlled_frame_guard
 
 log = logging.getLogger("odin.api")
@@ -437,10 +437,11 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     # Ensure go2rtc has this stream configured before proxying.
     # Only sync if the stream is genuinely missing — never restart just
     # because go2rtc is temporarily unreachable (e.g. mid-restart).
+    go2rtc = go2rtc_target()  # one address check for both requests; refused under ITAR mode if not local
     try:
-        async with httpx.AsyncClient(**go2rtc_client_kwargs()) as client:
+        async with httpx.AsyncClient(**go2rtc.client_kwargs) as client:
             streams_resp = await client.get(
-                f"{go2rtc_api_url()}/api/streams", timeout=2.0,
+                f"{go2rtc.url}/api/streams", timeout=2.0,
             )
             if streams_resp.status_code == 200:
                 streams = streams_resp.json()
@@ -452,9 +453,9 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
         sync_go2rtc_config(db)
 
     try:
-        async with httpx.AsyncClient(**go2rtc_client_kwargs()) as client:
+        async with httpx.AsyncClient(**go2rtc.client_kwargs) as client:
             resp = await client.post(
-                f"{go2rtc_api_url()}/api/webrtc?src={stream_name}",
+                f"{go2rtc.url}/api/webrtc?src={stream_name}",
                 content=body,
                 headers={"Content-Type": request.headers.get("content-type", "application/sdp")},
                 timeout=5.0,
@@ -613,8 +614,9 @@ async def _overlay_frame(printer_id: int) -> bytes:
             del _snapshot_frames[stale]
         frame, missing = bytearray(), False
         try:
-            async with httpx.AsyncClient(trust_env=False, **go2rtc_client_kwargs()) as client:
-                async with client.stream("GET", f"{go2rtc_api_url()}/api/frame.jpeg",
+            go2rtc = go2rtc_target()  # one address check; trust_env stays off in both modes, as before
+            async with httpx.AsyncClient(**{**go2rtc.client_kwargs, "trust_env": False}) as client:
+                async with client.stream("GET", f"{go2rtc.url}/api/frame.jpeg",
                                          params={"src": mjpeg_stream_name(printer_id)}, timeout=15,
                                          follow_redirects=False) as upstream:
                     if upstream.status_code != 200:

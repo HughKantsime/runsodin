@@ -1,20 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import GettingStartedChecklist from './GettingStartedChecklist'
+import { useFleet } from '../foundry/data'
 import classicDashboard from '../../pages/dashboard/Dashboard.tsx?raw'
 import floor from '../foundry/Floor.tsx?raw'
 import app from '../../App.tsx?raw'
 
 const h = vi.hoisted(() => ({
-  printers: vi.fn(), jobs: vi.fn(), files: vi.fn(), models: vi.fn(),
+  printers: vi.fn(), jobs: vi.fn(), files: vi.fn(), models: vi.fn(), tracked: vi.fn(),
+  orgId: null as number | null,
   user: { id: 7, role: 'admin' } as { id: number; role: string } | null,
   denied: [] as string[],
 }))
 vi.mock('../../api', () => ({
-  printers: { list: h.printers }, jobs: { list: h.jobs }, printFiles: { any: h.files }, models: { list: h.models },
+  printJobs: { list: h.tracked }, printers: { list: h.printers }, jobs: { list: h.jobs }, printFiles: { any: h.files }, models: { list: h.models },
 }))
+vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: h.orgId }) }))
 vi.mock('../../permissions', () => ({
   getCurrentUser: () => h.user,
   canDo: (action: string) => !h.denied.includes(action),
@@ -24,8 +27,7 @@ vi.mock('../../permissions', () => ({
 const online = () => ({ id: 1, name: 'P1', gcode_state: 'IDLE', last_seen: new Date().toISOString(), filament_slots: [{ filament_type: 'empty' }] })
 const offline = () => ({ id: 1, name: 'P1', gcode_state: 'OFFLINE', last_seen: null, filament_slots: [{ filament_type: 'empty' }] })
 
-function show() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function show(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(<QueryClientProvider client={client}><MemoryRouter><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
 }
 const card = () => screen.findByRole('region', { name: 'Getting started' })
@@ -41,12 +43,14 @@ beforeEach(() => {
   localStorage.clear()
   h.user = { id: 7, role: 'admin' }
   h.denied = []
+  h.orgId = null
+  h.tracked.mockReset().mockResolvedValue([])
   h.printers.mockReset().mockResolvedValue([])
   h.jobs.mockReset().mockResolvedValue([])
   h.files.mockReset().mockResolvedValue(false)
   h.models.mockReset().mockResolvedValue([])
 })
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('Getting started checklist: lines tick from real state', () => {
   it('a fresh install shows five lines, none done, each linking to where it is done', async () => {
@@ -226,5 +230,131 @@ describe('Getting started checklist: where it lives', () => {
     expect(classicDashboard).toContain('<GettingStartedChecklist />')
     expect(floor).toContain('<GettingStartedChecklist />')
     expect(app).not.toMatch(/OnboardingTour/)
+  })
+})
+
+
+describe('Getting started checklist: review regressions', () => {
+  it('shares the dashboard fleet request on mount and refresh', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    function DashboardFleet() { useFleet(); return null }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><DashboardFleet /><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    await card()
+    expect(h.printers).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000) })
+    expect(h.printers).toHaveBeenCalledTimes(2)
+    await act(async () => { await client.invalidateQueries() })
+    expect(h.printers).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps a selected organization separate from the dashboard all-org fleet', async () => {
+    function DashboardFleet() { useFleet(); return null }
+    h.orgId = 2
+    h.printers.mockImplementation((_active, _tag, orgId) => Promise.resolve(orgId == null ? [online()] : []))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><DashboardFleet /><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    expect(done(await card())).toEqual([])
+    expect(h.printers).toHaveBeenCalledWith(true, '', null)
+    expect(h.printers).toHaveBeenCalledWith(true, '', 2)
+  })
+
+  it('does not reuse another user\'s fleet data', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    h.printers.mockResolvedValue([online()])
+    const view = show(client)
+    expect(done(await card())).toEqual(['printer-added', 'printer-online'])
+    h.user = { id: 8, role: 'admin' }
+    h.printers.mockResolvedValue([])
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(done(screen.getByRole('region', { name: 'Getting started' }))).toEqual([]))
+    expect(h.printers).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts a tracked print when scheduled jobs cannot be read', async () => {
+    h.orgId = 2
+    h.jobs.mockRejectedValue(new Error('503'))
+    h.tracked.mockResolvedValue([{ id: 21, status: 'completed' }])
+    show()
+    expect(done(await card())).toEqual(['job-sent'])
+    expect(h.tracked).toHaveBeenCalledWith({ limit: 1, org_id: 2 })
+  })
+
+  it('leaves sent state unknown when both job reads fail', async () => {
+    h.jobs.mockRejectedValue(new Error('503'))
+    h.tracked.mockRejectedValue(new Error('503'))
+    show()
+    expect(step(await card(), 'job-sent')).toBeNull()
+    expect(localStorage.getItem('odin_getting_started_dismissed:7')).toBeNull()
+  })
+
+  it.each(['running', 'completed', 'failed', 'cancelled'])('counts a monitor-recorded %s print without a scheduled job', async status => {
+    h.tracked.mockResolvedValue([{ id: 21, status }])
+    show()
+    expect(done(await card())).toEqual(['job-sent'])
+    expect(h.tracked).toHaveBeenCalledWith({ limit: 1 })
+  })
+
+  it('bounds the model fallback to one result', async () => {
+    h.models.mockResolvedValue([{ id: 3, name: 'Bracket' }])
+    show()
+    expect(done(await card())).toEqual(['file-uploaded'])
+    expect(h.models).toHaveBeenCalledWith(null, 1)
+  })
+
+  it('scopes every read to the selected organization', async () => {
+    h.orgId = 2
+    show()
+    expect(done(await card())).toEqual([])
+    expect(h.printers).toHaveBeenCalledWith(true, '', 2)
+    expect(h.files).toHaveBeenCalledWith(2)
+    expect(h.models).toHaveBeenCalledWith(2, 1)
+    expect(h.jobs).toHaveBeenCalledWith(['printing', 'paused', 'completed', 'failed'], 2, { limit: 1 })
+    expect(h.tracked).toHaveBeenCalledWith({ limit: 1, org_id: 2 })
+  })
+
+  it("does not reuse another organization's completed reads when switching", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    h.orgId = 1
+    h.printers.mockResolvedValue([{ ...online(), filament_slots: [{ filament_type: 'PLA' }] }])
+    h.files.mockResolvedValue(true)
+    // Keep one line unfinished so automatic dismissal does not hide the switching test.
+    const view = show(client)
+    expect(done(await card())).toEqual(['printer-added', 'printer-online', 'file-uploaded', 'filament-set'])
+    h.orgId = 2
+    h.printers.mockResolvedValue([])
+    h.files.mockResolvedValue(false)
+    h.jobs.mockResolvedValue([{ id: 10, status: 'completed' }])
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter><GettingStartedChecklist /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(done(screen.getByRole('region', { name: 'Getting started' }))).toEqual(['job-sent']))
+    expect(localStorage.getItem('odin_getting_started_dismissed:7')).toBeNull()
+  })
+
+  it.each(['files', 'models', 'jobs', 'tracked', 'both'] as const)('does not remember completion when %s cannot be read', async failed => {
+    h.printers.mockResolvedValue([{ ...online(), filament_slots: [{ filament_type: 'PLA' }] }])
+    h.files.mockResolvedValue(failed !== 'models')
+    h.jobs.mockResolvedValue(failed === 'tracked' ? [] : [{ id: 5, status: 'completed' }])
+    if (failed === 'both') {
+      h.files.mockRejectedValue(new Error('503'))
+      h.jobs.mockRejectedValue(new Error('503'))
+    } else {
+      h[failed].mockRejectedValue(new Error('503'))
+    }
+    show()
+    expect(await card()).toBeInTheDocument()
+    expect(localStorage.getItem('odin_getting_started_dismissed:7')).toBeNull()
+  })
+
+  it('does not remember completion after a failed refresh leaves stale successful file data', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    h.printers.mockResolvedValue([{ ...online(), filament_slots: [{ filament_type: 'PLA' }] }])
+    h.files.mockResolvedValue(true)
+    show(client)
+    await card()
+    h.files.mockRejectedValue(new Error('503'))
+    h.jobs.mockResolvedValue([{ id: 5, status: 'completed' }])
+    await act(async () => { await client.invalidateQueries() })
+    await waitFor(() => expect(step(screen.getByRole('region', { name: 'Getting started' }), 'job-sent')).toHaveAttribute('data-done', 'true'))
+    expect(localStorage.getItem('odin_getting_started_dismissed:7')).toBeNull()
   })
 })

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { formatDate } from '../../utils/shared'
 import PrintFailureControl from './PrintFailureControl'
 import PrintLog from '../../pages/analytics/PrintLog'
 import Archives from '../../pages/archives/Archives'
@@ -18,7 +19,7 @@ function show(props = {}) { return wrap(<PrintFailureControl canCorrect printId=
 function open() { fireEvent.click(screen.getByRole('button', { name: 'Mark as failed' })) }
 function choose() { fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'no_filament' } }) }
 beforeEach(() => { vi.mocked(canDo).mockReturnValue(true); vi.mocked(getCurrentUser).mockReturnValue({ username: 'Admin', role: 'admin', group_id: 1 }); vi.mocked(fetchAPI).mockReset() })
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
 test.each(['classic', 'foundry'])('%s: required reason, note and outcome-only save', async family => {
   document.documentElement.dataset.themeFamily = family
   vi.mocked(fetchAPI).mockResolvedValue({ id: 902, status: 'failed' })
@@ -167,4 +168,60 @@ test.each(['cancelled', 'failed'])('server denies a read-only token its %s actio
   vi.mocked(getCurrentUser).mockReturnValue({ username: 'Admin', role: 'admin', group_id: null })
   show({ status, canCorrect: false, ...(status === 'failed' ? { correction } : {}) })
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
+})
+
+test.each(['classic', 'foundry'])('%s: shared padded fields and styled touch-sized buttons', family => {
+  document.documentElement.dataset.themeFamily = family
+  const view = show(); open()
+  for (const label of ['Reason', 'Note (optional)']) {
+    const field = screen.getByLabelText(label)
+    expect(field).toHaveClass('px-3', 'py-2', 'min-h-11')
+    expect(document.querySelector(`label[for="${field.id}"]`)).toHaveClass('mb-1')
+    if (family === 'foundry') expect(field).toHaveAttribute('data-foundry-ui', 'control')
+  }
+  for (const name of ['Save failure correction', 'Cancel']) {
+    const button = screen.getByRole('button', { name })
+    expect(button).toHaveClass('min-h-11', 'rounded-md')
+    if (family === 'foundry') expect(button).toHaveAttribute('data-foundry-ui', 'button')
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(fetchAPI).not.toHaveBeenCalled()
+  view.unmount()
+  show({ status: 'failed', correction })
+  expect(screen.getByText(/Marked as failed by Operator/)).toHaveTextContent(`on ${formatDate(correction.at)}:`)
+  fireEvent.click(screen.getByRole('button', { name: 'Back to cancelled' }))
+  for (const name of ['Confirm back to cancelled', 'Keep correction']) {
+    expect(screen.getByRole('button', { name })).toHaveClass('min-h-11', 'rounded-md')
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Keep correction' }))
+  expect(fetchAPI).not.toHaveBeenCalled()
+})
+
+test.each(['classic', 'foundry'])('%s: desktop Print Log independently expands correction and recording notes', family => {
+  document.documentElement.dataset.themeFamily = family
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32)
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(320)
+  const note = 'This is a detailed observation with enough words to span many lines. '.repeat(8)
+  const recording = 'The print ended before all readings could be confirmed. '.repeat(8)
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } })
+  client.setQueryData(['print-log', 1, '', '', ''], { items: [{ ...item, status: 'failed', failure_correction: { ...correction, note }, recording_note: recording }], total: 1 })
+  client.setQueryData(['printers-list'], [])
+  wrap(<PrintLog />, client)
+  const notes = screen.getAllByRole('button', { name: 'Show full note' })
+  expect(notes).toHaveLength(2)
+  for (const button of notes) {
+    const text = button.parentElement!.parentElement!.querySelector('p')!
+    expect(text).toHaveClass('line-clamp-2')
+    const full = text.textContent
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(text).toHaveClass('line-clamp-2')
+    const dialog = screen.getByRole('dialog', { name: 'Full note' })
+    expect(dialog.querySelector('p')!.textContent).toBe(full)
+    expect(dialog.closest('td')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(text).toHaveClass('line-clamp-2')
+  }
+  expect(fetchAPI).not.toHaveBeenCalled()
 })

@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import Modal from '../ui/Modal'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { printerTelemetry } from '../../api'
@@ -41,6 +43,7 @@ function feed(printer: Printer) {
   return printer.api_type === 'anycubic_lan' && slots.length ? 'ACE' : ''
 }
 export default function PrinterCard({ printer, job, next, now, children, selection, statusDetail, slots, slotVariant = 'compact' }: { printer: Printer; job?: PrintJob; next?: Job; now?: number; children?: ReactNode; selection?: ReactNode; statusDetail?: ReactNode; slots?: ReactNode; slotVariant?: 'full' | 'compact' }) {
+  const [filamentsOpen, setFilamentsOpen] = useState(false)
   return <article className="f-card" aria-label={printer.nickname || printer.name}>
     <div className="f-row"><div className="f-printer-heading">{selection}<div><h2><Link to={`/printers/${printer.id}`}>{printer.nickname || printer.name}</Link></h2><p className="f-secondary">{[printer.model, feed(printer)].filter(Boolean).join(' · ')}</p></div></div><StatusBadge status={state(printer)} /></div>
     {statusDetail}
@@ -55,6 +58,14 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
     </div>}
     {Number.isFinite(utc(printer.plate_clear_confirmed_at)) && <p className="f-mono">Plate clear confirmed <time dateTime={printer.plate_clear_confirmed_at!} title={new Date(utc(printer.plate_clear_confirmed_at)).toLocaleString()}>{new Date(utc(printer.plate_clear_confirmed_at)).toLocaleString()}</time></p>}
     {(slots || printer.filament_slots?.length > 0) && <div className={slotVariant === 'compact' ? 'f-slots f-slots-compact' : 'f-slots'} style={slotVariant === 'compact' ? { gridTemplateColumns: `repeat(${Math.min(5, printer.filament_slots?.length || 4)}, minmax(0, 1fr))` } : undefined}>{slots || printer.filament_slots.map(slot => <SlotTile key={slot.slot_number} apiType={printer.api_type} slot={slot} variant={slotVariant} label={slotVariant === 'compact' && printer.api_type === 'bambu' && slot.slot_number <= 16 && (isDualNozzle(printer.machine_type) || printer.filament_slots.some(s => s.slot_number > 4)) ? `${Math.floor((slot.slot_number - 1) / 4) + 1}·${(slot.slot_number - 1) % 4 + 1}` : undefined} state={printer.feeding_slot === slot.slot_number ? 'feeding' : undefined} />)}</div>}
+    {!slots && slotVariant === 'compact' && printer.filament_slots?.length > 0 && <>
+      <button type="button" className="min-h-11 text-left underline" aria-expanded={filamentsOpen}
+        onClick={event => { event.stopPropagation(); setFilamentsOpen(true) }}>Filaments</button>
+      {filamentsOpen && createPortal(<Modal isOpen title="Filaments" size="xl" onClose={() => setFilamentsOpen(false)}>
+        <div className="space-y-2">{printer.filament_slots.map(slot => <SlotTile key={slot.slot_number} slot={slot}
+          apiType={printer.api_type} expandable={false} state={printer.feeding_slot === slot.slot_number ? 'feeding' : undefined} />)}</div>
+      </Modal>, document.body)}
+    </>}
     <Temperatures printer={printer} />
     {children}
   </article>

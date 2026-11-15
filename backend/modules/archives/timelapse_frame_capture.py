@@ -127,7 +127,15 @@ def _capture_authority(db, *, nonce, timelapse_id, printer_id, job_id, allow_end
     return row
 
 
-def capture_owned_frame(*,sessions,root,http,base,printer_id,timelapse_id,nonce,job_id,auth=None):
+def _frame_request(http,base,printer_id,auth=None,options=None):
+    """The one go2rtc request. `options` are further httpx settings from go2rtc_target
+    (under ITAR mode: no environment proxies, and the Host header for a pinned address)."""
+    options=dict(options or {})
+    headers={'Accept-Encoding':'identity',**options.pop('headers',{})}
+    return http.stream('GET',f'{base}/api/frame.jpeg?src=printer_{printer_id}',timeout=5,follow_redirects=False,headers=headers,**({'auth':auth} if auth else {}),**options)
+
+
+def capture_owned_frame(*,sessions,root,http,base,printer_id,timelapse_id,nonce,job_id,auth=None,options=None):
     from modules.archives.timelapse_frame_publication import FrameJournal
     directory=None
     try:
@@ -146,7 +154,7 @@ def capture_owned_frame(*,sessions,root,http,base,printer_id,timelapse_id,nonce,
                 journal.inventory(directory)
                 deadline=time.monotonic()+10
                 data=bytearray()
-                with http.stream('GET',f'{base}/api/frame.jpeg?src=printer_{printer_id}',timeout=5,follow_redirects=False,headers={'Accept-Encoding':'identity'},**({'auth':auth} if auth else {})) as response:
+                with _frame_request(http,base,printer_id,auth,options) as response:
                     if response.status_code!=200 or response.headers.get('content-encoding','identity').lower() not in ('','identity'):return False
                     for chunk in response.iter_raw(chunk_size=65536):
                         if type(chunk) is not bytes or len(data)+len(chunk)>MAX_BYTES or time.monotonic()>=deadline:return False

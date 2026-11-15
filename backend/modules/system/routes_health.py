@@ -25,8 +25,8 @@ from core import deploy_freeze
 from core.db import get_db
 from core.schema import schema_fingerprint, validate_schema
 from core.schema.bootstrap import import_all_models
-from core.dependencies import log_audit
-from core.rbac import require_role, require_superadmin
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, require_superadmin, require_any_scope, handler_enforces_token_scope
 from modules.system.db_guardian_status import guardian_health
 from modules.system.schemas import HealthCheck
 from core.config import settings
@@ -46,8 +46,10 @@ __version__ = backend_version()
 
 # ============== Health Check ==============
 
-@router.get("/version", tags=["System"])
-async def version():
+@router.get("/version", tags=["System"], dependencies=[
+    Depends(handler_enforces_token_scope("read", "agent:read", "agent:write")),
+])
+async def version(current_user=Depends(get_current_user)):
     """Return backend version. Unauthenticated; MCP clients call this
     on first tool invocation to decide whether to forward X-Dry-Run
     safely — pre-1.9.0 backends silently execute on un-retrofitted
@@ -55,6 +57,10 @@ async def version():
 
     Response: {"version": "1.9.0"} — semver string from the VERSION file.
     """
+    # Keep the public probe usable without credentials, while checking any
+    # supplied principal against the generic read or explicit agent scopes.
+    if current_user is not None:
+        await require_any_scope("read", "agent:read", "agent:write")(current_user)
     return {"version": __version__}
 
 

@@ -255,6 +255,8 @@ def main():
             assert ids==set(ledger057)|set(post_ids)
             if any(module == 'core.schema.migrations.059_six_materials' for _, module in POST027_MIGRATIONS):
                 importlib.import_module('core.schema.migrations.059_six_materials').validate(c)
+            if current_era >= 60:
+                importlib.import_module('core.schema.migrations.060_print_files_stored_path_index').validate(c)
             assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990570')).one()==(990570,2,'{"id":"released057"}',True,'Reserved material')
             assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990570,'same',990570)
             assert c.execute(text('SELECT ace_status FROM printers WHERE id=990570')).scalar_one()=='ready'
@@ -305,6 +307,8 @@ def main():
             assert ids==set(ledger056)|set(post_ids)  # 057 and every later migration
             if any(module == 'core.schema.migrations.059_six_materials' for _, module in POST027_MIGRATIONS):
                 importlib.import_module('core.schema.migrations.059_six_materials').validate(c)
+            if current_era >= 60:
+                importlib.import_module('core.schema.migrations.060_print_files_stored_path_index').validate(c)
             assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990560')).one()==(990560,2,'{"id":"released056"}',False,None)
             assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990560,'same',990560)
             assert c.execute(text('SELECT ace_status FROM printers WHERE id=990560')).scalar_one() is None

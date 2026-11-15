@@ -142,3 +142,21 @@ def test_the_second_authorization_does_not_reuse_a_cached_no_controlled_work_ans
     monkeypatch.setattr(camera_routes, 'overlay_camera_principal', principal)
     assert client.get("/overlay/9/snapshot", params={"token": tokens["camera"]}).status_code == 200
     assert len(seen) == 2 and seen[1] is False
+
+
+@pytest.mark.parametrize("itar_mode", ["", "1"])
+def test_an_uncached_snapshot_is_fetched_with_itar_on_and_off(frames, monkeypatch, itar_mode):
+    """Review 2026-11-13 finding 6: _overlay_frame called two helpers that were no longer
+    imported, so every uncached snapshot raised NameError in both modes. It now builds the
+    request from one go2rtc_target() result; environment proxies stay off in both modes."""
+    import asyncio
+    from modules.printers import camera_routes
+    _client, _tokens, calls, _answer, _synced = frames
+    monkeypatch.setenv("ODIN_ITAR_MODE", itar_mode)
+    monkeypatch.delenv("ODIN_GO2RTC_API_URL", raising=False)
+    seen = []
+    patched = camera_routes.httpx.AsyncClient
+    monkeypatch.setattr(camera_routes.httpx, "AsyncClient", lambda *a, **k: seen.append(k) or patched(*a, **k))
+    assert asyncio.run(camera_routes._overlay_frame(9)) == JPEG
+    assert calls == ["/api/frame.jpeg?src=printer_9_mjpeg"]
+    assert [k.get("trust_env") for k in seen] == [False]

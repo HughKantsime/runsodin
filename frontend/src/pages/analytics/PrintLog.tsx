@@ -1,5 +1,6 @@
 import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import PageState from '../../components/ui/PageState'
+import ExpandableNote from '../../components/ui/ExpandableNote'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import { useState, useCallback } from 'react'
@@ -219,7 +220,7 @@ export default function PrintLog() {
                 {items.map(item => (
                   <tr key={item.id} className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 transition-colors">
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] text-xs whitespace-nowrap font-mono">{formatDate(item.completed_at)}</td>
-                    <td className="py-2 px-3 font-medium max-w-[200px]">{displayName(item)}<PrintFailureControl canCorrect={item.failure_correction_allowed} printId={item.print_job_id} status={item.status} endedAt={item.completed_at} correction={item.failure_correction} />{item.recording_note && <p className="text-xs font-normal break-words">{item.recording_note}</p>}</td>
+                    <td className="py-2 px-3 font-medium max-w-[200px]">{displayName(item)}<PrintFailureControl compactNote canCorrect={item.failure_correction_allowed} printId={item.print_job_id} status={item.status} endedAt={item.completed_at} correction={item.failure_correction} />{item.recording_note && <ExpandableNote text={item.recording_note} />}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.user_name || '--'}</td>
                     <td className="py-2 px-3">

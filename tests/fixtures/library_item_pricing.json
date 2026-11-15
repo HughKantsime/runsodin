@@ -1,0 +1,180 @@
+[
+  {
+    "name": "six-up",
+    "config": {
+      "spool_cost": 25,
+      "spool_weight": 1000,
+      "hourly_rate": 15,
+      "electricity_rate": 0.12,
+      "printer_wattage": 100,
+      "printer_cost": 300,
+      "printer_lifespan": 5000,
+      "packaging_cost": 0.45,
+      "failure_rate": 7,
+      "monthly_rent": 0,
+      "parts_per_month": 100,
+      "post_processing_min": 5,
+      "packing_min": 5,
+      "support_min": 5,
+      "default_margin": 50,
+      "other_costs": 0
+    },
+    "model": {
+      "id": 101,
+      "name": "six-up",
+      "units_per_bed": 6,
+      "total_filament_grams": 300,
+      "build_time_hours": 12,
+      "markup_percent": null
+    },
+    "expected": {
+      "estimated_cost": 5.99,
+      "suggested_price": 8.98,
+      "effective_markup_percent": 50,
+      "margin_of_price_percent": 33.3
+    }
+  },
+  {
+    "name": "six-up-zero-markup",
+    "config": {
+      "spool_cost": 25,
+      "spool_weight": 1000,
+      "hourly_rate": 15,
+      "electricity_rate": 0.12,
+      "printer_wattage": 100,
+      "printer_cost": 300,
+      "printer_lifespan": 5000,
+      "packaging_cost": 0.45,
+      "failure_rate": 7,
+      "monthly_rent": 0,
+      "parts_per_month": 100,
+      "post_processing_min": 5,
+      "packing_min": 5,
+      "support_min": 5,
+      "default_margin": 50,
+      "other_costs": 0
+    },
+    "model": {
+      "id": 101,
+      "name": "six-up-zero-markup",
+      "units_per_bed": 6,
+      "total_filament_grams": 300,
+      "build_time_hours": 12,
+      "markup_percent": 0
+    },
+    "expected": {
+      "estimated_cost": 5.99,
+      "suggested_price": 5.99,
+      "effective_markup_percent": 0,
+      "margin_of_price_percent": 0.0
+    }
+  },
+  {
+    "name": "one-up",
+    "config": {
+      "spool_cost": 25,
+      "spool_weight": 1000,
+      "hourly_rate": 15,
+      "electricity_rate": 0.12,
+      "printer_wattage": 100,
+      "printer_cost": 300,
+      "printer_lifespan": 5000,
+      "packaging_cost": 0.45,
+      "failure_rate": 7,
+      "monthly_rent": 0,
+      "parts_per_month": 100,
+      "post_processing_min": 5,
+      "packing_min": 5,
+      "support_min": 5,
+      "default_margin": 50,
+      "other_costs": 0
+    },
+    "model": {
+      "id": 101,
+      "name": "one-up",
+      "units_per_bed": 1,
+      "total_filament_grams": 300,
+      "build_time_hours": 12,
+      "markup_percent": null
+    },
+    "expected": {
+      "estimated_cost": 13.44,
+      "suggested_price": 20.17,
+      "effective_markup_percent": 50,
+      "margin_of_price_percent": 33.3
+    }
+  },
+  {
+    "name": "one-up-zero-markup",
+    "config": {
+      "spool_cost": 25,
+      "spool_weight": 1000,
+      "hourly_rate": 15,
+      "electricity_rate": 0.12,
+      "printer_wattage": 100,
+      "printer_cost": 300,
+      "printer_lifespan": 5000,
+      "packaging_cost": 0.45,
+      "failure_rate": 7,
+      "monthly_rent": 0,
+      "parts_per_month": 100,
+      "post_processing_min": 5,
+      "packing_min": 5,
+      "support_min": 5,
+      "default_margin": 50,
+      "other_costs": 0
+    },
+    "model": {
+      "id": 101,
+      "name": "one-up-zero-markup",
+      "units_per_bed": 1,
+      "total_filament_grams": 300,
+      "build_time_hours": 12,
+      "markup_percent": 0
+    },
+    "expected": {
+      "estimated_cost": 13.44,
+      "suggested_price": 13.44,
+      "effective_markup_percent": 0,
+      "margin_of_price_percent": 0.0
+    }
+  },
+  {
+    "name": "six-up-fees-and-handling",
+    "config": {
+      "spool_cost": 25,
+      "spool_weight": 1000,
+      "hourly_rate": 15,
+      "electricity_rate": 0.12,
+      "printer_wattage": 100,
+      "printer_cost": 300,
+      "printer_lifespan": 5000,
+      "packaging_cost": 0.45,
+      "failure_rate": 7,
+      "monthly_rent": 0,
+      "parts_per_month": 100,
+      "post_processing_min": 5,
+      "packing_min": 5,
+      "support_min": 5,
+      "default_margin": 50,
+      "other_costs": 0,
+      "selling_fee_percent": 10,
+      "selling_fee_fixed": 0.3,
+      "plate_handling_min": 6
+    },
+    "model": {
+      "id": 101,
+      "name": "six-up-fees-and-handling",
+      "units_per_bed": 6,
+      "total_filament_grams": 300,
+      "build_time_hours": 12,
+      "markup_percent": 125
+    },
+    "expected": {
+      "estimated_cost": 6.25,
+      "suggested_price": 15.97,
+      "effective_markup_percent": 125,
+      "margin_of_price_percent": 49.0
+    }
+  }
+]

@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Printer, XCircle } from 'lucide-react'
@@ -261,7 +262,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                     </Button>
                     {amsReport && (
                       <p role="status" className="text-xs text-[var(--brand-text-secondary)]">
-                        Tray {tray}: {amsReport.trays.find((item) => item.slot_number === Number(tray))?.material || 'Unknown material'}.
+                        Tray {tray}: {materialLabel(amsReport.trays.find((item) => item.slot_number === Number(tray))?.material || 'Unknown material')}.
                         {' '}{reportFresh ? 'Current report received.' : 'Report expired. Read the tray again.'}
                         {' '}Confirm filament is loaded and routed correctly; the report does not prove mechanical readiness.
                       </p>

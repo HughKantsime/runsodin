@@ -9,6 +9,7 @@ const hours = (value: number) => `${Number(value.toFixed(2))} h`
 
 const UNKNOWN_TEXT: Record<CostUnknownReason, string> = {
   usage_not_recorded: 'Filament use was not recorded for a print attempt',
+  usage_unmeasured: 'Filament use was estimated from the sliced file, not measured',
   spool_price_missing: 'A spool had no purchase price when the print started',
   spool_weight_missing: 'A spool had no weight on record when the print started',
   price_not_recorded: "A spool's price was not saved when the print started",

@@ -27,6 +27,7 @@ from core.rbac import require_superadmin, require_scope
 from modules.system.sanitize import sanitize_log_line
 
 router = APIRouter(tags=['Troubleshooting'])
+ITAR_SKIPPED = 'This check was skipped because ITAR mode blocks destinations outside the local network.'
 
 
 def check(stage, status, message, next_step='', **details):
@@ -208,6 +209,11 @@ def printer_checks(printer,transfer=False):
     checks=[]
     try: host,port=safe_destination(printer.api_host)
     except (ValueError,OSError,subprocess.SubprocessError): return envelope([check('destination','fail','Saved printer address could not be safely resolved.','Check the saved printer address and DNS configuration.')])
+    # ITAR mode: the pinned address must be on the local network before any request or
+    # saved credential is sent to it (same rule as the printer adapters).
+    from core.itar import ItarOutboundBlocked, enforce_host_destination
+    try: enforce_host_destination(host,scheme='diagnostic')
+    except ItarOutboundBlocked: return envelope([check('destination','skipped',ITAR_SKIPPED,'Save a printer address on the local network, then run the check again.')])
     checks.append(check('destination','pass','Saved printer address resolved and validated.'))
     protocol=(printer.api_type or '').lower()
     if transfer and protocol!='bambu':

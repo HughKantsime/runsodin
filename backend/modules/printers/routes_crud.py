@@ -471,6 +471,10 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
     try:
         _check_ssrf_blocklist(request.api_host)
     except HTTPException as exc:
+        # ITAR mode's refusal stays an HTTP 400 that says why, as released in 2.2.1.
+        from core.webhook_utils import ITAR_DEVICE_REFUSAL
+        if exc.detail == ITAR_DEVICE_REFUSAL:
+            raise
         # blocked_address when policy refused it, unreachable when the name did not resolve.
         return failed(reason_for_exception(exc.__cause__), "ODIN cannot use this printer address.")
     api_type = request.api_type.lower()
@@ -623,7 +627,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             log.warning("Ultimaker test-connection failed")
             info, answer = None, None
         if info is None:
-            # The adapter reports timeout, refusal and a blocked destination alike as "no answer",
+            # The adapter reports read failure, timeout, refusal and a blocked destination as "no answer",
             # so only an answer that is not an Ultimaker's (404, or 200 without its fields) is known.
             return failed(NOT_THIS_TYPE if answer in (200, 404) else UNKNOWN,
                           "Connection failed. Check the printer address; the printer must answer http://<address>/api/v1/system.")

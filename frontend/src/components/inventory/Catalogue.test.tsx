@@ -34,6 +34,8 @@ for (const theme of ['classic', 'foundry']) {
     document.documentElement.dataset.themeFamily = theme
     render(<CataloguePicker filaments={entries} value="" onChange={vi.fn()} />)
     const search = screen.getByRole('searchbox')
+    expect(search).toHaveClass('min-h-11')
+    expect(screen.getByRole('combobox')).toHaveClass('min-h-11')
     for (const term of ['Invented Orbit', 'PLA Matte', '1234AB']) {
       fireEvent.change(search, { target: { value: term } })
       expect(screen.getByRole('option', { name: /PLA Matte Invented Orbit/ })).toBeInTheDocument()
@@ -207,3 +209,30 @@ it('shows which catalogue entries were skipped because their material changed', 
   fireEvent.click(screen.getByRole('button', { name: 'Import Bambu catalogue' }))
   expect(await screen.findByRole('status')).toHaveTextContent('Skipped because the material type changed: ODIN-TEST-ORBIT. Existing entries were left unchanged.')
 })
+
+for (const theme of ['classic', 'foundry']) {
+  it(`${theme}: library names wrap instead of truncating`, async () => {
+    document.documentElement.dataset.themeFamily = theme
+    vi.mocked(filaments.list).mockResolvedValue(entries as any)
+    provider(<FilamentLibraryView />)
+    const name = await screen.findByText(entries[0].name)
+    expect(name).toHaveClass('break-words')
+    expect(name).not.toHaveClass('truncate')
+  })
+  it.each([0, 1, 2])(`${theme}: import uses singular/plural for %s entries`, async count => {
+    document.documentElement.dataset.themeFamily = theme
+    // One skipped entry is excluded from the preserved count shown to the customer.
+    vi.mocked(filaments.importBambu).mockResolvedValue({ created: count, updated: count, preserved: count + 1,
+      skipped: [{ catalogue_code: 'TEST-SKIP', reason: 'type_changed' }], unrecognised_types: [] })
+    provider(<FilamentCatalogueSettings />)
+    const input = screen.getByLabelText('Catalogue file')
+    expect(input).toHaveClass('min-h-11', 'file:min-h-11')
+    fireEvent.change(input, { target: { files: [new File(['{}'], 'invented.json')] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Import Bambu catalogue' }))
+    const result = await screen.findByRole('status')
+    const noun = count === 1 ? 'entry' : 'entries'
+    expect(result).toHaveTextContent(`${count} ${noun} added; ${count} ${noun} updated.`)
+    if (count) expect(result).toHaveTextContent(`Existing material types were kept for ${count} ${noun}.`)
+    else expect(result).not.toHaveTextContent('Existing material types were kept')
+  })
+}

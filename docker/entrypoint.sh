@@ -1,6 +1,55 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+# ITAR-PROXIES-BEGIN
+# ITAR mode does not use a proxy: every connection is made directly.
+# Remove the proxy settings here, before anything else runs, so that every program this
+# container starts (supervisord, the ODIN services, go2rtc, ffmpeg) starts without them.
+# backend/core/itar.py does the same inside each ODIN process, with the same rule
+# (neutralize_environment_proxies). Names are printed, never values.
+# ODIN_ITAR_MODE is read here exactly as backend/core/itar.py reads it (itar_flag_state):
+# trim the six ASCII white-space characters, lower-case A-Z, then compare.
+#   on:  1 true yes on          off: (unset or empty) 0 false no off
+# Any other value is refused, here and in every ODIN process, with the same message. Before,
+# this block and Python each read such a value in their own way: a value like "1" in quotes
+# removed the proxies and announced ITAR mode here while the backend ran with it off.
+odin_itar_on=0
+odin_itar_space=$' \t\n\r\v\f'   # the six characters are listed, so no locale changes what is trimmed
+odin_itar_mode="$(LC_ALL=C; v="${ODIN_ITAR_MODE:-}"; v="${v#"${v%%[!"${odin_itar_space}"]*}"}"; v="${v%"${v##*[!"${odin_itar_space}"]}"}"; printf '%s' "${v}" | LC_ALL=C tr 'A-Z' 'a-z')"
+case "${odin_itar_mode}" in
+    ""|0|false|no|off) ;;
+    1|true|yes|on) ;;
+    *)
+        echo "  ✗ ODIN_ITAR_MODE has a value O.D.I.N. does not understand. Use 1, true, yes or on to turn ITAR mode on; use 0, false, no or off, or leave it unset, for off. Refusing to start." >&2
+        exit 1
+        ;;
+esac
+case "${odin_itar_mode}" in
+    1|true|yes|on)
+        odin_itar_on=1
+        odin_ignored_proxies=""
+        for odin_variable in $(compgen -e | LC_ALL=C sort); do
+            case "$(printf '%s' "${odin_variable}" | tr '[:upper:]' '[:lower:]')" in
+                no_proxy) ;;
+                *_proxy)
+                    if [ -n "$(printf '%s' "${!odin_variable}" | tr -d '[:space:]')" ]; then
+                        odin_ignored_proxies="${odin_ignored_proxies:+${odin_ignored_proxies},}${odin_variable}"
+                    fi
+                    unset "${odin_variable}"
+                    ;;
+            esac
+        done
+        export NO_PROXY='*' no_proxy='*'
+        if [ -n "${odin_ignored_proxies}" ]; then
+            export ODIN_ITAR_IGNORED_PROXIES="${odin_ignored_proxies}"
+            echo "  ! ODIN_ITAR_MODE=1: ignoring the proxy settings ${odin_ignored_proxies//,/, }. ITAR mode does not use a proxy."
+        fi
+        unset odin_ignored_proxies odin_variable
+        ;;
+esac
+unset odin_itar_mode odin_itar_space
+# ITAR-PROXIES-END
+
 # This availability flag is overwritten by trusted startup, never accepted as
 # an identity. The reader must still validate the root-owned runtime record.
 export ODIN_AMS_RUNTIME_READY=0
@@ -204,8 +253,19 @@ case "$*" in
         # (api.conf, go2rtc its own service): the config on the shared volume stays
         # pending and the API's start-up sync reloads go2rtc. Monitors, vision and
         # reports never rotate.
+        # ITAR mode: go2rtc must never start with a configuration written before this boot
+        # (it can name a camera outside the local network, from before ITAR mode was turned
+        # on). When the preparation fails, the script replaces the file with one that has
+        # no camera sources and exits 10; any other failure refuses to start the container.
         if (cd /app/backend && /usr/sbin/runuser -u odin -- python3 -m scripts.prepare_go2rtc_config); then
             export ODIN_CAMERA_RELAY_SECRET_ROTATED=1
+        else
+            odin_go2rtc_status=$?
+            if [ "${odin_itar_on}" = "1" ] && [ "${odin_go2rtc_status}" != "10" ]; then
+                echo "  ✗ ODIN_ITAR_MODE=1: the camera (go2rtc) configuration could not be prepared, and go2rtc could still use a camera source O.D.I.N. has not checked (the reason is in the lines above)." >&2
+                echo "    O.D.I.N. will not start like that. Free space on, or fix the permissions of, the go2rtc configuration folder, or unset GO2RTC_CONFIG, then start again." >&2
+                exit 1
+            fi
         fi
         ;;
 esac

@@ -26,7 +26,7 @@ interactive = Depends(require_interactive_session())
 @router.get('')
 def overview(offset: int = Query(default=0,ge=0), user=Depends(viewer), db: Session=Depends(get_db)):
     owner = square_store.tenant(user)
-    recipes = [ {'id':r.id,**json.loads(r.definition)} for r in db.execute(select(service.recipes).where(service.recipes.c.owner==owner).order_by(service.recipes.c.id).offset(offset).limit(100)) ]
+    recipes = [ {**json.loads(r.definition),'id':r.id} for r in db.execute(select(service.recipes).where(service.recipes.c.owner==owner).order_by(service.recipes.c.id).offset(offset).limit(100)) ]
     receipts = [service.receipt_public(r) for r in db.execute(select(service.receipts).where(service.receipts.c.owner==owner).order_by(service.receipts.c.id.desc()).limit(100)).mappings()]
     # Expose receipt metadata, never transport bodies or credential documents.
     additions = [{'id':r.id,'receipt_id':r.receipt_id,'state':r.state,'attempts':r.attempts}

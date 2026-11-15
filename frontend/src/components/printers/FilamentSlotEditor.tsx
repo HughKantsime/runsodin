@@ -1,3 +1,4 @@
+import { classicSlotAppearance } from '../../utils/shared'
 import PageState from '../ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
@@ -136,9 +137,8 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
     setIsEditing(false)
   }
 
-  const colorHex = slot.color_hex
-  const namedColor = slot.color && !/^preset:/i.test(slot.color) && !/^#?[0-9a-f]{6}$/i.test(slot.color) ? slot.color : null
-  const material = slot.catalogue_name || namedColor || slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Empty'
+  const appearance = classicSlotAppearance(slot)
+  const material = appearance.name
   const preset = slot.preset ? `preset: ${slot.preset.replace(/^preset:\s*/i, '')}` : null
 
   return (
@@ -147,7 +147,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         disabled={(slot.spool_change_pending && !admin) || !canDo('printers.slots')}
         onPointerDown={event => event.stopPropagation()}
         onClick={event => { event.stopPropagation(); setConfirmFeed(false); setFeedNote(slot.do_not_feed_note || ''); setIsEditing(true) }}>
-        <SlotTile slot={slot} apiType={apiType} />
+        <SlotTile expandable={false} slot={slot} apiType={apiType} />
       </button> : (      <div
         data-testid="filament-slot"
         className="bg-[var(--brand-input-bg)] rounded-md p-2 overflow-hidden cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
@@ -156,10 +156,10 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         onClick={(event) => { event.stopPropagation(); if ((!slot.spool_change_pending || admin) && (typeof canDo === 'function' ? canDo('printers.slots') : true)) { setConfirmFeed(false); setFeedNote(slot.do_not_feed_note || ''); setIsEditing(true) } }}
       >
         <SpoolRing
-          color={colorHex ? `#${colorHex}` : '#888'}
+          color={appearance.color}
           material=""
           level={slot.remaining}
-          empty={!colorHex && !slot.material_type && !slot.type}
+          empty={appearance.empty}
           size={20}
         />
         <SlotLabel text={material} />
@@ -226,7 +226,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       onClick={() => handleSelectSpool(s)}
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      {foundry ? <SlotTile showState={false} label={`Spool ${s.id}`} slot={{ slot_number: slot.slot_number, color: `${s.filament_brand || ''} ${s.filament_name || ''}`, material_type: s.filament_material, color_hex: s.filament_color_hex, remaining_weight: s.remaining_weight_g }} /> : <>                      <SpoolRing
+                      {foundry ? <SlotTile expandable={false} showState={false} label={`Spool ${s.id}`} slot={{ slot_number: slot.slot_number, color: `${s.filament_brand || ''} ${s.filament_name || ''}`, material_type: s.filament_material, color_hex: s.filament_color_hex, remaining_weight: s.remaining_weight_g }} /> : <>                      <SpoolRing
                         color={s.filament_color_hex ? `#${s.filament_color_hex}` : '#666'}
                         level={s.remaining_weight_g != null ? Math.min(100, Math.round((s.remaining_weight_g / (s.initial_weight_g || 1000)) * 100)) : 100}
                         size={20}
@@ -247,7 +247,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       onClick={() => handleSelect(f)}
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      {foundry ? <SlotTile showState={false} label={f.brand || 'Filament'} slot={{ slot_number: slot.slot_number, color: f.display_name || f.name, material_type: f.material, color_hex: f.color_hex, remaining_weight: f.remaining_weight }} /> : <>                      <SpoolRing
+                      {foundry ? <SlotTile expandable={false} showState={false} label={f.brand || 'Filament'} slot={{ slot_number: slot.slot_number, color: f.display_name || f.name, material_type: f.material, color_hex: f.color_hex, remaining_weight: f.remaining_weight }} /> : <>                      <SpoolRing
                         color={f.color_hex ? `#${f.color_hex}` : '#666'}
                         size={20}
                       />
@@ -269,7 +269,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                       onClick={() => handleSelect(f)}
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      {foundry ? <SlotTile showState={false} label={f.brand || 'Filament'} slot={{ slot_number: slot.slot_number, color: f.display_name || f.name, material_type: f.material, color_hex: f.color_hex, remaining_weight: f.remaining_weight }} /> : <>                      <SpoolRing
+                      {foundry ? <SlotTile expandable={false} showState={false} label={f.brand || 'Filament'} slot={{ slot_number: slot.slot_number, color: f.display_name || f.name, material_type: f.material, color_hex: f.color_hex, remaining_weight: f.remaining_weight }} /> : <>                      <SpoolRing
                         color={f.color_hex ? `#${f.color_hex}` : '#666'}
                         size={20}
                       />

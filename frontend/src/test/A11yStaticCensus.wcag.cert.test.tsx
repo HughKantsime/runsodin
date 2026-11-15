@@ -132,7 +132,18 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   // dispatch-recovery confirmation, roll receiving and QR label Modals.
   // 2.0.24 adds the bulk shelf receiving Modal.
   // Marking a cancelled print as failed adds one shared, named Modal.
-  expect(summary.shared_modal_call_sites).toBe(40)
+  // 2.3.0 disclosures use the shared named, focus-trapped, Escape-dismissable Modal.
+  const disclosures = [
+    'components/ui/ExpandableNote.tsx', // Full note
+    'components/foundry/PrinterCard.tsx', // Filaments
+    'components/inventory/SpoolCard.tsx', // Filament name
+  ]
+  for (const file of disclosures) {
+    expect(C.modalUsages.filter(modal => modal.file === file)).toEqual([
+      { file, line: expect.any(Number), alert: false },
+    ])
+  }
+  expect(summary.shared_modal_call_sites).toBe(40 + disclosures.length)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
   // Super Admin restore adds one named, focus-trapped confirmation dialog.
   // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
@@ -140,7 +151,7 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   expect(summary.custom_dialog_role_elements).toHaveLength(24)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
   expect(dialogOnly).toBe(22)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(59)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(62)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 

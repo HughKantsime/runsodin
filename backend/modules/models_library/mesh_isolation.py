@@ -419,8 +419,9 @@ _METADATA_RULES = {
 
 
 def _filament(value):
-    return (type(value) is dict and set(value) == {"slot", "type", "color", "used_meters", "used_grams"}
+    return (type(value) is dict and set(value) == {"slot", "type", "color", "color_stated", "used_meters", "used_grams"}
             and _integer(value["slot"], 0, 1024) and _text(value["type"], 128) and _text(value["color"], 64)
+            and type(value["color_stated"]) is bool
             and _number(value["used_meters"], 0, 1e7) and _number(value["used_grams"], 0, 1e7))
 
 

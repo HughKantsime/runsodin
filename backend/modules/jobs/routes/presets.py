@@ -14,7 +14,7 @@ import logging
 import json
 
 from core.db import get_db
-from core.rbac import require_role, get_org_scope
+from core.rbac import require_role, get_org_scope, _get_org_filter
 from modules.jobs.models import Job, PrintPreset
 from modules.models_library.models import Model
 from modules.jobs.schemas import JobResponse
@@ -91,11 +91,12 @@ def get_print_jobs(
     status: Optional[str] = None,
     limit: int = 50,
     job_id: Optional[int] = None,
+    org_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
 ):
     """Get print job history from MQTT tracking."""
-    org = get_org_scope(current_user)
+    org = _get_org_filter(current_user, org_id)
     # Build query dynamically
     sql = """
         SELECT pj.*, p.name as printer_name,

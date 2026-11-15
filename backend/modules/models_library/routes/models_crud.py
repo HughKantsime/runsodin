@@ -46,6 +46,7 @@ router = APIRouter(prefix="/models", tags=["Models"])
 def list_models(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
+    limit: Optional[int] = Query(default=None, ge=1, le=100),
     filters: LibraryFilters = Depends(),
     current_user: dict = Depends(require_role("viewer", scope="read:models")),
     db: Session = Depends(get_db)
@@ -63,7 +64,10 @@ def list_models(
 
     from core.controlled_parts import model_visibility
     visible, values = model_visibility(current_user)
-    return query.filter(text(visible)).params(**values).order_by(Model.name).all()
+    query = query.filter(text(visible)).params(**values).order_by(Model.name)
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()
 
 
 @router.get("-with-pricing")

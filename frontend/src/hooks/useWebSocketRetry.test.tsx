@@ -64,6 +64,93 @@ describe('live updates token retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['token', 'rate limit', 'network error'])('ignores an in-flight token request completing after unmount: %s', async (outcome) => {
+    let resolve!: (value: ReturnType<typeof reply>) => void
+    let reject!: (reason: Error) => void
+    const pending = new Promise<ReturnType<typeof reply>>((res, rej) => { resolve = res; reject = rej })
+    const fetchMock = vi.fn(() => pending)
+    vi.stubGlobal('fetch', fetchMock)
+    const { unmount } = renderHook(() => useWebSocket(), { wrapper })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    unmount()
+    await act(async () => {
+      if (outcome === 'network error') reject(new TypeError('offline'))
+      else resolve(outcome === 'token' ? reply(200, 'synthetic-local-token') : reply(429))
+    })
+    expect(sockets).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(0)
+    await settle(120000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(sockets).toHaveLength(0)
+  })
+
+  it('ignores a token body that finishes decoding after unmount', async () => {
+    let resolve!: (value: { token: string }) => void
+    const body = new Promise<{ token: string }>((res) => { resolve = res })
+    const json = vi.fn(() => body)
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json })
+    vi.stubGlobal('fetch', fetchMock)
+    const { unmount } = renderHook(() => useWebSocket(), { wrapper })
+    await settle(0)
+    expect(json).toHaveBeenCalledTimes(1)
+    unmount()
+    await act(async () => { resolve({ token: 'synthetic-local-token' }) })
+    expect(sockets).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(0)
+    await settle(120000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(sockets).toHaveLength(0)
+  })
+
+  it('keeps the replacement socket available for cleanup when the old socket closes late', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, 'synthetic-local-token'))
+    vi.stubGlobal('fetch', fetchMock)
+    let client = new QueryClient()
+    const changingWrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    const { rerender, unmount } = renderHook(() => useWebSocket(), { wrapper: changingWrapper })
+    await settle(0)
+    const oldSocket = sockets[0]
+    act(() => oldSocket.onopen())
+    oldSocket.close = vi.fn()
+    await settle(3000)
+    // Changing the client restarts the effect; the old socket's close event is still queued.
+    client = new QueryClient()
+    rerender()
+    await settle(0)
+    expect(oldSocket.close).toHaveBeenCalledTimes(1)
+    expect(sockets).toHaveLength(2)
+    const currentSocket = sockets[1]
+    currentSocket.close = vi.fn()
+    act(() => currentSocket.onopen())
+    act(() => oldSocket.onclose())
+    unmount()
+    expect(currentSocket.close).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+    await settle(120000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('does not schedule a retry or request a token when the socket closes after unmount', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, 'synthetic-local-token'))
+    vi.stubGlobal('fetch', fetchMock)
+    const { unmount } = renderHook(() => useWebSocket(), { wrapper })
+    await settle(0)
+    expect(sockets).toHaveLength(1)
+    const socket = sockets[0]
+    act(() => socket.onopen())
+    // Browsers deliver close asynchronously, after effect cleanup has cleared its timer.
+    socket.close = vi.fn(() => setTimeout(() => socket.onclose(), 0))
+    unmount()
+    expect(socket.close).toHaveBeenCalledTimes(1)
+    await settle(0)
+    const pendingTimers = vi.getTimerCount()
+    await settle(120000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(sockets).toHaveLength(1)
+    expect(pendingTimers).toBe(0)
+  })
+
   it('a later failure starts the backoff again from 5 seconds after a good connection', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(reply(429)).mockResolvedValueOnce(reply(200, 'synthetic-local-token')).mockResolvedValueOnce(reply(429)).mockResolvedValue(reply(200, 'synthetic-local-token'))
     vi.stubGlobal('fetch', fetchMock)

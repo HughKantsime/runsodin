@@ -24,7 +24,7 @@ const rows: PrintNextRow[] = [base,
     reason: 'Map this product to a Square item to see its stock.' },
   { ...base, product_id: 5, product_name: 'Full shelf', status: 'ok', rank: null, rank_reason: null, shortfall: 0, plates_needed: 0, recipe: null, below_point: false, open_orders: null, velocity: null, reason: 'At or above its reorder point.',
     on_hand: { quantity: 40, read_at: '2026-11-13T08:00:00Z', age_seconds: 20, source: 'square' } }]
-const list = (over: Partial<PrintNextList> = {}): PrintNextList => ({ generated_at: '2026-11-13T08:00:20Z', rows, truncated: false, print_next_count: 2,
+const list = (over: Partial<PrintNextList> = {}): PrintNextList => ({ work_hidden: false, generated_at: '2026-11-13T08:00:20Z', rows, truncated: false, print_next_count: 2,
   stock: { connected: true, read_at: '2026-11-13T08:00:00Z', age_seconds: 20, source: 'square', error: null, refresh_in_seconds: 100, cache_seconds: 120 }, ...over })
 const item = (name: string) => screen.getByRole('heading', { name: new RegExp(name) }).closest('li')!
 
@@ -51,6 +51,44 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Print next list
     expect(within(item('Covered part')).getByText('10 (4 inspected, not yet in Square)')).toBeVisible()
     expect(within(item('Unmapped part')).getByText('Map this product to a Square item to see its stock.')).toBeVisible()
     expect(within(item('Unmapped part')).getAllByText('Unknown')).toHaveLength(2)
+  })
+
+  it.each([true, false])('omits all work figures and queue controls when planning is unavailable (hidden=%s)', async hidden => {
+    const limited = { ...base, status: 'blocked' as const, reason: hidden ? 'Work in progress is hidden because this farm has restricted parts you are not cleared to see.' : 'Receipt scan could not be completed. Review the saved production records before planning more stock.' }
+    delete limited.on_the_way; delete limited.shortfall; delete limited.rank; delete limited.rank_reason
+    delete limited.recipe; delete limited.plates_needed
+    vi.mocked(replenishment.list).mockResolvedValue(list({ work_hidden: hidden, rows: [limited], print_next_count: undefined }))
+    render(<PrintNext />)
+    await screen.findByRole('heading', { name: /Mini/ })
+    if (hidden) expect(screen.getByRole('status')).toHaveTextContent('Work in progress is hidden because this farm has restricted parts you are not cleared to see.')
+    else expect(screen.getByText(/Receipt scan could not be completed/)).toBeVisible()
+    expect(screen.getByText('2 · read just now')).toBeVisible()
+    expect(screen.getByText('5 / 14')).toBeVisible()
+    expect(screen.getByText('30 pieces')).toBeVisible()
+    expect(screen.queryByText('On the way')).not.toBeInTheDocument()
+    expect(screen.queryByText('Short')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Mini plate/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('keeps valid figures and bulk queueing when another product has a stale receipt', async () => {
+    const blocked = { ...rows[1], status: 'blocked' as const,
+      reason: 'A stock receipt for this product refers to a print that no longer exists. Review it in Finishing.' }
+    delete blocked.on_the_way; delete blocked.shortfall; delete blocked.rank; delete blocked.rank_reason
+    delete blocked.recipe; delete blocked.plates_needed
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: [base, blocked], print_next_count: 1 }))
+    vi.mocked(replenishment.queue).mockResolvedValue({ queued: [{ product_id: 1, recipe_id: base.recipe!.id, plates: 3, job_ids: [11], held: true }], skipped: [] })
+    render(<PrintNext />)
+    await screen.findByRole('heading', { name: /Mini/ })
+    expect(within(item('Dragon')).getByText(blocked.reason)).toBeVisible()
+    expect(within(item('Dragon')).queryByText('On the way')).not.toBeInTheDocument()
+    expect(within(item('Dragon')).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(item('Mini')).getByText('Short')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Queue 3 plates for Mini' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Queue all suggested (3 plates)' }))
+    expect(await screen.findByText(/Queued 3 plates for Mini, on hold/)).toBeVisible()
+    expect(replenishment.queue).toHaveBeenCalledExactlyOnceWith([{ product_id: 1, recipe_id: base.recipe!.id, plates: 3 }], false)
   })
 
   it('offers a queue button only where plates are suggested and queues them on hold', async () => {
@@ -86,6 +124,27 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Print next list
     for (const entry of screen.getAllByRole('listitem')) expect(entry).toHaveClass('break-words')
     expect(item('Mini').querySelector('dl')).toHaveClass('grid-cols-2', 'sm:grid-cols-4')
     expect(container.innerHTML).not.toMatch(/min-w-\[|w-\[\d+px\]|whitespace-nowrap/)
+  })
+
+  it('limits a large suggestion to 50 plates and shows the amount it will queue', async () => {
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: [{ ...base, plates_needed: 51 }] }))
+    vi.mocked(replenishment.queue).mockResolvedValue({ queued: [], skipped: [] })
+    render(<PrintNext />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue 50 plates for Mini' }))
+    await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(2))
+    expect(replenishment.queue).toHaveBeenCalledExactlyOnceWith([{ product_id: 1, recipe_id: base.recipe!.id, plates: 50 }], false)
+    expect(screen.getByText(/51 plates suggested; queue up to 50 at a time/)).toBeVisible()
+  })
+
+  it('limits bulk queueing to the first 100 products and 50 plates per product', async () => {
+    const many = Array.from({ length: 101 }, (_, index) => ({ ...base, product_id: index + 1, product_name: `Part ${index + 1}`, plates_needed: 51 }))
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: many }))
+    vi.mocked(replenishment.queue).mockResolvedValue({ queued: [], skipped: [] })
+    render(<PrintNext />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue next 100 products (5000 plates)' }))
+    await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(2))
+    expect(replenishment.queue).toHaveBeenCalledExactlyOnceWith(many.slice(0, 100).map(r => ({ product_id: r.product_id, recipe_id: r.recipe!.id, plates: 50 })), false)
+    expect(screen.getByText(/Queue up to 100 products at a time/)).toBeVisible()
   })
 })
 
@@ -151,6 +210,23 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Dashboard card 
     expect(screen.getByText('Dragon: 0 on hand, 1 plate suggested')).toBeVisible()
     expect(screen.getByRole('link', { name: 'Open Print next' })).toHaveAttribute('href', '/products')
     expect(screen.queryByRole('button')).not.toBeInTheDocument()  // the card queues nothing
+  })
+
+  it.each([true, false])('omits the card when the work count is unavailable (hidden=%s)', async hidden => {
+    vi.mocked(replenishment.list).mockResolvedValue(list({ work_hidden: hidden, print_next_count: undefined }))
+    const view = card()
+    await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(1))
+    expect(view.container).toBeEmptyDOMElement()
+  })
+
+  it('keeps the available suggestion on the card when another product is blocked', async () => {
+    const blocked = { ...rows[1], status: 'blocked' as const, rank: undefined, shortfall: undefined,
+      recipe: undefined, plates_needed: undefined, on_the_way: undefined }
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: [base, blocked], print_next_count: 1 }))
+    card()
+    expect(await screen.findByRole('heading', { name: 'Print next: 1 product below its reorder point' })).toBeVisible()
+    expect(screen.getByText('Mini: 2 on hand, 3 plates suggested')).toBeVisible()
+    expect(screen.queryByText(/Dragon:/)).not.toBeInTheDocument()
   })
 
   it('stays away when nothing is below its point, the read fails, or the install or role has no access', async () => {

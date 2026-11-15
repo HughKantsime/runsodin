@@ -38,6 +38,7 @@ export default function useWebSocket() {
   const stopped = useRef(false)
 
   const connect = useCallback(async () => {
+    if (stopped.current) return
     // Don't reconnect too fast
     const now = Date.now()
     if (now - lastConnectAttempt.current < 3000) return
@@ -196,8 +197,11 @@ export default function useWebSocket() {
       }
 
       ws.onclose = () => {
+        // A previous effect's socket may close after its replacement has connected.
+        if (wsRef.current !== ws) return
         // Disconnected — reconnecting in 5s
         wsRef.current = null
+        if (stopped.current) return
         reconnectTimer.current = setTimeout(connect, 5000)
       }
 

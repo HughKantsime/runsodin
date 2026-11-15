@@ -28,12 +28,24 @@ test('F20-20.2-03 Pro tier alone does not grant absent feature',async()=>{
  await screen.findByRole('heading',{name:'Pro Feature'})
  expect(screen.queryByRole('button',{name:'Protected quota action'})).not.toBeInTheDocument()
 })
-test('F20-20.2-03 failed refresh removes previously entitled child',async()=>{
- api.get.mockResolvedValueOnce({tier:'education',features:['print_quotas']}).mockRejectedValueOnce(new Error('Synthetic unavailable'));gated()
+// Since license enforcement slice A (412e30a8) a refresh that fails keeps what the last good
+// answer granted, unless that answer's expiry has passed: the server still enforces every request.
+test('F20-20.2-03 failed refresh removes a previously entitled child once the license has expired',async()=>{
+ api.get.mockResolvedValueOnce({tier:'education',features:['print_quotas'],expires_at:new Date(Date.now()+400).toISOString()}).mockRejectedValueOnce(new Error('Synthetic unavailable'));gated()
  await screen.findByRole('button',{name:'Protected quota action'})
+ await new Promise(resolve=>setTimeout(resolve,500))
  fireEvent.click(screen.getByRole('button',{name:'Refresh entitlement'}))
  await screen.findByRole('heading',{name:'Pro Feature'})
  expect(screen.queryByRole('button',{name:'Protected quota action'})).not.toBeInTheDocument()
+})
+test('F20-20.2-03 failed refresh keeps an entitled child while the license has not expired',async()=>{
+ api.get.mockResolvedValueOnce({tier:'education',features:['print_quotas'],expires_at:new Date(Date.now()+3600_000).toISOString()}).mockRejectedValueOnce(new Error('Synthetic unavailable'));gated()
+ await screen.findByRole('button',{name:'Protected quota action'})
+ fireEvent.click(screen.getByRole('button',{name:'Refresh entitlement'}))
+ await waitFor(()=>expect(api.get).toHaveBeenCalledTimes(2))
+ await new Promise(resolve=>setTimeout(resolve,50)) // let the failed refresh settle before looking
+ expect(screen.getByRole('button',{name:'Protected quota action'})).toBeInTheDocument()
+ expect(screen.queryByRole('heading',{name:'Pro Feature'})).not.toBeInTheDocument()
 })
 test('F20-20.2-04 upload sends selected license file and refreshes displayed tier',async()=>{
  const view=render(<LicenseTab/>);await screen.findByText('Click to select .license file')

@@ -543,8 +543,8 @@ export default function Models() {
         )}
       </PageHeader>
 
-      {/* Costs and prices stay hidden until pricing is saved; whoever may save it is told where. */}
-      {!pricingConfigured && canDo('settings.edit') && (
+      {/* Prompt only when the server confirms pricing has never been saved. */}
+      {pricingSettings?.configured === false && canDo('settings.edit') && (
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4" data-testid="pricing-prompt">
           <Link to="/calculator" className="text-[var(--brand-primary)] hover:underline">Set up pricing</Link> to see cost and price on each model.
         </p>

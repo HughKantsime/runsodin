@@ -1,15 +1,16 @@
 """Cost per print table (Pro): averages by model and product, against hand-computed figures.
 
 Pricing and spool prices are those of test_cost_actual.py (machine 0.25 per hour, from settings
-5.25 per job, spool 71 at 0.02 per gram). Model 101 "Bracket" has five completed jobs:
-  801  2 pieces  actual 8.40 (0.45 of it on a failed attempt)   estimate 7.50
+3.25 per item plus 2.00 per plate, spool 71 at 0.02 per gram). Model 101 "Bracket" has five completed jobs:
+  801  2 pieces  actual 11.65 (0.45 of it on a failed attempt)   estimate 7.50
   811  1 piece   50 g + 2 h: 1.00 + 0.50 + 5.25 = 6.75           estimate 7.50
-  812  1 piece   100 g + 1 h: 2.00 + 0.25 + 5.25 = 7.50          estimate 6.00
+  812  1 piece   101 g + 1 h: 2.02 + 0.25 + 5.25 = 7.52          estimate 6.00
   805  partial (spool had no price), 802 finished by hand (no usage): in no average
-  actual 22.65 over 4 pieces = 5.6625 -> 5.66; estimate 21.00 over 4 pieces = 5.25
-  variance (22.65 - 21.00) / 21.00 = 7.857 % -> 7.9; failed share 0.45 / 22.65 = 1.987 % -> 2.0
+  actual 25.92 over 4 pieces = 6.48; estimate 21.00 over 4 pieces = 5.25
+  variance (25.92 - 21.00) / 21.00 = 23.429 % -> 23.4; failed share 0.45 / 25.92 = 1.736 % -> 1.7
 """
 import json
+from decimal import Decimal
 
 import pytest
 from fastapi import FastAPI
@@ -21,8 +22,14 @@ from tests.test_contracts.test_education_review_workflow import review_db  # noq
 from tests.test_contracts.test_cost_actual import add_attempt, allocation, cost_db, snapshot, used  # noqa: F401
 
 BRACKET = {"id": 101, "name": "Bracket", "jobs": 5, "jobs_with_full_cost": 3, "jobs_partial": 1, "jobs_without_usage": 1,
-           "pieces": 4, "average_actual_per_piece": 5.66, "average_estimate_per_piece": 5.25,
-           "variance_percent": 7.9, "failure_share_percent": 2.0}
+           "pieces": 4, "average_actual_per_piece": 6.48, "average_estimate_per_piece": 5.25,
+           "variance_percent": 23.4, "failure_share_percent": 1.7}
+
+
+def test_average_fixture_agrees_with_decimal_arithmetic():
+    # Check the hand-computed expectation independently of binary float rounding.
+    actual = sum(map(Decimal, ("11.65", "6.75", "7.52")))
+    assert (actual / 4).quantize(Decimal("0.01")) == Decimal(str(BRACKET["average_actual_per_piece"]))
 
 
 @pytest.fixture
@@ -34,7 +41,7 @@ def table_db(cost_db):
     cost_db.execute(text("UPDATE jobs SET model_id=101,actual_end='2026-01-05 13:00:00' WHERE id IN (801,802,805)"))
     cost_db.execute(text("UPDATE jobs SET model_id=102 WHERE id=803"))
     add_attempt(cost_db, 9011, 811, "completed", 7200, snapshot(allocation(71, "20", "1000")), [used(71, 50.0)])
-    add_attempt(cost_db, 9012, 812, "completed", 3600, snapshot(allocation(71, "20", "1000")), [used(71, 100.0)])
+    add_attempt(cost_db, 9012, 812, "completed", 3600, snapshot(allocation(71, "20", "1000")), [used(71, 101.0)])
     cost_db.commit()
     return cost_db
 
@@ -86,16 +93,16 @@ def test_variance_is_negative_when_prints_cost_less_than_estimated(table_client,
     table_db.execute(text("UPDATE jobs SET estimated_cost=10 WHERE id IN (801,811,812)"))
     table_db.commit()
     row = rows(table_client)[101]
-    # estimate 30.00 over 4 pieces = 7.50; (22.65 - 30.00) / 30.00 = -24.5 %
-    assert row["average_estimate_per_piece"] == 7.50 and row["variance_percent"] == -24.5
-    assert row["average_actual_per_piece"] == 5.66
+    # estimate 30.00 over 4 pieces = 7.50; (25.92 - 30.00) / 30.00 = -13.6 %
+    assert row["average_estimate_per_piece"] == 7.50 and row["variance_percent"] == -13.6
+    assert row["average_actual_per_piece"] == 6.48
 
 
 def test_a_job_without_an_estimate_keeps_the_actual_average_but_gives_no_variance(table_client, table_db, pro_license):
     table_db.execute(text("UPDATE jobs SET estimated_cost=NULL WHERE id=812"))
     table_db.commit()
     row = rows(table_client)[101]
-    assert row["average_actual_per_piece"] == 5.66
+    assert row["average_actual_per_piece"] == 6.48
     assert row["average_estimate_per_piece"] is None and row["variance_percent"] is None
 
 
@@ -191,7 +198,7 @@ def test_table_and_export_need_a_paid_license_while_the_job_cost_stays_free(tabl
         assert response.status_code == 403 and response.headers["X-ODIN-License-Feature"] == "analytics"
     from modules.jobs.routes.cost import router
     table_client.app.include_router(router)
-    assert table_client.get("/jobs/801/cost").json()["total"] == 8.40
+    assert table_client.get("/jobs/801/cost").json()["total"] == 11.65
 
 
 def test_csv_export_follows_the_csv_gate_and_role(table_client, pro_license, monkeypatch):
@@ -200,7 +207,7 @@ def test_csv_export_follows_the_csv_gate_and_role(table_client, pro_license, mon
     lines = response.text.strip().splitlines()
     assert lines[0] == ("Model,Completed jobs,Jobs with full cost records,Pieces made,Average actual cost per piece,"
                         "Average estimate per piece,Actual vs estimate (%),Spent on failed attempts (%)")
-    assert lines[1] == "Bracket,5,3,4,5.66,5.25,7.9,2.0" and lines[2] == "No model,1,1,1,,,,"
+    assert lines[1] == "Bracket,5,3,4,6.48,5.25,23.4,1.7" and lines[2] == "No model,1,1,1,,,,"
     assert not any(word in response.text.lower() for word in ("profit", "margin", "cogs"))
     from core.dependencies import get_current_user
     table_client.app.dependency_overrides[get_current_user] = lambda: {"id": 4, "role": "viewer", "group_id": 1, "is_active": True}
@@ -229,3 +236,31 @@ def test_statement_count_does_not_grow_with_the_number_of_jobs(table_client, tab
     body = table_client.get("/analytics/cost-per-print").json()
     assert next(row for row in body["rows"] if row["id"] == 101)["jobs"] == 35
     assert len(statements) == before
+
+
+def test_review_comparison_uses_the_actual_average_population():
+    from types import SimpleNamespace
+    from modules.reporting.routes.cost_per_print import summarize
+    jobs = [SimpleNamespace(id=i, quantity_on_bed=1, estimated_cost=10 if i < 4 else None) for i in range(1, 5)]
+    costs = {i: {"state": "complete", "_exact": {"total": 10 if i < 4 else 100, "failed": 0}} for i in range(1, 5)}
+    row = summarize("Mixed estimates", jobs, costs)
+    assert row["average_actual_per_piece"] == 32.50 and row["pieces"] == 4
+    assert row["average_estimate_per_piece"] is None and row["variance_percent"] is None
+
+
+def test_review_hidden_historical_archive_is_excluded_from_averages(table_client, table_db, pro_license):
+    from tests.test_contracts.test_cost_actual import restrict_historical_file
+    restrict_historical_file(table_db, 9011)
+    table_db.commit()
+    row = rows(table_client)[101]
+    assert row["jobs_partial"] == 2 and row["jobs_with_full_cost"] == 2
+    assert row["average_actual_per_piece"] is None
+
+
+def test_review_sliced_quantity_is_excluded_from_averages(table_client, table_db, pro_license):
+    table_db.execute(text("UPDATE print_archives SET consumption_json=:usage WHERE print_job_id=9011"),
+                     {"usage": json.dumps([used(71, 50.0, "sliced_estimate")])})
+    table_db.commit()
+    row = rows(table_client)[101]
+    assert row["jobs_partial"] == 2 and row["jobs_with_full_cost"] == 2
+    assert row["average_actual_per_piece"] is None

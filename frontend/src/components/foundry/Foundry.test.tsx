@@ -2,6 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import postcss from 'postcss'
+import fs from 'node:fs'
+import path from 'node:path'
 import SlotTile, { slotLabel, slotState } from './SlotTile'
 import PrinterCard from './PrinterCard'
 import PrinterRows from './PrinterRows'
@@ -229,7 +232,8 @@ it('H2D compact slots keep AMS/slot addresses and the full long material', () =>
   const { container } = mount(<PrinterCard printer={printer({ machine_type: 'H2D', filament_slots: slots })} />)
   for (const label of ['1·1', '1·2', '2·1', '2·2', 'HT']) expect(screen.getByText(label)).toBeInTheDocument()
   expect(container.querySelector('.f-slots')).toHaveStyle({ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' })
-  expect(screen.getAllByTitle('PLA_SUPPORT')).toHaveLength(5)
+  expect(screen.getAllByTitle('PLA Support')).toHaveLength(5)
+  expect(container.textContent).not.toContain('PLA_SUPPORT')
 })
 it('schedule deduplicates tracked jobs and represents holds and paused waits honestly', () => {
   const slots = [{ printer_id: 1, mqtt_job_id: 8, status: 'printing', start: '2026-11-04T11:00:00Z', end: '2026-11-04T12:00:00Z' }] as TimelineSlot[]
@@ -339,4 +343,55 @@ it.each(['card', 'banner', 'camera'])('%s does not show frozen progress while aw
 it('shows why duration and usage are unverified', () => {
  mount(<PrinterCard printer={printer()} job={print({ recording_note: 'First seen mid-print; full duration and filament use are unverified.', duration_verified: false, usage_verified: false })} />)
  expect(screen.getByText(/full duration and filament use are unverified/)).toBeVisible()
+})
+
+it.each(['full', 'compact'] as const)('%s slot name expands by tap and collapses without navigating', variant => {
+  const navigate = vi.fn()
+  const name = 'ASA-CF Invented very long catalogue colour name'
+  if (variant === 'compact') {
+    mount(<div onClick={navigate}><PrinterCard printer={printer({ filament_slots: [{ slot_number: 1, filament_type: 'ASA-CF', catalogue_name: name }] })} /></div>)
+    const button = screen.getByRole('button', { name: 'Filaments' })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(within(screen.getByRole('dialog', { name: 'Filaments' })).getByText(name)).toBeVisible()
+    expect(navigate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    return
+  }
+  mount(<div onClick={navigate}><SlotTile variant={variant} slot={{ slot_number: 1, filament_type: 'ASA-CF', catalogue_name: name }} /></div>)
+  const button = screen.getByRole('button', { name: `Show full filament name: ${name} · Slot 1 · Loaded` })
+  expect(button).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(button)
+  expect(button).toHaveAttribute('aria-expanded', 'true')
+  expect(button).toHaveAttribute('data-expanded', 'true')
+  expect(button).toHaveTextContent(name)
+  expect(navigate).not.toHaveBeenCalled()
+  fireEvent.click(button)
+  expect(button).toHaveAttribute('data-expanded', 'false')
+})
+it('slot choices show the full name without nesting a second button', () => {
+  const choose = vi.fn()
+  const view = mount(<button onClick={choose}><SlotTile expandable={false} slot={{ slot_number: 1, catalogue_name: 'Very long catalogue name' }} /></button>)
+  expect(screen.getAllByRole('button')).toHaveLength(1)
+  expect(view.container.querySelector('.f-slot')).toHaveAttribute('data-expanded', 'true')
+  fireEvent.click(screen.getByText('Very long catalogue name'))
+  expect(choose).toHaveBeenCalledOnce()
+})
+
+it('slot stylesheet keeps compact materials at 92px and wraps full names on expand', () => {
+  const rules: Record<string, Record<string, string>> = {}
+  postcss.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../foundry.css'), 'utf8')).walkRules(rule => {
+    if (!rule.selector.includes('.f-slot')) return
+    const declarations: Record<string, string> = {}
+    rule.walkDecls(declaration => { declarations[declaration.prop] = declaration.value })
+    rules[rule.selector] = declarations
+  })
+  expect(rules['.f-slot-label']).toMatchObject({ display: '-webkit-box', '-webkit-line-clamp': '2', 'overflow-wrap': 'anywhere' })
+  expect(rules['.f-slot[data-expanded="true"] .f-slot-label']).toMatchObject({ '-webkit-line-clamp': 'unset' })
+  expect(rules['.f-slot[data-variant="compact"]']).toMatchObject({ height: '92px' })
+  for (const [selector, declarations] of Object.entries(rules)) {
+    if (selector.includes('.f-slot-label') && !selector.includes('compact')) expect(declarations['white-space']).not.toBe('nowrap')
+  }
 })

@@ -4,6 +4,8 @@ import SpoolCard from './SpoolCard'
 
 import type { Spool, Printer } from '../../types'
 
+// 328px reserves a 300px card plus the 28px selection gutter; narrow phones
+// may use the full available width. Columns follow the container, not the viewport.
 interface SpoolGridProps {
   spools: Spool[]
   printers?: Printer[]
@@ -75,7 +77,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
         {Object.entries(groups).map(([group, groupSpools]) => (
           <div key={group} className="mb-4 md:mb-6">
             <h3 className="text-base md:text-lg font-semibold text-[var(--brand-text-secondary)] mb-3">{group}</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,328px),1fr))] gap-4">
               {groupSpools.map(spool => <SpoolItem key={spool.id} spool={spool} />)}
             </div>
           </div>
@@ -85,7 +87,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,328px),1fr))] gap-4">
       {sorted.map(spool => <SpoolItem key={spool.id} spool={spool} />)}
     </div>
   )

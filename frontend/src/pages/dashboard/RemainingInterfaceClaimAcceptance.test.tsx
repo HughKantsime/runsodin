@@ -13,7 +13,7 @@ import itCatalog from '../../i18n/it.json'
 
 const api = vi.hoisted(() => ({ language: vi.fn() }))
 vi.mock('../../api', () => ({ fetchAPI: api.language, stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() }, printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() }, maintenance: { getStatus: vi.fn() } }))
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ getCurrentUser: () => null, canAccessPage: () => true, canDo: () => true }))
 const catalogs = { en, de, ja, es, it: itCatalog }
 const clients: QueryClient[] = []
 function LocaleProbe() {
@@ -24,7 +24,7 @@ function Route() { const l = useLocation(); return <output data-testid="route">{
 function showDashboard(tasks: any[] = []) {
   const c = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } }); clients.push(c)
   c.setQueryData(['stats'], { jobs: {} }); c.setQueryData(['jobs', 'active'], []); c.setQueryData(['print-jobs'], [])
-  c.setQueryData(['printers'], [{ id: 1, name: 'Fixture Alpha', last_seen: new Date().toISOString(), gcode_state: 'IDLE', filament_slots: [] }, { id: 2, name: 'Fixture Beta', last_seen: new Date().toISOString(), gcode_state: 'IDLE', filament_slots: [] }])
+  c.setQueryData(['printers', 'active', null, null], [{ id: 1, name: 'Fixture Alpha', last_seen: new Date().toISOString(), gcode_state: 'IDLE', filament_slots: [] }, { id: 2, name: 'Fixture Beta', last_seen: new Date().toISOString(), gcode_state: 'IDLE', filament_slots: [] }])
   c.setQueryData(['maintenance-status'], [{ printer_id: 1, printer_name: 'Fixture Alpha', tasks }])
   return render(<QueryClientProvider client={c}><MemoryRouter><I18nProvider><Route /><Dashboard /></I18nProvider></MemoryRouter></QueryClientProvider>)
 }

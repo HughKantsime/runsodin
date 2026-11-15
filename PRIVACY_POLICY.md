@@ -3,11 +3,11 @@
 **O.D.I.N. (Orchestrated Dispatch & Inventory Network)**
 
 **Effective Date:** February 14, 2026
-**Last Updated:** November 13, 2026
+**Last Updated:** November 15, 2026
 
 **JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Sublab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
-**Contact:** sublab3dp@gmail.com
+**Contact:** support@runsodin.com
 
 ---
 
@@ -19,7 +19,7 @@ O.D.I.N. is **self-hosted software** that runs entirely on your own infrastructu
 - What data **Sublab 3DP** collects from you directly (Section 3)
 - Your rights regarding your data (Section 5)
 
-**The key point:** When you run O.D.I.N., your data stays on your hardware. We do not operate cloud services, do not host customer data, and have no access to your O.D.I.N. instance unless you explicitly grant it.
+**The key point:** O.D.I.N. stores operational data on your infrastructure. License actions and enabled integrations transmit the data described in Section 2.6; we have no access to your instance unless you explicitly grant it.
 
 ---
 
@@ -63,23 +63,28 @@ The following data is created and stored by the O.D.I.N. software on your server
 - Spool inventory and consumable stock levels
 - Cost and revenue analytics
 
-### 2.6 No Telemetry, No Phone-Home
+### 2.6 Telemetry and Network Connections
 
 **O.D.I.N. does not:**
 
-- Send telemetry or usage data to Sublab 3DP or any third party
-- Phone home to verify licenses (license validation is performed locally using Ed25519 signatures)
+- Send vendor telemetry or usage reports to Sublab 3DP
+- Contact Sublab 3DP in the background (no heartbeat, no update check)
 - Require an Internet connection to operate after initial installation
-- Include analytics, tracking pixels, or third-party SDKs
+- Include vendor usage analytics, tracking pixels, or advertising or tracking SDKs (the reports and charts inside O.D.I.N. are computed on your server)
 - Share data with advertisers or data brokers
 
-The only network connections the Software makes are:
+O.D.I.N. sends no vendor telemetry; configured integrations can transmit printer telemetry, job events and audit records. An installed license is verified locally using Ed25519 signatures, with no network call.
 
-- To your printers on your local network (MQTT, HTTP, WebSocket)
-- To your configured notification channels (email SMTP, Discord/Slack webhooks, Telegram, ntfy) — only if you configure them
-- To your configured MQTT broker — only if you enable MQTT republish
+A default installation contacts nothing outside your network by itself. Connections the Software can make:
 
----
+- **Your printers and cameras** on your local network (MQTT, HTTP, WebSocket, RTSP/MJPEG), and local network discovery (mDNS) when an administrator asks for it.
+- **Our license portal**, only when an administrator runs a license action or asks for the reachability check described below. Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N. An administrator can also ask O.D.I.N. to check whether the license server is reachable (`GET /api/system/license-server-status`, administrators only); the web app does not call it, nothing schedules it, and it sends no installation data (the portal sees the connecting IP address).
+- **Services an administrator connects:** email (SMTP), notification services (webhooks, Discord, Slack, ntfy, Telegram, Pushover, WhatsApp), an MQTT broker, smart-plug control (Home Assistant, Tasmota or MQTT), SIEM streaming, a single sign-on provider, class roster import (Google Classroom, or an LTI platform such as Canvas), Square, and Spoolman if you point O.D.I.N. at one. Each is off until configured.
+- **Push notifications**, only if a user turns them on: the browser vendor's push service, or Apple's push service where the server operator has set it up. The notification text, which can include a job or file name, passes through it.
+
+- **API documentation:** Opening the API documentation causes your browser to request assets from jsDelivr and FastAPI's website; ReDoc also requests Google Fonts.
+
+Home Assistant and dashboards can read from O.D.I.N.; when smart-plug control is configured, O.D.I.N. also calls Home Assistant, Tasmota plugs or the configured MQTT broker.
 
 ## 3. Data Collected by Sublab 3DP
 
@@ -137,13 +142,14 @@ A 14-day Pro trial is started in O.D.I.N. (Settings > License). O.D.I.N. signs t
 - **Email address**, in cleartext on the pending request (to send the confirmation link) and on the trial license key once you confirm (as on a paid license).
 - **A one-way hash (SHA-256) of the normalized email address**, kept with the trial record to enforce one trial per email address.
 - **Installation ID, device public key and its fingerprint** (a SHA-256 hash of the device public key), kept with the trial record to enforce one trial per installation and to bind the trial key to that installation.
+- **Your answer to "How did you hear about O.D.I.N.?"**, only if you choose to give one. It is optional, it is whatever you pick or type, and nothing is inferred automatically (no referrer, campaign tags, cookies or scripts). It is kept on the pending request and on the trial license key record.
 - **The IP address the request came from.** It is kept on the pending request (deleted no later than 48 hours after the request) and on the trial record for 90 days, then removed.
 
 We send the confirmation email through **Resend** (Resend, Inc., United States), which processes your email address and the message only to deliver it. The trial key is shown once on the confirmation page and is not emailed.
 
-**Purpose:** Delivering the trial you asked for and preventing abuse of the one-trial limit.
+**Purpose:** Delivering the trial you asked for and preventing abuse of the one-trial limit. The optional answer is used only to understand where people find O.D.I.N.
 **Legal basis (GDPR):** Steps taken at your request before a contract (Article 6(1)(b)) and our legitimate interest in preventing abuse of free trials (Article 6(1)(f)).
-**Retention:** Pending requests: no more than 48 hours. Trial records (email hash, installation ID, device key fingerprint): as long as needed to enforce one trial per installation and per email address. Request IP on the trial record: 90 days. Trial license key records: as for license records.
+**Retention:** Pending requests (including the optional answer on them): no more than 48 hours. The optional answer on the trial license key record: as for license records. Trial records (email hash, installation ID, device key fingerprint): as long as needed to enforce one trial per installation and per email address. Request IP on the trial record: 90 days. Trial license key records: as for license records.
 
 ---
 
@@ -171,13 +177,13 @@ If you store personal data in O.D.I.N. (e.g., user accounts, customer names in o
 
 O.D.I.N. includes tools to assist with data protection compliance:
 
-- **GDPR data export:** Full JSON export of all user data (all tiers)
-- **Anonymization:** Anonymize user records while preserving analytics (all tiers)
-- **Data retention policies:** Configurable TTL per data type (all tiers)
+- **GDPR data export:** JSON export includes supported user records and file metadata; each audit-history selection is limited to 1,000 entries (all tiers).
+- **Anonymization:** Erasure anonymizes supported identifiers while retaining operational records; personal information may remain in retained text and excluded copies (all tiers).
+- **Data retention policies:** Configurable TTL for completed jobs, audit logs and alert history, applied by manual cleanup (all tiers); age-based timelapse cleanup is not applied in this release.
 - **Audit log:** Searchable local history of the audited activity described below.
 
 
-ODIN keeps an audit log on your own server. It records sign-ins (password and SSO, successful and failed), file uploads, downloads of design files, backups and timelapses, exports, print submissions and dispatch, watching a printer's live camera or a timelapse, and administrative changes. Each entry holds the time, what was done and to what, and, where known, the user and the IP address they connected from. Watching a camera or timelapse is recorded when it starts and then at most once every 15 minutes per person, not frame by frame. On Education installations this includes students' activity. The log isn't a record of every request. Audit entries stay on your server and follow your retention settings. When a user is erased, ODIN removes their name and IP address from their audit entries, including SSO sign-ins. The entries themselves remain, with what was done, and SSO sign-in entries keep the user's ID number.
+ODIN keeps an audit log on your own server. It records sign-ins (password and SSO, successful and failed), file uploads, downloads of design files, backups and timelapses, exports, print submissions and dispatch, watching a printer's live camera or a timelapse, and administrative changes. Each entry holds the time, what was done and to what, and, where known, the user and the IP address they connected from. Watching a camera or timelapse is recorded when it starts and then at most once every 15 minutes per person, not frame by frame. On Education installations this includes students' activity. The log isn't a record of every request. Audit entries are stored on your server and follow your retention settings; if SIEM streaming is enabled, copies are sent to the configured destination. When a user is erased, ODIN removes their name and IP address from their audit entries, including SSO sign-ins. The entries themselves remain, with what was done, and SSO sign-in entries keep the user's ID number.
 
 ---
 
@@ -195,14 +201,14 @@ For personal data that Sublab 3DP holds directly (license information, support i
 - **Object:** Object to processing based on legitimate interest
 - **Withdraw consent:** Where processing is based on consent
 
-To exercise any of these rights, contact us at **sublab3dp@gmail.com**. We will respond within 30 days.
+To exercise any of these rights, contact us at **support@runsodin.com**. We will respond within 30 days.
 
 ### 5.2 Rights Regarding Data on Your Instance
 
 For data stored on your O.D.I.N. instance, you have full control. You can:
 
-- Export all data at any time (database backups, CSV exports, GDPR data export)
-- Delete any data at any time
+- Back up the database and export supported records through CSV and GDPR exports; preserve required files separately
+- Delete eligible data or anonymize supported identifiers, subject to retention controls and the exclusions described in Section 6.2
 - Uninstall the Software and retain your database
 - Anonymize user records (all tiers)
 
@@ -225,7 +231,7 @@ O.D.I.N. is not directed at children under 13. We do not knowingly collect perso
 When O.D.I.N. is used in educational settings (K-12 schools) under the Education Tier:
 
 - The school or educational institution acts as the data controller and provides consent on behalf of students under COPPA
-- Student data is stored entirely on the school's own infrastructure — Sublab 3DP does not receive or process student data
+- Student records are stored in the school’s deployment; enabled integrations and push services may receive copies of selected data
 - The school is responsible for obtaining appropriate parental consent where required by COPPA or applicable state law
 - Student accounts within O.D.I.N. are managed by the school's administrators
 
@@ -246,7 +252,7 @@ By default, O.D.I.N. runs on the school's own infrastructure and stores student 
 
 ### 7.1 Self-Hosted Software
 
-Because O.D.I.N. runs on your infrastructure, no international data transfer occurs as a result of using the Software. Your data remains wherever you deploy it.
+Local operation keeps data where you deploy O.D.I.N.; license actions, enabled integrations, push and browser requests described in Section 2.6 may involve international transfers.
 
 ### 7.2 License and Support Data
 
@@ -294,7 +300,7 @@ We strongly recommend:
 | Data Type | Retention Period |
 |-----------|-----------------|
 | License records | Duration of license + 7 years |
-| Pending Pro trial requests (email, email hash, installation ID, device key, IP) | No more than 48 hours |
+| Pending Pro trial requests (email, email hash, installation ID, device key, IP, optional "how did you hear" answer) | No more than 48 hours |
 | Pro trial records (email hash, installation ID, device key fingerprint) | As long as needed to enforce one trial per installation and email |
 | IP address on a Pro trial record | 90 days |
 | Support correspondence | 3 years after last interaction |
@@ -308,13 +314,16 @@ You control retention for all data on your O.D.I.N. instance. The Software inclu
 - Telemetry snapshots: 90 days
 - HMS error history: 90 days
 - AMS environment data: 90 days
-- Audit logs, jobs, and other records: indefinite (until you delete them)
+- Audit logs: 365 days, applied by manual cleanup
+- Alert history: 90 days, applied by manual cleanup
+- Completed jobs: no age-based cleanup by default
+- Timelapses: a 30-day TTL is configured, but age-based timelapse cleanup is not applied in this release
 
 ---
 
 ## 10. Third-Party Services
 
-The O.D.I.N. software does not include third-party analytics, advertising, or tracking services. The only third-party connections are those you configure:
+The O.D.I.N. software does not include third-party analytics, advertising, or tracking services. Third-party connections are described in Section 2.6. Examples of configured or local connections include:
 
 - Printer protocols (connections to your printers)
 - Notification channels (SMTP, Discord, Slack, Telegram, ntfy — only if configured by you)
@@ -341,6 +350,6 @@ For privacy-related questions, data subject requests, or concerns:
 
 **JLLS Holdings LLC, d/b/a SubLab 3DP**
 Shane Smith, Principal
-Email: sublab3dp@gmail.com
+Email: support@runsodin.com
 
 We aim to respond to all privacy inquiries within 30 days.

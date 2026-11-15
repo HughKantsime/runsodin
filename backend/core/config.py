@@ -18,6 +18,11 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./odin.db"
+    # PostgreSQL maintenance URL (backup validation and restore). The backup and restore
+    # code reads DATABASE_MAINTENANCE_URL from the environment itself; it is loaded here
+    # as well, by the same rules as database_url (.env file, any letter case), so that ITAR
+    # mode's webhook port exclusion sees every value those tools can be given.
+    database_maintenance_url: Optional[str] = None
 
     # Spoolman integration (optional)
     spoolman_url: Optional[str] = None

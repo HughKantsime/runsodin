@@ -3,7 +3,7 @@ import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import { displayName } from '../../utils/displayName'
 import { Thermometer, Wind, Activity } from 'lucide-react'
-import { slotFullName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
+import { classicSlotAppearance, slotFullName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
 import { SpoolRing } from '../ui'
 import PrintProgress from './PrintProgress'
 
@@ -91,10 +91,13 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] mb-3">Filament</h3>
       <div className="space-y-2">
-        {slots.map((slot: any, idx: number) => (
+        {slots.map((slot: any, idx: number) => {
+          const appearance = classicSlotAppearance(slot)
+          const name = slotFullName(slot) === 'Empty' && !appearance.empty ? 'Material unknown' : slotFullName(slot)
+          return (
           <div key={idx} className="flex items-center gap-3">
-            <SpoolRing color={slot.color_hex ? `#${slot.color_hex}` : slot.color} material={slot.material_type || slot.type} level={slot.remaining ?? null} empty={!slot.color} size={20} />
-            <span title={slotFullName(slot)} className="text-sm text-[var(--brand-text-secondary)] flex-1 min-w-0 truncate">{slotFullName(slot)}</span>
+            <SpoolRing color={appearance.color} material={slot.material_type || slot.type} level={slot.remaining ?? null} empty={appearance.empty} size={20} />
+            <span title={name} className="text-sm text-[var(--brand-text-secondary)] flex-1 min-w-0 break-words">{name}</span>
             {slot.remaining == null && <span className="text-xs text-[var(--brand-text-muted)]">{slot.assigned_spool_id != null && slot.remaining_weight == null ? 'Not measured on this printer model' : 'Remaining unknown'}</span>}
             {slot.spool_change_pending && <a href="/printers" className="text-xs text-amber-400">Spool may have changed? Confirm on Printers</a>}
             {slot.remaining_weight != null && (
@@ -103,7 +106,7 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
               </PrinterNumber>
             )}
           </div>
-        ))}
+        )})}
       </div>
     </div>
   )

@@ -76,17 +76,88 @@ def _validate_webhook_url(url: str) -> None:
     if any(host.startswith(p) for p in _BLOCKED_HOSTNAME_PREFIXES):
         raise HTTPException(status_code=400, detail="Webhook URL targets a blocked host")
 
+    from core.itar import is_itar_mode
+    if is_itar_mode():
+        # The only webhook ITAR mode can send goes to the local network, so a literal
+        # local-network address is accepted here and a literal public one is refused.
+        try:
+            literal = str(ipaddress.ip_address(host))
+        except ValueError:
+            return  # a name: checked, and pinned, when the webhook is sent
+        if _itar_webhook_refusal(literal):
+            raise HTTPException(
+                status_code=400,
+                detail="ITAR mode is on: a webhook address must be on the local network")
+        return
+
     if _is_disallowed_address(host):
         raise HTTPException(status_code=400, detail="Webhook URL targets a blocked host")
 
 
-def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
+def _itar_webhook_refusal(ip_str: str):
+    """Why ITAR mode refuses a webhook to this address, or None when it is allowed.
+
+    Under ITAR mode the only webhook ODIN may send goes to the local network, so the
+    public-only SSRF rule cannot apply as written. What is kept of it: loopback,
+    link-local (cloud metadata), unspecified and multicast addresses, ODIN's own
+    service ports, and the port of its configured go2rtc API and PostgreSQL server on
+    any host (see _is_odin_service), stay refused. What is left is RFC 1918 and IPv6 unique-local space.
+    """
+    from core.itar import is_private_destination
+    if not is_private_destination(ip_str.split("%", 1)[0]):
+        return "ODIN_ITAR_MODE=1 refused outbound request: the address is outside the local network"
+    if is_blocked_device_address(ip_str):
+        return "the address is loopback, link-local or otherwise reserved"
+    return None
+
+
+def _plain_address(value):
+    """An ip_address with an IPv4 address carried inside IPv6 (mapped, compatible, NAT64)
+    reduced to that IPv4 address, so both spellings of one host compare equal."""
+    addr = value if isinstance(value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) \
+        else ipaddress.ip_address(str(value).split("%", 1)[0])
+    return _embedded_ipv4(addr) or addr
+
+
+def _is_odin_service(ip_str: str, port: int) -> bool:
+    """ITAR mode permits a webhook to the local network, which is where ODIN's own services
+    are. Refused: the port of the configured PostgreSQL server or go2rtc API on ANY host
+    (configured_service_ports: no lookup, so nothing can disagree with the pinned answer),
+    and ODIN's fixed service ports on its own addresses, compared in one spelling."""
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return True
+    if port in configured_service_ports():
+        return True
+    if port not in own_service_ports():
+        return False
+    try:
+        address = _plain_address(ip_str)
+    except ValueError:
+        return True
+    return address in {_plain_address(own) for own in own_interface_addresses()}
+
+
+def _resolve_and_pin(url: str, local_only: bool = False) -> tuple[list[str], int, str, str]:
     """Resolve the URL's hostname, validate every returned address, and
     return the tuple needed to pin the upcoming connection:
         (validated_ips, port, original_hostname, scheme)
 
     Return all validated IPs in resolver order for dual-stack fallback.
+
+    The name is looked up ONCE and one rule is applied to that one answer. By default
+    every address must be public (SSRF). With `local_only` (safe_post and trusted_post
+    pass it under ITAR mode) every address must be on the local network instead (see
+    _itar_webhook_refusal). The caller pins the connection to the returned addresses, so
+    no later answer can replace them.
     """
+    itar = local_only
+
+    def refusal(ip_str):
+        if itar:
+            return _itar_webhook_refusal(ip_str)
+        return "private/reserved" if _is_disallowed_address(ip_str) else None
     if not url:
         raise WebhookSSRFError("Empty webhook URL")
     parsed = urllib.parse.urlparse(url)
@@ -100,14 +171,18 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
     # Literal IP path
     try:
         addr = ipaddress.ip_address(host)
+    except ValueError:
+        addr = None  # hostname
+    if addr is not None:
         ip_str = str(addr)
-        if _is_disallowed_address(ip_str):
+        if itar and (_itar_webhook_refusal(ip_str) or _is_odin_service(ip_str, port)):
+            reason = _itar_webhook_refusal(ip_str) or "it is one of ODIN's own services"
+            raise WebhookSSRFError(f"Webhook URL {host} refused: {reason}")
+        if not itar and _is_disallowed_address(ip_str):
             raise WebhookSSRFError(
                 f"Webhook URL targets a private/reserved address: {host}"
             )
         return [ip_str], port, host, parsed.scheme
-    except ValueError:
-        pass  # hostname
 
     # Hostname path: resolve, reject if ANY resolved address is private.
     try:
@@ -121,11 +196,18 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
     disallowed: list[str] = []
     for _fam, _type, _proto, _canon, sockaddr in infos:
         ip_str = sockaddr[0]
-        if _is_disallowed_address(ip_str):
+        if refusal(ip_str) or (itar and _is_odin_service(ip_str, port)):
             disallowed.append(ip_str)
         elif ip_str not in seen:
             validated.append(ip_str)
             seen.add(ip_str)
+    if disallowed and itar:
+        # Same all-or-nothing rule: one address outside the local network (or one of the
+        # reserved kinds) refuses the whole answer.
+        raise WebhookSSRFError(
+            f"ODIN_ITAR_MODE=1 refused outbound request: webhook hostname {host!r} resolves "
+            f"to address(es) {disallowed} that are outside the local network or reserved"
+        )
     if disallowed:
         # All-or-nothing: any private resolution is a refusal. Don't fall
         # back to "use the public ones and ignore the private ones" —
@@ -235,9 +317,10 @@ def safe_post(url: str, **kwargs):
     trust_env=False prevents a proxy from doing a second, unpinned lookup.
     Context-local pins let concurrent dispatches proceed independently.
 
-    v1.8.9: when `ODIN_ITAR_MODE=1`, refuses public destinations at
-    call time (before DNS pinning). Private destinations (internal
-    webhooks to logging / ticketing systems) are still allowed.
+    When `ODIN_ITAR_MODE=1` the rule applied to that same single answer is the
+    opposite one: every address must be on the local network (RFC 1918 or IPv6
+    unique-local; not loopback, link-local or one of ODIN's own service ports).
+    Internal webhooks to logging / ticketing systems are the only kind allowed.
 
     For HARDCODED third-party APIs (Telegram bot API, Pushover, WhatsApp
     Graph API) use trusted_post() instead — those targets are not user-
@@ -248,14 +331,11 @@ def safe_post(url: str, **kwargs):
     httpx.HTTPError unchanged.
     """
     import httpx as _httpx
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    from core.itar import is_itar_mode
 
-    try:
-        enforce_request_destination(url)
-    except ItarOutboundBlocked as exc:
-        raise WebhookSSRFError(str(exc)) from exc
-
-    validated_ips, port, hostname, _scheme = _resolve_and_pin(url)
+    # One lookup. _resolve_and_pin applies the ITAR rule or the SSRF rule to that one
+    # answer; a separate ITAR lookup before it let a second, different answer be pinned.
+    validated_ips, port, hostname, _scheme = _resolve_and_pin(url, local_only=is_itar_mode())
     timeout = kwargs.pop("timeout", 10)
     with _pin_dns(hostname, port, validated_ips):
         with _httpx.Client(trust_env=False, timeout=timeout) as client:
@@ -291,12 +371,7 @@ def trusted_post(url: str, **kwargs):
     for ITAR notifications.
     """
     import httpx as _httpx
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
-
-    try:
-        enforce_request_destination(url)
-    except ItarOutboundBlocked as exc:
-        raise WebhookSSRFError(str(exc)) from exc
+    from core.itar import is_itar_mode
 
     parsed = urllib.parse.urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -313,6 +388,14 @@ def trusted_post(url: str, **kwargs):
         )
 
     timeout = kwargs.pop("timeout", 10)
+    if is_itar_mode():
+        # These hosts are public, so this is refused unless the name answers with local
+        # addresses only (an internal relay). One lookup, checked, and the connection is
+        # pinned to it with no proxy: a later public answer is never used.
+        validated_ips, port, hostname, _scheme = _resolve_and_pin(url, local_only=True)
+        with _pin_dns(hostname, port, validated_ips):
+            with _httpx.Client(trust_env=False, timeout=timeout) as client:
+                return client.post(url, **kwargs)
     # No DNS pin, no trust_env override — these are trusted targets whose
     # hostnames we own at compile time. Egress proxy is honored.
     return _httpx.post(url, timeout=timeout, **kwargs)
@@ -336,6 +419,13 @@ def resolve_and_check_webhook_url(url: str) -> str:
     host = parsed.hostname
     if not host:
         raise WebhookSSRFError(f"Webhook URL has no hostname: {url!r}")
+
+    from core.itar import is_itar_mode
+    if is_itar_mode():
+        # No lookup here under ITAR mode: safe_post does the one lookup, applies the
+        # local-network rule to it and pins the connection. The public-only rule below
+        # would refuse every webhook ITAR mode permits.
+        return url
 
     # Literal IP — use the already-loaded address
     try:
@@ -554,6 +644,40 @@ def is_own_service_endpoint(ip, port) -> bool:
     return addr in own or (embedded is not None and embedded in own)
 
 
+def configured_service_ports() -> frozenset:
+    """The port numbers of the services this installation is configured to use, with no
+    lookup: the PostgreSQL server (the port in the database URL and the maintenance URL, or
+    5432) and the go2rtc API (the port in ODIN_GO2RTC_API_URL, or the scheme's own port, 80
+    or 443, when it names none: that is where the request goes).
+
+    The database URLs are read from core.config.settings, the object the engine is built
+    from, never from os.environ: the settings also come from a .env file and from variable
+    names in any letter case, which a look at os.environ["DATABASE_URL"] would miss.
+
+    Used for webhooks under ITAR mode, where the test is the port alone, on any host. A host
+    comparison would need a name lookup that can disagree with the one the webhook is
+    pinned to; a port needs none.
+    """
+    from core import config
+    ports = set()
+    go2rtc_url = (os.environ.get("ODIN_GO2RTC_API_URL") or "").strip()
+    if go2rtc_url:
+        try:
+            parsed = urllib.parse.urlsplit(go2rtc_url)
+            ports.add(parsed.port or (443 if parsed.scheme.lower() == "https" else 80))
+        except ValueError:
+            pass
+    for value in (config.settings.database_url, config.settings.database_maintenance_url):
+        value = str(value or "").strip()
+        if not value.lower().startswith(("postgresql", "postgres")):
+            continue
+        try:
+            ports.add(urllib.parse.urlsplit(value).port or 5432)
+        except ValueError:
+            ports.add(5432)
+    return frozenset(ports)
+
+
 def split_device_host(value: str):
     """Parse `host`, `host:port`, `[v6]`, `[v6]:port` or a bare IPv6 literal.
 
@@ -597,12 +721,33 @@ def normalize_device_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme.lower(), netloc, parsed.path, parsed.query, parsed.fragment))
 
 
+ITAR_DEVICE_REFUSAL = "ITAR mode blocks printer and device addresses outside the local network."
+
+
+def _refuse_public_device_addresses_under_itar(ips) -> None:
+    """ITAR mode: every address a device host resolved to must be on the local network.
+
+    The rule is core.itar.is_private_destination (the one the Moonraker, PrusaLink and
+    go2rtc guards use). One address outside it refuses the whole answer, so a name that
+    resolves to a local and a public address is refused. No-op with ITAR mode off.
+    """
+    from core.itar import is_itar_mode, is_private_destination
+    if not is_itar_mode():
+        return
+    for ip in ips:
+        if not is_private_destination(str(ip).split("%", 1)[0]):
+            raise DeviceDestinationBlocked(ITAR_DEVICE_REFUSAL)
+
+
 def device_destination_ips(host: str, port=None) -> list:
     """Resolve a device host and return its validated addresses.
 
     `host` may carry a port (see split_device_host). Raises
     DeviceDestinationBlocked if it cannot be resolved or ANY resolved
-    address is blocked.
+    address is blocked. Under ITAR mode every address must also be on the
+    local network. Every device client gets its address here (directly, or
+    through pinned_device_destination, device_request, device_urlopen and
+    device_connect_ip), so this is the one place that rule is enforced.
     """
     hostname, parsed_port = split_device_host(host)
     try:
@@ -627,6 +772,7 @@ def device_destination_ips(host: str, port=None) -> list:
             ips.append(ip)
     if not ips:
         raise DeviceHostUnresolved(f"Host {hostname!r} returned no addresses")
+    _refuse_public_device_addresses_under_itar(ips)
     return ips
 
 

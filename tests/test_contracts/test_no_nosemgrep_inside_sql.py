@@ -32,6 +32,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_scheduler_selected_payload_sql_keeps_its_audit_triage():
+    source = (REPO_ROOT / 'backend/modules/jobs/scheduler_planning.py').read_text()
+    lines = source.splitlines()
+    calls = [node for node in ast.walk(ast.parse(source))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+             and node.func.id == 'text' and node.args
+             and isinstance(node.args[0], ast.JoinedStr)
+             and 'SELECTED_PRINT_FILE_JOIN_SQL' in ast.unparse(node.args[0])]
+    assert len(calls) == 1
+    call = calls[0]
+    assert ('# nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text'
+            in lines[call.lineno - 2])
+    assert '# nosemgrep' not in ast.unparse(call.args[0])
+
+
 def _string_value(node: ast.AST) -> str | None:
     """Return the literal/joined string content of a string-like node, or
     None if it can't be statically resolved."""

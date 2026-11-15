@@ -97,10 +97,13 @@ test('F20-20.1-04 Pro license mounts the Pro Access sections', async () => {
  expect(screen.getByText('OIDC boundary')).toBeInTheDocument()
  expect(screen.getByText('MFA boundary')).toBeInTheDocument()
 })
-test('F16-16.7-01 Advanced exposes the nine documented tabs', async () => {
+test.each(['advanced', 'simple'])('F16-16.7-01 %s exposes the tabs documented in FEATURES.md §16.7', async mode => {
+ api.mode = mode
  mount()
- await screen.findByRole('button',{name:'Vigil AI',exact:true})
+ if (mode === 'advanced') await screen.findByRole('button',{name:'Vigil AI',exact:true})
  // TabBar is the first direct flex group; isolate navigation from form controls.
  const general = screen.getByRole('button',{name:'General',exact:true})
- expect(general.parentElement?.querySelectorAll('button')).toHaveLength(9)
+ const expected = ['General', 'Filaments', 'Notifications', 'Access', 'Integrations',
+  ...(mode === 'advanced' ? ['Vigil AI'] : []), 'Branding', 'License', 'System', 'Logs']
+ await waitFor(() => expect(Array.from(general.parentElement!.querySelectorAll('button'), button => button.textContent)).toEqual(expected))
 })

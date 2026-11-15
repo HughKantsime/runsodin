@@ -269,11 +269,12 @@ def experimental_refusal(db, printer_id, api_type):
     return _refusal(db, printer_id, api_type)
 
 
-def printer_wait_states(db, printers, now):
+def printer_wait_states(db, printers, now, actor):
     """Why work assigned to these printers is not starting, in one read however many printers.
 
     {printer id: ('offline' | 'busy', the running print's estimated end or None)}; an idle
     printer is absent. Online and printing follow the Home Assistant status rules.
+    Estimates from a linked job are withheld unless the caller may see that job.
     """
     from datetime import timedelta
     from sqlalchemy import bindparam
@@ -288,9 +289,16 @@ def printer_wait_states(db, printers, now):
             if state in PRINTING_STATES:  # a paused print's remaining time says nothing about its end
                 printing.append(printer.id)
     if printing:
-        rows = db.execute(text("SELECT printer_id, remaining_minutes FROM print_jobs WHERE status = 'running' "
-                               "AND printer_id IN :ids ORDER BY started_at DESC, id DESC")
-                          .bindparams(bindparam("ids", expanding=True)), {"ids": printing}).all()
+        from core.rbac import get_org_scope
+        from modules.printers.integration_floor import visible_clauses
+        clauses, params = visible_clauses(actor, get_org_scope(actor), controlled=True)
+        # Keep the latest print even when hidden: an older visible print is not an ETA fallback.
+        sql = ("SELECT p.printer_id, CASE WHEN p.scheduled_job_id IS NULL OR EXISTS "
+               "(SELECT 1 FROM jobs WHERE jobs.id = p.scheduled_job_id AND " + " AND ".join(clauses) + ") THEN p.remaining_minutes END "
+               "FROM print_jobs p WHERE p.status = 'running' AND p.printer_id IN :ids "
+               "ORDER BY p.started_at DESC, p.id DESC")
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- source-owned visibility predicates; every value is bound
+        rows = db.execute(text(sql).bindparams(bindparam("ids", expanding=True)), {**params, "ids": printing}).all()
         seen = set()
         for printer_id, remaining in rows:
             if printer_id in seen:
@@ -305,9 +313,37 @@ def printer_wait_states(db, printers, now):
     return states
 
 
-def latest_gate_refusals(db, job_ids):
-    """{job id: (code, plain words)} where the job's latest dispatch event is a gate refusal (one read)."""
-    from modules.printers.integration_floor import _refusals, refusal_words
+def latest_gate_refusals(db, job_ids, actor):
+    """Latest refusal per job; detail requires access to the attempted printer (one read).
+
+    Unlike the print-floor helper, retain the last attempt even after reassignment.
+    A missing/deleted printer gives no authority to describe that attempt.
+    """
+    from sqlalchemy import bindparam
+    from core.printer_display_facts import may_read
+    from core.rbac import check_org_access
+    from modules.printers.integration_floor import refusal_words
     if not job_ids:
         return {}
-    return {job_id: (str(code or "").upper(), refusal_words(code)) for job_id, (code, _at) in _refusals(db, job_ids).items()}
+    rows = db.execute(text(
+        "SELECT t.job_id, t.kind, t.code, p.id, p.org_id, p.shared FROM job_timeline_events t "
+        "LEFT JOIN printers p ON p.id = t.printer_id "
+        "WHERE t.job_id IN :ids AND t.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed') "
+        "AND t.occurred_at = (SELECT MAX(u.occurred_at) FROM job_timeline_events u "
+        "WHERE u.job_id = t.job_id AND u.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed')) "
+        "ORDER BY t.id"
+    ).bindparams(bindparam("ids", expanding=True)), {"ids": list(job_ids)})
+    found = {}
+    cleared, hidden = set(), set()
+    # UUIDs only stabilize wording among tied refusals; they do not order attempts.
+    # A tied dispatch clears the refusal, and every tied printer must be visible.
+    for job_id, kind, code, printer_id, org_id, shared in rows:
+        if kind == "gate_refused":
+            visible = printer_id is not None and may_read(actor, "printers") and (check_org_access(actor, org_id) or shared)
+            if not visible:
+                hidden.add(job_id)
+            found[job_id] = (str(code or "").upper(), refusal_words(code) if visible else None)
+        else:
+            cleared.add(job_id)
+    return {job_id: (code, None if job_id in hidden else detail)
+            for job_id, (code, detail) in found.items() if job_id not in cleared}

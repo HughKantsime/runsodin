@@ -379,6 +379,7 @@ POST027_MIGRATIONS = (
     ("python:057-slot-feed-policy", "core.schema.migrations.057_slot_feed_policy"),
     ("python:058-filament-catalogue", "core.schema.migrations.058_filament_catalogue"),
     ("python:059-six-materials", "core.schema.migrations.059_six_materials"),
+    ("python:060-print-files-stored-path-index", "core.schema.migrations.060_print_files_stored_path_index"),
 )
 
 
@@ -645,7 +646,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -684,7 +685,7 @@ def _bootstrap_database_contract(
             applied.append("python:052-traceability")
         # Keep the release tail ordered after Education rebuilds and identity guards.
         for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
-            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials"} and apply_python_migration(connection, module_name):
+            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index"} and apply_python_migration(connection, module_name):
                 applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")

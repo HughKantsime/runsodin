@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { jobCompletion } from '../../api/jobCompletion'
@@ -26,7 +27,7 @@ export default function StartNextPanel({ printerId, active = true, children }: {
   }
   return <>
       {next&&<p>Next: {next.job_id?`job ${next.job_id} · `:''}{next.reason} · {next.filament.replace(/_/g,' ')}</p>}
-      {next?.load?.map((v,i)=><p key={i}>Load {v.material} {v.color} in slot {v.slot}</p>)}
+      {next?.load?.map((v,i)=><p key={i}>Load {materialLabel(v.material)} {v.color} in slot {v.slot}</p>)}
     {children}
       {canDo('jobs.start')&&next?.job_id&&<div className="space-y-2">
         <label className="flex gap-2"><input type="checkbox" checked={!!confirmed&&confirmed===next.fingerprint} disabled={busy} onChange={e=>setConfirmed(e.target.checked?next.fingerprint:null)}/>{ownerInApp?'I checked the printer and cleared the bed.':'The owner confirmed to me that the printer is checked and the bed is clear.'}</label>

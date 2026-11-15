@@ -75,11 +75,11 @@ def _check_rate_limit(db: Session, ip: str) -> bool:
 
 
 def _record_login_attempt(db: Session, ip: str, username: str, success: bool) -> bool:
-    """Confirm atomic attempt/audit persistence before login can continue.
+    """Persist failures atomically; stage successes for the caller's audit commit.
 
     One audit row per outcome. A failure writes its row (auth.login_failed)
     here, in the attempt's own transaction. A success writes none here: the
-    caller writes the identified row once it knows how the sign-in ended
+    caller commits the attempt with the identified row once sign-in ends
     (auth.login, or _record_password_accepted when a second step follows).
     """
     try:
@@ -89,9 +89,10 @@ def _record_login_attempt(db: Session, ip: str, username: str, success: bool) ->
             {"ip": ip, "username": username, "attempted_at": _time.time(),
              "success": 1 if success else 0},
         )
-        if not success:
-            from core.audit import log_audit
-            log_audit(db, "auth.login_failed", "user", details={"username": username}, ip=ip)
+        if success:
+            return True
+        from core.audit import log_audit
+        log_audit(db, "auth.login_failed", "user", details={"username": username}, ip=ip)
         db.commit()
     except Exception:
         try:
@@ -101,7 +102,12 @@ def _record_login_attempt(db: Session, ip: str, username: str, success: bool) ->
         log.warning("Login accounting could not be confirmed")
         return False
 
-    # Cleanup cannot invalidate an already confirmed security record.
+    _cleanup_login_attempts(db)
+    return True
+
+
+def _cleanup_login_attempts(db: Session) -> None:
+    """Best-effort cleanup after the attempt and its audit have committed."""
     global _last_login_cleanup
     now = _time.time()
     if now - _last_login_cleanup > 3600:
@@ -116,7 +122,6 @@ def _record_login_attempt(db: Session, ip: str, username: str, success: bool) ->
             except Exception:
                 pass
             log.debug("Login attempt cleanup failed")
-    return True
 
 
 def _record_password_accepted(db: Session, ip: str, username: str) -> bool:
@@ -134,6 +139,7 @@ def _record_password_accepted(db: Session, ip: str, username: str) -> bool:
             ip_address=ip,
         ))
         db.commit()
+        _cleanup_login_attempts(db)
         return True
     except Exception:
         try:

@@ -88,6 +88,33 @@ def test_live_routes_recipe_inspection_and_prepared_square_request(batch):
     assert db.execute(text('SELECT COUNT(*) FROM production_stock_additions')).scalar()==1
 
 
+@pytest.mark.parametrize('path', ['/products/production', '/products/production/history'])
+def test_display_readers_use_column_ids_and_keep_prepared_additions(batch, path):
+    from sqlalchemy import update
+    from modules.orders import batch_production as batches
+    client, user, _, db, *_ = batch
+    recipe = make_recipe(batch)
+    response = client.post('/products/production/inspections', json=body(batch, recipe))
+    assert response.status_code == 200, response.text
+    receipt = response.json()
+    addition = client.get('/products/production').json()['additions'][0]
+    raw = db.execute(select(batches.receipts.c.definition)).scalar_one()
+    db.execute(update(batches.receipts).values(definition=batches.packed(
+        {**json.loads(raw), 'id': 'f' * 32, 'recipe_id': 'e' * 32})))
+    raw = db.execute(select(batches.recipes.c.definition)).scalar_one()
+    db.execute(update(batches.recipes).values(definition=batches.packed({**json.loads(raw), 'id': 'e' * 32})))
+    db.commit()
+    user['role'] = 'viewer'
+    response = client.get(path)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result['receipts'] == [receipt]
+    assert result['additions'] == [addition] and addition['state'] == 'prepared'
+    if 'recipes' in result:
+        assert result['recipes'] == [recipe]
+    assert batches.recipe(db, 1, recipe['id']) == recipe
+
+
 @pytest.mark.parametrize('change',[
     {'inspection_confirmed':False},
     {'outputs':[{'product_id':101,'kind':'main','accepted':5,'rejected':1}]},

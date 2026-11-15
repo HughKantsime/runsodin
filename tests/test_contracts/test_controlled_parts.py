@@ -121,6 +121,60 @@ def test_sql_and_runtime_share_job_mark_inheritance(database, tier_license):
     assert database.execute(text('SELECT id FROM jobs WHERE ' + condition), params).scalars().all() == [2]
 
 
+@pytest.mark.parametrize('owner', [0, 1])
+def test_owner_gate_agrees_with_item_rules_for_mixed_ownership_and_orphans(database, owner):
+    from core.controlled_parts import owner_audiences
+    from modules.orders.replenishment import full_view
+    db = database
+    db.execute(text("UPDATE print_files SET stored_path='shared.gcode',org_id=:owner WHERE id=1"), {'owner': owner or None})
+    db.execute(text('UPDATE jobs SET charged_to_org_id=:owner WHERE id=1'), {'owner': owner or None})
+    db.execute(text("INSERT INTO print_files(id,filename,stored_path,org_id) VALUES "
+                    "(3,'foreign','shared.gcode',2),(4,'ownerless','shared.gcode',NULL),"
+                    "(5,'foreign job file','shared.gcode',2),(6,'ownerless job file','shared.gcode',NULL),"
+                    "(7,'unrelated','other.gcode',2),(8,'selected foreign','selected.gcode',2)"))
+    db.execute(text("INSERT INTO jobs(id,item_name,print_file_id,status,charged_to_org_id) VALUES "
+                    "(3,'Foreign',5,'pending',2),(4,'Ownerless',6,'pending',NULL),"
+                    "(7,'Unrelated',7,'pending',2),(8,'Owned with foreign file',8,'pending',:owner)"), {'owner': owner or None})
+    db.execute(text('INSERT INTO controlled_audiences(id,name) VALUES(:id,:name)'),
+               [{'id': i, 'name': f'Audience {i}'} for i in range(3, 13)])
+    db.commit()
+    # Retained orphan marks from older databases must also keep the gate closed.
+    db.execute(text('PRAGMA foreign_keys=OFF'))
+    for table, column, marks in (
+        ('controlled_files', 'file_id', [(1, 1), (3, 3), (4, 4), (999, 7), (8, 10), (7, 11)]),
+        ('controlled_jobs', 'job_id', [(1, 2), (3, 5), (4, 6), (999, 8), (7, 12)]),
+    ):
+        db.execute(text(f"INSERT INTO {table}({column},label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                        "VALUES(:id,'CUI',:audience,'Secure',7,'test','2026-11-01')"),
+                   [{'id': identifier, 'audience': audience} for identifier, audience in marks])
+    db.execute(text("INSERT INTO controlled_job_tombstones(job_id,audience_id,label,printer_tag,retention_days,"
+                    "marked_at,created_at,audit_max_id,rule_index) "
+                    "VALUES(998,9,'CUI','Secure',7,'2026-11-01','2026-11-01',0,0)"))
+    db.commit()
+    db.execute(text('PRAGMA foreign_keys=ON'))
+    assert set(owner_audiences(db, owner)) == set(range(1, 11))
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(:id,2)'),
+               [{'id': i} for i in range(1, 11)])
+    db.commit()
+    viewer = actor(2)  # Administrator without membership in the unrelated audiences.
+    assert full_view(db, owner, viewer)
+    resources = [('file', fid) for fid in db.execute(text('SELECT id FROM print_files WHERE COALESCE(org_id,0)=:owner'), {'owner': owner}).scalars()]
+    resources += [('job', jid) for jid in db.execute(text('SELECT id FROM jobs WHERE COALESCE(charged_to_org_id,0)=:owner'), {'owner': owner}).scalars()]
+    assert all(allowed(db, kind, identifier, viewer) for kind, identifier in resources)
+    for audience in range(1, 11):
+        db.execute(text('DELETE FROM controlled_audience_members WHERE user_id=2 AND audience_id=:id'), {'id': audience})
+        db.commit()
+        denied = [(kind, identifier) for kind, identifier in resources if not allowed(db, kind, identifier, viewer)]
+        if audience not in (7, 8, 9):
+            assert denied, audience
+        for kind, identifier in denied:
+            assert not full_view(db, owner, viewer), (audience, kind, identifier)
+        assert not full_view(db, owner, viewer)  # Orphans block even without a remaining resource.
+        db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(:id,2)'), {'id': audience})
+        db.commit()
+    assert full_view(db, owner, viewer)
+
+
 def test_file_preview_and_refusal_audit(database, tier_license):
     from core.model_preview_access import accessible_preview_file
     tier_license('enterprise')

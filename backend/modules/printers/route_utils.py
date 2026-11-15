@@ -59,12 +59,14 @@ def _check_ssrf_blocklist(host: str) -> None:
     loopback, link-local, unspecified, multicast, metadata and IPv4-mapped
     forms of those. Private LAN ranges are allowed. Resolver errors are 400.
     """
-    from core.webhook_utils import DeviceDestinationBlocked, device_destination_ips
+    from core.webhook_utils import DeviceDestinationBlocked, ITAR_DEVICE_REFUSAL, device_destination_ips
     try:
         device_destination_ips(host)
     except DeviceDestinationBlocked as exc:
+        # Under ITAR mode say why; every other refusal keeps the generic message.
         # `from exc`: the connection test reads __cause__ to say why (blocked vs. unresolved).
-        raise HTTPException(status_code=400, detail="Invalid printer host") from exc
+        detail = ITAR_DEVICE_REFUSAL if str(exc) == ITAR_DEVICE_REFUSAL else "Invalid printer host"
+        raise HTTPException(status_code=400, detail=detail) from exc
 
 def pinned_device_get(client, url: str, **kwargs):
     """GET a device URL through the destination policy, pinned to its validated address.
@@ -136,13 +138,16 @@ def go2rtc_stream_source(url, printer_id=None):
     """
     import urllib.parse
     from core.webhook_utils import DeviceDestinationBlocked, device_connect_ip
+    from modules.printers.camera_relay import RelayUrlRefused, relay_url
     if not isinstance(url, str) or not url.strip():
         return None
     if url == CHAMBER_CAMERA_SOURCE:
         if printer_id is None:
             return None
-        from modules.printers.camera_relay import relay_url
-        return relay_url(printer_id)
+        try:
+            return relay_url(printer_id)
+        except RelayUrlRefused:
+            return None  # ITAR mode: the relay address is not local; camera_relay logged why
     prefix, userinfo, rest = split_url_userinfo(url.strip())
     if prefix is not None and prefix[:-3].lower() in ("http", "https"):
         if printer_id is None:
@@ -153,8 +158,10 @@ def go2rtc_stream_source(url, printer_id=None):
         except (DeviceDestinationBlocked, ValueError):
             log.warning("Camera source host blocked by device policy; stream omitted")
             return None
-        from modules.printers.camera_relay import relay_url
-        return relay_url(printer_id)
+        try:
+            return relay_url(printer_id)
+        except RelayUrlRefused:
+            return None
     if prefix is None or prefix[:-3].lower() not in GO2RTC_RTSP_SCHEMES:
         return None
     scheme = prefix[:-3].lower()
@@ -218,8 +225,8 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
             continue
         streams[f"printer_{p.id}"] = source
         if source.startswith(("http://", "https://")):
-            from modules.printers.camera_relay import relay_url
-            streams[mjpeg_stream_name(p.id)] = relay_url(p.id)
+            # The relay URL go2rtc_stream_source returned: one check of the relay address.
+            streams[mjpeg_stream_name(p.id)] = source
         else:
             # go2rtc does not transcode H.264 for stream.mjpeg; an on-demand
             # ffmpeg variant (runs only while a consumer is attached) reads the
@@ -412,10 +419,9 @@ def _go2rtc_reload() -> bool:
     """Make go2rtc load the config file: supervisord beside the API, otherwise go2rtc's
     own POST /api/restart (reloads in place) with the credentials it is running with."""
     import subprocess
-    from modules.printers.go2rtc_access import (
-        go2rtc_api_url, go2rtc_is_remote, go2rtc_restart_credential_candidates,
-    )
-    if not go2rtc_is_remote():
+    from modules.printers.go2rtc_access import go2rtc_restart_credential_candidates, go2rtc_target
+    go2rtc = go2rtc_target()  # one address check; refused under ITAR mode if not local
+    if not go2rtc.remote:
         try:
             result = subprocess.run(['supervisorctl', 'restart', 'go2rtc'], capture_output=True, timeout=5)
             return result.returncode == 0
@@ -424,7 +430,7 @@ def _go2rtc_reload() -> bool:
     import httpx
     for auth in go2rtc_restart_credential_candidates():
         try:
-            response = httpx.post(f"{go2rtc_api_url()}/api/restart", auth=auth, timeout=5)
+            response = httpx.post(f"{go2rtc.url}/api/restart", **{**go2rtc.client_kwargs, "auth": auth}, timeout=5)
         except httpx.HTTPError:
             return False
         if response.status_code == 200:

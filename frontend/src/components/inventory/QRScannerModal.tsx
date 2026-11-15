@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import jsQR from 'jsqr';
@@ -288,7 +289,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
                 <div>
                   <div className="font-medium">{spoolData.filament_name}{spoolData.filament_color_hex && <span className="text-[var(--brand-text-muted)] ml-2">({getColorName(spoolData.filament_color_hex)})</span>}</div>
                   <div className="text-sm text-[var(--brand-text-muted)]">
-                    {spoolData.filament_brand} {spoolData.filament_material} • {spoolData.remaining_weight_g ?? spoolData.initial_weight_g}g
+                    {spoolData.filament_brand} {spoolData.filament_material && materialLabel(spoolData.filament_material)} • {spoolData.remaining_weight_g ?? spoolData.initial_weight_g}g
                   </div>
                 </div>
               </div>
@@ -319,7 +320,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
                 <label className="block text-sm text-[var(--brand-text-muted)] mb-2">Select slot:</label>
                 <div className="grid grid-cols-4 gap-2">
                   {foundry ? (selectedPrinterData.filament_slots || []).map(slot => <button type="button" key={slot.slot_number} className="f-slot-button" aria-pressed={selectedSlot === slot.slot_number} onClick={() => setSelectedSlot(slot.slot_number)}>
-                    <SlotTile slot={slot} apiType={selectedPrinterData.api_type} />
+                    <SlotTile expandable={false} slot={slot} apiType={selectedPrinterData.api_type} />
                   </button>) : (Array.from({ length: selectedPrinterData.slot_count || 4 }, (_, i) => (
                     <button
                       key={i}

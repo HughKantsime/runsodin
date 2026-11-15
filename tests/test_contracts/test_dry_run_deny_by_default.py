@@ -44,6 +44,7 @@ from core.middleware.dry_run import (  # noqa: E402
     dry_run_preview,
     is_dry_run,
 )
+from tests.test_contracts.test_education_review_workflow import review_db
 
 
 @pytest.fixture(autouse=True)
@@ -263,3 +264,70 @@ class TestHeaderParsing:
                 "/api/v1/alerts/5/read", headers={"X-Dry-Run": value}
             )
             assert r.status_code == 200, f"{value!r} should be parsed as falsy"
+
+
+def test_all_supported_routes_mount_the_same_handler_under_both_prefixes():
+    import importlib
+    from core.registry import ModuleRegistry
+
+    app = FastAPI()
+    registry = ModuleRegistry()
+    for name in ('printers', 'notifications', 'system', 'jobs', 'models_library', 'inventory'):
+        importlib.import_module('modules.' + name).register(app, registry)
+    for method, path in dry_run_mod.DRY_RUN_SUPPORTED_ROUTES:
+        alias = '/api/' + path.removeprefix('/api/v1/')
+        handlers = [next(r.endpoint for r in app.routes
+                         if r.path == candidate and method in getattr(r, 'methods', ()))
+                    for candidate in (path, alias)]
+        assert handlers[0] is handlers[1], path
+
+
+@pytest.mark.parametrize('prefix', ['/api', '/api/v1'])
+def test_cancel_preview_reaches_real_handler_without_writes(review_db, monkeypatch, prefix):
+    from sqlalchemy import text
+    from core.db import get_db
+    from core.dependencies import get_current_user
+    from core.registry import registry
+    from modules.jobs.routes.jobs_agent import router
+    from modules.organizations.services import EducationPolicyService
+
+    monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
+    review_db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,is_locked) VALUES(990060,'Preview job','pending',1,false)"))
+    review_db.commit()
+    app = FastAPI()
+    app.middleware('http')(dry_run_middleware)
+    app.include_router(router, prefix='/api')
+    app.include_router(router, prefix='/api/v1')
+    app.dependency_overrides[get_db] = lambda: review_db
+    app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'admin', 'group_id': 1}
+    connection = review_db.connection().connection.driver_connection
+    before = connection.total_changes
+    with TestClient(app) as client:
+        response = client.post(prefix + '/jobs/990060/cancel', headers={'X-Dry-Run': 'true'})
+    assert response.status_code == 200, response.text
+    assert response.json()['dry_run'] is True
+    assert response.json()['would_execute']['action'] == 'cancel_job'
+    assert response.json()['would_execute']['job_id'] == 990060
+    assert response.json()['would_execute']['to_status'] == 'cancelled'
+    assert review_db.execute(text('SELECT status,is_locked FROM jobs WHERE id=990060')).one() == ('pending', False)
+    assert connection.total_changes == before
+
+
+@pytest.mark.parametrize('prefix', ['/api', '/api/v1'])
+@pytest.mark.parametrize('method,suffix', [
+    ('POST', '/jobs/42/unsupported'),
+    ('PATCH', '/jobs/42/cancel'),
+    ('POST', '/jobs/42/extra/cancel'),
+])
+def test_unlisted_route_or_method_still_refused(prefix, method, suffix):
+    app = FastAPI()
+    app.middleware('http')(dry_run_middleware)
+
+    @app.api_route(prefix + suffix, methods=[method])
+    def must_not_run():
+        pytest.fail('Unsupported dry run reached the handler')
+
+    with TestClient(app) as client:
+        response = client.request(method, prefix + suffix, headers={'X-Dry-Run': 'true'})
+    assert response.status_code == 501
+    assert response.json()['error']['code'] == 'dry_run_unsupported'

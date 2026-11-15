@@ -53,12 +53,12 @@ def printer_matches_sliced_model(printer, required_model):
     return _same_printer_model(_printer_identity(printer), required_model)
 
 
-def job_actual_costs(db, jobs, config):
+def job_actual_costs(db, jobs, config, user):
     """Service-layer entry for other modules (reporting): {job_id: cost_actual result} for jobs
     the caller has already been allowed to see, with a fixed number of statements per 500 jobs."""
     from modules.jobs.cost_actual import cost_actual, load_attempts
-    attempts = load_attempts(db, [job.id for job in jobs])
-    return {job.id: cost_actual(attempts[job.id], config) for job in jobs}
+    attempts = load_attempts(db, [job.id for job in jobs], user)
+    return {job.id: cost_actual(attempts[job.id], config, job.quantity_on_bed) for job in jobs}
 
 
 def annotate_print_failures(db, rows, *, archive=False, user=None):

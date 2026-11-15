@@ -8,14 +8,14 @@ import { jobCost, type JobCost as Cost } from '../../api/jobCost'
 vi.mock('../../api', () => ({ pricingConfig: { get: vi.fn() } }))
 vi.mock('../../api/jobCost', () => ({ jobCost: { get: vi.fn() } }))
 
-// The figures of tests/test_contracts/test_cost_actual.py job 801: failed 0.45 + success 2.70 + settings 5.25.
+// The figures of tests/test_contracts/test_cost_actual.py job 801: failed 0.45 + success 2.70 + settings 8.50.
 const complete: Cost = {
-  job_id: 801, configured: true, finished: true, state: 'complete', estimate: 7.5, difference: 0.9, pieces: 2, total: 8.4, unknown: [],
+  job_id: 801, configured: true, finished: true, state: 'complete', estimate: 7.5, difference: 4.15, pieces: 2, total: 11.65, unknown: [],
   material: { amount: 2.4, complete: true, spools: [
     { spool_id: 71, name: 'Acme Black PLA', grams: 60, amount: 1.2, provenance: 'measured' },
-    { spool_id: 72, name: null, grams: 30, amount: 1.2, provenance: 'sliced_estimate' }] },
+    { spool_id: 72, name: null, grams: 30, amount: 1.2, provenance: 'measured' }] },
   machine: { amount: 0.75, complete: true, hours: 3, rate_per_hour: 0.25, basis: 'current_rates' },
-  from_settings: { amount: 5.25, complete: true, basis: 'settings', labor: 4, packaging: 0.5, other: 0.25, overhead: 0.5 },
+  from_settings: { amount: 8.5, complete: true, basis: 'settings', labor: 6, packaging: 1, other: 0.5, overhead: 1 },
   failed_attempts: { amount: 0.45, complete: true, count: 1 },
   attempts: [
     { id: 9001, outcome: 'failed', hours: 1, material: 0.2, machine: 0.25, amount: 0.45, complete: true },
@@ -44,16 +44,16 @@ beforeEach(() => {
 it('shows estimate, actual and the difference, with the breakdown on click', async () => {
   mount()
   const panel = await screen.findByRole('region', { name: 'Print cost' })
-  expect(panel).toHaveTextContent('Estimate $7.50, actual $8.40')
-  expect(panel).toHaveTextContent('$0.90 more than the estimate')
+  expect(panel).toHaveTextContent('Estimate $7.50, actual $11.65')
+  expect(panel).toHaveTextContent('$4.15 more than the estimate')
   expect(panel).not.toHaveTextContent('Filament used')
   fireEvent.click(screen.getByRole('button', { name: 'Show breakdown' }))
   expect(panel).toHaveTextContent('Acme Black PLA (spool 71): 60 g, printer reading$1.20')
-  expect(panel).toHaveTextContent('Spool (spool 72): 30 g, from the sliced file$1.20')
+  expect(panel).toHaveTextContent('Spool (spool 72): 30 g, printer reading$1.20')
   expect(panel).toHaveTextContent('Machine time (recorded hours, at current rates)')
   expect(panel).toHaveTextContent('3 h at $0.25 per hour$0.75')
   expect(panel).toHaveTextContent('From settings (not measured, at current rates)')
-  expect(panel).toHaveTextContent('Labour$4.00')
+  expect(panel).toHaveTextContent('Labour$6.00')
   expect(panel).toHaveTextContent('Failed attempt, 1 h$0.45')
   expect(panel).toHaveTextContent(/failure allowance is not added/)
 })
@@ -112,7 +112,7 @@ it('in a row, loads the cost only when the Cost toggle is opened and shows the b
   fireEvent.click(toggle)
   const panel = await screen.findByRole('region', { name: 'Print cost' })
   expect(jobCost.get).toHaveBeenCalledWith(801)
-  expect(panel).toHaveTextContent('Estimate $7.50, actual $8.40')
+  expect(panel).toHaveTextContent('Estimate $7.50, actual $11.65')
   expect(panel).toHaveTextContent('Filament used (recorded)')
   fireEvent.click(screen.getByRole('button', { name: 'Hide cost' }))
   expect(screen.queryByRole('region', { name: 'Print cost' })).toBeNull()
@@ -127,4 +127,22 @@ it('in a row, stays hidden until the page says pricing is configured', () => {
   const { container } = mount({ compact: true, rowConfigured: false })
   expect(container).toBeEmptyDOMElement()
   expect(pricingConfig.get).not.toHaveBeenCalled()
+})
+
+
+it('explains that sliced quantities do not enter the actual lower bound', async () => {
+  vi.mocked(jobCost.get).mockResolvedValue({
+    ...partial,
+    unknown: [{ part: 'material', reason: 'usage_unmeasured', attempt_id: 9005, spool_id: 71 }],
+    material: { amount: 0, complete: false, spools: [
+      { spool_id: 71, grams: 50, amount: null, provenance: 'sliced_estimate' },
+    ] },
+  })
+  mount()
+  const panel = await screen.findByRole('region', { name: 'Print cost' })
+  expect(panel).toHaveTextContent('actual at least $5.75')
+  expect(panel).toHaveTextContent('Filament use was estimated from the sliced file, not measured')
+  fireEvent.click(screen.getByRole('button', { name: 'Show breakdown' }))
+  expect(panel).toHaveTextContent('Spool (spool 71): 50 g, from the sliced fileunknown')
+  expect(panel).not.toHaveTextContent('than the estimate')
 })

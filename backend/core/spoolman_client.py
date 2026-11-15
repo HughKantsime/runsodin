@@ -39,10 +39,12 @@ def check_spoolman_url_shape(url: str) -> str:
 
 
 def _check_itar(addresses) -> None:
-    from core.itar import is_itar_mode
+    from core.itar import is_itar_mode, is_private_destination
     if is_itar_mode():
         for address in addresses:
-            if not ipaddress.ip_address(str(address).split("%", 1)[0]).is_private:
+            # The same local-network rule as every other ITAR guard (ipaddress.is_private
+            # also accepts NAT64 and other special ranges that can carry public traffic).
+            if not is_private_destination(str(address).split("%", 1)[0]):
                 raise SpoolmanURLRefused("Spoolman destination is public in ITAR mode")
 
 

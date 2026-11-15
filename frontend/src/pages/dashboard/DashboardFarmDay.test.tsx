@@ -9,7 +9,7 @@ import { I18nProvider } from '../../contexts/I18nContext'
 import { farmDayNote, zoneOffsetMinutes, zoneShortName } from '../../utils/farmTime'
 
 vi.mock('../../api', () => ({ fetchAPI: vi.fn().mockResolvedValue({}), stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() }, printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() }, maintenance: { getStatus: vi.fn() } }))
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ getCurrentUser: () => null, canAccessPage: () => true, canDo: () => true }))
 const realResolved = Intl.DateTimeFormat.prototype.resolvedOptions
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); localStorage.clear() })
 
@@ -19,7 +19,7 @@ function show(config: unknown, viewerZone: string) {
   })
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
   client.setQueryData(['stats'], { jobs: { completed_today: 4 } }); client.setQueryData(['jobs', 'active'], []); client.setQueryData(['print-jobs'], [])
-  client.setQueryData(['printers'], []); client.setQueryData(['maintenance-status'], [])
+  client.setQueryData(['printers', 'active', null, null], []); client.setQueryData(['maintenance-status'], [])
   if (config) client.setQueryData(['config'], config)
   return render(<QueryClientProvider client={client}><MemoryRouter><I18nProvider><Dashboard /></I18nProvider></MemoryRouter></QueryClientProvider>)
 }
