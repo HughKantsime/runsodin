@@ -18,7 +18,7 @@ so a missing estimate cannot stall the queue.
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from core import print_payload
@@ -147,8 +147,8 @@ class MaterialPlan:
         self._passed: Set[int] = set()
 
     @classmethod
-    def load(cls, db: Session, printer_ids: Iterable[int]) -> "MaterialPlan":
-        """Two queries for the whole run (none beyond the mode read when ``off``)."""
+    def load(cls, db: Session, printer_ids: Iterable[int], job_ids: Optional[Iterable[int]] = None) -> "MaterialPlan":
+        """Two queries for the run, or only the requested jobs (none beyond the mode read when ``off``)."""
         plan = cls(get_mode(db))
         if plan.mode == OFF:
             return plan
@@ -158,7 +158,11 @@ class MaterialPlan:
             if printer_id in ids:
                 by_printer.setdefault(printer_id, []).append(filament_type)
         plan.loaded = {pid: loaded_materials(types) for pid, types in by_printer.items()}
-        for job_id, filament_type, filaments_json in db.execute(_NEEDED_SQL):
+        needed, params = _NEEDED_SQL, {}
+        if job_ids is not None:
+            needed = text(str(_NEEDED_SQL) + " AND j.id IN :job_ids").bindparams(bindparam("job_ids", expanding=True))
+            params["job_ids"] = list(job_ids)
+        for job_id, filament_type, filaments_json in db.execute(needed, params):
             plan.needed[job_id] = needed_materials(filaments_json, filament_type)
         return plan
 

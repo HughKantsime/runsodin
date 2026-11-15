@@ -238,7 +238,71 @@ def test_material_and_tag_detail_is_withheld_without_printer_read(db):
     assert reasons(db, JOBS_ONLY) == {973: {'code': 'no_printer_can_run_it'}, 974: {'code': 'no_printer_can_run_it'}}
 
 
+@pytest.mark.parametrize('status', ['pending', 'scheduled'])
+def test_dispatch_refusal_detail_requires_printer_access(db, status):
+    run(db, "INSERT INTO printers(id,name,api_type,is_active,org_id,shared,gcode_state,last_seen) "
+            "VALUES(11,'Refused printer','bambu',1,1,0,'IDLE',:seen)", seen=stamp(utcnow()))
+    add_job(db, 976, status, printer_id=11)
+    refuse(db, 976, 'PRINTER_MAINTENANCE_HOLD', printer_id=11)
+    assert reasons(db, VIEWER)[976] == {
+        'code': 'dispatch_refused', 'detail': 'Printer is on a maintenance hold'}
+    assert reasons(db, JOBS_ONLY)[976] == {'code': 'dispatch_refused'}
+    run(db, 'UPDATE printers SET org_id=2 WHERE id=11')
+    assert reasons(db, VIEWER)[976] == {'code': 'dispatch_refused'}
+    run(db, 'UPDATE printers SET shared=1 WHERE id=11')
+    assert reasons(db, VIEWER)[976]['detail'] == 'Printer is on a maintenance hold'
+
+
+def test_busy_estimate_requires_access_to_the_latest_running_job(db):
+    add_job(db, 977, 'scheduled', printer_id=9)
+    add_job(db, 978, 'printing', printer_id=9, charged_to_org_id=2)
+    online(db, 9, 'RUNNING')
+    # An older visible print must not provide a fallback estimate for the hidden current print.
+    run(db, "INSERT INTO print_jobs(printer_id,job_name,status,started_at,remaining_minutes) "
+            "VALUES(9,'older.gcode','running',:start,10)", start=stamp(utcnow() - timedelta(hours=1)))
+    run(db, "INSERT INTO print_jobs(printer_id,scheduled_job_id,job_name,status,started_at,remaining_minutes) "
+            "VALUES(9,978,'current.gcode','running',:start,45)", start=stamp(utcnow()))
+    assert 978 not in reasons(db, VIEWER)
+    assert reasons(db, VIEWER)[977] == {'code': 'printer_busy', 'printer_id': 9}
+    run(db, 'UPDATE jobs SET charged_to_org_id=1 WHERE id=978')
+    assert abs((reasons(db, VIEWER)[977]['until'] - (utcnow() + timedelta(minutes=45))).total_seconds()) < 60
+
+
 # ---- cost and wire shape ----
+
+@pytest.mark.parametrize('backlog_size', [1, 1000])
+def test_detail_material_query_only_loads_the_requested_pending_job(db, monkeypatch, backlog_size):
+    from modules.jobs.routes.jobs_crud import get_job
+    from modules.jobs import scheduler_materials
+    add_job(db, 979, 'pending', filament_type='PETG')
+    db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,hold,filament_type) "
+                    "VALUES(:id,'Backlog','pending',:org,0,'PLA')"),
+               [{'id': 2000 + i, 'org': 1 if i % 2 else 2} for i in range(backlog_size)])
+    db.commit()
+    parsed, queried = [], []
+    original = scheduler_materials.needed_materials
+
+    def counted(*args):
+        parsed.append(args)
+        return original(*args)
+
+    def capture(_conn, _cursor, statement, parameters, _context, _many):
+        if '/* scheduler material plan */' in statement:
+            queried.append((statement, parameters))
+
+    monkeypatch.setattr(scheduler_materials, 'needed_materials', counted)
+    event.listen(db.get_bind(), 'before_cursor_execute', capture)
+    try:
+        job = get_job(979, current_user=VIEWER, _agent_scope={}, db=db)
+    finally:
+        event.remove(db.get_bind(), 'before_cursor_execute', capture)
+    assert job['waiting_reason']['code'] == 'no_printer_can_run_it'
+    assert job['waiting_reason']['detail'] == 'no printer has PETG loaded'
+    assert len(parsed) == 1
+    assert len(queried) == 1
+    statement, parameters = queried[0]
+    # Constrain rows in SQL, not after fetching and parsing the whole backlog.
+    assert 'j.id IN' in statement and tuple(parameters) == (979,)
 
 def test_reasons_cost_a_fixed_number_of_queries_however_many_jobs(db, monkeypatch):
     """Counted around the waiting-reason step alone (the name lookup before it is not under test)."""

@@ -146,7 +146,7 @@ def add_waiting_reasons(db, jobs, actor, now=None, active_printers=None):
     refusals = latest_gate_refusals(db, [job.id for job in undecided])
     assigned = {job.printer.id: job.printer for job in undecided
                 if _status(job) == "scheduled" and job.printer_id is not None and job.printer is not None}
-    states = printer_wait_states(db, list(assigned.values()), now) if assigned else {}
+    states = printer_wait_states(db, list(assigned.values()), now, actor) if assigned else {}
     quiet, pending = [], []
     for job in undecided:
         refused = refusals.get(job.id)
@@ -162,7 +162,9 @@ def add_waiting_reasons(db, jobs, actor, now=None, active_printers=None):
                     reason["until"] = state[1]
             job.waiting_reason = reason
         elif refused and refused[0] != MAPPING_REFUSAL:
-            job.waiting_reason = {"code": "dispatch_refused", "detail": refused[1]}
+            job.waiting_reason = {"code": "dispatch_refused"}
+            if job.printer is not None and visible(job.printer):
+                job.waiting_reason["detail"] = refused[1]
         elif scheduled:
             quiet.append(job)
         else:
@@ -184,7 +186,7 @@ def add_waiting_reasons(db, jobs, actor, now=None, active_printers=None):
         if printers is None:
             printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
         authorities = {p.id: _printer_authority(p.org_id, p.shared, p.is_active) for p in printers}
-        plan = MaterialPlan.load(db, [p.id for p in printers])
+        plan = MaterialPlan.load(db, [p.id for p in printers], job_ids=[job.id for job in pending])
         for job in pending:
             if cached_job_issue(object_session(job), job) in BLOCKING:
                 continue
