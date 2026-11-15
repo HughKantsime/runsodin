@@ -330,11 +330,20 @@ def latest_gate_refusals(db, job_ids, actor):
         "LEFT JOIN printers p ON p.id = t.printer_id "
         "WHERE t.job_id IN :ids AND t.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed') "
         "AND t.occurred_at = (SELECT MAX(u.occurred_at) FROM job_timeline_events u "
-        "WHERE u.job_id = t.job_id AND u.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed'))"
+        "WHERE u.job_id = t.job_id AND u.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed')) "
+        "ORDER BY t.id"
     ).bindparams(bindparam("ids", expanding=True)), {"ids": list(job_ids)})
     found = {}
+    cleared, hidden = set(), set()
+    # UUIDs only stabilize wording among tied refusals; they do not order attempts.
+    # A tied dispatch clears the refusal, and every tied printer must be visible.
     for job_id, kind, code, printer_id, org_id, shared in rows:
         if kind == "gate_refused":
             visible = printer_id is not None and may_read(actor, "printers") and (check_org_access(actor, org_id) or shared)
+            if not visible:
+                hidden.add(job_id)
             found[job_id] = (str(code or "").upper(), refusal_words(code) if visible else None)
-    return found
+        else:
+            cleared.add(job_id)
+    return {job_id: (code, None if job_id in hidden else detail)
+            for job_id, (code, detail) in found.items() if job_id not in cleared}

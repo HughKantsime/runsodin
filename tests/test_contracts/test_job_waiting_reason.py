@@ -142,6 +142,52 @@ def test_last_dispatch_refusal_stays_until_the_next_attempt(db):
     assert reasons(db)[940] is None
 
 
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('kind', ['dispatch_uploading', 'dispatch_starting', 'dispatch_dispatched', 'dispatch_failed'])
+def test_dispatch_attempt_clears_a_refusal_at_the_same_timestamp(db, monkeypatch, reverse, kind):
+    monkeypatch.setattr(__name__ + '.utcnow', lambda: datetime(2026, 11, 14, 12, tzinfo=timezone.utc))
+    add_job(db, 984, 'pending')
+    refuse(db, 984, 'PRINTER_MAINTENANCE_HOLD', minutes_ago=1)
+    refuse(db, 984, None, kind=kind, minutes_ago=1)
+    run(db, f'PRAGMA reverse_unordered_selects={int(reverse)}')
+    assert reasons(db, VIEWER)[984] is None
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('other_printer,shared,actor,detail', [
+    (11, False, VIEWER, False),  # hidden organization
+    (None, False, VIEWER, False),  # missing printer
+    (10, False, VIEWER, True),  # both visible
+    (11, True, VIEWER, True),  # other organization, shared
+    (10, False, JOBS_ONLY, False),  # visible organization, no printer scope
+])
+def test_tied_refusals_require_access_to_every_printer(db, reverse, other_printer, shared, actor, detail):
+    run(db, "INSERT INTO printers(id,name,api_type,is_active,org_id,shared) "
+            "VALUES(11,'Other printer','bambu',1,2,:shared)", shared=shared)
+    add_job(db, 985, 'pending')
+    # Different codes also check that the selected wording is independent of row order.
+    for identifier, printer_id, code in [('a', other_printer, 'MATERIAL_MISMATCH'),
+                                         ('z', 9, 'PRINTER_MAINTENANCE_HOLD')]:
+        run(db, "INSERT INTO job_timeline_events(id,job_id,printer_id,kind,code,detail,occurred_at) "
+                "VALUES(:id,985,:printer,'gate_refused',:code,'{}',:at)",
+            id=identifier, printer=printer_id, code=code, at='2026-11-14 12:00:00')
+    run(db, f'PRAGMA reverse_unordered_selects={int(reverse)}')
+    expected = {'code': 'dispatch_refused'}
+    if detail:
+        expected['detail'] = 'Printer is on a maintenance hold'
+    assert reasons(db, actor)[985] == expected
+
+
+def test_null_org_refusal_printer_follows_unscoped_resource_visibility(db):
+    run(db, "INSERT INTO printers(id,name,api_type,is_active,org_id,shared) "
+            "VALUES(11,'Unscoped printer','bambu',1,NULL,0)")
+    add_job(db, 986, 'pending')
+    refuse(db, 986, 'PRINTER_MAINTENANCE_HOLD', printer_id=11)
+    assert reasons(db, VIEWER)[986] == {
+        'code': 'dispatch_refused', 'detail': 'Printer is on a maintenance hold'}
+    assert reasons(db, JOBS_ONLY)[986] == {'code': 'dispatch_refused'}
+
+
 def test_a_live_printer_state_outranks_an_old_refusal(db):
     add_job(db, 941, 'scheduled', printer_id=9)
     refuse(db, 941, 'PRINTER_NOT_IDLE_OR_ERROR')
