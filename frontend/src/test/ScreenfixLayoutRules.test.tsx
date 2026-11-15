@@ -10,7 +10,9 @@ const noop = () => {}
 it.each([false, true])('spool grid reserves wider desktop cards (grouped=%s)', grouped => {
   const { container } = render(<SpoolGrid spools={[{ id: 1, filament_name: 'Support for PLA/PETG Nature' } as any]} sortBy={grouped ? 'printer' : 'name'} groupByPrinter={grouped} searchQuery="" selectedSpools={new Set()} onToggleSelect={noop} onLoad={noop} onUnload={noop} onUse={noop} onArchive={noop} onEdit={noop} onDry={noop} />)
   const grid = container.querySelector('.grid')!
-  expect(grid).toHaveClass('grid-cols-1', 'sm:grid-cols-2', 'lg:grid-cols-3')
+  // 328px includes the 28px selection gutter, leaving at least 300px per card.
+  expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(min(100%,328px),1fr))]', 'gap-4')
+  expect(container.querySelector('.pl-7')).not.toBeNull()
   expect(grid).not.toHaveClass('xl:grid-cols-4')
 })
 it('Foundry grid stretches the card inside its selection wrapper', () => {

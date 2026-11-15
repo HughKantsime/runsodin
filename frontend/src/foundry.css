@@ -98,7 +98,7 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   .f-slot[data-slot-state="changed"] .f-slot-state, .f-slot[data-slot-state="feeding"] .f-slot-state { color: #f0c07c; }
   .f-slot[data-slot-state="support"] .f-swatch { border-radius: 6px; }
   .f-slots.f-slots-compact { grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); }
-  .f-slot[data-variant="compact"] { padding: 12px 4px; gap: 4px; border: 0; height: 92px; }
+  .f-slot[data-variant="compact"] { padding: 12px 2px; gap: 4px; border: 0; height: 92px; }
   .f-slot[data-variant="compact"] .f-slot-label { display: block; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; flex-shrink: 0; }
   .f-slot[data-expanded="true"] .f-slot-label { -webkit-line-clamp: unset; }
   .f-slot[data-variant="compact"] .f-swatch { width: 24px; height: 24px; }

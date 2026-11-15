@@ -43,7 +43,7 @@
     "frontend/src/components/ui/DialogSurface.tsx": "aa398c148b20a404c1881d27ee67e36faac262f71b2d023fd6067b8cdc2809e1",
     "frontend/src/components/ui/EmptyState.tsx": "2e8e3dfe1e78fa5ccdb630837a994f1ac1d31b59d78f48acdcc64f2bc4c64c0e",
     "frontend/src/components/ui/Input.tsx": "9650d9f79e374593e593c03e188c83fdaed8ffde0247c20e991737e7492e4dde",
-    "frontend/src/components/ui/Modal.tsx": "c9662029c073a39156e75d0e882c22bbf023c6fad2efa08f47a13b775f6485dc",
+    "frontend/src/components/ui/Modal.tsx": "a0aed0aa6de8620ae153ccbb56c968409638bd859632fca1b27bc55a37cecf3b",
     "frontend/src/components/ui/SearchInput.tsx": "92d7e70a8888571cdd42d25c8556e456716064e8e0b0d51752b8cce8056a633c",
     "frontend/src/components/ui/Select.tsx": "512bb153dccbf5c192df823ad92fed59b0ebf086e5a30dc6acdd030f52f7728e",
     "frontend/src/components/ui/StatCard.tsx": "583ef42ee015ea29ea3d1ffc04972adf90880ef9147ba52f939de84ac3a7211d",

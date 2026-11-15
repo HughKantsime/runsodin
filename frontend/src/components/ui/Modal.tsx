@@ -91,7 +91,7 @@ export default function Modal({
         onClick={(e) => e.stopPropagation()}
       >
         {(title || (sheet && !ownHeader)) && (
-          <div className={sheet ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]' : 'flex items-center justify-between p-4 sm:p-6 pb-0'}>
+          <div className={sheet ? 'flex items-center justify-between p-4 pb-2 shrink-0 border-b border-[var(--brand-card-border)]' : 'flex items-center justify-between p-4 sm:p-6 pb-3'}>
             {title ? (
               <h2
                 id={titleId}
