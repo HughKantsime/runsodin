@@ -307,6 +307,7 @@ def answer(db, printer_id, actor, question_id, decision):
                 raise HTTPException(404, 'Print question not found.')
             if question['id'] != question_id or question['state'] != 'pending':
                 raise HTTPException(409, 'This question has already changed. Refresh to see its current state.')
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only the fixed FOR UPDATE NOWAIT suffix is joined, chosen by dialect; the id is bound
             live = db.execute(text('SELECT role,group_id,is_active FROM users WHERE id=:id' +
                                    (' FOR UPDATE NOWAIT' if view.dialect.name == 'postgresql' else '')), {'id': actor['id']}).first()
             if not live or live[0] not in ('admin', 'operator') or live[1] != actor.get('group_id') or not live[2]:

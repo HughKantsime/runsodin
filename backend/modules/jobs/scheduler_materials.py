@@ -160,6 +160,7 @@ class MaterialPlan:
         plan.loaded = {pid: loaded_materials(types) for pid, types in by_printer.items()}
         needed, params = _NEEDED_SQL, {}
         if job_ids is not None:
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- a fixed clause joined to the module's own constant statement; job ids are a bound expanding parameter
             needed = text(str(_NEEDED_SQL) + " AND j.id IN :job_ids").bindparams(bindparam("job_ids", expanding=True))
             params["job_ids"] = list(job_ids)
         for job_id, filament_type, filaments_json in db.execute(needed, params):

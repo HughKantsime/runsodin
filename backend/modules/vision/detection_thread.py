@@ -776,6 +776,7 @@ class PrinterVisionThread(threading.Thread):
                     )
                     # Update detection status
                     conn3.execute(
+                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragment is the constant NOT_PRINTER_SOURCE_SQL; the printer id is bound
                         text("""UPDATE vision_detections SET status = 'auto_paused'
                         WHERE id = (SELECT id FROM vision_detections
                             WHERE printer_id = :pid AND status = 'pending'

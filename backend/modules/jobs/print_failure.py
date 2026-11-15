@@ -87,6 +87,7 @@ def annotate(db, rows, *, archive=False, user=None):
         parameters.update(bindings)
         # One bounded batch for provenance, immutable print identity and read
         # audience. Job mutation eligibility is deliberately not a read policy.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragments come from media_visibility and archive_visibility, built from code text with bound values
         query = text('SELECT p.*,r.org_id AS printer_org,j.charged_to_org_id AS job_org,c.value '
                      'FROM print_jobs p JOIN printers r ON r.id=p.printer_id '
                      'LEFT JOIN jobs j ON j.id=p.scheduled_job_id '
@@ -127,6 +128,7 @@ def _load(db, identifier, user):
     from core.interfaces.education_policy import generic_archive_audience_sql
     # Includes archived Education content whose original job was deleted.
     education = generic_archive_audience_sql()
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragment is generic_archive_audience_sql(), fixed code text; the id is bound
     if db.execute(text('SELECT 1 FROM print_archives a WHERE a.print_job_id=:id AND NOT COALESCE((' + education + '), FALSE)'), {'id': identifier}).first():
         fail('This print must be managed through its Education workflow.')
     return row, job, archives

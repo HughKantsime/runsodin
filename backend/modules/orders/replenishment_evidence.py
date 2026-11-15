@@ -68,6 +68,7 @@ class Ownership:
             # cannot have lost its printer: its foreign key forbids that deletion.
             tables = {'job': 'jobs', 'model': 'models', 'file': 'print_files', 'product': 'products',
                       'printer': 'printers', 'recipe': 'production_recipes', 'print job': 'print_jobs'}
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the table name comes from the fixed dictionary above, keyed by a kind already used to pick a fixed query; the id is bound
             exists = self.db.execute(text(f'SELECT 1 FROM {tables[kind]} WHERE id=:id'), {'id': identifier}).first()
             if exists or retained or kind in ('product', 'recipe'):
                 problem(kind.capitalize() + ' ownership')

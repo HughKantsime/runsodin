@@ -54,6 +54,7 @@ def visible_printers(db, current_user):
     statement += " ORDER BY display_order, id"
     licensed = license_lock.stored_snapshot(db) if license_lock.enabled() else None
     printers = []
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the statement is built only from this module's constant column list and fixed clauses; the organization is bound
     for row in db.execute(text(statement), params).mappings():
         printer = SimpleNamespace(**row)
         printer.unavailable = (

@@ -40,11 +40,14 @@ def plate_source(db, owner, user, recipe, hashes):
     from core.interfaces.education_policy import assert_generic_model_reference_allowed
     assert_generic_model_reference_allowed(db, payload['model_id'])
     scope = '((:owner=0 AND org_id IS NULL) OR (:owner>0 AND org_id=:owner))'
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- scope is the fixed text defined above; id and owner are bound
     printer = db.execute(text('SELECT id,api_type FROM printers WHERE id=:id AND ' + scope),
                          {'id': payload['printer_id'], 'owner': owner}).mappings().first()
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- scope is the fixed text defined above; id and owner are bound
     if printer is None or not db.execute(text('SELECT 1 FROM models WHERE id=:id AND ' + scope),
                                          {'id': payload['model_id'], 'owner': owner}).first():
         return None, 'The recipe\'s printer or model is no longer in this organization. Qualify a new recipe.'
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- scope is the fixed text defined above; id and owner are bound
     file = db.execute(text('SELECT id,model_id,stored_path FROM print_files WHERE id=:id AND ' + scope),
                       {'id': payload['print_file_id'], 'owner': owner}).mappings().first()
     if file is None or file['model_id'] != payload['model_id'] or not file['stored_path'] or not os.path.isfile(file['stored_path']):
