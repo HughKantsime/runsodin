@@ -25,7 +25,7 @@ PRICING = {
     "packing_min": 5, "support_min": 0, "plate_handling_min": 10, "default_margin": 50.0, "other_costs": 0.25,
 }
 SPOOL_A = {"spool_id": 71, "price": 20.0, "net_weight_g": 1000.0, "provenance": "measured", "reason": None}
-SPOOL_B = {"spool_id": 72, "price": 30.0, "net_weight_g": 750.0, "provenance": "sliced_estimate", "reason": None}
+SPOOL_B = {"spool_id": 72, "price": 30.0, "net_weight_g": 750.0, "provenance": "measured", "reason": None}
 
 
 def attempt(identifier, outcome, hours, *usage):
@@ -57,7 +57,7 @@ def test_two_spools_are_each_priced_at_their_own_frozen_price():
     # 50 x 0.02 = 1.00 and 30 x 0.04 = 1.20
     assert result["material"]["spools"] == [
         {"spool_id": 71, "grams": 50.0, "amount": 1.00, "provenance": "measured"},
-        {"spool_id": 72, "grams": 30.0, "amount": 1.20, "provenance": "sliced_estimate"}]
+        {"spool_id": 72, "grams": 30.0, "amount": 1.20, "provenance": "measured"}]
     assert result["material"]["amount"] == 2.20
     assert result["total"] == 7.95
 
@@ -156,7 +156,7 @@ def add_attempt(db, identifier, job_id, status, seconds, snap, consumption, stat
                {"id": identifier, "status": status, "job": job_id, "seconds": seconds, "snap": snap})
     if consumption is not None:
         db.execute(text("INSERT INTO print_archives(job_id,print_job_id,printer_id,print_name,status,accounting_state,"
-                        "consumption_json,org_id) VALUES(:job,:id,9,'fixture',:status,:state,:consumption,1)"),
+                        "consumption_json,org_id,ownership_state) VALUES(:job,:id,9,'fixture',:status,:state,:consumption,1,'known')"),
                    {"job": job_id, "id": identifier, "status": status, "state": state, "consumption": json.dumps(consumption)})
 
 
@@ -177,7 +177,7 @@ def cost_db(review_db):
         "(805,'No price','completed',1,1,7.50,1),(806,'Monitor ledger','completed',1,1,NULL,1)"))
     add_attempt(review_db, 9001, 801, "failed", 3600, snapshot(allocation(71, "20", "1000")), [used(71, 10.0)])
     add_attempt(review_db, 9002, 801, "completed", 7200, snapshot(allocation(71, "20", "1000"), allocation(72, "30", "750")),
-                [used(71, 50.0), used(72, 30.0, "sliced_estimate")])
+                [used(71, 50.0), used(72, 30.0)])
     add_attempt(review_db, 9003, 803, "completed", 7200, snapshot(allocation(71, "20", "1000")), [used(71, 50.0)])
     add_attempt(review_db, 9005, 805, "completed", 7200, snapshot(allocation(71, None, "1000", "unresolved", "missing_price")),
                 [used(71, 50.0)])
@@ -208,14 +208,14 @@ def cost_client(cost_db):
 def test_endpoint_reports_estimate_actual_and_difference(cost_client):
     """No license fixture: the per-job cost is free on every tier."""
     body = cost_client.get("/jobs/801/cost").json()
-    # failed 10 x 0.02 + 1 h x 0.25 = 0.45; success 1.00 + 1.20 + 0.50 = 2.70; from settings 5.25
+    # failed 10 x 0.02 + 1 h x 0.25 = 0.45; success 1.00 + 1.20 + 0.50 = 2.70; from settings 8.50 (two items, one plate)
     assert body["configured"] is True and body["finished"] is True and body["state"] == "complete"
-    assert body["total"] == 8.40 and body["estimate"] == 7.50 and body["difference"] == 0.90
+    assert body["total"] == 11.65 and body["estimate"] == 7.50 and body["difference"] == 4.15
     assert body["pieces"] == 2
     assert body["failed_attempts"] == {"amount": 0.45, "complete": True, "count": 1}
     assert body["material"]["spools"] == [
         {"spool_id": 71, "grams": 60.0, "amount": 1.20, "provenance": "measured", "name": "Acme Black PLA"},
-        {"spool_id": 72, "grams": 30.0, "amount": 1.20, "provenance": "sliced_estimate", "name": "Acme Black PLA"}]
+        {"spool_id": 72, "grams": 30.0, "amount": 1.20, "provenance": "measured", "name": "Acme Black PLA"}]
     assert not any(key.startswith("_") for key in body)
 
 
@@ -226,7 +226,7 @@ def test_price_is_the_one_frozen_at_start_not_the_spool_today(cost_client, cost_
     cost_db.execute(text("DELETE FROM spools WHERE id=71"))
     cost_db.commit()
     body = cost_client.get("/jobs/801/cost").json()
-    assert body["total"] == 8.40 and body["material"]["spools"][0]["name"] is None
+    assert body["total"] == 11.65 and body["material"]["spools"][0]["name"] is None
 
 
 def test_missing_frozen_price_is_partial_and_has_no_difference(cost_client):
@@ -281,7 +281,7 @@ def test_controlled_job_follows_the_job_visibility_rule(cost_client, cost_db):
     assert response.status_code == 403 and "total" not in response.text
     cost_db.execute(text("INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,3)"))
     cost_db.commit()
-    assert cost_client.get("/jobs/801/cost").json()["total"] == 8.40
+    assert cost_client.get("/jobs/801/cost").json()["total"] == 11.65
 
 
 def test_requires_sign_in(cost_client):
@@ -301,8 +301,82 @@ def test_loader_statement_count_does_not_grow_with_jobs(cost_db):
     statements = []
     engine = cost_db.get_bind()
     event.listen(engine, "before_cursor_execute", lambda *args: statements.append(args[2]))
-    few = load_attempts(cost_db, [801, 805])
+    user = {"id": 3, "role": "operator", "group_id": 1}
+    few = load_attempts(cost_db, [801, 805], user)
     count_few = len(statements)
-    many = load_attempts(cost_db, [801, 805, *range(820, 850)])
+    many = load_attempts(cost_db, [801, 805, *range(820, 850)], user)
     assert count_few == 3 and len(statements) - count_few == 3
     assert len(few[801]) == 2 and len(many[849]) == 1 and many[849][0]["usage"][0]["grams"] == 5.0
+
+
+@pytest.mark.parametrize("restriction", ["controlled_file", "foreign_owner", "unresolved_owner"])
+@pytest.mark.parametrize("ledger_fallback", [False, True])
+def test_review_hidden_archive_evidence_is_not_costed(cost_client, cost_db, restriction, ledger_fallback):
+    # The current job is public; only its historical archive is restricted.
+    if restriction == "controlled_file":
+        restrict_historical_file(cost_db, 9006)
+    elif restriction == "foreign_owner":
+        cost_db.execute(text("UPDATE print_archives SET org_id=2 WHERE print_job_id=9006"))
+    else:
+        cost_db.execute(text("UPDATE print_archives SET ownership_state='unresolved' WHERE print_job_id=9006"))
+    if not ledger_fallback:
+        cost_db.execute(text("UPDATE print_archives SET consumption_json=:usage WHERE print_job_id=9006"),
+                        {"usage": json.dumps([used(72, 30.0)])})
+    cost_db.commit()
+    body = cost_client.get("/jobs/806/cost").json()
+    assert body["state"] == "partial"
+    assert body["material"]["spools"] == [] and body["material"]["amount"] == 0
+    assert body["difference"] is None
+    if restriction == "controlled_file":
+        cost_db.execute(text("INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,3)"))
+        cost_db.commit()
+        assert cost_client.get("/jobs/806/cost").json()["state"] == "complete"
+
+
+def restrict_historical_file(db, attempt_id):
+    db.execute(text("INSERT INTO print_files(id,filename,org_id) VALUES(809,'old.3mf',1)"))
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'secure')"))
+    db.execute(text("INSERT INTO controlled_files(file_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(809,'CUI',1,'Secure',7,'fixture',CURRENT_TIMESTAMP)"))
+    db.execute(text("UPDATE print_archives SET print_file_id=809 WHERE print_job_id=:id"), {"id": attempt_id})
+
+
+def test_review_deleted_spool_leaves_monitor_cost_partial(cost_client, cost_db):
+    cost_db.execute(text("UPDATE print_jobs SET spool_snapshot=:snap WHERE id=9006"),
+                    {"snap": snapshot(allocation(71, "20", "1000"), allocation(72, "30", "750"))})
+    cost_db.execute(text("INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) "
+                        "VALUES(71,806,9006,100,'auto:moonraker: observed')"))
+    cost_db.commit()
+    before = cost_client.get("/jobs/806/cost").json()
+    assert before["state"] == "complete" and before["material"]["amount"] == 3.20
+    cost_db.execute(text("DELETE FROM spools WHERE id=71"))
+    cost_db.commit()
+    body = cost_client.get("/jobs/806/cost").json()
+    assert body["state"] == "partial" and body["difference"] is None
+    assert body["material"]["amount"] == 1.20 and body["total"] == 7.20
+    assert {"part": "material", "reason": "usage_not_recorded", "attempt_id": 9006, "spool_id": 71} in body["unknown"]
+
+
+@pytest.mark.parametrize("with_measured", [False, True])
+def test_review_sliced_quantity_is_not_a_known_lower_bound(with_measured):
+    usage = [dict(SPOOL_B, grams=30.0, provenance="sliced_estimate")]
+    if with_measured:
+        usage.append(dict(SPOOL_A, grams=50.0))
+    result = cost([attempt(1, "completed", 2.0, *usage)])
+    assert result["state"] == "partial"
+    assert result["total"] == (6.75 if with_measured else 5.75)
+    assert result["material"]["amount"] == (1.00 if with_measured else 0)
+    assert result["material"]["spools"][0]["amount"] is None
+    assert result["unknown"] == [{"part": "material", "reason": "usage_unmeasured", "attempt_id": 1, "spool_id": 72}]
+
+
+def test_review_per_item_settings_scale_but_plate_handling_is_charged_once(cost_client, cost_db):
+    config = dict(PRICING, packaging_cost=2)
+    cost_db.execute(text("UPDATE system_config SET value=:value WHERE key='pricing_config'"), {"value": json.dumps(config)})
+    cost_db.execute(text("UPDATE jobs SET quantity_on_bed=5 WHERE id=806"))
+    cost_db.commit()
+    body = cost_client.get("/jobs/806/cost").json()
+    # Labour: (10 item minutes * 5 + 10 plate minutes) * 12/60 = 12.
+    assert body["from_settings"] == {"amount": 25.75, "complete": True, "basis": "settings",
+                                      "labor": 12, "packaging": 10, "other": 1.25, "overhead": 2.50}
+    assert body["total"] == 27.70

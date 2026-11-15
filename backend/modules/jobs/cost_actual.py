@@ -6,14 +6,13 @@ Computed on read; nothing is stored. Three kinds of numbers, never mixed without
                  per gram as it was written down when the attempt started (failed and cancelled
                  attempts count)
   machine        recorded print hours of every attempt x today's electricity and machine rates
-  from settings  labour, packaging, other costs and overhead, counted once per job exactly as
-                 the job's estimate counts them (models_library.pricing_rule, one plate)
+  from settings  per-item labour, packaging, other costs and overhead x pieces;
+                 plate handling counted once (models_library.pricing_rule)
 
 The failure allowance of the estimate is not added: real failures are already in the total
 through their attempts. A fact that was not recorded stays unknown and makes the total partial
-("at least"); it is never filled in from current prices. Where an attempt fed several spools
-the per-spool grams come from the sliced file (the printer reports one total); those lines
-count, and are labelled "from the sliced file" in the breakdown.
+("at least"); it is never filled in from current prices. Quantities from the sliced file
+remain labelled estimates and do not enter the known lower bound.
 
 This is not an order ledger and not a profit figure (measured-order-costs.md owns those).
 """
@@ -39,7 +38,7 @@ def _money(value):
     return None if value is None else round(value, 2)
 
 
-def cost_actual(attempts, config):
+def cost_actual(attempts, config, pieces=1):
     """Actual cost of one job from its attempts and the saved pricing settings. Pure.
 
     attempts: [{"id", "outcome" ('completed' | 'failed' | 'cancelled' | 'open'),
@@ -57,10 +56,13 @@ def cost_actual(attempts, config):
     from modules.models_library.services import price_one_item
     unknown = []
     try:
-        hour = price_one_item(config, material_cost=0.0, print_hours=1.0)
+        hour = price_one_item(config, material_cost=0.0, print_hours=1.0,
+                              units_per_plate=pieces if _pieces(pieces) else 1)
         rate = hour["electricity"] + hour["depreciation"]
-        settings = {key: hour[key] for key in ("labor", "packaging", "other", "overhead")}
-        if not _amount(rate) or not all(_amount(value) for value in settings.values()):
+        settings = {key: hour[key] * pieces for key in ("labor", "packaging", "other", "overhead")} if _pieces(pieces) else None
+        if settings is None:
+            unknown.append({"part": "settings", "reason": "settings_incomplete", "attempt_id": None, "spool_id": None})
+        if not _amount(rate) or (settings is not None and not all(_amount(value) for value in settings.values())):
             raise ValueError("pricing settings out of range")
     except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError):
         rate, settings = None, None
@@ -92,6 +94,10 @@ def cost_actual(attempts, config):
                     material_ok = line["known"] = False
                     continue
                 line["grams"] += grams
+                if use.get("provenance") == "sliced_estimate":
+                    missing.append({"part": "material", "reason": "usage_unmeasured", "spool_id": use.get("spool_id")})
+                    material_ok = line["known"] = False
+                    continue
                 if not _amount(price) or not _amount(net) or net <= 0:
                     missing.append({"part": "material", "reason": use.get("reason") or "price_not_recorded",
                                     "spool_id": use.get("spool_id")})
@@ -203,21 +209,23 @@ def _hours(duration_seconds, started_at, ended_at):
     return span / 3600 if span >= 0 else None
 
 
-def _rows(db, statement, ids):
+def _rows(db, statement, ids, params=None):
     found = []
     for start in range(0, len(ids), _CHUNK):
         found.extend(db.execute(text(statement).bindparams(bindparam("ids", expanding=True)),
-                                {"ids": ids[start:start + _CHUNK]}).mappings().all())
+                                {**(params or {}), "ids": ids[start:start + _CHUNK]}).mappings().all())
     return found
 
 
-def load_attempts(db, job_ids):
+def load_attempts(db, job_ids, user=None):
     """{job_id: [attempt, ...]} in cost_actual's input shape, for jobs the caller may already see.
 
     Three statements per 500 jobs whatever the number of jobs or attempts. Usage comes from the
     attempt's own accounting record (print_archives.consumption_json); an attempt accounted by
     its printer monitor has no such list and is read from the filament ledger rows that name the
     attempt. Purchase price and net weight come only from the snapshot taken at first start.
+    Request callers supply user to enforce archive visibility; internal accounting reads have
+    no caller and retain their unfiltered view.
     """
     job_ids = sorted({int(identifier) for identifier in job_ids})
     result = {identifier: [] for identifier in job_ids}
@@ -227,10 +235,17 @@ def load_attempts(db, job_ids):
                          "FROM print_jobs WHERE scheduled_job_id IN :ids ORDER BY id", job_ids)
     attempt_ids = [row["id"] for row in attempts]
     archived, ledger = {}, {}
+    hidden = set()
     if attempt_ids:
-        for row in _rows(db, "SELECT print_job_id,accounting_state,consumption_json FROM print_archives "
-                             "WHERE print_job_id IN :ids ORDER BY id", attempt_ids):
-            archived.setdefault(row["print_job_id"], row)
+        from modules.archives.services import archive_visibility
+        visibility, params = archive_visibility(user) if user is not None else ("1=1", {})
+        for row in _rows(db, "SELECT a.print_job_id,a.accounting_state,a.consumption_json,CASE WHEN "
+                             + visibility + " THEN 1 ELSE 0 END AS visible FROM print_archives a "
+                             "WHERE a.print_job_id IN :ids ORDER BY a.id", attempt_ids, params):
+            if not row["visible"]:
+                hidden.add(row["print_job_id"])
+            else:
+                archived.setdefault(row["print_job_id"], row)
         from core.filament_ledger import row_kind
         for row in _rows(db, "SELECT print_job_id,spool_id,weight_used_g,notes FROM spool_usage "
                              "WHERE print_job_id IN :ids ORDER BY id", attempt_ids):
@@ -238,17 +253,26 @@ def load_attempts(db, job_ids):
                 spools = ledger.setdefault(row["print_job_id"], {})
                 spools[row["spool_id"]] = spools.get(row["spool_id"], 0.0) + (row["weight_used_g"] or 0.0)
     for row in attempts:
-        frozen = _frozen_purchase(_decoded(row["spool_snapshot"]))
+        snapshot = _decoded(row["spool_snapshot"])
+        frozen = _frozen_purchase(snapshot)
         archive = archived.get(row["id"])
         entries = _decoded(archive["consumption_json"]) if archive and archive["accounting_state"] in _ACCOUNTED else None
         usage = None
-        if isinstance(entries, list) and entries and all(
+        if row["id"] in hidden:
+            pass  # Inaccessible archive evidence must not be recovered through the ledger.
+        elif isinstance(entries, list) and entries and all(
                 isinstance(item, dict) and type(item.get("spool_id")) is int for item in entries):
             usage = [{"spool_id": item["spool_id"], "grams": item.get("grams_used"),
                       "provenance": item.get("quantity_provenance")} for item in entries]
         elif row["id"] in ledger:
             usage = [{"spool_id": spool_id, "grams": grams, "provenance": None}
                      for spool_id, grams in sorted(ledger[row["id"]].items())]
+            plan = snapshot.get("material_plan") if isinstance(snapshot, dict) else None
+            allocations = plan.get("allocations") if isinstance(plan, dict) else None
+            expected = {item["spool_id"] for item in allocations if isinstance(item, dict)
+                        and type(item.get("spool_id")) is int} if isinstance(allocations, list) else set()
+            usage.extend({"spool_id": spool_id, "grams": None, "provenance": None}
+                         for spool_id in sorted(expected - ledger[row["id"]].keys()))
         for use in usage or []:
             price, net, reason = frozen.get(use["spool_id"], (None, None, "price_not_recorded"))
             use.update(price=price, net_weight_g=net, reason=reason)
@@ -264,7 +288,7 @@ def public(result):
     return {key: value for key, value in result.items() if not key.startswith("_")}
 
 
-def job_cost(db, job, user=None):
+def job_cost(db, job, user):
     """Response body of GET /jobs/{id}/cost for a job the caller has already been allowed to see."""
     from modules.models_library.services import saved_pricing_config
     config, configured = saved_pricing_config(db)
@@ -272,7 +296,7 @@ def job_cost(db, job, user=None):
     body = {"job_id": job.id, "configured": configured, "finished": status in FINISHED_JOB_STATUSES}
     if not configured or not body["finished"]:
         return body
-    result = public(cost_actual(load_attempts(db, [job.id])[job.id], config))
+    result = public(cost_actual(load_attempts(db, [job.id], user)[job.id], config, job.quantity_on_bed))
     estimate = job.estimated_cost if _amount(job.estimated_cost) else None
     body.update(result, estimate=_money(estimate), pieces=job.quantity_on_bed if _pieces(job.quantity_on_bed) else None)
     body["difference"] = (round(result["total"] - round(estimate, 2), 2)

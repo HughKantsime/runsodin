@@ -1,7 +1,7 @@
 import { fetchAPI } from './client'
 
 export type CostUnknownReason =
-  | 'usage_not_recorded' | 'spool_price_missing' | 'spool_weight_missing' | 'price_not_recorded'
+  | 'usage_not_recorded' | 'usage_unmeasured' | 'spool_price_missing' | 'spool_weight_missing' | 'price_not_recorded'
   | 'print_time_not_recorded' | 'attempt_not_finished' | 'settings_incomplete'
 
 export interface CostUnknown {
