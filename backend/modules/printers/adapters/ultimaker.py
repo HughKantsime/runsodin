@@ -117,12 +117,13 @@ def _json_object(reply, *, report_read_failure=False) -> Optional[dict]:
             if expired.is_set() or time.monotonic() >= deadline:
                 raise TimeoutError("Ultimaker body deadline expired")
             if size > _MAX_BODY:
-                return None
+                # The cap stopped inspection; it does not identify the peer's protocol.
+                raise ValueError("Ultimaker body exceeds inspection limit")
             chunks.append(chunk)
         if expired.is_set() or time.monotonic() >= deadline:
             raise TimeoutError("Ultimaker body deadline expired")
         value = json.loads(b"".join(chunks).decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, requests.exceptions.ContentDecodingError):
         return None
     except Exception as exc:
         if report_read_failure:

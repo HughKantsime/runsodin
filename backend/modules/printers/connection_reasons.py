@@ -47,6 +47,8 @@ def reason_for_exception(exc) -> str:
             return UNREACHABLE
         if isinstance(exc, httpx.DecodingError):
             return NOT_THIS_TYPE
+        if isinstance(exc, httpx.RemoteProtocolError) and str(exc).startswith("illegal status line: "):
+            return NOT_THIS_TYPE
         # RemoteProtocolError also covers a valid server closing without a response.
         return UNKNOWN
     if isinstance(exc, (TimeoutError, ConnectionRefusedError, socket.gaierror)):
