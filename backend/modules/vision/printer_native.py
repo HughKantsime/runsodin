@@ -243,10 +243,6 @@ def _observe(monitor, hms, error, job_id, filename):
         scheduled_job_id = conn.execute(text(
             'SELECT scheduled_job_id FROM print_jobs WHERE id=:id AND printer_id=:pid'),
             {'id': job_id, 'pid': monitor.printer_id}).scalar() if job_id is not None else None
-        from core.controlled_parts import policies
-        if not policies(conn, 'job', scheduled_job_id):
-            # Ordinary detections use Vigil's printer-scoped recipients and dedupe.
-            scheduled_job_id = None
         kinds_active = {PRINTER_DETECTION_CODES[code] for code in active}
         for code in sorted(current - active):
             kind = PRINTER_DETECTION_CODES[code]
@@ -266,14 +262,20 @@ def _observe(monitor, hms, error, job_id, filename):
                      {'key': _state_key(monitor.printer_id), 'value': json.dumps(sorted(current))})
     # Only a committed set is remembered: a failed write leaves the codes new for the retry.
     monitor._native_detection_codes = current
+    interrupted = None
     for detection_id, kind, code, message in created:
         args = (monitor.printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id)
         try:
             _start_worker(_finish, *args)
-        except RuntimeError:
+        except BaseException as exc:
             # Already on the persistence worker, outside the monitor lock. A failed
             # thread start must not strand this committed detection (or its siblings).
+            if not isinstance(exc, Exception) and interrupted is None:
+                interrupted = exc
             _finish(*args)
+    if interrupted is not None:
+        # Preserve worker exit, but only after handing off the whole committed batch.
+        raise interrupted
 
 
 def _start_worker(target, *args):
@@ -368,8 +370,14 @@ def _education_suppressed(printer_id, job_id, filename):
 def _alert(printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id):
     if _education_suppressed(printer_id, job_id, filename):
         return
+    from core.controlled_parts import policies
     from modules.notifications.alert_dispatch import dispatch_alert
     with engine.connect() as conn:
+        # Audience lookup belongs to delivery: failure suppresses the alert without
+        # rolling back the detection or treating an unknown audience as unrestricted.
+        if not policies(conn, 'job', scheduled_job_id):
+            # Ordinary detections use Vigil's printer-scoped recipients and dedupe.
+            scheduled_job_id = None
         row = conn.execute(text('SELECT name, nickname FROM printers WHERE id=:id'), {'id': printer_id}).first()
     name = (row[1] or row[0]) if row else f'Printer {printer_id}'
     alert_type, severity = _ALERTS[kind]

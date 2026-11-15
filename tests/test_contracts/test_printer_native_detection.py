@@ -373,6 +373,36 @@ def test_uncontrolled_job_keeps_printer_alert_audience(native, monkeypatch):
     send(native.monitor(), gcode_state='RUNNING', gcode_file='current.3mf', hms=SPAGHETTI_HMS)
     assert db.execute(text('SELECT user_id,job_id FROM alerts ORDER BY user_id')).all() == [
         (1, None), (2, None), (3, None)]
+    [row] = detections(db)
+    assert row['print_job_id'] == 201
+
+
+def test_policy_lookup_failure_preserves_detections_without_alerting(native, monkeypatch):
+    from core import controlled_parts
+    db = native.db
+    db.execute(text("INSERT INTO jobs(id,model_id,item_name,quantity,status,printer_id,duration_hours,hold,priority,charged_to_org_id) "
+                    "VALUES(203,12,'Synthetic generic',1,'printing',9,1,0,3,1)"))
+    db.execute(text('UPDATE print_jobs SET scheduled_job_id=203 WHERE id=201'))
+    db.commit()
+    lookups = []
+    snapshots = []
+
+    def unavailable(conn, kind, identifier):
+        lookups.append((kind, identifier))
+        raise RuntimeError('Synthetic policy lookup failure')
+
+    monkeypatch.setattr(controlled_parts, 'policies', unavailable)
+    monkeypatch.setattr(native.module, '_snapshot', lambda *args: snapshots.append(args))
+    monitor = native.monitor()
+    for _ in range(2):
+        send(monitor, hms=SPAGHETTI_HMS + CHUTE_HMS)
+    rows = detections(db)
+    assert len(rows) == 2
+    assert {row['print_job_id'] for row in rows} == {201}
+    assert {row['status'] for row in rows} == {'informational'}
+    assert len(snapshots) == 2
+    assert lookups == [('job', 203), ('job', 203)]
+    assert native.alerts == []  # Unknown audience must never become printer-wide.
 
 
 def test_repeated_queued_reports_coalesce_without_losing_transitions(native, monkeypatch):
@@ -421,13 +451,14 @@ def test_aborted_drain_restarts_on_next_report_without_losing_queue(native, monk
     assert len(detections(native.db)) == 2 and len(native.alerts) == 2
 
 
-def test_finish_thread_start_failure_still_alerts_each_detection(native, monkeypatch):
+@pytest.mark.parametrize('error', [RuntimeError, MemoryError])
+def test_finish_thread_start_failure_still_alerts_each_detection(native, monkeypatch, error):
     workers = []
     finishing_threads = []
 
     def start(target, *args):
         if target is native.module._finish:
-            raise RuntimeError("can't start new thread")
+            raise error("can't start new thread")
         worker = threading.Thread(target=target, args=args, daemon=True)
         workers.append(worker)
         worker.start()
@@ -453,6 +484,64 @@ def test_finish_thread_start_failure_still_alerts_each_detection(native, monkeyp
     for worker in workers:
         worker.join(5)
     assert len(detections(native.db)) == 2 and len(native.alerts) == 2
+
+
+@pytest.mark.parametrize('error', [SystemExit, KeyboardInterrupt])
+def test_finish_thread_start_exit_finishes_batch_before_propagating(native, monkeypatch, error):
+    workers = []
+
+    def start(target, *args):
+        if target is native.module._finish:
+            raise error('Synthetic worker exit')
+        workers.append((target, args))
+
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    monkeypatch.setattr(native.module, '_start_worker', start)
+    monitor = native.monitor()
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': SPAGHETTI_HMS + CHUTE_HMS})
+    target, args = workers[0]
+    with pytest.raises(error, match='Synthetic worker exit'):
+        target(*args)
+    rows = detections(native.db)
+    assert len(rows) == 2
+    assert {alert['metadata']['detection_id'] for alert in native.alerts} == {row['id'] for row in rows}
+    assert len(native.alerts) == 2
+    assert monitor._native_detection_running is False
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': SPAGHETTI_HMS + CHUTE_HMS})
+    target, args = workers[1]
+    target(*args)
+    assert monitor._native_detection_pending is None
+    assert len(detections(native.db)) == 2 and len(native.alerts) == 2
+
+
+def test_inline_alert_failure_does_not_strand_sibling(native, monkeypatch):
+    from modules.notifications import alert_dispatch
+    attempted = []
+    snapshots = []
+
+    def start(target, *args):
+        if target is native.module._finish:
+            raise RuntimeError("can't start new thread")
+        target(*args)
+
+    def dispatch(**kwargs):
+        attempted.append(kwargs['metadata']['detection_id'])
+        if len(attempted) == 1:
+            raise RuntimeError('Synthetic dispatch failure')
+        native.alerts.append(kwargs)
+
+    monkeypatch.setattr(native.module, '_start_worker', start)
+    monkeypatch.setattr(native.module, '_snapshot', lambda *args: snapshots.append(args))
+    monkeypatch.setattr(alert_dispatch, 'dispatch_alert', dispatch)
+    monitor = native.monitor()
+    for _ in range(2):
+        send(monitor, hms=SPAGHETTI_HMS + CHUTE_HMS)
+    rows = detections(native.db)
+    assert len(rows) == 2 and len(snapshots) == 2
+    assert attempted == [row['id'] for row in rows]
+    assert [alert['metadata']['detection_id'] for alert in native.alerts] == [rows[1]['id']]
 
 
 def test_controlled_alert_keeps_originating_job_after_snapshot(native, monkeypatch):
