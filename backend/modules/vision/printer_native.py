@@ -13,6 +13,7 @@ from collections import deque
 import json
 import logging
 import threading
+from uuid import uuid4
 
 from sqlalchemy import or_, text
 
@@ -182,8 +183,10 @@ def _enqueue_observation(monitor, observation):
     if pending is None:
         pending = monitor._native_detection_pending = deque()
     # Repeated reports need no replay; retain every clear/recur and job change.
-    if not pending or pending[-1] != observation:
-        pending.append(observation)
+    if not pending or pending[-1][:-1] != observation:
+        # Retain the token when a failed transaction is requeued, including when
+        # COMMIT succeeded but its acknowledgement never reached this worker.
+        pending.append((*observation, uuid4().hex))
     if getattr(monitor, '_native_detection_running', False):
         return
     monitor._native_detection_running = True
@@ -226,7 +229,7 @@ def _drain_observations(monitor):
         raise
 
 
-def _observe(monitor, hms, error, job_id, filename):
+def _observe(monitor, hms, error, job_id, filename, observation_id=None):
     active = getattr(monitor, '_native_detection_codes', None)
     if active is None:
         # First report after a restart: the stored identities, so nothing repeats.
@@ -244,6 +247,7 @@ def _observe(monitor, hms, error, job_id, filename):
     from modules.printers.bambu_hms_bundle import prefix_from_serial
     from modules.printers.hms_codes import lookup_hms_code
     prefix = prefix_from_serial(getattr(monitor, 'serial', ''))
+    observation_id = observation_id or uuid4().hex
     created = []
     with engine.begin() as conn:
         scheduled_job_id = conn.execute(text(
@@ -256,12 +260,20 @@ def _observe(monitor, hms, error, job_id, filename):
                 continue   # the same problem under a second code: one detection per kind
             kinds_active.add(kind)
             message = lookup_hms_code(code, prefix)
-            detection_id = execute_insert_returning_id(conn, (
-                'INSERT INTO vision_detections (printer_id, print_job_id, detection_type, confidence,'
-                ' status, metadata_json, created_at)'
-                f' VALUES (:pid, :jid, :kind, 1.0, :status, :meta, {sql.now()})'),
-                {'pid': monitor.printer_id, 'jid': job_id, 'kind': kind, 'status': INFORMATIONAL,
-                 'meta': json.dumps({'source': SOURCE, 'code': code, 'text': message})})
+            identity = f'{observation_id}:{code}'
+            # This metadata field is written only here, with json.dumps spacing.
+            # Reuse an uncertain commit's row before attempting another insert.
+            detection_id = conn.execute(text(
+                'SELECT id FROM vision_detections WHERE printer_id=:pid AND metadata_json LIKE :identity'),
+                {'pid': monitor.printer_id, 'identity': f'%"observation": "{identity}"%'}).scalar()
+            if detection_id is None:
+                detection_id = execute_insert_returning_id(conn, (
+                    'INSERT INTO vision_detections (printer_id, print_job_id, detection_type, confidence,'
+                    ' status, metadata_json, created_at)'
+                    f' VALUES (:pid, :jid, :kind, 1.0, :status, :meta, {sql.now()})'),
+                    {'pid': monitor.printer_id, 'jid': job_id, 'kind': kind, 'status': INFORMATIONAL,
+                     'meta': json.dumps({'source': SOURCE, 'code': code, 'text': message,
+                                         'observation': identity})})
             created.append((detection_id, kind, code, message))
         conn.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value) '
                           'ON CONFLICT(key) DO UPDATE SET value=excluded.value'),

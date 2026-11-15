@@ -478,6 +478,67 @@ def test_database_failure_retries_queued_transitions_in_order(native, monkeypatc
     assert len(native.alerts) == 2
 
 
+@pytest.mark.parametrize('scenario', ['active', 'clear', 'queued_kinds', 'same_packet_kinds'])
+def test_lost_commit_acknowledgement_retries_without_duplicates(native, monkeypatch, scenario):
+    from contextlib import contextmanager
+    from sqlalchemy.exc import OperationalError
+
+    workers = []
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    monkeypatch.setattr(native.module, '_start_worker', lambda target, *args: workers.append((target, args)))
+    monitor = native.monitor()
+    if scenario == 'clear':
+        native.module._observe(monitor, {'0C00030000030008'}, None, 201, 'current.3mf')
+        target, args = workers.pop(0)
+        target(*args)
+    reports = {
+        'active': (SPAGHETTI_HMS,),
+        'clear': ([], SPAGHETTI_HMS),
+        'queued_kinds': (SPAGHETTI_HMS, SPAGHETTI_HMS + CHUTE_HMS),
+        'same_packet_kinds': (SPAGHETTI_HMS + CHUTE_HMS,),
+    }[scenario]
+    with monitor._lock:
+        for hms in reports:
+            native.module.observe(monitor, {'hms': hms})
+    pending = list(monitor._native_detection_pending)
+    engine = native.db.get_bind()
+    failures = []
+
+    @contextmanager
+    def uncertain_commit():
+        with engine.begin() as conn:
+            yield conn
+        # The real transaction has committed, but the worker sees a failed COMMIT.
+        if not failures:
+            failures.append(True)
+            raise OperationalError('COMMIT', {}, RuntimeError('Synthetic lost acknowledgement'))
+
+    monkeypatch.setattr(native.module, 'engine', SimpleNamespace(connect=engine.connect, begin=uncertain_commit))
+    target, args = workers.pop(0)
+    target(*args)
+    assert failures == [True]
+    assert monitor._native_detection_running is False
+    assert list(monitor._native_detection_pending) == pending
+    committed = detections(native.db)
+    assert len(committed) == (2 if scenario == 'same_packet_kinds' else 1)
+    assert len(native.alerts) == (1 if scenario == 'clear' else 0)
+    assert native.module._load_active(9) == native.module._hms_codes(reports[0])
+    # Restart with another copy of the last report, retaining the failed transition.
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': reports[-1]})
+    target, args = workers.pop(0)
+    target(*args)
+    assert monitor._native_detection_pending is None
+    assert monitor._native_detection_codes == native.module._hms_codes(reports[-1])
+    rows = detections(native.db)
+    assert len(rows) == (1 if scenario == 'active' else 2)
+    assert {row['id'] for row in committed} <= {row['id'] for row in rows}
+    for target, args in workers:
+        target(*args)
+    assert len(native.alerts) == len(rows)
+    assert {alert['metadata']['detection_id'] for alert in native.alerts} == {row['id'] for row in rows}
+
+
 def test_aborted_drain_restarts_on_next_report_without_losing_queue(native, monkeypatch):
     workers = []
     monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
