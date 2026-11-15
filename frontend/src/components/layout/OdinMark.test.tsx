@@ -35,8 +35,7 @@ describe('ODIN mark', () => {
 })
 
 describe('default icon files', () => {
-  // The page has always pointed at /favicon.svg, but no such file shipped: every install
-  // without custom branding had no tab icon.
+  // The page starts with neutral tab icons; resolved stock branding selects the SVG and PNG.
   it.each(['favicon.svg', 'favicon-neutral.svg', 'favicon-32.png', 'apple-touch-icon.png', 'odin-icon-192.svg', 'odin-icon-512.svg', 'odin-mark.svg'])('%s exists', (name) => {
     expect(existsSync(resolve(PUBLIC, name))).toBe(true)
   })

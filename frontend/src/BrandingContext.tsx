@@ -1,6 +1,6 @@
 import { contrastRatio } from "./utils/contrast"
 import { DEFAULT_SURFACE_COLORS } from "./utils/brandingPalette"
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react"
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react"
 
 const API_BASE = '/api'
 
@@ -58,7 +58,7 @@ function loadBrandingFonts(b) {
   }
 }
 
-const BrandingContext = createContext({ ...DEFAULT_BRANDING, brandingResolved: false })
+const BrandingContext = createContext({ ...DEFAULT_BRANDING, brandingResolved: true })
 const BrandingUpdateContext = createContext<(patch: any) => void>(() => {})
 
 export function BrandingProvider({ children }) {
@@ -142,8 +142,15 @@ export function BrandingProvider({ children }) {
     return () => observer.disconnect()
   }, [branding])
 
+  const value = useMemo(() => ({
+    ...branding,
+    // Withhold the initial stock name; an explicitly confirmed name remains visible.
+    app_name: brandingResolved || 'app_name' in confirmedPatch.current ? branding.app_name : '',
+    brandingResolved,
+  }), [branding, brandingResolved])
+
   return (
-    <BrandingContext.Provider value={{ ...branding, brandingResolved }}>
+    <BrandingContext.Provider value={value}>
       <BrandingUpdateContext.Provider value={updateConfirmedBranding}>
         {children}
       </BrandingUpdateContext.Provider>

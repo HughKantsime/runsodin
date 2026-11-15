@@ -2,13 +2,19 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, test, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { BrandingProvider, useBrandingUpdate } from './BrandingContext'
+import { memo } from 'react'
+import { BrandingProvider, useBranding, useBrandingUpdate } from './BrandingContext'
 import OdinMark from './components/layout/OdinMark'
 
 const stock = { app_name: 'O.D.I.N.', logo_url: null, favicon_url: null }
 const neutralIcon = '/favicon-neutral.svg'
 const response = (data: unknown, ok = true) => ({ ok, json: async () => data })
 const icons = () => [...document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')]
+
+function BrandName() {
+  const branding = useBranding()
+  return <span data-testid="brand-name">{branding.app_name}</span>
+}
 
 function loadPageIcons() {
   const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
@@ -67,6 +73,63 @@ test('the initial HTML has neutral tab icons until branding resolves', () => {
   loadPageIcons()
   expect(icons()).toHaveLength(2)
   for (const link of icons()) expect(link).toHaveAttribute('href', neutralIcon)
+})
+
+test('the initial HTML has a neutral title until branding resolves', () => {
+  const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
+  const page = new DOMParser().parseFromString(html, 'text/html')
+  expect(page.title).toBe('Loading…')
+})
+
+test.each(['/api/branding', '/api/auth/me', '/api/license', '/api/orgs/7/settings'])(
+  'withholds the stock name from context consumers while %s is pending', async pendingUrl => {
+    let release!: (value: unknown) => void
+    const delayed = new Promise(resolve => { release = resolve })
+    const replies: Record<string, ReturnType<typeof response>> = {
+      '/api/branding': response(pendingUrl === '/api/branding' ? { ...stock, app_name: 'Custom farm' } : stock),
+      '/api/auth/me': response({ group_id: 7 }),
+      '/api/license': response({ features: ['branding'] }),
+      '/api/orgs/7/settings': response({ branding_app_name: 'Custom farm' }),
+    }
+    const fetcher = vi.fn(async (url: string) => url === pendingUrl ? delayed : replies[url])
+    vi.stubGlobal('fetch', fetcher)
+    render(<BrandingProvider><BrandName /></BrandingProvider>)
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => url === pendingUrl)).toBe(true))
+    expect(screen.getByTestId('brand-name')).toBeEmptyDOMElement()
+    await act(async () => { release(replies[pendingUrl]); await delayed })
+    expect(screen.getByTestId('brand-name')).toHaveTextContent('Custom farm')
+  },
+)
+
+test('unrelated provider renders do not notify branding consumers', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/branding' ? response(stock) : response({}, false)))
+  const rendered = vi.fn()
+  const Consumer = memo(function Consumer() {
+    const branding = useBranding()
+    rendered(branding)
+    return <span>{branding.app_name}</span>
+  })
+  const { rerender } = render(<BrandingProvider><Consumer /></BrandingProvider>)
+  await screen.findByText('O.D.I.N.')
+  const count = rendered.mock.calls.length
+  rerender(<BrandingProvider><Consumer /></BrandingProvider>)
+  expect(rendered).toHaveBeenCalledTimes(count)
+})
+
+test('a mark outside the provider retains the stock context fallback', () => {
+  render(<OdinMark />)
+  expect(screen.getByTestId('odin-mark')).toBeInTheDocument()
+})
+
+test('a partial confirmed update keeps the name neutral until a failed load resolves', async () => {
+  let reject!: (reason: Error) => void
+  const delayed = new Promise((_resolve, rejectPromise) => { reject = rejectPromise })
+  vi.stubGlobal('fetch', vi.fn(() => delayed))
+  render(<BrandingProvider><BrandName /><UpdateButtons /></BrandingProvider>)
+  fireEvent.click(screen.getByText('Set logo'))
+  expect(screen.getByTestId('brand-name')).toBeEmptyDOMElement()
+  await act(async () => { reject(new Error('Unavailable')) })
+  expect(screen.getByTestId('brand-name')).toHaveTextContent('O.D.I.N.')
 })
 
 test.each([
