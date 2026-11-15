@@ -663,6 +663,134 @@ def test_hidden_model_never_exposes_production_evidence(floor, work):
     expected = {'pieces': 9, 'job_ids': [301], 'awaiting_stock': 4} if work == 'inspected' else {'pieces': 10, 'job_ids': [301, 302], 'awaiting_stock': 0}
     assert entry['on_the_way'] == expected and entry['shortfall'] == 18 - expected['pieces']
 
+@pytest.mark.parametrize('damage', ['deleted_recipe', 'no_payload', 'no_model', 'missing_model',
+                                  'no_job', 'unknown_job_key', 'missing_job'])
+def test_unidentified_receipt_work_requires_full_controlled_access(floor, damage):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    answer = floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe))
+    assert answer.status_code == 200, answer.text
+    db = floor['db']
+    # Only the inspected output is outstanding. The known job/model are visible;
+    # other controlled work of this owner makes unidentified evidence unsafe.
+    db.execute(text("UPDATE jobs SET status='cancelled' WHERE id=301"))
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Restricted'),(2,'Other owner')"))
+    db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id) VALUES(303,'foreign','pending',2)"))
+    db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(300,'CUI',1,'Secure',7,'test','2026-11-01'),(303,'CUI',2,'Secure',7,'test','2026-11-01')"))
+    db.execute(text('UPDATE jobs SET charged_to_org_id=1 WHERE id=300'))
+    if damage == 'deleted_recipe':
+        db.execute(batches.recipes.delete().where(batches.recipes.c.id == recipe['id']))
+    elif damage in ('no_payload', 'no_model', 'missing_model'):
+        definition = json.loads(db.execute(text('SELECT definition FROM production_recipes')).scalar_one())
+        if damage == 'no_payload':
+            definition.pop('payload')
+        elif damage == 'no_model':
+            definition['payload'].pop('model_id')
+            # Another valid recipe keeps the matching-job scan active; the
+            # incomplete recipe must not crash that scan either.
+            other = {**recipe, 'id': 'e' * 32, 'outputs': [{'product_id': 104, 'kind': 'main', 'expected': 5}]}
+            db.execute(batches.recipes.insert().values(id='e' * 32, owner=1, definition=batches.packed(other)))
+            db.execute(text("INSERT INTO jobs(id,item_name,model_id,status,charged_to_org_id,quantity) "
+                            "VALUES(401,'other run',301,'pending',1,1)"))
+        else:
+            definition['payload']['model_id'] = 999
+        db.execute(update(batches.recipes).where(batches.recipes.c.id == recipe['id']).values(definition=batches.packed(definition)))
+    else:
+        definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+        job_id = definition.pop('job_id')
+        if damage == 'unknown_job_key':
+            definition['reference_job_id'] = job_id
+        elif damage == 'missing_job':
+            definition['job_id'] = 999
+        db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    db.commit()
+    entry = row(floor)
+    assert entry['on_hand']['quantity'] == 2
+    assert entry['on_the_way'] == {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
+    assert entry['status'] == 'blocked' and entry['shortfall'] is None
+    assert 'controlled work you cannot see' in entry['reason']
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,:user)'),
+               {'user': floor['user']['id']})
+    db.commit()
+    entry = row(floor)
+    assert entry['on_the_way'] == {'pieces': 4, 'job_ids': [], 'awaiting_stock': 4}
+    assert entry['shortfall'] == 14
+
+
+def test_finishing_receipt_without_recipe_requires_full_controlled_access(floor):
+    from tests.test_contracts.test_finishing_workflow import bom, component, finish_body
+    preview = bom(floor['batch'])
+    inspected = component(floor['batch'])
+    assert inspected.status_code == 200, inspected.text
+    answer = floor['client'].post('/products/production/finishing',
+                                 json=finish_body(floor['batch'], inspected.json(), preview))
+    assert answer.status_code == 200, answer.text
+    assert 'recipe_id' not in answer.json() and 'job_id' not in answer.json()
+    numbers(floor)
+    db = floor['db']
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Restricted')"))
+    db.execute(text("INSERT INTO controlled_files(file_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(301,'CUI',1,'Secure',7,'test','2026-11-01')"))
+    db.commit()
+    entry = row(floor)
+    assert entry['on_hand']['quantity'] == 2
+    assert entry['on_the_way'] == {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
+    assert entry['shortfall'] is None and 'controlled work you cannot see' in entry['reason']
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,:user)'),
+               {'user': floor['user']['id']})
+    db.commit()
+    entry = row(floor)
+    assert entry['on_the_way'] == {'pieces': 2, 'job_ids': [], 'awaiting_stock': 2}
+    assert entry['shortfall'] == 6
+
+
+@pytest.mark.parametrize('work', ['pending', 'inspected'])
+def test_hidden_job_under_visible_model_uses_real_permissions(floor, work):
+    from core.controlled_parts import allowed
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    db = floor['db']
+    if work == 'inspected':
+        assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    else:
+        db.execute(text("UPDATE jobs SET status='pending' WHERE id=302"))
+    db.execute(text("UPDATE jobs SET status='cancelled' WHERE id=301"))
+    # The job selects a file directly, outside the model's linked files. A job
+    # mark otherwise also protects this fixture's model through that file.
+    db.execute(text('UPDATE print_files SET model_id=NULL WHERE id=301'))
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Restricted')"))
+    db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(302,'CUI',1,'Secure',7,'test','2026-11-01')"))
+    db.commit()
+    print_id = db.execute(text('SELECT id FROM print_jobs WHERE scheduled_job_id=302')).scalar_one()
+    assert allowed(db, 'model', 301, floor['user'])
+    assert not allowed(db, 'job', 302, floor['user'])
+    assert not allowed(db, 'print_job', print_id, floor['user'])
+    entry = row(floor)
+    assert entry['on_the_way'] == {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
+    assert entry['shortfall'] is None and entry['status'] == 'blocked'
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,:user)'),
+               {'user': floor['user']['id']})
+    db.commit()
+    assert allowed(db, 'job', 302, floor['user']) and allowed(db, 'print_job', print_id, floor['user'])
+    assert row(floor)['on_the_way']['pieces'] == (4 if work == 'inspected' else 5)
+
+
+def test_hidden_only_recipe_suppresses_derived_shortfall(floor):
+    plate(floor)
+    numbers(floor)
+    db = floor['db']
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Restricted')"))
+    db.execute(text("INSERT INTO controlled_files(file_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(301,'CUI',1,'Secure',7,'test','2026-11-01')"))
+    db.commit()
+    entry = row(floor)
+    assert entry['on_hand']['quantity'] == 2
+    assert entry['status'] == 'blocked' and 'controlled work you cannot see' in entry['reason']
+    assert entry['shortfall'] is None
+
+
 def test_queue_creates_held_jobs_through_the_shared_queue_path_and_a_second_click_adds_none(floor, monkeypatch):
     recipe = plate(floor)
     numbers(floor, point=5, target=14)

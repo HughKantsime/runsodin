@@ -161,7 +161,7 @@ def on_the_way(db, owner, recipes, can_see):
     if len(outstanding) > LIMIT:
         return coming, 'Pending-addition scan is incomplete. Review existing work first.'
     details = {}
-    recipe_models = {r['id']: r['payload']['model_id'] for r in recipes if r.get('payload')}
+    recipe_models = {r['id']: r['payload'].get('model_id') for r in recipes if r.get('payload')}
     if outstanding:
         details = {rid: {**json.loads(raw), 'recipe_id': recipe_id} for rid, recipe_id, raw in db.execute(select(
             batches.receipts.c.id, batches.receipts.c.recipe_id, batches.receipts.c.definition).where(
@@ -173,9 +173,11 @@ def on_the_way(db, owner, recipes, can_see):
             detail = finish_receipt(db, owner, receipt_id)
         if detail is None:
             return coming, 'A pending stock addition has missing evidence. Review existing work first.'
-        restricted = any(identifier is not None and not can_see(kind, identifier) for kind, identifier in (
-            ('job', detail.get('job_id')), ('print_job', detail.get('print_job_id')),
-            ('model', recipe_models.get(detail.get('recipe_id')))))
+        # Batch acceptances carry job_id; finishing receipts have neither it nor
+        # recipe_id. Missing evidence must use the caller's unknown-work policy.
+        restricted = (not can_see('job', detail.get('job_id')) or
+                      not can_see('model', recipe_models.get(detail.get('recipe_id'))) or
+                      ('print_job_id' in detail and not can_see('print_job', detail['print_job_id'])))
         for output in detail['outputs']:
             if output['accepted'] > 0:
                 # Inspected pieces that Square does not count yet.
@@ -184,7 +186,7 @@ def on_the_way(db, owner, recipes, can_see):
                 entry(output['product_id'])['pieces'] += pieces
                 if pieces and restricted:
                     entry(output['product_id'])['restricted'] = True
-    models = {r['payload']['model_id'] for r in recipes if r.get('payload')}
+    models = {r['payload'].get('model_id') for r in recipes if r.get('payload')} - {None}
     if not models:
         return coming, None
     from modules.jobs.models import Job
@@ -202,7 +204,7 @@ def on_the_way(db, owner, recipes, can_see):
             continue
         makes = {}
         for recipe in recipes:
-            if not recipe.get('payload') or not assortment.job_may_produce(job, recipe['payload']):
+            if not (recipe.get('payload') or {}).get('model_id') or not assortment.job_may_produce(job, recipe['payload']):
                 continue
             for output in recipe['outputs']:
                 if output['kind'] == 'main':
@@ -276,15 +278,41 @@ def build(db, owner, user, known, *, now=None):
     sold = velocity(db, owner, now) if active else {}
     hours = plate_hours(db, recipes)
     saved = snapshots(db, owner) if active else {}
-    from core.controlled_parts import allowed, any_controlled_data
+    from core.controlled_parts import allowed, any_controlled_data, member
     controlled = bool(active) and any_controlled_data(db)
     visible = {}
+    def unknown_visible():
+        if 'unknown' not in visible:
+            # No resource identity means no individual audience can be proved.
+            # Require every audience of this owner; orphaned marks/history have
+            # no reliable owner and must also be covered. Admin is no bypass.
+            audiences = db.execute(text('''
+                SELECT c.audience_id FROM controlled_files c LEFT JOIN print_files f ON f.id=c.file_id
+                WHERE f.id IS NULL OR COALESCE(f.org_id,0)=:owner
+                UNION SELECT c.audience_id FROM controlled_jobs c LEFT JOIN jobs j ON j.id=c.job_id
+                WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
+                UNION SELECT c.audience_id FROM controlled_job_tombstones c LEFT JOIN jobs j ON j.id=c.job_id
+                WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
+            '''), {'owner': owner}).scalars()
+            visible['unknown'] = all(member(db, user, audience) for audience in audiences)
+        return visible['unknown']
+
     def can_see(kind, identifier):
         if not controlled:
             return True
+        if identifier is None:
+            return unknown_visible()
         key = (kind, identifier)
         if key not in visible:
             visible[key] = allowed(db, kind, identifier, user)
+            # allowed() intentionally permits resources with no policy, including
+            # deleted resources. That does not identify retained production here.
+            if visible[key]:
+                query = {'model': 'SELECT 1 FROM models WHERE id=:id',
+                         'job': 'SELECT 1 FROM jobs WHERE id=:id',
+                         'print_job': 'SELECT 1 FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id WHERE p.id=:id'}[kind]
+                if db.execute(text(query), {'id': identifier}).first() is None:
+                    visible[key] = unknown_visible()
         return visible[key]
     def minimum(product_id):
         return assortment.rule(policy['products'].get(str(product_id)))['minimum_main_batch'] or 1
@@ -354,7 +382,7 @@ def build(db, owner, user, known, *, now=None):
         candidates, run_plates, hidden_recipe = [], {}, False
         for recipe in recipes:
             main = next((o for o in recipe['outputs'] if o['product_id'] == product.id and o['kind'] == 'main'), None)
-            if main is None or recipe.get('qualified') is not True or not recipe.get('payload'):
+            if main is None or recipe.get('qualified') is not True or not (recipe.get('payload') or {}).get('model_id'):
                 continue
             if not can_see('model', recipe['payload']['model_id']):
                 hidden_recipe = True
@@ -368,6 +396,8 @@ def build(db, owner, user, known, *, now=None):
                                'hours_per_plate': per_plate_hours,
                                'hours_per_piece': round(per_plate_hours / main['expected'], 3) if per_plate_hours else None})
         if not candidates:
+            if hidden_recipe:
+                row['shortfall'] = None
             row['reason'] = ('The plate that makes this product is controlled work you cannot see.' if hidden_recipe else
                              'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.')
             continue
