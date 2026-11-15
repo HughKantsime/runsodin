@@ -91,7 +91,7 @@ For how O.D.I.N. compares with hosted print-farm services, see [runsodin.com/com
 
 ## Agents (v1.8.9+)
 
-O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with idempotent retries, dry-run previews, structured error codes, and a local-model deployment path that can run on-premises with ITAR mode on.
+O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with safe retries (a repeated write with the same key runs once; on current and earlier releases this needs an API token without an expiry date), dry-run previews, structured error codes, and a local-model deployment path that can run on-premises with ITAR mode on.
 
 - **[odin-print-farm-mcp](https://github.com/HughKantsime/odin-mcp)** (npm: `odin-print-farm-mcp@2`) — tools covering queue, printers, jobs, inventory, alerts and maintenance; see the package for the current list.
 - **[MCP integration docs](https://docs.runsodin.com/integrations/mcp-server)** — Quick start, tool catalog, agent primitives, error codes.
