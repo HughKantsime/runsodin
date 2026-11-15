@@ -239,10 +239,11 @@ def _test_defined(value):
         if candidate is None or not hasattr(candidate, "__code__"):
             continue
         module = sys.modules.get(getattr(candidate, "__module__", None) or "")
-        # Normalised: a module imported through a "tests/../backend" path entry is a backend
+        # Resolved: a module imported through a "tests/../backend" path entry is a backend
         # module, not a test module, although its raw __file__ starts with the tests folder.
+        # realpath, not normpath: it follows symlinks before removing "..", as the file system does.
         filename = getattr(module, "__file__", None) or ""
-        if filename and os.path.normpath(filename).startswith((_TESTS_DIR, _BACKEND_TESTS_DIR)):
+        if filename and os.path.realpath(filename).startswith((_TESTS_DIR, _BACKEND_TESTS_DIR)):
             return True
     return False
 
