@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile, { slotLabel as deviceSlotLabel } from '../foundry/SlotTile'
 import { useState } from 'react'
@@ -27,9 +28,10 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
 
 // An S1 slot's colour name is only its material, so its hex is what tells same-material slots apart.
 function slotLabel(slot: ArchiveAmsSlot) {
-  const name = slot.color && slot.color !== slot.material ? slot.color : null
+  if ((slot.filament_type || slot.material) === 'empty') return 'Empty'
+  const name = slot.catalogue_name || (slot.color && slot.color !== slot.material ? slot.color : null)
   const hex = !name && slot.color_hex ? `#${slot.color_hex.replace(/^#/, '')}` : null
-  return [name, slot.material, hex].filter(Boolean).join(' ')
+  return [name, slot.material ? materialLabel(slot.material) : null, hex].filter(Boolean).join(' ')
 }
 
 export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange, planned = false }: {
@@ -48,13 +50,13 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
           const match = mapping.find(m => m.source_slot === req.slot)
           return <li key={req.slot} className="flex items-center gap-2 text-xs">
             <span className="inline-block w-3 h-3 rounded-full border border-[var(--brand-card-border)]" style={{ background: req.color || 'transparent' }} />
-            <label htmlFor={`ams-source-${req.slot}`}>Filament {req.slot}: {req.material || 'Unknown'} {req.color}</label>
+            <label htmlFor={`ams-source-${req.slot}`}>Filament {req.slot}: {req.material ? materialLabel(req.material) : 'Unknown'} {req.color}</label>
             <span aria-hidden="true">→</span>
             {foundry ? <div className="f-slots" role="group" aria-label={`Filament ${req.slot} AMS slot`}>
               <button type="button" aria-pressed={!match} onClick={() => onChange(mapping.filter(m => m.source_slot !== req.slot))}>No matching slot</button>
               {preview.available.map(slot => <button type="button" className="f-slot-button" key={slot.slot} disabled={slot.do_not_feed} aria-label={`${deviceSlotLabel(preview.confirm_suggestions ? "anycubic_lan" : "bambu", slot.slot)} (${slotLabel(slot)})${slot.do_not_feed ? " — Do not feed" : ""}`} aria-pressed={match?.target_slot === slot.slot}
                 onClick={() => onChange([...mapping.filter(m => m.source_slot !== req.slot), { source_slot: req.slot, target_slot: slot.slot }].sort((a, b) => a.source_slot - b.source_slot))}>
-                <SlotTile expandable={false} apiType={preview.confirm_suggestions ? "anycubic_lan" : "bambu"} slot={{ slot_number: slot.slot, material_type: slot.material, color: slotLabel(slot), color_hex: slot.color_hex, do_not_feed: slot.do_not_feed }} />
+                <SlotTile expandable={false} apiType={preview.confirm_suggestions ? "anycubic_lan" : "bambu"} slot={{ slot_number: slot.slot, filament_type: slot.filament_type || slot.material, material_type: slot.material, color: slotLabel(slot), color_hex: slot.color_hex, do_not_feed: slot.do_not_feed }} />
               </button>)}
             </div> : (            <select id={`ams-source-${req.slot}`} aria-label={`Filament ${req.slot} AMS slot`}
               className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded p-1"

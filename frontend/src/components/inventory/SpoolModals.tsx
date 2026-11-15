@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import CataloguePicker from './CataloguePicker'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
@@ -335,7 +336,7 @@ export function DryingModal({ spool, onClose, onSubmit }: { spool: any; onClose:
             <div className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
           )}
           <span className="text-[var(--brand-text-secondary)] truncate">{spool.filament_brand} {spool.filament_name}</span>
-          <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{spool.filament_material}</span>
+          <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{spool.filament_material && materialLabel(spool.filament_material)}</span>
         </div>
       </div>
 

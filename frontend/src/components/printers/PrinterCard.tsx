@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import PrinterNumber from '../ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
@@ -90,7 +91,7 @@ function LedgerFilamentSlot({ slot }: { slot: any }) {
       <SlotLabel text={label} />
       {mapped ? <>
         {remaining !== null ? <SpoolRing color={color} level={remaining} size={20} /> : <span aria-label="Spool color" className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-        <SlotLabel text={slot.catalogue_name || slot.material_type || 'Material unknown'} />
+        <SlotLabel text={slot.catalogue_name || (slot.material_type ? materialLabel(slot.material_type) : 'Material unknown')} />
         {slot.color && <SlotLabel text={slot.color} />}
         {slot.preset && <SlotLabel text={`preset: ${slot.preset.replace(/^preset:\s*/i, '')}`} singleLine />}
         <SlotLabel text={`Mapped spool${slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}`} />
@@ -322,7 +323,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                     {ext ? (
                       <>
                         <SpoolRing color={ext.color || '#666'} level={ext.remain_percent != null ? ext.remain_percent : 100} size={16} />
-                        {ext.material && <SlotLabel text={ext.material} />}
+                        {ext.material && <SlotLabel text={materialLabel(ext.material)} />}
                         {ext.remain_percent != null && (
                           <span className="printer-number text-[10px] text-[var(--brand-text-muted)] ml-auto">{ext.remain_percent}%</span>
                         )}

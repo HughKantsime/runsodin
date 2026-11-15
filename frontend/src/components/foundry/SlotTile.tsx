@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FilamentSlot } from '../../types'
+import { materialLabel } from '../../utils/shared'
 import { number } from './data'
 
 export type SlotState = 'loaded' | 'feeding' | 'empty' | 'blocked' | 'changed' | 'support'
@@ -26,17 +27,20 @@ export default function SlotTile({ slot, apiType, state: explicitState, label, s
   const Tile = canExpand ? 'button' : 'span'
   const state = slot.do_not_feed ? 'blocked' : explicitState || slotState(slot)
   const unavailable = slot.mapping_status && slot.mapping_status !== 'mapped'
-  const named = slot.color && !/^preset:|^#?[a-f0-9]{6}$/i.test(slot.color) ? slot.color : null
-  const material = unavailable ? (slot.mapping_status === 'unavailable' ? 'Spool unavailable' : 'Unmapped') : state === 'empty' ? 'Empty' : variant === 'compact' ? (slot.material_type || slot.filament_type ? slot.material_type || slot.filament_type : 'Unknown') : slot.catalogue_name || named || slot.material_type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Material unknown'
+  const code = slot.material_type || slot.filament_type
+  const named = slot.color && slot.color !== code && !/^preset:|^#?[a-f0-9]{6}$/i.test(slot.color) ? slot.color : null
+  const displayMaterial = code ? materialLabel(code, variant === 'compact') : null
+  const labelText = unavailable ? (slot.mapping_status === 'unavailable' ? 'Spool unavailable' : 'Unmapped') : state === 'empty' ? 'Empty' : variant === 'compact' ? (displayMaterial || 'Unknown') : slot.catalogue_name || named || displayMaterial || 'Material unknown'
   const stateText = slot.do_not_feed || explicitState || slot.filament_type || slot.material_type ? labels[state] : 'State unknown'
   const color = slot.color_hex?.replace(/^#/, '')
   const remaining = !unavailable && number(slot.remaining_weight) && slot.remaining_weight >= 0 ? `${Math.round(slot.remaining_weight)} g` : !unavailable && number(slot.remaining) && slot.remaining >= 0 && slot.remaining <= 100 ? `${Math.round(slot.remaining)}%` : !unavailable && state !== 'empty' && (slot as any).assigned_spool_id != null ? 'not measured on this printer model' : 'unknown'
   return <Tile type={canExpand ? 'button' : undefined} className="f-slot" data-expanded={variant === 'full' && (!expandable || expanded)}
     aria-expanded={canExpand ? expanded : undefined}
-    aria-label={canExpand ? `${expanded ? 'Collapse' : 'Show full'} filament name: ${material} · ${label || slot.display_name || slotLabel(apiType, slot.slot_number)}${!unavailable && showState ? ` · ${stateText}` : ''}` : undefined}
-    onClick={canExpand ? event => { event.stopPropagation(); setExpanded(!expanded) } : undefined} data-slot-state={state} data-variant={variant} title={variant === 'compact' ? `${material} · ${label || slotLabel(apiType, slot.slot_number)} · ${labels[state]}` : undefined}>
+    aria-label={canExpand ? `${expanded ? 'Collapse' : 'Show full'} filament name: ${labelText} · ${label || slot.display_name || slotLabel(apiType, slot.slot_number)}${!unavailable && showState ? ` · ${stateText}` : ''}` : undefined}
+    onClick={canExpand ? event => { event.stopPropagation(); setExpanded(!expanded) } : undefined} data-slot-state={state} data-variant={variant} title={variant === 'compact' ? `${labelText} · ${label || slotLabel(apiType, slot.slot_number)} · ${labels[state]}` : undefined}>
     <span className="f-swatch" aria-hidden="true" style={{ backgroundColor: !unavailable && state !== 'empty' && color && /^[a-f0-9]{6,8}$/i.test(color) ? `#${color}` : undefined }} />
-    <span className="f-slot-label" title={material}>{material}</span>
+    <span className="f-slot-label" title={labelText}>{labelText}</span>
+    {variant === 'full' && !unavailable && state !== 'empty' && slot.catalogue_name && displayMaterial && <span className="f-slot-state">{displayMaterial}</span>}
     {variant === 'full' && !!slot.catalogue_choices?.length && <span className="f-slot-state">Choose catalogue name</span>}
     {variant === 'full' && slot.preset && !unavailable && <span className="f-slot-preset" title={slot.preset}>Preset: {slot.preset.replace(/^preset:\s*/i, '')}</span>}
     <span className="f-mono">{label || (variant === 'compact' ? (apiType === 'bambu' && slot.slot_number >= 17 ? slotLabel(apiType, slot.slot_number) : slot.slot_number) : slot.display_name || slotLabel(apiType, slot.slot_number))}</span>

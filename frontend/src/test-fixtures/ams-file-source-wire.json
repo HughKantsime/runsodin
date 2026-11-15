@@ -2,17 +2,21 @@
   "preview": {
     "available": [
       {
+        "catalogue_name": null,
         "color": "",
         "color_hex": "",
         "do_not_feed": false,
+        "filament_type": "PLA",
         "material": "PLA",
         "slot": 1,
         "spool_id": null
       },
       {
+        "catalogue_name": null,
         "color": "",
         "color_hex": "FFFFFF",
         "do_not_feed": false,
+        "filament_type": "PETG",
         "material": "PETG",
         "slot": 4,
         "spool_id": null

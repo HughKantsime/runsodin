@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import PageState from '../ui/PageState'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -78,7 +79,7 @@ export default function FilamentLibraryView() {
           >
             <option value="all">All Materials</option>
             {materials.map(m => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>{materialLabel(m)}</option>
             ))}
           </select>
           {canDo('spools.edit') && (
@@ -129,7 +130,7 @@ export default function FilamentLibraryView() {
                     <span className="text-sm text-[var(--brand-text-primary)] break-words block">{f.name}</span>
                   </div>
                   <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] shrink-0">
-                    {f.material || 'Unrecognised material'}
+                    {f.material ? materialLabel(f.material) : 'Unrecognised material'}
                   </span>
                   {f.cost_per_gram && (
                     <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 shrink-0">

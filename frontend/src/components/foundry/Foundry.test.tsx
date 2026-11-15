@@ -232,7 +232,8 @@ it('H2D compact slots keep AMS/slot addresses and the full long material', () =>
   const { container } = mount(<PrinterCard printer={printer({ machine_type: 'H2D', filament_slots: slots })} />)
   for (const label of ['1·1', '1·2', '2·1', '2·2', 'HT']) expect(screen.getByText(label)).toBeInTheDocument()
   expect(container.querySelector('.f-slots')).toHaveStyle({ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' })
-  expect(screen.getAllByTitle('PLA_SUPPORT')).toHaveLength(5)
+  expect(screen.getAllByTitle('PLA Support')).toHaveLength(5)
+  expect(container.textContent).not.toContain('PLA_SUPPORT')
 })
 it('schedule deduplicates tracked jobs and represents holds and paused waits honestly', () => {
   const slots = [{ printer_id: 1, mqtt_job_id: 8, status: 'printing', start: '2026-11-04T11:00:00Z', end: '2026-11-04T12:00:00Z' }] as TimelineSlot[]

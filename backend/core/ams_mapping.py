@@ -62,7 +62,12 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
     available = [dict(row) for row in db.execute(text(
         'SELECT slot_number AS slot,color,color_hex,filament_type AS material,assigned_spool_id AS spool_id,do_not_feed '
         'FROM filament_slots WHERE printer_id=:id ORDER BY slot_number'), {'id': printer_id}).mappings()]
+    from modules.inventory.catalogue_slots import enrich_catalogue_slots
+    from modules.printers.models import Printer
+    labelled = enrich_catalogue_slots(db, [db.get(Printer, printer_id)], actor)[0]
+    names = {slot.slot_number: slot.catalogue_name for slot in labelled.filament_slots}
     for slot in available:
+        slot['catalogue_name'] = names.get(slot['slot'])
         slot['do_not_feed'] = bool(slot['do_not_feed'])
     if is_kobra_s1(printer._mapping):
         from modules.printers.kobra_s1 import S1Refusal

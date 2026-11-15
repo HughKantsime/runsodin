@@ -1,4 +1,4 @@
-import type { Printer, FilamentSlot } from '../types'
+import type { Printer, FilamentSlot, FilamentType } from '../types'
 
 export const ONLINE_THRESHOLD_MS = 90_000
 
@@ -51,18 +51,22 @@ export function fanSpeedDisplay(apiType: string | null | undefined, raw: number 
   return { value: percent, unit: '%', text: `${percent}%` }
 }
 
-const MATERIAL_NAMES: Record<string, string> = {
+const MATERIAL_NAMES = {
+  empty: 'Empty', Unknown: 'Unknown', PLA: 'PLA', PETG: 'PETG', ABS: 'ABS', ASA: 'ASA', TPU: 'TPU', PA: 'PA', PC: 'PC', PVA: 'PVA',
+  NYLON_CF: 'NYLON-CF', NYLON_GF: 'NYLON-GF', PC_ABS: 'PC-ABS', PC_CF: 'PC-CF', HIPS: 'HIPS', PPS: 'PPS', PPS_CF: 'PPS-CF', PPA_CF: 'PPA-CF', TPU_AMS: 'TPU for AMS',
   PLA_SUPPORT: 'PLA Support', PETG_SUPPORT: 'PETG Support', PA_SUPPORT: 'PA Support', SUPPORT: 'Support',
   PLA_CF: 'PLA-CF', PETG_CF: 'PETG-CF', PA_CF: 'PA-CF', PA_GF: 'PA-GF', PET_CF: 'PET-CF', ABS_GF: 'ABS-GF', ASA_CF: 'ASA-CF',
   PLA_AERO: 'PLA Aero', ASA_AERO: 'ASA Aero', PLA_SILK: 'PLA Silk', PLA_MATTE: 'PLA Matte', TPU_95A: 'TPU 95A', OTHER: 'Other',
-}
+} satisfies Record<FilamentType, string> & Record<string, string>
 const FILAMENT_BRANDS = ['Bambu Lab', 'Bambu', 'Polymaker', 'Hatchbox', 'eSun', 'eSUN', 'Prusament', 'Overture', 'Elegoo', 'Sunlu', 'SUNLU', 'Anycubic', 'Creality', 'Generic']
 
 /** A material code as people write it: "PLA_SUPPORT" is "PLA Support", "PETG_CF" is "PETG-CF". */
-export function materialLabel(type: string | null | undefined): string {
+export function materialLabel(type: string | null | undefined, compact = false): string {
   const code = (type || '').trim()
   if (!code || code.toLowerCase() === 'empty') return 'Empty'
-  const known = MATERIAL_NAMES[code.toUpperCase()]
+  const key = code.toUpperCase().replace(/-/g, '_')
+  if (compact && key === 'TPU_AMS') return 'TPU-AMS'
+  const known = (MATERIAL_NAMES as Record<string, string>)[key]
   if (known) return known
   return code.replace(/_(CF|GF)$/i, (_, fibre) => `-${fibre.toUpperCase()}`).replace(/_/g, ' ')
 }
@@ -102,12 +106,12 @@ export function slotFullName(slot: string | FilamentSlot | null): string {
 export function classicSlotAppearance(slot: Partial<FilamentSlot> & { type?: string }) {
   const material = slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type)
   const hex = (slot.color_hex || (/^#?[0-9a-f]{6,8}$/i.test(slot.color || '') ? slot.color : '') || '').replace(/^#/, '')
-  const named = slot.color && !/^preset:|^#?[0-9a-f]{6,8}$/i.test(slot.color) ? slot.color : null
+  const named = slot.color && slot.color !== material && !/^preset:|^#?[0-9a-f]{6,8}$/i.test(slot.color) ? slot.color : null
   const empty = !slot.catalogue_name && !material && !slot.color && !slot.color_hex
   return {
     color: /^[0-9a-f]{6,8}$/i.test(hex) ? `#${hex}` : '#888',
     empty,
-    name: slot.catalogue_name || named || material || (empty ? 'Empty' : 'Material unknown'),
+    name: slot.catalogue_name || named || (material ? materialLabel(material) : null) || (empty ? 'Empty' : 'Material unknown'),
   }
 }
 

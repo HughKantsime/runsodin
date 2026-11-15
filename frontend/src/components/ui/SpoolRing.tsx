@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import clsx from 'clsx'
 
 interface SpoolRingProps {
@@ -83,7 +84,7 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
           'text-xs',
           isLow ? 'text-[var(--status-warning)]' : 'text-[var(--brand-text-secondary)]'
         )}>
-          {material}
+          {materialLabel(material)}
         </span>
       )}
     </div>

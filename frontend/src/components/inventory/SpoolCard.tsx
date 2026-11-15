@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTextOverflow } from '../../hooks/useTextOverflow'
@@ -62,13 +63,13 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           {foundry ? <div className="f-spool-copy">
             <h3 className="font-medium">{title}</h3>
             <p className={`text-sm ${spool.color_name ? '' : 'whitespace-nowrap'}`}>{spool.color_name || 'Unknown color'}</p>
-            <p className="text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
+            <p className="text-sm text-[var(--brand-text-muted)]">{spool.filament_material && materialLabel(spool.filament_material)}</p>
           </div> : <div className="min-w-0">
             <h3 className="font-medium text-[var(--brand-text-primary)] text-sm md:text-base">
               {title}
               <span className={`block text-sm ${spool.color_name ? '' : 'whitespace-nowrap'}`}>{spool.color_name || "Unknown color"}</span>
             </h3>
-            <p className="text-xs md:text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
+            <p className="text-xs md:text-sm text-[var(--brand-text-muted)]">{spool.filament_material && materialLabel(spool.filament_material)}</p>
           </div>}
         </div>
         <span className={clsx(

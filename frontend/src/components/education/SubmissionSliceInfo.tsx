@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import { useQuery } from '@tanstack/react-query'
@@ -31,7 +32,7 @@ export default function SubmissionSliceInfo({ id, revision, printerId, orgId, au
       {p.filaments.map(f => <p key={f.source_slot}>Sliced {f.material || 'unknown material'} · {f.color || 'unknown color'} · source slot {f.source_slot}</p>)}
     </div>)}
     {printerId && <div><strong>Loaded printer slots</strong><p>{data.freshness}</p>
-      {data.slots.map(s => foundry ? <div key={s.slot_number}><SlotTile slot={s} /><p>Observed {s.loaded_at || 'time unknown'}</p></div> : <p key={s.slot_number}>Slot {s.slot_number}: {s.filament_type} · {s.color_hex || 'unknown color'} · observed {s.loaded_at || 'time unknown'}</p>)}
+      {data.slots.map(s => foundry ? <div key={s.slot_number}><SlotTile slot={s} /><p>Observed {s.loaded_at || 'time unknown'}</p></div> : <p key={s.slot_number}>Slot {s.slot_number}: {materialLabel(s.filament_type)} · {s.color_hex || 'unknown color'} · observed {s.loaded_at || 'time unknown'}</p>)}
       {!data.slots.length && <p>No recorded slots.</p>}
     </div>}
     {mismatch && <p role="alert" className="text-[var(--status-warning)]">Filament mismatch: sliced material differs from the printer’s corresponding loaded slot. Confirm the mapping before approving. Dispatch checks still apply.</p>}
