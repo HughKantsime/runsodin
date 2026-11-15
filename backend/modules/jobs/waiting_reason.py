@@ -143,7 +143,7 @@ def add_waiting_reasons(db, jobs, actor, now=None, active_printers=None):
         return may_read(actor, "printers") and (check_org_access(actor, printer.org_id) or bool(printer.shared))
 
     from modules.printers.services import latest_gate_refusals, printer_wait_states
-    refusals = latest_gate_refusals(db, [job.id for job in undecided])
+    refusals = latest_gate_refusals(db, [job.id for job in undecided], actor)
     assigned = {job.printer.id: job.printer for job in undecided
                 if _status(job) == "scheduled" and job.printer_id is not None and job.printer is not None}
     states = printer_wait_states(db, list(assigned.values()), now, actor) if assigned else {}
@@ -163,7 +163,7 @@ def add_waiting_reasons(db, jobs, actor, now=None, active_printers=None):
             job.waiting_reason = reason
         elif refused and refused[0] != MAPPING_REFUSAL:
             job.waiting_reason = {"code": "dispatch_refused"}
-            if job.printer is not None and visible(job.printer):
+            if refused[1] is not None:
                 job.waiting_reason["detail"] = refused[1]
         elif scheduled:
             quiet.append(job)

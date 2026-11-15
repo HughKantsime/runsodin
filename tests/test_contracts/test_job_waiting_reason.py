@@ -253,6 +253,37 @@ def test_dispatch_refusal_detail_requires_printer_access(db, status):
     assert reasons(db, VIEWER)[976]['detail'] == 'Printer is on a maintenance hold'
 
 
+@pytest.mark.parametrize('assigned_printer', [None, 10])
+@pytest.mark.parametrize('refusal_printer', [9, 11, None])
+def test_refusal_detail_uses_the_attempted_printer_after_reassignment(db, assigned_printer, refusal_printer):
+    run(db, "INSERT INTO printers(id,name,api_type,is_active,org_id,shared) "
+            "VALUES(11,'Hidden printer','bambu',1,2,0)")
+    add_job(db, 982, 'pending', printer_id=assigned_printer)
+    refuse(db, 982, 'PRINTER_MAINTENANCE_HOLD', printer_id=refusal_printer)
+    expected = {'code': 'dispatch_refused'}
+    if refusal_printer == 9:
+        expected['detail'] = 'Printer is on a maintenance hold'
+    assert reasons(db, VIEWER)[982] == expected
+    assert reasons(db, JOBS_ONLY)[982] == {'code': 'dispatch_refused'}
+    # A later attempt clears the old refusal even when it uses another printer.
+    refuse(db, 982, None, kind='dispatch_uploading', minutes_ago=1, printer_id=10)
+    assert reasons(db, VIEWER)[982] is None
+
+
+@pytest.mark.parametrize('role', ['admin', 'viewer'])
+def test_busy_estimate_with_an_unscoped_actor(db, role):
+    from modules.printers.models import Printer
+    from modules.printers.services import printer_wait_states
+    add_job(db, 983, 'printing', printer_id=9, charged_to_org_id=None)
+    online(db, 9, 'RUNNING')
+    run(db, "INSERT INTO print_jobs(printer_id,scheduled_job_id,job_name,status,started_at,remaining_minutes) "
+            "VALUES(9,983,'current.gcode','running',:start,45)", start=stamp(utcnow()))
+    now = utcnow()
+    actor = {**VIEWER, 'role': role, 'group_id': None}
+    printer = db.get(Printer, 9)
+    assert printer_wait_states(db, [printer], now, actor)[9] == ('busy', now + timedelta(minutes=45))
+
+
 def test_busy_estimate_requires_access_to_the_latest_running_job(db):
     add_job(db, 977, 'scheduled', printer_id=9)
     add_job(db, 978, 'printing', printer_id=9, charged_to_org_id=2)
@@ -303,6 +334,7 @@ def test_detail_material_query_only_loads_the_requested_pending_job(db, monkeypa
     statement, parameters = queried[0]
     # Constrain rows in SQL, not after fetching and parsing the whole backlog.
     assert 'j.id IN' in statement and tuple(parameters) == (979,)
+
 
 def test_reasons_cost_a_fixed_number_of_queries_however_many_jobs(db, monkeypatch):
     """Counted around the waiting-reason step alone (the name lookup before it is not under test)."""

@@ -313,9 +313,28 @@ def printer_wait_states(db, printers, now, actor):
     return states
 
 
-def latest_gate_refusals(db, job_ids):
-    """{job id: (code, plain words)} where the job's latest dispatch event is a gate refusal (one read)."""
-    from modules.printers.integration_floor import _refusals, refusal_words
+def latest_gate_refusals(db, job_ids, actor):
+    """Latest refusal per job; detail requires access to the attempted printer (one read).
+
+    Unlike the print-floor helper, retain the last attempt even after reassignment.
+    A missing/deleted printer gives no authority to describe that attempt.
+    """
+    from sqlalchemy import bindparam
+    from core.printer_display_facts import may_read
+    from core.rbac import check_org_access
+    from modules.printers.integration_floor import refusal_words
     if not job_ids:
         return {}
-    return {job_id: (str(code or "").upper(), refusal_words(code)) for job_id, (code, _at) in _refusals(db, job_ids).items()}
+    rows = db.execute(text(
+        "SELECT t.job_id, t.kind, t.code, p.id, p.org_id, p.shared FROM job_timeline_events t "
+        "LEFT JOIN printers p ON p.id = t.printer_id "
+        "WHERE t.job_id IN :ids AND t.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed') "
+        "AND t.occurred_at = (SELECT MAX(u.occurred_at) FROM job_timeline_events u "
+        "WHERE u.job_id = t.job_id AND u.kind IN ('gate_refused','dispatch_uploading','dispatch_starting','dispatch_dispatched','dispatch_failed'))"
+    ).bindparams(bindparam("ids", expanding=True)), {"ids": list(job_ids)})
+    found = {}
+    for job_id, kind, code, printer_id, org_id, shared in rows:
+        if kind == "gate_refused":
+            visible = printer_id is not None and may_read(actor, "printers") and (check_org_access(actor, org_id) or shared)
+            found[job_id] = (str(code or "").upper(), refusal_words(code) if visible else None)
+    return found
