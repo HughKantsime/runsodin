@@ -139,6 +139,31 @@ def test_password_sign_in_failure_writes_exactly_one_row(login_client,review_db)
     assert _sign_in_rows(review_db)==[('auth.login_failed','user',None,{'username':'student'})]
 
 
+@pytest.mark.parametrize('detail', [
+    'Unrelated authentication refusal',
+    'Invalid authentication session',
+    'Credentials changed. Restart sign-in.',
+])
+def test_unrelated_401_keeps_existing_audit_behavior(
+        login_client, review_db, monkeypatch, detail):
+    from fastapi import HTTPException
+    from core import mfa_login
+
+    def refuse(*args, **kwargs):
+        raise HTTPException(401, detail, headers={'WWW-Authenticate': 'Bearer'})
+
+    monkeypatch.setattr(mfa_login, 'login_mfa_response', refuse)
+    response = login_client.request()
+    assert response.status_code == 401
+    assert response.json() == {'detail': detail}
+    assert response.headers['www-authenticate'] == 'Bearer'
+    assert 'session' not in response.cookies
+    assert _sign_in_rows(review_db) == []
+    with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one() == 0
+        assert fresh.execute(text('SELECT last_login FROM users WHERE id=1')).scalar_one() is None
+
+
 def test_correct_password_awaiting_second_step_keeps_its_one_record(login_client,review_db):
     review_db.execute(text('UPDATE users SET mfa_enabled=1 WHERE id=1'))
     review_db.commit()

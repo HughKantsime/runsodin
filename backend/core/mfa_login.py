@@ -6,6 +6,10 @@ from sqlalchemy import text
 from core import auth
 
 
+class RevokedLoginCredentials(HTTPException):
+    """The user or password changed after the initial credential check."""
+
+
 def _locked_user(db,user_id):
     from core.license_lock import enabled, _lock
     if enabled(): _lock(db)
@@ -41,9 +45,9 @@ def login_mfa_response(db,user_id,expected_password_hash=None,*,commit=True):
     """Prepare MFA continuation; commit=False leaves commit/rollback to the caller."""
     user=_locked_user(db,user_id)
     if not user or not user.is_active:
-        raise HTTPException(status_code=401,detail='Invalid authentication session')
+        raise RevokedLoginCredentials(status_code=401,detail='Invalid authentication session')
     if expected_password_hash is not None and user.password_hash!=expected_password_hash:
-        raise HTTPException(status_code=401,detail='Credentials changed. Restart sign-in.')
+        raise RevokedLoginCredentials(status_code=401,detail='Credentials changed. Restart sign-in.')
     from core.license_lock import authorize_user
     authorize_user(db, user_id, issuance=True)
     if user.mfa_enabled:

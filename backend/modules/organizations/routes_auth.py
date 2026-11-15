@@ -25,6 +25,7 @@ from core.auth_helpers import (
 import core.auth as auth_module
 from core.auth import hash_password, create_access_token, verify_password, decode_token
 from core.models import SystemConfig
+from core.mfa_login import RevokedLoginCredentials
 from core.config import settings as _settings
 from core.rate_limit import limiter
 from modules.organizations.education_access import capability_snapshot_id
@@ -91,7 +92,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         except Exception:
             log.warning("Unissued session could not be withdrawn")
         if isinstance(exc, HTTPException):
-            if exc.status_code == 401:
+            if isinstance(exc, RevokedLoginCredentials):
                 # Revoked credentials are a refused sign-in, even though the
                 # staged success and last_login update were rolled back.
                 try:
