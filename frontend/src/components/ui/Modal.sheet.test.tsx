@@ -45,7 +45,7 @@ test('640 px and above: panel layout is unchanged and close is a 44px target', (
   expect(panel().children).toHaveLength(2)
   expect(panel().children[0].className).toBe('flex items-center justify-between p-4 sm:p-6 pb-0')
   expect(panel().children[1].className).toBe('p-4 sm:p-6')
-  expect(screen.getByLabelText('Close').className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 flex items-center justify-center')
+  expect(screen.getByLabelText('Close').className).toBe('text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 -my-3 -mr-3 flex items-center justify-center')
 })
 
 test('no matchMedia (jsdom default) renders the desktop layout', () => {
