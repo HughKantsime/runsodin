@@ -41,6 +41,12 @@ def raising(exc):
     return call
 
 
+def tls_error(reason):
+    error = ssl.SSLError(1, reason)
+    error.reason = reason  # OpenSSL supplies this structured attribute on real failures.
+    return error
+
+
 # ---- address policy ----
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "169.254.169.254", "[::1]", "0.0.0.0"])
@@ -69,7 +75,7 @@ HTTP_CASES = [
     (httpx.ConnectError("refused"), "unreachable"),
     (httpx.ConnectTimeout("slow"), "unreachable"),
     (httpx.ReadTimeout("silent"), "unreachable"),
-    (httpx.RemoteProtocolError("not http"), "not_this_type"),
+    (httpx.RemoteProtocolError("not http"), "unknown"),
     (httpx.ReadError("reset"), "unknown"),
     (RuntimeError("anything else"), "unknown"),
     (reply(401), "auth"),
@@ -118,6 +124,27 @@ def test_elegoo_reasons(monkeypatch, outcome, reason):
     assert run(api_type="elegoo")["reason"] == reason
 
 
+@pytest.mark.parametrize("api_type", ["moonraker", "prusalink", "octoprint", "elegoo"])
+def test_http_peer_disconnect_without_response_is_unknown(monkeypatch, api_type):
+    from modules.printers import route_utils
+    peer = raising(httpx.RemoteProtocolError("Server disconnected without sending a response."))
+    for seam in ("pinned_device_get", "prusalink_test_get", "octoprint_test_get"):
+        monkeypatch.setattr(route_utils, seam, peer)
+    assert run(api_type=api_type, api_key=KEY)["reason"] == "unknown"
+
+
+@pytest.mark.parametrize("v2", [False, True])
+def test_tls_internal_error_is_unknown(monkeypatch, v2):
+    error = tls_error("TLSV1_ALERT_INTERNAL_ERROR")
+    if v2:
+        session = v2_adapter(monkeypatch, start_error=error)
+        result = session.read_status_once(object(), timeout=0.05)
+        assert result.success is False and result.reason == "unknown"
+    else:
+        fake_paho(monkeypatch, connect_error=error)
+        assert run(api_type="bambu", serial=SERIAL, access_code=CODE)["reason"] == "unknown"
+
+
 # ---- Ultimaker and Anycubic: adapters that hide the transport error ----
 
 @pytest.mark.parametrize("answer,reason", [
@@ -130,8 +157,46 @@ def test_elegoo_reasons(monkeypatch, outcome, reason):
 ])
 def test_ultimaker_reasons(monkeypatch, answer, reason):
     from modules.printers.adapters import ultimaker
-    monkeypatch.setattr(ultimaker.UltimakerPrinter, "_fetch", lambda self, path: answer)
+    monkeypatch.setattr(ultimaker.UltimakerPrinter, "_fetch", lambda self, path, **kwargs: answer)
     assert run(api_type="ultimaker")["reason"] == reason
+
+
+@pytest.mark.parametrize("failure", ["timeout", "reset", "deadline", "deadline_at_eof"])
+def test_ultimaker_unreadable_body_is_unknown(monkeypatch, failure):
+    import requests
+    from modules.printers.adapters import ultimaker
+
+    class Body:
+        status_code = 200
+        closed = False
+
+        def iter_content(self, chunk_size):
+            yield b'{"variant": "Ultimaker S5"}'
+            if failure == "timeout":
+                raise requests.exceptions.ReadTimeout("synthetic body timeout")
+            if failure == "reset":
+                raise requests.exceptions.ConnectionError("synthetic body reset")
+
+        def close(self):
+            self.closed = True
+
+    body = Body()
+    monkeypatch.setattr(ultimaker.UltimakerPrinter, "_get", lambda self, path: body)
+    if failure.startswith("deadline"):
+        ticks = iter([0.0, 999.0] if failure == "deadline" else [0.0, 1.0, 999.0])
+        monkeypatch.setattr(ultimaker.time, "monotonic", lambda: next(ticks))
+    result = run(api_type="ultimaker")
+    assert body.closed
+    assert result["reason"] == "unknown"
+
+
+@pytest.mark.parametrize("body", [b"<html>not a printer</html>", b"{}", b"[]"])
+def test_ultimaker_inspected_wrong_body_is_not_this_type(monkeypatch, body):
+    from modules.printers.adapters import ultimaker
+    from tests.support.octoprint_http import Reply
+    response = Reply(200, raw=body)
+    monkeypatch.setattr(ultimaker.UltimakerPrinter, "_get", lambda self, path: response)
+    assert run(api_type="ultimaker")["reason"] == "not_this_type"
 
 
 @pytest.mark.parametrize("connect,poll,info", [(False, True, 1), (True, False, 1), (True, True, 0)])
@@ -184,7 +249,7 @@ def fake_paho(monkeypatch, *, connect_error=None, connack=None):
     (TimeoutError("timed out"), "unreachable"),
     (OSError(errno.EHOSTUNREACH, "No route to host"), "unreachable"),
     (OSError(errno.EPIPE, "Broken pipe"), "unknown"),
-    (ssl.SSLError(1, "[SSL: WRONG_VERSION_NUMBER] wrong version number"), "not_this_type"),
+    (tls_error("WRONG_VERSION_NUMBER"), "not_this_type"),
     (ssl.SSLEOFError(8, "EOF occurred in violation of protocol"), "unknown"),
     (ValueError("anything else"), "unknown"),
 ])
@@ -236,7 +301,7 @@ def v2_adapter(monkeypatch, *, start_error=None, refusal=None):
 @pytest.mark.parametrize("error,reason", [
     (ConnectionRefusedError(61, "refused"), "unreachable"),
     (TimeoutError("timed out"), "unreachable"),
-    (ssl.SSLError(1, "wrong version number"), "not_this_type"),
+    (tls_error("WRONG_VERSION_NUMBER"), "not_this_type"),
     (RuntimeError("anything else"), "unknown"),
 ])
 def test_bambu_v2_start_errors(monkeypatch, error, reason):

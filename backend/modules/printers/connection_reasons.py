@@ -45,16 +45,18 @@ def reason_for_exception(exc) -> str:
     if httpx is not None and isinstance(exc, httpx.HTTPError):
         if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
             return UNREACHABLE
-        if isinstance(exc, (httpx.RemoteProtocolError, httpx.DecodingError)):
+        if isinstance(exc, httpx.DecodingError):
             return NOT_THIS_TYPE
+        # RemoteProtocolError also covers a valid server closing without a response.
         return UNKNOWN
     if isinstance(exc, (TimeoutError, ConnectionRefusedError, socket.gaierror)):
         return UNREACHABLE
     if isinstance(exc, ssl.SSLError):
-        # The peer closing mid-handshake is ambiguous (a busy printer does it too).
-        if isinstance(exc, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
-            return UNKNOWN
-        return NOT_THIS_TYPE  # something answered the TCP port, but not with TLS
+        # Only an explicit TLS protocol mismatch identifies the wrong service.
+        # Internal-error alerts and closed handshakes can come from a valid printer.
+        if getattr(exc, "reason", None) in ("WRONG_VERSION_NUMBER", "HTTP_REQUEST"):
+            return NOT_THIS_TYPE
+        return UNKNOWN
     if isinstance(exc, OSError) and exc.errno in _UNREACHABLE_ERRNOS:
         return UNREACHABLE
     return UNKNOWN
