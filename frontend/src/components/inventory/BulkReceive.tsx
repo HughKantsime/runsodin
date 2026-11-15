@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import Table from '../ui/Table'
 import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
@@ -31,7 +32,7 @@ export default function BulkReceive({ onClose, onReceived }: { onClose: () => vo
       <Button disabled={!library.data || receive.isPending} onClick={() => { try { setPreview(previewCsv(csv, library.data!)); setError(''); receive.reset() } catch (e) { setPreview(null); setError((e as Error).message) } }}>Preview rows</Button>
       {preview && <div className="overflow-x-auto"><Table className="w-full text-sm"><thead><tr>{['Product line', 'Material', 'Color', 'Rolls', 'Grams / tare', 'Location / seal', 'Vendor / note', 'Review'].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
         {preview.map(({ row, errors, newProduct }, i) => <tr key={i}>
-          <td>{row.brand} {row.product_line}</td><td>{row.material}</td><td>{row.color_name || 'Unknown color'} {row.color_hex}</td><td>{row.quantity}</td><td>{row.initial_weight_g} / {row.spool_weight_g}</td><td>{row.storage_location} / {row.sealed ? 'sealed' : 'open'}</td><td>{row.vendor} {row.note}</td>
+          <td>{row.brand} {row.product_line}</td><td>{materialLabel(row.material)}</td><td>{row.color_name || 'Unknown color'} {row.color_hex}</td><td>{row.quantity}</td><td>{row.initial_weight_g} / {row.spool_weight_g}</td><td>{row.storage_location} / {row.sealed ? 'sealed' : 'open'}</td><td>{row.vendor} {row.note}</td>
           <td>{newProduct ? 'New product line' : 'Existing product line'}{errors.map(e => <p role="alert" key={e}>{e}</p>)}</td></tr>)}
       </tbody></Table></div>}
       {(error || receive.isError) && <p role="alert">{error || receive.error?.message}</p>}

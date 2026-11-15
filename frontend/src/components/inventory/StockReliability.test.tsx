@@ -1,8 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import StockReliability from './StockReliability'
-import { spools } from '../../api/inventory'
+import { spools, filaments } from '../../api/inventory'
 vi.mock('../../permissions', () => ({ canDo: () => true }))
 vi.mock('../../api/inventory', () => ({
   spools: { reorder: vi.fn(), setReorderPolicy: vi.fn(), receive: vi.fn() },
@@ -47,4 +47,24 @@ describe('inventory stock', () => {
     mount()
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load reorder stock')
   })
+})
+
+afterEach(() => { delete document.documentElement.dataset.themeFamily })
+it.each(['classic', 'foundry'])('%s labels stock and receiving materials while saving raw policy codes', async family => {
+  document.documentElement.dataset.themeFamily = family
+  const materials = ['PPS_CF', 'PETG_CF', 'NYLON_CF']
+  vi.mocked(spools.reorder).mockResolvedValue(materials.map(material => ({ ...row, material })))
+  vi.mocked(filaments.list).mockResolvedValue(materials.map((material, id) => ({ id: `lib_${id}`, brand: 'Test', name: 'Black', material })) as any)
+  mount()
+  await screen.findByText('PPS-CF')
+  for (const material of materials) {
+    const label = material.replace('_', '-')
+    expect(screen.getByRole('cell', { name: label })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: `Set threshold for ${label} 000000` }))
+    fireEvent.click(screen.getByText('Save threshold'))
+    await waitFor(() => expect(spools.setReorderPolicy).toHaveBeenCalledWith({ material, color: '000000', threshold_g: 3000 }, expect.anything()))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  }
+  fireEvent.click(screen.getByText('Receive rolls'))
+  for (const material of materials) expect(await screen.findByRole('option', { name: `Test Black (${material.replace('_', '-')})` })).toBeInTheDocument()
 })

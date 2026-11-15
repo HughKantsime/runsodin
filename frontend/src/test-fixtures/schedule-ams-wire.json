@@ -7,6 +7,7 @@
     "ams_preview": {
       "available": [
         {
+          "catalogue_name": null,
           "color": null,
           "color_hex": null,
           "do_not_feed": false,
@@ -15,6 +16,7 @@
           "spool_id": null
         },
         {
+          "catalogue_name": null,
           "color": "Black",
           "color_hex": "000000",
           "do_not_feed": false,
@@ -23,6 +25,7 @@
           "spool_id": null
         },
         {
+          "catalogue_name": null,
           "color": "White",
           "color_hex": "ffffff",
           "do_not_feed": false,
@@ -53,6 +56,7 @@
   "preview": {
     "available": [
       {
+        "catalogue_name": null,
         "color": null,
         "color_hex": null,
         "do_not_feed": false,
@@ -61,6 +65,7 @@
         "spool_id": null
       },
       {
+        "catalogue_name": null,
         "color": "Black",
         "color_hex": "000000",
         "do_not_feed": false,
@@ -69,6 +74,7 @@
         "spool_id": null
       },
       {
+        "catalogue_name": null,
         "color": "White",
         "color_hex": "ffffff",
         "do_not_feed": false,

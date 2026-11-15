@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import Table from '../ui/Table'
 import BulkReceive from './BulkReceive'
 import { useState } from 'react'
@@ -38,9 +39,9 @@ export default function StockReliability({ orgId }: { orgId?: number | null }) {
     {rollup.data && <div tabIndex={0} role="region" aria-label="Reorder stock" className="overflow-x-auto"><Table className="w-full text-sm text-left">
       <thead><tr>{['Material', 'Color', 'Sealed', 'Open', 'Total', 'Threshold', 'Reorder'].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead>
       <tbody>{rollup.data.map(row => <tr key={`${row.material}:${row.color}`}>
-        <td className="p-2">{row.material}</td><td className="p-2">{row.color_name || row.color}</td>
+        <td className="p-2">{materialLabel(row.material)}</td><td className="p-2">{row.color_name || row.color}</td>
         <td className="p-2">{row.sealed_rolls} rolls / {row.sealed_g.toFixed(0)} g</td><td className="p-2">{row.open_g.toFixed(0)} g</td><td className="p-2">{row.total_g.toFixed(0)} g</td>
-        <td className="p-2">{editable ? <button className="underline" aria-label={`Set threshold for ${row.material} ${row.color}`} onClick={() => { policy.reset(); setEditing(row); setThreshold(String(row.threshold_g)) }}>{row.threshold_g} g</button> : `${row.threshold_g} g`}</td>
+        <td className="p-2">{editable ? <button className="underline" aria-label={`Set threshold for ${materialLabel(row.material)} ${row.color}`} onClick={() => { policy.reset(); setEditing(row); setThreshold(String(row.threshold_g)) }}>{row.threshold_g} g</button> : `${row.threshold_g} g`}</td>
         <td className="p-2">{row.reorder ? `Order ${row.shortfall_g.toFixed(0)} g` : 'Stock sufficient'}</td>
       </tr>)}</tbody>
     </Table></div>}
@@ -49,7 +50,7 @@ export default function StockReliability({ orgId }: { orgId?: number | null }) {
       {policy.isError && <p role="alert">{policy.error.message}</p>}<Button type="submit" disabled={policy.isPending}>Save threshold</Button>
     </form></Modal>}
     {receiving && <Modal isOpen title="Receive rolls into storage" onClose={() => setReceiving(false)}><form className="space-y-3" onSubmit={event => { event.preventDefault(); receive.mutate({ ...form, color_name: form.color_name || undefined, color_hex: form.color_hex || undefined, filament_id: Number(form.filament_id), quantity: Number(form.quantity), initial_weight_g: Number(form.initial_weight_g) }) }}>
-      <label className="block">Filament<select aria-label="Receiving filament" required value={form.filament_id} onChange={e => setForm({ ...form, filament_id: e.target.value })}><option value="">Select filament</option>{library.data?.map(f => <option key={f.id} value={String(f.id).replace('lib_', '')}>{f.brand} {f.name} ({f.material})</option>)}</select></label>
+      <label className="block">Filament<select aria-label="Receiving filament" required value={form.filament_id} onChange={e => setForm({ ...form, filament_id: e.target.value })}><option value="">Select filament</option>{library.data?.map(f => <option key={f.id} value={String(f.id).replace('lib_', '')}>{f.brand} {f.name} ({materialLabel(f.material)})</option>)}</select></label>
       {library.isError && <p role="alert">Could not load filaments.</p>}
       <label className="block">Color name<input aria-label="Color name" required={form.sealed} maxLength={100} value={form.color_name} onChange={e => setForm({ ...form, color_name: e.target.value })} /></label>
       <label className="block">Color hex (optional)<input aria-label="Color hex" pattern="#?[0-9A-Fa-f]{6}" value={form.color_hex} onChange={e => setForm({ ...form, color_hex: e.target.value })} /></label>

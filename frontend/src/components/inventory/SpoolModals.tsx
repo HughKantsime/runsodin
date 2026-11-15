@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import CataloguePicker from './CataloguePicker'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
@@ -188,7 +189,7 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
             {foundry ? <div className="f-slots" role="group" aria-label="Slot">
               {(selectedPrinter.filament_slots || []).map(slot => <label key={slot.slot_number} className="f-slot-choice">
                 <input type="radio" name="foundry-slot" required value={slot.slot_number} checked={form.slot_number === String(slot.slot_number)} onChange={e => setForm({ ...form, slot_number: e.target.value })} />
-                <SlotTile slot={slot} apiType={selectedPrinter.api_type} />
+                <SlotTile expandable={false} slot={slot} apiType={selectedPrinter.api_type} />
               </label>)}
             </div> : (            <select
               value={form.slot_number}
@@ -335,7 +336,7 @@ export function DryingModal({ spool, onClose, onSubmit }: { spool: any; onClose:
             <div className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
           )}
           <span className="text-[var(--brand-text-secondary)] truncate">{spool.filament_brand} {spool.filament_name}</span>
-          <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{spool.filament_material}</span>
+          <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{spool.filament_material && materialLabel(spool.filament_material)}</span>
         </div>
       </div>
 

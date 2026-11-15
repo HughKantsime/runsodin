@@ -1,3 +1,4 @@
+import { materialLabel } from '../../utils/shared'
 import CataloguePicker from './CataloguePicker'
 import { useState, useEffect } from 'react'
 import { Modal } from '../ui'
@@ -249,30 +250,30 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
             >
               {form.material == null && <option value="">Material unrecognised</option>}
               {form.material === 'OTHER' && <option value="OTHER">Other (material unrecognised)</option>}
-              <option value="PLA">PLA</option>
-              <option value="PLA-S">PLA-S (Support)</option>
-              <option value="PLA-CF">PLA-CF</option>
-              <option value="PETG">PETG</option>
-              <option value="PETG_CF">PETG-CF</option>
-              <option value="ABS">ABS</option>
-              <option value="ASA">ASA</option>
-              <option value="ASA-AERO">ASA Aero</option>
-              <option value="ASA-CF">ASA-CF</option>
-              <option value="PET-CF">PET-CF</option>
-              <option value="PPA-CF">PPA-CF</option>
-              <option value="TPU-AMS">TPU for AMS</option>
-              <option value="TPU">TPU</option>
-              <option value="PA">Nylon (PA)</option>
-              <option value="NYLON_CF">Nylon-CF</option>
-              <option value="NYLON_GF">Nylon-GF</option>
-              <option value="PC">Polycarbonate</option>
-              <option value="PC_ABS">PC-ABS</option>
-              <option value="PC_CF">PC-CF</option>
-              <option value="PPS">PPS</option>
+              <option value="PLA">{materialLabel('PLA')}</option>
+              <option value="PLA-S">{materialLabel('PLA-S')} (Support)</option>
+              <option value="PLA-CF">{materialLabel('PLA-CF')}</option>
+              <option value="PETG">{materialLabel('PETG')}</option>
+              <option value="PETG_CF">{materialLabel('PETG_CF')}</option>
+              <option value="ABS">{materialLabel('ABS')}</option>
+              <option value="ASA">{materialLabel('ASA')}</option>
+              <option value="ASA-AERO">{materialLabel('ASA-AERO')}</option>
+              <option value="ASA-CF">{materialLabel('ASA-CF')}</option>
+              <option value="PET-CF">{materialLabel('PET-CF')}</option>
+              <option value="PPA-CF">{materialLabel('PPA-CF')}</option>
+              <option value="TPU-AMS">{materialLabel('TPU-AMS')}</option>
+              <option value="TPU">{materialLabel('TPU')}</option>
+              <option value="PA">Nylon ({materialLabel('PA')})</option>
+              <option value="NYLON_CF">{materialLabel('NYLON_CF')}</option>
+              <option value="NYLON_GF">{materialLabel('NYLON_GF')}</option>
+              <option value="PC">{materialLabel('PC')} (Polycarbonate)</option>
+              <option value="PC_ABS">{materialLabel('PC_ABS')}</option>
+              <option value="PC_CF">{materialLabel('PC_CF')}</option>
+              <option value="PPS">{materialLabel('PPS')}</option>
               {/* PPS-CF existed before the other five: its stored value stays PPS_CF. */}
-              <option value="PPS_CF">PPS-CF</option>
-              <option value="PVA">PVA (Support)</option>
-              <option value="HIPS">HIPS</option>
+              <option value="PPS_CF">{materialLabel('PPS_CF')}</option>
+              <option value="PVA">{materialLabel('PVA')} (Support)</option>
+              <option value="HIPS">{materialLabel('HIPS')}</option>
             </select>
           </div>
           <div>

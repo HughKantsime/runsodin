@@ -119,7 +119,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
                 bare
                 size={20}
               />
-              <span title={slotFullName(slot)} className="text-[10px] leading-tight tracking-tight text-[var(--brand-text-muted)] truncate block w-full min-w-0">{getShortName(slot)}</span>
+              <span title={slotFullName(slot)} className="text-[10px] leading-tight tracking-tight text-[var(--brand-text-muted)] line-clamp-2 [overflow-wrap:anywhere] w-full min-w-0">{slot.catalogue_name || getShortName(slot)}</span>
             </div>
           ))}
         </div>

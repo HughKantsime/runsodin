@@ -28,6 +28,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
+
 - Operators and administrators can confirm prints after a restart. Changed records are checked again before recording resumes, answers saved before recording resumes survive another restart, and waiting screens and unverified print totals now explain their status.
 - PostgreSQL installations can now save either answer to a print confirmation after a restart. If the records are busy, the question stays open so you can try again.
 - Operators and administrators can now confirm a print after a restart on printers without an organization. Questions close when their records are closed while the printer is idle, and viewers can see both answer buttons disabled.
