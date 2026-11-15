@@ -8,7 +8,6 @@ import json
 import re
 import threading
 import time
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -355,6 +354,107 @@ def test_controlled_print_alert_reaches_only_its_audience(native, monkeypatch, c
     assert len(detections(db)) == 1
 
 
+def test_uncontrolled_job_keeps_printer_alert_audience(native, monkeypatch):
+    from modules.notifications import alert_dispatch
+    db = native.db
+    db.execute(text("UPDATE education_submissions SET approved_printer_id=NULL WHERE approved_printer_id=9"))
+    db.execute(text("DELETE FROM education_cost_center_printers WHERE printer_id=9"))
+    db.execute(text("UPDATE printers SET org_id=NULL WHERE id=9"))
+    db.execute(text("INSERT INTO groups(id,name,is_org) VALUES(2,'Other organization',1)"))
+    db.execute(text("INSERT INTO users(id,username,password_hash,role,is_active,group_id) "
+                    "VALUES(3,'other-viewer','fixture','viewer',1,2)"))
+    db.execute(text("INSERT INTO jobs(id,model_id,item_name,quantity,status,printer_id,duration_hours,hold,priority,charged_to_org_id) "
+                    "VALUES(203,12,'Synthetic generic',1,'printing',9,1,0,3,1)"))
+    db.execute(text('UPDATE print_jobs SET scheduled_job_id=203 WHERE id=201'))
+    db.commit()
+    from core.recipient_policy import resolve_alert_scope
+    assert resolve_alert_scope(db, printer_id=9)[0] == {1, 2, 3}
+    monkeypatch.setattr(alert_dispatch, 'dispatch_alert', native.real_dispatch)
+    send(native.monitor(), gcode_state='RUNNING', gcode_file='current.3mf', hms=SPAGHETTI_HMS)
+    assert db.execute(text('SELECT user_id,job_id FROM alerts ORDER BY user_id')).all() == [
+        (1, None), (2, None), (3, None)]
+
+
+def test_repeated_queued_reports_coalesce_without_losing_transitions(native, monkeypatch):
+    workers = []
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    monkeypatch.setattr(native.module, '_start_worker', lambda target, *args: workers.append((target, args)))
+    monitor = native.monitor()
+    with monitor._lock:
+        for hms in (SPAGHETTI_HMS, [], SPAGHETTI_HMS):
+            for _ in range(1000):
+                native.module.observe(monitor, {'hms': hms})
+    assert len(workers) == 1
+    assert len(monitor._native_detection_pending) == 3
+    monkeypatch.setattr(native.module, '_start_worker', lambda target, *args: target(*args))
+    target, args = workers[0]
+    target(*args)
+    assert monitor._native_detection_pending is None
+    assert len(detections(native.db)) == 2 and len(native.alerts) == 2
+
+
+def test_aborted_drain_restarts_on_next_report_without_losing_queue(native, monkeypatch):
+    workers = []
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    monkeypatch.setattr(native.module, '_start_worker', lambda target, *args: workers.append((target, args)))
+    monitor = native.monitor()
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': SPAGHETTI_HMS})
+        native.module.observe(monitor, {'hms': []})
+    real_observe = native.module._observe
+
+    def abort(*args):
+        raise SystemExit('Synthetic worker exit')
+
+    monkeypatch.setattr(native.module, '_observe', abort)
+    target, args = workers[0]
+    with pytest.raises(SystemExit, match='Synthetic worker exit'):
+        target(*args)
+    monkeypatch.setattr(native.module, '_observe', real_observe)
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': SPAGHETTI_HMS})
+    assert len(workers) == 2, 'A terminated worker must not strand later reports'
+    monkeypatch.setattr(native.module, '_start_worker', lambda target, *args: target(*args))
+    target, args = workers[1]
+    target(*args)
+    assert monitor._native_detection_pending is None
+    assert len(detections(native.db)) == 2 and len(native.alerts) == 2
+
+
+def test_finish_thread_start_failure_still_alerts_each_detection(native, monkeypatch):
+    workers = []
+    finishing_threads = []
+
+    def start(target, *args):
+        if target is native.module._finish:
+            raise RuntimeError("can't start new thread")
+        worker = threading.Thread(target=target, args=args, daemon=True)
+        workers.append(worker)
+        worker.start()
+
+    def snapshot(*args):
+        finishing_threads.append(threading.current_thread())
+        return None
+
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    monkeypatch.setattr(native.module, '_start_worker', start)
+    monkeypatch.setattr(native.module, '_snapshot', snapshot)
+    monitor = native.monitor()
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': SPAGHETTI_HMS + CHUTE_HMS})
+    for worker in workers:
+        worker.join(5)
+    assert all(not worker.is_alive() for worker in workers)
+    assert len(detections(native.db)) == 2
+    assert len(native.alerts) == 2
+    assert finishing_threads == [workers[0], workers[0]]
+    with monitor._lock:
+        native.module.observe(monitor, {'hms': SPAGHETTI_HMS + CHUTE_HMS})
+    for worker in workers:
+        worker.join(5)
+    assert len(detections(native.db)) == 2 and len(native.alerts) == 2
+
+
 def test_controlled_alert_keeps_originating_job_after_snapshot(native, monkeypatch):
     from modules.notifications import alert_dispatch
     db = native.db
@@ -439,20 +539,11 @@ def test_snapshot_total_deadline_covers_headers_and_body(native, monkeypatch):
     native.db.commit()
     monkeypatch.setattr(native.module, 'SNAPSHOT_SECONDS', 0.4)
     body_finished = []
-
-    @contextmanager
-    def stream(*args, **kwargs):
-        time.sleep(0.3)
-
-        def chunks():
-            time.sleep(0.3)
-            body_finished.append(True)
-            yield jpeg()
-
-        yield SimpleNamespace(status_code=200, iter_bytes=chunks)
+    body_started = []
 
     class Body(httpx.AsyncByteStream):
         async def __aiter__(self):
+            body_started.append(True)
             await asyncio.sleep(0.3)
             body_finished.append(True)
             yield jpeg()
@@ -462,11 +553,11 @@ def test_snapshot_total_deadline_covers_headers_and_body(native, monkeypatch):
         return httpx.Response(200, stream=Body())
 
     client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, 'stream', stream)
     monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(respond), **kwargs))
     monkeypatch.setattr(native.module, '_snapshot', native.real_snapshot)
     monitor = native.monitor()
     send(monitor, gcode_state='RUNNING', gcode_file='current.3mf', hms=SPAGHETTI_HMS)
+    assert body_started == [True], 'The request must reach the async body before timing out'
     assert body_finished == [], 'The body consumed a second per-phase timeout after slow headers'
     assert [row['status'] for row in detections(native.db)] == ['informational']
     assert len(native.alerts) == 1

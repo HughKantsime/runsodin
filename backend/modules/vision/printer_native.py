@@ -179,30 +179,45 @@ def observe(monitor, raw, status=None):
 
 def _enqueue_observation(monitor, observation):
     pending = getattr(monitor, '_native_detection_pending', None)
-    if pending is not None:
+    if pending is None:
+        pending = monitor._native_detection_pending = deque()
+    # Repeated reports need no replay; retain every clear/recur and job change.
+    if not pending or pending[-1] != observation:
         pending.append(observation)
+    if getattr(monitor, '_native_detection_running', False):
         return
-    monitor._native_detection_pending = deque([observation])
+    monitor._native_detection_running = True
     try:
         _start_worker(_drain_observations, monitor)
-    except Exception:
-        monitor._native_detection_pending = None
+    except BaseException:
+        monitor._native_detection_running = False
         raise
 
 
 def _drain_observations(monitor):
-    while True:
-        # Reuse the status handler's lock only for the handoff, never for I/O.
+    observation = None
+    try:
+        while True:
+            # Reuse the status handler's lock only for the handoff, never for I/O.
+            with monitor._lock:
+                if not monitor._native_detection_pending:
+                    monitor._native_detection_pending = None
+                    monitor._native_detection_running = False
+                    return
+                observation = monitor._native_detection_pending.popleft()
+            try:
+                _observe(monitor, *observation)
+            except Exception:
+                log.warning('Printer camera detection not recorded for printer %s; will retry',
+                            monitor.printer_id, exc_info=True)
+            observation = None
+    except BaseException:
+        # Leave interrupted work for the next report to restart; never swallow exit.
         with monitor._lock:
-            if not monitor._native_detection_pending:
-                monitor._native_detection_pending = None
-                return
-            observation = monitor._native_detection_pending.popleft()
-        try:
-            _observe(monitor, *observation)
-        except Exception:
-            log.warning('Printer camera detection not recorded for printer %s; will retry',
-                        monitor.printer_id, exc_info=True)
+            if observation is not None:
+                monitor._native_detection_pending.appendleft(observation)
+            monitor._native_detection_running = False
+        raise
 
 
 def _observe(monitor, hms, error, job_id, filename):
@@ -228,6 +243,10 @@ def _observe(monitor, hms, error, job_id, filename):
         scheduled_job_id = conn.execute(text(
             'SELECT scheduled_job_id FROM print_jobs WHERE id=:id AND printer_id=:pid'),
             {'id': job_id, 'pid': monitor.printer_id}).scalar() if job_id is not None else None
+        from core.controlled_parts import policies
+        if not policies(conn, 'job', scheduled_job_id):
+            # Ordinary detections use Vigil's printer-scoped recipients and dedupe.
+            scheduled_job_id = None
         kinds_active = {PRINTER_DETECTION_CODES[code] for code in active}
         for code in sorted(current - active):
             kind = PRINTER_DETECTION_CODES[code]
@@ -248,7 +267,13 @@ def _observe(monitor, hms, error, job_id, filename):
     # Only a committed set is remembered: a failed write leaves the codes new for the retry.
     monitor._native_detection_codes = current
     for detection_id, kind, code, message in created:
-        _start_worker(_finish, monitor.printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id)
+        args = (monitor.printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id)
+        try:
+            _start_worker(_finish, *args)
+        except RuntimeError:
+            # Already on the persistence worker, outside the monitor lock. A failed
+            # thread start must not strand this committed detection (or its siblings).
+            _finish(*args)
 
 
 def _start_worker(target, *args):
