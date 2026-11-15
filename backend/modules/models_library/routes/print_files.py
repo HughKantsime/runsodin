@@ -640,9 +640,10 @@ async def submit_studio_print(
 
 @router.get("/print-files")
 def list_print_files(limit: int = Query(default=20, ge=1, le=100), include_scheduled: bool = False, filters: LibraryFilters = Depends(),
+                     org_id: Optional[int] = None,
                      current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import list_generic_files
-    return list_generic_files(db, current_user, limit, include_scheduled, filters)
+    return list_generic_files(db, current_user, limit, include_scheduled, filters, org_id=org_id)
 
 
 @router.get("/print-files/{file_id}")

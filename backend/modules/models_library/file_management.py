@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from core.dependencies import log_audit
 from core.model_preview_access import accessible_preview_file, is_education_owned_file, delete_generic_file_if_unchanged
-from core.rbac import check_org_access
+from core.rbac import check_org_access, _get_org_filter
 from core.registry import registry
 
 log = logging.getLogger('odin.api')
@@ -59,7 +59,7 @@ def _file_has_active_jobs(db, file_id):
                            {'id': file_id}).first())
 
 
-def list_generic_files(db, actor, limit, include_scheduled, filters=None):
+def list_generic_files(db, actor, limit, include_scheduled, filters=None, org_id=None):
     files, offset = [], 0
     while len(files) < limit:
         from core.controlled_parts import file_visibility
@@ -67,6 +67,9 @@ def list_generic_files(db, actor, limit, include_scheduled, filters=None):
         from modules.models_library.library_search import file_clause
         search_sql, search_values = file_clause(db, actor, filters)
         predicate = ' WHERE (' + visible + ')' + ('' if include_scheduled else ' AND NOT ' + _ACTIVE_FILE_JOBS) + search_sql
+        if org_id is not None:
+            predicate += ' AND (print_files.org_id = :list_org OR print_files.org_id IS NULL)'
+            search_values['list_org'] = _get_org_filter(actor, org_id)
         candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {**values, **search_values, 'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- source-built fragments only (visibility, _ACTIVE_FILE_JOBS, library_search.file_clause); every user value is a bound parameter
         if not candidates:
             break
