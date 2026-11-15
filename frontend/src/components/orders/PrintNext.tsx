@@ -15,8 +15,8 @@ export function age(seconds: number): string {
 const plates = (count: number) => `${count} plate${count === 1 ? '' : 's'}`
 // Match QueueItem and QueueRequest limits; remaining demand is shown after reload.
 const MAX_PLATES = 50, MAX_PRODUCTS = 100
-const queueItem = (row: PrintNextRow): QueueItem => ({ product_id: row.product_id, recipe_id: row.recipe!.id, plates: Math.min(row.plates_needed, MAX_PLATES) })
-const label = (row: PrintNextRow) => row.status === 'ok' ? 'In stock' : row.status === 'blocked' ? 'Blocked' : row.plates_needed > 0 ? 'Print' : 'Covered'
+const queueItem = (row: PrintNextRow): QueueItem => ({ product_id: row.product_id, recipe_id: row.recipe!.id, plates: Math.min((row.plates_needed ?? 0), MAX_PLATES) })
+const label = (row: PrintNextRow) => row.status === 'ok' ? 'In stock' : row.status === 'blocked' ? 'Blocked' : (row.plates_needed ?? 0) > 0 ? 'Print' : 'Covered'
 const tone: Record<string, string> = {
   Print: 'border-amber-500/60 text-amber-500', Covered: 'border-sky-500/60 text-sky-500',
   Blocked: 'border-red-500/60 text-red-400', 'In stock': 'border-emerald-500/60 text-emerald-500',
@@ -54,7 +54,8 @@ export default function PrintNext() {
 
   if (!allowed) return null
   const rows = list?.rows ?? []
-  const suggested = rows.filter(r => r.status === 'below' && r.plates_needed > 0 && r.recipe)
+  const planning = list?.work_hidden === false && rows.every(r => 'shortfall' in r)
+  const suggested = planning ? rows.filter(r => r.status === 'below' && (r.plates_needed ?? 0) > 0 && r.recipe) : []
   const all = suggested.slice(0, MAX_PRODUCTS).map(queueItem)
   const names = new Map(rows.map(r => [r.product_id, r.product_name]))
   const stock = list?.stock
@@ -66,13 +67,14 @@ export default function PrintNext() {
       </div>
       <button type="button" className={button} disabled={busy || !canRefresh} onClick={() => void load()}>Refresh</button>
     </div>
+    {list?.work_hidden && <p role="status" className="mt-3 text-sm break-words">Work in progress is hidden because this farm has restricted parts you are not cleared to see.</p>}
     {stock && <p className="mt-2 text-sm break-words" data-testid="print-next-stock">
       {stock.read_at ? `Stock read from Square ${age(stock.age_seconds ?? 0)} (${new Date(stock.read_at).toLocaleString()}).` : stock.connected ? 'No live stock read yet.' : 'Square is not connected.'}
       {' '}Counts are read at most every {Math.round(stock.cache_seconds / 60)} minutes{!canRefresh && stock.refresh_in_seconds > 0 ? `; the next read is possible in about ${stock.refresh_in_seconds} seconds` : ''}.
     </p>}
     {stock?.error && <p role="status" className="mt-2 rounded-md border border-amber-500/60 p-2 text-sm break-words">Square could not be read: {stock.error} Showing the last recorded counts with their age. Nothing is guessed.</p>}
     {error && <p role="alert" className="mt-2 text-sm text-red-400 break-words">{error}</p>}
-    {result && <div role="status" className="mt-2 rounded-md border border-[var(--brand-card-border)] p-2 text-sm break-words">
+    {planning && result && <div role="status" className="mt-2 rounded-md border border-[var(--brand-card-border)] p-2 text-sm break-words">
       {result.queued.map(q => <p key={q.product_id}>Queued {plates(q.plates)} for {names.get(q.product_id) ?? `product ${q.product_id}`}{q.held ? ', on hold. Release them from Jobs when ready.' : ', ready to schedule.'}</p>)}
       {result.skipped.map(s => <p key={s.product_id}>Not queued for {names.get(s.product_id) ?? `product ${s.product_id}`}: {s.reason}</p>)}
     </div>}
@@ -91,15 +93,15 @@ export default function PrintNext() {
             <h3 className="font-medium">{row.rank ? `${row.rank}. ` : ''}{row.product_name} <span className={`ml-1 inline-block rounded border px-1.5 py-0.5 text-xs ${tone[state]}`}>{state}</span></h3>
             <p>{row.rank_reason ? `${row.rank_reason} ` : ''}{row.reason}</p>
           </div>
-          {row.status === 'below' && row.plates_needed > 0 && row.recipe && <button type="button" className={`${button} shrink-0 border-[var(--brand-primary)]`} disabled={busy} aria-label={`Queue ${plates(queueItem(row).plates)} for ${row.product_name}`}
+          {row.status === 'below' && (row.plates_needed ?? 0) > 0 && row.recipe && <button type="button" className={`${button} shrink-0 border-[var(--brand-primary)]`} disabled={busy} aria-label={`Queue ${plates(queueItem(row).plates)} for ${row.product_name}`}
             onClick={() => void send([queueItem(row)])}>Queue {plates(queueItem(row).plates)}</button>}
         </div>
-        {row.recipe && row.plates_needed > MAX_PLATES && <p className="mt-2">{plates(row.plates_needed)} suggested; queue up to {MAX_PLATES} at a time. Remaining demand appears after the list reloads.</p>}
+        {row.recipe && (row.plates_needed ?? 0) > MAX_PLATES && <p className="mt-2">{plates((row.plates_needed ?? 0))} suggested; queue up to {MAX_PLATES} at a time. Remaining demand appears after the list reloads.</p>}
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
           <div><dt className="text-xs text-[var(--brand-text-secondary)]">On hand</dt><dd>{row.on_hand ? `${row.on_hand.quantity} · ${row.on_hand.source === 'snapshot' ? 'last recorded ' : 'read '}${age(row.on_hand.age_seconds)}` : 'Unknown'}</dd></div>
           <div><dt className="text-xs text-[var(--brand-text-secondary)]">Print below / up to</dt><dd>{row.reorder_point} / {row.target}</dd></div>
-          <div><dt className="text-xs text-[var(--brand-text-secondary)]">On the way</dt><dd>{row.on_the_way.pieces}{row.on_the_way.awaiting_stock ? ` (${row.on_the_way.awaiting_stock} inspected, not yet in Square)` : ''}</dd></div>
-          <div><dt className="text-xs text-[var(--brand-text-secondary)]">Short</dt><dd>{row.shortfall ?? 'Unknown'}</dd></div>
+          {row.on_the_way && <div><dt className="text-xs text-[var(--brand-text-secondary)]">On the way</dt><dd>{row.on_the_way.pieces}{row.on_the_way.awaiting_stock ? ` (${row.on_the_way.awaiting_stock} inspected, not yet in Square)` : ''}</dd></div>}
+          {'shortfall' in row && <div><dt className="text-xs text-[var(--brand-text-secondary)]">Short</dt><dd>{row.shortfall ?? 'Unknown'}</dd></div>}
           {row.open_orders && <div><dt className="text-xs text-[var(--brand-text-secondary)]">Open orders</dt><dd>{row.open_orders.pieces} pieces</dd></div>}
           {row.velocity && <div><dt className="text-xs text-[var(--brand-text-secondary)]">Sold</dt><dd>{row.velocity.units_per_week} a week ({row.velocity.source}, last {row.velocity.weeks} weeks)</dd></div>}
         </dl>

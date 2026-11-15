@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Fixed Print next: hide work in progress unless you can see every restricted part in the farm, and stop stock planning when saved production records are incomplete or belong to another farm.
+
 ### Added
 
 - If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason. Failure counts and success rates then reflect what happened, and you can undo the change. Recorded filament and cost are not changed.

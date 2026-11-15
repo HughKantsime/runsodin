@@ -6,7 +6,6 @@ When Square cannot be read (down, refused, or ITAR mode) the list falls back to
 the last recorded snapshot and says how old it is; it never guesses a count.
 Nothing here writes to Square. Queued plates are created by replenishment_queue.
 """
-import json
 import math
 import threading
 import time
@@ -18,7 +17,7 @@ from sqlalchemy import func, select, text
 
 from core.base import OrderStatus
 from core.job_timeline import utc
-from modules.orders import assortment, batch_production as batches, square_store as store
+from modules.orders import assortment, replenishment_evidence as evidence, square_store as store
 from modules.orders.models import Order, OrderItem, Product
 from modules.orders.square_client import SquareReader
 
@@ -146,75 +145,22 @@ def snapshots(db, owner):
     return result
 
 
-def on_the_way(db, owner, recipes, can_see):
-    """Pieces per product already coming, from the same evidence pending_work checks.
+HIDDEN_WORK = 'Work in progress is hidden because this farm has restricted parts you are not cleared to see.'
+PLANNING_FIELDS = ('on_the_way', 'shortfall', 'rank', 'rank_reason', 'recipe', 'plates_needed')
 
-    Returns ({product_id: {'pieces', 'job_ids', 'awaiting_stock'}}, problem), with
-    an internal 'restricted' flag for products receiving hidden work. A problem
-    (an incomplete or unreadable scan) means nothing may be suggested.
-    """
-    coming = {}
-    def entry(product_id):
-        return coming.setdefault(product_id, {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0})
-    outstanding = db.execute(select(batches.additions.c.receipt_id).where(batches.additions.c.owner == owner,
-                             batches.additions.c.state.in_(('prepared', 'unknown'))).limit(LIMIT + 1)).scalars().all()
-    if len(outstanding) > LIMIT:
-        return coming, 'Pending-addition scan is incomplete. Review existing work first.'
-    details = {}
-    recipe_models = {r['id']: r['payload'].get('model_id') for r in recipes if r.get('payload')}
-    if outstanding:
-        details = {rid: {**json.loads(raw), 'recipe_id': recipe_id} for rid, recipe_id, raw in db.execute(select(
-            batches.receipts.c.id, batches.receipts.c.recipe_id, batches.receipts.c.definition).where(
-            batches.receipts.c.owner == owner, batches.receipts.c.id.in_(outstanding)))}
-    for receipt_id in outstanding:
-        detail = details.get(receipt_id)
-        if detail is None:
-            from modules.orders.finishing import receipt as finish_receipt
-            detail = finish_receipt(db, owner, receipt_id)
-        if detail is None:
-            return coming, 'A pending stock addition has missing evidence. Review existing work first.'
-        # Batch acceptances carry job_id; finishing receipts have neither it nor
-        # recipe_id. Missing evidence must use the caller's unknown-work policy.
-        restricted = (not can_see('job', detail.get('job_id')) or
-                      not can_see('model', recipe_models.get(detail.get('recipe_id'))) or
-                      not can_see('print_job', detail.get('print_job_id')))
-        for output in detail['outputs']:
-            if output['accepted'] > 0:
-                # Inspected pieces that Square does not count yet.
-                pieces = output.get('send_quantity', output['accepted'])
-                entry(output['product_id'])['awaiting_stock'] += pieces
-                entry(output['product_id'])['pieces'] += pieces
-                if pieces and restricted:
-                    entry(output['product_id'])['restricted'] = True
-    models = {r['payload'].get('model_id') for r in recipes if r.get('payload')} - {None}
-    if not models:
-        return coming, None
-    from modules.jobs.models import Job
-    from sqlalchemy import literal_column
-    clause = Job.charged_to_org_id.is_(None) if owner == 0 else Job.charged_to_org_id == owner
-    rows = db.execute(select(Job, literal_column('jobs.economic_uid')).where(clause, Job.model_id.in_(models),
-        Job.status.in_(assortment.WORK_STATES)).order_by(Job.id.desc()).limit(LIMIT + 1)).all()
-    if len(rows) > LIMIT:
-        return coming, 'Matching-job scan is incomplete. Review existing work first.'
-    uids = [uid for _, uid in rows if uid]
-    inspected = set(db.execute(select(batches.receipts.c.job_uid).where(batches.receipts.c.owner == owner,
-        batches.receipts.c.job_uid.in_(uids))).scalars()) if uids else set()
-    for job, job_uid in rows:
-        if str(getattr(job.status, 'value', job.status)) == 'completed' and job_uid in inspected:
-            continue
-        makes = {}
-        for recipe in recipes:
-            if not (recipe.get('payload') or {}).get('model_id') or not assortment.job_may_produce(job, recipe['payload']):
-                continue
-            for output in recipe['outputs']:
-                if output['kind'] == 'main':
-                    makes[output['product_id']] = max(makes.get(output['product_id'], 0), output['expected'] * max(job.quantity or 1, 1))
-        for product_id, pieces in makes.items():
-            entry(product_id)['pieces'] += pieces
-            entry(product_id)['job_ids'].append(job.id)
-            if not can_see('model', job.model_id) or not can_see('job', job.id):
-                entry(product_id)['restricted'] = True
-    return coming, None
+
+def full_view(db, owner, user):
+    """One farm-wide gate; orphaned marks require clearance too. Admin is no bypass."""
+    from core.controlled_parts import member
+    audiences = db.execute(text('''
+        SELECT c.audience_id FROM controlled_files c LEFT JOIN print_files f ON f.id=c.file_id
+        WHERE f.id IS NULL OR COALESCE(f.org_id,0)=:owner
+        UNION SELECT c.audience_id FROM controlled_jobs c LEFT JOIN jobs j ON j.id=c.job_id
+        WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
+        UNION SELECT c.audience_id FROM controlled_job_tombstones c LEFT JOIN jobs j ON j.id=c.job_id
+        WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
+    '''), {'owner': owner}).scalars()
+    return all(member(db, user, audience) for audience in audiences)
 
 
 def open_orders(db, owner):
@@ -245,13 +191,13 @@ def velocity(db, owner, now):
             for pid, units in rows[:LIMIT] if units}
 
 
-def plate_hours(db, recipes):
+def plate_hours(db, owner, recipes):
     files = {r['payload'].get('print_file_id') for r in recipes if r.get('payload')} - {None}
     if not files:
         return {}
     from sqlalchemy import bindparam
-    rows = db.execute(text('SELECT id,print_time_seconds FROM print_files WHERE id IN :ids').bindparams(bindparam('ids', expanding=True)),
-                      {'ids': sorted(files)}).all()
+    rows = db.execute(text('SELECT id,print_time_seconds FROM print_files WHERE id IN :ids AND ((:owner=0 AND org_id IS NULL) OR (:owner>0 AND org_id=:owner))').bindparams(bindparam('ids', expanding=True)),
+                      {'ids': sorted(files), 'owner': owner}).all()
     return {fid: round(seconds / 3600, 2) for fid, seconds in rows if isinstance(seconds, (int, float)) and seconds > 0}
 
 
@@ -262,7 +208,7 @@ def plates_for(shortfall, per_plate, minimum_batch):
     return math.ceil(max(shortfall, minimum_batch) / per_plate)
 
 
-def build(db, owner, user, known, *, now=None):
+def build(db, owner, user, known, *, now=None, visible=None):
     """Rows for every active product from local data plus the given stock knowledge. No remote reads."""
     now = now or datetime.now(timezone.utc)
     policy, _ = assortment.load(db, owner)
@@ -271,58 +217,24 @@ def build(db, owner, user, known, *, now=None):
     clause = Product.org_id.is_(None) if owner == 0 else Product.org_id == owner
     products = db.execute(select(Product.id, Product.name).where(clause).order_by(Product.id).limit(LIMIT + 1)).all()
     active = [p for p in products[:LIMIT] if (policy['products'].get(str(p.id)) or {}).get('assortment') == 'active']
-    raw = db.execute(select(batches.recipes.c.id, batches.recipes.c.definition).where(batches.recipes.c.owner == owner).limit(LIMIT + 1)).all() if active else []
-    recipes = [{'id': rid, **json.loads(definition)} for rid, definition in raw[:LIMIT]]
-    scan_problem = 'Recipe scan is incomplete. Review recipes before planning more stock.' if len(raw) > LIMIT else None
+    visible = full_view(db, owner, user) if visible is None else visible
+    recipes, coming, scan_problem = [], {}, None
+    if active and visible:
+        try:
+            recipes, coming = evidence.scan(db, owner)
+        except evidence.ScanProblem as exc:
+            scan_problem = str(exc)
     orders = open_orders(db, owner) if active else {}
     sold = velocity(db, owner, now) if active else {}
-    hours = plate_hours(db, recipes)
+    hours = plate_hours(db, owner, recipes)
     saved = snapshots(db, owner) if active else {}
-    from core.controlled_parts import allowed, any_controlled_data, member
-    controlled = bool(active) and any_controlled_data(db)
-    visible = {}
-    def unknown_visible():
-        if 'unknown' not in visible:
-            # No resource identity means no individual audience can be proved.
-            # Require every audience of this owner; orphaned marks/history have
-            # no reliable owner and must also be covered. Admin is no bypass.
-            audiences = db.execute(text('''
-                SELECT c.audience_id FROM controlled_files c LEFT JOIN print_files f ON f.id=c.file_id
-                WHERE f.id IS NULL OR COALESCE(f.org_id,0)=:owner
-                UNION SELECT c.audience_id FROM controlled_jobs c LEFT JOIN jobs j ON j.id=c.job_id
-                WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
-                UNION SELECT c.audience_id FROM controlled_job_tombstones c LEFT JOIN jobs j ON j.id=c.job_id
-                WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner
-            '''), {'owner': owner}).scalars()
-            visible['unknown'] = all(member(db, user, audience) for audience in audiences)
-        return visible['unknown']
-
-    def can_see(kind, identifier):
-        if not controlled:
-            return True
-        if identifier is None:
-            return unknown_visible()
-        key = (kind, identifier)
-        if key not in visible:
-            visible[key] = allowed(db, kind, identifier, user)
-            # allowed() intentionally permits resources with no policy, including
-            # deleted resources. That does not identify retained production here.
-            if visible[key]:
-                query = {'model': 'SELECT 1 FROM models WHERE id=:id',
-                         'job': 'SELECT 1 FROM jobs WHERE id=:id',
-                         'print_job': 'SELECT 1 FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id WHERE p.id=:id'}[kind]
-                if db.execute(text(query), {'id': identifier}).first() is None:
-                    visible[key] = unknown_visible()
-        return visible[key]
     def minimum(product_id):
         return assortment.rule(policy['products'].get(str(product_id)))['minimum_main_batch'] or 1
 
-    coming, coming_problem = on_the_way(db, owner, recipes, can_see) if active else ({}, None)
-    hidden_products = {pid for pid, work in coming.items() if work.get('restricted')}
     rows = []
     for product in active:
         numbers = assortment.numbers(policy['products'][str(product.id)])
-        way = (coming.get(product.id) if product.id not in hidden_products else None) or {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
+        way = coming.get(product.id) or {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
         demand = orders.get(product.id)
         row = {'product_id': product.id, 'product_name': product.name, **numbers, 'status': 'blocked', 'reason': '', 'below_point': None,
                'on_hand': None, 'shortfall': None, 'plates_needed': 0, 'recipe': None, 'rank': None, 'rank_reason': None,
@@ -358,34 +270,24 @@ def build(db, owner, user, known, *, now=None):
             row['reason'] = 'No stock count has been read for this product yet.'
             continue
         row['on_hand'] = {'quantity': quantity, 'read_at': iso(read_at), 'age_seconds': max(0, int((now - read_at).total_seconds())), 'source': source}
+        if not visible or scan_problem:
+            continue
         uncovered = bool(demand) and demand['pieces'] > quantity
         row['below_point'] = quantity < numbers['reorder_point']
         if not row['below_point'] and not uncovered:
             row.update(status='ok', shortfall=0, reason='At or above its reorder point.')
             continue
-        # Square stock is public to this caller; restricted production and derived
-        # shortfalls are not. Block only when actual hidden work could be duplicated.
-        if product.id in hidden_products:
-            row['reason'] = 'The plate that makes this product is controlled work you cannot see.'
-            continue
         # Refill to the target when below the point; open orders that stock cannot cover count in full.
         wanted = max(numbers['target'] if row['below_point'] else 0, demand['pieces'] if uncovered else 0)
         row['shortfall'] = max(0, wanted - quantity - way['pieces'])
         row['uncovered_orders'] = uncovered
-        problem = coming_problem or scan_problem
-        if problem:
-            row['reason'] = problem
-            continue
         if row['shortfall'] == 0:
             row.update(status='below', reason=f"Below its point, but {way['pieces']} piece(s) already on the way cover it.")
             continue
-        candidates, run_plates, hidden_recipe = [], {}, False
+        candidates, run_plates = [], {}
         for recipe in recipes:
             main = next((o for o in recipe['outputs'] if o['product_id'] == product.id and o['kind'] == 'main'), None)
-            if main is None or recipe.get('qualified') is not True or not (recipe.get('payload') or {}).get('model_id'):
-                continue
-            if not can_see('model', recipe['payload']['model_id']):
-                hidden_recipe = True
+            if main is None or recipe.get('qualified') is not True:
                 continue
             run_plates[recipe['id']] = max(
                 plates_for(row['shortfall'], main['expected'], numbers['minimum_batch']),
@@ -396,17 +298,22 @@ def build(db, owner, user, known, *, now=None):
                                'hours_per_plate': per_plate_hours,
                                'hours_per_piece': round(per_plate_hours / main['expected'], 3) if per_plate_hours else None})
         if not candidates:
-            if hidden_recipe:
-                row['shortfall'] = None
-            row['reason'] = ('The plate that makes this product is controlled work you cannot see.' if hidden_recipe else
-                             'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.')
+            row['reason'] = 'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.'
             continue
         # Cheapest known print time per piece first; unknown times last; then the bigger plate.
         candidates.sort(key=lambda c: (c['hours_per_piece'] is None, c['hours_per_piece'] or 0, -c['pieces_per_plate'], c['id']))
         row['recipe'] = candidates[0]
         row['plates_needed'] = run_plates[candidates[0]['id']]
         row.update(status='below', reason=f"Needs {row['shortfall']} more to reach {wanted}.")
-    return rank(rows), len(products) > LIMIT
+    if not visible or scan_problem:
+        for row in rows:
+            for field in PLANNING_FIELDS:
+                row.pop(field, None)
+            row.update(status='blocked', reason=HIDDEN_WORK if not visible else scan_problem)
+        rows.sort(key=lambda r: (r['product_name'].lower(), r['product_id']))
+    else:
+        rows = rank(rows)
+    return rows, len(products) > LIMIT
 
 
 def rank(rows):
@@ -452,11 +359,15 @@ def listing(db, user, *, remote=True):
     if known['error']:
         # Square could not be read: show the last recorded snapshot with its age, never the failed attempt's leftovers.
         known = {**known, 'counts': {}}
-    rows, truncated = build(db, owner, user, known, now=now)
-    return {'generated_at': iso(now), 'stock': knowledge_public(known, rows, now), 'rows': rows, 'truncated': truncated,
-            'print_next_count': sum(1 for r in rows if (r['shortfall'] or 0) > 0)}
+    visible = full_view(db, owner, user)
+    rows, truncated = build(db, owner, user, known, now=now, visible=visible)
+    result = {'generated_at': iso(now), 'stock': knowledge_public(known, rows, now), 'rows': rows, 'truncated': truncated,
+            'work_hidden': not visible}
+    if visible and all('shortfall' in r for r in rows):
+        result['print_next_count'] = sum(1 for r in rows if (r['shortfall'] or 0) > 0)
+    return result
 
 
 def print_next_count(db, user):
     """How many products need a plate, from recorded stock only (never contacts Square)."""
-    return listing(db, user, remote=False)['print_next_count']
+    return listing(db, user, remote=False).get('print_next_count')

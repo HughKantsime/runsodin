@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from sqlalchemy import text, update
 
 from core.models import SystemConfig
-from modules.orders import assortment, batch_production as batches, replenishment, square_store as store
+from modules.orders import assortment, replenishment, replenishment_evidence as evidence, square_store as store
 
 MAX_PLATES = 50
 
@@ -80,6 +80,9 @@ def queue(db, user, data):
     if known['error']:
         known = {**known, 'counts': {}}
     store.lock_owner(db, owner, user)
+    visible = replenishment.full_view(db, owner, user)
+    if not visible:
+        raise HTTPException(403, replenishment.HIDDEN_WORK)
     # One queue request at a time per owner, including the global owner 0.
     if db.execute(update(SystemConfig).where(SystemConfig.key == assortment.key(owner)).values(value=SystemConfig.value)
                   .execution_options(synchronize_session=False)).rowcount != 1:
@@ -100,7 +103,7 @@ def queue(db, user, data):
         seen.add(item.product_id)
         product = store.own_product(db, owner, item.product_id, lock=True)
         # Rebuilt for every item: plates staged for an earlier item (a mixed plate) already count as on the way.
-        rows, _ = replenishment.build(db, owner, user, known)
+        rows, _ = replenishment.build(db, owner, user, known, visible=visible)
         row = next((r for r in rows if r['product_id'] == item.product_id), None)
         if row is None or row['status'] == 'blocked':
             skipped.append({'product_id': item.product_id, 'reason': row['reason'] if row else 'This product is not in the active assortment.'})
@@ -111,7 +114,10 @@ def queue(db, user, data):
         if row['recipe']['id'] != item.recipe_id:
             skipped.append({'product_id': item.product_id, 'reason': 'The suggested plate changed. Reload the list.'})
             continue
-        recipe = batches.recipe(db, owner, item.recipe_id, resolve_legacy=False)
+        try:
+            recipe = evidence.load_recipe(db, owner, item.recipe_id)
+        except evidence.ScanProblem as exc:
+            raise HTTPException(409, str(exc)) from None
         printer, problem = plate_source(db, owner, user, recipe, hashes)
         if problem:
             skipped.append({'product_id': item.product_id, 'reason': problem})

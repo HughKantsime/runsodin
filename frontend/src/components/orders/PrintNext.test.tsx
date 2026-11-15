@@ -24,7 +24,7 @@ const rows: PrintNextRow[] = [base,
     reason: 'Map this product to a Square item to see its stock.' },
   { ...base, product_id: 5, product_name: 'Full shelf', status: 'ok', rank: null, rank_reason: null, shortfall: 0, plates_needed: 0, recipe: null, below_point: false, open_orders: null, velocity: null, reason: 'At or above its reorder point.',
     on_hand: { quantity: 40, read_at: '2026-11-13T08:00:00Z', age_seconds: 20, source: 'square' } }]
-const list = (over: Partial<PrintNextList> = {}): PrintNextList => ({ generated_at: '2026-11-13T08:00:20Z', rows, truncated: false, print_next_count: 2,
+const list = (over: Partial<PrintNextList> = {}): PrintNextList => ({ work_hidden: false, generated_at: '2026-11-13T08:00:20Z', rows, truncated: false, print_next_count: 2,
   stock: { connected: true, read_at: '2026-11-13T08:00:00Z', age_seconds: 20, source: 'square', error: null, refresh_in_seconds: 100, cache_seconds: 120 }, ...over })
 const item = (name: string) => screen.getByRole('heading', { name: new RegExp(name) }).closest('li')!
 
@@ -51,6 +51,25 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Print next list
     expect(within(item('Covered part')).getByText('10 (4 inspected, not yet in Square)')).toBeVisible()
     expect(within(item('Unmapped part')).getByText('Map this product to a Square item to see its stock.')).toBeVisible()
     expect(within(item('Unmapped part')).getAllByText('Unknown')).toHaveLength(2)
+  })
+
+  it.each([true, false])('omits all work figures and queue controls when planning is unavailable (hidden=%s)', async hidden => {
+    const limited = { ...base, status: 'blocked' as const, reason: hidden ? 'Work in progress is hidden because this farm has restricted parts you are not cleared to see.' : 'Receipt scan could not be completed. Review the saved production records before planning more stock.' }
+    delete limited.on_the_way; delete limited.shortfall; delete limited.rank; delete limited.rank_reason
+    delete limited.recipe; delete limited.plates_needed
+    vi.mocked(replenishment.list).mockResolvedValue(list({ work_hidden: hidden, rows: [limited], print_next_count: undefined }))
+    render(<PrintNext />)
+    await screen.findByRole('heading', { name: /Mini/ })
+    if (hidden) expect(screen.getByRole('status')).toHaveTextContent('Work in progress is hidden because this farm has restricted parts you are not cleared to see.')
+    else expect(screen.getByText(/Receipt scan could not be completed/)).toBeVisible()
+    expect(screen.getByText('2 · read just now')).toBeVisible()
+    expect(screen.getByText('5 / 14')).toBeVisible()
+    expect(screen.getByText('30 pieces')).toBeVisible()
+    expect(screen.queryByText('On the way')).not.toBeInTheDocument()
+    expect(screen.queryByText('Short')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Mini plate/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
 
   it('offers a queue button only where plates are suggested and queues them on hold', async () => {
@@ -172,6 +191,13 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Dashboard card 
     expect(screen.getByText('Dragon: 0 on hand, 1 plate suggested')).toBeVisible()
     expect(screen.getByRole('link', { name: 'Open Print next' })).toHaveAttribute('href', '/products')
     expect(screen.queryByRole('button')).not.toBeInTheDocument()  // the card queues nothing
+  })
+
+  it.each([true, false])('omits the card when the work count is unavailable (hidden=%s)', async hidden => {
+    vi.mocked(replenishment.list).mockResolvedValue(list({ work_hidden: hidden, print_next_count: undefined }))
+    const view = card()
+    await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(1))
+    expect(view.container).toBeEmptyDOMElement()
   })
 
   it('stays away when nothing is below its point, the read fails, or the install or role has no access', async () => {
