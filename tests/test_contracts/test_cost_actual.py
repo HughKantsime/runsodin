@@ -130,6 +130,18 @@ def test_unusable_settings_are_unknown_not_zero():
     assert result["total"] == 1.00 and result["machine"]["complete"] is False and result["from_settings"]["amount"] is None
 
 
+@pytest.mark.parametrize("pieces", [None, 0])
+@pytest.mark.parametrize("electricity_rate", [0.20, -1.0])
+def test_unknown_piece_count_reports_settings_incomplete_once(pieces, electricity_rate):
+    from modules.jobs.cost_actual import cost_actual
+    result = cost_actual([attempt(1, "completed", 2.0, dict(SPOOL_A, grams=50.0))],
+                         dict(PRICING, electricity_rate=electricity_rate), pieces)
+    assert result["state"] == "partial" and result["from_settings"]["amount"] is None
+    assert result["unknown"] == [{"part": "settings", "reason": "settings_incomplete",
+                                  "attempt_id": None, "spool_id": None}]
+    assert result["total"] == (1.50 if electricity_rate >= 0 else 1.00)
+
+
 def test_from_settings_lines_match_the_estimate_rule_for_one_plate():
     """Estimate and actual differ only by material, hours and the failure allowance."""
     from modules.models_library.pricing_rule import price_item
@@ -355,6 +367,22 @@ def test_review_deleted_spool_leaves_monitor_cost_partial(cost_client, cost_db):
     assert body["state"] == "partial" and body["difference"] is None
     assert body["material"]["amount"] == 1.20 and body["total"] == 7.20
     assert {"part": "material", "reason": "usage_not_recorded", "attempt_id": 9006, "spool_id": 71} in body["unknown"]
+
+
+@pytest.mark.parametrize("purchase_inputs", [True, False])
+def test_archive_missing_a_planned_spool_leaves_cost_partial(cost_client, cost_db, purchase_inputs):
+    missing = allocation(72, "30", "750") if purchase_inputs else {"spool_id": 72, "estimated_grams": 30}
+    cost_db.execute(text("UPDATE print_jobs SET spool_snapshot=:snap WHERE id=9002"),
+                    {"snap": snapshot(allocation(71, "20", "1000"), missing)})
+    cost_db.execute(text("UPDATE print_archives SET consumption_json=:usage WHERE print_job_id=9002"),
+                    {"usage": json.dumps([used(71, 50.0)])})
+    cost_db.commit()
+    body = cost_client.get("/jobs/801/cost").json()
+    assert body["state"] == "partial" and body["difference"] is None
+    assert body["unknown"] == [{"part": "material", "reason": "usage_not_recorded", "attempt_id": 9002, "spool_id": 72}]
+    assert body["material"]["amount"] == 1.20 and body["material"]["complete"] is False
+    assert body["total"] == 10.45  # recorded 1.20 + machine 0.75 + two-piece settings 8.50
+    assert body["material"]["spools"][1]["amount"] is None
 
 
 @pytest.mark.parametrize("with_measured", [False, True])

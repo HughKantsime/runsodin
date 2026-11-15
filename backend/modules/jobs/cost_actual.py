@@ -60,12 +60,11 @@ def cost_actual(attempts, config, pieces=1):
                               units_per_plate=pieces if _pieces(pieces) else 1)
         rate = hour["electricity"] + hour["depreciation"]
         settings = {key: hour[key] * pieces for key in ("labor", "packaging", "other", "overhead")} if _pieces(pieces) else None
-        if settings is None:
-            unknown.append({"part": "settings", "reason": "settings_incomplete", "attempt_id": None, "spool_id": None})
         if not _amount(rate) or (settings is not None and not all(_amount(value) for value in settings.values())):
             raise ValueError("pricing settings out of range")
     except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError):
         rate, settings = None, None
+    if settings is None:
         unknown.append({"part": "settings", "reason": "settings_incomplete", "attempt_id": None, "spool_id": None})
 
     spools, rows = {}, []
@@ -267,12 +266,13 @@ def load_attempts(db, job_ids, user=None):
         elif row["id"] in ledger:
             usage = [{"spool_id": spool_id, "grams": grams, "provenance": None}
                      for spool_id, grams in sorted(ledger[row["id"]].items())]
+        if usage is not None:
             plan = snapshot.get("material_plan") if isinstance(snapshot, dict) else None
             allocations = plan.get("allocations") if isinstance(plan, dict) else None
             expected = {item["spool_id"] for item in allocations if isinstance(item, dict)
                         and type(item.get("spool_id")) is int} if isinstance(allocations, list) else set()
             usage.extend({"spool_id": spool_id, "grams": None, "provenance": None}
-                         for spool_id in sorted(expected - ledger[row["id"]].keys()))
+                         for spool_id in sorted(expected - {item["spool_id"] for item in usage}))
         for use in usage or []:
             price, net, reason = frozen.get(use["spool_id"], (None, None, "price_not_recorded"))
             use.update(price=price, net_weight_g=net, reason=reason)
