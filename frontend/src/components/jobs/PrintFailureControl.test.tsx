@@ -19,7 +19,7 @@ function show(props = {}) { return wrap(<PrintFailureControl canCorrect printId=
 function open() { fireEvent.click(screen.getByRole('button', { name: 'Mark as failed' })) }
 function choose() { fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'no_filament' } }) }
 beforeEach(() => { vi.mocked(canDo).mockReturnValue(true); vi.mocked(getCurrentUser).mockReturnValue({ username: 'Admin', role: 'admin', group_id: 1 }); vi.mocked(fetchAPI).mockReset() })
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
 test.each(['classic', 'foundry'])('%s: required reason, note and outcome-only save', async family => {
   document.documentElement.dataset.themeFamily = family
   vi.mocked(fetchAPI).mockResolvedValue({ id: 902, status: 'failed' })
@@ -200,6 +200,8 @@ test.each(['classic', 'foundry'])('%s: shared padded fields and styled touch-siz
 test.each(['classic', 'foundry'])('%s: desktop Print Log independently expands correction and recording notes', family => {
   document.documentElement.dataset.themeFamily = family
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32)
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(320)
   const note = 'This is a detailed observation with enough words to span many lines. '.repeat(8)
   const recording = 'The print ended before all readings could be confirmed. '.repeat(8)
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } })
@@ -209,14 +211,16 @@ test.each(['classic', 'foundry'])('%s: desktop Print Log independently expands c
   const notes = screen.getAllByRole('button', { name: 'Show full note' })
   expect(notes).toHaveLength(2)
   for (const button of notes) {
-    const text = document.getElementById(button.getAttribute('aria-controls')!)!
+    const text = button.parentElement!.parentElement!.querySelector('p')!
     expect(text).toHaveClass('line-clamp-2')
     const full = text.textContent
     fireEvent.click(button)
     expect(button).toHaveAttribute('aria-expanded', 'true')
-    expect(text).not.toHaveClass('line-clamp-2')
-    expect(text.textContent).toBe(full)
-    fireEvent.click(button)
+    expect(text).toHaveClass('line-clamp-2')
+    const dialog = screen.getByRole('dialog', { name: 'Full note' })
+    expect(dialog.querySelector('p')!.textContent).toBe(full)
+    expect(dialog.closest('td')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(text).toHaveClass('line-clamp-2')
   }
   expect(fetchAPI).not.toHaveBeenCalled()

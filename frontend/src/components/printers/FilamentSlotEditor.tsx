@@ -1,3 +1,4 @@
+import { classicSlotAppearance } from '../../utils/shared'
 import PageState from '../ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
@@ -136,9 +137,8 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
     setIsEditing(false)
   }
 
-  const colorHex = slot.color_hex
-  const namedColor = slot.color && !/^preset:/i.test(slot.color) && !/^#?[0-9a-f]{6}$/i.test(slot.color) ? slot.color : null
-  const material = slot.catalogue_name || namedColor || slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Empty'
+  const appearance = classicSlotAppearance(slot)
+  const material = appearance.name
   const preset = slot.preset ? `preset: ${slot.preset.replace(/^preset:\s*/i, '')}` : null
 
   return (
@@ -156,10 +156,10 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         onClick={(event) => { event.stopPropagation(); if ((!slot.spool_change_pending || admin) && (typeof canDo === 'function' ? canDo('printers.slots') : true)) { setConfirmFeed(false); setFeedNote(slot.do_not_feed_note || ''); setIsEditing(true) } }}
       >
         <SpoolRing
-          color={colorHex ? `#${colorHex}` : '#888'}
+          color={appearance.color}
           material=""
           level={slot.remaining}
-          empty={!colorHex && !slot.material_type && !slot.type}
+          empty={appearance.empty}
           size={20}
         />
         <SlotLabel text={material} />

@@ -1,3 +1,7 @@
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useTextOverflow } from '../../hooks/useTextOverflow'
+import Modal from '../ui/Modal'
 import clsx from 'clsx'
 import PurchaseEvidenceAction from './PurchaseEvidenceModal'
 import { Printer as PrinterIcon, Package, QrCode, Scale, Archive, Pencil, Droplets } from 'lucide-react'
@@ -23,6 +27,12 @@ interface SpoolCardProps {
 }
 export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, printers }: SpoolCardProps) {
   const foundry = useFoundry()
+  const fullName = `${spool.filament_brand || ''} ${spool.filament_name || ''}`.trim()
+  const { ref: titleRef, overflow: titleClamped } = useTextOverflow<HTMLSpanElement>(fullName)
+  const [nameOpen, setNameOpen] = useState(false)
+  const title = <span ref={titleRef} className="line-clamp-2 md:line-clamp-3 break-words">{fullName}</span>
+  const nameControl = titleClamped && <button type="button" className="min-h-11 text-xs underline text-[var(--brand-primary)]"
+    aria-expanded={nameOpen} onClick={event => { event.stopPropagation(); setNameOpen(true) }}>Show full filament name</button>
   // The server sends remaining_weight_g = null when the balance is unknown (percent_remaining is then 0).
   // A row that still reports a percentage is known, even without the gram figure.
   const unknownRemaining = spool.remaining_weight_g == null && !(Number(spool.percent_remaining) > 0)
@@ -50,13 +60,13 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
             size={32}
           />
           {foundry ? <div className="f-spool-copy">
-            <h3 className="font-medium line-clamp-2 break-words" title={`${spool.filament_brand || ''} ${spool.filament_name || ''}`.trim()}>{spool.filament_brand} {spool.filament_name}</h3>
-            <p className="text-sm">{spool.color_name || 'Unknown color'}</p>
+            <h3 className="font-medium">{title}</h3>
+            <p className={`text-sm ${spool.color_name ? '' : 'whitespace-nowrap'}`}>{spool.color_name || 'Unknown color'}</p>
             <p className="text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
           </div> : <div className="min-w-0">
             <h3 className="font-medium text-[var(--brand-text-primary)] text-sm md:text-base">
-              <span className="line-clamp-2 break-words">{spool.filament_brand} {spool.filament_name}</span>
-              <span className="block text-sm">{spool.color_name || "Unknown color"}</span>
+              {title}
+              <span className={`block text-sm ${spool.color_name ? '' : 'whitespace-nowrap'}`}>{spool.color_name || "Unknown color"}</span>
             </h3>
             <p className="text-xs md:text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
           </div>}
@@ -70,6 +80,11 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           {spool.status}
         </span>
       </div>
+
+      {nameControl}
+      {nameOpen && createPortal(<Modal isOpen title="Filament name" onClose={() => setNameOpen(false)}>
+        <p className="break-words">{fullName}</p>
+      </Modal>, document.body)}
 
       {/* Weight bar */}
       <div className="mb-3">

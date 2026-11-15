@@ -12,6 +12,7 @@ import FilamentCatalogueSettings from '../components/admin/FilamentCatalogueSett
 import FilamentLibraryView from '../components/inventory/FilamentLibraryView'
 import SpoolCard from '../components/inventory/SpoolCard'
 import SlotTile from '../components/foundry/SlotTile'
+import PrinterCard from '../components/foundry/PrinterCard'
 import PrintFailureControl from '../components/jobs/PrintFailureControl'
 import PrintLog from '../pages/analytics/PrintLog'
 import { inspectFoundryLayout } from '../../../tests/foundry_browser/layout_checks.mjs'
@@ -36,7 +37,7 @@ describe.skipIf(process.env.ODIN_BROWSER_RENDER !== '1')('phone-width rendered l
     browser = await chromium.launch({ headless: true })
   }, 30000)
   afterAll(async () => { await browser?.close() })
-  afterEach(() => { cleanup(); delete document.documentElement.dataset.themeFamily })
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); delete document.documentElement.dataset.themeFamily })
 
   it.each(['classic', 'foundry'])('%s: 390px catalogue and failure form targets', async family => {
     document.documentElement.dataset.themeFamily = family
@@ -51,7 +52,7 @@ describe.skipIf(process.env.ODIN_BROWSER_RENDER !== '1')('phone-width rendered l
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
     try {
       await page.route('**/*', route => route.abort())
-      await page.setContent(`<!doctype html><html data-theme-family="${family}"><head><style>${css}</style></head><body>${view.container.innerHTML}</body></html>`)
+      await page.setContent(`<!doctype html><html data-theme-family="${family}"><head><style>${css}</style></head><body>${document.body.innerHTML}</body></html>`)
       // The existing tap-target audit measures real control/label bounds, including
       // file choosers; use it rather than treating class names as measured pixels.
       expect((await page.evaluate(inspectFoundryLayout)).smallTargets).toEqual([])
@@ -71,6 +72,8 @@ describe.skipIf(process.env.ODIN_BROWSER_RENDER !== '1')('phone-width rendered l
 
   it.each(['classic', 'foundry'])('%s: wrapping at 390px and clamped notes at 1440px', async family => {
     document.documentElement.dataset.themeFamily = family
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(320)
     const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
     client.setQueryData(['filaments'], [{ id: 1, name, brand: 'Synthetic', material: 'ASA-CF', color_hex: '123456' }])
     client.setQueryData(['printers-list'], [])
@@ -83,31 +86,63 @@ describe.skipIf(process.env.ODIN_BROWSER_RENDER !== '1')('phone-width rendered l
       <PrintLog />
     </div>, client)
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
-    const snapshot = () => page.setContent(`<!doctype html><html data-theme-family="${family}"><head><style>${css}</style></head><body>${view.container.innerHTML}</body></html>`)
+    const snapshot = () => page.setContent(`<!doctype html><html data-theme-family="${family}"><head><style>${css}</style></head><body>${document.body.innerHTML}</body></html>`)
     try {
       await page.route('**/*', route => route.abort())
       await snapshot()
       const title = page.locator('h3').filter({ hasText: 'Synthetic ASA-CF' })
-      const nameElement = family === 'foundry' ? title : title.locator('span').first()
+      const nameElement = title.locator('span').first()
       expect(await nameElement.evaluate(el => getComputedStyle(el).webkitLineClamp)).toBe('2')
       expect(await page.getByText('Deep blue', { exact: true }).isVisible()).toBe(true)
       const libraryName = page.locator('span.text-sm.break-words').filter({ hasText: name }).first()
       expect(await libraryName.evaluate(el => getComputedStyle(el).whiteSpace)).not.toBe('nowrap')
       if (family === 'foundry') {
         const label = page.locator('.f-slot-label')
-        expect(await label.evaluate(el => getComputedStyle(el).webkitLineClamp)).toBe('2')
-        fireEvent.click(screen.getByRole('button', { name: `Show full filament name: ${name} · Slot 1 · Loaded` }))
-        await snapshot()
-        expect(await label.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+        expect(await label.textContent()).toBe('ASA-CF')
+        expect((await page.locator('.f-slot').boundingBox())!.height).toBe(92)
       }
       await page.setViewportSize({ width: 1440, height: 900 })
+      expect(await nameElement.evaluate(el => getComputedStyle(el).webkitLineClamp)).toBe('3')
       const note = page.locator('td p.whitespace-pre-wrap')
       const collapsedHeight = await note.evaluate(el => el.getBoundingClientRect().height)
       expect(await note.evaluate(el => getComputedStyle(el).webkitLineClamp)).toBe('2')
+      expect(await note.evaluate(el => el.getBoundingClientRect().height <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1)).toBe(true)
+      const expand = page.getByRole('button', { name: 'Show full note' })
+      expect((await expand.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+      expect(await expand.evaluate(el => el.parentElement!.getBoundingClientRect().height)).toBe(20)
       fireEvent.click(screen.getByRole('button', { name: 'Show full note' }))
       await snapshot()
       expect(await note.textContent()).toBe(correction.note)
-      expect(await note.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(collapsedHeight)
+      expect(await note.evaluate(el => el.getBoundingClientRect().height)).toBe(collapsedHeight)
+      const dialog = page.getByRole('dialog', { name: 'Full note' })
+      expect(await dialog.locator('p').textContent()).toBe(correction.note)
+      expect((await dialog.locator('p').boundingBox())!.width).toBeGreaterThan(400)
+      expect(await dialog.evaluate(el => el.closest('td') === null)).toBe(true)
     } finally { await page.close() }
   })
+  it.each([4, 16])('%i compact slots keep fixed tile and equal card heights at phone and desktop widths', async count => {
+    document.documentElement.dataset.themeFamily = 'foundry'
+    const slots = Array.from({ length: count }, (_, i) => ({ slot_number: i + 1, filament_type: 'ASA-CF', catalogue_name: `${name} ${i}` }))
+    mount(<div className="f-card-grid">{['One', 'Two'].map((label, i) => <PrinterCard key={label} printer={{ id: i + 1, name: label, api_type: 'bambu', filament_slots: slots.map(slot => ({ ...slot, catalogue_name: i ? 'Short' : slot.catalogue_name })) } as any} />)}</div>)
+    const page = await browser.newPage()
+    try {
+      await page.route('**/*', route => route.abort())
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        const snapshot = () => page.setContent(`<!doctype html><html data-theme-family="foundry"><head><style>${css}</style></head><body>${document.body.innerHTML}</body></html>`)
+        await snapshot()
+        const heights = await page.locator('.f-slot').evaluateAll(tiles => tiles.map(tile => tile.getBoundingClientRect().height))
+        expect(heights).toEqual(Array(count * 2).fill(92))
+        const cards = await page.locator('.f-card').evaluateAll(cards => cards.map(card => card.getBoundingClientRect().height))
+        expect(cards[0]).toBe(cards[1])
+        fireEvent.click(screen.getAllByRole('button', { name: 'Filaments' })[0])
+        await snapshot()
+        expect(await page.locator('.f-card').evaluateAll(cards => cards.map(card => card.getBoundingClientRect().height))).toEqual(cards)
+        const labels = page.getByRole('dialog').locator('.f-slot-label')
+        expect(await labels.evaluateAll(labels => labels.every(label => label.scrollHeight <= label.clientHeight + 1))).toBe(true)
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      }
+    } finally { await page.close() }
+  })
+
 })

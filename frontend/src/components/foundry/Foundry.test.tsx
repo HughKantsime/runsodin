@@ -347,6 +347,18 @@ it('shows why duration and usage are unverified', () => {
 it.each(['full', 'compact'] as const)('%s slot name expands by tap and collapses without navigating', variant => {
   const navigate = vi.fn()
   const name = 'ASA-CF Invented very long catalogue colour name'
+  if (variant === 'compact') {
+    mount(<div onClick={navigate}><PrinterCard printer={printer({ filament_slots: [{ slot_number: 1, filament_type: 'ASA-CF', catalogue_name: name }] })} /></div>)
+    const button = screen.getByRole('button', { name: 'Filaments' })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(within(screen.getByRole('dialog', { name: 'Filaments' })).getByText(name)).toBeVisible()
+    expect(navigate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    return
+  }
   mount(<div onClick={navigate}><SlotTile variant={variant} slot={{ slot_number: 1, filament_type: 'ASA-CF', catalogue_name: name }} /></div>)
   const button = screen.getByRole('button', { name: `Show full filament name: ${name} · Slot 1 · Loaded` })
   expect(button).toHaveAttribute('aria-expanded', 'false')
@@ -367,7 +379,7 @@ it('slot choices show the full name without nesting a second button', () => {
   expect(choose).toHaveBeenCalledOnce()
 })
 
-it('slot stylesheet wraps compact names to two lines and removes the clamp on expand', () => {
+it('slot stylesheet keeps compact materials at 92px and wraps full names on expand', () => {
   const rules: Record<string, Record<string, string>> = {}
   postcss.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../foundry.css'), 'utf8')).walkRules(rule => {
     if (!rule.selector.includes('.f-slot')) return
@@ -377,8 +389,8 @@ it('slot stylesheet wraps compact names to two lines and removes the clamp on ex
   })
   expect(rules['.f-slot-label']).toMatchObject({ display: '-webkit-box', '-webkit-line-clamp': '2', 'overflow-wrap': 'anywhere' })
   expect(rules['.f-slot[data-expanded="true"] .f-slot-label']).toMatchObject({ '-webkit-line-clamp': 'unset' })
-  expect(rules['.f-slot[data-variant="compact"]']).not.toHaveProperty('height')
+  expect(rules['.f-slot[data-variant="compact"]']).toMatchObject({ height: '92px' })
   for (const [selector, declarations] of Object.entries(rules)) {
-    if (selector.includes('.f-slot-label')) expect(declarations['white-space']).not.toBe('nowrap')
+    if (selector.includes('.f-slot-label') && !selector.includes('compact')) expect(declarations['white-space']).not.toBe('nowrap')
   }
 })

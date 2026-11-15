@@ -20,7 +20,7 @@ it.each(['classic', 'foundry'] as const)('%s spool identity keeps all facts and 
   const noop = () => {}
   const { container } = render(<SpoolCard spool={{ id: 1, filament_brand: 'Review', filament_name: 'Blue PLA with a long name', filament_material: 'PLA', status: 'active', percent_remaining: 67 } as Spool} onLoad={noop} onUnload={noop} onUse={noop} onArchive={noop} onEdit={noop} onDry={noop} />)
   const title = screen.getByRole('heading')
-  const name = family === 'foundry' ? title : title.firstElementChild!
+  const name = title.firstElementChild!
   expect(name).toHaveClass('line-clamp-2', 'break-words')
   expect(title).not.toHaveClass('truncate')
   expect(screen.getByLabelText('67% remaining')).toBeInTheDocument()

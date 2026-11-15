@@ -98,6 +98,19 @@ export function slotFullName(slot: string | FilamentSlot | null): string {
   return words(name) === words(short) ? short : `${short} \u00B7 ${name}`
 }
 
+/** Shared Classic card/detail appearance: absence of a colour name is not an empty tray. */
+export function classicSlotAppearance(slot: Partial<FilamentSlot> & { type?: string }) {
+  const material = slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type)
+  const hex = (slot.color_hex || (/^#?[0-9a-f]{6,8}$/i.test(slot.color || '') ? slot.color : '') || '').replace(/^#/, '')
+  const named = slot.color && !/^preset:|^#?[0-9a-f]{6,8}$/i.test(slot.color) ? slot.color : null
+  const empty = !slot.catalogue_name && !material && !slot.color && !slot.color_hex
+  return {
+    color: /^[0-9a-f]{6,8}$/i.test(hex) ? `#${hex}` : '#888',
+    empty,
+    name: slot.catalogue_name || named || material || (empty ? 'Empty' : 'Material unknown'),
+  }
+}
+
 /** Format a duration given in minutes to "Xh Ym" display. */
 export function formatDuration(minutes: number | null | undefined): string {
   if (!minutes || minutes <= 0) return '0m'
