@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-15
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: Print next from live stock, the real cost of every print, your farm's time zone, printer-reported failures, six more Bambu materials. -->
+
 ### Added
 
 - If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason. Failure counts and success rates then reflect what happened, and you can undo the change. Recorded filament and cost are not changed.
@@ -23,8 +29,6 @@ All notable changes to O.D.I.N. are documented here.
 - Adding a printer: a failed connection test now says why and what to do. ODIN tells apart a printer it could not reach, credentials the printer rejected, something at that address that is not the chosen printer type, and an address ODIN does not connect to; when it cannot tell, it says so and shows the checklist as before. The message never repeats the address, serial number, access code or API key. On the Printers page, saving a printer whose connection was not tested with the details entered, or whose last test failed, asks "Save anyway?" first. API: a failed `POST /api/printers/test-connection` carries `reason` (`unreachable`, `auth`, `not_this_type`, `blocked_address`, `control_disabled`, `unknown`) next to `success` and `error`; an address ODIN refuses is now answered as a failed test with `reason: "blocked_address"` instead of HTTP 400. Bambu LAN Only and Developer Mode cannot be seen by the test, so `control_disabled` is not sent yet; Anycubic tests always report `unknown`.
 
 ### Changed
-
-- Release validation now restores a PostgreSQL backup from the previous release on every candidate.
 
 - Pricing Calculator: the percentage it adds to cost is now correctly called Markup (it was labelled Margin), and the resulting margin is shown under the price. A Target margin field sets the same value the other way round. New optional selling-fee (percentage and fixed) and per-plate handling inputs; with these left at 0 every price is unchanged. Saved settings and prices are unchanged. The cost API also returns `markup_percent`, `selling_fees` and `margin_of_price_percent`.
 
