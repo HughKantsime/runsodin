@@ -160,11 +160,14 @@ def file_facts(nozzle_diameter=None, layer_height=None, bed_type=None, supports_
             filaments = None
     colors = []
     for filament in filaments if isinstance(filaments, list) else []:
-        stated = (filament.get("color_stated", True) if isinstance(filament, dict)
-                  else getattr(filament, "color_stated", True))
+        color = filament.get("color") if isinstance(filament, dict) else getattr(filament, "color", None)
+        # Legacy rows cannot distinguish explicit grey from the parser's fallback.
+        # Omit that ambiguous value unless the parser recorded its provenance.
+        legacy_stated = color != "#888888"
+        stated = (filament.get("color_stated", legacy_stated) if isinstance(filament, dict)
+                  else getattr(filament, "color_stated", legacy_stated))
         if not stated:
             continue
-        color = filament.get("color") if isinstance(filament, dict) else getattr(filament, "color", None)
         if isinstance(color, str) and color.strip() and color not in colors:
             colors.append(color)
     plate = str(bed_type or "").strip()

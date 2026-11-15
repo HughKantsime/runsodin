@@ -27,7 +27,7 @@ def bambu_plate_numbers(path: str) -> list:
                     if member.is_dir() or member.file_size == 0:
                         raise HTTPException(400, "Selected archive contains an empty print plate")
                     numbers.append(int(match.group(1)))
-    except (OSError, zipfile.BadZipFile):
+    except (OSError, zipfile.BadZipFile, UnicodeDecodeError):
         raise HTTPException(400, "Original file is not a readable sliced Bambu 3MF") from None
     if len(numbers) != len(set(numbers)):
         raise HTTPException(400, "Archive contains ambiguous duplicate print plates")

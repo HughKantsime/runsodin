@@ -186,6 +186,7 @@ class SchedulerPlanning:
         from sqlalchemy import bindparam
         job_model_requirements = {}
         if pending_jobs:
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only the canonical constant join is interpolated; job IDs are bound
             rows = db.execute(text(f"""
                 SELECT j.id, pf.printer_model FROM jobs j
                 LEFT JOIN models m ON m.id=j.model_id

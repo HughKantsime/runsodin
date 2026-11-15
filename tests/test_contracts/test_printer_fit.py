@@ -240,7 +240,8 @@ def test_model_fit_matches_scheduler_after_uploading_another_variant(farm, libra
     options = client.get(f'/models/{model_id}/schedule-options', headers=headers).json()
     assert options['print_file_id'] == model_id
     advertised = client.get(f'/models/{model_id}/variants', headers=headers).json()['printer_fit']
-    assert 20 in {p['id'] for p in advertised['printers']}
+    assert {p['id'] for p in advertised['printers']} == {20, 25, 27}
+    assert advertised['count'] == 3
     scheduled = client.post(f'/models/{model_id}/schedule?printer_id=20', headers=headers,
                             json={key: options[key] for key in ('print_file_id', 'payload_sha256')})
     assert scheduled.status_code == 200, scheduled.text
@@ -249,7 +250,7 @@ def test_model_fit_matches_scheduler_after_uploading_another_variant(farm, libra
                       {'id': scheduled.json()['job_id']}).one() == ('scheduled', 20)
 
 
-@pytest.mark.parametrize('payload', ['unsliced', 'empty', 'missing', 'invalid'])
+@pytest.mark.parametrize('payload', ['unsliced', 'empty', 'missing', 'invalid', 'invalid_utf8'])
 def test_unready_bambu_payload_does_not_advertise_printers(farm, payload):
     import zipfile
     file_id = farm.files['x1c']
@@ -259,6 +260,15 @@ def test_unready_bambu_payload_does_not_advertise_printers(farm, payload):
         path.unlink()
     elif payload == 'invalid':
         path.write_bytes(b'not a zip')
+    elif payload == 'invalid_utf8':
+        # A valid ZIP directory structure with a malformed UTF-8 member name.
+        with zipfile.ZipFile(path, 'w') as package:
+            package.writestr('Metadata/plate_1.gcode', 'G28\n')
+        data = bytearray(path.read_bytes())
+        central = data.index(b'PK\x01\x02')
+        data[central + 8:central + 10] = (0x800).to_bytes(2, 'little')
+        data[central + 46] = 0xff
+        path.write_bytes(data)
     else:
         with zipfile.ZipFile(path, 'w') as package:
             package.writestr('Metadata/project_settings.config', '{"printer_model":"Bambu Lab X1 Carbon"}')
@@ -266,6 +276,20 @@ def test_unready_bambu_payload_does_not_advertise_printers(farm, payload):
                 package.writestr('Metadata/plate_1.gcode', '')
     assert queue_accepts(farm.db, file_id) == set()
     assert fit(farm.db, file_id) == {'count': 0, 'printers': [], 'sliced_for': 'X1C'}
+
+
+@pytest.mark.parametrize('filament,expected', [
+    ({'color': '#888888'}, []),
+    ({'color': '#00AE42'}, ['#00AE42']),
+    ({'color': '#888888', 'color_stated': True}, ['#888888']),
+    ({'color': '#888888', 'color_stated': False}, []),
+])
+def test_legacy_color_facts_do_not_claim_the_parser_fallback(farm, filament, expected):
+    from modules.models_library.printer_fit import row_file_facts
+    file_id = farm.files['x1c']
+    farm.db.execute(text('UPDATE print_files SET filaments_json=:filaments WHERE id=:id'),
+                    {'id': file_id, 'filaments': json.dumps([filament])})
+    assert row_file_facts(rows(farm.db, [file_id])[0])['filament_colors'] == expected
 
 
 def test_platform_admin_fit_uses_the_scheduling_tenant(farm):
