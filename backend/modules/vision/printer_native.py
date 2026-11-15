@@ -5,13 +5,14 @@ active is stored once as a vision detection (metadata source "printer") and rais
 alert a Vigil detection raises. Nothing here pauses, stops or fails a print: the printer
 applies its own setting, and job outcomes stay with the HMS rules in docs/bambu-hms.md.
 
-The monitor thread only compares small sets and, when the active set changes, runs one
-short local transaction. The picture and the alert are finished on a worker thread.
+The monitor thread captures observations; one ordered worker persists their active sets.
+The picture and the alert are finished separately so they cannot hold up persistence.
 """
+import asyncio
+from collections import deque
 import json
 import logging
 import threading
-import time
 
 from sqlalchemy import or_, text
 
@@ -159,28 +160,59 @@ def _load_active(printer_id):
 
 
 def observe(monitor, raw, status=None):
-    """Monitor hook. Never raises; a failed write is retried by the next report that carries codes."""
+    """Called under the monitor's existing lock. No database or camera work here."""
     try:
-        _observe(monitor, raw, status)
+        if not isinstance(raw, dict) or getattr(status, 'mqtt_retained', None) is True:
+            return   # a replayed report is not this moment's camera
+        hms = _hms_codes(raw['hms']) if isinstance(raw.get('hms'), list) else None
+        error = _print_error_code(raw.get('print_error'))
+        if hms is None and error is None:
+            return   # omitted or null: nothing known, the active set stands
+        state = getattr(monitor, '_state', None) or {}
+        filename = (raw.get('subtask_name') or raw.get('gcode_file')
+                    or state.get('subtask_name') or state.get('gcode_file'))
+        _enqueue_observation(monitor, (hms, error, getattr(monitor, '_current_job_id', None), filename))
     except Exception:
         log.warning('Printer camera detection not recorded for printer %s; will retry',
                     getattr(monitor, 'printer_id', None), exc_info=True)
 
 
-def _observe(monitor, raw, status):
-    if not isinstance(raw, dict) or getattr(status, 'mqtt_retained', None) is True:
-        return   # a replayed report is not this moment's camera
-    hms = raw.get('hms')
-    error = _print_error_code(raw.get('print_error'))
-    if not isinstance(hms, list) and error is None:
-        return   # omitted or null: nothing known, the active set stands
+def _enqueue_observation(monitor, observation):
+    pending = getattr(monitor, '_native_detection_pending', None)
+    if pending is not None:
+        pending.append(observation)
+        return
+    monitor._native_detection_pending = deque([observation])
+    try:
+        _start_worker(_drain_observations, monitor)
+    except Exception:
+        monitor._native_detection_pending = None
+        raise
+
+
+def _drain_observations(monitor):
+    while True:
+        # Reuse the status handler's lock only for the handoff, never for I/O.
+        with monitor._lock:
+            if not monitor._native_detection_pending:
+                monitor._native_detection_pending = None
+                return
+            observation = monitor._native_detection_pending.popleft()
+        try:
+            _observe(monitor, *observation)
+        except Exception:
+            log.warning('Printer camera detection not recorded for printer %s; will retry',
+                        monitor.printer_id, exc_info=True)
+
+
+def _observe(monitor, hms, error, job_id, filename):
     active = getattr(monitor, '_native_detection_codes', None)
     if active is None:
         # First report after a restart: the stored identities, so nothing repeats.
         active = monitor._native_detection_codes = _load_active(monitor.printer_id)
     current = set(active)
-    if isinstance(hms, list):
-        current = {code for code in current if len(code) != 16} | _hms_codes(hms)
+    if hms is not None:
+        current = {code for code in current if len(code) != 16} | hms
     if error is not None:
         current = {code for code in current if len(code) != 8}
         if error in PRINTER_DETECTION_CODES:
@@ -191,12 +223,11 @@ def _observe(monitor, raw, status):
     from modules.printers.bambu_hms_bundle import prefix_from_serial
     from modules.printers.hms_codes import lookup_hms_code
     prefix = prefix_from_serial(getattr(monitor, 'serial', ''))
-    job_id = getattr(monitor, '_current_job_id', None)
-    state = getattr(monitor, '_state', None) or {}
-    filename = (raw.get('subtask_name') or raw.get('gcode_file')
-                or state.get('subtask_name') or state.get('gcode_file'))
     created = []
     with engine.begin() as conn:
+        scheduled_job_id = conn.execute(text(
+            'SELECT scheduled_job_id FROM print_jobs WHERE id=:id AND printer_id=:pid'),
+            {'id': job_id, 'pid': monitor.printer_id}).scalar() if job_id is not None else None
         kinds_active = {PRINTER_DETECTION_CODES[code] for code in active}
         for code in sorted(current - active):
             kind = PRINTER_DETECTION_CODES[code]
@@ -217,14 +248,14 @@ def _observe(monitor, raw, status):
     # Only a committed set is remembered: a failed write leaves the codes new for the retry.
     monitor._native_detection_codes = current
     for detection_id, kind, code, message in created:
-        _start_worker(_finish, monitor.printer_id, job_id, detection_id, kind, code, message, filename)
+        _start_worker(_finish, monitor.printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id)
 
 
 def _start_worker(target, *args):
     threading.Thread(target=target, args=args, daemon=True, name='printer-native-detection').start()
 
 
-def _finish(printer_id, job_id, detection_id, kind, code, message, filename):
+def _finish(printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id):
     """Worker thread: best-effort picture, then the alert. The detection row already exists."""
     try:
         frame_path = _snapshot(printer_id, kind)
@@ -240,7 +271,7 @@ def _finish(printer_id, job_id, detection_id, kind, code, message, filename):
                     "status=CASE WHEN status=:informational THEN 'pending' ELSE status END "
                     'WHERE id=:id AND frame_path IS NULL'),
                     {'path': frame_path, 'informational': INFORMATIONAL, 'id': detection_id})
-        _alert(printer_id, job_id, detection_id, kind, code, message, filename)
+        _alert(printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id)
     except Exception:
         log.error('Printer camera detection %s: alert not sent', detection_id, exc_info=True)
 
@@ -254,27 +285,37 @@ def _snapshot(printer_id, kind):
         return None
     try:
         import cv2
-        import httpx
         import numpy as np
     except ImportError:
         return None
-    from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
     from modules.vision import frame_storage
-    deadline = time.monotonic() + SNAPSHOT_SECONDS
-    data = bytearray()
-    with httpx.stream('GET', f'{go2rtc_api_url()}/api/frame.jpeg', params={'src': f'printer_{printer_id}'},
-                      timeout=SNAPSHOT_SECONDS, **go2rtc_client_kwargs()) as response:
-        if response.status_code != 200:
-            return None
-        for chunk in response.iter_bytes():
-            data.extend(chunk)
-            if len(data) > MAX_SNAPSHOT_BYTES or time.monotonic() > deadline:
-                return None
-    frame = cv2.imdecode(np.frombuffer(bytes(data), dtype=np.uint8), cv2.IMREAD_COLOR)
+    data = asyncio.run(_snapshot_bytes(printer_id))
+    if not data:
+        return None
+    frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         return None
     # The detections folder only: this path never writes a training frame.
     return frame_storage.save_detection_frame(printer_id, frame, kind)
+
+
+async def _snapshot_bytes(printer_id):
+    import httpx
+    from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+    # A socket inactivity timeout resets between phases/chunks. Cancellation covers
+    # the entire request, including headers and a slow or stalled streaming body.
+    async with asyncio.timeout(SNAPSHOT_SECONDS):
+        async with httpx.AsyncClient(timeout=SNAPSHOT_SECONDS, **go2rtc_client_kwargs()) as client:
+            async with client.stream('GET', f'{go2rtc_api_url()}/api/frame.jpeg',
+                                     params={'src': f'printer_{printer_id}'}) as response:
+                if response.status_code != 200:
+                    return None
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > MAX_SNAPSHOT_BYTES:
+                        return None
+                return bytes(data)
 
 
 def _education_suppressed(printer_id, job_id, filename):
@@ -299,7 +340,7 @@ def _education_suppressed(printer_id, job_id, filename):
         return True
 
 
-def _alert(printer_id, job_id, detection_id, kind, code, message, filename):
+def _alert(printer_id, job_id, detection_id, kind, code, message, filename, scheduled_job_id):
     if _education_suppressed(printer_id, job_id, filename):
         return
     from modules.notifications.alert_dispatch import dispatch_alert
@@ -307,10 +348,10 @@ def _alert(printer_id, job_id, detection_id, kind, code, message, filename):
         row = conn.execute(text('SELECT name, nickname FROM printers WHERE id=:id'), {'id': printer_id}).first()
     name = (row[1] or row[0]) if row else f'Printer {printer_id}'
     alert_type, severity = _ALERTS[kind]
-    # Printer only, as Vigil does: recipients pass the printer's organization and
-    # controlled-print audience checks inside dispatch_alert. No 'vision_detection' live
+    # Keep the originating scheduled job's audience even if the print ended while
+    # fetching the picture. No 'vision_detection' live
     # event: that one is broadcast, and each recipient already gets the alert itself.
     dispatch_alert(alert_type=alert_type, severity=severity, title=alert_title(name, kind),
-                   message=message, printer_id=printer_id,
+                   message=message, printer_id=printer_id, job_id=scheduled_job_id,
                    metadata={'detection_id': detection_id, 'detection_type': kind, 'confidence': 1.0,
                              'source': SOURCE, 'code': code})

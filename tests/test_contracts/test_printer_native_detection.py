@@ -74,7 +74,9 @@ def native(hms_boundary, monkeypatch):
     db, handler, _, hms_alerts = hms_boundary
     alerts = []
     real_snapshot, real_dispatch = module._snapshot, alert_dispatch.dispatch_alert
+    real_enqueue = module._enqueue_observation
     monkeypatch.setattr(module, 'get_db', handler.get_db)
+    monkeypatch.setattr(module, '_enqueue_observation', lambda monitor, observation: module._observe(monitor, *observation))
     monkeypatch.setattr(module, '_start_worker', lambda target, *args: target(*args))
     monkeypatch.setattr(module, '_snapshot', lambda printer_id, kind: None)
     monkeypatch.setattr(alert_dispatch, 'dispatch_alert', lambda **kwargs: alerts.append(kwargs))
@@ -84,7 +86,7 @@ def native(hms_boundary, monkeypatch):
         created.serial = '094SYNTHETIC'
         return created
     return SimpleNamespace(db=db, module=module, alerts=alerts, hms_alerts=hms_alerts, monitor=monitor,
-                           real_snapshot=real_snapshot, real_dispatch=real_dispatch)
+                           real_snapshot=real_snapshot, real_dispatch=real_dispatch, real_enqueue=real_enqueue)
 
 
 def send(monitor, *, retained=False, **packet):
@@ -116,7 +118,7 @@ def test_hms_item_records_one_detection_and_one_alert(native):
     assert 'spaghetti' in row['meta']['text'].lower()
     [alert] = native.alerts
     assert alert['alert_type'] == 'spaghetti_detected' and alert['severity'] == 'critical'
-    assert alert['printer_id'] == 9 and 'job_id' not in alert
+    assert alert['printer_id'] == 9 and alert['job_id'] is None
     assert alert['title'] == "P1S-09: the printer's camera saw possible spaghetti"
     assert alert['message'] == row['meta']['text']
     assert alert['metadata']['detection_id'] == row['id'] and alert['metadata']['source'] == 'printer'
@@ -237,11 +239,12 @@ def test_camera_picture_is_attached_and_detection_is_pending(native, monkeypatch
     monkeypatch.setattr(frame_storage, 'VISION_FRAMES_DIR', str(tmp_path / 'frames'))
     requests = []
 
-    @contextmanager
-    def stream(method, url, **kwargs):
-        requests.append((method, url, kwargs.get('params'), kwargs.get('timeout')))
-        yield SimpleNamespace(status_code=200, iter_bytes=lambda: iter([jpeg()]))
-    monkeypatch.setattr(httpx, 'stream', stream)
+    def respond(request):
+        requests.append((request.method, str(request.url).split('?')[0],
+                         dict(request.url.params), request.extensions['timeout']['read']))
+        return httpx.Response(200, content=jpeg())
+    client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(respond), **kwargs))
     saved_training = []
     monkeypatch.setattr(frame_storage, 'save_training_frame', lambda *args: saved_training.append(args))
     # The fixture replaced _snapshot with "no camera"; this test runs the real one.
@@ -268,15 +271,14 @@ def test_no_camera_or_no_frame_is_informational(native, monkeypatch, tmp_path, r
         native.db.execute(text("UPDATE printers SET camera_enabled=1,camera_url='rtsp://192.0.2.9/stream' WHERE id=9"))
         native.db.commit()
 
-    @contextmanager
-    def stream(method, url, **kwargs):
+    def respond(request):
         if reason == 'no_camera':
             raise AssertionError('No request without a camera')
         if reason == 'transport_error':
             raise httpx.ConnectTimeout('Synthetic timeout')
-        yield SimpleNamespace(status_code=200 if reason == 'not_an_image' else 503,
-                              iter_bytes=lambda: iter([b'not a jpeg']))
-    monkeypatch.setattr(httpx, 'stream', stream)
+        return httpx.Response(200 if reason == 'not_an_image' else 503, content=b'not a jpeg')
+    client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(respond), **kwargs))
     monkeypatch.setattr(native.module, '_snapshot', native.real_snapshot)
     monitor = native.monitor()
     send(monitor, gcode_state='RUNNING', gcode_file='current.3mf', hms=SPAGHETTI_HMS)
@@ -330,7 +332,7 @@ def test_default_worker_is_a_daemon_thread():
 
 @pytest.mark.parametrize('controlled', [False, True])
 def test_controlled_print_alert_reaches_only_its_audience(native, monkeypatch, controlled):
-    """Real recipient selection: the printer-only alert passes the controlled-print audience check."""
+    """Real recipient selection: the originating print's audience is checked."""
     from modules.notifications import alert_dispatch
     db = native.db
     db.execute(text("INSERT INTO jobs(id,model_id,item_name,quantity,status,printer_id,duration_hours,hold,priority,charged_to_org_id) "
@@ -351,6 +353,123 @@ def test_controlled_print_alert_reaches_only_its_audience(native, monkeypatch, c
     assert {tuple(row[1:]) for row in rows} == {
         ('spaghetti_detected', 'critical', "P1S-09: the printer's camera saw possible spaghetti", 9)}
     assert len(detections(db)) == 1
+
+
+def test_controlled_alert_keeps_originating_job_after_snapshot(native, monkeypatch):
+    from modules.notifications import alert_dispatch
+    db = native.db
+    db.execute(text("INSERT INTO jobs(id,model_id,item_name,quantity,status,printer_id,duration_hours,hold,priority,charged_to_org_id) "
+                    "VALUES(203,12,'Synthetic controlled',1,'printing',9,1,0,3,1)"))
+    db.execute(text('UPDATE print_jobs SET scheduled_job_id=203 WHERE id=201'))
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(1,'Secure')"))
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(1,2)'))
+    db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                    "VALUES(203,'CUI',1,'Secure',30,'fixture',CURRENT_TIMESTAMP)"))
+    db.commit()
+    monitor = native.monitor()
+
+    def finish_print_during_snapshot(*args):
+        db.execute(text("UPDATE print_jobs SET status='completed',ended_at=CURRENT_TIMESTAMP WHERE id=201"))
+        db.execute(text("UPDATE jobs SET status='completed' WHERE id=203"))
+        db.execute(text("UPDATE printers SET gcode_state='IDLE' WHERE id=9"))
+        db.commit()
+        monitor._current_job_id = None
+        monitor._linked_job_id = None
+        return None
+
+    monkeypatch.setattr(native.module, '_snapshot', finish_print_during_snapshot)
+    monkeypatch.setattr(alert_dispatch, 'dispatch_alert', native.real_dispatch)
+    send(monitor, gcode_state='RUNNING', gcode_file='current.3mf', hms=SPAGHETTI_HMS)
+    assert db.execute(text('SELECT user_id,job_id FROM alerts ORDER BY user_id')).all() == [(2, 203)]
+
+
+def test_writer_contention_does_not_hold_monitor_lock_and_preserves_order(native, monkeypatch):
+    from sqlalchemy import event
+    engine = native.db.get_bind()
+    monitor = native.monitor()
+    attempted = threading.Event()
+    returned = threading.Event()
+    workers = []
+
+    def start(target, *args):
+        worker = threading.Thread(target=target, args=args, daemon=True)
+        workers.append(worker)
+        worker.start()
+
+    def before_execute(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith('INSERT INTO vision_detections'):
+            attempted.set()
+
+    def report():
+        with monitor._lock:
+            native.module.observe(monitor, {'hms': SPAGHETTI_HMS})
+        returned.set()
+
+    monkeypatch.setattr(native.module, '_start_worker', start)
+    monkeypatch.setattr(native.module, '_enqueue_observation', native.real_enqueue)
+    event.listen(engine, 'before_cursor_execute', before_execute)
+    blocker = engine.raw_connection()
+    blocker.execute('BEGIN IMMEDIATE')
+    reporter = threading.Thread(target=report, daemon=True)
+    reporter.start()
+    try:
+        assert attempted.wait(2), 'Detection insert was never attempted'
+        assert returned.wait(0.5), 'Detection persistence blocked the monitor under its lock'
+        # A clear and recurrence must retain order while the first insert waits.
+        with monitor._lock:
+            monitor._current_job_id = None
+            native.module.observe(monitor, {'hms': []})
+            native.module.observe(monitor, {'hms': SPAGHETTI_HMS})
+            native.module.observe(monitor, {'hms': SPAGHETTI_HMS})
+    finally:
+        blocker.rollback()
+        blocker.close()
+        reporter.join(5)
+        for worker in workers:
+            worker.join(5)
+        event.remove(engine, 'before_cursor_execute', before_execute)
+    assert not reporter.is_alive() and all(not worker.is_alive() for worker in workers)
+    assert [row['print_job_id'] for row in detections(native.db)] == [201, None]
+    assert len(native.alerts) == 2
+
+
+def test_snapshot_total_deadline_covers_headers_and_body(native, monkeypatch):
+    import httpx
+    native.db.execute(text("UPDATE printers SET camera_enabled=1,camera_url='rtsp://192.0.2.9/stream' WHERE id=9"))
+    native.db.commit()
+    monkeypatch.setattr(native.module, 'SNAPSHOT_SECONDS', 0.4)
+    body_finished = []
+
+    @contextmanager
+    def stream(*args, **kwargs):
+        time.sleep(0.3)
+
+        def chunks():
+            time.sleep(0.3)
+            body_finished.append(True)
+            yield jpeg()
+
+        yield SimpleNamespace(status_code=200, iter_bytes=chunks)
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(0.3)
+            body_finished.append(True)
+            yield jpeg()
+
+    async def respond(request):
+        await asyncio.sleep(0.3)
+        return httpx.Response(200, stream=Body())
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'stream', stream)
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(respond), **kwargs))
+    monkeypatch.setattr(native.module, '_snapshot', native.real_snapshot)
+    monitor = native.monitor()
+    send(monitor, gcode_state='RUNNING', gcode_file='current.3mf', hms=SPAGHETTI_HMS)
+    assert body_finished == [], 'The body consumed a second per-phase timeout after slow headers'
+    assert [row['status'] for row in detections(native.db)] == ['informational']
+    assert len(native.alerts) == 1
 
 
 def test_stats_and_list_report_the_source(native):
