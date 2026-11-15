@@ -41,7 +41,7 @@ services:
       - ODIN_HOST_IP=${ODIN_HOST_IP:-}
       - TZ=${TZ:-America/New_York}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      test: ["CMD", "curl", "--noproxy", "*", "-f", "http://localhost:8000/health/ready"]
       interval: 30s
       timeout: 5s
       retries: 3

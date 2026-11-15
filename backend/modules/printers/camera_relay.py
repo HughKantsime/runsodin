@@ -33,6 +33,8 @@ import threading
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from core.itar import ItarOutboundBlocked, pinned_literal_url
+
 log = logging.getLogger("odin.camera_relay")
 router = APIRouter(include_in_schema=False)
 
@@ -159,19 +161,42 @@ def relay_token(printer_id: int) -> str:
     return hmac.new(relay_secret().encode(), f"camera-source:{int(printer_id)}".encode(), hashlib.sha256).hexdigest()
 
 
+ITAR_REFUSAL = ("Cameras that go through the ODIN relay are turned off: ITAR mode is on and "
+                "ODIN_CAMERA_RELAY_BASE_URL points outside the local network.")
+
+
+class RelayUrlRefused(ItarOutboundBlocked):
+    """ITAR mode is on and the relay address is not loopback or on the local network."""
+
+    def __init__(self):
+        super().__init__(ITAR_REFUSAL)
+
+
 def relay_base_url() -> str:
     """Where go2rtc reaches the relay: loopback in the single container; the API service
-    (ODIN_CAMERA_RELAY_BASE_URL, e.g. http://api:8000) when go2rtc is its own container."""
+    (ODIN_CAMERA_RELAY_BASE_URL, e.g. http://api:8000) when go2rtc is its own container.
+
+    go2rtc connects to this address itself and sends the camera token to it. Under ITAR
+    mode it must be loopback or on the local network; a name is looked up once and go2rtc
+    is given the address that passed (core.itar.pinned_literal_url), so go2rtc never looks
+    the name up. Anything else raises RelayUrlRefused. With a restricted TRUSTED_HOSTS,
+    that address must be listed, like 127.0.0.1 in the single container."""
     configured = (os.environ.get("ODIN_CAMERA_RELAY_BASE_URL") or "").strip().rstrip("/")
     if configured:
-        return configured
+        try:
+            return pinned_literal_url(configured)[0]
+        except (ItarOutboundBlocked, ValueError) as exc:
+            log.error("%s No camera source was given to go2rtc for it: %s", ITAR_REFUSAL, exc)
+            raise RelayUrlRefused() from None
     port = int(os.environ.get("PORT", "8000"))
     return f"http://127.0.0.1:{port}"
 
 
 def relay_url(printer_id: int) -> str:
-    """URL go2rtc/ffmpeg use for this printer's HTTP camera."""
-    return f"{relay_base_url()}/internal/camera-source/{int(printer_id)}/{relay_token(printer_id)}"
+    """URL go2rtc/ffmpeg use for this printer's HTTP camera. The address is checked before
+    the token is made: a refused address (RelayUrlRefused) yields no token."""
+    base = relay_base_url()
+    return f"{base}/internal/camera-source/{int(printer_id)}/{relay_token(printer_id)}"
 
 
 def _trusted_peers() -> set:

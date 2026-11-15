@@ -82,7 +82,7 @@ WebRTC TCP path and authenticated snapshot fallback; Settings shows the remote U
 and browser reachability check. Cellular and native-device validation is owner-run.
 
 ### 2.1 Camera Feeds
-- WebRTC streaming via go2rtc (RTSP cameras relayed to WebRTC; HTTP/MJPEG cameras transcoded to H.264); browser and relay use host ICE candidates with no public STUN/TURN, including in ITAR mode
+- WebRTC streaming via go2rtc (RTSP cameras relayed to WebRTC; HTTP/MJPEG cameras transcoded to H.264); the camera configuration O.D.I.N. writes uses host ICE candidates with no public STUN/TURN, including in ITAR mode (a relay you run as a separate container loads what you give it)
 - Camera grid page with all active feeds
 - Per-camera enable/disable toggle
 

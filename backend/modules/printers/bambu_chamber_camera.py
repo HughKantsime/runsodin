@@ -9,6 +9,7 @@ import struct
 
 from fastapi.responses import StreamingResponse
 
+from core.itar import enforce_host_destination
 from core.webhook_utils import device_connect_ip
 
 log = logging.getLogger("odin.camera_relay")
@@ -65,6 +66,8 @@ async def frames(source):
     """Connect to the policy-approved literal, authenticate, then yield bounded JPEGs."""
     address = await asyncio.wait_for(
         asyncio.to_thread(device_connect_ip, source.host, PORT), CONNECT_TIMEOUT)
+    # ITAR mode: never connect, or send the access code, outside the local network.
+    enforce_host_destination(address, scheme="camera")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # printer certificates are self-signed

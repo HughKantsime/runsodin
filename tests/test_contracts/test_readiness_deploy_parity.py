@@ -28,7 +28,8 @@ def test_api_container_healthchecks_use_public_readiness_without_credentials() -
         assert all("API_KEY" not in line and "Authorization" not in line for line in health_lines)
 
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "CMD curl -f http://localhost:8000/health/ready || exit 1" in dockerfile
+    # --noproxy: Docker runs the check with the container's environment, proxy settings included.
+    assert "CMD curl --noproxy '*' -f http://localhost:8000/health/ready || exit 1" in dockerfile
 
     kubernetes = (ROOT / "ops" / "demo" / "k8s" / "40-odin.yaml").read_text(
         encoding="utf-8"

@@ -9,7 +9,7 @@ from core.dependencies import oauth2_scheme
 from core.rbac import require_role
 from modules.printers.camera_routes import get_camera_stream
 from modules.printers.route_utils import mjpeg_stream_name
-from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+from modules.printers.go2rtc_access import go2rtc_target
 
 router = APIRouter()
 MAX_FRAME_BYTES = 8 * 1024 * 1024
@@ -22,9 +22,10 @@ async def camera_snapshot(printer_id: int, db: Session = Depends(get_db),
     get_camera_stream(printer_id, db, user)
     # Use the existing JPEG variant: an H.264 camera needs on-demand transcoding.
     stream_name = mjpeg_stream_name(printer_id)
+    go2rtc = go2rtc_target()
     try:
-        async with httpx.AsyncClient(trust_env=False, **go2rtc_client_kwargs()) as client:
-            async with client.stream("GET", f"{go2rtc_api_url()}/api/frame.jpeg",
+        async with httpx.AsyncClient(**{**go2rtc.client_kwargs, "trust_env": False}) as client:
+            async with client.stream("GET", f"{go2rtc.url}/api/frame.jpeg",
                                      params={"src": stream_name}, timeout=8,
                                      follow_redirects=False) as upstream:
                 if upstream.status_code != 200:

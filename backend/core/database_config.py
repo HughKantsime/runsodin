@@ -103,6 +103,44 @@ def application_name(role: str) -> str:
         raise DatabaseConfigurationError(f"Unsupported ODIN database role: {role}") from exc
 
 
+def _refuse_public_postgres_under_itar(url: URL) -> None:
+    """ITAR mode: no engine is built for a PostgreSQL server outside the local network, so
+    every ODIN process refuses to start with such a DATABASE_URL (core.itar_database)."""
+    from core.itar import ItarOutboundBlocked
+    from core.itar_database import enforce_postgres_destination
+    try:
+        enforce_postgres_destination(url)
+    except ItarOutboundBlocked as exc:
+        raise DatabaseConfigurationError(str(exc)) from None
+
+
+def _pin_postgres_connections_under_itar(engine: Engine) -> None:
+    """ITAR mode: every connection this engine opens (the first, pooled ones, reconnects)
+    goes to an address that was checked for that connection. The one host SQLAlchemy is
+    about to hand the driver is looked up once, every address must be on the local network,
+    and the first is added as libpq `hostaddr`; libpq then connects to it without a lookup
+    of its own and still verifies a TLS certificate against the host name.
+
+    The check sits on this engine's own dialect object, around the one call that reaches the
+    driver. That is after every `do_connect` listener has run (so other listeners still run
+    and can refuse, and nothing a listener changed escapes the check), and each call works
+    on its own copy of the arguments (SQLAlchemy shares one dictionary between all
+    connections; it is never changed, so two connections opened at once cannot see each
+    other's address). With ITAR mode off nothing is wrapped: the engine is exactly what it
+    was (ITAR mode is set in the environment for the process)."""
+    from core.itar import is_itar_mode
+    if not is_itar_mode():
+        return
+    dialect = engine.dialect
+    driver_connect = dialect.connect
+
+    def _connect_to_the_checked_address(*cargs, **cparams):
+        from core.itar_database import pinned_driver_arguments
+        return driver_connect(*cargs, **pinned_driver_arguments(cparams))   # raises ItarOutboundBlocked first
+
+    dialect.connect = _connect_to_the_checked_address
+
+
 # Writers wait this long for SQLite's writer lock before SQLITE_BUSY.
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
@@ -145,6 +183,7 @@ def create_database_engine(
                 cursor.close()
 
         return sqlite_engine
+    _refuse_public_postgres_under_itar(url)
     restore_data_directory = os.getenv('ODIN_DATA_DIR', '/data')
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:
         assert_postgres_restore_ready(restore_data_directory)
@@ -196,6 +235,7 @@ def create_database_engine(
             # Plain RuntimeError refusal triggers SQLAlchemy single-connection
             # invalidation, unlike DisconnectionError's reconnect retry loop.
             assert_postgres_restore_ready(restore_data_directory)
+    _pin_postgres_connections_under_itar(engine)
     return engine
 
 

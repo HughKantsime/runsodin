@@ -344,7 +344,8 @@ def test_rtsp_camera_plays_over_webrtc_in_chrome(stack):
 
 def test_vision_captures_frames_from_the_go2rtc_service(stack):
     code = ("import json\n"
-            "from modules.vision.detection_thread import PrinterVisionThread, GO2RTC_BASE\n"
+            "from modules.vision.detection_thread import PrinterVisionThread\n"
+            "from modules.printers.go2rtc_access import go2rtc_api_url\n"
             f"w=PrinterVisionThread({stack.ids['rtsp']},'Ent RTSP',None,{{}},2,1,'RUNNING')\n"
             "f=None\n"
             "import time\n"
@@ -352,7 +353,7 @@ def test_vision_captures_frames_from_the_go2rtc_service(stack):
             "    f=w._capture_frame()\n"
             "    if f is not None: break\n"
             "    time.sleep(1)\n"
-            "print('ENT='+json.dumps({'base':GO2RTC_BASE,'shape':None if f is None else list(f.shape)}))\n")
+            "print('ENT='+json.dumps({'base':go2rtc_api_url(),'shape':None if f is None else list(f.shape)}))\n")
     result = stack.py("vision", code)
     assert result == {"base": "http://go2rtc:1984", "shape": [360, 640, 3]}, result
 

@@ -493,15 +493,14 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        # v1.8.9 (codex pass 7): runtime ITAR guard.
-        from core.itar import enforce_host_destination
-        enforce_host_destination(smtp["host"], scheme="smtp")
+        # ITAR mode: one lookup, public refused, connected to the checked address.
+        from core.itar_connect import smtp_connection
 
         if smtp.get("use_tls", True):
-            server = smtplib.SMTP(smtp["host"], smtp.get("port", 587), timeout=10)
+            server = smtp_connection(smtp["host"], smtp.get("port", 587), timeout=10)
             server.starttls()
         else:
-            server = smtplib.SMTP(smtp["host"], smtp.get("port", 25), timeout=10)
+            server = smtp_connection(smtp["host"], smtp.get("port", 25), timeout=10)
         if smtp.get("username") and password:
             server.login(smtp["username"], password)
         server.send_message(msg)
