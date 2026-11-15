@@ -146,11 +146,12 @@ def snapshots(db, owner):
     return result
 
 
-def on_the_way(db, owner, recipes):
+def on_the_way(db, owner, recipes, can_see):
     """Pieces per product already coming, from the same evidence pending_work checks.
 
-    Returns ({product_id: {'pieces', 'job_ids', 'awaiting_stock'}}, problem). A
-    problem (an incomplete or unreadable scan) means nothing may be suggested.
+    Returns ({product_id: {'pieces', 'job_ids', 'awaiting_stock'}}, problem), with
+    an internal 'restricted' flag for products receiving hidden work. A problem
+    (an incomplete or unreadable scan) means nothing may be suggested.
     """
     coming = {}
     def entry(product_id):
@@ -160,8 +161,10 @@ def on_the_way(db, owner, recipes):
     if len(outstanding) > LIMIT:
         return coming, 'Pending-addition scan is incomplete. Review existing work first.'
     details = {}
+    recipe_models = {r['id']: r['payload']['model_id'] for r in recipes if r.get('payload')}
     if outstanding:
-        details = {rid: json.loads(raw) for rid, raw in db.execute(select(batches.receipts.c.id, batches.receipts.c.definition).where(
+        details = {rid: {**json.loads(raw), 'recipe_id': recipe_id} for rid, recipe_id, raw in db.execute(select(
+            batches.receipts.c.id, batches.receipts.c.recipe_id, batches.receipts.c.definition).where(
             batches.receipts.c.owner == owner, batches.receipts.c.id.in_(outstanding)))}
     for receipt_id in outstanding:
         detail = details.get(receipt_id)
@@ -170,12 +173,17 @@ def on_the_way(db, owner, recipes):
             detail = finish_receipt(db, owner, receipt_id)
         if detail is None:
             return coming, 'A pending stock addition has missing evidence. Review existing work first.'
+        restricted = any(identifier is not None and not can_see(kind, identifier) for kind, identifier in (
+            ('job', detail.get('job_id')), ('print_job', detail.get('print_job_id')),
+            ('model', recipe_models.get(detail.get('recipe_id')))))
         for output in detail['outputs']:
             if output['accepted'] > 0:
                 # Inspected pieces that Square does not count yet.
                 pieces = output.get('send_quantity', output['accepted'])
                 entry(output['product_id'])['awaiting_stock'] += pieces
                 entry(output['product_id'])['pieces'] += pieces
+                if pieces and restricted:
+                    entry(output['product_id'])['restricted'] = True
     models = {r['payload']['model_id'] for r in recipes if r.get('payload')}
     if not models:
         return coming, None
@@ -202,6 +210,8 @@ def on_the_way(db, owner, recipes):
         for product_id, pieces in makes.items():
             entry(product_id)['pieces'] += pieces
             entry(product_id)['job_ids'].append(job.id)
+            if not can_see('model', job.model_id) or not can_see('job', job.id):
+                entry(product_id)['restricted'] = True
     return coming, None
 
 
@@ -262,7 +272,6 @@ def build(db, owner, user, known, *, now=None):
     raw = db.execute(select(batches.recipes.c.id, batches.recipes.c.definition).where(batches.recipes.c.owner == owner).limit(LIMIT + 1)).all() if active else []
     recipes = [{'id': rid, **json.loads(definition)} for rid, definition in raw[:LIMIT]]
     scan_problem = 'Recipe scan is incomplete. Review recipes before planning more stock.' if len(raw) > LIMIT else None
-    coming, coming_problem = on_the_way(db, owner, recipes) if active else ({}, None)
     orders = open_orders(db, owner) if active else {}
     sold = velocity(db, owner, now) if active else {}
     hours = plate_hours(db, recipes)
@@ -270,18 +279,18 @@ def build(db, owner, user, known, *, now=None):
     from core.controlled_parts import allowed, any_controlled_data
     controlled = bool(active) and any_controlled_data(db)
     visible = {}
-    def can_see(model_id):
+    def can_see(kind, identifier):
         if not controlled:
             return True
-        if model_id not in visible:
-            visible[model_id] = allowed(db, 'model', model_id, user)
-        return visible[model_id]
+        key = (kind, identifier)
+        if key not in visible:
+            visible[key] = allowed(db, kind, identifier, user)
+        return visible[key]
     def minimum(product_id):
         return assortment.rule(policy['products'].get(str(product_id)))['minimum_main_batch'] or 1
 
-    hidden_products = {o['product_id'] for recipe in recipes
-                       if recipe.get('payload') and not can_see(recipe['payload']['model_id'])
-                       for o in recipe['outputs']}
+    coming, coming_problem = on_the_way(db, owner, recipes, can_see) if active else ({}, None)
+    hidden_products = {pid for pid, work in coming.items() if work.get('restricted')}
     rows = []
     for product in active:
         numbers = assortment.numbers(policy['products'][str(product.id)])
@@ -293,11 +302,6 @@ def build(db, owner, user, known, *, now=None):
                'open_orders': {'pieces': demand['pieces'], 'oldest': str(demand['oldest']) if demand['oldest'] else None} if demand else None,
                'velocity': sold.get(product.id)}
         rows.append(row)
-        # Do not reveal restricted production through totals, job IDs or derived shortfalls.
-        # Blocking also prevents a visible alternative recipe from duplicating hidden work.
-        if product.id in hidden_products:
-            row['reason'] = 'The plate that makes this product is controlled work you cannot see.'
-            continue
         mapping = mappings.get(str(product.id))
         if not mapping:
             row['reason'] = 'Map this product to a Square item to see its stock.' if doc else 'Connect Square and map this product to see its stock.'
@@ -331,6 +335,11 @@ def build(db, owner, user, known, *, now=None):
         if not row['below_point'] and not uncovered:
             row.update(status='ok', shortfall=0, reason='At or above its reorder point.')
             continue
+        # Square stock is public to this caller; restricted production and derived
+        # shortfalls are not. Block only when actual hidden work could be duplicated.
+        if product.id in hidden_products:
+            row['reason'] = 'The plate that makes this product is controlled work you cannot see.'
+            continue
         # Refill to the target when below the point; open orders that stock cannot cover count in full.
         wanted = max(numbers['target'] if row['below_point'] else 0, demand['pieces'] if uncovered else 0)
         row['shortfall'] = max(0, wanted - quantity - way['pieces'])
@@ -342,10 +351,13 @@ def build(db, owner, user, known, *, now=None):
         if row['shortfall'] == 0:
             row.update(status='below', reason=f"Below its point, but {way['pieces']} piece(s) already on the way cover it.")
             continue
-        candidates, run_plates = [], {}
+        candidates, run_plates, hidden_recipe = [], {}, False
         for recipe in recipes:
             main = next((o for o in recipe['outputs'] if o['product_id'] == product.id and o['kind'] == 'main'), None)
             if main is None or recipe.get('qualified') is not True or not recipe.get('payload'):
+                continue
+            if not can_see('model', recipe['payload']['model_id']):
+                hidden_recipe = True
                 continue
             run_plates[recipe['id']] = max(
                 plates_for(row['shortfall'], main['expected'], numbers['minimum_batch']),
@@ -356,7 +368,8 @@ def build(db, owner, user, known, *, now=None):
                                'hours_per_plate': per_plate_hours,
                                'hours_per_piece': round(per_plate_hours / main['expected'], 3) if per_plate_hours else None})
         if not candidates:
-            row['reason'] = 'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.'
+            row['reason'] = ('The plate that makes this product is controlled work you cannot see.' if hidden_recipe else
+                             'Needs printing, but no qualified recipe meets its smallest batch. Qualify one first.')
             continue
         # Cheapest known print time per piece first; unknown times last; then the bigger plate.
         candidates.sort(key=lambda c: (c['hours_per_piece'] is None, c['hours_per_piece'] or 0, -c['pieces_per_plate'], c['id']))

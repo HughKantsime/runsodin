@@ -205,6 +205,25 @@ def test_smallest_batch_covers_every_main_output_in_a_mixed_run(floor):
     assert entry['status'] == 'below' and entry['plates_needed'] == 3
 
 
+def test_mixed_run_without_a_coproduct_policy_uses_a_one_piece_minimum(floor):
+    plate(floor, outputs=[{'product_id': 101, 'kind': 'main', 'expected': 5},
+                          {'product_id': 104, 'kind': 'main', 'expected': 3}])
+    numbers(floor, target=5)
+    assert '104' not in assortment.load(floor['db'], 1)[0]['products']
+    entry = row(floor)
+    assert entry['status'] == 'below' and entry['plates_needed'] == 1
+
+
+@pytest.mark.parametrize('product_id', [101, 104])
+def test_zero_yield_main_output_is_rejected_before_it_can_reach_the_list(floor, product_id):
+    answer = floor['client'].post('/products/production/recipes', json={
+        'reference_job_id': 301, 'name': 'Zero yield', 'materials': 'PLA', 'qualification_confirmed': True,
+        'outputs': [{'product_id': pid, 'kind': 'main', 'expected': 0 if pid == product_id else 5}
+                    for pid in (101, 104)]})
+    assert answer.status_code == 422
+    assert floor['db'].execute(text('SELECT COUNT(*) FROM production_recipes')).scalar() == 0
+
+
 def test_legacy_policy_without_numbers_prints_one_batch(floor):
     plate(floor)
     doc, prior = assortment.load(floor['db'], 1)
@@ -557,6 +576,50 @@ def test_controlled_plate_follows_existing_visibility(floor, monkeypatch):
     assert answer.json()['queued'] == [] and held_jobs(floor) == []
     monkeypatch.setattr(controlled_parts, 'allowed', lambda *a: True)
     assert row(floor)['recipe']['id'] == recipe['id']
+
+
+@pytest.mark.parametrize('qualified,kind', [(True, 'main'), (False, 'main'), (True, 'flush')])
+@pytest.mark.parametrize('visible_work', ['none', 'pending', 'inspected'])
+def test_hidden_alternative_does_not_block_a_visible_recipe(floor, monkeypatch, qualified, kind, visible_work):
+    visible = make_recipe(floor['batch']) if visible_work == 'inspected' else plate(floor)
+    numbers(floor, target=20)
+    hidden = {**visible, 'id': 'f' * 32, 'name': 'Hidden alternative', 'qualified': qualified,
+              'payload': {**visible['payload'], 'model_id': 999, 'print_file_id': 999},
+              'outputs': [{'product_id': 101, 'kind': kind, 'expected': 5},
+                          {'product_id': 104, 'kind': 'main', 'expected': 3}]}
+    floor['db'].execute(batches.recipes.insert().values(id='f' * 32, owner=1, definition=batches.packed(hidden)))
+    floor['db'].commit()
+    if visible_work == 'pending':
+        floor['db'].execute(text("INSERT INTO jobs(id,item_name,model_id,status,charged_to_org_id,quantity) "
+                                "VALUES(401,'visible run',301,'pending',1,1)"))
+    elif visible_work == 'inspected':
+        assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], visible)).status_code == 200
+        floor['db'].execute(text("UPDATE jobs SET status='cancelled' WHERE id=301"))
+    floor['db'].commit()
+    from core import controlled_parts
+    monkeypatch.setattr(controlled_parts, 'any_controlled_data', lambda db: True)
+    monkeypatch.setattr(controlled_parts, 'allowed', lambda db, kind, identifier, actor: not (kind == 'model' and identifier == 999))
+    entry = row(floor)
+    assert entry['status'] == 'below' and entry['recipe']['id'] == visible['id']
+    coming = {'none': 0, 'pending': 5, 'inspected': 4}[visible_work]
+    assert entry['on_the_way']['pieces'] == coming
+    assert entry['shortfall'] == 18 - coming
+    assert 'Hidden alternative' not in json.dumps(entry)
+
+
+@pytest.mark.parametrize('quantity,status,below,shortfall', [('20', 'ok', False, 0), ('2', 'blocked', True, None)])
+def test_controlled_work_does_not_hide_square_stock(floor, monkeypatch, quantity, status, below, shortfall):
+    make_recipe(floor['batch'])  # Both completed runs still await inspection.
+    numbers(floor)
+    floor['state']['levels']['V1'] = quantity
+    from core import controlled_parts
+    monkeypatch.setattr(controlled_parts, 'any_controlled_data', lambda db: True)
+    monkeypatch.setattr(controlled_parts, 'allowed', lambda db, kind, identifier, actor: not (kind == 'model' and identifier == 301))
+    entry = row(floor)
+    assert entry['on_hand']['quantity'] == int(quantity)
+    assert (entry['status'], entry['below_point'], entry['shortfall']) == (status, below, shortfall)
+    assert entry['recipe'] is None and entry['plates_needed'] == 0
+    assert entry['on_the_way'] == {'pieces': 0, 'job_ids': [], 'awaiting_stock': 0}
 
 
 # ---- queue ----------------------------------------------------------------------------------------
