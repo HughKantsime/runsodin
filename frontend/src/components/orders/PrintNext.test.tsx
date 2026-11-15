@@ -72,6 +72,25 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Print next list
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
 
+  it('keeps valid figures and bulk queueing when another product has a stale receipt', async () => {
+    const blocked = { ...rows[1], status: 'blocked' as const,
+      reason: 'A stock receipt for this product refers to a print that no longer exists. Review it in Finishing.' }
+    delete blocked.on_the_way; delete blocked.shortfall; delete blocked.rank; delete blocked.rank_reason
+    delete blocked.recipe; delete blocked.plates_needed
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: [base, blocked], print_next_count: 1 }))
+    vi.mocked(replenishment.queue).mockResolvedValue({ queued: [{ product_id: 1, recipe_id: base.recipe!.id, plates: 3, job_ids: [11], held: true }], skipped: [] })
+    render(<PrintNext />)
+    await screen.findByRole('heading', { name: /Mini/ })
+    expect(within(item('Dragon')).getByText(blocked.reason)).toBeVisible()
+    expect(within(item('Dragon')).queryByText('On the way')).not.toBeInTheDocument()
+    expect(within(item('Dragon')).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(item('Mini')).getByText('Short')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Queue 3 plates for Mini' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Queue all suggested (3 plates)' }))
+    expect(await screen.findByText(/Queued 3 plates for Mini, on hold/)).toBeVisible()
+    expect(replenishment.queue).toHaveBeenCalledExactlyOnceWith([{ product_id: 1, recipe_id: base.recipe!.id, plates: 3 }], false)
+  })
+
   it('offers a queue button only where plates are suggested and queues them on hold', async () => {
     vi.mocked(replenishment.queue).mockResolvedValue({ queued: [{ product_id: 1, recipe_id: 'a'.repeat(32), plates: 3, job_ids: [11, 12, 13], held: true }], skipped: [] })
     render(<PrintNext />)
@@ -198,6 +217,16 @@ describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Dashboard card 
     const view = card()
     await waitFor(() => expect(replenishment.list).toHaveBeenCalledTimes(1))
     expect(view.container).toBeEmptyDOMElement()
+  })
+
+  it('keeps the available suggestion on the card when another product is blocked', async () => {
+    const blocked = { ...rows[1], status: 'blocked' as const, rank: undefined, shortfall: undefined,
+      recipe: undefined, plates_needed: undefined, on_the_way: undefined }
+    vi.mocked(replenishment.list).mockResolvedValue(list({ rows: [base, blocked], print_next_count: 1 }))
+    card()
+    expect(await screen.findByRole('heading', { name: 'Print next: 1 product below its reorder point' })).toBeVisible()
+    expect(screen.getByText('Mini: 2 on hand, 3 plates suggested')).toBeVisible()
+    expect(screen.queryByText(/Dragon:/)).not.toBeInTheDocument()
   })
 
   it('stays away when nothing is below its point, the read fails, or the install or role has no access', async () => {

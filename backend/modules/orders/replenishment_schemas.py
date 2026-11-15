@@ -50,7 +50,7 @@ class OutsideReference(Evidence):
 
 
 class Recipe(Evidence):
-    # Some stored copies include an id. It is validated but never used as authority.
+    # Some stored copies include an id. It must agree with the authoritative column.
     id: RecordID = None
     version: Annotated[int, Field(ge=1, le=2)]
     name: Name
@@ -270,7 +270,7 @@ class Finishing(Evidence):
 
 class Work(Evidence):
     id: Positive
-    model_id: Positive
+    model_id: Positive | None
     print_file_id: Positive | None
     printer_id: Positive | None
     payload_sha256: Digest | None

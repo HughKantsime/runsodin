@@ -781,18 +781,24 @@ def test_all_referenced_rows_must_exist_and_belong_to_owner(floor, kind, damage)
     else:
         db.execute(text(f'UPDATE {table} SET {column}=2 WHERE id=:id'), {'id': identifier})
     db.commit()
-    assert_no_planning(listed(floor))
+    result = listed(floor)
+    if damage == 'missing' and kind in ('model', 'print_job'):
+        assert result['rows'][0]['status'] == 'blocked'
+        assert 'no longer exists' in result['rows'][0]['reason']
+        assert 'on_the_way' not in result['rows'][0]
+    else:
+        assert_no_planning(result)
     assert queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}]).json()['queued'] == []
 
 
-@pytest.mark.parametrize('damage', ['null_model', 'foreign_model', 'missing_file', 'wrong_plate_type'])
+@pytest.mark.parametrize('damage', ['foreign_model', 'missing_file', 'wrong_plate_type'])
 def test_job_preparation_is_validated_before_matching(floor, damage):
     plate(floor)
     numbers(floor)
     db = floor['db']
     db.execute(text("INSERT INTO models(id,name,org_id) VALUES(400,'Foreign',2)"))
     db.execute(text("INSERT INTO jobs(id,item_name,model_id,status,charged_to_org_id,quantity) VALUES(401,'run',301,'pending',1,1)"))
-    column, value = {'null_model': ('model_id', None), 'foreign_model': ('model_id', 400),
+    column, value = {'foreign_model': ('model_id', 400),
                      'missing_file': ('print_file_id', 999), 'wrong_plate_type': ('plate_index', 'invalid')}[damage]
     db.execute(text(f'UPDATE jobs SET {column}=:value WHERE id=401'), {'value': value})
     db.commit()
@@ -809,10 +815,10 @@ def test_recipe_column_id_cannot_be_shadowed_to_redirect_queue(floor):
     definition['id'] = 'd'*32
     db.execute(update(batches.recipes).where(batches.recipes.c.id == recipe['id']).values(definition=batches.packed(definition)))
     db.commit()
-    assert row(floor)['recipe']['id'] == recipe['id']
+    assert_no_planning(listed(floor))
     result = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}]).json()
-    assert result['queued'][0]['recipe_id'] == recipe['id']
-    assert held_jobs(floor)[0]['item_name'] == recipe['name']
+    assert result['queued'] == []
+    assert held_jobs(floor) == []
 
 
 @pytest.mark.parametrize('change', ['foreign_recipe', 'foreign_model', 'foreign_file', 'invalid_payload'])
@@ -1047,7 +1053,8 @@ def test_receipt_columns_are_authoritative_and_conflicting_job_uid_blocks(floor)
     assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
     db = floor['db']
     definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
-    definition.update(id='f'*32, recipe_id='e'*32)
+    identifier = db.execute(text('SELECT id FROM production_acceptances')).scalar_one()
+    definition.update(id=identifier, recipe_id=recipe['id'])
     db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
     db.commit()
     assert row(floor)['on_the_way'] == {'pieces': 9, 'job_ids': [301], 'awaiting_stock': 4}

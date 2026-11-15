@@ -28,6 +28,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Print next ignores jobs without a model and unrelated work. Deleted production sources block only the affected products, so other products keep their stock plans and queue buttons.
 - Fixed Print next: hide work in progress unless you can see every restricted part in the farm, and stop stock planning when saved production records are incomplete or belong to another farm.
 - Operators and administrators can confirm prints after a restart. Changed records are checked again before recording resumes, answers saved before recording resumes survive another restart, and waiting screens and unverified print totals now explain their status.
 - PostgreSQL installations can now save either answer to a print confirmation after a restart. If the records are busy, the question stays open so you can try again.

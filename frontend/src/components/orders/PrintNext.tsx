@@ -54,7 +54,7 @@ export default function PrintNext() {
 
   if (!allowed) return null
   const rows = list?.rows ?? []
-  const planning = list?.work_hidden === false && rows.every(r => 'shortfall' in r)
+  const planning = list?.work_hidden === false && rows.some(r => 'shortfall' in r)
   const suggested = planning ? rows.filter(r => r.status === 'below' && (r.plates_needed ?? 0) > 0 && r.recipe) : []
   const all = suggested.slice(0, MAX_PRODUCTS).map(queueItem)
   const names = new Map(rows.map(r => [r.product_id, r.product_name]))

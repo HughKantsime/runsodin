@@ -56,6 +56,10 @@ def test_outside_binding_validates_retained_reference_and_receipt_recipe(floor, 
     assert answer.status_code == 200, answer.text
     numbers(floor, target=20)
     assert row(floor)['on_the_way']['awaiting_stock'] == 4
+    from tests.test_contracts.test_replenishment_list import remap
+    numbers(floor, 104)
+    remap(floor, 104, 'V4')
+    floor['state']['levels']['V4'] = '2'
     db = floor['db']
     detail = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
     binding = detail['outside_binding']
@@ -77,7 +81,13 @@ def test_outside_binding_validates_retained_reference_and_receipt_recipe(floor, 
         binding['recipe_revision']['reference_observation_uid'] = uid
     db.execute(update(batches.receipts).values(definition=batches.packed(detail)))
     db.commit()
-    assert_no_planning(listed(floor))
+    result = listed(floor)
+    if damage == 'missing_observation':
+        entries = {r['product_id']: r for r in result['rows']}
+        assert 'no longer exists' in entries[101]['reason'] and 'shortfall' not in entries[101]
+        assert entries[104]['shortfall'] == 8 and entries[104]['on_the_way']['pieces'] == 0
+    else:
+        assert_no_planning(result)
 
 
 @pytest.mark.parametrize('hidden', [False, True])
