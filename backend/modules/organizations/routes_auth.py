@@ -91,6 +91,16 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         except Exception:
             log.warning("Unissued session could not be withdrawn")
         if isinstance(exc, HTTPException):
+            if exc.status_code == 401:
+                # Revoked credentials are a refused sign-in, even though the
+                # staged success and last_login update were rolled back.
+                try:
+                    log_audit(db, "auth.login_failed", "user",
+                              details={"username": form_data.username}, ip=client_ip)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
             raise
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
 

@@ -38,7 +38,7 @@ def read_required_mfa(db):
 
 
 def login_mfa_response(db,user_id,expected_password_hash=None,*,commit=True):
-    """Prepare MFA continuation; commit=False joins the caller's audit transaction."""
+    """Prepare MFA continuation; commit=False leaves commit/rollback to the caller."""
     user=_locked_user(db,user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401,detail='Invalid authentication session')
@@ -61,7 +61,8 @@ def login_mfa_response(db,user_id,expected_password_hash=None,*,commit=True):
                    {'jti':payload['jti'],'uid':user.id,'exp':payload['exp'],'now':time.time()})
         if commit:db.commit()
     except Exception:
-        try:db.rollback()
-        except Exception:pass
+        if commit:
+            try:db.rollback()
+            except Exception:pass
         raise HTTPException(status_code=503,detail='Login temporarily unavailable. Try again later.') from None
     return {'access_token':token,'token_type':'bearer','mfa_setup_required':True}

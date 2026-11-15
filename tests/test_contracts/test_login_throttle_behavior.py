@@ -149,6 +149,46 @@ def test_correct_password_awaiting_second_step_keeps_its_one_record(login_client
     assert rows[0][3].startswith('Login: student from ')
 
 
+@pytest.mark.parametrize('revocation', ['password', 'disabled'])
+@pytest.mark.parametrize('audit_available', [True, False])
+def test_revoked_password_sign_in_records_refusal(
+        login_client, review_db, monkeypatch, revocation, audit_available):
+    from modules.organizations import routes_auth
+
+    original = routes_auth._record_login_attempt
+
+    def revoke_after_verification(db, ip, username, success):
+        if success:
+            with Session(review_db.get_bind()) as other:
+                statement = ("UPDATE users SET password_hash='revoked-fixture' WHERE id=1"
+                             if revocation == 'password'
+                             else 'UPDATE users SET is_active=0 WHERE id=1')
+                other.execute(text(statement))
+                other.commit()
+        return original(db, ip, username, success)
+
+    monkeypatch.setattr(routes_auth, '_record_login_attempt', revoke_after_verification)
+    original_add = Session.add
+
+    def add(self, entry, *args, **kwargs):
+        if not audit_available and getattr(entry, 'action', None) == 'auth.login_failed':
+            raise RuntimeError('synthetic refusal audit failure')
+        return original_add(self, entry, *args, **kwargs)
+
+    monkeypatch.setattr(Session, 'add', add)
+    response = login_client.request()
+    assert response.status_code == (401 if audit_available else 503)
+    assert 'access_token' not in response.json()
+    assert 'session' not in response.cookies
+    with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one() == 0
+        assert fresh.execute(text('SELECT COUNT(*) FROM mfa_enrollments')).scalar_one() == 0
+        assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one() == 0
+        assert fresh.execute(text('SELECT last_login FROM users WHERE id=1')).scalar_one() is None
+    assert _sign_in_rows(review_db) == (
+        [('auth.login_failed', 'user', None, {'username': 'student'})] if audit_available else [])
+
+
 @pytest.mark.parametrize('valid',[True,False])
 @pytest.mark.parametrize('mode',['ordinary','mfa','mfa_setup'])
 def test_http_attempt_insert_failure_blocks_session(login_client,review_db,monkeypatch,valid,mode):
