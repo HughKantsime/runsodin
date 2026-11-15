@@ -2,6 +2,16 @@
   "$include": [
     "common.json"
   ],
+  "GET /api/vision/detections": {
+    "items": [],
+    "total": 0
+  },
+  "GET /api/config": {
+    "farm_timezone_effective": {
+      "zone": "America/New_York",
+      "source": "setting"
+    }
+  },
   "GET /api/printers/1": {
     "id": 1,
     "name": "EDU Printer",
