@@ -115,6 +115,10 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
           )}
         </div>
 
+        {model.units_per_bed > 1 && (
+          <p className="mt-2 text-xs text-[var(--brand-muted)]">{model.units_per_bed} per plate</p>
+        )}
+
         <PrinterFitLine fit={model.printer_fit} className="mt-2" />
         <FileFactChips facts={model.file_facts} className="mt-2" />
 
@@ -129,12 +133,12 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
         </button>}
 
         {pricingConfigured && (model.estimated_cost > 0 || model.suggested_price > 0) && (
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--brand-card-border)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-[var(--brand-card-border)]">
             <div className="text-xs text-[var(--brand-muted)]">
-              Cost: <span className="text-[var(--brand-text-secondary)]">${model.estimated_cost?.toFixed(2) || '—'}</span>
+              Cost per item: <span className="text-[var(--brand-text-secondary)]">${model.estimated_cost?.toFixed(2) || '—'}</span>
             </div>
             <div className="text-xs font-medium text-green-400">
-              ${model.suggested_price?.toFixed(2) || '—'}
+              Price per item: ${model.suggested_price?.toFixed(2) || '—'}
             </div>
           </div>
         )}

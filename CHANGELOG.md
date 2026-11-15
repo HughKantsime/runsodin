@@ -28,6 +28,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- The model library card now shows cost per item, matching the calculator. Before, a plate with several items showed the whole plate's cost. Price is also per item, cards say how many items fit on a plate, and a model markup of 0 is honoured.
 - Operators and administrators can confirm prints after a restart. Changed records are checked again before recording resumes, answers saved before recording resumes survive another restart, and waiting screens and unverified print totals now explain their status.
 - PostgreSQL installations can now save either answer to a print confirmation after a restart. If the records are busy, the question stays open so you can try again.
 - Operators and administrators can now confirm a print after a restart on printers without an organization. Questions close when their records are closed while the printer is idle, and viewers can see both answer buttons disabled.
