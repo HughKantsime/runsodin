@@ -54,3 +54,10 @@ it('shows confirmation instead of frozen values across telemetry and refetch', (
   expect(screen.queryByText(/Layer 6\/93/)).toBeNull()
  }
 })
+
+it('Classic floor shows the catalogue name with two-line wrapping', () => {
+ const name = 'ASA-CF Invented long colour name'
+ render(<PrinterCard printer={{ ...printer, filament_slots: [{ slot_number: 1, filament_type: 'ASA-CF', catalogue_name: name, color_hex: '123456' }] }} {...props} />)
+ expect(screen.getByText(name)).toHaveClass('line-clamp-2')
+ expect(screen.getByText(name)).not.toHaveClass('truncate')
+})

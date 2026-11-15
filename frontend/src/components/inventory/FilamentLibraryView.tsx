@@ -126,7 +126,7 @@ export default function FilamentLibraryView() {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <span className="text-sm text-[var(--brand-text-primary)] truncate block">{f.name}</span>
+                    <span className="text-sm text-[var(--brand-text-primary)] break-words block">{f.name}</span>
                   </div>
                   <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] shrink-0">
                     {f.material || 'Unrecognised material'}

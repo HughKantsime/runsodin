@@ -1,3 +1,4 @@
+import { FilamentSlotsPanel } from '../../components/printers/PrinterPanels'
 import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import ActiveHms from '../../components/printers/ActiveHms'
 import PrinterDetectionLink from '../../components/printers/PrinterDetectionLink'
@@ -125,7 +126,7 @@ export default function PrinterDetail() {
       <ActiveHms printer={printer} />
       <PrinterDetectionLink printer={printer} />
       {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
-      {foundry && <PrinterDetailOverview printer={printer} />}
+      {foundry ? <PrinterDetailOverview printer={printer} /> : <div className="mb-6"><FilamentSlotsPanel printer={printer} /></div>}
 
       <DetailPresentation foundry={foundry}>
       {/* Stats row */}

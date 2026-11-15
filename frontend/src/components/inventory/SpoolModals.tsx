@@ -188,7 +188,7 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
             {foundry ? <div className="f-slots" role="group" aria-label="Slot">
               {(selectedPrinter.filament_slots || []).map(slot => <label key={slot.slot_number} className="f-slot-choice">
                 <input type="radio" name="foundry-slot" required value={slot.slot_number} checked={form.slot_number === String(slot.slot_number)} onChange={e => setForm({ ...form, slot_number: e.target.value })} />
-                <SlotTile slot={slot} apiType={selectedPrinter.api_type} />
+                <SlotTile expandable={false} slot={slot} apiType={selectedPrinter.api_type} />
               </label>)}
             </div> : (            <select
               value={form.slot_number}

@@ -90,7 +90,7 @@ function LedgerFilamentSlot({ slot }: { slot: any }) {
       <SlotLabel text={label} />
       {mapped ? <>
         {remaining !== null ? <SpoolRing color={color} level={remaining} size={20} /> : <span aria-label="Spool color" className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-        <SlotLabel text={slot.material_type || 'Material unknown'} />
+        <SlotLabel text={slot.catalogue_name || slot.material_type || 'Material unknown'} />
         {slot.color && <SlotLabel text={slot.color} />}
         {slot.preset && <SlotLabel text={`preset: ${slot.preset.replace(/^preset:\s*/i, '')}`} singleLine />}
         <SlotLabel text={`Mapped spool${slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}`} />

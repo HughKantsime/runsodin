@@ -50,12 +50,12 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
             size={32}
           />
           {foundry ? <div className="f-spool-copy">
-            <h3 className="font-medium truncate" title={`${spool.filament_brand || ''} ${spool.filament_name || ''}`.trim()}>{spool.filament_brand} {spool.filament_name}</h3>
+            <h3 className="font-medium line-clamp-2 break-words" title={`${spool.filament_brand || ''} ${spool.filament_name || ''}`.trim()}>{spool.filament_brand} {spool.filament_name}</h3>
             <p className="text-sm">{spool.color_name || 'Unknown color'}</p>
             <p className="text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
           </div> : <div className="min-w-0">
-            <h3 className="font-medium text-[var(--brand-text-primary)] text-sm md:text-base truncate">
-              {spool.filament_brand} {spool.filament_name}
+            <h3 className="font-medium text-[var(--brand-text-primary)] text-sm md:text-base">
+              <span className="line-clamp-2 break-words">{spool.filament_brand} {spool.filament_name}</span>
               <span className="block text-sm">{spool.color_name || "Unknown color"}</span>
             </h3>
             <p className="text-xs md:text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
