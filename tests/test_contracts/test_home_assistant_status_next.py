@@ -189,6 +189,49 @@ def test_unlinked_print_invalidates_plate_clear_confirmation(ha_client, review_d
     assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] is None
 
 
+def test_print_with_previous_date_prefix_invalidates_later_utc_confirmation(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text('DELETE FROM print_jobs WHERE printer_id=10'))
+    _job(review_db, 600, 'Done plate', 'completed', printer=10,
+         actual_start=_at(86400), actual_end=_at(43200))
+    _clear(review_db, 600, 10, 42300)  # 2026-11-10 00:15 UTC
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] == _iso(42300)
+
+    # The text date is yesterday, but the instant is 2026-11-10 01:00 UTC.
+    review_db.execute(text("INSERT INTO print_jobs(printer_id,job_name,status,started_at) "
+                           "VALUES(10,'walk-up.gcode','running','2026-11-09T20:00:00-05:00')"))
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] is None
+
+
+def test_print_before_day_cutoff_preserves_plate_clear_confirmation(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text('DELETE FROM print_jobs WHERE printer_id=10'))
+    _job(review_db, 600, 'Done plate', 'completed', printer=10,
+         actual_start=_at(7200), actual_end=_at(3600))
+    _clear(review_db, 600, 10, 1800)
+    # The prefilter cutoff is 2026-11-09; this print predates it.
+    _print(review_db, 10, 'completed', started=3 * 86400, ended=2 * 86400)
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] == _iso(1800)
+
+
+@pytest.mark.parametrize('started,expected', [(7200, _iso(1800)), (600, None)])
+def test_linked_print_duplicate_start_preserves_or_invalidates_confirmation_once(
+        ha_client, review_db, started, expected):
+    client, issue = ha_client
+    review_db.execute(text('DELETE FROM print_jobs WHERE printer_id=10'))
+    _job(review_db, 600, 'Done plate', 'completed', printer=10,
+         actual_start=_at(9000), actual_end=_at(8000))
+    _clear(review_db, 600, 10, 1800)
+    _job(review_db, 601, 'Linked plate', 'completed', printer=10,
+         actual_start=_at(started), actual_end=_at(started - 300))
+    _print(review_db, 10, 'completed', started=started, ended=started - 300, job=601)
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] == expected
+
+
 def test_times_of_another_organizations_work_on_a_shared_printer_are_withheld(ha_client, review_db):
     client, issue = ha_client
     review_db.execute(text('UPDATE printers SET shared=1 WHERE id=71'))

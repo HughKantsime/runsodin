@@ -122,8 +122,9 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
     # ago says nothing about the bed now.
     # Compared as parsed instants: stored times mix naive UTC and ISO forms, which do not
     # sort correctly as text. Include monitor-tracked prints without a scheduled job.
-    # Only prints started on or after the day before the oldest
-    # confirmation can matter (the date prefix is the same in every form).
+    # Offset timestamps can have a different date prefix from their UTC instant.
+    # The one-day margin before the oldest confirmation keeps this text prefilter
+    # inclusive; the parsed comparison below decides which starts invalidate it.
     confirmed = {printer_id: as_utc(at) for printer_id, at in result.items()}
     known = [at for at in confirmed.values() if at is not None]
     if not known:
