@@ -44,10 +44,10 @@ def online(db, printer_id, state='IDLE'):
     run(db, 'UPDATE printers SET gcode_state=:state,last_seen=:seen WHERE id=:id', state=state, seen=stamp(utcnow()), id=printer_id)
 
 
-def refuse(db, job_id, code, *, kind='gate_refused', minutes_ago=5, printer_id=9):
+def refuse(db, job_id, code, *, kind='gate_refused', minutes_ago=5, printer_id=9, at=None):
     run(db, "INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,code,detail,occurred_at) "
             "VALUES(:id,:job,:printer,1,:kind,:code,'{}',:at)", id=f'{job_id}-{kind}-{minutes_ago}', job=job_id, printer=printer_id,
-        kind=kind, code=code, at=(utcnow() - timedelta(minutes=minutes_ago)).isoformat())
+        kind=kind, code=code, at=at or (utcnow() - timedelta(minutes=minutes_ago)).isoformat())
 
 
 def reasons(db, user=OPERATOR):
@@ -268,6 +268,65 @@ def test_refusal_detail_uses_the_attempted_printer_after_reassignment(db, assign
     # A later attempt clears the old refusal even when it uses another printer.
     refuse(db, 982, None, kind='dispatch_uploading', minutes_ago=1, printer_id=10)
     assert reasons(db, VIEWER)[982] is None
+
+
+@pytest.mark.parametrize('retry_kind', ['dispatch_uploading', 'dispatch_starting', 'dispatch_dispatched', 'dispatch_failed'])
+@pytest.mark.parametrize('reverse_rows', [False, True])
+def test_a_dispatch_event_tied_with_a_refusal_clears_it(db, retry_kind, reverse_rows):
+    add_job(db, 984, 'scheduled', printer_id=9)
+    refuse(db, 984, 'MATERIAL_MISMATCH', at='2026-11-14 12:00:00')
+    refuse(db, 984, None, kind=retry_kind, minutes_ago=1, at='2026-11-14 12:00:00')
+    run(db, f'PRAGMA reverse_unordered_selects={int(reverse_rows)}')
+    assert reasons(db, VIEWER)[984] is None
+
+
+@pytest.mark.parametrize('other_printer', ['hidden', 'missing', 'visible', 'shared'])
+@pytest.mark.parametrize('reverse_rows', [False, True])
+def test_tied_refusals_require_access_to_every_attempted_printer(db, other_printer, reverse_rows):
+    add_job(db, 985, 'scheduled', printer_id=9)
+    run(db, "INSERT INTO printers(id,name,api_type,is_active,org_id,shared) "
+            "VALUES(11,'Other printer','bambu',1,:org,:shared)",
+        org=2 if other_printer in ('hidden', 'shared') else 1, shared=int(other_printer == 'shared'))
+    # IDs choose stable wording, never authority: even an earlier-ID hidden row
+    # must withhold the later-ID visible row's detail.
+    db.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,kind,code,occurred_at) "
+                    "VALUES(:id,985,:printer,'gate_refused',:code,'2026-11-14 12:00:00')"), [
+        {'id': 'tie-a', 'printer': None if other_printer == 'missing' else 11, 'code': 'MATERIAL_MISMATCH'},
+        {'id': 'tie-z', 'printer': 9, 'code': 'PRINTER_MAINTENANCE_HOLD'},
+    ])
+    db.commit()
+    run(db, f'PRAGMA reverse_unordered_selects={int(reverse_rows)}')
+    expected = {'code': 'dispatch_refused'}
+    if other_printer in ('visible', 'shared'):
+        expected['detail'] = 'Printer is on a maintenance hold'
+    assert reasons(db, VIEWER)[985] == expected
+    assert reasons(db, JOBS_ONLY)[985] == {'code': 'dispatch_refused'}
+
+
+def test_null_org_refusal_printer_follows_unscoped_resource_visibility(db):
+    run(db, "INSERT INTO printers(id,name,api_type,is_active,org_id,shared) "
+            "VALUES(11,'Unscoped printer','bambu',1,NULL,0)")
+    add_job(db, 986, 'scheduled', printer_id=9)
+    refuse(db, 986, 'PRINTER_MAINTENANCE_HOLD', printer_id=11)
+    assert reasons(db, VIEWER)[986] == {
+        'code': 'dispatch_refused', 'detail': 'Printer is on a maintenance hold'}
+    assert reasons(db, JOBS_ONLY)[986] == {'code': 'dispatch_refused'}
+
+
+def test_jobs_and_print_floor_share_dispatch_event_classification(db, monkeypatch):
+    from core import job_timeline
+    from modules.printers.integration_floor import _refusals
+    add_job(db, 987, 'scheduled', printer_id=9)
+    refuse(db, 987, 'MATERIAL_MISMATCH')
+    # An existing valid timeline kind stands in for a newly classified attempt
+    # event, without changing the schema. Both readers must use that classification.
+    kinds = ('gate_refused', 'dispatch_uploading', 'dispatch_starting', 'dispatch_dispatched', 'dispatch_failed', 'started')
+    monkeypatch.setattr(job_timeline, 'DISPATCH_EVENT_KINDS', kinds, raising=False)
+    assert reasons(db, VIEWER)[987]['code'] == 'dispatch_refused'
+    assert 987 in _refusals(db, [987])
+    refuse(db, 987, None, kind='started', minutes_ago=1)
+    assert reasons(db, VIEWER)[987] is None
+    assert _refusals(db, [987]) == {}
 
 
 @pytest.mark.parametrize('role', ['admin', 'viewer'])
