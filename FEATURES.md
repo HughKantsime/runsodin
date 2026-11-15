@@ -21,7 +21,7 @@
 - Progress percentage and ETA displayed on printer cards and job views
 
 ### 1.3 HMS Error System (Bambu)
-- 331 translated Bambu HMS error codes plus 266 print-action error codes (597 total) with human-readable descriptions, and structural decoding for unlisted codes
+- Bambu error descriptions come from bundled, model-specific English tables. Unknown codes are displayed without an inferred description
 - Clear HMS errors from UI — `POST /api/printers/{id}/clear-errors` sends reset via MQTT (operator/admin)
 - HMS error history logging on change detection (90-day retention)
 - HMS history panel on printer cards with toggle button
@@ -40,7 +40,7 @@
 - **SpoolRing visualization** — SVG circular arc indicator for filament visualization across all pages (color, material, fill level); dashed ring for empty, amber warning below 15% (v1.5.3+)
 
 ### 1.5 Printer Controls
-- **Emergency Stop** — floating button on every page lists active prints; operators/admins can request pause, resume, or stop on Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers, with confirmation before stop. OctoPrint pause and stop also work; resume requires the per-printer Experimental opt-in. Anycubic LAN and Ultimaker are monitoring only
+- **Emergency Stop** — controls in the main authenticated layout list active prints; permitted operators/admins can request pause, resume, or stop on Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers, with confirmation before stop. OctoPrint pause and stop also work; resume requires the per-printer Experimental opt-in. Anycubic LAN and Ultimaker are monitoring only
 - **Pause / Resume** — operator/admin controls for Bambu, Moonraker, PrusaLink, Elegoo SDCP and OctoPrint printers; OctoPrint resume requires the per-printer Experimental opt-in
 - **Light Toggle** — chamber light on/off for Bambu printers with cooldown (operator/admin)
 - **Smart Plug Control** — on/off/status for configured smart plugs (operator/admin)
@@ -141,7 +141,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 2b. Print Archive
 
 ### 2b.1 Auto-Capture
-- Automatically creates an archive record when any print job completes (success, failure, or cancellation)
+- Automatically archives terminal physical print attempts (success, failure, or cancellation); completing a queue job without a recorded physical attempt does not create an archive
 - Subscribes to JOB_COMPLETED, JOB_FAILED, and JOB_CANCELLED events via the event bus
 - Captures: job name, printer, status, start/end time, duration, filament used, cost estimate, thumbnail, file path, print file ID, plate count, user attribution
 - Multi-filament consumption deduction: per-material evidence drives assigned-spool deductions; ambiguous total-only measurements remain unresolved
@@ -170,7 +170,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - API: `PATCH /api/archives/{id}/tags`
 
 ### 2b.6 Reprint from Archive
-- One-click reprint from any archive entry with AMS filament mapping preview
+- Eligible archives can be reprinted with AMS filament mapping preview when source files and models remain available, authorized and unchanged; Education submissions must follow their approval workflow
 - **Multi-plate support** — plate selector when reprinting multi-plate 3MF files
 - Creates a new pending job with original model and printer assignment
 - API: `POST /api/archives/{id}/reprint`, `GET /api/archives/{id}/ams-preview`
@@ -208,8 +208,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Frame viewer showing captured image with detection overlay
 - Review workflow: confirm, dismiss, or label detections for training data
 
-### 3.3 Vigil API (15 endpoints)
-- `GET/PATCH /api/vision/detections` — list and review detections
+### 3.3 Vigil API
+- `GET /api/vision/detections` lists detections; `PATCH /api/vision/detections/{id}` reviews one
 - `GET/PATCH /api/printers/{id}/vision` — per-printer vision settings (enable/disable, sensitivity)
 - `GET/PATCH /api/vision/settings` — global vision configuration
 - `GET/POST /api/vision/models` — manage ONNX model files (upload new, activate)
@@ -241,7 +241,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Quick Print button on upload success screen — creates pending job immediately (v1.0.26)
 - Quick-schedule presets for common configurations (v1.2.0)
 - Due dates with overdue/due-soon badges and five priority levels (1 Highest – 5 Lowest) shown as color-coded P1–P5 badges; the API also accepts named levels urgent/high/normal/low
-- **Filament compatibility check** — `GET /api/jobs/filament-check` validates printer's loaded filament against job requirements
+- **Filament compatibility check** — `GET /api/jobs/{job_id}/filament-check` validates printer's loaded filament against job requirements
 
 ### 4.3 Queue Management
 - Drag-and-drop queue reorder within a priority level (operator/admin)
@@ -251,7 +251,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Bulk operations with multi-select checkboxes: cancel, priority change, reschedule, delete (v1.3.0)
 
 ### 4.4 Print Again
-- One-click clone of any completed or failed job
+- Eligible jobs can be repeated when their source files and models remain available and authorized; Education submissions must follow their approval workflow
 - Creates new pending job with same model and printer assignment
 
 ### 4.10 Batch Send
@@ -364,7 +364,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
 - Spoolman integration: browse spools from an external Spoolman instance (read-through, not imported into O.D.I.N.); push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
-- **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (fails loud via job.notes if Spoolman is unreachable, no silent drops)
+- **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (failures are logged; manual-completion failures are appended to job notes, while printer-observed delivery outcomes are retained in the filament-delivery outbox)
 - **Filament usage tracking** — Bambu: AMS remain % delta × initial_weight_g; Moonraker: print_stats.filament_used (mm→g). A measured total is deducted from the spool only for single-spool prints; multi-filament prints deduct each assigned spool's sliced per-slot estimate, and a single measured total is never split across spools.
 
 ### 6.7 Filament Drying Log (v1.2.0)
@@ -494,20 +494,20 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - WebSocket tokens scoped to WebSocket connections only — cannot be replayed against REST endpoints (v1.3.63)
 - **Email-based user onboarding** — admin creates user with "Send welcome email" option; system generates random password and sends invite email via configured SMTP
 - **Self-service password reset** — forgot-password link on login page sends a 1-hour reset token via email; `password_reset_tokens` table with single-use enforcement
-- **Admin password reset email** — admin can trigger a password reset email for any user from the user management table
+- **Admin password reset email** — platform superadmins can request resets across organizations; organization admins can reset users in their authorized organization. The target account must be active and have an email address
 - `GET /auth/capabilities` — public endpoint returning `{smtp_enabled}` for frontend feature gating
 
 ### 11.2 TOTP MFA (v1.3.0)
 - QR code setup flow via MFASetup component
 - 6-digit TOTP challenge on login
-- Admin can reset (force-disable) MFA for any user from the user management table
+- Platform superadmins can reset (force-disable) MFA across organizations; organization admins can reset MFA within their authorized organization
 
 ### 11.3 RBAC (Role-Based Access Control)
 - Three roles: admin, operator, viewer
-- Authentication enforced on all 451 API endpoints: every non-public route must authenticate (route census test plus a live probe of every route), with an RBAC matrix of 1,800+ tests covering most routes
+- Non-public routes require authentication, with authorization enforced by route policy. An RBAC matrix and separate route census tests check coverage
 - Viewer: read permitted resources and submit jobs by default (jobs wait for approval when approval mode is on; otherwise they join the queue)
 - Operator: day-to-day production (create/edit jobs, spools, models, products and maintenance; create, schedule and ship orders — order edits are admin-only)
-- Admin: full system control (users, settings, branding, SSO, webhooks, backups, license, pricing)
+- Platform superadmins manage global settings and users across organizations; organization admins are restricted to their authorized organization
 - Permission matrix (Settings → Access → Permissions, Pro): the server enforces every action key on every API route that performs that action, and every page key on its web page route (RoleGate) and on the page-only API reads (Timeline, Analytics, Education reports); a change applies on the next request. The platform superadmin is never locked out, and routes outside the matrix (account self-service, user and organization administration, platform settings) keep their fixed role check
 - Default matrix reproduces the role defaults above: viewers submit jobs and resubmit their own rejected jobs; operators run production; adding or deleting printers, deleting models, editing orders and deleting products are admin-only
 
@@ -547,7 +547,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
 - Login attempt audit trail with IP addresses; password change audit events (v1.3.58)
 - Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
-- Every page route guarded by `RoleGate` on its page-access key — direct URL access is blocked for roles without the page (Settings and Audit since v1.3.18)
+- Pages with permission-matrix keys use `RoleGate`; other authenticated pages retain their existing access controls
 - Password change revokes all other sessions: changing your own password keeps the session you changed it from; an admin changing another user's password, or a reset link, revokes all of that user's sessions (v1.3.66)
 - MFA pending token blacklisted immediately after use — prevents session duplication (v1.3.63)
 
@@ -558,12 +558,12 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Policy cached per API worker for 2 s (`ODIN_IP_ALLOWLIST_CACHE_SECONDS`, 0–30; 0 disables): a change applies at once on the worker that saved it and within that bound on the others; an unreadable policy denies requests
 
 ### 12.3 Data Protection
-- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, webhook URLs (Discord/Slack/Telegram/ntfy), org webhook settings, and the access token held behind single-use 2-minute OIDC exchange codes (v1.3.62–v1.3.67)
+- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with recognized embedded credential formats, webhook URLs (Discord/Slack/Telegram/ntfy), org webhook settings, and the access token held behind single-use 2-minute OIDC exchange codes (v1.3.62–v1.3.67)
 - Ed25519 license key signing (production keys deployed, dev bypass removed)
 - SQL injection prevention: parameterized queries + column whitelist on user updates
 - Gitleaks pre-commit hook + gitleaks secret scan (redacted, fail-closed) in the Trusted Validation release gate
-- Bambu camera RTSP credentials never persisted to DB — generated on demand from the encrypted printer access code (v1.3.62); manually entered camera URLs with credentials are stored Fernet-encrypted
-- Printer API keys, smart-plug tokens, SMTP/MQTT passwords, OIDC client secret and API-token secrets are never returned by the API (v1.3.57); webhook URLs are returned decrypted to admins for editing
+- Bambu camera RTSP credentials never persisted to DB — generated on demand from the encrypted printer access code (v1.3.62); manually entered camera URLs with recognized credential formats are stored Fernet-encrypted
+- Printer API keys, smart-plug tokens, SMTP/MQTT passwords and OIDC client secret are never returned by the API (v1.3.57); webhook URLs are returned decrypted to admins for editing. New API-token secrets are returned once at creation; subsequent token listings omit them
 
 ### 12.4 GDPR data rights (export and anonymization) (v1.3.0)
 - JSON export includes supported user records and file metadata; each audit-history selection is limited to 1,000 entries
@@ -583,7 +583,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Skip-to-content link
 - Landmark roles on major page sections
 - `aria-label` on 50+ icon-only buttons
-- `role="dialog"` with `aria-modal` on the shared Modal (34 call sites) and 19 page-local dialogs
+- The shared Modal and additional local dialogs provide dialog roles and modal accessibility attributes
 - Form label associations
 - Table scope="col" headers on the Jobs and Chargeback tables
 - Progressbar roles on progress indicators
@@ -642,7 +642,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
 - Spoolman sync (v1.8.5): list Spoolman spools on demand (no import into ODIN inventory); push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
 - SSRF-safe dispatch via a dedicated DNS-pinned Spoolman client (`_post_spoolman_usage`: user-configured Spoolman URL resolved and validated, metadata/link-local destinations refused, no redirects or proxies, public destinations blocked in ITAR mode)
-- Unreachable Spoolman instance is a loud failure — logged + appended to `job.notes` — never a silent drop
+- Spoolman delivery failures are logged. Manual-completion failures are appended to job notes; printer-observed delivery outcomes are retained in the filament-delivery outbox
 
 ---
 
@@ -652,7 +652,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Custom application name and subtitle
 - Primary and accent color customization
 - Logo upload
-- 64 font choices across display (28), body (24) and monospace (12) selectors (44 distinct typefaces plus system defaults; Inter, Space Grotesk, JetBrains Mono and IBM Plex Mono are bundled, others use locally installed fonts)
+- 64 font choices across display (28), body (24) and monospace (12) selectors (44 distinct typefaces plus system defaults; Inter, Space Grotesk, JetBrains Mono, IBM Plex Mono and IBM Plex Sans are bundled, others use locally installed fonts)
 - Branding applied across the UI and PDF invoices (app name, primary color, footer, PNG/JPEG/WebP logo)
 - CSS custom properties approach
 
@@ -698,7 +698,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 16.8 Live Application Log Viewer
 - Real-time log viewer in Settings → Logs tab (admin-only)
-- 10 log sources: backend, MQTT monitor, Moonraker, PrusaLink, Elegoo, go2rtc, supervisord, timelapse, vision, report runner
+- Log sources: backend, MQTT monitor, Moonraker, PrusaLink, Elegoo, Anycubic LAN, go2rtc, supervisord, timelapse, vision, report runner
 - Level filter buttons (ERROR, WARNING, INFO, DEBUG)
 - Text search with keyword highlighting
 - SSE streaming mode for live tail (`GET /api/admin/logs/stream`)
@@ -707,7 +707,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ### 16.9 Support Bundle Generator
 - One-click diagnostic ZIP download from Settings → System tab (admin-only)
 - Bundle contents: system_info.json, connectivity.json, settings_safe.json, recent_errors.txt, db_health.json, bundle_metadata.json
-- Privacy filtering: IP addresses, credentials, and secrets are redacted before packaging
+- Privacy filtering redacts recognized credential and address patterns; review custom URLs and support-bundle text before sharing
 - `GET /api/admin/support-bundle` returns ZIP as streaming download
 
 ---
@@ -793,7 +793,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 21.1 Bambu MQTT
 - Printers: X1C, A1, P1S, H2D
-- Connection: MQTT over TLS (port 8883), protocol v3.1.1
+- Main monitoring and dispatch clients use MQTT 3.1.1 over TLS on port 8883; the legacy Bambu integration/test client uses MQTT 5
 - Receives: temps, progress, state, AMS RFID, HMS errors, camera URL, fan speed
 - Credentials: serial + access code, Fernet-encrypted at rest
 
@@ -933,10 +933,10 @@ apps link out when relevant. visionOS is not currently shipped.
 | v0.11.0 | 2026-02-02 | Maintenance, permissions matrix, workflow pipeline |
 | v0.13.0–v0.14.0 | 2026-02-03 | Pricing, analytics, CSV export, orders, products, BOM |
 | v0.15.0 | 2026-02-04 | Dashboard progress bars, MQTT job auto-linking, search, favorites |
-| v0.16.0 | 2026-02-05 | Moonraker/Klipper integration, QR scanner |
-| v0.17.0 | 2026-02-07 | Universal printer abstraction, alerts, SSO, Control Room, push, webhooks, email, e-stop |
-| v0.18.0 | 2026-02-08 | License gating, MQTT republish, Prometheus, WebSocket, i18n, PWA, smart plugs, keyboard shortcuts, quiet hours, HMS decoder, drag-drop queue, failure logging |
-| v0.19.0 | 2026-02-09 | Analytics redesign, utilization report, light mode, PrusaLink/Elegoo adapters, stat cards, PiP, due dates, priorities |
+| v0.16.0 | 2026-02-01 | Moonraker/Klipper integration, QR scanner |
+| v0.17.0 | 2026-02-03 | Universal printer abstraction, alerts, SSO, Control Room, push, webhooks, email, e-stop |
+| v0.18.0 | 2026-02-05 | License gating, MQTT republish, Prometheus, WebSocket, i18n, PWA, smart plugs, keyboard shortcuts, quiet hours, HMS decoder, drag-drop queue, failure logging |
+| v0.19.0 | 2026-02-07 | Analytics redesign, utilization report, light mode, PrusaLink/Elegoo adapters, stat cards, PiP, due dates, priorities |
 | v1.0.0 | 2026-02-09 | Security audit (53 findings), RBAC on all 164 endpoints, Ed25519 production keys |
 | v1.0.26 | 2026-02-10 | PDF invoices, at-risk warnings, audit export, Quick Print, gitleaks, 35 unit tests |
 | v1.0.33 | 2026-02-10 | Consumables, telemetry snapshots, fan speed, HMS history, nozzle lifecycle |
@@ -980,11 +980,11 @@ apps link out when relevant. visionOS is not currently shipped.
 | v1.3.69 | 2026-02-23 | RBAC matrix: ~120 routes added (1507 total tests, all passing), CI security pipeline (gitleaks + bandit + pip-audit + npm audit), invoice PDF crash fix (em dash in fpdf), retention cleanup 500 fix |
 | v1.3.70 | 2026-02-24 | Competitive parity (HMS expansion, skip objects, speed adjust, resizable cards, OBS overlay, log viewer, support bundle, email onboarding, password reset, print archive); platform expansion (timelapse editor, build plate detection, slicer profiles, H2D dual-nozzle AMS, Windows installer, docs wiki) |
 | v1.3.74 | 2026-02-25 | Feature depth track: archive depth (print log, comparison, tags, reprint, projects), printer controls (fan speed, AMS RFID refresh, AMS slot config, plate-cleared), batch job send, file duplicate detection, WhatsApp + Pushover notifications, low-stock spool alerts, PA profiles, Spoolman link, CSV spool export, user theme preferences |
-| v1.3.75 | 2026-02-26 | Multi-plate reprint, H2D external spools, scheduler target types, bed cooled + queue notifications, filament auto-deduction, Italian locale, Projects page |
-| v1.3.76 | 2026-02-26 | Printer model auto-detection for all 4 protocols |
-| v1.4.0 | 2026-02-27 | Modular architecture: 12 domain modules, app factory, InMemoryEventBus, ModuleRegistry DI, module-owned migrations, 171 contract tests |
-| v1.4.1–v1.4.3 | 2026-02-27 | Route sub-router decomposition, frontend modular refactor (api/ + pages/ + components/ reorganization), cross-module violation cleanup, oversized file splitting |
-| v1.4.4–v1.4.7 | 2026-02-28 | Circular import fixes, alerts 500 fix, WebRTC signaling fixes, archive data completeness, 3D model viewer in archives, cancelled print archiving, multi-filament deduction |
+| v1.3.75 | 2026-02-25 | Multi-plate reprint, H2D external spools, scheduler target types, bed cooled + queue notifications, filament auto-deduction, Italian locale, Projects page |
+| v1.3.76 | 2026-02-25 | Printer model auto-detection for all 4 protocols |
+| v1.4.0 | 2026-02-26 | Modular architecture: 12 domain modules, app factory, InMemoryEventBus, ModuleRegistry DI, module-owned migrations, 171 contract tests |
+| v1.4.1–v1.4.3 | 2026-02-26–27 | Route sub-router decomposition, frontend modular refactor (api/ + pages/ + components/ reorganization), cross-module violation cleanup, oversized file splitting |
+| v1.4.4–v1.4.7 | 2026-02-27–28 | Circular import fixes, alerts 500 fix, WebRTC signaling fixes, archive data completeness, 3D model viewer in archives, cancelled print archiving, multi-filament deduction |
 | v1.5.0 | 2026-03-03 | Design system (13 UI primitives), printer detail page, sidebar extraction, modal migration, filter persistence, frontend test infra, ESLint, bundle analysis, utility consolidation |
 | v1.5.1–v1.5.2 | 2026-03-04 | Analytics enum fixes, scoped token auth, license portal integration (activate/unactivate/reactivate), Ed25519 key update |
 | v1.5.3 | 2026-03-05 | Complete UI redesign (117 files): industrial aesthetic, CSS custom property system, SpoolRing component, all emoji→Lucide icons, camera views redesigned |

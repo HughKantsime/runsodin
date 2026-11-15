@@ -25,7 +25,7 @@ Self-hosted print farm management that combines multi-protocol printer support, 
 - **Vigil AI Failure Detection** — ONNX-based spaghetti detection is bundled; first-layer and detachment detection need an uploaded, activated model, and empty-plate has a built-in image check that is off by default and runs only while the printer is idle. Auto-pause is off by default
 - **Smart Job Scheduling** — Color-match scoring, time-window matching, drag-and-drop queue
 - **Mid-Print Controls** — Skip objects, adjust speed (Silent, Standard, Sport or Ludicrous), and clear HMS errors during active prints (Bambu printers only)
-- **Print Archive** — Auto-captures every completed print with metadata, thumbnails, and searchable history
+- **Print Archive** — Automatically archives terminal physical print attempts with metadata, thumbnails, and searchable history; completing a queue job without a recorded physical attempt does not create an archive
 - **OBS Streaming Overlay** — Auth-free `/overlay/:printerId` page for live streaming with camera, progress, and temps
 - **Order-to-Ship Workflow** — Products, BOM, orders, invoicing, cost tracking, and shipping in one system
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
@@ -33,7 +33,7 @@ Self-hosted print farm management that combines multi-protocol printer support, 
 - **Notifications** — Discord, Slack, Telegram, ntfy, WhatsApp, Pushover, email, and browser push
 - **Security** — TOTP MFA, IP allowlisting and an audit log on every tier; roles (admin/operator/viewer) and single sign-on (Microsoft Entra ID, Google Workspace or any OpenID Connect provider) in Pro and up; audit export, integrity verification, SIEM streaming and traceability in Enterprise
 - **Native Companion Apps** — iOS and iPadOS apps with fleet view; macOS coming soon ([odin-native](https://github.com/HughKantsime/odin-native))
-- **Single Container Deploy** — One `docker compose up`, ~256 MB RAM; the backend, printer monitors and support processes run under one supervisor
+- **Single Container Deploy** — One `docker compose up`; the backend, printer monitors and support processes run under one supervisor
 
 ## Quick Install
 
@@ -74,7 +74,7 @@ Bambu P1P, P1S, A1 and A1 Mini built-in cameras are auto-detected when printer c
 
 ## How it differs
 
-- **Self-hosted.** You run O.D.I.N. on your own server (Docker). Files, camera processing and records are hosted on your server; enabled integrations may transmit selected data. O.D.I.N. sends no vendor telemetry; configured integrations can transmit telemetry and events. It has no update checker. The server contacts outside services for integrations an admin sets up and for license actions. Activation, trial requests and unactivation support offline exchange: the server stays offline and another internet-connected device uses the license portal; reactivation/re-checking requires a connection from O.D.I.N. A cached license status check also pings the license server (`/system/license-server-status`; from 2.0.46 it requires admin login). Once users subscribe, the ODIN server sends browser push notifications to the push providers. WebRTC camera views use local network candidates only and contact no public STUN server.
+- **Self-hosted.** You run O.D.I.N. on your own server (Docker). Files, camera processing and records are hosted on your server; enabled integrations may transmit selected data. O.D.I.N. sends no vendor telemetry; configured integrations can transmit telemetry and events. It has no update checker. The server contacts outside services for integrations an admin sets up and for license actions. Activation, trial requests and unactivation support offline exchange: the server stays offline and another internet-connected device uses the license portal; reactivation/re-checking requires a connection from O.D.I.N. An administrator can also request a cached license-server reachability check through `GET /api/system/license-server-status`. The web app does not call it and no background task schedules it. The check sends no installation data; the portal sees the connecting IP address. Once users subscribe, the ODIN server sends browser push notifications to the push providers. WebRTC camera views use local network candidates only and contact no public STUN server.
 - **Printer integrations.** Bambu Lab (local MQTT), Klipper printers running Moonraker, Prusa (PrusaLink), Elegoo SDCP, Anycubic LAN, OctoPrint and Ultimaker. Job sending works for Bambu, Moonraker and PrusaLink; Elegoo and OctoPrint sending require per-printer Experimental opt-in. Moonraker Kobra S1 sending requires `ODIN_KOBRA_S1_SENDING=1` and attended dispatch; Kobra 3 sending remains refused. Anycubic LAN and Ultimaker are monitoring-only.
 - **Flat pricing.** Community is free (5 printers, 1 user), including the cost calculator and pricing configuration. Pro is $15 per month or $150 per year with unlimited printers and users, orders, analytics and single sign-on. Education is quoted per site; Enterprise is custom.
 - **Failure detection included.** Vigil AI works from camera images on FDM printers. Its bundled spaghetti model is [Obico](https://www.obico.io/)'s published model, licensed under AGPL-3.0 (see [NOTICE.txt](backend/vision_models_default/NOTICE.txt) and the [source mirror](https://github.com/HughKantsime/runsodin/releases/tag/third-party/obico-model-1e7abb0b)); first-layer and detachment detection need an uploaded, activated model, and empty-plate has a built-in image check that is off by default and runs only while the printer is idle.
@@ -93,9 +93,9 @@ For how O.D.I.N. compares with hosted print-farm services, see [runsodin.com/com
 
 O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with idempotent retries, dry-run previews, structured error codes, and a local-model deployment path that can run on-premises with ITAR mode on.
 
-- **[odin-print-farm-mcp](https://github.com/HughKantsime/odin-mcp)** (npm: `odin-print-farm-mcp@2`) — 26 tools covering queue, printers, jobs, inventory, alerts, maintenance.
+- **[odin-print-farm-mcp](https://github.com/HughKantsime/odin-mcp)** (npm: `odin-print-farm-mcp@2`) — tools covering queue, printers, jobs, inventory, alerts and maintenance; see the package for the current list.
 - **[MCP integration docs](https://docs.runsodin.com/integrations/mcp-server)** — Quick start, tool catalog, agent primitives, error codes.
-- **[ITAR mode](https://docs.runsodin.com/configuration/itar-mode)** — Refuses connections to public addresses, except an identity provider you explicitly allow.
+- **[ITAR mode](https://docs.runsodin.com/configuration/itar-mode)** — In release 2.2.0, ITAR mode refuses public addresses in its webhook, license, roster, SIEM and mail clients and its MQTT republish client; printer and camera addresses are not checked by ITAR mode in this release: keep printers on private addresses. A public identity provider requires an explicit allow-list entry.
 
 ## Documentation
 

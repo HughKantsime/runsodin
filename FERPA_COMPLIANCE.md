@@ -27,7 +27,7 @@ O.D.I.N. runs as a single Docker container on hardware controlled by the institu
 |--------|--------|
 | Deployment model | Self-hosted, on-premises Docker container |
 | Cloud dependency | None |
-| Telemetry / phone-home | No vendor telemetry or background vendor calls. License actions an administrator runs contact runsodin.com. Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N. |
+| Telemetry / phone-home | No vendor telemetry or background vendor calls. License actions an administrator runs contact runsodin.com. An administrator can also ask O.D.I.N. to check whether the license server is reachable (`GET /api/system/license-server-status`, administrators only); the web app does not call it, nothing schedules it, and it sends no installation data (the portal sees the connecting IP address). Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N. |
 | Analytics sent to vendor | None |
 | Data storage location | SQLite at `/data/odin.db` by default, or a configured PostgreSQL database |
 | Network requirements | Local network only by default; integrations and license actions you run use the internet |
@@ -64,7 +64,7 @@ When Education features are used, O.D.I.N. can store assignment grades, feedback
 - Social Security numbers or demographic data
 - Parent/guardian information
 - Disciplinary records
-- Financial aid or billing information
+- Financial aid or student billing information (the optional order features hold customer payment and shipping records for a business, not student records)
 - Health records
 - Biometric data
 
@@ -96,7 +96,7 @@ O.D.I.N. implements role-based access control with three tiers:
 
 | Role | Permissions |
 |------|------------|
-| **Admin** | Full system access: user management, configuration, all data |
+| **Admin** | Full access within the organization: user management, configuration and its data. Settings that span organizations belong to the platform superadmin |
 | **Operator** | Printer operations, job management, model uploads |
 | **Viewer** | Read permitted resources and submit jobs by default; approval depends on configuration |
 
