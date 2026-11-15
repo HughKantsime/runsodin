@@ -4,7 +4,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-## [2.2.1]
+## [2.2.1] - 2026-11-14
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: ITAR mode hardening: every connection goes to the address that was checked. -->
 
