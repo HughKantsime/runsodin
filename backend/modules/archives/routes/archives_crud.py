@@ -545,7 +545,7 @@ def ams_preview(
             slots = db.query(FilamentSlot).filter(
                 FilamentSlot.printer_id == printer_id
             ).order_by(FilamentSlot.slot_number).all()
-            from modules.inventory.catalogue_slots import enrich_catalogue_slots
+            from modules.inventory.services import enrich_catalogue_slots
             enrich_catalogue_slots(db, [printer], user)
             for s in slots:
                 available.append({
