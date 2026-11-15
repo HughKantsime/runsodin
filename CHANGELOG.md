@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Added a disposable local test harness for the MCP package, with sample records and a simulated printer.
+
 ## [2.2.0] - 2026-11-13
 
 
