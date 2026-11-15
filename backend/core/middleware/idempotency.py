@@ -178,7 +178,9 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
       - For session cookie: same JWT decode + blacklist + purpose
         checks as Bearer
 
-    Returns None on any failure. The middleware then passes through
+    Returns None for invalid credentials; unexpected errors propagate so
+    the middleware can refuse an unprotected write. For invalid credentials
+    the middleware passes through
     without touching the cache — `authenticate_request` rejects
     downstream OR the route's own Depends(get_current_user) rejects,
     depending on deployment.
@@ -186,10 +188,9 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
 
     def _check_jwt(token: str) -> Optional[int]:
         """JWT → user_id, running every validation get_current_user does."""
+        from core.auth import decode_token, SECRET_KEY, ALGORITHM
+        import jwt as _jwt
         try:
-            from core.auth import decode_token
-            import jwt as _jwt
-            from core.auth import SECRET_KEY, ALGORITHM
             token_data = decode_token(token)
             if not token_data:
                 return None
@@ -229,7 +230,7 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
             if not row or not row.is_active or token_predates_account(payload, row):
                 return None
             return int(row.id)
-        except Exception:
+        except _jwt.PyJWTError:
             return None
 
     # Authorization: Bearer
@@ -238,13 +239,8 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
         return _check_jwt(auth[7:])
 
     # Session cookie — mirrors authenticate_request's cookie path.
-    try:
-        cookies = getattr(request, "cookies", None)
-        if cookies is None:
-            cookies = {}
-        session_cookie = cookies.get("session") if hasattr(cookies, "get") else None
-    except Exception:
-        session_cookie = None
+    cookies = getattr(request, "cookies", None) or {}
+    session_cookie = cookies.get("session")
     if session_cookie:
         uid = _check_jwt(session_cookie)
         if uid is not None:
@@ -253,43 +249,38 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
     # X-API-Key — per-user scoped token
     api_key = request.headers.get("X-API-Key", "")
     if api_key.startswith("odin_"):
-        try:
-            from core.auth import verify_password
-            prefix = api_key[:10]
-            candidates = db.execute(
-                text(
-                    "SELECT id, user_id, token_hash, expires_at "
-                    "FROM api_tokens WHERE token_prefix = :p"
-                ),
-                {"p": prefix},
-            ).fetchall()
-            now = datetime.now(timezone.utc)
-            for row in candidates:
-                if not verify_password(api_key, row.token_hash):
-                    continue
-                if row.expires_at:
-                    try:
-                        from dateutil.parser import parse as parse_dt
-                        exp = (
-                            parse_dt(row.expires_at)
-                            if isinstance(row.expires_at, str)
-                            else row.expires_at
-                        )
-                        if exp.tzinfo is None:
-                            exp = exp.replace(tzinfo=timezone.utc)
-                        if exp < now:
-                            return None
-                    except Exception:
+        from core.auth import verify_password
+        prefix = api_key[:10]
+        candidates = db.execute(
+            text(
+                "SELECT id, user_id, token_hash, expires_at "
+                "FROM api_tokens WHERE token_prefix = :p"
+            ),
+            {"p": prefix},
+        ).fetchall()
+        for row in candidates:
+            if not verify_password(api_key, row.token_hash):
+                continue
+            if row.expires_at:
+                try:
+                    exp = (
+                        datetime.fromisoformat(row.expires_at)
+                        if isinstance(row.expires_at, str)
+                        else row.expires_at
+                    )
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp <= datetime.now(timezone.utc):
                         return None
-                user_row = db.execute(
-                    text("SELECT is_active FROM users WHERE id = :id"),
-                    {"id": row.user_id},
-                ).fetchone()
-                if not user_row or not user_row.is_active:
+                except (ValueError, TypeError, AttributeError):
                     return None
-                return int(row.user_id)
-        except Exception:
-            return None
+            user_row = db.execute(
+                text("SELECT is_active FROM users WHERE id = :id"),
+                {"id": row.user_id},
+            ).fetchone()
+            if not user_row or not user_row.is_active:
+                return None
+            return int(row.user_id)
 
     # X-API-Key — global legacy key maps to "first admin"
     if api_key and api_key != "undefined":
@@ -344,27 +335,24 @@ def _resolve_user_context(request: Any, db: Session) -> Optional[dict]:
     # fingerprint captures scope revocation.
     api_key_header = request.headers.get("X-API-Key", "")
     if api_key_header.startswith("odin_"):
-        try:
-            from core.auth import verify_password
-            prefix = api_key_header[:10]
-            candidates = db.execute(
-                text(
-                    "SELECT token_hash, scopes FROM api_tokens "
-                    "WHERE token_prefix = :p AND user_id = :u"
-                ),
-                {"p": prefix, "u": uid},
-            ).fetchall()
-            for candidate in candidates:
-                if verify_password(api_key_header, candidate.token_hash):
-                    try:
-                        ctx["_token_scopes"] = (
-                            json.loads(candidate.scopes) if candidate.scopes else []
-                        )
-                    except Exception:
-                        ctx["_token_scopes"] = []
-                    break
-        except Exception:
-            pass
+        from core.auth import verify_password
+        prefix = api_key_header[:10]
+        candidates = db.execute(
+            text(
+                "SELECT token_hash, scopes FROM api_tokens "
+                "WHERE token_prefix = :p AND user_id = :u"
+            ),
+            {"p": prefix, "u": uid},
+        ).fetchall()
+        for candidate in candidates:
+            if verify_password(api_key_header, candidate.token_hash):
+                try:
+                    ctx["_token_scopes"] = (
+                        json.loads(candidate.scopes) if candidate.scopes else []
+                    )
+                except (ValueError, TypeError):
+                    ctx["_token_scopes"] = []
+                break
 
     return ctx
 
@@ -1100,7 +1088,23 @@ async def idempotency_middleware(request: Any, call_next: Callable):
     from core.db import SessionLocal
     db = SessionLocal()
     try:
-        user_ctx = _resolve_user_context(request, db)
+        try:
+            user_ctx = _resolve_user_context(request, db)
+        except Exception as exc:
+            # Exception messages can contain credentials or bound SQL values.
+            log.error("Idempotency caller resolution failed (%s)", type(exc).__name__)
+            return Response(
+                content=json.dumps({
+                    "detail": "Idempotency protection is temporarily unavailable.",
+                    "error": {
+                        "code": "idempotency_unavailable",
+                        "detail": "Idempotency protection is temporarily unavailable.",
+                        "retriable": True,
+                    },
+                }),
+                status_code=503,
+                media_type="application/json",
+            )
         if user_ctx is None:
             # Anonymous / unresolvable / expired — pass through; auth
             # will reject downstream and we don't want to cache under

@@ -6,6 +6,10 @@ All notable changes to O.D.I.N. are documented here.
 
 - Added a disposable local test harness for the MCP package, with sample records and a simulated printer.
 
+### Fixed
+
+- Agent retries with expiring API tokens now avoid duplicate writes. If retry protection cannot verify the caller, the write is refused with a retryable error; agent tokens can also check the server version.
+
 ## [2.2.0] - 2026-11-13
 
 
