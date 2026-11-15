@@ -95,7 +95,7 @@ O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) native
 
 - **[odin-print-farm-mcp](https://github.com/HughKantsime/odin-mcp)** (npm: `odin-print-farm-mcp@2`) — tools covering queue, printers, jobs, inventory, alerts and maintenance; see the package for the current list.
 - **[MCP integration docs](https://docs.runsodin.com/integrations/mcp-server)** — Quick start, tool catalog, agent primitives, error codes.
-- **[ITAR mode](https://docs.runsodin.com/configuration/itar-mode)** — In release 2.2.0, ITAR mode refuses public addresses in its webhook, license, roster, SIEM and mail clients and its MQTT republish client; printer and camera addresses are not checked by ITAR mode in this release: keep printers on private addresses. A public identity provider requires an explicit allow-list entry.
+- **[ITAR mode](https://docs.runsodin.com/configuration/itar-mode)** — In release 2.2.0, ITAR mode refuses public addresses in its webhook, license, roster, SIEM and mail clients, its MQTT republish client, and selected printer requests, including OctoPrint and Ultimaker; keep printers and cameras on private addresses. A public identity provider requires an explicit allow-list entry.
 
 ## Documentation
 
