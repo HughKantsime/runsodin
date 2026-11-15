@@ -693,7 +693,7 @@ def _bootstrap_database_contract(
             import_module('core.schema.migrations.036_ctec_pilot').retry_spool_index(connection)
             from modules.inventory.slot_material_repair import repair_slot_materials
             repair_slot_materials(connection)
-            from modules.inventory.services import backfill_catalogue_materials
+            from modules.inventory.bootstrap.services import backfill_catalogue_materials
             backfill_catalogue_materials(connection)
             from core.schema.job_identity_repair import repair_job_identity
             repair_job_identity(connection)

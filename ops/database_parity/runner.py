@@ -41,7 +41,10 @@ def _command(
     timeout: int = 1800,
     capture: bool = True,
     check: bool = True,
+    log_path: Path | None = None,
+    known_secrets: list[str] | tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
+    output: str | bytes = ""
     try:
         result = subprocess.run(
             command,
@@ -53,10 +56,17 @@ def _command(
             check=False,
             timeout=timeout,
         )
+        output = result.stdout or ""
     except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
         raise GatePolicyError(
             f"command timed out after {timeout}s: {' '.join(command[:4])}"
         ) from exc
+    finally:
+        if log_path is not None:
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", errors="replace")
+            log_path.write_text(redact_text(output, known_secrets), encoding="utf-8")
     if check and result.returncode:
         raise GatePolicyError(
             f"command failed ({result.returncode}): {' '.join(command[:4])}\n"
@@ -617,9 +627,9 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
         for attempt in (1, 2):
             active_phase = f"postgres-exact-image-{attempt}"
             started = time.monotonic()
-            drill = _command(["./ops/database_parity/run_restore_drill.sh"], env=drill_env)
-            (artifact_dir / f"postgres-{attempt}.log").write_text(
-                redact_text(drill.stdout, known_secrets), encoding="utf-8"
+            drill = _command(
+                ["./ops/database_parity/run_restore_drill.sh"], env=drill_env,
+                log_path=artifact_dir / f"postgres-{attempt}.log", known_secrets=known_secrets,
             )
             required = (
                 "postgresql-runtime: PASS",
