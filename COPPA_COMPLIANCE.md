@@ -4,8 +4,8 @@
 **Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Version:** 1.3.27
 **Date:** February 2026
-**Revised:** November 2026 (network connections and third-party sections only, to match O.D.I.N. 2.2.0; the rest of this statement is as issued for 1.3.27 and is due a full review)
-**Contact:** sublab3dp@gmail.com
+**Revised:** November 2026. Network connection and third-party sections reviewed against O.D.I.N. 2.2.0; other sections as issued for 1.3.27.
+**Contact:** support@runsodin.com
 
 > This document is provided as a technical reference for K-12 schools evaluating O.D.I.N. for COPPA compliance. It does not constitute legal advice. Schools should consult qualified legal counsel to confirm compliance with their specific obligations under COPPA (15 U.S.C. §§ 6501-6506; 16 CFR Part 312).
 
@@ -65,9 +65,9 @@ O.D.I.N. does not transmit any data to:
 - Advertising networks
 - Analytics services
 - Data brokers
-- Any external server, unless the school turns an integration on (notification webhooks, email, single sign-on, class roster import, push notifications). Push notifications, if a user enables them, pass the notification text, which can include a job or file name, through the browser vendor's or Apple's push service
+- Any external server, unless an integration or push notifications are turned on (notification services, email, single sign-on, class roster import). Push notifications, if a user turns them on, pass the notification text, which can include a job or file name, through the browser vendor's push service, or through Apple's push service where the server operator has set that up
 
-License actions an administrator runs (activate, trial, move or re-check a key) contact runsodin.com with the license key and installation identifiers only, never student data, and can be done by file with no connection.
+License actions an administrator runs (activate, start a trial, move or re-check a key) contact runsodin.com and send the license key, the installation ID and the device key; starting a trial also sends the email address the administrator enters; the portal sees the connecting IP address. O.D.I.N. does not send student data in any of them. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N. (the activation request file also holds the server's hostname and the O.D.I.N. version).
 
 ---
 
@@ -79,7 +79,7 @@ Sublab 3DP does not interact with children at any point:
 - User accounts are created by school administrators, not by students self-registering
 - Sublab 3DP has no access to deployed instances
 - There is no cloud service, registration portal, or website where children provide information to Sublab 3DP
-- License validation uses air-gap Ed25519 signatures — no internet connection or data exchange with Sublab 3DP is required
+- An installed license is verified locally with Ed25519 signatures, with no internet connection. Activating a license online sends the items listed in Section 3.3; it can be done by file instead
 
 ---
 
@@ -168,9 +168,9 @@ O.D.I.N. contains:
 Sublab 3DP attests that:
 
 1. O.D.I.N. does not collect personal information directly from children
-2. O.D.I.N. does not transmit student data to Sublab 3DP, and transmits nothing to any third party unless the school turns an integration on
+2. O.D.I.N. does not transmit student data to Sublab 3DP, and transmits nothing to any third party unless an integration or push notifications are turned on
 3. O.D.I.N. does not contain advertising or third-party tracking
-4. O.D.I.N.'s license validation is air-gap compatible and does not require data exchange
+4. License activation can be done entirely by file; online activation sends the items in Section 3.3
 5. Sublab 3DP has no access to any deployed O.D.I.N. instance
 
 Schools should maintain a copy of this attestation and any supplementary agreements with Sublab 3DP as part of their COPPA compliance documentation.

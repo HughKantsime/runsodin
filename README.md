@@ -32,7 +32,7 @@ Self-hosted print farm management that combines multi-protocol printer support, 
 - **Spool Inventory** — Filament tracking with QR labels, AMS integration, PA profiles, low-stock alerts, bidirectional Spoolman sync (pull inventory + push consumption), and CSV export
 - **Notifications** — Discord, Slack, Telegram, ntfy, WhatsApp, Pushover, email, and browser push
 - **Security** — TOTP MFA, IP allowlisting and an audit log on every tier; roles (admin/operator/viewer) and single sign-on (Microsoft Entra ID, Google Workspace or any OpenID Connect provider) in Pro and up; audit export, integrity verification, SIEM streaming and traceability in Enterprise
-- **Native Companion Apps** — iOS, iPadOS, and macOS apps with fleet view, widgets, and Live Activities ([odin-native](https://github.com/HughKantsime/odin-native))
+- **Native Companion Apps** — iOS and iPadOS apps with fleet view; macOS coming soon ([odin-native](https://github.com/HughKantsime/odin-native))
 - **Single Container Deploy** — One `docker compose up`, ~256 MB RAM, all 9 services included
 
 ## Quick Install

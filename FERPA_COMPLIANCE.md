@@ -4,8 +4,8 @@
 **Vendor:** JLLS Holdings LLC, d/b/a SubLab 3DP
 **Version:** 1.3.27
 **Date:** February 2026
-**Revised:** November 2026 (network connections and third-party sections only, to match O.D.I.N. 2.2.0; the rest of this statement is as issued for 1.3.27 and is due a full review)
-**Contact:** sublab3dp@gmail.com
+**Revised:** November 2026. Network connection and third-party sections reviewed against O.D.I.N. 2.2.0; other sections as issued for 1.3.27.
+**Contact:** support@runsodin.com
 
 > This document is provided as a technical reference for institutions evaluating O.D.I.N. for FERPA compliance. It does not constitute legal advice. Institutions should consult qualified legal counsel to confirm compliance with their specific obligations under FERPA (20 U.S.C. § 1232g; 34 CFR Part 99).
 
@@ -27,11 +27,11 @@ O.D.I.N. runs as a single Docker container on hardware controlled by the institu
 |--------|--------|
 | Deployment model | Self-hosted, on-premises Docker container |
 | Cloud dependency | None |
-| Telemetry / phone-home | None. License actions an administrator runs (activate, trial, move or re-check a key) contact runsodin.com with the license key and installation identifiers only; they can be done by file with no connection |
+| Telemetry / phone-home | None. License actions an administrator runs (activate, start a trial, move or re-check a key) contact runsodin.com and send the license key, the installation ID and the device key; starting a trial also sends the email address the administrator enters; the portal sees the connecting IP address. O.D.I.N. does not send student data in any of them. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N. (the activation request file also holds the server's hostname and the O.D.I.N. version). |
 | Analytics sent to vendor | None |
 | Data storage location | Local SQLite database at `/data/odin.db` |
-| Network requirements | Local network only (no internet required for operation) |
-| License validation | Ed25519 air-gap compatible (no internet required) |
+| Network requirements | Local network only by default; integrations and license actions you run use the internet |
+| License validation | An installed license is verified locally (Ed25519), no internet required; activation can be done by file |
 
 The institution maintains full physical and logical control over all data at all times.
 
@@ -193,7 +193,7 @@ O.D.I.N. does not send education records to the vendor, and sends nothing to any
 - No external webhooks enabled by default
 - No telemetry or usage reporting to Sublab 3DP
 
-**Integrations the institution may turn on, and what leaves the server when it does:** class roster import from Google Classroom or Canvas (O.D.I.N. requests the roster; names and email addresses come in, none are sent out); single sign-on (sign-in is handled by the institution's identity provider); browser or mobile push notifications (the notification text, which can include a job or file name, passes through the browser vendor's or Apple's push service); Square and Spoolman (product stock and filament data, no student records).
+**Integrations the institution may turn on, and what leaves the server when it does:** class roster import from Google Classroom or an LTI platform such as Canvas (O.D.I.N. sends its credentials and the class identifiers it is asking about; names and email addresses come in; it writes nothing back and does not send student records to the roster provider); single sign-on (sign-in is handled by the institution's identity provider); push notifications, if a user turns them on (the notification text, which can include a job or file name, passes through the browser vendor's push service, or through Apple's push service where the server operator has set that up); notification services and email the institution configures; Square and Spoolman (product stock and filament data, no student records).
 
 **Note:** O.D.I.N. supports optional webhook integrations (Discord, Slack, email, ntfy, Telegram) for print notifications. If enabled by the institution, notification data is sent to the configured external service. Institutions should evaluate whether notification content could include student information.
 
