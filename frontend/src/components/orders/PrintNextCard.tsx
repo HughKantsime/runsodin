@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { getEducationMode } from '../../api/system'
 import { Link } from 'react-router-dom'
 import { replenishment, PrintNextList } from '../../api/replenishment'
 import { canDo } from '../../permissions'
@@ -6,7 +8,11 @@ import { useLicense } from '../../LicenseContext'
 
 /** Dashboard card: shown only when a product needs printing. Uses recorded counts; never asks Square. */
 export default function PrintNextCard() {
-  const allowed = useLicense().hasFeature('products') && canDo('products.assortment_preview')
+  const { data: educationMode } = useQuery({
+    queryKey: ['education-mode'], queryFn: getEducationMode, staleTime: 30000,
+  })
+  const license = useLicense()
+  const allowed = educationMode?.enabled === false && license.hasFeature('products') && canDo('products.assortment_preview')
   const [list, setList] = useState<PrintNextList | null>(null)
   useEffect(() => {
     let live = true

@@ -1,5 +1,6 @@
 """Display facts for already-visible jobs: nozzle/slot selections and what each job is waiting for."""
 import json
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 from core.rbac import check_org_access
 from core.printer_display_facts import read_facts, may_read
@@ -19,7 +20,7 @@ def enrich_job_facts(db, jobs, actor):
     # printer read then also brings every active printer (still one read per list).
     fleet = any(may_lack_a_printer(job) for job in jobs)
     wanted = or_(Printer.id.in_(ids), Printer.is_active.is_(True)) if fleet else Printer.id.in_(ids)
-    loaded = db.query(Printer).filter(wanted).all() if ids or fleet else []
+    loaded = db.query(Printer).options(selectinload(Printer.filament_slots)).filter(wanted).all() if ids or fleet else []
     printers = [p for p in loaded if p.id in ids]
     preload_pin_printer_states(db, ids, printers)
     by_id = {p.id: p for p in printers}

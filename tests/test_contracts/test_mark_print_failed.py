@@ -265,16 +265,38 @@ def test_stats_printer_totals_day_counts_and_cost(client, review_db):
     assert load_attempts(review_db, [901])[901][0]['usage'] is None
 
 
-def test_audit_failure_rolls_back_all_records(client, review_db, monkeypatch):
+@pytest.mark.parametrize('operation', [mark, undo])
+def test_audit_failure_rolls_back_all_records(client, review_db, monkeypatch, operation):
     import modules.jobs.print_failure as service
+    if operation is undo:
+        assert mark(client).status_code == 200
     def broken(*args, **kwargs):
         raise RuntimeError('Synthetic audit failure')
     monkeypatch.setattr(service, 'log_audit', broken)
     before = tables(review_db)
+    saved = service.record(review_db, 902)
     with pytest.raises(RuntimeError, match='Synthetic audit'):
-        mark(client)
+        operation(client)
     assert tables(review_db) == before
-    assert service.record(review_db, 902) is None
+    assert service.record(review_db, 902) == saved
+
+
+@pytest.mark.parametrize('operation', [mark, undo])
+def test_commit_failure_rolls_back_correction_provenance_and_audit(client, review_db, monkeypatch, operation):
+    import modules.jobs.print_failure as service
+    if operation is undo:
+        assert mark(client).status_code == 200
+    before = tables(review_db)
+    saved = service.record(review_db, 902)
+    audits = list(review_db.execute(text('SELECT id,action,details FROM audit_logs ORDER BY id')))
+    def broken():
+        raise RuntimeError('Synthetic commit failure')
+    monkeypatch.setattr(review_db, 'commit', broken)
+    with pytest.raises(RuntimeError, match='Synthetic commit'):
+        operation(client)
+    assert tables(review_db) == before
+    assert service.record(review_db, 902) == saved
+    assert list(review_db.execute(text('SELECT id,action,details FROM audit_logs ORDER BY id'))) == audits
 
 
 def test_api_documents_both_operations(client):

@@ -118,4 +118,5 @@ def test_capture_cert_A_printer_wire(cert_client, wire_monitor, proto, moonraker
         changed = differences(json.loads(FIXTURE.read_text()), fixture)
         assert not changed, f"Producer contract changed; reconcile the consumer explicitly: {changed[:10]}"
     else:
+        assert os.environ.get("CAPTURE") == "1", f"{FIXTURE.name} is missing; capture it with CAPTURE=1"
         FIXTURE.write_text(json.dumps(fixture, indent=2) + "\n")

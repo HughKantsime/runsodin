@@ -594,6 +594,10 @@
    "printers.add": [
     "admin"
    ],
+   "printers.answer_restart_question": [
+    "admin",
+    "operator"
+   ],
    "printers.delete": [
     "admin"
    ],

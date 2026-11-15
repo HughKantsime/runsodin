@@ -10,7 +10,7 @@
         "entity_type": "jobs",
         "id": 1,
         "ip_address": "198.51.100.7",
-        "timestamp": "2026-11-06T04:31:29",
+        "timestamp": "2026-11-15T20:23:57",
         "user_id": 3,
         "username": "admin"
       }
@@ -50,17 +50,20 @@
         "operator",
         "viewer"
       ],
+      "education.roster_manage": [
+        "admin"
+      ],
+      "education.training_manage": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
       "education.training_read": [
         "admin",
         "operator",
         "viewer"
       ],
       "education.training_take": [
-        "admin",
-        "operator",
-        "viewer"
-      ],
-      "education.training_manage": [
         "admin",
         "operator",
         "viewer"
@@ -85,9 +88,20 @@
         "admin",
         "operator"
       ],
+      "jobs.deliver": [
+        "admin",
+        "operator"
+      ],
       "jobs.edit": [
         "admin",
         "operator"
+      ],
+      "jobs.inspect": [
+        "admin",
+        "operator"
+      ],
+      "jobs.inspection_policy": [
+        "admin"
       ],
       "jobs.reject": [
         "admin",
@@ -106,6 +120,10 @@
         "admin",
         "operator",
         "viewer"
+      ],
+      "jobs.traceability": [
+        "admin",
+        "operator"
       ],
       "maintenance.log": [
         "admin",
@@ -147,6 +165,10 @@
       ],
       "printers.add": [
         "admin"
+      ],
+      "printers.answer_restart_question": [
+        "admin",
+        "operator"
       ],
       "printers.delete": [
         "admin"
@@ -255,24 +277,6 @@
       ],
       "users.restore_superadmin": [
         "admin"
-      ],
-      "education.roster_manage": [
-        "admin"
-      ],
-      "jobs.traceability": [
-        "admin",
-        "operator"
-      ],
-      "jobs.inspect": [
-        "admin",
-        "operator"
-      ],
-      "jobs.deliver": [
-        "admin",
-        "operator"
-      ],
-      "jobs.inspection_policy": [
-        "admin"
       ]
     },
     "page_access": {
@@ -367,7 +371,7 @@
       ]
     }
   },
-  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-11-06T04:31:29,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
+  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-11-15T20:23:57,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
   "me": {
     "group_id": null,
     "id": 3,

@@ -1,6 +1,7 @@
 {
   "available": [
     {
+      "catalogue_name": null,
       "color": "PLA",
       "color_hex": "00BB31",
       "do_not_feed": false,
@@ -9,6 +10,7 @@
       "spool_id": null
     },
     {
+      "catalogue_name": null,
       "color": "PLA",
       "color_hex": "6558B1",
       "do_not_feed": false,
@@ -17,6 +19,7 @@
       "spool_id": null
     },
     {
+      "catalogue_name": null,
       "color": "PLA",
       "color_hex": "EF60A3",
       "do_not_feed": false,
@@ -25,6 +28,7 @@
       "spool_id": null
     },
     {
+      "catalogue_name": null,
       "color": "PLA",
       "color_hex": "0047BB",
       "do_not_feed": false,

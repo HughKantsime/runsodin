@@ -30,7 +30,7 @@
     "name": "P1S-09",
     "success_rate": 70.0,
     "total_hours": 7.0,
-    "utilization_pct": 0.8
+    "utilization_pct": 0.6
    },
    {
     "avg_job_hours": 0,
@@ -144,11 +144,11 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-11-06T04:31:23",
+  "updated_at": "2026-11-15T20:23:56",
   "waiting_reason": null
  },
  "fail_printing_response": {
-  "actual_end": "2026-11-06T04:31:23.875090Z",
+  "actual_end": "2026-11-15T20:23:56",
   "actual_start": "2026-10-12T06:00:00",
   "ams_mapping": [
    0
@@ -675,7 +675,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-11-06T04:31:23",
+   "updated_at": "2026-11-15T20:23:56",
    "waiting_reason": null
   },
   {
@@ -3326,17 +3326,20 @@
     "operator",
     "viewer"
    ],
+   "education.roster_manage": [
+    "admin"
+   ],
+   "education.training_manage": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
    "education.training_read": [
     "admin",
     "operator",
     "viewer"
    ],
    "education.training_take": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "education.training_manage": [
     "admin",
     "operator",
     "viewer"
@@ -3361,9 +3364,20 @@
     "admin",
     "operator"
    ],
+   "jobs.deliver": [
+    "admin",
+    "operator"
+   ],
    "jobs.edit": [
     "admin",
     "operator"
+   ],
+   "jobs.inspect": [
+    "admin",
+    "operator"
+   ],
+   "jobs.inspection_policy": [
+    "admin"
    ],
    "jobs.reject": [
     "admin",
@@ -3382,6 +3396,10 @@
     "admin",
     "operator",
     "viewer"
+   ],
+   "jobs.traceability": [
+    "admin",
+    "operator"
    ],
    "maintenance.log": [
     "admin",
@@ -3423,6 +3441,10 @@
    ],
    "printers.add": [
     "admin"
+   ],
+   "printers.answer_restart_question": [
+    "admin",
+    "operator"
    ],
    "printers.delete": [
     "admin"
@@ -3531,24 +3553,6 @@
    ],
    "users.restore_superadmin": [
     "admin"
-   ],
-   "education.roster_manage": [
-    "admin"
-   ],
-   "jobs.traceability": [
-    "admin",
-    "operator"
-   ],
-   "jobs.inspect": [
-    "admin",
-    "operator"
-   ],
-   "jobs.deliver": [
-    "admin",
-    "operator"
-   ],
-   "jobs.inspection_policy": [
-    "admin"
    ]
   },
   "page_access": {
@@ -3655,7 +3659,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-11-06T04:31:23",
+  "created_at": "2026-11-15T20:23:56",
   "display_name": "CertC pinned blocked",
   "due_date": null,
   "duration_hours": 1.0,
@@ -3691,7 +3695,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-11-06T04:31:23",
+  "updated_at": "2026-11-15T20:23:56",
   "waiting_reason": null
  },
  "printers": [
@@ -3708,15 +3712,17 @@
    "camera_source": "auto",
    "camera_url": "bambu-chamber://auto",
    "chamber_temp": null,
-   "created_at": "2026-11-06T04:31:22",
-   "experimental_actions_enabled": false,
+   "created_at": "2026-11-15T20:23:56",
    "current_print_display_name": null,
+   "experimental_actions_enabled": false,
    "fan_speed": null,
    "feeding_slot": null,
    "filament_slots": [
     {
      "assigned_spool_id": null,
      "brand": null,
+     "catalogue_choices": [],
+     "catalogue_name": null,
      "color": null,
      "color_hex": null,
      "display_name": null,
@@ -3725,7 +3731,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-11-06T04:31:22",
+     "loaded_at": "2026-11-15T20:23:56",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3780,8 +3786,8 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-11-06T04:31:22",
-   "training_warnings": []
+   "training_warnings": [],
+   "updated_at": "2026-11-15T20:23:56"
   },
   {
    "ace_status": null,
@@ -3796,15 +3802,17 @@
    "camera_source": null,
    "camera_url": null,
    "chamber_temp": null,
-   "created_at": "2026-11-06T04:31:22",
-   "experimental_actions_enabled": false,
+   "created_at": "2026-11-15T20:23:56",
    "current_print_display_name": null,
+   "experimental_actions_enabled": false,
    "fan_speed": null,
    "feeding_slot": null,
    "filament_slots": [
     {
      "assigned_spool_id": null,
      "brand": null,
+     "catalogue_choices": [],
+     "catalogue_name": null,
      "color": null,
      "color_hex": null,
      "display_name": null,
@@ -3813,7 +3821,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-11-06T04:31:22",
+     "loaded_at": "2026-11-15T20:23:56",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3868,8 +3876,8 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-11-06T04:31:22",
-   "training_warnings": []
+   "training_warnings": [],
+   "updated_at": "2026-11-15T20:23:56"
   }
  ],
  "recent_terminal": [

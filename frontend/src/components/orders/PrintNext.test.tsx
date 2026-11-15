@@ -1,5 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { getEducationMode } from '../../api/system'
 import { MemoryRouter } from 'react-router-dom'
 import PrintNext, { age } from './PrintNext'
 import PrintNextCard from './PrintNextCard'
@@ -8,6 +10,7 @@ import { replenishment, PrintNextList, PrintNextRow } from '../../api/replenishm
 const access = vi.hoisted(() => ({ can: true, licensed: true }))
 vi.mock('../../permissions', () => ({ canDo: (action: string) => access.can && action === 'products.assortment_preview' }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ hasFeature: (feature: string) => access.licensed && feature === 'products' }) }))
+vi.mock('../../api/system', () => ({ getEducationMode: vi.fn() }))
 vi.mock('../../api/replenishment', () => ({ replenishment: { list: vi.fn(), queue: vi.fn() } }))
 
 const base: PrintNextRow = { product_id: 1, product_name: 'Mini', reorder_point: 5, target: 14, minimum_batch: 1, status: 'below', reason: 'Needs 12 more to reach 14.', below_point: true,
@@ -200,7 +203,19 @@ it.each([[20, 'just now'], [600, '10 minutes ago'], [7200, '2 hours ago'], [3 * 
 
 describe.each([['Classic', undefined], ['Foundry', 'foundry']])('Dashboard card (%s)', (_name, family) => {
   beforeEach(() => { if (family) document.documentElement.dataset.themeFamily = family })
-  const card = () => render(<MemoryRouter><PrintNextCard /></MemoryRouter>)
+  beforeEach(() => { vi.mocked(getEducationMode).mockResolvedValue({ enabled: false }) })
+  const card = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><PrintNextCard /></MemoryRouter></QueryClientProvider>)
+
+  it.each(['enabled', 'loading', 'failed'])('does not request production suggestions when Education mode is %s', async state => {
+    if (state === 'enabled') vi.mocked(getEducationMode).mockResolvedValue({ enabled: true })
+    if (state === 'loading') vi.mocked(getEducationMode).mockReturnValue(new Promise(() => {}))
+    if (state === 'failed') vi.mocked(getEducationMode).mockRejectedValue(new Error('offline'))
+    const view = card()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(getEducationMode).toHaveBeenCalled()
+    expect(replenishment.list).not.toHaveBeenCalled()
+    expect(view.container).toBeEmptyDOMElement()
+  })
 
   it('appears when a product is below its point, from recorded counts only', async () => {
     card()

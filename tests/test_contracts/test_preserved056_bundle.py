@@ -50,7 +50,9 @@ with engine.begin() as c:
     with engine.connect() as c:
         old = c.execute(text('SELECT * FROM dispatch_recovery_history')).all()
     first = bootstrap_database(engine)
-    assert first['applied'] == ['python:057-slot-feed-policy']
+    assert first['applied'] == ['python:057-slot-feed-policy',
+        'python:058-filament-catalogue', 'python:059-six-materials',
+        'python:060-print-files-stored-path-index']
     second = bootstrap_database(engine)
     assert second['applied'] == [] and second['schema_fingerprint'] == first['schema_fingerprint']
     with engine.connect() as c:

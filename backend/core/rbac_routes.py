@@ -139,6 +139,8 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/jobs/{job_id}/link-print"),
         ("POST", "/api/jobs/{job_id}/reset"),
         ("POST", "/api/jobs/{job_id}/outcome"),
+        ("POST", "/api/print-jobs/{print_id}/mark-failed"),
+        ("POST", "/api/print-jobs/{print_id}/undo-failure"),
     ],
     "jobs.cancel": [("POST", "/api/jobs/{job_id}/cancel")],
     "jobs.delete": [
@@ -227,6 +229,8 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/spools/{spool_id}/use"),
         ("POST", "/api/spools/{spool_id}/weigh"),
         ("POST", "/api/filaments"),
+        ("POST", "/api/filaments/import-bambu"),
+        ("POST", "/api/printers/{printer_id}/slots/{slot_number}/catalogue"),
         ("PATCH", "/api/filaments/{filament_id}"),
         ("DELETE", "/api/filaments/{filament_id}"),
         ("POST", "/api/spoolman/sync"),

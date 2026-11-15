@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi.concurrency import run_in_threadpool
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_superadmin
+from core.rbac import require_superadmin, require_action, check_org_access
 from modules.inventory.catalogue import MAX_BYTES, parse_catalogue, import_catalogue
 
 catalogue_admin = require_superadmin(scope='write:spools')
@@ -12,7 +12,7 @@ catalogue_admin = require_superadmin(scope='write:spools')
 router = APIRouter(prefix='/filaments', tags=['Filaments'])
 
 
-@router.post('/import-bambu')
+@router.post('/import-bambu', dependencies=[Depends(require_action('spools.edit', scope='write:spools'))])
 async def import_bambu_catalogue(request: Request,
     current_user: dict = Depends(catalogue_admin),
     db: Session = Depends(get_db)):
@@ -39,7 +39,6 @@ def _import_and_commit(db, entries):
 
 
 from pydantic import BaseModel, Field
-from core.rbac import require_action, check_org_access
 from core.interfaces.filament_ownership import ensure_local_filament_management
 from modules.printers.models import Printer, FilamentSlot
 from modules.inventory.catalogue_slots import reported_slot, select_spool_filament, guard_catalogue_slots

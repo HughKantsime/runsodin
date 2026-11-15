@@ -3,6 +3,14 @@ import ast
 
 ORG = 'modules/organizations/'
 PROTOCOLS = {
+    ('modules/jobs/print_failure.py', 'change'): {
+        'modules/jobs/routes/print_failure.py': ('change', {'_apply'}),
+    },
+    # _undo returns through change with the same session; the closed forwarding
+    # edge is checked below before checking _apply's transaction boundary.
+    ('modules/jobs/print_failure.py', '_undo'): {
+        'modules/jobs/routes/print_failure.py': ('change', {'_apply'}),
+    },
     (ORG + 'education_term_retention.py', 'audit'): {
         ORG + 'education_term_retention.py': ('audit', {'create_policy', 'delete_policy'}),
         ORG + 'education_term_cleanup.py': ('audit', {'record_blocked', 'finish_media', 'purge'}),
@@ -40,6 +48,16 @@ def caller_owned_audit_is_atomic(key, sources):
     boundaries. Each invocation must reach a commit in its enclosing statement
     blocks, never merely in an unrelated conditional branch.
     """
+    if key == ('modules/jobs/print_failure.py', '_undo'):
+        tree = ast.parse(sources[key[0]])
+        change = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'change')
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        calls = _calls(tree, '_undo')
+        if (len(calls) != 1 or calls[0] not in list(ast.walk(change))
+                or not isinstance(parents[calls[0]], ast.Return)
+                or not calls[0].args or ast.unparse(calls[0].args[0]) != 'db'
+                or _calls(change, 'db.commit') or _calls(change, 'db.rollback')):
+            return False
     helper = next(n for n in ast.parse(sources[key[0]]).body
                   if isinstance(n, ast.FunctionDef) and n.name == key[1])
     if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)

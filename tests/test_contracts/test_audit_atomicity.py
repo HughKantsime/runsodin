@@ -405,6 +405,27 @@ def _telemetry_sources():
             and "observe_slots" in path.read_text()}
 
 
+@pytest.mark.parametrize('helper', ['change', '_undo'])
+@pytest.mark.parametrize('mutation', ['none', 'no_commit', 'early_commit', 'other_session', 'undo_commit'])
+def test_print_failure_caller_owned_audit_protocol(helper, mutation):
+    from tests.test_contracts.release_audit_contract import caller_owned_audit_is_atomic
+    service = 'modules/jobs/print_failure.py'
+    route = 'modules/jobs/routes/print_failure.py'
+    sources = {path: (BACKEND_DIR / path).read_text() for path in (service, route)}
+    if mutation == 'no_commit':
+        sources[route] = sources[route].replace('        db.commit()', '        pass')
+    elif mutation == 'early_commit':
+        sources[route] = sources[route].replace('        db.commit()', '').replace(
+            '        result = change', '        db.commit()\n        result = change')
+    elif mutation == 'other_session':
+        sources[route] = sources[route].replace('change(db,', 'change(other_db,')
+    elif mutation == 'undo_commit':
+        sources[service] = sources[service].replace('def _undo(db, row, job, archives, saved, user):',
+            'def _undo(db, row, job, archives, saved, user):\n    db.commit()')
+    expected = mutation == 'none' or (helper == 'change' and mutation == 'undo_commit')
+    assert caller_owned_audit_is_atomic((service, helper), sources) is expected
+
+
 class TestEveryCallSiteCommitsAfter:
     """Every log_audit() call must be followed by db.commit() in the same function."""
 

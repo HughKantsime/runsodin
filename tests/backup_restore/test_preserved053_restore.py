@@ -47,7 +47,9 @@ print('BACKUP='+str(path))
     backup.stage_restore(candidate, url)
     assert backup.apply_pending_restore(url, pid_file=None)['status'] == 'applied_pending_validation'
     engine = create_engine(url)
-    assert bootstrap_database(engine)['applied'] == ['python:054-controlled-parts', 'python:055-controlled-history', 'python:056-dispatch-recovery-global', 'python:057-slot-feed-policy']
+    assert bootstrap_database(engine)['applied'] == ['python:054-controlled-parts', 'python:055-controlled-history', 'python:056-dispatch-recovery-global', 'python:057-slot-feed-policy',
+        'python:058-filament-catalogue', 'python:059-six-materials',
+        'python:060-print-files-stored-path-index']
     assert bootstrap_database(engine)['applied'] == []
     engine.dispose()
     backup.finalize_pending_restore(url, pid_file=None)

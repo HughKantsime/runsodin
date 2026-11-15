@@ -133,7 +133,8 @@ def test_capture_wire_fixture_for_spools_ui(inventory_client):
         row['qr_code'] = f'SPL-CERT{index:04d}'  # generated codes are random; normalise for a stable fixture
     fixture = {'scope': 'Owned real GET /api/spools response (cert C)', 'spools': rows,
                'low_stock': inventory_client.get('/api/spools/low-stock').json()}
-    (REPO / 'frontend/src/test-fixtures/cert-C-spools-wire.json').write_text(json.dumps(fixture, indent=2) + '\n')
+    from tests.test_contracts.cert_D_capture import publish
+    publish(REPO / 'frontend/src/test-fixtures/cert-C-spools-wire.json', fixture)
     assert {r['id']: r['is_low_stock'] for r in rows} == {low: True, normal: False, archived: False}
 
 

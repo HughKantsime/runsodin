@@ -500,9 +500,23 @@ def test_PW02_evidence_receives_exact_run_and_sha():
 
 
 def test_PW03_upload_is_always_and_evidence_only():
-    upload = _workflow_data()["jobs"]["validate"]["steps"][-1]
+    steps = _workflow_data()["jobs"]["validate"]["steps"]
+    uploads = [step for step in steps if step.get("name") == "Upload sanitized validation evidence"]
+    assert len(uploads) == 1
+    upload = uploads[0]
     assert upload["if"] == "always()"
     assert upload["with"]["path"] == "artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/evidence/"
+
+
+def test_restore_proof_upload_is_separate_and_requires_its_receipt():
+    steps = _workflow_data()["jobs"]["validate"]["steps"]
+    uploads = [step for step in steps if step.get("name") == "Save native PostgreSQL restore proof receipt"]
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload["uses"].startswith("actions/upload-artifact@")
+    assert upload["if"] == "${{ always() && hashFiles(format('artifacts/trusted-validation/{0}/native/database-parity/restore-proof/post027-restore-native.json', env.RELEASE_CONTROL_RUN_ID)) != '' }}"
+    assert upload["with"]["path"] == "artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/native/database-parity/restore-proof/post027-restore-native.json"
+    assert upload["with"]["if-no-files-found"] == "error"
 
 
 def test_PW04_evidence_is_not_continue_on_error():

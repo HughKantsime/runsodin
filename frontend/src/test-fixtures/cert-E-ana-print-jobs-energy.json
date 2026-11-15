@@ -4,6 +4,7 @@
   },
   "rows": [
     {
+      "awaiting_confirmation": false,
       "bed_temp_target": null,
       "current_layer": null,
       "display_name": "cert",
@@ -14,6 +15,8 @@
       "energy_cost": 0.1,
       "energy_kwh": 0.5,
       "error_code": null,
+      "failure_correction": null,
+      "failure_correction_allowed": false,
       "filament_slots": null,
       "filament_used_g": null,
       "filename": "cert.3mf",
@@ -35,6 +38,7 @@
       "total_layers": null
     },
     {
+      "awaiting_confirmation": false,
       "bed_temp_target": null,
       "current_layer": null,
       "display_name": "cert",
@@ -45,6 +49,8 @@
       "energy_cost": 0.05,
       "energy_kwh": 0.25,
       "error_code": null,
+      "failure_correction": null,
+      "failure_correction_allowed": false,
       "filament_slots": null,
       "filament_used_g": null,
       "filename": "cert.3mf",

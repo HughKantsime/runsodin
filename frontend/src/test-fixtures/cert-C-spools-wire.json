@@ -28,7 +28,8 @@
       "pa_profile": "K0.042",
       "low_stock_threshold_g": 50,
       "spoolman_spool_id": null,
-      "is_low_stock": true
+      "is_low_stock": true,
+      "catalogue_code": null
     },
     {
       "id": 2,
@@ -57,7 +58,8 @@
       "pa_profile": null,
       "low_stock_threshold_g": 100,
       "spoolman_spool_id": null,
-      "is_low_stock": false
+      "is_low_stock": false,
+      "catalogue_code": null
     },
     {
       "id": 3,
@@ -86,7 +88,8 @@
       "pa_profile": null,
       "low_stock_threshold_g": 50,
       "spoolman_spool_id": null,
-      "is_low_stock": false
+      "is_low_stock": false,
+      "catalogue_code": null
     }
   ],
   "low_stock": [

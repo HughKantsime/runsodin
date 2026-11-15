@@ -34,10 +34,12 @@ class _FrozenDatetime(datetime):
 def _wire(name, payload):
     """Pattern of test_chargeback_wire_fixture: write once, then pin the producer contract."""
     path = FIXTURES / f"cert-E-ana-{name}.json"
-    if path.exists():
-        assert json.loads(path.read_text()) == payload, f"Producer contract changed for {path.name}; reconcile the consumer explicitly"
-    else:
+    from tests.test_contracts.cert_D_capture import capturing
+    if capturing():
         path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    else:
+        assert path.exists(), f"{path.name} is missing; capture it with CAPTURE=1"
+        assert json.loads(path.read_text()) == payload, f"Producer contract changed for {path.name}; reconcile the consumer explicitly"
 
 
 @pytest.fixture

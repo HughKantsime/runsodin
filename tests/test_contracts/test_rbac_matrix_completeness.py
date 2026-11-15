@@ -63,6 +63,25 @@ def test_every_action_key_is_mapped_to_routes():
     assert all(ACTION_ROUTES[key] for key in ACTION_ROUTES)
 
 
+@pytest.mark.parametrize('path,body', [
+    ('/api/filaments/import-bambu', {}),
+    ('/api/printers/1/slots/1/catalogue', {'filament_id': 1, 'spool_id': 1}),
+    ('/api/print-jobs/1/mark-failed', {'reason': 'no_filament'}),
+    ('/api/print-jobs/1/undo-failure', {}),
+])
+def test_release_write_routes_refuse_a_role_without_the_key(tmp_path, path, body):
+    probe = '''
+seed_user('denied', 'viewer')
+reader = login('denied')
+response = reader.post(PATH, json=BODY)
+assert response.status_code == 403, response.text
+OUT['status'] = response.status_code
+'''.replace('PATH', repr(path)).replace('BODY', repr(body))
+    result = run_probe('release-write-permissions', probe, tmp_path)
+    assert result['status'] == 403
+    assert result['_net_attempts'] == []
+
+
 def test_every_page_key_guards_page_routes_or_documents_shared_data():
     assert set(PAGE_ROUTES) | set(PAGE_SHARED) == set(RBAC_DEFAULT_PAGE_ACCESS)
     assert not set(PAGE_ROUTES) & set(PAGE_SHARED)

@@ -253,6 +253,10 @@
     ],
     "jobs.inspection_policy": [
       "admin"
+    ],
+    "printers.answer_restart_question": [
+      "admin",
+      "operator"
     ]
   },
   "page_access": {

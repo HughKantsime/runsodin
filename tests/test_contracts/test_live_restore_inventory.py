@@ -113,6 +113,10 @@ POST027_RAW_TABLES = {
     "python:045-pause-cancel-alerts": {},
     # Adds ORM columns only: filament_slots.do_not_feed, do_not_feed_note, printers.ace_status.
     "python:057-slot-feed-policy": {},
+    # Catalogue columns/index, native filament enum values, and a print-file index.
+    "python:058-filament-catalogue": {},
+    "python:059-six-materials": {},
+    "python:060-print-files-stored-path-index": {},
     "python:040-job-foundation": {
         "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
         "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),

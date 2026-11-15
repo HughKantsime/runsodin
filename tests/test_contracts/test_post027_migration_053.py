@@ -131,8 +131,10 @@ def test_preserved046_orm_baseline_is_byte_exact():
     from core.schema import preserved046
     root = Path(preserved046.__file__).parent
     catalog = json.loads((root.parent/'orm_baselines.json').read_text())
-    # 057 (2.2.0) changes the models, so it pins one new baseline. Every baseline
-    # released through 046 must still serialize to the frozen bytes without it.
-    assert set(catalog) - set(json.loads((root/'overlay/core/schema/orm_baselines.json').read_text())) == {'slot_feed_policy_057_20261112'}
+    # 057 and 058 pin new model baselines. Every baseline released through 046
+    # must still serialize to the frozen bytes without those additions.
+    assert set(catalog) - set(json.loads((root/'overlay/core/schema/orm_baselines.json').read_text())) == {
+        'slot_feed_policy_057_20261112', 'filament_catalogue_058_20261114'}
     del catalog['slot_feed_policy_057_20261112']
+    del catalog['filament_catalogue_058_20261114']
     assert (root/'overlay/core/schema/orm_baselines.json').read_bytes() == (json.dumps(catalog, indent=2) + '\n').encode()

@@ -12,8 +12,8 @@ FIXTURE = Path(__file__).resolve().parents[1] / "accessibility" / "default_permi
 
 
 def test_accessibility_permissions_fixture_is_the_default_matrix():
-    assert json.loads(FIXTURE.read_text()) == {
-        "page_access": RBAC_DEFAULT_PAGE_ACCESS, "action_access": RBAC_DEFAULT_ACTION_ACCESS}
+    from tests.test_contracts.cert_D_capture import publish
+    publish(FIXTURE, {"page_access": RBAC_DEFAULT_PAGE_ACCESS, "action_access": RBAC_DEFAULT_ACTION_ACCESS})
 
 
 def test_audited_personas_hold_the_pages_they_audit():

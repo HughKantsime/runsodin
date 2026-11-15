@@ -18,6 +18,7 @@ from uuid import uuid4
 from sqlalchemy import or_, text
 
 # Resolved at use time: never a stale engine bound at import.
+from core.base import AlertType, AlertSeverity
 from core.db import live_engine as engine
 from core.db_compat import execute_insert_returning_id, sql
 # Resolved at call time: never a stale get_db bound at import.
@@ -404,7 +405,7 @@ def _alert(printer_id, job_id, detection_id, kind, code, message, filename, sche
     # Keep the originating scheduled job's audience even if the print ended while
     # fetching the picture. No 'vision_detection' live
     # event: that one is broadcast, and each recipient already gets the alert itself.
-    dispatch_alert(alert_type=alert_type, severity=severity, title=alert_title(name, kind),
+    dispatch_alert(alert_type=AlertType(alert_type), severity=AlertSeverity(severity), title=alert_title(name, kind),
                    message=message, printer_id=printer_id, job_id=scheduled_job_id,
                    metadata={'detection_id': detection_id, 'detection_type': kind, 'confidence': 1.0,
                              'source': SOURCE, 'code': code})

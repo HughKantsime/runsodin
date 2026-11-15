@@ -1295,17 +1295,20 @@
         "operator",
         "viewer"
       ],
+      "education.roster_manage": [
+        "admin"
+      ],
+      "education.training_manage": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
       "education.training_read": [
         "admin",
         "operator",
         "viewer"
       ],
       "education.training_take": [
-        "admin",
-        "operator",
-        "viewer"
-      ],
-      "education.training_manage": [
         "admin",
         "operator",
         "viewer"
@@ -1330,9 +1333,20 @@
         "admin",
         "operator"
       ],
+      "jobs.deliver": [
+        "admin",
+        "operator"
+      ],
       "jobs.edit": [
         "admin",
         "operator"
+      ],
+      "jobs.inspect": [
+        "admin",
+        "operator"
+      ],
+      "jobs.inspection_policy": [
+        "admin"
       ],
       "jobs.reject": [
         "admin",
@@ -1351,6 +1365,10 @@
         "admin",
         "operator",
         "viewer"
+      ],
+      "jobs.traceability": [
+        "admin",
+        "operator"
       ],
       "maintenance.log": [
         "admin",
@@ -1392,6 +1410,10 @@
       ],
       "printers.add": [
         "admin"
+      ],
+      "printers.answer_restart_question": [
+        "admin",
+        "operator"
       ],
       "printers.delete": [
         "admin"
@@ -1499,24 +1521,6 @@
         "operator"
       ],
       "users.restore_superadmin": [
-        "admin"
-      ],
-      "education.roster_manage": [
-        "admin"
-      ],
-      "jobs.traceability": [
-        "admin",
-        "operator"
-      ],
-      "jobs.inspect": [
-        "admin",
-        "operator"
-      ],
-      "jobs.deliver": [
-        "admin",
-        "operator"
-      ],
-      "jobs.inspection_policy": [
         "admin"
       ]
     },

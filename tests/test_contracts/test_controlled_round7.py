@@ -65,6 +65,8 @@ for route in ('jobs','printers','timelapses'):
  assert len(handler_threads)==1, handler_threads
  assert [tid in request_threads | handler_threads for tid, statement in queries if statement==background_statement]==[False]
  OUT[route]=sum(tid in request_threads | handler_threads for tid, statement in queries)
+ if route=='jobs':
+  OUT['job_slot_reads']=sum('FROM filament_slots' in statement and 'filament_slots.id' in statement for tid, statement in queries if tid in request_threads | handler_threads)
 # Prior request-thread measurement on v2.0.44, before per-route warm-up:
 # jobs=57, printers=57, timelapses=54 (background SQL excluded).
 # Retain that baseline plus three controlled existence queries as the budgets.
@@ -77,6 +79,7 @@ OUT['budgets']={'jobs':60,'printers':60,'timelapses':57}
 
 def test_unmarked_list_statement_budgets(tmp_path):
     result = run_probe('controlled-list-counts', LIST_PROBE, tmp_path)
+    assert result['job_slot_reads'] == 1, result  # batch nested printer slots for all 50 jobs
     for route, budget in result['budgets'].items():
         assert result[route] <= budget, result
 

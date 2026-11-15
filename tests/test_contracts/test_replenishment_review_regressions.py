@@ -117,9 +117,12 @@ def test_public_stock_reasons_and_below_point_survive_planning_block(floor, hidd
 
 def test_print_next_fix_is_in_the_fixed_changelog_section():
     changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
-    unreleased = changelog.split('## [Unreleased]', 1)[1].split('\n## ', 1)[0]
-    fixed = unreleased.split('### Fixed', 1)[1].split('\n### ', 1)[0]
-    assert 'Fixed Print next:' in fixed
+    import re
+    release = re.search(r'^## \[2\.3\.0\].*?\n(.*?)(?=^## |\Z)', changelog, re.M | re.S)
+    assert release is not None, 'Missing 2.3.0 release notes'
+    fixed = re.search(r'^### Fixed\n(.*?)(?=^### |\Z)', release[1], re.M | re.S)
+    assert fixed is not None, 'Missing 2.3.0 fixes'
+    assert 'Fixed Print next:' in fixed[1]
 
 
 def test_denied_queue_does_not_read_square_or_claim_refresh_interval(floor):

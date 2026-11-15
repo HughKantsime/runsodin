@@ -2906,7 +2906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 374,
+      "line": 375,
       "path": "backend/modules/vision/printer_native.py",
       "pattern": "qmark-parameter",
       "reason": "Printer detection correlation uses bound qmark reads through the shared monitor DBAPI adapter.",

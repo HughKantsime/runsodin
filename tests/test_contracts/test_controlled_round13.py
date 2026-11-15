@@ -179,6 +179,8 @@ def test_job_creation_census_requires_shared_allocator():
         'modules/jobs/queue_creation.py': 1,
         'modules/jobs/repeat.py': 1,
         'modules/orders/routes/orders_crud.py': 1,
+        # stage_job adds the ORM Job; its before_insert hook allocates the durable ID.
+        'modules/orders/replenishment_queue.py': 1,
         'modules/archives/routes/archives_crud.py': 1,
         'modules/organizations/education_submission_graph.py': 1,
     }

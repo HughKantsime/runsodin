@@ -206,9 +206,11 @@ engine.dispose()
                               'VALUES(1,?,221,CURRENT_TIMESTAMP)', [('0',), ('abc',), ('999999',)])
             assert str(next(col['type'] for col in inspect(c).get_columns('print_jobs')
                             if col['name'] == 'job_id')) == 'TEXT'
-        assert bootstrap_database(engine)['applied'] == [PARTS.MIGRATION_ID, HISTORY.MIGRATION_ID,
-                                                         'python:056-dispatch-recovery-global',
-                                                         'python:057-slot-feed-policy']
+        assert bootstrap_database(engine)['applied'] == [
+            PARTS.MIGRATION_ID, HISTORY.MIGRATION_ID,
+            'python:056-dispatch-recovery-global', 'python:057-slot-feed-policy',
+            'python:058-filament-catalogue', 'python:059-six-materials',
+            'python:060-print-files-stored-path-index']
         assert bootstrap_database(engine)['applied'] == []
         with engine.connect() as c:
             PARTS.validate(c)
