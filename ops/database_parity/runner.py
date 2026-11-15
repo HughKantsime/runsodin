@@ -207,7 +207,8 @@ def _generate_parity_secrets() -> dict[str, str]:
 
 
 def _write_secret_bundle(values: dict[str, str]) -> Path:
-    descriptor, name = tempfile.mkstemp(prefix=".odin-db-parity-secrets.", dir=ROOT)
+    # Only the host drill reads this bundle; it needs no Docker bind mount.
+    descriptor, name = tempfile.mkstemp(prefix=".odin-db-parity-secrets.")
     path = Path(name)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         for key, value in values.items():

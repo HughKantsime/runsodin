@@ -121,3 +121,66 @@ def test_failed_parity_drill_retains_full_redacted_output(tmp_path, monkeypatch,
     assert not any(args[-1] == 'ops.database_parity.run_post027_restore' for args in calls)
     assert cleaned == [True]
     assert not secret_file.exists()
+
+
+def test_parity_runtime_files_leave_candidate_clean_at_proof(tmp_path, monkeypatch):
+    from ops.database_parity import runner as parity
+    from ops.database_parity import run_post027_restore as proof
+
+    root = tmp_path / 'repo'
+    root.mkdir()
+    (root / '.gitignore').write_text((ROOT / '.gitignore').read_text())
+    tracked = root / 'candidate.py'
+    tracked.write_text('original\n')
+    def git(*args):
+        return subprocess.run(['git', '-C', str(root), *args], check=True,
+                              capture_output=True, text=True)
+    git('init', '-q')
+    git('add', '.gitignore', tracked.name)
+    git('-c', 'user.name=Offline test', '-c', 'user.email=offline@example.invalid',
+        '-c', 'core.hooksPath=/dev/null', 'commit', '--no-gpg-sign', '-qm', 'fixture')
+    monkeypatch.setattr(parity, 'ROOT', root)
+    # Use the real secret-bundle writer with no credential values.
+    monkeypatch.setattr(parity, '_generate_parity_secrets', lambda: {})
+    image = 'sha256:' + 'c' * 64
+    lifecycle = SimpleNamespace(
+        begin=lambda: None, mark_build_attempted=lambda: None,
+        docker_build_owner_args=lambda: [], establish_final_image=lambda _: None,
+        freeze_ownership=lambda: None, finalize=lambda: [], evidence=lambda: {},
+        ownership_capture_attempted=True, final_image_id=image,
+    )
+    monkeypatch.setattr(parity, 'DisposableImageLifecycle', lambda *a, **k: lifecycle)
+    monkeypatch.setattr(parity, '_docker_resources', lambda _: set())
+    monkeypatch.setattr(parity, 'read_iidfile', lambda _: image)
+    monkeypatch.setattr(parity, 'verify_built_image', lambda *a, **k: image)
+    monkeypatch.setattr(parity, '_assert_image_metadata', lambda _: image)
+    monkeypatch.setattr(parity, '_run_sqlite_exact_image', lambda *a: ('ok', {}))
+    monkeypatch.setattr(parity, 'inspect_junit', lambda _: {'passed': 1})
+    monkeypatch.setattr(parity, '_extract_database_evidence', lambda _: {})
+    monkeypatch.setattr(parity, '_extract_topology_evidence', lambda *a: {})
+    observations = []
+    bundles = []
+    def command(args, **kwargs):
+        if args[0] == 'git':
+            return git(*args[1:])
+        if args == ['./ops/database_parity/run_restore_drill.sh']:
+            bundle = Path(kwargs['env']['ODIN_PARITY_SECRET_INPUT_FILE'])
+            assert bundle.is_file()
+            bundles.append(bundle)
+        if any(arg.startswith('--junitxml=') for arg in args):
+            Path(next(arg.split('=', 1)[1] for arg in args if arg.startswith('--junitxml='))).write_text('<testsuites/>')
+        if args[-1] == 'ops.database_parity.run_post027_restore':
+            assert all(bundle.exists() for bundle in bundles)
+            observations.append(proof.source_is_dirty(root))
+            tracked.write_text('modified\n')
+            observations.append(proof.source_is_dirty(root))
+            tracked.write_text('original\n')
+        return subprocess.CompletedProcess(args, 0,
+            '3.3.5 pg_restore (PostgreSQL) 16. postgresql-runtime: PASS '
+            'postgres-legacy-upgrades: PASS fixtures=5 postgres-offline-restore: PASS')
+
+    monkeypatch.setattr(parity, '_command', command)
+    # The runner itself creates the bundle, evidence directories, logs and receipt.
+    assert parity.run('clean-handoff', root / 'artifacts/database-parity', 'owned-test-image') == 0
+    assert observations == [False, True]
+    assert len(bundles) == 2 and not bundles[0].exists()

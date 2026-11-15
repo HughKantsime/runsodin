@@ -205,11 +205,25 @@ GENERATED_FIXTURES = (
     'trial-license-wire.json',
 )
 
-def source_is_dirty(root):
+def source_dirty_paths(root):
     # CV02 writes these frontend JSON fixtures; none is part of the source copy.
     status = run('git', '-C', str(root), 'status', '--porcelain', '-z', '--untracked-files=all',
                  '--', '.', *(':(exclude)frontend/src/test-fixtures/' + name for name in GENERATED_FIXTURES))
-    return bool(status)
+    paths = []
+    entries = iter(status.split('\0'))
+    for entry in entries:
+        if not entry:
+            continue
+        paths.append(entry[3:])  # XY status and a space precede the unquoted path.
+        if 'R' in entry[:2] or 'C' in entry[:2]:
+            paths.append(next(entries))  # -z emits the original path separately.
+        if len(paths) >= 5:
+            break
+    return paths[:5]
+
+
+def source_is_dirty(root):
+    return bool(source_dirty_paths(root))
 
 
 def write_receipt(staging, receipt):
@@ -240,9 +254,11 @@ def main():
     write_incomplete_receipt(staging)
     try:
         receipt['candidate_commit'] = run('git', '-C', str(ROOT), 'rev-parse', 'HEAD').strip()
-        receipt['source_dirty'] = source_is_dirty(ROOT)
+        receipt['source_dirty_paths'] = source_dirty_paths(ROOT)
+        receipt['source_dirty'] = bool(receipt['source_dirty_paths'])
         if receipt['source_dirty']:
-            raise ValueError('The restore proof refuses a dirty candidate source tree')
+            raise ValueError('The restore proof refuses a dirty candidate source tree: '
+                             + ', '.join(json.dumps(path) for path in receipt['source_dirty_paths']))
         receipt['candidate_version'] = (ROOT / 'VERSION').read_text().strip()
         baseline = select_baseline(receipt['candidate_version'], ROOT)
         receipt['baseline'] = baseline

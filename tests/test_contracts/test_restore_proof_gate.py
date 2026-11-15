@@ -306,6 +306,47 @@ def test_dirty_candidate_fails_closed(fake_docker, dirty):
     assert not any(args[0] == 'docker' for args in calls)
 
 
+@pytest.mark.parametrize('count', [1, 7])
+def test_dirty_refusal_reports_bounded_paths(fake_docker, capsys, count):
+    calls, mode, path = fake_docker
+    paths = [f'ops/changed {index}.py' for index in range(count)]
+    mode['dirty'] = ''.join(' M ' + name + '\0' for name in paths)
+    assert runner.main() == 1
+    receipt = json.loads(path.read_text())
+    assert receipt['source_dirty'] is True
+    assert receipt['source_dirty_paths'] == paths[:5]
+    message = capsys.readouterr().out
+    for name in paths[:5]:
+        assert name in receipt['error'] and name in message
+    for name in paths[5:]:
+        assert name not in json.dumps(receipt) and name not in message
+    assert not any(args[0] == 'docker' for args in calls)
+
+
+def test_dirty_paths_handle_renames_and_unusual_names(tmp_path, monkeypatch, capsys):
+    def git(*args):
+        return subprocess.run(['git', '-C', str(tmp_path), *args], check=True,
+                              capture_output=True, text=True)
+    git('init', '-q')
+    old = 'old name.py'
+    new = 'new\nname.py'
+    content = 'file contents must not appear in diagnostics'
+    (tmp_path / old).write_text(content)
+    git('add', old)
+    git('-c', 'user.name=Offline test', '-c', 'user.email=offline@example.invalid',
+        '-c', 'core.hooksPath=/dev/null', 'commit', '--no-gpg-sign', '-qm', 'fixture')
+    git('mv', old, new)
+    (tmp_path / 'untracked file.py').write_text(content)
+    monkeypatch.setattr(runner, 'ROOT', tmp_path)
+    monkeypatch.setenv('POST027_STAGING', str(tmp_path.parent / 'evidence'))
+    assert runner.main() == 1
+    receipt = json.loads((tmp_path.parent / 'evidence/post027-restore-native.json').read_text())
+    assert receipt['source_dirty_paths'] == [new, old, 'untracked file.py']
+    message = capsys.readouterr().out
+    assert json.dumps(new) in message and json.dumps(old) in message
+    assert content not in message and content not in json.dumps(receipt)
+
+
 def test_generated_gate_fixture_is_excluded(tmp_path):
     subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
     fixture = tmp_path / 'frontend/src/test-fixtures/cert-C-models-wire.json'
