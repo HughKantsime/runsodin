@@ -104,7 +104,11 @@ export default function Modal({
               onClick={onClose}
               className={sheet
                 ? 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] -mr-2 min-h-11 min-w-11 flex items-center justify-center'
-                : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 -my-3 -mr-3 flex items-center justify-center'}
+                : foundry
+                  // Foundry already gives every button a 44 px target: leave its header as it was.
+                  ? 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]'
+                  // Classic: a 44 px tap target that does not make the header taller.
+                  : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] min-h-11 min-w-11 -my-3 -mr-3 flex items-center justify-center'}
               aria-label="Close"
             >
               <X size={20} />
