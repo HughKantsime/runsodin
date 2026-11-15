@@ -40,8 +40,8 @@
 - **SpoolRing visualization** — SVG circular arc indicator for filament visualization across all pages (color, material, fill level); dashed ring for empty, amber warning below 15% (v1.5.3+)
 
 ### 1.5 Printer Controls
-- **Emergency Stop** — floating button on every page lists active prints; operators/admins can request pause, resume, or stop on Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers, with confirmation before stop. Anycubic LAN is monitoring only
-- **Pause / Resume** — operator/admin controls for Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers
+- **Emergency Stop** — floating button on every page lists active prints; operators/admins can request pause, resume, or stop on Bambu, Moonraker, PrusaLink, and Elegoo SDCP printers, with confirmation before stop. OctoPrint pause and stop also work; resume requires the per-printer Experimental opt-in. Anycubic LAN and Ultimaker are monitoring only
+- **Pause / Resume** — operator/admin controls for Bambu, Moonraker, PrusaLink, Elegoo SDCP and OctoPrint printers; OctoPrint resume requires the per-printer Experimental opt-in
 - **Light Toggle** — chamber light on/off for Bambu printers with cooldown (operator/admin)
 - **Smart Plug Control** — on/off/status for configured smart plugs (operator/admin)
 - **Skip Objects** — exclude specific objects mid-print for Bambu printers via `POST /api/printers/{id}/skip-objects` (operator/admin)
@@ -798,7 +798,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Credentials: serial + access code, Fernet-encrypted at rest
 
 ### 21.2 Moonraker REST
-- Printers: Klipper printers running Moonraker (for example Voron, QIDI, Sovol). A Kobra S1 or Kobra 3 set up as Moonraker is refused for job sending
+- Printers: Klipper printers running Moonraker (for example Voron, QIDI, Sovol). Kobra S1 job sending through Moonraker is Experimental and off unless the server operator sets `ODIN_KOBRA_S1_SENDING=1`; it requires attended explicit dispatch and bed-clear confirmation. Kobra 3 remains refused for job sending
 - Connection: REST API polling (every 3 s)
 - Receives: temps, progress, state, layers, fan speed, webcam URL
 
@@ -812,7 +812,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ### 21.4 Elegoo SDCP
 - Printers: SDCP printers such as the Centauri Carbon
 - Connection: SDCP WebSocket protocol
-- Monitoring plus pause, resume and stop; no job sending
+- Monitoring plus pause, resume, speed and stop; job sending is Experimental and requires a platform administrator's per-printer opt-in (not verified on real hardware)
 - Receives: temps, progress, state, fan speed (v1.1.4), enclosure temperature (v1.1.4)
 - Print failure detection on state transition (v1.1.4)
 - Offline detection after 60-second timeout (v1.1.4)
@@ -820,6 +820,14 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ### 21.5 Anycubic LAN mode
 - Printers: Kobra S1, Kobra 3
 - Monitoring only; no job sending
+
+### 21.6 OctoPrint (Experimental)
+- Built from public REST API documentation; not verified on real hardware
+- Monitoring, pause and stop work; job sending and other controls require a platform administrator's per-printer opt-in
+
+### 21.7 Ultimaker (Experimental, monitoring only)
+- Built from public local REST API documentation; not verified on real hardware
+- Monitoring only; no job sending or controls, including pause and stop
 
 ---
 

@@ -19,7 +19,7 @@ O.D.I.N. is **self-hosted software** that runs entirely on your own infrastructu
 - What data **Sublab 3DP** collects from you directly (Section 3)
 - Your rights regarding your data (Section 5)
 
-**The key point:** When you run O.D.I.N., your data stays on your hardware. We do not operate cloud services, do not host customer data, and have no access to your O.D.I.N. instance unless you explicitly grant it.
+**The key point:** O.D.I.N. stores operational data on your infrastructure. License actions and enabled integrations transmit the data described in Section 2.6; we have no access to your instance unless you explicitly grant it.
 
 ---
 
@@ -67,22 +67,24 @@ The following data is created and stored by the O.D.I.N. software on your server
 
 **O.D.I.N. does not:**
 
-- Send telemetry or usage data to Sublab 3DP or any third party
+- Send vendor telemetry or usage reports to Sublab 3DP
 - Contact Sublab 3DP in the background (no heartbeat, no update check)
 - Require an Internet connection to operate after initial installation
 - Include analytics, tracking pixels, or third-party SDKs
 - Share data with advertisers or data brokers
 
-An installed license is verified locally using Ed25519 signatures, with no network call.
+O.D.I.N. sends no vendor telemetry; configured integrations can transmit printer telemetry, job events and audit records. An installed license is verified locally using Ed25519 signatures, with no network call.
 
 A default installation contacts nothing outside your network by itself. Connections the Software can make:
 
 - **Your printers and cameras** on your local network (MQTT, HTTP, WebSocket, RTSP/MJPEG), and local network discovery (mDNS) when an administrator asks for it.
-- **Our license portal**, only when an administrator runs a license action. Activation, re-check and move send the license key, the installation ID and the device key; starting a trial sends the installation ID, the device key and the email address the administrator enters (Section 3.5). Our servers also see the connecting IP address. No print, job, user or student record is sent. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N.; the activation request file also holds the server's hostname and the O.D.I.N. version.
-- **Services an administrator connects:** email (SMTP), notification services (webhooks, Discord, Slack, ntfy, Telegram, Pushover, WhatsApp), an MQTT broker, SIEM streaming, a single sign-on provider, class roster import (Google Classroom, or an LTI platform such as Canvas), Square, and Spoolman if you point O.D.I.N. at one. Each is off until configured.
+- **Our license portal**, only when an administrator runs a license action. Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N.
+- **Services an administrator connects:** email (SMTP), notification services (webhooks, Discord, Slack, ntfy, Telegram, Pushover, WhatsApp), an MQTT broker, smart-plug control (Home Assistant, Tasmota or MQTT), SIEM streaming, a single sign-on provider, class roster import (Google Classroom, or an LTI platform such as Canvas), Square, and Spoolman if you point O.D.I.N. at one. Each is off until configured.
 - **Push notifications**, only if a user turns them on: the browser vendor's push service, or Apple's push service where the server operator has set it up. The notification text, which can include a job or file name, passes through it.
 
-Home Assistant and dashboards read from O.D.I.N.; O.D.I.N. does not call them.
+- **API documentation:** Opening the API documentation causes your browser to request assets from jsDelivr and FastAPI's website; ReDoc also requests Google Fonts.
+
+Home Assistant and dashboards can read from O.D.I.N.; when smart-plug control is configured, O.D.I.N. also calls Home Assistant, Tasmota plugs or the configured MQTT broker.
 
 ## 3. Data Collected by Sublab 3DP
 
@@ -181,7 +183,7 @@ O.D.I.N. includes tools to assist with data protection compliance:
 - **Audit log:** Searchable local history of the audited activity described below.
 
 
-ODIN keeps an audit log on your own server. It records sign-ins (password and SSO, successful and failed), file uploads, downloads of design files, backups and timelapses, exports, print submissions and dispatch, watching a printer's live camera or a timelapse, and administrative changes. Each entry holds the time, what was done and to what, and, where known, the user and the IP address they connected from. Watching a camera or timelapse is recorded when it starts and then at most once every 15 minutes per person, not frame by frame. On Education installations this includes students' activity. The log isn't a record of every request. Audit entries stay on your server and follow your retention settings. When a user is erased, ODIN removes their name and IP address from their audit entries, including SSO sign-ins. The entries themselves remain, with what was done, and SSO sign-in entries keep the user's ID number.
+ODIN keeps an audit log on your own server. It records sign-ins (password and SSO, successful and failed), file uploads, downloads of design files, backups and timelapses, exports, print submissions and dispatch, watching a printer's live camera or a timelapse, and administrative changes. Each entry holds the time, what was done and to what, and, where known, the user and the IP address they connected from. Watching a camera or timelapse is recorded when it starts and then at most once every 15 minutes per person, not frame by frame. On Education installations this includes students' activity. The log isn't a record of every request. Audit entries are stored on your server and follow your retention settings; if SIEM streaming is enabled, copies are sent to the configured destination. When a user is erased, ODIN removes their name and IP address from their audit entries, including SSO sign-ins. The entries themselves remain, with what was done, and SSO sign-in entries keep the user's ID number.
 
 ---
 
@@ -250,7 +252,7 @@ By default, O.D.I.N. runs on the school's own infrastructure and stores student 
 
 ### 7.1 Self-Hosted Software
 
-Because O.D.I.N. runs on your infrastructure, no international data transfer occurs as a result of using the Software. Your data remains wherever you deploy it.
+Local operation keeps data where you deploy O.D.I.N.; license actions, enabled integrations, push and browser requests described in Section 2.6 may involve international transfers.
 
 ### 7.2 License and Support Data
 
@@ -318,7 +320,7 @@ You control retention for all data on your O.D.I.N. instance. The Software inclu
 
 ## 10. Third-Party Services
 
-The O.D.I.N. software does not include third-party analytics, advertising, or tracking services. The only third-party connections are those you configure:
+The O.D.I.N. software does not include third-party analytics, advertising, or tracking services. Third-party connections are described in Section 2.6. Examples of configured or local connections include:
 
 - Printer protocols (connections to your printers)
 - Notification channels (SMTP, Discord, Slack, Telegram, ntfy — only if configured by you)

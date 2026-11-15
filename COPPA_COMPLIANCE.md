@@ -46,9 +46,10 @@ O.D.I.N. collects only the data necessary to manage 3D printer operations:
 | Print job records | Yes | Partially | Job metadata linked to username; anonymized usernames reduce identifiability |
 | Approval records | If enabled | Partially | Tracks who approved print jobs |
 
+When roster import is enabled, O.D.I.N. receives provider user identifiers, email addresses and class memberships; Google Classroom import also receives names.
+
 ### 3.2 What O.D.I.N. Does NOT Collect
 
-- Full legal names (unless used as usernames — avoidable)
 - Home addresses, phone numbers, or parent/guardian contact information
 - Social Security numbers or government identifiers
 - Photographs, video, or audio of students
@@ -57,17 +58,17 @@ O.D.I.N. collects only the data necessary to manage 3D printer operations:
 - Cookies sent to third parties
 - Any student data transmitted to Sublab 3DP
 
-### 3.3 No Third-Party Data Sharing
+### 3.3 Network Connections and Third-Party Data Sharing
 
-O.D.I.N. does not transmit any data to:
+License actions send the data described below to Sublab 3DP; they do not send student records. O.D.I.N. does not transmit data to:
 
-- Sublab 3DP
 - Advertising networks
 - Analytics services
 - Data brokers
-- Any external server, unless an integration or push notifications are turned on (notification services, email, single sign-on, class roster import). Push notifications, if a user turns them on, pass the notification text, which can include a job or file name, through the browser vendor's push service, or through Apple's push service where the server operator has set that up
 
-License actions an administrator runs (activate, start a trial, move or re-check a key) contact runsodin.com and send the license key, the installation ID and the device key; starting a trial also sends the email address the administrator enters; the portal sees the connecting IP address. O.D.I.N. does not send student data in any of them. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N. (the activation request file also holds the server's hostname and the O.D.I.N. version).
+Enabled integrations (notification services, email, single sign-on, class roster import, smart-plug control, MQTT, SIEM streaming, Square and Spoolman) contact their configured services. Push notifications, if a user turns them on, pass the notification text, which can include a job or file name, through the browser vendor's push service, or through Apple's push service where the server operator has set that up. Opening the API documentation causes your browser to request assets from jsDelivr and FastAPI's website; ReDoc also requests Google Fonts.
+
+License actions an administrator runs contact runsodin.com. Online activation sends the license key, installation ID and public device key. Starting a trial sends the installation ID, public device key and administrator-entered email address. Re-checking sends the license key, installation ID and current expiry when present, plus the public device key for device-bound paid licenses; moving a key sends the license key and installation ID. Requests also carry authentication proofs and protocol fields. Activation and move request files additionally contain the server's hostname, O.D.I.N. version and generation timestamp. The private device key is never transmitted. The portal sees the connecting IP address. These actions do not send print, job, user or student records. Activation, starting a trial and moving a key can be done without a connection from O.D.I.N., using another computer to contact the portal; re-checking requires a connection from O.D.I.N.
 
 ---
 
@@ -114,8 +115,8 @@ Schools deploying O.D.I.N. for students under 13 should adopt the following prac
 ### 6.3 Data Retention and Deletion
 
 - **Establish a retention schedule** — delete student accounts and associated data at the end of each school year or when students leave
-- **Use the GDPR erasure endpoint** (`DELETE /api/v1/gdpr/erase`) to permanently remove all data associated with a student's account
-- **Use the GDPR export endpoint** (`GET /api/v1/gdpr/export`) to fulfill parental inspection requests
+- **Use the GDPR erasure endpoint** (`DELETE /api/v1/users/{user_id}/erase`) to anonymize supported user data; retained operational records and excluded copies are not all deleted
+- **Use the GDPR export endpoint** (`GET /api/v1/users/{user_id}/export`) to export supported user data for parental inspection requests
 
 ### 6.4 Notification Webhooks
 
@@ -135,7 +136,7 @@ O.D.I.N. protects stored data with:
 | Authentication | JWT tokens (HS256, 24-hour expiry) + API key |
 | Role-based access | Admin / Operator / Viewer tiers |
 | Session management | Active session tracking, token blacklisting |
-| Audit logging | All user actions logged |
+| Audit logging | Selected authentication, operational and administrative actions are logged |
 
 Schools should deploy O.D.I.N. behind a TLS-terminating reverse proxy (nginx, Traefik, etc.) to encrypt data in transit. O.D.I.N. does not provide native TLS. This is important for protecting children's information in transit on the network.
 
@@ -158,7 +159,7 @@ O.D.I.N. contains:
 - No advertising of any kind
 - No behavioral tracking or profiling
 - No cookies used for third-party tracking
-- No fingerprinting or persistent identifiers sent externally
+- No persistent identifiers are sent for cross-site behavioral tracking; license actions send the installation identifiers described in Section 3.3
 - No gamification designed to encourage excessive data sharing
 
 ---
@@ -168,7 +169,7 @@ O.D.I.N. contains:
 Sublab 3DP attests that:
 
 1. O.D.I.N. does not collect personal information directly from children
-2. O.D.I.N. does not transmit student data to Sublab 3DP, and transmits nothing to any third party unless an integration or push notifications are turned on
+2. License actions send the data described in Section 3.3 to Sublab 3DP, but no student records through those actions. Enabled integrations, push notifications and browser requests for API-documentation assets make the connections described in Section 3.3
 3. O.D.I.N. does not contain advertising or third-party tracking
 4. License activation can be done entirely by file; online activation sends the items in Section 3.3
 5. Sublab 3DP has no access to any deployed O.D.I.N. instance
