@@ -82,3 +82,19 @@ def test_auto_detected_machine_type_wins_over_a_stale_user_model(fleet):
     got = rows(fleet, [p1s, x1c])
     assert got[p1s][:2] == ('scheduled', 42)   # empty machine_type -> model 'P1S' used
     assert got[x1c][:2] == ('scheduled', 41)   # machine_type X1C wins over stale model 'P1S'
+
+
+@pytest.mark.parametrize('primary,explicit,expected', [
+    (None, None, 32), (901, None, 31), (902, 901, 31), (901, 902, 32),
+])
+def test_variant_machine_requirement_follows_selected_payload(fleet, primary, explicit, expected):
+    _fleet(fleet, {31: 'X1C', 32: 'A1'})
+    _job_for_file(fleet, 'X1C')
+    fleet.execute(text('DELETE FROM print_files WHERE model_id=900'))
+    fleet.execute(text("INSERT INTO print_files(id,filename,model_id,printer_model,org_id) VALUES "
+                       "(901,'original.3mf',900,'X1C',1),(902,'variant.3mf',900,'A1',1)"))
+    fleet.execute(text('UPDATE models SET print_file_id=:id WHERE id=900'), {'id': primary})
+    fleet.execute(text('UPDATE jobs SET print_file_id=:id WHERE id=900'), {'id': explicit})
+    fleet.commit()
+    run(fleet)
+    assert rows(fleet, [900])[900][:2] == ('scheduled', expected)

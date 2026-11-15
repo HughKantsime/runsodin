@@ -56,6 +56,7 @@ class FilamentInfo:
     color: str  # hex color like #FFFFFF
     used_meters: float
     used_grams: float
+    color_stated: bool = True  # False when color is only the display fallback
 
 
 @dataclass
@@ -165,6 +166,7 @@ def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileM
                     slot=fil.get('id', 1),
                     type=fil.get('type', 'Unknown'),
                     color=fil.get('color', '#888888'),
+                    color_stated=fil.get('color_stated', False),
                     used_meters=float(fil.get('used_m', 0)),
                     used_grams=float(fil.get('used_g', 0))
                 ))
@@ -227,6 +229,7 @@ def parse_slice_info(zf: zipfile.ZipFile) -> Optional[dict]:
                     'id': int(fil.get('id', 1)),
                     'type': fil.get('type', 'Unknown'),
                     'color': fil.get('color', '#888888'),
+                    'color_stated': bool((fil.get('color') or '').strip()),
                     'used_m': fil.get('used_m', '0'),
                     'used_g': fil.get('used_g', '0')
                 })
@@ -353,6 +356,7 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
         filaments = []
         filament_type = 'Unknown'
         filament_color = '#888888'
+        color_stated = False
         
         if 'Metadata/project_settings.config' in zf.namelist():
             with zf.open('Metadata/project_settings.config') as f:
@@ -368,11 +372,13 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
                     colors = data['filament_colour']
                     if isinstance(colors, list) and len(colors) > 0:
                         filament_color = colors[0]
+                        color_stated = isinstance(filament_color, str) and bool(filament_color.strip())
         
         filaments.append(FilamentInfo(
             slot=1,
             type=filament_type,
             color=filament_color,
+            color_stated=color_stated,
             used_meters=0,
             used_grams=0
         ))

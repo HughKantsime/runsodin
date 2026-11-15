@@ -2202,7 +2202,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 240,
+      "line": 241,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -2906,7 +2906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 286,
+      "line": 372,
       "path": "backend/modules/vision/printer_native.py",
       "pattern": "qmark-parameter",
       "reason": "Printer detection correlation uses bound qmark reads through the shared monitor DBAPI adapter.",

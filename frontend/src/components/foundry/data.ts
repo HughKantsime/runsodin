@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { printers, printJobs, alerts } from '../../api'
 import { fetchAPI } from '../../api/client'
-import { canAccessPage } from '../../permissions'
+import { canAccessPage, getCurrentUser } from '../../permissions'
 export { needsYou, state, fleetCounts }
 import type { Printer, PrintJob, Job } from '../../types'
 
@@ -25,8 +25,9 @@ export function nextJob(printer: Printer, queue: Job[]) {
   return queue.filter(job => (job.printer_id ?? job.pinned_printer_id) === printer.id && ['scheduled', 'pending'].includes(job.status))
     .sort((a, b) => (utc(a.scheduled_start) || Infinity) - (utc(b.scheduled_start) || Infinity) || (a.queue_position ?? Infinity) - (b.queue_position ?? Infinity) || a.id - b.id)[0]
 }
-export function useFleet() {
-  return useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 30000 })
+export function useFleet(orgId: number | null = null, options: { enabled?: boolean } = {}) {
+  const userId = getCurrentUser()?.id ?? null
+  return useQuery({ queryKey: ['printers', 'active', userId, orgId], queryFn: () => printers.list(true, '', orgId), refetchInterval: 30000, ...options })
 }
 export async function readQueue(): Promise<Job[]> {
   const result: Job[] = []

@@ -185,7 +185,13 @@ export interface ProfileListParams {
 export const models = {
   getVariants: (id: number): Promise<{ model_id: number; model_name: string; printer_fit?: PrinterFit | null; variants: ModelVariant[] }> => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId: number, variantId: number): Promise<void> => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
-  list: (orgId: number | null = null): Promise<Model[]> => fetchAPI('/models' + (orgId != null && typeof orgId !== 'object' ? '?org_id=' + orgId : '')),
+  list: (orgId: number | null = null, limit?: number): Promise<Model[]> => {
+    const query = new URLSearchParams()
+    if (orgId != null && typeof orgId !== 'object') query.set('org_id', String(orgId))
+    if (limit != null) query.set('limit', String(limit))
+    const qs = query.toString()
+    return fetchAPI('/models' + (qs ? '?' + qs : ''))
+  },
   listWithPricing: (category?: string | null, orgId: number | null = null, filters: ModelLibraryFilters = {}): Promise<ModelWithPricing[]> => {
     const query = new URLSearchParams()
     if (category) query.set('category', category)

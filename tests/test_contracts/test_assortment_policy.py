@@ -29,6 +29,20 @@ def stock(monkeypatch,quantity='2',state='known'):
     monkeypatch.setattr(SquareReader,'count',lambda *_:{'quantity':quantity,'state':state,'calculated_at':'2026-10-20T12:00:00Z'})
 
 
+def test_preview_uses_recipe_column_id_when_saved_copy_disagrees(batch, monkeypatch):
+    recipe = ready(batch)
+    policy(batch)
+    stock(monkeypatch)
+    db = batch[3]
+    raw = db.execute(select(batches.recipes.c.definition)).scalar_one()
+    db.execute(update(batches.recipes).values(definition=batches.packed({**json.loads(raw), 'id': 'f' * 32})))
+    db.commit()
+    answer = batch[0].post(f'{BASE}/101/preview')
+    assert answer.status_code == 200, answer.text
+    assert answer.json()['status'] == 'candidate'
+    assert [r['id'] for r in answer.json()['recipes']] == [recipe['id']]
+
+
 def test_policy_unconfigured_explicit_inactive_trial_and_no_remote_reads(batch):
     client,_,calls,*_=batch;count=len(calls)
     state=client.get(BASE).json();assert {p['id'] for p in state['products']}=={101,104}

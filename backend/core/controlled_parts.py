@@ -117,19 +117,38 @@ def dispatch_refusal(db, job_id, printer_id):
     return None
 
 
-def _file_rules(expression):
+def _file_rules(expression, *, multiple=False):
     from core.controlled_sql import inner_alias
     cp, marked, candidate = (inner_alias(name, expression) for name in ('cp', 'marked', 'candidate'))
     fields = ','.join(cp + '.' + name for name in
                      ('label', 'audience_id', 'printer_tag', 'retention_days', 'marked_at', 'purge_previewed_at'))
+    selection = f'IN ({expression})' if multiple else '=' + expression
     matching = (f' JOIN print_files {candidate} ON ({candidate}.id={marked}.id OR '
                 f'({candidate}.stored_path IS NOT NULL AND {candidate}.stored_path={marked}.stored_path)) '
-                f'WHERE {candidate}.id=' + expression)
+                f'WHERE {candidate}.id ' + selection)
     return (f'SELECT {fields},' + deadline_sql('files', 'file_id', cp) +
             f' FROM controlled_files {cp} JOIN print_files {marked} ON {marked}.id={cp}.file_id' + matching +
             f' UNION ALL SELECT {fields},' + deadline_sql('jobs', 'job_id', cp) +
             f' FROM controlled_jobs {cp} JOIN print_files {marked} ON {marked}.id=('
             + selected_file_sql(cp + '.job_id') + ')' + matching)
+
+
+def owner_audiences(db, owner):
+    """All audiences affecting an owner's files/jobs, plus every orphaned mark.
+
+    Use the item policy's file sharing and selected-file expressions, including
+    files selected by owned jobs even when those files belong to another owner.
+    """
+    files = ('SELECT id FROM print_files WHERE COALESCE(org_id,0)=:owner UNION SELECT ('
+             + selected_file_sql('j.id') + ') FROM jobs j WHERE COALESCE(j.charged_to_org_id,0)=:owner')
+    rules = _file_rules(files, multiple=True)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed policy expressions shared with item checks; owner is bound
+    return db.execute(text('SELECT audience_id FROM (' + rules + ') owner_rules UNION '
+        'SELECT c.audience_id FROM controlled_files c LEFT JOIN print_files f ON f.id=c.file_id WHERE f.id IS NULL UNION '
+        'SELECT c.audience_id FROM controlled_jobs c LEFT JOIN jobs j ON j.id=c.job_id '
+        'WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner UNION '
+        'SELECT c.audience_id FROM controlled_job_tombstones c LEFT JOIN jobs j ON j.id=c.job_id '
+        'WHERE j.id IS NULL OR COALESCE(j.charged_to_org_id,0)=:owner'), {'owner': owner}).scalars().all()
 
 
 def _audience(actor, rules):

@@ -81,8 +81,12 @@ class UltimakerStatus:
     raw_data: Dict[str, Any] = field(default_factory=dict)  # the GET /printer body
 
 
-def _json_object(reply) -> Optional[dict]:
-    """The reply body as a JSON object, read with a hard cap of _MAX_BODY bytes, else None."""
+class _BodyReadError(Exception):
+    """The response body could not be inspected."""
+
+
+def _json_object(reply, *, report_read_failure=False) -> Optional[dict]:
+    """Bounded JSON object or None; probes can distinguish read failures from invalid JSON."""
     watchdog = None
     expired = threading.Event()
     try:
@@ -110,13 +114,20 @@ def _json_object(reply) -> Optional[dict]:
             watchdog.start()
         for chunk in reply.iter_content(chunk_size=8192):
             size += len(chunk)
-            if size > _MAX_BODY or expired.is_set() or time.monotonic() >= deadline:
-                return None
+            if expired.is_set() or time.monotonic() >= deadline:
+                raise TimeoutError("Ultimaker body deadline expired")
+            if size > _MAX_BODY:
+                # The cap stopped inspection; it does not identify the peer's protocol.
+                raise ValueError("Ultimaker body exceeds inspection limit")
             chunks.append(chunk)
         if expired.is_set() or time.monotonic() >= deadline:
-            return None
+            raise TimeoutError("Ultimaker body deadline expired")
         value = json.loads(b"".join(chunks).decode("utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, requests.exceptions.ContentDecodingError):
+        return None
+    except Exception as exc:
+        if report_read_failure:
+            raise _BodyReadError() from exc
         return None
     finally:
         if watchdog is not None:
@@ -177,7 +188,7 @@ class UltimakerPrinter:
             log.warning("Ultimaker request error: %s", type(exc).__name__)
         return None
 
-    def _fetch(self, path: str):
+    def _fetch(self, path: str, *, report_read_failure=False):
         """(status code, JSON object) : (None, None) when unanswered; object None unless 200 with an object."""
         reply = self._get(path)
         if reply is None:
@@ -186,7 +197,7 @@ class UltimakerPrinter:
         if code != 200:
             _close(reply)
             return code, None
-        return code, _json_object(reply)
+        return code, _json_object(reply, report_read_failure=report_read_failure)
 
     # ------------------------------------------------------------------
     # reads
@@ -196,8 +207,11 @@ class UltimakerPrinter:
         return self.probe_system()[0]
 
     def probe_system(self):
-        """(system info or None, HTTP status or None). Status None: no answer at all (see _get)."""
-        code, body = self._fetch("/system")
+        """(system info or None, HTTP status or None). Status None: no inspectable answer."""
+        try:
+            code, body = self._fetch("/system", report_read_failure=True)
+        except _BodyReadError:
+            return None, None
         if code != 200 or body is None:
             return None, code
         info = parse_system(body)

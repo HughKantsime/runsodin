@@ -623,7 +623,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             log.warning("Ultimaker test-connection failed")
             info, answer = None, None
         if info is None:
-            # The adapter reports timeout, refusal and a blocked destination alike as "no answer",
+            # The adapter reports read failure, timeout, refusal and a blocked destination as "no answer",
             # so only an answer that is not an Ultimaker's (404, or 200 without its fields) is known.
             return failed(NOT_THIS_TYPE if answer in (200, 404) else UNKNOWN,
                           "Connection failed. Check the printer address; the printer must answer http://<address>/api/v1/system.")

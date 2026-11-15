@@ -1,6 +1,6 @@
 import { contrastRatio } from "./utils/contrast"
 import { DEFAULT_SURFACE_COLORS } from "./utils/brandingPalette"
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react"
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react"
 
 const API_BASE = '/api'
 
@@ -58,11 +58,12 @@ function loadBrandingFonts(b) {
   }
 }
 
-const BrandingContext = createContext(DEFAULT_BRANDING)
+const BrandingContext = createContext({ ...DEFAULT_BRANDING, brandingResolved: true })
 const BrandingUpdateContext = createContext<(patch: any) => void>(() => {})
 
 export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
+  const [brandingResolved, setBrandingResolved] = useState(false)
   const generation = useRef(0)
   const organizationOverlay = useRef({})
   const confirmedPatch = useRef({})
@@ -126,6 +127,7 @@ export function BrandingProvider({ children }) {
         applyBrandingCSS(DEFAULT_BRANDING)
         applyBrandingMeta(DEFAULT_BRANDING)
       })
+      .finally(() => setBrandingResolved(true))
   }, [])
 
   // Re-apply branding when theme toggles (html.light class changes)
@@ -140,8 +142,15 @@ export function BrandingProvider({ children }) {
     return () => observer.disconnect()
   }, [branding])
 
+  const value = useMemo(() => ({
+    ...branding,
+    // Withhold the initial stock name; an explicitly confirmed name remains visible.
+    app_name: brandingResolved || 'app_name' in confirmedPatch.current ? branding.app_name : '',
+    brandingResolved,
+  }), [branding, brandingResolved])
+
   return (
-    <BrandingContext.Provider value={branding}>
+    <BrandingContext.Provider value={value}>
       <BrandingUpdateContext.Provider value={updateConfirmedBranding}>
         {children}
       </BrandingUpdateContext.Provider>
@@ -242,19 +251,26 @@ function applyBrandingMeta(b) {
       : b.app_name
   }
 
-  applyBrandingFavicon(b.favicon_url)
+  applyBrandingFavicon(b.favicon_url, !b.logo_url && b.app_name === DEFAULT_BRANDING.app_name)
 
 }
 
-export function applyBrandingFavicon(url: string | null) {
-  let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']")
-  if (!link) {
-    link = document.createElement("link")
+export function applyBrandingFavicon(url: string | null, stockBranding = true) {
+  let links = [...document.querySelectorAll<HTMLLinkElement>("link[rel~='icon']")]
+  if (!links.length) {
+    const link = document.createElement("link")
     link.rel = "icon"
     document.head.appendChild(link)
+    links = [link]
   }
-  link.removeAttribute("type")
-  link.href = url || "/favicon.svg"
+  // Update every candidate, including the PNG fallback, so browsers cannot retain an ODIN icon.
+  for (const link of links) {
+    link.removeAttribute("type")
+    link.removeAttribute("sizes")
+    link.href = url || (stockBranding
+      ? (link.relList.contains('alternate') ? '/favicon-32.png' : '/favicon.svg')
+      : '/favicon-neutral.svg')
+  }
 }
 
 export default BrandingContext

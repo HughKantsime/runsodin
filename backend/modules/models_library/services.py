@@ -127,7 +127,7 @@ def saved_pricing_config(db: Session):
     return {key: item for key, item in row.value.items() if key != PRICING_SAVED_KEY}, True
 
 
-def price_one_item(config, *, material_cost, print_hours):
-    """The one pricing rule for a single plate, as calculate_job_cost applies it to a job."""
+def price_one_item(config, *, material_cost, print_hours, units_per_plate=1):
+    """The one pricing rule, sharing plate handling across the supplied item count."""
     from modules.models_library.pricing_rule import price_item
-    return price_item(config, material_cost=material_cost, print_hours=print_hours, units_per_plate=1)
+    return price_item(config, material_cost=material_cost, print_hours=print_hours, units_per_plate=units_per_plate)

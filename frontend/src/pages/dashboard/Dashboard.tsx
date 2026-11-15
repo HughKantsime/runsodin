@@ -2,6 +2,7 @@ import { hmsFaults } from '../../utils/hms'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import Floor from '../../components/foundry/Floor'
+import { useFleet } from '../../components/foundry/data'
 import StatusBadge, { printerBadgeStatus } from '../../components/ui/StatusBadge'
 import { displayName } from '../../utils/displayName'
 import { useTranslation } from '../../contexts/I18nContext'
@@ -389,7 +390,7 @@ function ClassicDashboard() {
   const { data: farmConfig } = useQuery({ queryKey: ['config'], queryFn: () => fetchAPI<any>('/config'), staleTime: 300000 })
   const farmDay = farmDayNote(farmConfig?.farm_timezone_effective?.zone, browserTimeZone())
   const { data: dashAlertSummary } = useQuery({ queryKey: ['dash-alert-summary'], queryFn: alertsApi.summary, refetchInterval: 60000 })
-  const { data: printersData, isLoading: printersLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 30000 })
+  const { data: printersData, isLoading: printersLoading } = useFleet()
   const { data: activeJobs, isLoading: jobsLoading } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
   const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 30000 })
 

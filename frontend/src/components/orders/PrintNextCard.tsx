@@ -13,7 +13,7 @@ export default function PrintNextCard() {
     if (allowed) replenishment.list(true, true).then(next => { if (live) setList(next) }).catch(() => { if (live) setList(null) })
     return () => { live = false }
   }, [allowed])
-  if (!allowed || !list || list.print_next_count <= 0) return null
+  if (!allowed || !list || list.work_hidden || !list.print_next_count) return null
   const top = list.rows.filter(row => row.rank).slice(0, 3)
   return <section aria-labelledby="print-next-card-title" className="mb-6 rounded-md border border-amber-500/60 bg-[var(--brand-card-bg)] p-4 text-sm">
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

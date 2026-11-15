@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from sqlalchemy import text, update
 
 from core.models import SystemConfig
-from modules.orders import assortment, batch_production as batches, replenishment, square_store as store
+from modules.orders import assortment, replenishment, replenishment_evidence as evidence, square_store as store
 
 MAX_PLATES = 50
 
@@ -45,7 +45,8 @@ def plate_source(db, owner, user, recipe, hashes):
     if printer is None or not db.execute(text('SELECT 1 FROM models WHERE id=:id AND ' + scope),
                                          {'id': payload['model_id'], 'owner': owner}).first():
         return None, 'The recipe\'s printer or model is no longer in this organization. Qualify a new recipe.'
-    file = db.execute(text('SELECT id,model_id,stored_path FROM print_files WHERE id=:id'), {'id': payload['print_file_id']}).mappings().first()
+    file = db.execute(text('SELECT id,model_id,stored_path FROM print_files WHERE id=:id AND ' + scope),
+                      {'id': payload['print_file_id'], 'owner': owner}).mappings().first()
     if file is None or file['model_id'] != payload['model_id'] or not file['stored_path'] or not os.path.isfile(file['stored_path']):
         return None, 'The recipe\'s print file is no longer available. Qualify a new recipe.'
     if db.execute(text('SELECT 1 FROM education_submissions WHERE print_file_id=:id'), {'id': file['id']}).first():
@@ -74,7 +75,10 @@ def queue(db, user, data):
     if not _is_platform_superadmin(user) and user.get('role') not in action_roles(db, 'jobs.create'):
         raise HTTPException(403, 'Insufficient permissions')
     owner = store.tenant(user)
-    # Stock knowledge first (it may read Square, read-only, outside any lock), then authority under locks.
+    visible = replenishment.full_view(db, owner, user)
+    if not visible:
+        raise HTTPException(403, replenishment.HIDDEN_WORK)
+    # Only cleared callers may use the stock-read budget. Remote reads stay outside locks.
     known = replenishment.stock(db, owner)
     if known['error']:
         known = {**known, 'counts': {}}
@@ -99,7 +103,7 @@ def queue(db, user, data):
         seen.add(item.product_id)
         product = store.own_product(db, owner, item.product_id, lock=True)
         # Rebuilt for every item: plates staged for an earlier item (a mixed plate) already count as on the way.
-        rows, _ = replenishment.build(db, owner, user, known)
+        rows, _ = replenishment.build(db, owner, user, known, visible=visible)
         row = next((r for r in rows if r['product_id'] == item.product_id), None)
         if row is None or row['status'] == 'blocked':
             skipped.append({'product_id': item.product_id, 'reason': row['reason'] if row else 'This product is not in the active assortment.'})
@@ -110,7 +114,10 @@ def queue(db, user, data):
         if row['recipe']['id'] != item.recipe_id:
             skipped.append({'product_id': item.product_id, 'reason': 'The suggested plate changed. Reload the list.'})
             continue
-        recipe = batches.recipe(db, owner, item.recipe_id, resolve_legacy=False)
+        try:
+            recipe = evidence.load_recipe(db, owner, item.recipe_id)
+        except evidence.ScanProblem as exc:
+            raise HTTPException(409, str(exc)) from None
         printer, problem = plate_source(db, owner, user, recipe, hashes)
         if problem:
             skipped.append({'product_id': item.product_id, 'reason': problem})

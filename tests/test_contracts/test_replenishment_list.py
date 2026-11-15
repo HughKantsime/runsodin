@@ -14,6 +14,7 @@ from sqlalchemy import event, text, update
 from tests.test_contracts.test_assortment_policy import BASE, ready
 from tests.test_contracts.test_batch_acceptance import batch, body, make_recipe  # noqa: F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
+from tests.test_contracts.test_outside_print_binding import outside  # noqa: F401
 from tests.test_contracts.test_square_readonly_workflow import mapped, shop  # noqa: F401
 from modules.orders import assortment, batch_production as batches, replenishment, square_store
 
@@ -184,15 +185,44 @@ def test_uninspected_output_and_pieces_waiting_for_square_count_as_on_the_way(fl
     assert entry['shortfall'] == 20 - 2 - 9
 
 
-def test_smallest_batch_excludes_a_small_plate_and_names_what_is_missing(floor):
-    plate(floor, yield_count=3)
-    numbers(floor, point=5, target=10, smallest=4)
+@pytest.mark.parametrize('target,smallest,needed', [(5, 4, 2), (10, 4, 3), (10, 3, 3)])
+def test_smallest_batch_applies_to_the_run_of_small_plates(floor, target, smallest, needed):
+    recipe = plate(floor, yield_count=3)
+    numbers(floor, point=5, target=target, smallest=smallest)
     entry = row(floor)
-    assert entry['status'] == 'blocked' and entry['below_point'] is True and entry['recipe'] is None and entry['plates_needed'] == 0
-    assert 'no qualified recipe' in entry['reason']
-    numbers(floor, point=5, target=10, smallest=3)
+    assert entry['status'] == 'below' and entry['below_point'] is True
+    assert entry['recipe']['pieces_per_plate'] == 3 and entry['plates_needed'] == needed
+    answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': needed}])
+    assert answer.status_code == 200 and answer.json()['queued'][0]['plates'] == needed
+    assert len(held_jobs(floor)) == needed
+
+
+def test_smallest_batch_covers_every_main_output_in_a_mixed_run(floor):
+    plate(floor, outputs=[{'product_id': 101, 'kind': 'main', 'expected': 5},
+                          {'product_id': 104, 'kind': 'main', 'expected': 3}])
+    numbers(floor, target=5)
+    numbers(floor, 104, smallest=7)
     entry = row(floor)
-    assert entry['status'] == 'below' and entry['recipe']['pieces_per_plate'] == 3 and entry['plates_needed'] == 3  # ceil(8 / 3)
+    assert entry['status'] == 'below' and entry['plates_needed'] == 3
+
+
+def test_mixed_run_without_a_coproduct_policy_uses_a_one_piece_minimum(floor):
+    plate(floor, outputs=[{'product_id': 101, 'kind': 'main', 'expected': 5},
+                          {'product_id': 104, 'kind': 'main', 'expected': 3}])
+    numbers(floor, target=5)
+    assert '104' not in assortment.load(floor['db'], 1)[0]['products']
+    entry = row(floor)
+    assert entry['status'] == 'below' and entry['plates_needed'] == 1
+
+
+@pytest.mark.parametrize('product_id', [101, 104])
+def test_zero_yield_main_output_is_rejected_before_it_can_reach_the_list(floor, product_id):
+    answer = floor['client'].post('/products/production/recipes', json={
+        'reference_job_id': 301, 'name': 'Zero yield', 'materials': 'PLA', 'qualification_confirmed': True,
+        'outputs': [{'product_id': pid, 'kind': 'main', 'expected': 0 if pid == product_id else 5}
+                    for pid in (101, 104)]})
+    assert answer.status_code == 422
+    assert floor['db'].execute(text('SELECT COUNT(*) FROM production_recipes')).scalar() == 0
 
 
 def test_legacy_policy_without_numbers_prints_one_batch(floor):
@@ -534,22 +564,310 @@ def test_licence_gate_needs_pro_for_the_list_and_the_queue(floor, tier_license):
     assert client.get(URL).status_code == 200 and client.post(URL + '/queue', json=item).status_code == 200
 
 
-def test_controlled_plate_follows_existing_visibility(floor, monkeypatch):
+def restrict(floor, *, kind='file', identifier=301, audience=1):
+    db = floor['db']
+    # Fault injection for retained orphan marks from older databases.
+    orphan = kind in ('file', 'job') and identifier >= 998
+    if orphan:
+        db.commit()
+        db.execute(text('PRAGMA foreign_keys=OFF'))
+    db.execute(text('INSERT INTO controlled_audiences(id,name) VALUES(:id,:name)'), {'id': audience, 'name': f'Audience {audience}'})
+    table, column = {'file': ('controlled_files', 'file_id'), 'job': ('controlled_jobs', 'job_id'),
+                     'tombstone': ('controlled_job_tombstones', 'job_id')}[kind]
+    if kind == 'tombstone':
+        db.execute(text("INSERT INTO controlled_job_tombstones(job_id,audience_id,label,printer_tag,retention_days,marked_at,created_at,audit_max_id,rule_index) "
+                        "VALUES(:id,:audience,'CUI','Secure',7,'2026-11-01','2026-11-01',0,0)"), {'id': identifier, 'audience': audience})
+    else:
+        db.execute(text(f"INSERT INTO {table}({column},label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                        "VALUES(:id,'CUI',:audience,'Secure',7,'test','2026-11-01')"), {'id': identifier, 'audience': audience})
+    db.commit()
+    if orphan:
+        db.execute(text('PRAGMA foreign_keys=ON'))
+        db.commit()
+
+
+def join_audience(floor, audience=1):
+    floor['db'].execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(:audience,:user)'),
+                        {'audience': audience, 'user': floor['user']['id']})
+    floor['db'].commit()
+
+
+def assert_no_planning(result):
+    encoded = json.dumps(result)
+    for field in ('job_ids', 'print_job_id', 'awaiting_stock', 'on_the_way', 'shortfall', 'rank',
+                  'rank_reason', 'recipe', 'plates_needed', 'print_next_count'):
+        assert f'"{field}":' not in encoded
+    assert all(r['status'] == 'blocked' for r in result['rows'])
+
+
+@pytest.mark.parametrize('role', ['operator', 'admin'])
+@pytest.mark.parametrize('kind,identifier', [('file', 301), ('job', 302), ('file', 999), ('job', 999), ('tombstone', 999)])
+def test_one_gate_hides_all_production_and_refuses_queue(floor, role, kind, identifier):
+    recipe = make_recipe(floor['batch'])
+    floor['db'].execute(text("UPDATE printers SET api_type='moonraker' WHERE id=301"))
+    floor['db'].commit()
+    numbers(floor, target=20)
+    numbers(floor, 104)
+    remap(floor, 104, 'V4')
+    floor['state']['levels']['V4'] = '25'
+    db = floor['db']
+    db.execute(text("INSERT INTO orders(id,status,org_id,order_date) VALUES(1,'pending',1,'2026-11-01')"))
+    db.execute(text('INSERT INTO order_items(order_id,product_id,quantity,fulfilled_quantity) VALUES(1,101,30,0)'))
+    db.commit()
+    floor['user']['role'] = role
+    before = listed(floor)
+    assert before['work_hidden'] is False and before['rows'][0]['on_the_way']['pieces'] == 10
+    restrict(floor, kind=kind, identifier=identifier)
+    restrict(floor, kind='file', identifier=998, audience=2)
+    for partial in (False, True):
+        if partial:
+            join_audience(floor)
+        result = listed(floor)
+        assert result['work_hidden'] is True
+        assert_no_planning(result)
+        entries = {r['product_id']: r for r in result['rows']}
+        assert entries[101]['on_hand']['quantity'] == 2 and entries[104]['on_hand']['quantity'] == 25
+        assert entries[101]['open_orders']['pieces'] == 30
+        assert entries[101]['target'] == 20
+        assert all(r['reason'] == replenishment.HIDDEN_WORK for r in result['rows'])
+        answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}])
+        assert answer.status_code == 403 and answer.json()['detail'] == replenishment.HIDDEN_WORK
+        assert held_jobs(floor) == []
+        assert replenishment.print_next_count(db, floor['user']) is None
+    join_audience(floor, 2)
+    after = listed(floor)
+    assert after['work_hidden'] is False
+    for result in (before, after):
+        for entry in result['rows']:
+            entry['on_hand']['age_seconds'] = 0
+    assert after['rows'] == before['rows'] and after['print_next_count'] == before['print_next_count']
+    answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}])
+    assert answer.status_code == 200 and answer.json()['queued'], answer.text
+
+
+def test_other_owner_marks_do_not_restrict_this_owner(floor):
+    plate(floor)
+    numbers(floor)
+    floor['db'].execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id) VALUES(400,'foreign','pending',2)"))
+    floor['db'].commit()
+    restrict(floor, kind='job', identifier=400)
+    assert listed(floor)['work_hidden'] is False and row(floor)['plates_needed'] == 2
+
+
+def test_gate_is_computed_once_for_a_multi_item_queue(floor):
+    recipe = plate(floor, outputs=[{'product_id': 101, 'kind': 'main', 'expected': 5}, {'product_id': 104, 'kind': 'main', 'expected': 5}])
+    numbers(floor)
+    numbers(floor, 104)
+    remap(floor, 104, 'V4')
+    floor['state']['levels']['V4'] = '2'
+    restrict(floor)
+    join_audience(floor)
+    calls = []
+    def note(conn, cursor, statement, *_):
+        if 'controlled_audience_members' in statement:
+            calls.append(statement)
+    engine = floor['db'].get_bind()
+    event.listen(engine, 'before_cursor_execute', note)
+    try:
+        answer = queue(floor, [{'product_id': pid, 'recipe_id': recipe['id'], 'plates': 2} for pid in (101, 104)])
+    finally:
+        event.remove(engine, 'before_cursor_execute', note)
+    assert answer.status_code == 200 and answer.json()['queued']
+    assert len(calls) == 1
+
+
+
+BAD_IDS = [True, 1.0, '1', 0, None, [], {}, 2**63, 'absent', 'renamed']
+
+
+@pytest.mark.parametrize('path', [('payload', 'model_id'), ('payload', 'print_file_id'), ('payload', 'printer_id'),
+                                 ('outputs', 0, 'product_id'), ('reference_job_id',)])
+def test_recipe_identifiers_are_strict_and_invalidates_the_entire_build(floor, path):
     recipe = plate(floor)
     numbers(floor)
-    from core import controlled_parts
-    monkeypatch.setattr(controlled_parts, 'any_controlled_data', lambda db: True)
-    monkeypatch.setattr(controlled_parts, 'allowed', lambda db, kind, identifier, actor: not (kind == 'model' and identifier == 301))
-    entry = row(floor)
-    assert entry['status'] == 'blocked' and entry['recipe'] is None and 'controlled work you cannot see' in entry['reason']
-    assert 'Qualified part' not in json.dumps(entry)
+    numbers(floor, 104)
+    original = floor['db'].execute(text('SELECT definition FROM production_recipes')).scalar_one()
+    for bad in BAD_IDS:
+        definition = json.loads(original)
+        parent = definition
+        for key in path[:-1]:
+            parent = parent[key]
+        if bad in ('absent', 'renamed'):
+            prior = parent.pop(path[-1])
+            if bad == 'renamed':
+                parent['renamed_' + path[-1]] = prior
+        else:
+            parent[path[-1]] = bad
+        floor['db'].execute(update(batches.recipes).values(definition=batches.packed(definition)))
+        floor['db'].commit()
+        result = listed(floor)
+        assert_no_planning(result)
+        assert all('Recipe scan' in r['reason'] for r in result['rows'])
+        assert queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}]).json()['queued'] == []
+
+
+@pytest.mark.parametrize('raw', ['{', '[]', 'null', 'true', '"recipe"', '{}'])
+def test_malformed_recipe_definitions_block_every_row(floor, raw):
+    plate(floor)
+    numbers(floor)
+    floor['db'].execute(update(batches.recipes).values(definition=raw))
+    floor['db'].commit()
+    assert_no_planning(listed(floor))
+
+
+@pytest.mark.parametrize('path', [('job_id',), ('outputs', 0, 'product_id'), ('outputs', 0, 'accepted'), ('print_job_id',)])
+def test_receipt_inputs_are_strict_before_any_quantity_or_inspection_suppression(floor, path):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    response = floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe))
+    assert response.status_code == 200
+    original = floor['db'].execute(text('SELECT definition FROM production_acceptances')).scalar_one()
+    for bad in BAD_IDS:
+        # Normal ODIN receipts use physical_uid instead of a print_job_id key.
+        if path == ('print_job_id',) and bad == 'absent':
+            continue
+        definition = json.loads(original)
+        parent = definition
+        for key in path[:-1]:
+            parent = parent[key]
+        if bad in ('absent', 'renamed'):
+            prior = parent.pop(path[-1], 1)
+            if bad == 'renamed':
+                parent['renamed_' + path[-1]] = prior
+        else:
+            parent[path[-1]] = bad
+        floor['db'].execute(update(batches.receipts).values(definition=batches.packed(definition)))
+        floor['db'].commit()
+        assert_no_planning(listed(floor))
+
+
+def test_missing_receipt_after_valid_receipt_discards_all_quantities(floor):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    assert row(floor)['on_the_way']['awaiting_stock'] == 4
+    floor['db'].execute(batches.additions.insert().values(id='f'*32, owner=1, receipt_id='e'*32,
+        destination='{}', request_body='{}', state='prepared', attempts=0))
+    floor['db'].commit()
+    result = listed(floor)
+    assert_no_planning(result)
+    assert 'Pending receipt scan' in result['rows'][0]['reason']
+
+
+@pytest.mark.parametrize('kind', ['job', 'print_job', 'model', 'file', 'product', 'recipe'])
+@pytest.mark.parametrize('damage', ['foreign', 'missing'])
+def test_all_referenced_rows_must_exist_and_belong_to_owner(floor, kind, damage):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    db = floor['db']
+    table, column, identifier = {'job': ('jobs', 'charged_to_org_id', 302), 'model': ('models', 'org_id', 301),
+        'file': ('print_files', 'org_id', 301), 'product': ('products', 'org_id', 104),
+        'recipe': ('production_recipes', 'owner', recipe['id']), 'print_job': ('printers', 'org_id', 301)}[kind]
+    if kind == 'product':
+        definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+        definition['outputs'][0]['product_id'] = 104
+        db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    if damage == 'missing':
+        if kind == 'print_job':
+            db.execute(text('DELETE FROM print_jobs WHERE scheduled_job_id=302'))
+        else:
+            db.execute(text(f'DELETE FROM {table} WHERE id=:id'), {'id': identifier})
+    elif kind == 'job':
+        db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,model_id) VALUES(401,'foreign','completed',2,301)"))
+        definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+        definition['job_id'] = 401
+        db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    else:
+        db.execute(text(f'UPDATE {table} SET {column}=2 WHERE id=:id'), {'id': identifier})
+    db.commit()
+    result = listed(floor)
+    if damage == 'missing' and kind in ('model', 'print_job'):
+        assert result['rows'][0]['status'] == 'blocked'
+        assert 'no longer exists' in result['rows'][0]['reason']
+        assert 'on_the_way' not in result['rows'][0]
+    else:
+        assert_no_planning(result)
+    assert queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}]).json()['queued'] == []
+
+
+@pytest.mark.parametrize('damage', ['foreign_model', 'missing_file', 'wrong_plate_type'])
+def test_job_preparation_is_validated_before_matching(floor, damage):
+    plate(floor)
+    numbers(floor)
+    db = floor['db']
+    db.execute(text("INSERT INTO models(id,name,org_id) VALUES(400,'Foreign',2)"))
+    db.execute(text("INSERT INTO jobs(id,item_name,model_id,status,charged_to_org_id,quantity) VALUES(401,'run',301,'pending',1,1)"))
+    column, value = {'foreign_model': ('model_id', 400),
+                     'missing_file': ('print_file_id', 999), 'wrong_plate_type': ('plate_index', 'invalid')}[damage]
+    db.execute(text(f'UPDATE jobs SET {column}=:value WHERE id=401'), {'value': value})
+    db.commit()
+    assert_no_planning(listed(floor))
+
+
+def test_recipe_column_id_cannot_be_shadowed_to_redirect_queue(floor):
+    recipe = plate(floor)
+    numbers(floor)
+    db = floor['db']
+    definition = json.loads(db.execute(text('SELECT definition FROM production_recipes')).scalar_one())
+    other = {**definition, 'name': 'Other recipe', 'qualified': False}
+    db.execute(batches.recipes.insert().values(id='d'*32, owner=1, definition=batches.packed(other)))
+    definition['id'] = 'd'*32
+    db.execute(update(batches.recipes).where(batches.recipes.c.id == recipe['id']).values(definition=batches.packed(definition)))
+    db.commit()
+    assert_no_planning(listed(floor))
+    result = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}]).json()
+    assert result['queued'] == []
+    assert held_jobs(floor) == []
+
+
+@pytest.mark.parametrize('change', ['foreign_recipe', 'foreign_model', 'foreign_file', 'invalid_payload'])
+def test_queue_reauthorizes_exact_reloaded_recipe(floor, monkeypatch, change):
+    recipe = plate(floor)
+    numbers(floor)
+    floor['db'].execute(text("INSERT INTO models(id,name,org_id) VALUES(400,'Foreign',2)"))
+    floor['db'].execute(text("INSERT INTO print_files(id,filename,org_id,model_id) VALUES(400,'foreign.gcode',2,400)"))
+    floor['db'].commit()
+    real = replenishment.build
+    def change_after_suggestion(*args, **kwargs):
+        result = real(*args, **kwargs)
+        db = args[0]
+        if change != 'foreign_recipe':
+            definition = json.loads(db.execute(text('SELECT definition FROM production_recipes')).scalar_one())
+            key = 'print_file_id' if change == 'foreign_file' else 'model_id'
+            definition['payload'][key] = True if change == 'invalid_payload' else 400
+            db.execute(update(batches.recipes).values(definition=batches.packed(definition)))
+        else:
+            db.execute(text('UPDATE production_recipes SET owner=2'))
+        return result
+    monkeypatch.setattr(replenishment, 'build', change_after_suggestion)
     answer = queue(floor, [{'product_id': 101, 'recipe_id': recipe['id'], 'plates': 1}])
-    assert answer.json()['queued'] == [] and held_jobs(floor) == []
-    monkeypatch.setattr(controlled_parts, 'allowed', lambda *a: True)
-    assert row(floor)['recipe']['id'] == recipe['id']
+    assert answer.status_code == 409 and 'scan' in answer.json()['detail']
+    assert held_jobs(floor) == []
 
 
-# ---- queue ----------------------------------------------------------------------------------------
+def test_finishing_receipts_keep_their_real_shape_and_validate_allocations(floor):
+    from tests.test_contracts.test_finishing_workflow import bom, component, finish_body
+    from modules.orders import finishing
+    preview = bom(floor['batch'])
+    inspected = component(floor['batch'])
+    assert inspected.status_code == 200
+    answer = floor['client'].post('/products/production/finishing', json=finish_body(floor['batch'], inspected.json(), preview))
+    assert answer.status_code == 200
+    numbers(floor)
+    # This fixture has completed jobs but no recipe; finishing still contributes.
+    assert row(floor)['on_the_way']['awaiting_stock'] == 2
+    restrict(floor)
+    assert_no_planning(listed(floor))
+    join_audience(floor)
+    assert row(floor)['on_the_way']['awaiting_stock'] == 2
+    doc, _ = finishing.load(floor['db'], 1)
+    next(iter(doc['finishes'].values()))['allocations'][0]['receipt_id'] = 'f'*32
+    from core.models import SystemConfig
+    floor['db'].execute(update(SystemConfig).where(SystemConfig.key == finishing.key(1)).values(value=batches.packed(doc)))
+    floor['db'].commit()
+    assert_no_planning(listed(floor))
+
 
 def test_queue_creates_held_jobs_through_the_shared_queue_path_and_a_second_click_adds_none(floor, monkeypatch):
     recipe = plate(floor)
@@ -612,7 +930,7 @@ def test_queue_all_counts_a_mixed_plate_once(floor):
 
 
 @pytest.mark.parametrize('damage,reason', [
-    ('edit', 'changed since it was qualified'), ('remove', 'no longer available'), ('printer', 'no longer in this organization')])
+    ('edit', 'changed since it was qualified'), ('remove', 'no longer available'), ('printer', 'ownership scan')])
 def test_queue_refuses_a_plate_whose_file_or_printer_no_longer_matches_the_recipe(floor, damage, reason):
     recipe = plate(floor)
     numbers(floor)
@@ -677,3 +995,97 @@ def test_print_next_count_service_is_pro_only_and_never_contacts_square(floor, t
     reads = len(floor['state']['reads'])
     assert print_next_count(floor['db'], floor['user']) == 1 and len(floor['state']['reads']) == reads
     assert print_next_count(floor['db'], {'id': 9, 'role': 'viewer', 'group_id': None}) is None
+
+
+@pytest.mark.parametrize('qualify', [False, True])
+def test_real_outside_recipe_and_receipt_shapes_remain_supported(floor, outside, qualify):
+    from tests.test_contracts.test_outside_print_binding import binding_body
+    _, pid, recipe = outside
+    if qualify:
+        db = floor['db']
+        db.execute(text("UPDATE print_jobs SET filename='plate.gcode',job_name='plate',started_at='2026-11-01 10:00:00',ended_at='2026-11-01 11:00:00' WHERE id=:id"), {'id': pid})
+        db.execute(text('UPDATE print_files SET file_hash=:sha,plate_count=1 WHERE id=301'),
+                   {'sha': hashlib.sha256(floor['plate'].read_bytes()).hexdigest()})
+        db.commit()
+        answer = floor['client'].post(f'/products/production/outside-prints/{pid}/qualify-and-bind', json={
+            'printer_id': 301, 'print_file_id': 301, 'plate_index': 0, 'name': 'Outside plate', 'materials': 'PLA',
+            'qualification_confirmed': True, 'outputs': [{'product_id': 101, 'kind': 'main', 'expected': 5}],
+            'attestation': {'started_outside_odin': True, 'file_revision_confirmed': True}})
+    else:
+        answer = floor['client'].post(f'/products/production/outside-prints/{pid}/bind', json=binding_body(recipe))
+    assert answer.status_code == 200, answer.text
+    recipe = answer.json()['recipe_revision']
+    request = body(floor['batch'], recipe)
+    request.pop('job_id')
+    request['print_job_id'] = pid
+    answer = floor['client'].post('/products/production/inspections', json=request)
+    assert answer.status_code == 200, answer.text
+    from modules.orders.replenishment_schemas import Receipt
+    Receipt.model_validate_json(floor['db'].execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+    numbers(floor, target=20)
+    entry = row(floor)
+    assert entry.get('on_the_way', {}).get('awaiting_stock') == 4, entry
+    assert entry['shortfall'] == 4
+
+
+@pytest.mark.parametrize('state', ['prepared', 'confirmed'])
+def test_bad_receipt_shape_cannot_supply_counts_or_suppress_completed_work(floor, state):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    db = floor['db']
+    original = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+    renamed = dict(original)
+    renamed['renamed_outputs'] = renamed.pop('outputs')
+    db.execute(update(batches.additions).values(state=state))
+    db.commit()
+    for raw in ('{', '[]', 'null', 'true', '"receipt"', '{}', batches.packed(renamed)):
+        db.execute(update(batches.receipts).values(definition=raw))
+        db.commit()
+        result = listed(floor)
+        assert_no_planning(result)
+        assert 'Receipt scan' in result['rows'][0]['reason']
+
+
+def test_receipt_columns_are_authoritative_and_conflicting_job_uid_blocks(floor):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    db = floor['db']
+    definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+    identifier = db.execute(text('SELECT id FROM production_acceptances')).scalar_one()
+    definition.update(id=identifier, recipe_id=recipe['id'])
+    db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    db.commit()
+    assert row(floor)['on_the_way'] == {'pieces': 9, 'job_ids': [301], 'awaiting_stock': 4}
+    definition['job_uid'] = 'another-job'
+    db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    db.commit()
+    assert_no_planning(listed(floor))
+
+
+def test_receipt_cannot_reference_a_foreign_print_job_even_with_visible_job_and_recipe(floor):
+    recipe = make_recipe(floor['batch'])
+    numbers(floor, target=20)
+    assert floor['client'].post('/products/production/inspections', json=body(floor['batch'], recipe)).status_code == 200
+    db = floor['db']
+    db.execute(text("INSERT INTO printers(id,name,org_id) VALUES(400,'Foreign',2)"))
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,status,started_at) VALUES(400,400,'completed',CURRENT_TIMESTAMP)"))
+    definition = json.loads(db.execute(text('SELECT definition FROM production_acceptances')).scalar_one())
+    definition['print_job_id'] = 400
+    db.execute(update(batches.receipts).values(definition=batches.packed(definition)))
+    db.commit()
+    result = listed(floor)
+    assert_no_planning(result)
+    assert 'Print job ownership scan' in result['rows'][0]['reason']
+
+
+def test_unrelated_valid_job_history_does_not_exhaust_the_matching_scan(floor):
+    plate(floor)
+    numbers(floor)
+    db = floor['db']
+    db.execute(text("INSERT INTO models(id,name,org_id) VALUES(400,'Unrelated model',1)"))
+    db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,model_id,quantity) VALUES(:id,'Unrelated','completed',1,400,1)"),
+               [{'id': 1000 + index} for index in range(replenishment.LIMIT + 1)])
+    db.commit()
+    assert row(floor)['plates_needed'] == 2

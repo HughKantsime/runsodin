@@ -161,7 +161,7 @@ def recipes_for(db,owner,product_id):
     result=[]
     for rid,raw in values:
         spec=json.loads(raw)
-        if any(o['product_id']==product_id and o['kind']=='main' for o in spec['outputs']):result.append({'id':rid,**spec})
+        if any(o['product_id']==product_id and o['kind']=='main' for o in spec['outputs']):result.append({**spec,'id':rid})
     return result
 
 

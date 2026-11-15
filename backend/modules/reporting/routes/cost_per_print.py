@@ -97,10 +97,10 @@ def summarize(name, jobs, costs):
     row["average_actual_per_piece"] = round(actual / row["pieces"], 2)
     if actual > 0:
         row["failure_share_percent"] = round(sum(result["_exact"]["failed"] for _, result in known) / actual * 100, 1)
-    # Estimate and variance only over the jobs that have both figures, so like is compared with like.
+    # Only show comparisons for the same population as the displayed actual average.
     both = [(job, result) for job, result in known
             if isinstance(job.estimated_cost, (int, float)) and job.estimated_cost >= 0]
-    if len(both) >= MINIMUM_JOBS:
+    if len(both) == len(known):
         estimate = sum(job.estimated_cost for job, _ in both)
         row["average_estimate_per_piece"] = round(estimate / sum(_pieces(job) for job, _ in both), 2)
         if estimate > 0:
@@ -117,7 +117,7 @@ def build(db, user, start: Optional[date], end: Optional[date], group: str):
     if not configured:
         return body
     jobs = _completed_jobs(db, user, *_window(db, start, end))
-    costs = job_actual_costs(db, jobs, config)
+    costs = job_actual_costs(db, jobs, config, user)
     if group == "product":
         key_of, names = _product_names(db, user, jobs)
     else:

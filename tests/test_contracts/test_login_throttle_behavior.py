@@ -139,6 +139,31 @@ def test_password_sign_in_failure_writes_exactly_one_row(login_client,review_db)
     assert _sign_in_rows(review_db)==[('auth.login_failed','user',None,{'username':'student'})]
 
 
+@pytest.mark.parametrize('detail', [
+    'Unrelated authentication refusal',
+    'Invalid authentication session',
+    'Credentials changed. Restart sign-in.',
+])
+def test_unrelated_401_keeps_existing_audit_behavior(
+        login_client, review_db, monkeypatch, detail):
+    from fastapi import HTTPException
+    from core import mfa_login
+
+    def refuse(*args, **kwargs):
+        raise HTTPException(401, detail, headers={'WWW-Authenticate': 'Bearer'})
+
+    monkeypatch.setattr(mfa_login, 'login_mfa_response', refuse)
+    response = login_client.request()
+    assert response.status_code == 401
+    assert response.json() == {'detail': detail}
+    assert response.headers['www-authenticate'] == 'Bearer'
+    assert 'session' not in response.cookies
+    assert _sign_in_rows(review_db) == []
+    with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one() == 0
+        assert fresh.execute(text('SELECT last_login FROM users WHERE id=1')).scalar_one() is None
+
+
 def test_correct_password_awaiting_second_step_keeps_its_one_record(login_client,review_db):
     review_db.execute(text('UPDATE users SET mfa_enabled=1 WHERE id=1'))
     review_db.commit()
@@ -147,6 +172,46 @@ def test_correct_password_awaiting_second_step_keeps_its_one_record(login_client
     rows=_sign_in_rows(review_db)
     assert [row[:3] for row in rows]==[('login_success','user',None)]
     assert rows[0][3].startswith('Login: student from ')
+
+
+@pytest.mark.parametrize('revocation', ['password', 'disabled'])
+@pytest.mark.parametrize('audit_available', [True, False])
+def test_revoked_password_sign_in_records_refusal(
+        login_client, review_db, monkeypatch, revocation, audit_available):
+    from modules.organizations import routes_auth
+
+    original = routes_auth._record_login_attempt
+
+    def revoke_after_verification(db, ip, username, success):
+        if success:
+            with Session(review_db.get_bind()) as other:
+                statement = ("UPDATE users SET password_hash='revoked-fixture' WHERE id=1"
+                             if revocation == 'password'
+                             else 'UPDATE users SET is_active=0 WHERE id=1')
+                other.execute(text(statement))
+                other.commit()
+        return original(db, ip, username, success)
+
+    monkeypatch.setattr(routes_auth, '_record_login_attempt', revoke_after_verification)
+    original_add = Session.add
+
+    def add(self, entry, *args, **kwargs):
+        if not audit_available and getattr(entry, 'action', None) == 'auth.login_failed':
+            raise RuntimeError('synthetic refusal audit failure')
+        return original_add(self, entry, *args, **kwargs)
+
+    monkeypatch.setattr(Session, 'add', add)
+    response = login_client.request()
+    assert response.status_code == (401 if audit_available else 503)
+    assert 'access_token' not in response.json()
+    assert 'session' not in response.cookies
+    with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one() == 0
+        assert fresh.execute(text('SELECT COUNT(*) FROM mfa_enrollments')).scalar_one() == 0
+        assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one() == 0
+        assert fresh.execute(text('SELECT last_login FROM users WHERE id=1')).scalar_one() is None
+    assert _sign_in_rows(review_db) == (
+        [('auth.login_failed', 'user', None, {'username': 'student'})] if audit_available else [])
 
 
 @pytest.mark.parametrize('valid',[True,False])
@@ -204,6 +269,7 @@ def test_http_ambiguous_attempt_commit_does_not_issue_session(login_client,revie
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
         assert fresh.execute(text('SELECT COUNT(*) FROM login_attempts')).scalar_one()==1
+        assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='auth.login'")).scalar_one()==1
 
 
 def test_http_audit_staging_failure_does_not_issue_session(login_client,review_db,monkeypatch):
@@ -248,3 +314,61 @@ def test_http_session_insert_failure_does_not_issue_untracked_token(login_client
     assert 'session' not in response.cookies
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
+
+
+@pytest.mark.parametrize('mode', ['ordinary', 'mfa', 'mfa_setup'])
+@pytest.mark.parametrize('failure', ['none', 'mfa', 'session', 'audit_stage', 'audit_flush'])
+def test_successful_attempt_and_outcome_audit_commit_together(
+        login_client, review_db, monkeypatch, mode, failure):
+    from core import mfa_login
+    from sqlalchemy import event
+
+    if mode == 'mfa':
+        review_db.execute(text('UPDATE users SET mfa_enabled=1 WHERE id=1'))
+    elif mode == 'mfa_setup':
+        review_db.execute(text("INSERT INTO system_config(key,value) VALUES('require_mfa','true')"))
+    review_db.commit()
+    action = 'auth.login' if mode == 'ordinary' else 'login_success'
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError('synthetic MFA handling failure')
+
+    if failure == 'mfa':
+        monkeypatch.setattr(mfa_login, 'login_mfa_response', unavailable)
+    original_add = Session.add
+
+    def add(self, entry, *args, **kwargs):
+        if failure == 'audit_stage' and getattr(entry, 'action', None) == action:
+            raise RuntimeError('synthetic outcome audit staging failure')
+        return original_add(self, entry, *args, **kwargs)
+
+    monkeypatch.setattr(Session, 'add', add)
+
+    def refuse(conn, cursor, statement, params, context, executemany):
+        if statement.lstrip().startswith('INSERT'):
+            if failure == 'audit_flush' and 'INSERT INTO audit_logs ' in statement:
+                raise RuntimeError('synthetic outcome audit persistence failure')
+            if failure == 'session' and 'active_sessions ' in statement:
+                raise RuntimeError('synthetic session persistence failure')
+
+    engine = review_db.get_bind()
+    event.listen(engine, 'before_cursor_execute', refuse)
+    try:
+        response = login_client.request()
+    finally:
+        event.remove(engine, 'before_cursor_execute', refuse)
+
+    succeeds = failure == 'none' or (failure == 'session' and mode != 'ordinary')
+    assert (response.status_code == 200) is succeeds
+    if not succeeds:
+        assert 'session' not in response.cookies
+    with Session(engine) as fresh:
+        assert fresh.execute(text(
+            'SELECT COUNT(*) FROM login_attempts WHERE success=1')).scalar_one() == int(succeeds)
+        assert fresh.execute(text('SELECT COUNT(*) FROM audit_logs')).scalar_one() == int(succeeds)
+        assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one() == int(
+            succeeds and mode == 'ordinary')
+        assert fresh.execute(text('SELECT COUNT(*) FROM mfa_enrollments')).scalar_one() == int(
+            succeeds and mode == 'mfa_setup')
+    if succeeds:
+        assert [row[0] for row in _sign_in_rows(review_db)] == [action]

@@ -14,7 +14,7 @@ export function showsOdinMark(branding: { app_name?: string | null; logo_url?: s
  */
 export default function OdinMark({ className = 'h-8 w-8' }: { className?: string }) {
   const branding = useBranding()
-  if (!showsOdinMark(branding)) return null
+  if (!branding.brandingResolved || !showsOdinMark(branding)) return null
   const mask = 'url(/odin-mark.svg) center / contain no-repeat'
   return (
     <span

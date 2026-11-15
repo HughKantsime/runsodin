@@ -19,11 +19,13 @@ from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, require_scope, handler_enforces_token_scope, require_interactive_session, require_action
 from core.auth_helpers import (
-    _validate_password, _check_rate_limit, _record_login_attempt, _record_password_accepted, _is_locked_out
+    _validate_password, _check_rate_limit, _record_login_attempt, _record_password_accepted, _is_locked_out,
+    _cleanup_login_attempts,
 )
 import core.auth as auth_module
 from core.auth import hash_password, create_access_token, verify_password, decode_token
 from core.models import SystemConfig
+from core.mfa_login import RevokedLoginCredentials
 from core.config import settings as _settings
 from core.rate_limit import limiter
 from modules.organizations.education_access import capability_snapshot_id
@@ -35,6 +37,7 @@ router = APIRouter()
 # ============== Session helpers ==============
 
 from core.session_tracking import record_session as _record_session
+from core.session_tracking import stage_session
 
 
 # ============== Login ==============
@@ -59,35 +62,50 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
     if _record_login_attempt(db, client_ip, form_data.username, True) is not True:
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
-    db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"),
-               {"now": datetime.now(timezone.utc), "id": user.id})
-    db.commit()
-
-    from core.mfa_login import login_mfa_response
-    continuation = login_mfa_response(db, user.id, expected_password_hash=user.password_hash)
-    if continuation is not None:
-        if _record_password_accepted(db, client_ip, form_data.username) is not True:
-            raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
-        return continuation
-
-    access_token = create_access_token(data={"sub": user.username, "role": user.role})
-    if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
-        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
+    access_token = None
     try:
+        db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"),
+                   {"now": datetime.now(timezone.utc), "id": user.id})
+
+        from core.mfa_login import login_mfa_response
+        continuation = login_mfa_response(db, user.id, expected_password_hash=user.password_hash, commit=False)
+        if continuation is not None:
+            if _record_password_accepted(db, client_ip, form_data.username) is not True:
+                raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
+            return continuation
+
+        access_token = create_access_token(data={"sub": user.username, "role": user.role})
+        if stage_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
+            raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
         bind_verified_actor(db, dict(user._mapping), "password_login")
         log_audit(db, "auth.login", "user", user.id, details={"username": user.username}, ip=client_ip)
         db.commit()
-    except Exception:
+    except Exception as exc:
         # The one sign-in row could not be written: withdraw the session, issue nothing.
         try:
             db.rollback()
-            import jwt as _jwt
-            jti = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])["jti"]
-            db.execute(text("DELETE FROM active_sessions WHERE token_jti = :jti"), {"jti": jti})
-            db.commit()
+            if access_token is not None:
+                import jwt as _jwt
+                jti = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])["jti"]
+                db.execute(text("DELETE FROM active_sessions WHERE token_jti = :jti"), {"jti": jti})
+                db.commit()
         except Exception:
             log.warning("Unissued session could not be withdrawn")
+        if isinstance(exc, HTTPException):
+            if isinstance(exc, RevokedLoginCredentials):
+                # Revoked credentials are a refused sign-in, even though the
+                # staged success and last_login update were rolled back.
+                try:
+                    log_audit(db, "auth.login_failed", "user",
+                              details={"username": form_data.username}, ip=client_ip)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
+            raise
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
+
+    _cleanup_login_attempts(db)
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})

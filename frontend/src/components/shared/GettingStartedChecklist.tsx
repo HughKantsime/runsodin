@@ -14,7 +14,9 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, Circle } from 'lucide-react'
 import { Button, Card } from '../ui'
-import { printers as printersApi, jobs as jobsApi, models as modelsApi, printFiles } from '../../api'
+import { jobs as jobsApi, models as modelsApi, printFiles, printJobs } from '../../api'
+import { useFleet } from '../foundry/data'
+import { useOrg } from '../../contexts/OrgContext'
 import { canAccessPage, canDo, getCurrentUser } from '../../permissions'
 import { isOnline } from '../../utils/shared'
 
@@ -35,9 +37,9 @@ function hidden(userId: number | string | null | undefined): boolean {
 const SENT_STATUSES = ['printing', 'paused', 'completed', 'failed']
 
 /** One uploaded file is enough; a model added by hand (no file) counts too. */
-async function hasFileOrModel(): Promise<boolean> {
-  if (await printFiles.any()) return true
-  const library = await modelsApi.list()
+async function hasFileOrModel(orgId: number | null): Promise<boolean> {
+  if (await printFiles.any(orgId)) return true
+  const library = await modelsApi.list(orgId, 1)
   return Array.isArray(library) && library.length > 0
 }
 
@@ -45,18 +47,32 @@ interface Line { id: string; label: string; done: boolean; to: string; allowed: 
 
 export default function GettingStartedChecklist() {
   const user = getCurrentUser()
+  const { orgId } = useOrg()
   const userId = user?.id ?? null
   const [dismissed, setDismissed] = useState(() => hidden(userId))
   useEffect(() => { setDismissed(hidden(userId)) }, [userId])
   // Viewers cannot do any of these steps.
   const show = userId != null && !!user && user.role !== 'viewer' && !dismissed
 
-  // Same key and call as the dashboard's own printer list, so this adds no request.
-  const fleet = useQuery({ queryKey: ['printers'], queryFn: () => printersApi.list(true), enabled: show, refetchInterval: 30000 })
-  const files = useQuery({ queryKey: ['getting-started', 'file', userId], queryFn: hasFileOrModel, enabled: show, refetchInterval: 30000, retry: false })
+  // Keep every completion read scoped to the selected organization and user.
+  const fleet = useFleet(orgId, { enabled: show })
+  const files = useQuery({ queryKey: ['getting-started', 'file', userId, orgId], queryFn: () => hasFileOrModel(orgId), enabled: show, refetchInterval: 30000, retry: false })
   const sent = useQuery({
-    queryKey: ['getting-started', 'job-sent', userId],
-    queryFn: async () => (await jobsApi.list(SENT_STATUSES, null, { limit: 1 })).length > 0,
+    queryKey: ['getting-started', 'job-sent', userId, orgId],
+    queryFn: async () => {
+      let scheduledReadFailed = false
+      let scheduledError: unknown
+      try {
+        if ((await jobsApi.list(SENT_STATUSES, orgId, { limit: 1 })).length > 0) return true
+      } catch (error) {
+        scheduledReadFailed = true
+        scheduledError = error
+      }
+      if ((await printJobs.list({ limit: 1, ...(orgId != null ? { org_id: orgId } : {}) })).length > 0) return true
+      // Empty monitor history cannot establish "not sent" if scheduled jobs are unknown.
+      if (scheduledReadFailed) throw scheduledError
+      return false
+    },
     enabled: show, refetchInterval: 30000, retry: false,
   })
 
@@ -80,7 +96,7 @@ export default function GettingStartedChecklist() {
     }
   }
   const settled = !!list && !files.isLoading && !sent.isLoading
-  const allDone = settled && lines.every(line => line.done)
+  const allDone = settled && fleet.isSuccess && files.isSuccess && sent.isSuccess && lines.every(line => line.done)
 
   const remember = () => {
     if (userId != null) { try { localStorage.setItem(dismissKeyFor(userId), 'true') } catch { /* storage unavailable */ } }
