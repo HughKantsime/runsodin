@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.3.0] - 2026-11-15
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Print next from live stock, the real cost of every print, your farm's time zone, printer-reported failures, six more Bambu materials. -->
 
