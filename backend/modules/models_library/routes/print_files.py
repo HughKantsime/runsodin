@@ -208,6 +208,7 @@ async def upload_3mf(
                     "slot": f.slot,
                     "type": f.type,
                     "color": f.color,
+                    "color_stated": f.color_stated,
                     "used_meters": f.used_meters,
                     "used_grams": f.used_grams
                 } for f in metadata.filaments]),

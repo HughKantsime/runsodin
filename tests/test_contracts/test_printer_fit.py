@@ -224,3 +224,84 @@ def test_upload_list_and_variants_carry_the_same_fit(library, review_db):
     assert sparse['file_facts']['layer_height'] is None and sparse['file_facts']['supports'] is None
     stored = review_db.execute(text('SELECT layer_height, supports_used FROM print_files WHERE id=:id'), {'id': sparse['id']}).one()
     assert tuple(stored) == (None, None)
+
+
+def test_model_fit_matches_scheduler_after_uploading_another_variant(farm, library):
+    from tests.test_contracts.test_cert_D_jobsB_scheduler import run
+    db = farm.db
+    model_id = farm.files['x1c']
+    # A later A1 variant belongs to the same model; the primary file remains X1C.
+    db.execute(text('UPDATE print_files SET model_id=:model WHERE id=:file'),
+               {'model': model_id, 'file': farm.files['a1']})
+    db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(20,1,'PLA')"))
+    db.commit()
+    client, issue = library
+    headers = issue(['read:models', 'write:jobs'])
+    options = client.get(f'/models/{model_id}/schedule-options', headers=headers).json()
+    assert options['print_file_id'] == model_id
+    advertised = client.get(f'/models/{model_id}/variants', headers=headers).json()['printer_fit']
+    assert 20 in {p['id'] for p in advertised['printers']}
+    scheduled = client.post(f'/models/{model_id}/schedule?printer_id=20', headers=headers,
+                            json={key: options[key] for key in ('print_file_id', 'payload_sha256')})
+    assert scheduled.status_code == 200, scheduled.text
+    run(db)
+    assert db.execute(text('SELECT status,printer_id FROM jobs WHERE id=:id'),
+                      {'id': scheduled.json()['job_id']}).one() == ('scheduled', 20)
+
+
+@pytest.mark.parametrize('payload', ['unsliced', 'empty', 'missing', 'invalid'])
+def test_unready_bambu_payload_does_not_advertise_printers(farm, payload):
+    import zipfile
+    file_id = farm.files['x1c']
+    file = rows(farm.db, [file_id])[0]
+    path = Path(file.stored_path)
+    if payload == 'missing':
+        path.unlink()
+    elif payload == 'invalid':
+        path.write_bytes(b'not a zip')
+    else:
+        with zipfile.ZipFile(path, 'w') as package:
+            package.writestr('Metadata/project_settings.config', '{"printer_model":"Bambu Lab X1 Carbon"}')
+            if payload == 'empty':
+                package.writestr('Metadata/plate_1.gcode', '')
+    assert queue_accepts(farm.db, file_id) == set()
+    assert fit(farm.db, file_id) == {'count': 0, 'printers': [], 'sliced_for': 'X1C'}
+
+
+def test_platform_admin_fit_uses_the_scheduling_tenant(farm):
+    from core.dispatch_identity import ownership_refusal
+    user = {'id': 3, 'role': 'admin', 'group_id': None}
+    file_id = farm.files['x1c']
+    assert ownership_refusal({'charged_to_org_id': None, 'print_file_org_id': 1},
+                             {'org_id': 1, 'shared': False}) is not None
+    assert fit(farm.db, file_id, user) == {'count': 0, 'printers': [], 'sliced_for': 'X1C'}
+
+
+@pytest.mark.parametrize('sliced', [True, False])
+@pytest.mark.parametrize('stated_color', [None, '#888888'])
+def test_upload_color_facts_preserve_missing_versus_explicit_grey(library, sliced, stated_color):
+    import io
+    import zipfile
+    from tests.test_contracts.test_cert_C_models import sliced_3mf
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(sliced_3mf())) as source, zipfile.ZipFile(buffer, 'w') as target:
+        for member in source.infolist():
+            if not sliced and member.filename.endswith('.gcode'):
+                continue
+            content = source.read(member)
+            if member.filename == 'Metadata/slice_info.config':
+                color = '' if stated_color is None else f' color="{stated_color}"'
+                content = f'<config><plate><filament id="1" type="PLA"{color}/></plate></config>'.encode()
+            if member.filename == 'Metadata/project_settings.config':
+                settings = {'printer_model': 'Bambu Lab A1', 'filament_type': ['PLA']}
+                if stated_color is not None:
+                    settings['filament_colour'] = [stated_color]
+                content = json.dumps(settings).encode()
+            target.writestr(member, content)
+    client, issue = library
+    headers = issue(['write:models', 'read:models'])
+    body = _upload(client, headers, buffer.getvalue(), name='colour provenance.3mf')
+    expected = [] if stated_color is None else [stated_color]
+    assert body['file_facts']['filament_colors'] == expected
+    variants = client.get(f"/models/{body['model_id']}/variants", headers=headers).json()
+    assert variants['variants'][0]['file_facts']['filament_colors'] == expected

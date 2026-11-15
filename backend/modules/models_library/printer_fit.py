@@ -7,6 +7,7 @@ schedule request and the scheduler already make for that pair passes:
   (``dispatch_unsupported_reason``, ``experimental_refusal``, the license selection);
 * ``queue_payload.printer_payload_refusal``: printer type, file type, the printer
   types the file allows, and the bed (the schedule and queue request check);
+* the same first-plate payload validation used by scheduling;
 * the scheduler's same-machine gate on ``print_files.printer_model``
   (``jobs.scheduler._same_printer_model``);
 * the upload's printer binding (``core.print_file_binding``);
@@ -20,8 +21,10 @@ Printers are read once for the whole request, with the visibility of ``GET /prin
 they have already authorized (``core.model_preview_access.accessible_preview_file``).
 """
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 
 _PRINTER_COLUMNS = ("id, name, org_id, shared, is_active, api_type, model, machine_type, "
@@ -98,6 +101,7 @@ def printer_fit_for_files(db, current_user, files):
     no count is stated for that file.
     """
     from core.print_file_binding import target_printers
+    from core.print_payload import validate_plate
     from modules.printers.printer_models import bambu_model_name
     files = [file for file in files if file is not None]
     if not files:
@@ -110,10 +114,17 @@ def printer_fit_for_files(db, current_user, files):
         if file.id in unstated:
             result[file.id] = None
             continue
-        # A file with an owner is charged to that owner; an unowned one to the caller.
-        tenant = file.org_id if file.org_id is not None else (current_user or {}).get("group_id")
+        # Scheduling charges the caller, including a platform admin with no group.
+        tenant = (current_user or {}).get("group_id")
+        ready = True
+        if Path(file.stored_path or "").suffix.lower() == ".3mf":
+            try:
+                # Same first-plate check as scheduling, once per file, not printer.
+                validate_plate(file.stored_path, 0, "bambu")
+            except HTTPException:
+                ready = False
         matching = [printer for printer in printers
-                    if fits(file, printer, bound=bound.get(file.id), tenant=tenant)]
+                    if ready and fits(file, printer, bound=bound.get(file.id), tenant=tenant)]
         # The model as the printer list names it ("N2S" and "Bambu Lab A1" are both "A1").
         sliced_for = bambu_model_name(file.printer_model)
         result[file.id] = {
@@ -149,6 +160,10 @@ def file_facts(nozzle_diameter=None, layer_height=None, bed_type=None, supports_
             filaments = None
     colors = []
     for filament in filaments if isinstance(filaments, list) else []:
+        stated = (filament.get("color_stated", True) if isinstance(filament, dict)
+                  else getattr(filament, "color_stated", True))
+        if not stated:
+            continue
         color = filament.get("color") if isinstance(filament, dict) else getattr(filament, "color", None)
         if isinstance(color, str) and color.strip() and color not in colors:
             colors.append(color)

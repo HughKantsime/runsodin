@@ -179,27 +179,22 @@ class SchedulerPlanning:
         education_ids = set(db.execute(text("SELECT job_id FROM education_submissions")).scalars())
         pending_jobs = education_order(pending_jobs, education_ids)
 
-        # Pre-fetch printer model requirements from uploaded print files.
-        # This is the safety gate data: a job that uses an H2D file must not
-        # be assigned to an X1C printer. We look up print_files.printer_model
-        # via the job's model_id (print_files.model_id FK). We only block on
-        # known mismatches — if a printer's model is unset we let it through.
-        job_model_requirements: Dict[int, str] = {}
-        model_ids = [j.model_id for j in pending_jobs if j.model_id]
-        if model_ids:
-            placeholders = ",".join(str(m) for m in set(model_ids))
-            rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                f"SELECT model_id, printer_model FROM print_files "
-                f"WHERE model_id IN ({placeholders}) "
-                f"AND printer_model IS NOT NULL AND printer_model != '' "
-                f"ORDER BY id DESC"
-            )).fetchall()
-            # Keep first (most recent) result per model_id
-            seen: set = set()
-            for row in rows:
-                if row[0] not in seen:
-                    job_model_requirements[row[0]] = row[1]
-                    seen.add(row[0])
+        # Use the same selected payload as dispatch: an explicit job file, the
+        # model's primary file, then its latest variant. A newer variant must not
+        # change the machine requirement of a job using an older file.
+        from core.dispatch_payload_selection import SELECTED_PRINT_FILE_JOIN_SQL
+        from sqlalchemy import bindparam
+        job_model_requirements = {}
+        if pending_jobs:
+            rows = db.execute(text(f"""
+                SELECT j.id, pf.printer_model FROM jobs j
+                LEFT JOIN models m ON m.id=j.model_id
+                LEFT JOIN education_submissions s ON s.job_id=j.id
+                LEFT JOIN print_files pf ON {SELECTED_PRINT_FILE_JOIN_SQL}
+                WHERE j.id IN :ids
+            """).bindparams(bindparam("ids", expanding=True)),
+                {"ids": [job.id for job in pending_jobs]})
+            job_model_requirements = dict(rows.all())
 
         # Record outcomes only for jobs ultimately left pending and not held.
         skipped = []
@@ -324,7 +319,7 @@ class SchedulerPlanning:
                 # by the legacy display-model string comparison; keep the pin.
                 required_printer_model=(
                     None if education_context is not None
-                    else job_model_requirements.get(job.model_id)
+                    else job_model_requirements.get(job.id)
                 ),
                 required_printer_id=approved_printer_id,
                 material_plan=material_plan,
@@ -409,7 +404,7 @@ class SchedulerPlanning:
                 fixed = printer_states.get(approved_printer_id) if approved_printer_id is not None else None
                 material_reason = material_plan.reason(job.id, fixed.name if fixed else None)
                 skipped.append((job.id, "material_mismatch" if material_reason else "no_fit"))
-                req = job_model_requirements.get(job.model_id)
+                req = job_model_requirements.get(job.id)
                 if material_reason:
                     result.errors.append(f"Could not schedule job {job.id} ({job.item_name}): {material_reason}")
                 elif req:
