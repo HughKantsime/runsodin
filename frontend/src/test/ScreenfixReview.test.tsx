@@ -12,6 +12,34 @@ vi.mock('../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ r
 vi.mock('../components/inventory/PurchaseEvidenceModal', () => ({ default: () => null }))
 const noop = () => {}
 const name = 'ASA-CF Invented very long catalogue colour name'
+it.each(['classic', 'foundry'])('disclosure dialogs in %s are named, trap focus, close on Escape and restore focus', family => {
+  document.documentElement.dataset.themeFamily = family
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32)
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(96)
+  const disclosures = [
+    { title: 'Full note', trigger: 'Show full note', ui: <ExpandableNote text={name} /> },
+    { title: 'Filaments', trigger: 'Filaments', ui: <PrinterCard printer={{ id: 1, name: 'Printer', api_type: 'bambu', filament_slots: [{ slot_number: 1, filament_type: 'PLA' }] } as any} /> },
+    { title: 'Filament name', trigger: 'Show full filament name', ui: <SpoolCard spool={{ id: 1, filament_name: name, status: 'active' } as any} onLoad={noop} onUnload={noop} onUse={noop} onArchive={noop} onEdit={noop} onDry={noop} /> },
+  ]
+  for (const { title, trigger, ui } of disclosures) {
+    const view = mount(ui)
+    const opener = screen.getByRole('button', { name: trigger })
+    opener.focus()
+    fireEvent.click(opener)
+    const dialog = screen.getByRole('dialog', { name: title })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    const close = within(dialog).getByRole('button', { name: 'Close' })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(opener).toHaveFocus()
+    view.unmount()
+  }
+})
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); delete document.documentElement.dataset.themeFamily })
 function mount(ui: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { enabled: false } } })}><MemoryRouter>{ui}</MemoryRouter></QueryClientProvider>)

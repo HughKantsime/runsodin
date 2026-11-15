@@ -2,25 +2,31 @@
  "archive_ams_preview": {
   "available": [
    {
+    "catalogue_name": null,
     "color": "White",
     "color_hex": "FFFFFF",
     "do_not_feed": false,
+    "filament_type": "PLA",
     "material": "PLA",
     "slot": 1,
     "spool_id": null
    },
    {
+    "catalogue_name": null,
     "color": "Black",
     "color_hex": "000000",
     "do_not_feed": false,
+    "filament_type": "PLA",
     "material": "PLA",
     "slot": 2,
     "spool_id": 602
    },
    {
+    "catalogue_name": null,
     "color": "Red",
     "color_hex": "FF0000",
     "do_not_feed": false,
+    "filament_type": "ABS",
     "material": "ABS",
     "slot": 3,
     "spool_id": null
