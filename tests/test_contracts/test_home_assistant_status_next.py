@@ -155,11 +155,36 @@ def test_finished_at_is_the_end_of_the_last_print_and_null_while_printing(ha_cli
 
 def test_plate_clear_confirmation_is_reported_until_the_next_print_starts(ha_client, review_db):
     client, issue = ha_client
+    # Keep the fixture's completed print before this test's fixed confirmation.
+    review_db.execute(text('UPDATE print_jobs SET started_at=:at WHERE printer_id=10'), {'at': _at(7200)})
     _job(review_db, 600, 'Done plate', 'completed', printer=10, actual_start=_at(7200), actual_end=_at(3600))
     _clear(review_db, 600, 10, 1800)
     review_db.commit()
     assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] == _iso(1800)
     _job(review_db, 601, 'Next plate', 'printing', printer=10, actual_start=_at(600))
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] is None
+
+
+@pytest.mark.parametrize('status', ['running', 'completed', 'failed', 'cancelled'])
+@pytest.mark.parametrize('started_at', ['2026-11-10 11:50:00', '2026-11-10T06:50:00-05:00'])
+def test_unlinked_print_invalidates_plate_clear_confirmation(ha_client, review_db, status, started_at):
+    client, issue = ha_client
+    review_db.execute(text('DELETE FROM print_jobs WHERE printer_id=10'))
+    _job(review_db, 600, 'Done plate', 'completed', printer=10, actual_start=_at(7200), actual_end=_at(3600))
+    _clear(review_db, 600, 10, 1800)
+    # Older/equal starts and a newer print on another printer do not invalidate it.
+    _print(review_db, 10, 'completed', started=7200, ended=3600)
+    _print(review_db, 10, 'completed', started=1800, ended=1500)
+    _print(review_db, 9, 'running', started=600, ended=None)
+    review_db.commit()
+    assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] == _iso(1800)
+
+    review_db.execute(text('INSERT INTO print_jobs(printer_id,job_name,status,started_at,ended_at) '
+                           "VALUES(10,'walk-up.gcode',:status,:started,:ended)"),
+                      {'status': status, 'started': started_at, 'ended': None if status == 'running' else _at(300)})
+    review_db.execute(text('UPDATE printers SET gcode_state=:state WHERE id=10'),
+                      {'state': 'RUNNING' if status == 'running' else 'FINISH'})
     review_db.commit()
     assert _printers(_get(client, issue))[10]['plate_clear_confirmed_at'] is None
 
@@ -184,7 +209,14 @@ def test_times_of_another_organizations_work_on_a_shared_printer_are_withheld(ha
     # Organization 2's own people (here: a superadmin) see all of it.
     review_db.execute(text('UPDATE users SET group_id=NULL WHERE id=3'))
     review_db.commit()
-    assert _printers(_get(client, issue))[71]['plate_clear_confirmed_at'] == _iso(1800)
+    assert _printers(_get(client, issue))[71]['plate_clear_confirmed_at'] is None
+    # A fresh confirmation after the walk-up print is visible to the superadmin.
+    _clear(review_db, 610, 71, 300, org=2)
+    review_db.commit()
+    assert _printers(_get(client, issue))[71]['plate_clear_confirmed_at'] == _iso(300)
+    review_db.execute(text('UPDATE users SET group_id=1 WHERE id=3'))
+    review_db.commit()
+    assert _printers(_get(client, issue))[71]['plate_clear_confirmed_at'] is None
 
 
 def test_times_of_a_hidden_controlled_job_are_withheld_but_still_resolve_the_error(ha_client, review_db):

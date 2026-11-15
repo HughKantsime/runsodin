@@ -121,7 +121,8 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
     # A confirmation stands only until the next print starts: a plate cleared several prints
     # ago says nothing about the bed now.
     # Compared as parsed instants: stored times mix naive UTC and ISO forms, which do not
-    # sort correctly as text. Only jobs started on or after the day before the oldest
+    # sort correctly as text. Include monitor-tracked prints without a scheduled job.
+    # Only prints started on or after the day before the oldest
     # confirmation can matter (the date prefix is the same in every form).
     confirmed = {printer_id: as_utc(at) for printer_id, at in result.items()}
     known = [at for at in confirmed.values() if at is not None]
@@ -129,7 +130,9 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
         return result
     day = (min(known) - timedelta(days=1)).strftime('%Y-%m-%d')
     started = db.execute(text("SELECT printer_id, actual_start FROM jobs WHERE printer_id IN :ids "
-        "AND actual_start IS NOT NULL AND actual_start >= :day").bindparams(bindparam('ids', expanding=True)),
+        "AND actual_start IS NOT NULL AND actual_start >= :day "
+        "UNION ALL SELECT printer_id, started_at FROM print_jobs WHERE printer_id IN :ids "
+        "AND started_at IS NOT NULL AND started_at >= :day").bindparams(bindparam('ids', expanding=True)),
         {'ids': list(result), 'day': day})
     for printer_id, raw in started:
         begun, at = as_utc(raw), confirmed.get(printer_id)
