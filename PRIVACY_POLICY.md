@@ -7,7 +7,7 @@
 
 **JLLS Holdings LLC, d/b/a SubLab 3DP** ("SubLab 3DP," "Sublab 3DP," "Company," "we," "us," or "our")
 **Principal:** Shane Smith
-**Contact:** sublab3dp@gmail.com
+**Contact:** support@runsodin.com
 
 ---
 
@@ -201,7 +201,7 @@ For personal data that Sublab 3DP holds directly (license information, support i
 - **Object:** Object to processing based on legitimate interest
 - **Withdraw consent:** Where processing is based on consent
 
-To exercise any of these rights, contact us at **sublab3dp@gmail.com**. We will respond within 30 days.
+To exercise any of these rights, contact us at **support@runsodin.com**. We will respond within 30 days.
 
 ### 5.2 Rights Regarding Data on Your Instance
 
@@ -350,6 +350,6 @@ For privacy-related questions, data subject requests, or concerns:
 
 **JLLS Holdings LLC, d/b/a SubLab 3DP**
 Shane Smith, Principal
-Email: sublab3dp@gmail.com
+Email: support@runsodin.com
 
 We aim to respond to all privacy inquiries within 30 days.
