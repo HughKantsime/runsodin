@@ -37,6 +37,8 @@ export interface TimeAccuracyData {
 
 export interface FailureAnalyticsData {
   total_failed: number;
+  total_stopped: number;
+  total_did_not_complete: number;
   [key: string]: unknown;
 }
 
@@ -45,6 +47,8 @@ export interface PrinterStats {
   name: string;
   completed_jobs: number;
   failed_jobs: number;
+  stopped_jobs: number;
+  did_not_complete_jobs: number;
   total_hours: number;
   utilization_pct: number;
   success_rate: number;

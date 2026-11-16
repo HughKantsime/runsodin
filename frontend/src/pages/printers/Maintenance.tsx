@@ -214,13 +214,13 @@ function TaskForm({ task, onSave, onCancel, saving }: { task?: Awaited<ReturnTyp
 
 /* ======================== Printer Status Card ======================== */
 
-// "30d: 1 of 4 failed (25%) · 90d: 3 of 6 failed (50%)". Cancelled prints are not counted.
+// Keep both windows and the split visible, including on phones.
 function failureSummary(rate) {
   const part = (label, w) => {
-    const total = w.completed + w.failed
-    return total === 0 ? `${label}: no prints` : `${label}: ${w.failed} of ${total} failed (${w.rate_percent}%)`
+    const total = w.completed + w.did_not_complete
+    return total === 0 ? `${label}: no prints` : `${label}: ${w.did_not_complete} of ${total} did not complete (${w.rate_percent}%) (${w.failed} failed, ${w.stopped} stopped)`
   }
-  return `${part('30d', rate.last_30_days)} · ${part('90d', rate.last_90_days)}`
+  return `${part('30 days', rate.last_30_days)} · ${part('90 days', rate.last_90_days)}`
 }
 
 function PrinterCard({ printer, onLogMaintenance }) {
@@ -239,7 +239,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
             {printer.printer_model && <span className="text-[var(--brand-text-muted)] text-sm ml-2">{printer.printer_model}</span>}
           </div>
         </div>
-        <div className={compact ? 'flex flex-wrap items-center gap-x-3 gap-y-1 pl-7' : 'flex items-center gap-3'}>
+        <div className={compact ? 'flex flex-wrap items-center gap-x-3 gap-y-1 pl-7' : 'flex flex-wrap items-center gap-3'}>
           <span className="text-xs text-[var(--brand-text-secondary)] font-mono">{printer.total_print_hours}h printed</span>
           {printer.total_print_count != null && (
             <span className="text-xs text-[var(--brand-text-secondary)] font-mono hidden sm:inline">{printer.total_print_count} prints</span>
@@ -250,8 +250,8 @@ function PrinterCard({ printer, onLogMaintenance }) {
             </span>
           )}
           {printer.failure_rate && (
-            <span className="text-xs text-[var(--brand-text-secondary)] font-mono hidden md:inline"
-              title="Failed / (completed + failed) prints. Cancelled prints are not counted.">
+            <span className="text-xs text-[var(--brand-text-secondary)] font-mono"
+              title="Failed plus stopped prints out of all completed, failed and stopped prints.">
               {failureSummary(printer.failure_rate)}
             </span>
           )}

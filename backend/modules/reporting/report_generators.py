@@ -2,6 +2,7 @@
 from html import escape
 from sqlalchemy import text
 from core.db_compat import sql
+from core.print_outcomes import JOB_FAILED_SQL, JOB_STOPPED_SQL, JOB_DID_NOT_COMPLETE_SQL
 from modules.reporting.chargeback_sql import ARCHIVE_GRAMS_BY_JOB_SQL
 
 def _wrap_report_html(title, content):
@@ -131,12 +132,20 @@ def generate_failure_analysis(session, filters):
         GROUP BY detection_type ORDER BY cnt DESC
     """)).fetchall()
 
+    totals = session.execute(text(f"""
+        SELECT SUM(CASE WHEN {JOB_FAILED_SQL.format(prefix='')} THEN 1 ELSE 0 END),
+               SUM(CASE WHEN {JOB_STOPPED_SQL.format(prefix='')} THEN 1 ELSE 0 END)
+        FROM jobs WHERE {JOB_DID_NOT_COMPLETE_SQL.format(prefix='')}
+          AND created_at >= {sql.now_offset('-30 days')}
+    """)).one()
+    failed, stopped = (int(value or 0) for value in totals)
+
     # Also get job failure reasons
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     fail_rows = session.execute(text(f"""
         SELECT fail_reason, COUNT(*) as cnt
         FROM jobs
-        WHERE status = 'failed' AND fail_reason IS NOT NULL
+        WHERE {JOB_FAILED_SQL.format(prefix='')} AND fail_reason IS NOT NULL
           AND created_at >= {sql.now_offset('-30 days')}
         GROUP BY fail_reason ORDER BY cnt DESC
     """)).fetchall()
@@ -159,7 +168,7 @@ def generate_failure_analysis(session, filters):
         </tr>"""
 
     content = f"""
-    <p style="color: #888; margin-bottom: 12px;">Last 30 days</p>
+    <p style="color: #888; margin-bottom: 12px;">Did not complete: {failed + stopped} (failed {failed}, stopped {stopped}), last 30 days</p>
     <h3 style="color: #fbbf24; font-size: 14px; margin: 16px 0 8px;">AI Detections</h3>
     <table style="width: 100%; border-collapse: collapse; background: #33312d; border-radius: 4px;">
         <thead><tr style="border-bottom: 2px solid #47453d;">

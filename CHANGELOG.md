@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before. The failed and stopped counts are still there.
+
 ### Fixed
 
 - Square stock replies now correctly report whether sending stock changes is enabled.

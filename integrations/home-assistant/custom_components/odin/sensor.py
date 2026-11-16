@@ -213,6 +213,8 @@ FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
                           value=lambda f: _today(f, "plates_done")),
     OdinSensorDescription(key="plates_failed_today", state_class=SensorStateClass.TOTAL,
                           value=lambda f: _today(f, "plates_failed")),
+    OdinSensorDescription(key="plates_did_not_complete_today", state_class=SensorStateClass.TOTAL,
+                          value=lambda f: _today(f, "plates_did_not_complete"), unavailable_when_missing=True),
     OdinSensorDescription(key="plates_stopped_today", state_class=SensorStateClass.TOTAL,
                           value=lambda f: _today(f, "plates_stopped"), unavailable_when_missing=True),
     OdinSensorDescription(key="queued_hours", device_class=SensorDeviceClass.DURATION,

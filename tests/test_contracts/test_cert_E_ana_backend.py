@@ -283,7 +283,7 @@ def test_failure_logging_feeds_failure_analytics_and_wire_capture(ana):
     assert printers["P1S-10"]["mtbf_hours"] == 2.0
     assert printers["P1S-09"]["failed"] == 0
     models = {m["name"]: m for m in body["by_model"]}
-    assert models["Shared model"] == {"name": "Shared model", "completed": 1, "failed": 2, "success_rate": 33.3}
+    assert models["Shared model"] == {"name": "Shared model", "completed": 1, "failed": 2, "stopped": 0, "did_not_complete": 2, "success_rate": 33.3}
     assert {r["reason"]: r["count"] for r in body["top_failure_reasons"]} == {"spaghetti": 1, "adhesion": 1}
     assert body["hms_errors"] == [{"code": "0300-0100", "message": "Synthetic nozzle clog", "count": 1}]
     _wire("failures", body)
@@ -367,3 +367,19 @@ def test_summary_money_is_unknown_not_zero_when_a_job_is_unpriced(ana):
     assert s["projected_revenue"] == 16 and s["projected_cost"] is None and s["pending_uncosted"] == 1
     assert s["pending_scope"] == "current_queue"
     assert body["jobs_by_date"]["2026-10-12"]["revenue"] is None  # consistent with the daily series
+
+
+def test_stopped_count_and_rate_on_all_three_reporting_surfaces(ana):
+    client, _, db = ana
+    db.execute(text("INSERT INTO jobs(item_name,status,printer_id,model_id,created_at,actual_end,charged_to_org_id) "
+        "VALUES('Stopped','cancelled',10,103,'2026-10-12 15:00:00','2026-10-12 16:00:00',1),"
+        "('Not started','cancelled',10,103,'2026-10-12 15:00:00',NULL,1)"))
+    db.commit()
+    for path in ('/stats', '/analytics'):
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        row = next(p for p in response.json()['printer_stats'] if p['id'] == 10)
+        assert (row['failed_jobs'], row['stopped_jobs'], row['did_not_complete_jobs'], row['success_rate']) == (1, 1, 2, 33.3)
+    failures = client.get('/analytics/failures').json()
+    assert failures['total_failed'] == failures['total_stopped'] == 1
+    assert failures['total_did_not_complete'] == 2 and failures['overall_success_rate'] == 60

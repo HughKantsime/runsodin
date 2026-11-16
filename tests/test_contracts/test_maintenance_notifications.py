@@ -461,7 +461,7 @@ def test_failure_rate_windows_and_exclusions(maintenance_client, review_db):
         _job(review_db, 'completed', 5)
     _job(review_db, 'failed', 5)
     for _i in range(2):
-        _job(review_db, 'cancelled', 5)                         # cancelled: excluded
+        _job(review_db, 'cancelled', 5)                         # stopped: included
     _job(review_db, 'failed', 5, error_code=CLOSED_UNKNOWN)     # retired by a new physical start: excluded
     _job(review_db, 'running', 0, ended=False)                  # not finished: excluded
     for _i in range(2):
@@ -470,11 +470,11 @@ def test_failure_rate_windows_and_exclusions(maintenance_client, review_db):
         _job(review_db, 'completed', 100)                       # outside both windows
     review_db.commit()
     rate = _printer(client)['failure_rate']
-    assert rate['last_30_days'] == {'completed': 3, 'failed': 1, 'rate_percent': 25.0}
-    assert rate['last_90_days'] == {'completed': 3, 'failed': 3, 'rate_percent': 50.0}
+    assert rate['last_30_days'] == {'completed': 3, 'failed': 1, 'stopped': 2, 'did_not_complete': 3, 'rate_percent': 50.0}
+    assert rate['last_90_days'] == {'completed': 3, 'failed': 3, 'stopped': 2, 'did_not_complete': 5, 'rate_percent': 62.5}
     assert _printer(client, 12)['failure_rate'] == {
-        'last_30_days': {'completed': 0, 'failed': 0, 'rate_percent': None},
-        'last_90_days': {'completed': 0, 'failed': 0, 'rate_percent': None}}
+        'last_30_days': {'completed': 0, 'failed': 0, 'stopped': 0, 'did_not_complete': 0, 'rate_percent': None},
+        'last_90_days': {'completed': 0, 'failed': 0, 'stopped': 0, 'did_not_complete': 0, 'rate_percent': None}}
 
 
 def test_failure_rate_is_per_printer(maintenance_client, review_db):
@@ -482,8 +482,8 @@ def test_failure_rate_is_per_printer(maintenance_client, review_db):
     _job(review_db, 'failed', 2, printer_id=12)
     _job(review_db, 'completed', 2, printer_id=9)
     review_db.commit()
-    assert _printer(client, 12)['failure_rate']['last_30_days'] == {'completed': 0, 'failed': 1, 'rate_percent': 100.0}
-    assert _printer(client, 9)['failure_rate']['last_30_days'] == {'completed': 1, 'failed': 0, 'rate_percent': 0.0}
+    assert _printer(client, 12)['failure_rate']['last_30_days'] == {'completed': 0, 'failed': 1, 'stopped': 0, 'did_not_complete': 1, 'rate_percent': 100.0}
+    assert _printer(client, 9)['failure_rate']['last_30_days'] == {'completed': 1, 'failed': 0, 'stopped': 0, 'did_not_complete': 0, 'rate_percent': 0.0}
 
 
 # ---------------------------------------------------------------- RBAC unchanged

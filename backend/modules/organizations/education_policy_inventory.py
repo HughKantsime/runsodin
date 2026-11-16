@@ -44,6 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("reporting.failure_analytics", "build_failure_analytics", "job/printer/model", "read", "analytics route caller; existing job visibility and tenant predicates", ("failure analytics",), "test_analytics_reporting_behavior.py", "guarded"),
     _entry("jobs.print_failure", "change/_load/_settled", "job/print/archive", "correct the outcome of a finished cancelled print (outcome only: no quantity, cost or inventory write)", "jobs.edit and write:jobs; operator/admin; printer and job owner, archive audience, controlled-parts and Education mutation guards; no terminal event delivery", ("Print Log", "archive", "printer history"), "test_mark_print_failed.py", "guarded"),
     _entry('printers.monitors.restart_question', 'initialize/handle/clear_finished', 'print/job/printer', 'read/mutate', 'Bambu startup candidate check and scoped durable decision; receipt and Education exclusions', (), 'test_restart_question_review.py', 'guarded'),
     _entry('notifications.restart_alerts', 'stage/resolve', 'printer/job/alert', 'in-app delivery', 'shared recipient policy; active scoped operators and administrators; caller transaction', (), 'test_restart_ask_operator.py', 'guarded'),

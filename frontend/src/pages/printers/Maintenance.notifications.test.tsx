@@ -21,8 +21,8 @@ const status = [{
   total_print_hours: 2100, total_print_count: 80, prints_since_maintenance: 3, hours_since_maintenance: 12,
   overall_status: 'overdue',
   failure_rate: {
-    last_30_days: { completed: 3, failed: 1, rate_percent: 25 },
-    last_90_days: { completed: 3, failed: 3, rate_percent: 50 },
+    last_30_days: { completed: 3, failed: 1, stopped: 2, did_not_complete: 3, rate_percent: 50 },
+    last_90_days: { completed: 3, failed: 3, stopped: 3, did_not_complete: 6, rate_percent: 66.7 },
   },
   tasks: [{
     task_id: null, task_name: 'General service', is_default: true, description: null,
@@ -49,7 +49,7 @@ beforeEach(() => {
     throw new Error('unexpected ' + url)
   })
 })
-afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.unstubAllGlobals() })
+afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.unstubAllGlobals() })
 
 function renderPage() {
   const c = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(c)
@@ -67,17 +67,17 @@ describe('implicit default task and failure rate', () => {
     renderPage()
     expect(await screen.findByText('General service')).toBeInTheDocument()
     expect(screen.getByText('default')).toBeInTheDocument()
-    expect(screen.getByText('30d: 1 of 4 failed (25%) · 90d: 3 of 6 failed (50%)')).toBeInTheDocument()
+    expect(screen.getByText('30 days: 3 of 6 did not complete (50%) (1 failed, 2 stopped) · 90 days: 6 of 9 did not complete (66.7%) (3 failed, 3 stopped)')).toBeInTheDocument()
   })
 
   it('says "no prints" for a window without completed or failed prints', async () => {
-    const empty = { completed: 0, failed: 0, rate_percent: null }
+    const empty = { completed: 0, failed: 0, stopped: 0, did_not_complete: 0, rate_percent: null }
     transport.mockImplementation(async (url: string) => {
       if (url === '/api/maintenance/status') return json([{ ...status[0], failure_rate: { last_30_days: empty, last_90_days: empty } }])
       return json([])
     })
     renderPage()
-    expect(await screen.findByText('30d: no prints · 90d: no prints')).toBeInTheDocument()
+    expect(await screen.findByText('30 days: no prints · 90 days: no prints')).toBeInTheDocument()
   })
 })
 
@@ -118,4 +118,13 @@ describe('log form date', () => {
     expect(submit).not.toBeDisabled()
     expect(posted).toEqual([])
   })
+})
+
+it.each(['classic', 'foundry'])('keeps the combined count and split visible at phone width in %s', async family => {
+  document.documentElement.dataset.themeFamily = family
+  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  renderPage()
+  const summary = await screen.findByText(/30 days: 3 of 6 did not complete/)
+  expect(summary.className).not.toMatch(/hidden/)
+  expect(summary.closest('[data-layout]')).toHaveAttribute('data-layout', 'stacked')
 })
