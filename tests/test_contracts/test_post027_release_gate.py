@@ -258,9 +258,13 @@ def test_routed_bundles_can_import_their_restore_closure(era):
     runner = ROOT / 'backend/core/schema' / ('preserved' + era) / 'runner.py'
     result = run_frozen(runner, RESTORE_CLOSURE)
     if era in {'039', '040', '043', '044', '045', '046'}:
-        # Existing frozen debt: keep its exact failure distinct from new bundle failures.
-        assert result.returncode != 0
+        # Known limitation, pinned exactly (frozen bundles cannot be edited): these six bundles do not
+        # admit modules.system.backup_failure_alerts, so their PostgreSQL restore service cannot be
+        # imported from the bundle. The test passes only on this exact refusal; any other outcome,
+        # including an unexpected success, fails it. Not an xfail: the release gate refuses xfail
+        # outcomes, and this states a fact about released bundles rather than a pending fix.
+        assert result.returncode != 0, 'bundle now imports its restore closure: remove it from this set'
         assert f'Preserved{era} dependency is not admitted: modules.system.backup_failure_alerts' in result.stderr
-        pytest.xfail('Known frozen 039–046 restore closure omits backup_failure_alerts')
+        return
     assert result.returncode == 0, result.stderr
     assert 'closure-imported' in result.stdout
