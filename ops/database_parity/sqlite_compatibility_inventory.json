@@ -946,7 +946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 65,
+      "line": 96,
       "path": "backend/core/printer_display_facts.py",
       "pattern": "qmark-parameter",
       "reason": "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters.",
@@ -954,7 +954,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 68,
+      "line": 99,
       "path": "backend/core/printer_display_facts.py",
       "pattern": "qmark-parameter",
       "reason": "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters.",
