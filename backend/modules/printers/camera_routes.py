@@ -29,6 +29,8 @@ from core.audit import audit_download
 from core.audit_views import audit_view, view_recorder
 from fastapi.concurrency import run_in_threadpool
 from core.db import get_db
+from core.controlled_parts import allowed
+from core.display_names import display_names
 from core.dependencies import get_current_user, log_audit, validate_access_token
 from core.rbac import require_role, check_org_access, has_permission, token_scope_granted, handler_enforces_token_scope
 from modules.printers.models import Printer
@@ -76,6 +78,12 @@ def _finite_edit_number(value) -> bool:
 # Timelapses
 # ====================================================================
 
+def _timelapse_print_names(db, items, current_user):
+    ids = dict.fromkeys(t.print_job_id for t in items if t.print_job_id is not None)
+    visible = [job_id for job_id in ids if allowed(db, 'job', job_id, current_user)]
+    return display_names(db, 'job', visible, current_user)
+
+
 @router.get("/timelapses", tags=["Timelapses"])
 def list_timelapses(
     printer_id: Optional[int] = None,
@@ -85,7 +93,7 @@ def list_timelapses(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
-    """List timelapse recordings with optional filters."""
+    """List recordings. print_name is the job's display name, or null when absent or unavailable to the reader."""
     condition,parameters=timelapse_visibility(current_user)
     q=db.query(Timelapse).filter(text(condition)).params(**parameters).order_by(Timelapse.created_at.desc(),Timelapse.id.desc())
     if printer_id:
@@ -94,6 +102,7 @@ def list_timelapses(
         q = q.filter(Timelapse.status == status_filter)
     total = q.count()
     items = q.offset(offset).limit(limit).all()
+    names = _timelapse_print_names(db, items, current_user)
     return {
         "total": total,
         "offset": offset,
@@ -104,6 +113,7 @@ def list_timelapses(
                 "printer_id": t.printer_id,
                 "printer_name": visible_printer_name(db,t,current_user),
                 "print_job_id": t.print_job_id,
+                "print_name": names.get(t.print_job_id),
                 "filename": t.filename,
                 "frame_count": t.frame_count,
                 "duration_seconds": t.duration_seconds,
@@ -160,7 +170,7 @@ def get_timelapse(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
-    """Get a single timelapse by ID."""
+    """Get a recording. print_name is the job's display name, or null when absent or unavailable to the reader."""
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
@@ -171,6 +181,7 @@ def get_timelapse(
         "printer_id": t.printer_id,
         "printer_name": visible_printer_name(db,t,current_user),
         "print_job_id": t.print_job_id,
+        "print_name": _timelapse_print_names(db, [t], current_user).get(t.print_job_id),
         "filename": t.filename,
         "frame_count": t.frame_count,
         "duration_seconds": t.duration_seconds,

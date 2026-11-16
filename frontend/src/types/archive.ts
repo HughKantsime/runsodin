@@ -151,6 +151,7 @@ export interface Timelapse {
   printer_id: number;
   printer_name?: string;
   print_job_id: number | null;
+  print_name: string | null;
   filename: string;
   frame_count: number;
   duration_seconds: number | null;

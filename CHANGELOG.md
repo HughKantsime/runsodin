@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
+
 ## [2.3.0] - 2026-11-15
 
 
