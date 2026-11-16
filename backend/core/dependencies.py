@@ -373,6 +373,7 @@ def resolve_user_api_token(api_key: str, db: Session, request=None) -> Optional[
     )
     if principal:
         principal["_token_expires_at"] = candidate.expires_at
+        principal["_token_name"] = candidate.name
     return principal
 
 

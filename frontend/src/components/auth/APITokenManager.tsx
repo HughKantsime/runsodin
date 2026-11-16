@@ -1,8 +1,10 @@
 import PageState from '../ui/PageState'
 import { useState, useEffect } from 'react'
 import { Key, Plus, Trash2, Copy, CheckCircle, AlertTriangle, Clock, Loader2 } from 'lucide-react'
-import { apiTokens } from '../../api'
+import { apiTokens, getEducationMode } from '../../api'
 import { parseServerDate } from '../../utils/shared'
+import { getCurrentUser } from '../../permissions'
+import { useLicense } from '../../LicenseContext'
 
 const AVAILABLE_SCOPES = [
   { value: 'read:printers', label: 'Read Printers' },
@@ -22,6 +24,9 @@ const AVAILABLE_SCOPES = [
 ]
 
 export default function APITokenManager() {
+  const license = useLicense()
+  const isAdmin = getCurrentUser()?.role === 'admin'
+  const [educationMode, setEducationMode] = useState(true)
   const [tokens, setTokens] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -42,6 +47,19 @@ export default function APITokenManager() {
   }
 
   useEffect(() => { loadTokens() }, [])
+  useEffect(() => {
+    if (isAdmin) getEducationMode().then(data => setEducationMode(data.enabled)).catch(() => setEducationMode(true))
+  }, [isAdmin])
+
+  const handleSquareSetup = async (id: number, enabled: boolean) => {
+    setActionLoading(true)
+    setError('')
+    try {
+      const updated = await apiTokens.squareSetup(id, enabled)
+      setTokens(previous => previous.map(token => token.id === id ? { ...token, scopes: updated.scopes } : token))
+    } catch { setError('Unable to change Square setup permission. Reload the token list and try again.') }
+    finally { setActionLoading(false) }
+  }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -110,6 +128,9 @@ export default function APITokenManager() {
       <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
         Create personal API tokens with specific permissions for scripts, integrations, and CI/CD.
       </p>
+      {isAdmin && <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
+        Square setup permission is off by default. It allows this administrator's token to map products and record stock baselines in ODIN. It does not write to Square. Each call needs an approval note naming who approved, where and when. The approval note is a record, not a verification. ODIN does not check the approval.
+      </p>}
 
       {error && (
         <PageState kind="error" role="alert" className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
@@ -233,6 +254,17 @@ export default function APITokenManager() {
                   )}
                 </div>
               </div>
+              {isAdmin && t.scopes?.length > 0 && !t.scopes.includes('read:cameras') && (
+                (license.hasFeature('products') && !educationMode) || t.scopes.includes('write:square_setup')
+              ) && <button
+                type="button"
+                disabled={actionLoading}
+                aria-label={`${t.scopes.includes('write:square_setup') ? 'Revoke' : 'Grant'} Square setup for ${t.name}`}
+                onClick={() => handleSquareSetup(t.id, !t.scopes.includes('write:square_setup'))}
+                className="px-3 py-2 rounded text-sm text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] disabled:opacity-50"
+              >
+                {t.scopes.includes('write:square_setup') ? 'Revoke Square setup' : 'Grant Square setup'}
+              </button>}
               <button
                 aria-label={`Revoke token ${t.name}`}
                 onClick={() => handleRevoke(t.id)}

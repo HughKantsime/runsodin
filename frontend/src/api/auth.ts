@@ -103,6 +103,7 @@ export const apiTokens = {
   list: (): Promise<ApiToken[]> => fetchAPI('/tokens'),
   create: (data: ApiTokenCreate): Promise<ApiTokenCreateResponse> => fetchAPI('/tokens', { method: 'POST', body: JSON.stringify(data) }),
   revoke: (id: number): Promise<void> => fetchAPI(`/tokens/${id}`, { method: 'DELETE' }),
+  squareSetup: (id: number, enabled: boolean): Promise<{ id: number; scopes: string[] }> => fetchAPI(`/tokens/${id}/square-setup`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
 }
 
 // Users (admin only)

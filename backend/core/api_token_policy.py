@@ -1,10 +1,13 @@
 """Shared allowlist and parsing for scoped API credentials."""
 import json
 
+SQUARE_SETUP_SCOPE = "write:square_setup"
+
 VALID_SCOPES = {
     "read", "write",
     # Explicit opt-in for inspected stock operations; broad write/admin do not imply it.
     "write:production",
+    SQUARE_SETUP_SCOPE,
     "read:printers", "write:printers",
     "read:jobs", "write:jobs",
     "read:spools", "write:spools",
@@ -34,13 +37,24 @@ def parse_token_scopes(value):
 
 
 def token_scope_granted(scopes, required):
-    """Broad permissions imply resources except explicit production delegation."""
-    if required == "write:production":
+    """Broad permissions never imply explicit production or Square delegation."""
+    if required in ("write:production", SQUARE_SETUP_SCOPE):
         return required in scopes
     if required in scopes or "admin" in scopes:
         return True
     action, separator, resource = required.partition(":")
     return bool(separator and resource and action in ("read", "write") and action in scopes)
+
+
+def require_square_setup_available(db):
+    """Keep the existing products entitlement; delegation is off in Education mode."""
+    from fastapi import HTTPException
+    from sqlalchemy import text
+    from license_manager import require_feature
+    require_feature("products")
+    mode = db.execute(text("SELECT value FROM system_config WHERE key='education_mode'")).scalar()
+    if mode == "true":
+        raise HTTPException(403, "Square setup permission is unavailable in Education mode")
 
 
 # Scopes that authenticate only the OBS overlay camera relay. A token holding

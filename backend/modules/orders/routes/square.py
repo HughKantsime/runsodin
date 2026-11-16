@@ -4,7 +4,7 @@ from typing import Literal
 
 from modules.orders.production_auth import require_production_operator
 from core.rbac import require_action
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, SecretStr, StrictBool, StrictInt, Field
@@ -14,10 +14,12 @@ import json
 
 from core.db import get_db
 from core.dependencies import log_audit
+from core.rate_limit import limiter
 from core.models import SystemConfig
 from core.rbac import require_role, require_interactive_session
 from modules.orders import square_store as store
 from modules.orders.square_client import SquareReader, identifier
+from modules.orders.square_setup_auth import ApprovalNote, require_square_setup, setup_audit, setup_rate_key, setup_rate_cost
 # Capture the deployment key while application routes load at process startup.
 from modules.orders import square_delivery_client  # noqa: F401
 
@@ -55,6 +57,7 @@ class Mapping(BaseModel):
     revision: str
     location_id: str
     variation_id: str
+    approval_note: ApprovalNote | None = None
 
 
 def connected(db, owner, revision=None):
@@ -137,8 +140,10 @@ def catalog(revision: str = Query(max_length=64), cursor: str | None = Query(def
     return {'revision': revision, **result}
 
 
-@router.put('/{product_id}/square', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
-def map_product(product_id: int, data: Mapping, user=Depends(admin), db: Session = Depends(get_db)):
+@router.put('/{product_id}/square')
+@limiter.limit('30/minute', key_func=setup_rate_key, cost=setup_rate_cost)
+def map_product(request: Request, product_id: int, data: Mapping, user=Depends(require_square_setup()), db: Session = Depends(get_db)):
+    attribution = setup_audit(user, data.approval_note)
     owner = store.tenant(user)
     store.own_product(db, owner, product_id)
     doc, _, reader = connected(db, owner, data.revision)
@@ -164,7 +169,8 @@ def map_product(product_id: int, data: Mapping, user=Depends(admin), db: Session
     if baseline:
         latest['mappings'][str(product_id)]['stock_baseline'] = baseline
     doc = store.save(db, owner, latest, previous)
-    log_audit(db, 'square.product_mapped', 'product', product_id, 'Explicit Square variation/location selected')
+    log_audit(db, 'square.product_mapped', 'product', product_id,
+              {'description': 'Explicit Square variation/location selected', **attribution})
     db.commit()
     return store.public(db, owner, doc)
 
@@ -228,6 +234,7 @@ class BaselineInput(BaseModel):
     revision: str
     at: datetime
     quantity: StrictInt = Field(ge=0, le=1000000000)
+    approval_note: ApprovalNote | None = None
 
 
 class BaselineReview(BaseModel):
@@ -236,8 +243,9 @@ class BaselineReview(BaseModel):
     answers: dict[str, Literal['counted', 'not_counted']]
 
 
-@router.put('/{product_id}/square/baseline', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
-def baseline(product_id: int, data: BaselineInput, user=Depends(admin), db: Session = Depends(get_db)):
+@router.put('/{product_id}/square/baseline')
+@limiter.limit('30/minute', key_func=setup_rate_key, cost=setup_rate_cost)
+def baseline(request: Request, product_id: int, data: BaselineInput, user=Depends(require_square_setup()), db: Session = Depends(get_db)):
     from modules.orders.stock_baseline import set_baseline
     return set_baseline(db, user, product_id, data)
 
