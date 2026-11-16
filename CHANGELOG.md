@@ -4,7 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-- Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before. The failed and stopped counts are still there.
+- Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
 
 ### Fixed
 
