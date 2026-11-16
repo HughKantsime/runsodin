@@ -4,6 +4,8 @@ import type { PaginatedResponse } from './common';
 
 export interface Archive {
   accounting_state?: string;
+  settleable?: boolean;
+  accounting_badge?: string | null;
   accounting_cause?: AccountingCause;
   accounting_settled?: { by: string | null; at: string } | null;
   consumption?: { spool_id: number | null; grams_used: number | null; slot_number?: number; reason?: string; remaining_unknown?: boolean; deducted_now_g?: number }[];
@@ -189,7 +191,7 @@ export interface SettlementPreview {
   suggested: { slot_number: number | null; spool_id: number; spool_label: string; grams: number | null; remaining_g: number | null }[];
   manual_usage: { usage_id: number; spool_id: number; grams: number; used_at: string; notes: string }[];
   prior_usage: string | null;
-  balance_set_after_print: { spool_id: number; at: string; how: string }[];
+  balance_set_after_print: { spool_id: number; at: string | null; how: string }[];
 }
 export type NoDeduction = 'nothing_extruded' | 'recorded_by_hand' | 'spool_not_tracked' | 'accept_existing' | 'balance_already_updated';
 export interface FilamentSettlement {

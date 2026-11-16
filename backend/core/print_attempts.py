@@ -48,13 +48,27 @@ def qmark_runner(cursor):
     return run
 
 
+def config_row(run, key):
+    evidence = getattr(run, 'filament_evidence', None)
+    if evidence is not None:
+        return (evidence.config[key],) if key in evidence.config else None
+    return run('SELECT value FROM system_config WHERE key = :k', {'k': key}).fetchone()
+
+
+def config_prefix(run, prefix):
+    evidence = getattr(run, 'filament_evidence', None)
+    if evidence is not None:
+        return [(k, v) for k, v in evidence.config.items() if k.startswith(prefix)]
+    return run('SELECT key, value FROM system_config WHERE key LIKE :p', {'p': prefix + '%'}).fetchall()
+
+
 def _seq_key(job_id) -> str:
     return f"{PREFIX}seq:{int(job_id)}"
 
 
 def attempt_seq(run, job_id) -> int:
     """The job's current print-attempt counter (0 until a reset bumps it)."""
-    row = run("SELECT value FROM system_config WHERE key = :k", {"k": _seq_key(job_id)}).fetchone()
+    row = config_row(run, _seq_key(job_id))
     if not row:
         return 0
     value = row[0]
@@ -116,7 +130,7 @@ def bind_print_attempt(run, print_job_id, job_id=None, *, seq=None) -> None:
 
 def bound_print_attempt(run, print_job_id, job_id):
     """The bound attempt seq of a print for this job, or None (unbound or bound elsewhere)."""
-    row = run("SELECT value FROM system_config WHERE key = :k", {"k": _print_seq_key(print_job_id)}).fetchone()
+    row = config_row(run, _print_seq_key(print_job_id))
     if not row:
         return None
     value = row[0]
@@ -157,8 +171,7 @@ def attempt_starts(run, job_id) -> dict:
     it fall back explicitly to the job's audited resets and print times.
     """
     found = {}
-    for key, value in run("SELECT key, value FROM system_config WHERE key LIKE :p",
-                          {"p": f"{PREFIX}started:{int(job_id)}:%"}).fetchall():
+    for key, value in config_prefix(run, f"{PREFIX}started:{int(job_id)}:"):
         try:
             parsed = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
             seq = int(str(key).rsplit(":", 1)[1])
@@ -197,6 +210,8 @@ def clear_job_attempts(run, job_id) -> None:
 
 def detach_print_attempt(run, print_job_id, job_id):
     """Undo false monitor attribution without creating a new physical attempt."""
+    from core.filament_ledger import retain_detached_usage
+    retain_detached_usage(run, print_job_id, job_id)
     seq = bound_print_attempt(run, print_job_id, job_id)
     run('DELETE FROM system_config WHERE key=:key', {'key':_print_seq_key(print_job_id)})
     run('DELETE FROM system_config WHERE key=:key', {'key':f'{PREFIX}print:{int(print_job_id)}'})

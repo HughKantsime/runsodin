@@ -63,6 +63,7 @@ class ReprintRequest(PydanticBaseModel):
 # ──────────────────────────────────────────────
 
 from modules.archives.archive_payload import archive_row_to_dict as _archive_row_to_dict
+from modules.archives.settlement_data import archive_statuses
 
 
 def _build_archive_query(conditions, params, printer_id, status, search,
@@ -169,6 +170,18 @@ def list_archives(
     conditions.append(predicate)
     params.update(bindings)
 
+    statuses = None
+    if accounting == 'unresolved':
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        conditions.append('a.completed_at>=:accounting_since AND a.completed_at<=:accounting_now')
+        params.update(accounting_since=now - timedelta(days=30), accounting_now=now)
+        candidates = db.execute(text('SELECT a.* FROM print_archives a WHERE ' + ' AND '.join(conditions)), params).mappings().all()
+        statuses = archive_statuses(db, candidates)
+        eligible = [identifier for identifier, status in statuses.items() if status['settleable']]
+        conditions.append('a.id IN (' + ','.join(f':eligible{i}' for i in range(len(eligible))) + ')' if eligible else '1=0')
+        params.update({f'eligible{i}': identifier for i, identifier in enumerate(eligible)})
+
     where = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
 
@@ -189,8 +202,10 @@ def list_archives(
         {**params, "limit": per_page, "offset": offset},
     ).fetchall()
 
+    if statuses is None:
+        statuses = archive_statuses(db, [dict(r._mapping) for r in rows])
     return {
-        "items": annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(r, db, user) for r in rows], user), archive=True, user=user),
+        "items": annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(r, db, user, statuses[r._mapping['id']]) for r in rows], user), archive=True, user=user),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -228,8 +243,9 @@ def compare_archives(
     _check_archive_org_access(db, dict(row_a._mapping)["id"], user)
     _check_archive_org_access(db, dict(row_b._mapping)["id"], user)
 
-    da = name_payloads(db, 'archive', [_archive_row_to_dict(row_a, db, user)], user)[0]
-    db_dict = name_payloads(db, 'archive', [_archive_row_to_dict(row_b, db, user)], user)[0]
+    statuses = archive_statuses(db, [dict(row_a._mapping), dict(row_b._mapping)])
+    da = name_payloads(db, 'archive', [_archive_row_to_dict(row_a, db, user, statuses[a])], user)[0]
+    db_dict = name_payloads(db, 'archive', [_archive_row_to_dict(row_b, db, user, statuses[b])], user)[0]
 
     # Build diff — fields that differ between a and b
     compare_fields = [

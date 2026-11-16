@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictFloat, model_validator
 from typing import Literal
 from sqlalchemy import text
 from core import filament_ledger as ledger
@@ -12,23 +12,23 @@ from core.interfaces.filament_ownership import ensure_local_filament_management
 from core.order_production import prepare_print_job_write
 from core.print_attempts import sqlalchemy_runner
 from .access import assert_archive_access
-from .settlement_data import physical_print, not_settleable, readable_spool, later_balances
+from .settlement_data import physical_print, not_settleable, readable_spool, later_balances, HIDDEN_USAGE
 
 
 class Entry(BaseModel):
     model_config = ConfigDict(extra='forbid')
     spool_id: StrictInt = Field(gt=0)
-    grams: float = Field(gt=0, le=10000, allow_inf_nan=False)
+    grams: StrictFloat = Field(gt=0, le=10000, allow_inf_nan=False)
 
 
 class Settlement(BaseModel):
     model_config = ConfigDict(extra='forbid')
     entries: list[Entry] = Field(default_factory=list, max_length=16)
-    counted_usage_ids: list[StrictInt] = Field(default_factory=list)
-    separate_usage_ids: list[StrictInt] = Field(default_factory=list)
+    counted_usage_ids: list[StrictInt] = Field(default_factory=list, max_length=256)
+    separate_usage_ids: list[StrictInt] = Field(default_factory=list, max_length=256)
     no_deduction: Literal['nothing_extruded', 'recorded_by_hand', 'spool_not_tracked', 'accept_existing', 'balance_already_updated'] | None = None
     note: str = Field(default='', max_length=200)
-    deduct_despite_later_balance: list[StrictInt] = Field(default_factory=list)
+    deduct_despite_later_balance: list[StrictInt] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode='after')
     def unique(self):
@@ -71,6 +71,8 @@ def settle(db, identifier, body, user):
     db.execute(text('SELECT id FROM print_archives WHERE id=:id FOR UPDATE NOWAIT' if postgres
                     else 'UPDATE print_archives SET id=id WHERE id=:id'), {'id': identifier})
     archive = archive_row(db, identifier, user)
+    if archive['accounting_state'] == 'reconciliation_required':
+        refuse('reconciliation_required', 'The spool had less filament than this print used. Weigh the spool to correct its balance.')
     if archive['accounting_state'] != 'unresolved':
         refuse('not_unresolved', "This print's filament is already settled. Nothing was changed.")
     ensure_local_filament_management(archive['printer_id'])
@@ -81,17 +83,22 @@ def settle(db, identifier, body, user):
     job_id = physical['scheduled_job_id']
     prior = ledger.prior_attempt_usage(run, job_id, archive['print_job_id'])
     existing = ledger.existing_rows_for_print(run, job_id, archive['print_job_id']) if prior else []
-    if prior and (body.no_deduction != 'accept_existing' or body.entries or body.counted_usage_ids):
+    manual = ledger.manual_rows_for_print(run, job_id, archive['print_job_id'])
+    if any(readable_spool(db, r['spool_id'], user) is None for r in manual + existing):
+        refuse('unreadable_usage', HIDDEN_USAGE)
+    if prior and (body.no_deduction != 'accept_existing' or body.entries):
         visible = [r for r in existing if readable_spool(db, r['spool_id'], user) is not None]
         evidence = f" ({sum(r['grams'] for r in visible):g} g, {visible[-1]['used_at']})" if visible else ''
         refuse('already_deducted', f"Filament for this print was already deducted{evidence}. Choose 'Keep the existing deduction' to close it.")
     if not prior and body.no_deduction == 'accept_existing':
         raise HTTPException(422, 'No existing deduction was found. Name a spool or choose a reason for no deduction.')
-    manual = ledger.manual_rows_for_print(run, job_id, archive['print_job_id'])
-    manual = [r for r in manual if readable_spool(db, r['spool_id'], user) is not None]
+    if set(body.counted_usage_ids + body.separate_usage_ids) - {r['usage_id'] for r in manual}:
+        refuse('unknown_manual_usage', 'A selected manual-use row is no longer available for this print. Reload the print and review its manual use again.')
     if {r['usage_id'] for r in manual} != set(body.counted_usage_ids + body.separate_usage_ids):
         refuse('manual_usage_unreviewed', "Manual use was recorded against this job. Say for each row whether it was this print's filament.", manual_usage=manual)
-    if (body.no_deduction and body.entries) or (not body.no_deduction and not body.entries):
+    if body.no_deduction and body.entries:
+        raise HTTPException(422, 'Remove the spool entries to choose no further deduction, or choose Deduct filament.')
+    if not body.no_deduction and not body.entries:
         raise HTTPException(422, 'Name at least one spool, or choose a reason for no deduction')
     if not set(body.deduct_despite_later_balance) <= {entry.spool_id for entry in body.entries}:
         raise HTTPException(422, 'Only confirm balances for the spools used by this print')
@@ -101,10 +108,10 @@ def settle(db, identifier, body, user):
     for entry in body.entries:
         spool = readable_spool(db, entry.spool_id, user, org_id, for_write=True)
         if spool is None:
-            raise HTTPException(404, 'Spool not found')
+            raise HTTPException(404, 'This spool is not available for this print. Choose a spool in the same organisation that you can access.')
         spools[entry.spool_id] = spool
     counted = [r for r in manual if r['usage_id'] in body.counted_usage_ids]
-    if any(r['spool_id'] not in spools for r in counted):
+    if not prior and any(r['spool_id'] not in spools for r in counted):
         raise HTTPException(422, 'Name the spool and total grams for every manual use counted for this print')
     grams_by_spool = {}
     for entry in body.entries:
@@ -116,21 +123,38 @@ def settle(db, identifier, body, user):
     for later in later_balances(db, archive, grams_by_spool, user):
         spool_id = later['spool_id']
         if spool_id not in body.deduct_despite_later_balance:
-            refuse('balance_set_after_print', f"Spool {spool_id} was weighed or measured after this print, so its balance already includes it. Choose 'No further deduction', or confirm you want to deduct anyway.")
-    outcome = ledger.record_settlement(run, job_id, archive['print_job_id'], grams_by_spool=grams_by_spool,
-                                       counted_usage_ids=body.counted_usage_ids, accept_existing=bool(prior), archive_id=identifier)
+            evidence = 'The print time is unknown, so ODIN cannot tell whether its balance already includes this use.' if later['how'] == 'unknown_print_time' else 'Its balance was set during or after this print and may already include this use.'
+            refuse('balance_set_after_print', f"Spool {spool_id}: {evidence} Choose 'No further deduction', or confirm you want to deduct anyway.")
+    try:
+        outcome = ledger.record_settlement(run, job_id, archive['print_job_id'], grams_by_spool=grams_by_spool,
+                                           counted_usage_ids=body.counted_usage_ids, accept_existing=bool(prior), archive_id=identifier)
+    except ledger.InvalidSettlementBalance as exc:
+        refuse('invalid_balance', str(exc))
     if outcome.state == 'already_deducted':
         refuse('already_deducted', "Filament for this print was already deducted. Choose 'Keep the existing deduction' to close it.")
     actor = dict(settled_by_user_id=user.get('id'), settled_by_token_id=user.get('_token_id'),
-                 settled_at=datetime.now(timezone.utc).isoformat(), counted_usage_ids=body.counted_usage_ids)
+                 settled_at=datetime.now(timezone.utc).isoformat(), counted_usage_ids=body.counted_usage_ids,
+                 settled_auth_kind=user.get('_auth_kind', 'jwt'))
     deducted = {d['spool_id']: d for d in outcome.deductions}
     consumption = []
     if prior:
-        totals = {}
-        for row in existing:
-            totals[row['spool_id']] = totals.get(row['spool_id'], 0) + row['grams']
-        consumption = [dict(spool_id=spool, grams_used=grams, deducted_now_g=0,
+        from .settlement_data import decoded
+        listed = set()
+        for (value,) in db.execute(text("SELECT consumption_json FROM print_archives WHERE id<>:id AND accounting_state IN ('accounted','reconciliation_required')"), {'id': identifier}):
+            for entry in decoded(value, []):
+                listed.update(entry.get('usage_ids', []))
+        totals, usage_ids = {}, {}
+        for row in existing + counted:
+            if row['usage_id'] in listed:
+                continue
+            spool = row['spool_id']
+            totals[spool] = totals.get(spool, 0) + row['grams']
+            usage_ids.setdefault(spool, []).append(row['usage_id'])
+        consumption = [dict(spool_id=spool, grams_used=grams, deducted_now_g=0, usage_ids=usage_ids[spool],
                             quantity_provenance='operator_settled', **actor) for spool, grams in totals.items()]
+        if existing and not consumption:
+            consumption = [dict(spool_id=None, grams_used=None, deducted_now_g=0,
+                                reason='usage_listed_on_another_archive', **actor)]
     elif body.entries:
         for entry in body.entries:
             deduction = deducted.get(entry.spool_id, {})
@@ -153,7 +177,7 @@ def settle(db, identifier, body, user):
                             remote=deduction['spoolman_spool_id'], grams=deduction['grams']))
     log_audit(db, 'archive.filament_settled', 'print_archive', identifier,
               dict(request=body.model_dump(), deductions=outcome.deductions, counted_usage_ids=body.counted_usage_ids,
-                   separate_usage_ids=body.separate_usage_ids, previous_reason=archive['accounting_reason'], actor_token_id=user.get('_token_id')))
+                   separate_usage_ids=body.separate_usage_ids, previous_reason=archive['accounting_reason'], actor_token_id=user.get('_token_id'), actor_auth_kind=user.get('_auth_kind', 'jwt')))
     return dict(archive_id=identifier, accounting_state=state, accounting_reason=reason,
                 deductions=[{k: v for k, v in dict(d, remaining_unknown=d['remaining_g'] is None).items()
                              if k != 'spoolman_spool_id'} for d in outcome.deductions], counted_usage_ids=body.counted_usage_ids)

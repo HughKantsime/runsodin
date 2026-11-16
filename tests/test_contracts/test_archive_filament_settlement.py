@@ -334,5 +334,5 @@ def test_busy_stock_rolls_back_and_gives_retry(settlement_case, monkeypatch):
         raise OperationalError('lock', {}, cause)
     monkeypatch.setattr(route, 'settle', busy)
     response = post(case, no_deduction='nothing_extruded')
-    assert response.status_code == 409 and 'Refresh and try again' in response.json()['detail']
+    assert response.status_code == 409 and response.json()['detail']['code'] == 'busy' and 'Refresh and try again' in response.json()['detail']['message']
     assert query(case, 'SELECT accounting_reason FROM print_archives')[0][0] != 'temporary'

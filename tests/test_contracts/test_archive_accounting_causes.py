@@ -8,39 +8,64 @@ from tests.test_contracts.test_archive_filament_settlement import settlement_cas
 from modules.archives.accounting_causes import CAUSES, DEFAULT, REASONS, describe
 
 
-def strings(node):
-    return {n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+def reason_literals(node):
+    """Literal output values, excluding predicates and dictionary lookup keys."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, ast.IfExp):
+        return reason_literals(node.body) | reason_literals(node.orelse)
+    if isinstance(node, ast.BoolOp):
+        return set().union(*(reason_literals(value) for value in node.values))
+    return set()
+
+
+def collect_reasons(source):
+    found = set()
+    tree = ast.parse(source)
+    returned = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Return)}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'unresolved' and node.args:
+            found |= reason_literals(node.args[0])
+        if isinstance(node, ast.keyword) and node.arg in ('reason', 'accounting_reason'):
+            found |= reason_literals(node.value)
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value in ('reason', 'accounting_reason'):
+                    found |= reason_literals(value)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                names = target.elts if isinstance(target, (ast.Tuple, ast.List)) else [target]
+                values = node.value.elts if isinstance(node.value, (ast.Tuple, ast.List)) else [node.value]
+                for name, value in zip(names, values):
+                    if isinstance(name, ast.Name) and name.id in ('reason', 'accounting_reason'):
+                        found |= reason_literals(value)
+        if id(node) in returned and isinstance(node, ast.Tuple) and len(node.elts) > 1 and isinstance(node.elts[0], ast.Constant) and node.elts[0].value in ('unresolved', 'accounted', 'reconciliation_required', 'externally_managed'):
+            found |= reason_literals(node.elts[1])
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # Literal SQL reason assignments and accounting state/reason VALUES pairs.
+            found.update(re.findall(r"accounting_reason\s*=\s*'([^']+)'", node.value))
+            if 'INSERT INTO print_archives' in node.value:
+                found.update(re.findall(r"'(?:unresolved|accounted|reconciliation_required|externally_managed)',\s*'([^']+)'", node.value))
+    return found
 
 
 def test_accounting_sources_cannot_add_an_undocumented_reason():
-    root = Path(__file__).resolve().parents[2] / 'backend/modules/archives'
+    root = Path(__file__).resolve().parents[2] / 'backend/modules'
     found = set()
-    for name in ('archive.py', 'attempt_accounting.py', 'routes/projects.py'):
-        tree = ast.parse((root / name).read_text())
-        scope = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'create_print_archive') if name == 'archive.py' else tree
-        for node in ast.walk(scope):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'unresolved':
-                for arg in node.args: found |= strings(arg)
-            if isinstance(node, ast.keyword) and node.arg == 'reason':
-                found |= strings(node.value)
-            if isinstance(node, ast.Dict):
-                for key, value in zip(node.keys, node.values):
-                    if isinstance(key, ast.Constant) and key.value == 'reason': found |= strings(value)
-            if isinstance(node, ast.Assign) and any(isinstance(n, ast.Name) and n.id == 'reason' for target in node.targets for n in ast.walk(target)):
-                if isinstance(node.value, ast.Tuple):
-                    for value in node.value.elts[1:2]: found |= strings(value)
-                elif not isinstance(node.value, ast.Call): found |= strings(node.value)
-            if isinstance(node, ast.Tuple) and node.elts and isinstance(node.elts[0], ast.Constant) and node.elts[0].value in ('unresolved', 'accounted', 'reconciliation_required', 'externally_managed'):
-                found |= strings(node.elts[1])
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and 'INSERT INTO print_archives' in node.value and 'accounting_reason' in node.value:
-                found.update(re.findall(r"'unresolved',\s*'([^']+)'", node.value))
-    # The import route embeds its reason in a bound tuple rather than an accounting helper.
-    assert "'project_import'" in (root / 'routes/projects.py').read_text()
-    found.add('project_import')
-    # Conditions in ternary expressions include state/metadata lookup strings, not reasons.
-    found -= {'state', 'complete', 'reason', 'identity_state', 'price'}
+    for name in ('archives/archive.py', 'archives/attempt_accounting.py', 'archives/routes/projects.py', 'inventory/routes/filament_slots.py'):
+        found |= collect_reasons((root / name).read_text())
+    assert 'project_import' in found
     assert found <= REASONS, found - REASONS
     assert set(CAUSES) == REASONS
+
+
+def test_reason_census_covers_whole_modules_and_sql_without_hand_entries():
+    assert collect_reasons("""
+def outside_create_archive():
+    accounting_reason = 'new_python_reason' if state == 'not_a_reason' else 'other_reason'
+    run("UPDATE print_archives SET accounting_reason='new_sql_reason'")
+    return 'unresolved', 'new_return_reason', []
+""") == {'new_python_reason', 'other_reason', 'new_sql_reason', 'new_return_reason'}
 
 
 @pytest.mark.parametrize('reason', sorted(REASONS))

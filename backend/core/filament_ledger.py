@@ -69,7 +69,7 @@ from datetime import datetime, timezone
 from typing import Mapping, Optional
 
 from core.print_attempts import (PREFIX, attempt_seq, attempt_starts, bound_print_attempt, moment,
-                                 filament_marker_for)
+                                 filament_marker_for, config_row)
 
 log = logging.getLogger("odin.filament_ledger")
 
@@ -132,6 +132,9 @@ def row_kind(notes) -> str:
 
 
 def _audit_resets(run, job_id):
+    evidence = getattr(run, 'filament_evidence', None)
+    if evidence is not None:
+        return [at for at in map(_utc, evidence.resets.get(job_id, [])) if at is not None]
     return [moment for moment in (_utc(row[0]) for row in run(
         "SELECT timestamp FROM audit_logs WHERE action = 'job.reset' AND entity_type = 'job' AND entity_id = :jid",
         {"jid": int(job_id)}).fetchall()) if moment is not None]
@@ -171,7 +174,8 @@ def current_attempt(run, job_id) -> AttemptView:
         if seq > 0:
             log.warning("Job %s attempt %s has no reset anchor; using its latest audited reset", job_id, seq)
         start = bounds[-1] if bounds else None
-    row = run("SELECT actual_start FROM jobs WHERE id = :jid", {"jid": int(job_id)}).fetchone()
+    evidence = getattr(run, 'filament_evidence', None)
+    row = (evidence.jobs.get(job_id, {}).get('actual_start'),) if evidence is not None else run("SELECT actual_start FROM jobs WHERE id = :jid", {"jid": int(job_id)}).fetchone()
     return AttemptView(seq, start, None, _utc(row[0]) if row else None)
 
 
@@ -192,7 +196,8 @@ def print_attempt(run, job_id, print_job_id) -> AttemptView:
     reset window holds its started_at. A missing anchor falls back explicitly to
     the started_at window, with a warning.
     """
-    row = run("SELECT started_at FROM print_jobs WHERE id = :p", {"p": int(print_job_id)}).fetchone()
+    evidence = getattr(run, 'filament_evidence', None)
+    row = (evidence.prints.get(print_job_id, {}).get('started_at'),) if evidence is not None else run("SELECT started_at FROM print_jobs WHERE id = :p", {"p": int(print_job_id)}).fetchone()
     started = _utc(row[0]) if row else None
     bound = bound_print_attempt(run, print_job_id, job_id)
     starts = attempt_starts(run, job_id)
@@ -251,8 +256,9 @@ def _attempt_rows(run, job_id, view, kinds):
     job-level row belongs to the attempt whose window holds its used_at.
     """
     prints = {}
-    for print_job, used_at, notes in run("SELECT print_job_id, used_at, notes FROM spool_usage WHERE job_id = :jid",
-                                         {"jid": int(job_id)}).fetchall():
+    evidence = getattr(run, 'filament_evidence', None)
+    rows = [(r['print_job_id'], r['used_at'], r['notes']) for r in evidence.usage if r['job_id'] == job_id] if evidence is not None else run("SELECT print_job_id, used_at, notes FROM spool_usage WHERE job_id = :jid", {"jid": int(job_id)}).fetchall()
+    for print_job, used_at, notes in rows:
         if row_kind(notes) not in kinds:
             continue
         if print_job is not None:
@@ -271,22 +277,18 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
     attempt *it* belongs to; without it, about the job's current attempt.
     """
     if print_job_id is not None:
-        # A settlement belongs to immutable physical identity, not its mutable job link.
-        settled = run('SELECT value FROM system_config WHERE key=:key',
-                      {'key': f'filament_settlement:print:{int(print_job_id)}'}).fetchone()
-        if settled:
-            marker = json.loads(settled[0]) if isinstance(settled[0], str) else settled[0]
-            if marker.get('print_identity') == _settlement_print_identity(run, print_job_id):
-                return MARKER
-        if run("SELECT 1 FROM system_config WHERE key = :k", {"k": print_marker(job_id, print_job_id)}).fetchone():
+        if physical_usage_marker(run, print_job_id) is not None:
             return MARKER
-        if run("SELECT 1 FROM spool_usage WHERE print_job_id = :pj LIMIT 1", {"pj": int(print_job_id)}).fetchone():
+        if config_row(run, print_marker(job_id, print_job_id)):
+            return MARKER
+        evidence = getattr(run, 'filament_evidence', None)
+        print_usage = any(r['print_job_id'] == print_job_id for r in evidence.usage) if evidence is not None else run("SELECT 1 FROM spool_usage WHERE print_job_id = :pj LIMIT 1", {"pj": int(print_job_id)}).fetchone()
+        if print_usage:
             return PRINT_USAGE
         if job_id is None:
             return None
         view = print_attempt(run, job_id, print_job_id)
-        row = run("SELECT value FROM system_config WHERE key = :k",
-                  {"k": filament_marker_for(job_id, view.seq)}).fetchone()
+        row = config_row(run, filament_marker_for(job_id, view.seq))
         if row and _marker_print(row[0]) is None:
             return JOB_USAGE
         # A marker-less job row of this attempt (a legacy automatic deduction, or a
@@ -300,6 +302,9 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
     view = current_attempt(run, job_id)
     if run("SELECT 1 FROM system_config WHERE key = :k", {"k": filament_marker_for(job_id, view.seq)}).fetchone():
         return MARKER
+    for (physical,) in run('SELECT id FROM print_jobs WHERE scheduled_job_id=:job', {'job': job_id}).fetchall():
+        if print_attempt(run, job_id, physical).same_attempt(view) and prior_attempt_usage(run, job_id, physical) in (MARKER, PRINT_USAGE):
+            return PRINT_USAGE
     for print_job in _attempt_rows(run, job_id, view, ("auto",)):
         return PRINT_USAGE if print_job is not None else LEGACY_JOB_USAGE
     return None
@@ -339,7 +344,11 @@ def _deduct(run, spool_id, grams, *, job_id, print_job_id, notes, allow_unknown_
     """Read and decrement one locked spool. Confirmed usage may retain an unknown balance."""
     row = run("SELECT remaining_weight_g, spoolman_spool_id FROM spools WHERE id = :id", {"id": spool_id}).fetchone()
     before = row[0] if row else None
-    if row is None or (before is None and not allow_unknown_balance) or (before is not None and not math.isfinite(float(before))):
+    try:
+        invalid_balance = before is not None and not math.isfinite(float(before))
+    except (ValueError, TypeError):
+        invalid_balance = True
+    if row is None or (before is None and not allow_unknown_balance) or invalid_balance:
         return None
     before = float(before) if before is not None else None
     run("UPDATE spools SET remaining_weight_g = CASE WHEN remaining_weight_g > :g THEN remaining_weight_g - :g "
@@ -502,14 +511,62 @@ def existing_rows_for_print(run, job_id, print_job_id) -> list:
     rows = run("SELECT id,spool_id,weight_used_g,used_at,notes,print_job_id FROM spool_usage "
                "WHERE print_job_id=:print OR (job_id=:job AND print_job_id IS NULL) ORDER BY id",
                {"print": print_job_id, "job": job_id}).fetchall()
+    marker = physical_usage_marker(run, print_job_id)
+    retained = marker.get('usage_ids', []) if marker else []
+    if retained:
+        rows += [row for row in run(
+            'SELECT id,spool_id,weight_used_g,used_at,notes,print_job_id FROM spool_usage WHERE id IN ('
+            + ','.join(f':usage{i}' for i in range(len(retained))) + ')',
+            {f'usage{i}': uid for i, uid in enumerate(retained)}).fetchall() if row[0] not in {r[0] for r in rows}]
     return [dict(usage_id=r[0], spool_id=r[1], grams=r[2], used_at=r[3], notes=r[4]) for r in rows
-            if r[5] == print_job_id or (view and view.holds(_utc(r[3])) and row_kind(r[4]) != 'manual')]
+            if r[0] in retained or r[5] == print_job_id or (view and view.holds(_utc(r[3])) and row_kind(r[4]) != 'manual')]
 
 
 def _settlement_print_identity(run, print_job_id):
-    row = run('SELECT economic_birth_nonce,printer_id,started_at FROM print_jobs WHERE id=:id',
-              {'id': print_job_id}).fetchone()
+    evidence = getattr(run, 'filament_evidence', None)
+    if evidence is not None:
+        physical = evidence.prints.get(print_job_id)
+        row = [physical[k] for k in ('economic_birth_nonce', 'printer_id', 'started_at')] if physical else None
+    else:
+        row = run('SELECT economic_birth_nonce,printer_id,started_at FROM print_jobs WHERE id=:id', {'id': print_job_id}).fetchone()
     return [row[0], row[1], str(row[2])] if row else None
+
+
+def physical_usage_marker(run, print_job_id):
+    """Ignore only provably reused identities; unreadable evidence blocks deduction."""
+    row = config_row(run, f'filament_settlement:print:{int(print_job_id)}')
+    if not row:
+        return None
+    try:
+        marker = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        identity = marker['print_identity']
+        current = _settlement_print_identity(run, print_job_id)
+        if not isinstance(identity, list) or len(identity) != 3 or not current:
+            return {}
+        if identity[:2] != current[:2]:
+            return None
+        before, now = moment(identity[2]), moment(current[2])
+        if before is not None and now is not None and before != now:
+            return None
+        return marker
+    except (TypeError, ValueError, KeyError):
+        return {}
+
+
+def retain_detached_usage(run, print_job_id, job_id):
+    """Carry deduction evidence across removal of a job-attempt binding."""
+    if prior_attempt_usage(run, job_id, print_job_id) is None:
+        return
+    if physical_usage_marker(run, print_job_id) is not None:
+        return
+    rows = existing_rows_for_print(run, job_id, print_job_id)
+    _claim(run, f'filament_settlement:print:{int(print_job_id)}',
+           dict(source='detached_usage', print_identity=_settlement_print_identity(run, print_job_id),
+                usage_ids=[row['usage_id'] for row in rows]))
+
+
+class InvalidSettlementBalance(ValueError):
+    pass
 
 
 def record_settlement(run, job_id, print_job_id, *, grams_by_spool, counted_usage_ids,
@@ -550,7 +607,7 @@ def record_settlement(run, job_id, print_job_id, *, grams_by_spool, counted_usag
         entry = _deduct(run, spool, grams, job_id=job_id, print_job_id=print_job_id,
                         notes=f'auto:settlement: archive {archive_id}', allow_unknown_balance=True)
         if entry is None:
-            raise ValueError('Settlement balance is invalid')
+            raise InvalidSettlementBalance(f'Spool {spool} has an invalid balance. Correct or weigh the spool, then try again.')
         deductions.append(entry)
     return LedgerResult('deducted' if deductions else 'nothing_deducted', None, deductions)
 
@@ -584,10 +641,14 @@ def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
         run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
             "VALUES (:spool, NULL, NULL, :g, :at, :notes)",
             {"spool": int(spool_id), "g": before - value, "at": _now(), "notes": f"{MANUAL_PREFIX} weigh adjustment"})
-    # Every absolute scale reading matters, including an increase or NULL -> known.
-    run("INSERT INTO system_config(key,value) VALUES(:key,:at) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        {"key": f"filament_balance_weighed:{int(spool_id)}", "at": _now().isoformat()})
+    record_balance_set(run, spool_id)
     return {"spool_id": int(spool_id), "old_weight_g": before, "remaining_g": value}
+
+
+def record_balance_set(run, spool_id):
+    """Retain an absolute balance correction, including increases and NULL -> known."""
+    run("INSERT INTO system_config(key,value) VALUES(:key,:at) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        {"key": f"filament_balance_weighed:{int(spool_id)}", "at": json.dumps(_now().isoformat())})
 
 
 def create_rfid_spool(run, *, filament_id, qr_code, tag, tray_uuid, color_hex, color_name, org_id):

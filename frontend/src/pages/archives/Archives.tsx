@@ -383,7 +383,7 @@ export default function ArchivesPage() {
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '')
   const [filterPrinter, _setFilterPrinter] = useState(() => searchParams.get('printer') || '')
   const [filterStatus, _setFilterStatus] = useState(() => searchParams.get('status') || '')
-  const [filterAccounting, setFilterAccounting] = useState(() => searchParams.get('accounting') || '')
+  const [filterAccounting, setFilterAccounting] = useState(() => ['unresolved', 'reconciliation_required'].includes(searchParams.get('accounting') || '') ? searchParams.get('accounting')! : '')
   const [filterTag, _setFilterTag] = useState(() => searchParams.get('tag') || '')
   const [selected, setSelected] = useState(null)
   const [compareIds, setCompareIds] = useState(new Set<number>())
@@ -516,7 +516,7 @@ export default function ArchivesPage() {
         <select aria-label="Filter by filament accounting" value={filterAccounting}
           onChange={e => { setFilterAccounting(e.target.value); updateSearchParams({ accounting: e.target.value }); setPage(1) }}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm">
-          <option value="">All filament records</option><option value="unresolved">Needs filament settled</option>
+          <option value="">All filament records</option><option value="unresolved">Needs filament settled (last 30 days)</option>
           <option value="reconciliation_required">Spool balance needs review</option>
         </select>
         {filterTag && (
@@ -545,8 +545,8 @@ export default function ArchivesPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={Archive}
-          title="No archived prints yet"
-          description="Prints are automatically archived when they complete"
+          title={search || filterPrinter || filterStatus || filterAccounting || filterTag ? 'No prints match these filters' : 'No archived prints yet'}
+          description={search || filterPrinter || filterStatus || filterAccounting || filterTag ? 'Change or clear the filters to see more prints.' : 'Prints are automatically archived when they complete'}
         />
       ) : (
         <>
@@ -704,6 +704,5 @@ export default function ArchivesPage() {
 }
 
 function AccountingBadge({ item }: { item: ArchiveDto }) {
-  return ['unresolved', 'reconciliation_required'].includes(item.accounting_state || '')
-    ? <span className="text-xs text-amber-500">Needs its filament settled</span> : null
+  return item.accounting_badge ? <span className="text-xs text-amber-500">{item.accounting_badge}</span> : null
 }

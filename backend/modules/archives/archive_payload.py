@@ -1,8 +1,8 @@
 """Archive response fields shared by list, detail and comparison."""
 from .accounting_causes import describe
-from .settlement_data import annotate_settled
+from .settlement_data import annotate_settled, archive_statuses
 
-def archive_row_to_dict(r, db=None, user=None):
+def archive_row_to_dict(r, db=None, user=None, status=None):
     """Convert a raw archive row to a response dict with printer display name."""
     d = dict(r._mapping)
     d["printer_display"] = (
@@ -17,6 +17,7 @@ def archive_row_to_dict(r, db=None, user=None):
     if d.get("accounting_state") in ("unresolved", "reconciliation_required"):
         d["accounting_cause"] = describe(d.get("accounting_reason"), d.get("ownership_source"))
     if db is not None:
+        d.update(status if status is not None else archive_statuses(db, [d])[d['id']])
         annotate_settled(db, d, user)
     return d
 

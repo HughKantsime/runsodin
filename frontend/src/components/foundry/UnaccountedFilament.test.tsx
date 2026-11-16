@@ -1,19 +1,32 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import UnaccountedFilament from './UnaccountedFilament'
-const state = vi.hoisted(() => ({ allowed: true, data: undefined as any, isError: false, query: vi.fn() }))
-vi.mock('../../permissions', () => ({ canDo: () => state.allowed }))
-vi.mock('@tanstack/react-query', () => ({ useQuery: (options: any) => { state.query(options); return state } }))
-beforeEach(() => { state.allowed = true; state.isError = false; state.data = { unresolved: 2, by_cause: [{ title: 'The spool has no known balance' }] }; state.query.mockClear() })
-afterEach(cleanup)
-function mount() { render(<MemoryRouter><UnaccountedFilament /></MemoryRouter>) }
-test('links the count and top cause to filtered archives', () => { mount(); expect(screen.getByRole('link')).toHaveAttribute('href', '/archives?accounting=unresolved'); expect(screen.getByRole('link')).toHaveTextContent('2 finished prints need their filament settled'); expect(screen.getByText(/The spool has no known balance/)).toBeInTheDocument() })
-test.each(['denied', 'empty', 'failure', 'loading'])('renders nothing when %s', reason => {
+const state = vi.hoisted(() => ({ allowed: true }))
+vi.mock('../../permissions', () => ({ canDo: () => state.allowed, clearSensitiveBrowserState: vi.fn() }))
+const fetcher = vi.fn()
+beforeEach(() => {
+  state.allowed = true; fetcher.mockReset()
+  fetcher.mockResolvedValue(new Response(JSON.stringify({ unresolved: 2, by_cause: [{ title: 'The spool has no known balance' }] }), { status: 200 }))
+  vi.stubGlobal('fetch', fetcher)
+})
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+function mount() { render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><UnaccountedFilament /></MemoryRouter></QueryClientProvider>) }
+test('real query links the count and top cause to filtered archives', async () => {
+  mount(); const link = await screen.findByRole('link')
+  expect(link).toHaveAttribute('href', '/archives?accounting=unresolved')
+  expect(link).toHaveTextContent('2 finished prints need their filament settled')
+  expect(screen.getByText(/The spool has no known balance/)).toBeInTheDocument()
+  expect(fetcher).toHaveBeenCalledWith('/api/archives/accounting-summary?days=30', expect.anything())
+})
+test.each(['denied', 'empty', 'failure', 'loading'])('renders nothing when %s', async reason => {
   if (reason === 'denied') state.allowed = false
-  if (reason === 'empty') state.data.unresolved = 0
-  if (reason === 'failure') state.isError = true
-  if (reason === 'loading') state.data = undefined
-  mount(); expect(screen.queryByRole('link')).not.toBeInTheDocument()
-  if (reason === 'denied') expect(state.query).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
+  if (reason === 'empty') fetcher.mockResolvedValue(new Response(JSON.stringify({ unresolved: 0, by_cause: [] })))
+  if (reason === 'failure') fetcher.mockRejectedValue(new TypeError('Connection lost'))
+  if (reason === 'loading') fetcher.mockReturnValue(new Promise(() => {}))
+  mount()
+  if (reason !== 'denied') await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  if (reason === 'denied') expect(fetcher).not.toHaveBeenCalled()
 })
