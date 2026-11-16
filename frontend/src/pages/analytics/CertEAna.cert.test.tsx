@@ -93,21 +93,21 @@ test('F10-10.1-04 Fleet Overview shows producer totals and computed completion r
 
 // ---------- F10.5 Failure analytics ----------
 test('F10-10.5-01 failure analytics charts success/failure per printer and top failure reasons', async () => {
-  show(<Analytics />); await screen.findByRole('heading', { name: 'Success / Failure by Printer' })
-  const chart = panel('Success / Failure by Printer')
+  show(<Analytics />); await screen.findByRole('heading', { name: 'Completed / Did Not Complete by Printer' })
+  const chart = panel('Completed / Did Not Complete by Printer')
   expect(chart).toHaveTextContent('60% fleet success')
   expect(ticks(chart)).toEqual(expect.arrayContaining(['P1S-10', 'P1S-09']))
   const reasons = panel('Top Failure Reasons')
   expect(reasons).toHaveTextContent('spaghetti'); expect(reasons).toHaveTextContent('adhesion')
 })
 // Claim corrected (2026-10-16): per-model failure rates are shown in the Analytics UI
-// (cert-fix-D's "Failures by Model" table, from the producer's by_model counts).
+// (cert-fix-D's "Did Not Complete by Model" table, from the producer's by_model counts).
 test('F10-10.5-01 wording: per-model failure rates are rendered on the Analytics page', async () => {
   show(<Analytics />)
-  const table = (await screen.findByRole('heading', { name: 'Failures by Model' })).parentElement!.querySelector('table')!
+  const table = (await screen.findByRole('heading', { name: 'Did Not Complete by Model' })).parentElement!.querySelector('table')!
   const rows = within(table).getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
   // Producer: Shared model 1 completed / 2 failed (success_rate 33.3) -> failure rate 66.7%; Own model 2 / 0 -> 0%.
-  expect(rows).toEqual([['Shared model', '1', '2', '66.7%'], ['Own model', '2', '0', '0%']])
+  expect(rows).toEqual([['Shared model', '1', '22 failed, 0 stopped', '66.7%'], ['Own model', '2', '00 failed, 0 stopped', '0%']])
 })
 
 // ---------- F10.4 Energy ----------
@@ -143,7 +143,7 @@ test('F10-10.3-02/03 per-printer table and utilization chart from the producer r
   const daily = screen.getByRole('heading', { name: 'Completed and Failed Prints per Day' }).parentElement!
   await waitFor(() => expect(ticks(daily)).toEqual(expect.arrayContaining(['10-11', '10-12'])))
   fireEvent.change(screen.getByRole('combobox'), { target: { value: '7' } })
-  await waitFor(() => expect(api.stats).toHaveBeenLastCalledWith(7)); expect(api.jobs).toHaveBeenLastCalledWith({ limit: 500, days: 7 })
+  await waitFor(() => expect(api.stats).toHaveBeenLastCalledWith(7)); expect(api.jobs).toHaveBeenLastCalledWith({ limit: 500, ended_after: '2026-10-06T12:00:00.000Z' })
 })
 test('F10-10.3-04 CSV export downloads the per-printer rows', async () => {
   const blobs: Blob[] = []
@@ -155,7 +155,7 @@ test('F10-10.3-04 CSV export downloads the per-printer rows', async () => {
   expect(click.mock.instances[0]).toHaveProperty('download', 'utilization-report-2026-10-13.csv')
   expect(blobs[0].type).toBe('text/csv')
   const textOf = await new Promise<string>((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = bad; r.readAsText(blobs[0]) })
-  expect(textOf).toBe('Printer,Jobs,Hours,Utilization %,Success Rate %,Failed,Avg Job (hrs)\nP1S-09,2,4,2.4,100,0,2\nP1S-10,1,2,1.2,50,1,2')
+  expect(textOf).toBe('Printer,Jobs,Hours,Utilization %,Success Rate %,Failed,Avg Job (hrs),did_not_complete,stopped\nP1S-09,2,4,2.4,100,0,2,0,0\nP1S-10,1,2,1.2,50,1,2,1,0')
 })
 
 // ---------- F10.2 Cost calculator ----------

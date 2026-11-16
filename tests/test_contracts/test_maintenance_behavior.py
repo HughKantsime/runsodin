@@ -3,6 +3,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from core.physical_print import CLOSED_UNKNOWN
+from core.restart_questions import ENDED_UNKNOWN
 from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
 
@@ -200,3 +202,23 @@ def test_maintenance_default_seeding_is_idempotent_and_admin_only(maintenance_cl
     user['role']='operator'
     assert client.post('/api/v1/maintenance/seed-defaults').status_code==403
     assert review_db.execute(text('SELECT COUNT(*) FROM maintenance_tasks')).scalar_one()==count
+
+
+def test_did_not_complete_in_both_maintenance_windows(maintenance_client, review_db):
+    from datetime import datetime, timedelta, timezone
+    client, _ = maintenance_client
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for status, age, ended, code in (
+        ('completed', 1, True, None), ('failed', 1, True, None), ('cancelled', 1, True, None),
+        ('completed', 45, True, None), ('cancelled', 45, True, None), ('cancelled', 100, True, None),
+        ('cancelled', 1, False, CLOSED_UNKNOWN), ('cancelled', 1, False, ENDED_UNKNOWN), ('failed', 1, False, None),
+    ):
+        moment = now - timedelta(days=age)
+        review_db.execute(text("INSERT INTO print_jobs(printer_id,status,started_at,ended_at,error_code) VALUES(9,:status,:start,:end,:code)"),
+            {'status': status, 'start': moment-timedelta(hours=1), 'end': moment if ended else None, 'code': code})
+    review_db.commit()
+    response = client.get('/api/v1/maintenance/status')
+    assert response.status_code == 200, response.text
+    rate = next(p for p in response.json() if p['printer_id'] == 9)['failure_rate']
+    assert rate['last_30_days'] == {'completed': 1, 'failed': 1, 'stopped': 1, 'did_not_complete': 2, 'rate_percent': 66.7}
+    assert rate['last_90_days'] == {'completed': 2, 'failed': 1, 'stopped': 2, 'did_not_complete': 3, 'rate_percent': 60.0}

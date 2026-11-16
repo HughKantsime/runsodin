@@ -128,11 +128,12 @@ def _integer(value):
     200: {"content": {"application/json": {"schema": {
         "type": "object", "properties": {"fleet": {
             "type": "object", "properties": {"today": {
-                "type": "object", "required": ["plates_done", "plates_failed", "plates_stopped", "since"],
+                "type": "object", "required": ["plates_done", "plates_failed", "plates_stopped", "plates_did_not_complete", "since"],
                 "properties": {
                     "plates_done": {"type": "integer", "minimum": 0, "description": "Prints completed today."},
                     "plates_failed": {"type": "integer", "minimum": 0, "description": "Prints failed today."},
                     "plates_stopped": {"type": "integer", "minimum": 0, "description": "Prints stopped mid-run today."},
+                    "plates_did_not_complete": {"type": "integer", "minimum": 0, "description": "Failed plus stopped prints today."},
                     "since": {"type": "string", "format": "date-time", "description": "Midnight in the farm time zone, in UTC."},
                 },
             }},
@@ -147,7 +148,8 @@ def home_assistant_status(
     """Fleet and per-printer status for Home Assistant. Read-only, database only.
 
     fleet.today counts completed, failed and stopped prints separately since midnight
-    in the farm time zone. Only prints visible to the caller count.
+    in the farm time zone. plates_did_not_complete is plates_failed plus plates_stopped.
+    Only prints visible to the caller count.
     """
     now = datetime.now(timezone.utc)
     query = db.query(Printer).filter(Printer.is_active.isnot(False))

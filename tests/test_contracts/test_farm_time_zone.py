@@ -201,17 +201,17 @@ def test_home_assistant_day_totals_and_timezone_follow_the_setting(ha_client, re
     # unset and no TZ: UTC
     body = _ha(client, issue, monkeypatch, now)
     assert body["timezone"] == "UTC" and body["schema_version"] == 2
-    assert body["fleet"]["today"] == {"plates_done": 3 if status == "completed" else 0, "plates_failed": 0, "plates_stopped": 3 if status == "cancelled" else 0, "since": "2026-11-12T00:00:00Z"}
+    assert body["fleet"]["today"] == {"plates_done": 3 if status == "completed" else 0, "plates_failed": 0, "plates_stopped": 3 if status == "cancelled" else 0, "plates_did_not_complete": 3 if status == "cancelled" else 0, "since": "2026-11-12T00:00:00Z"}
     # unset with the server's TZ: unchanged from before the setting existed
     monkeypatch.setenv("TZ", "America/New_York")
     body = _ha(client, issue, monkeypatch, now)
     assert body["timezone"] == "America/New_York"
-    assert body["fleet"]["today"] == {"plates_done": 1 if status == "completed" else 0, "plates_failed": 0, "plates_stopped": 1 if status == "cancelled" else 0, "since": "2026-11-12T05:00:00Z"}
+    assert body["fleet"]["today"] == {"plates_done": 1 if status == "completed" else 0, "plates_failed": 0, "plates_stopped": 1 if status == "cancelled" else 0, "plates_did_not_complete": 1 if status == "cancelled" else 0, "since": "2026-11-12T05:00:00Z"}
     # the setting wins over TZ
     set_farm_timezone(db, "America/Halifax"); db.commit()
     body = _ha(client, issue, monkeypatch, now)
     assert body["timezone"] == "America/Halifax"
-    assert body["fleet"]["today"] == {"plates_done": 2 if status == "completed" else 0, "plates_failed": 0, "plates_stopped": 2 if status == "cancelled" else 0, "since": "2026-11-12T04:00:00Z"}
+    assert body["fleet"]["today"] == {"plates_done": 2 if status == "completed" else 0, "plates_failed": 0, "plates_stopped": 2 if status == "cancelled" else 0, "plates_did_not_complete": 2 if status == "cancelled" else 0, "since": "2026-11-12T04:00:00Z"}
 
 
 # ---------------- timeline window start and capacity "recorded on" ----------------

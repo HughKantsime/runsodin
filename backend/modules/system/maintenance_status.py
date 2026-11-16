@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy import or_
 
 from core.physical_print import CLOSED_UNKNOWN
+from core.print_outcomes import PRINT_DID_NOT_COMPLETE_SQL, PRINT_FAILED_SQL, PRINT_STOPPED_SQL
 from core.rbac import get_org_scope, should_filter_org
 from modules.printers.models import Printer
 from modules.system.models import MaintenanceLog, MaintenanceTask
@@ -68,8 +69,8 @@ def _naive_utc(moment):
 def failure_rates(db, printer_ids, now=None):
     """{printer_id: {...}} over the last 30 and 90 days.
 
-    failed / (completed + failed) print rows. Cancelled rows and rows retired by a
-    new physical start (CLOSED_UNKNOWN) are not counted.
+    Did-not-complete / (completed + did-not-complete) print rows. Unknown
+    ends and rows retired by a new physical start (CLOSED_UNKNOWN) are excluded.
     """
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -79,7 +80,9 @@ def failure_rates(db, printer_ids, now=None):
     when = sa.func.coalesce(_PRINT_JOBS.c.ended_at, _PRINT_JOBS.c.started_at)
 
     def count(status, cutoff=None):
-        condition = _PRINT_JOBS.c.status == status
+        condition = (sa.literal_column(PRINT_FAILED_SQL.format(prefix="print_jobs.")) if status == "failed" else
+                     sa.literal_column(PRINT_STOPPED_SQL.format(prefix="print_jobs.")) if status == "stopped" else
+                     _PRINT_JOBS.c.status == status)
         if cutoff is not None:
             condition = sa.and_(condition, when >= cutoff)
         return sa.func.sum(sa.case((condition, 1), else_=0))
@@ -87,27 +90,31 @@ def failure_rates(db, printer_ids, now=None):
     result = {}
     if printer_ids:
         rows = db.execute(
-            sa.select(_PRINT_JOBS.c.printer_id, count("completed", cut30), count("failed", cut30),
-                      count("completed"), count("failed"))
+            sa.select(_PRINT_JOBS.c.printer_id, count("completed", cut30), count("failed", cut30), count("stopped", cut30),
+                      count("completed"), count("failed"), count("stopped"))
             .where(_PRINT_JOBS.c.printer_id.in_(list(printer_ids)),
-                   _PRINT_JOBS.c.status.in_(("completed", "failed")),
+                   sa.or_(_PRINT_JOBS.c.status == "completed",
+                          sa.literal_column(PRINT_DID_NOT_COMPLETE_SQL.format(prefix="print_jobs."))),
                    sa.or_(_PRINT_JOBS.c.error_code.is_(None), _PRINT_JOBS.c.error_code != CLOSED_UNKNOWN),
                    when >= cut90)
             .group_by(_PRINT_JOBS.c.printer_id)
         ).all()
-        for printer_id, completed30, failed30, completed90, failed90 in rows:
+        for printer_id, completed30, failed30, stopped30, completed90, failed90, stopped90 in rows:
             result[printer_id] = {
-                "last_30_days": _window(completed30, failed30),
-                "last_90_days": _window(completed90, failed90),
+                "last_30_days": _window(completed30, failed30, stopped30),
+                "last_90_days": _window(completed90, failed90, stopped90),
             }
     return result
 
 
-def _window(completed, failed):
+def _window(completed, failed, stopped=0):
     completed, failed = int(completed or 0), int(failed or 0)
-    total = completed + failed
-    return {"completed": completed, "failed": failed,
-            "rate_percent": round(failed / total * 100, 1) if total else None}
+    stopped = int(stopped or 0)
+    did_not_complete = failed + stopped
+    total = completed + did_not_complete
+    return {"completed": completed, "failed": failed, "stopped": stopped,
+            "did_not_complete": did_not_complete,
+            "rate_percent": round(did_not_complete / total * 100, 1) if total else None}
 
 
 def _empty_failure_rate():

@@ -13,6 +13,7 @@ from datetime import datetime as dt, timezone
 import logging
 import json
 
+from core.print_outcomes import PRINT_FAILED_SQL, PRINT_STOPPED_SQL, PRINT_DID_NOT_COMPLETE_SQL
 from core.db import get_db
 from core.rbac import require_role, get_org_scope, _get_org_filter
 from modules.jobs.models import Job, PrintPreset
@@ -165,7 +166,9 @@ def _print_jobs(db, current_user, *, printer_id=None, status=None, limit=50,
     if job_id is not None:
         sql += " AND pj.id = :job_id"
         params["job_id"] = job_id
-    if status is not None:
+    if status == "did_not_complete":
+        sql += " AND " + PRINT_DID_NOT_COMPLETE_SQL.format(prefix="pj.")
+    elif status is not None:
         sql += " AND pj.status = :status"
         params["status"] = status
 
@@ -255,7 +258,9 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
             p.name as printer_name,
             COUNT(*) as total_jobs,
             SUM(CASE WHEN pj.status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
-            SUM(CASE WHEN pj.status = 'failed' THEN 1 ELSE 0 END) as failed_jobs,
+            SUM(CASE WHEN {PRINT_FAILED_SQL.format(prefix='pj.')} THEN 1 ELSE 0 END) as failed_jobs,
+            SUM(CASE WHEN {PRINT_STOPPED_SQL.format(prefix='pj.')} THEN 1 ELSE 0 END) as stopped_jobs,
+            SUM(CASE WHEN {PRINT_DID_NOT_COMPLETE_SQL.format(prefix='pj.')} THEN 1 ELSE 0 END) as did_not_complete_jobs,
             SUM(CASE WHEN pj.status = 'running' THEN 1 ELSE 0 END) as running_jobs,
             ROUND(SUM(
                 CASE WHEN pj.ended_at IS NOT NULL

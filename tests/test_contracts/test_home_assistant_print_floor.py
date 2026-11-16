@@ -55,15 +55,15 @@ def test_schema_version_bumped_and_keys_are_additive(ha_client):
         assert 'next_job' in printer and 'bench' in printer
         assert {'id', 'name', 'status', 'job_name', 'last_error', 'camera_available'} <= set(printer)
     assert {'queue_length', 'today', 'queued_hours', 'queued_unestimated', 'next_unassigned'} <= set(body['fleet'])
-    assert {'plates_done', 'plates_failed', 'plates_stopped', 'since'} == set(body['fleet']['today'])
+    assert {'plates_done', 'plates_failed', 'plates_stopped', 'plates_did_not_complete', 'since'} == set(body['fleet']['today'])
 
 
 def test_openapi_documents_all_day_totals(ha_client):
     client, _ = ha_client
     schema = client.app.openapi()['paths'][URL]['get']['responses']['200']['content']['application/json']['schema']
     today = schema['properties']['fleet']['properties']['today']
-    assert set(today['required']) == {'plates_done', 'plates_failed', 'plates_stopped', 'since'}
-    for key in ('plates_done', 'plates_failed', 'plates_stopped'):
+    assert set(today['required']) == {'plates_done', 'plates_failed', 'plates_stopped', 'plates_did_not_complete', 'since'}
+    for key in ('plates_done', 'plates_failed', 'plates_stopped', 'plates_did_not_complete'):
         assert today['properties'][key]['type'] == 'integer'
         assert today['properties'][key]['minimum'] == 0
 
@@ -74,7 +74,7 @@ def test_day_totals_are_zero_without_print_records(ha_client, review_db):
     for printers in ([12], []):
         assert day_totals(review_db, actor, None, False, printers,
                           datetime(2026, 11, 12, 12, tzinfo=timezone.utc), timezone.utc) == {
-            'plates_done': 0, 'plates_failed': 0, 'plates_stopped': 0, 'since': '2026-11-12T00:00:00Z',
+            'plates_done': 0, 'plates_failed': 0, 'plates_stopped': 0, 'plates_did_not_complete': 0, 'since': '2026-11-12T00:00:00Z',
         }
 
 
@@ -97,7 +97,8 @@ def test_stopped_totals_exclude_hidden_jobs(ha_client, review_db, hidden_by):
                       {'t': _utc_text(datetime.now(timezone.utc)), 'job': hidden_job})
     review_db.commit()
     after = _get(client, issue)['fleet']['today']
-    assert after == {**before, 'plates_stopped': before['plates_stopped'] + 1}
+    assert after == {**before, 'plates_stopped': before['plates_stopped'] + 1,
+                     'plates_did_not_complete': before['plates_did_not_complete'] + 1}
 
 
 def test_next_job_is_the_first_queued_job_assigned_to_the_printer(ha_client, review_db):
@@ -465,7 +466,7 @@ def test_day_totals_start_at_local_midnight(ha_client, review_db, monkeypatch):
                           {'p': printer, 's': status, 'a': _utc_text(ended - timedelta(hours=1)), 'e': _utc_text(ended)})
     review_db.commit()
     today = _get(client, issue)['fleet']['today']
-    assert today == {'plates_done': 2, 'plates_failed': 1, 'plates_stopped': 1, 'since': start.isoformat().replace('+00:00', 'Z')}
+    assert today == {'plates_done': 2, 'plates_failed': 1, 'plates_stopped': 1, 'plates_did_not_complete': 2, 'since': start.isoformat().replace('+00:00', 'Z')}
 
 
 @pytest.mark.parametrize('status', ['completed', 'failed', 'cancelled'])
@@ -502,6 +503,7 @@ def test_day_totals_compare_stored_instants(ha_client, review_db, monkeypatch, s
         'plates_done': count if status == 'completed' else 0,
         'plates_failed': count if status == 'failed' else 0,
         'plates_stopped': count if status == 'cancelled' else 0,
+        'plates_did_not_complete': count if status in ('failed', 'cancelled') else 0,
         'since': '2026-11-12T05:00:00Z',
     }
 

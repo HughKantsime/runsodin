@@ -7,22 +7,27 @@ import Calculator from '../orders/Calculator'
 import Analytics from './Analytics'
 import Utilization from './Utilization'
 
-const api = vi.hoisted(() => ({ config: vi.fn(), save: vi.fn(), models: vi.fn(), analytics: vi.fn(), stats: vi.fn(), jobs: vi.fn() }))
+const api = vi.hoisted(() => ({ config: vi.fn(), save: vi.fn(), models: vi.fn(), analytics: vi.fn(), stats: vi.fn(), jobs: vi.fn(), failures: vi.fn() }))
 vi.mock('../../api', () => ({
   pricingConfig: { get: api.config, update: api.save }, models: { list: api.models },
-  analytics: { get: api.analytics, timeAccuracy: vi.fn().mockResolvedValue(null), failures: vi.fn().mockResolvedValue(null) },
+  analytics: { get: api.analytics, timeAccuracy: vi.fn().mockResolvedValue(null), failures: api.failures },
   stats: { get: api.stats }, printJobs: { list: api.jobs },
   getEnergyRate: vi.fn().mockResolvedValue({ energy_cost_per_kwh: 0.1 }),
 }))
-// Only the browser layout boundary is replaced; charts, axes, bars, and tables are real.
+// Browser dimensions are fixed and pie animation is disabled; charts, labels, and tables are real.
 vi.mock('recharts', async importOriginal => {
   const actual = await importOriginal<typeof import('recharts')>()
   const React = await import('react')
-  return { ...actual, ResponsiveContainer: ({ children, height }: any) => React.cloneElement(children, { width: 800, height: typeof height === 'number' ? height : 300 }) }
+  return { ...actual, ResponsiveContainer: ({ children, height }: any) => React.cloneElement(children, {
+    width: 800, height: typeof height === 'number' ? height : 300,
+    children: React.Children.map(children.props.children, (child: any) =>
+      React.isValidElement(child) && child.type === actual.Pie
+        ? React.cloneElement(child as React.ReactElement<any>, { isAnimationActive: false }) : child),
+  }) }
 })
 const config = { spool_cost: 200, spool_weight: 1000, hourly_rate: 12, post_processing_min: 10, packing_min: 10, support_min: 10, electricity_rate: 1, printer_wattage: 500, printer_cost: 1000, printer_lifespan: 1000, packaging_cost: 3, failure_rate: 10, monthly_rent: 500, parts_per_month: 100, other_costs: 4, default_margin: 50 }
 const model = { id: 9, name: 'Acceptance model', total_filament_grams: 100, build_time_hours: 2, units_per_bed: 2 }
-const printer = { id: 1, name: 'Acceptance printer', completed_jobs: 8, failed_jobs: 2, total_hours: 20, utilization_pct: 40, success_rate: 80, avg_job_hours: 2.5 }
+const printer = { id: 1, name: 'Acceptance printer', completed_jobs: 8, failed_jobs: 2, stopped_jobs: 1, did_not_complete_jobs: 3, total_hours: 20, utilization_pct: 40, success_rate: 80, avg_job_hours: 2.5 }
 const analytics = {
   summary: { total_jobs: 10, completed_jobs: 8, pending_jobs: 2, total_models: 2, total_revenue: 60, projected_revenue: 15, avg_value_per_hour: 10, total_print_hours: 20, total_cost: 25, total_margin: 35 },
   jobs_by_date: { '2026-10-02': { created: 1, completed: 1, revenue: 40, cost: 15 }, '2026-10-01': { created: 2, completed: 1, revenue: 20, cost: 10 } },
@@ -40,10 +45,10 @@ function dailyChart() { return within(screen.getByRole('heading', { name:'Comple
 function panel(title: string) { return screen.getByRole('heading', { name: title }).parentElement!.parentElement! }
 beforeEach(() => {
   vi.useFakeTimers({ toFake:['Date'] }); vi.setSystemTime(new Date('2026-10-13T12:00:00Z'))
-  vi.clearAllMocks(); api.config.mockResolvedValue(config); api.save.mockImplementation(async value => value)
+  vi.clearAllMocks(); api.failures.mockResolvedValue(null); api.config.mockResolvedValue(config); api.save.mockImplementation(async value => value)
   api.models.mockResolvedValue([model]); api.analytics.mockResolvedValue(analytics); api.stats.mockResolvedValue({ printer_stats: [printer] }); api.jobs.mockResolvedValue([])
 })
-afterEach(() => { vi.useRealTimers(); cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { delete document.documentElement.dataset.themeFamily; vi.useRealTimers(); cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('F10-10.2-04 loads the dedicated Calculator page and model-derived inputs', async () => {
   await loadCalculator(); expect(input('Print Time')).toHaveValue(2); expect(input('Quantity')).toHaveValue(2)
@@ -108,7 +113,7 @@ it('F10-10.3-03 renders utilization SVG bars and exact per-printer table values,
   expect(within(row).getAllByRole('cell').map(c => c.textContent)).toEqual(['Acceptance printer','8','20h','40%','80%','2.5h'])
   await waitFor(() => expect(document.querySelectorAll('.recharts-bar-rectangle').length).toBe(1))
   fireEvent.change(screen.getByRole('combobox'), { target: { value: '7' } })
-  await waitFor(() => expect(api.stats).toHaveBeenCalledWith(7)); expect(api.jobs).toHaveBeenCalledWith({ limit: 500, days: 7 })
+  await waitFor(() => expect(api.stats).toHaveBeenCalledWith(7)); expect(api.jobs).toHaveBeenCalledWith({ limit: 500, ended_after: '2026-10-06T12:00:00.000Z' })
 })
 async function exportedCsv(name = printer.name) {
   api.stats.mockResolvedValue({ printer_stats: [{ ...printer, name }] })
@@ -122,7 +127,7 @@ async function exportedCsv(name = printer.name) {
   return await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsText(blobs[0]) })
 }
 it('F10-10.3-04 exports CSV headers, data, filename, and revokes the temporary URL', async () => {
-  expect(await exportedCsv()).toBe('Printer,Jobs,Hours,Utilization %,Success Rate %,Failed,Avg Job (hrs)\nAcceptance printer,8,20,40,80,2,2.5')
+  expect(await exportedCsv()).toBe('Printer,Jobs,Hours,Utilization %,Success Rate %,Failed,Avg Job (hrs),did_not_complete,stopped\nAcceptance printer,8,20,40,80,2,2.5,3,1')
 })
 it('F10-10.3-04 CLAIM GAP: quotes comma and quote characters in printer names for valid CSV columns', async () => {
   expect(await exportedCsv('Lab, "A"')).toContain('\n"Lab, ""A""",8,20,40,80,2,2.5')
@@ -202,4 +207,38 @@ it('Analytics marks nonfinite subtraction as unavailable without losing valid da
  const chart=within(screen.getByRole('heading',{name:'Revenue vs Cost'}).parentElement!.parentElement!)
  expect((await chart.findAllByText('Oct 1')).length).toBeGreaterThan(0)
  expect(chart.queryByText('Oct 2')).not.toBeInTheDocument()
+})
+
+it.each(['classic', 'foundry'])('shows the combined printer count and split in %s', async family => {
+  document.documentElement.dataset.themeFamily = family
+  show(<Analytics />)
+  expect(await screen.findByText('3 did not complete')).toHaveAttribute('title', '2 failed, 1 stopped')
+})
+
+it.each(['classic', 'foundry'])('renders stopped-only failure analytics and splits in %s', async family => {
+  document.documentElement.dataset.themeFamily = family
+  const counts = { completed: 3, failed: 0, stopped: 2, did_not_complete: 2, success_rate: 60 }
+  api.failures.mockResolvedValue({ total_failed: 0, total_stopped: 2, total_did_not_complete: 2,
+    overall_success_rate: 60, by_printer: [{ ...counts, name: 'Stopped printer', mtbf_hours: 2 }],
+    by_model: [{ ...counts, name: 'Stopped model' }], by_filament: [{ ...counts, type: 'PLA', failure_rate: 40 }],
+    top_failure_reasons: [{ reason: 'stopped', count: 2 }], hms_errors: [] })
+  show(<Analytics />)
+  expect(await screen.findByText('60% fleet success')).toBeInTheDocument()
+  for (const title of ['Printers by Did Not Complete', 'Did Not Complete by Model', 'Did Not Complete by Filament']) {
+    const table = screen.getByRole('heading', { name: title }).parentElement!
+    expect(within(table).getByRole('columnheader', { name: 'Did not complete' })).toBeInTheDocument()
+    expect(within(table).getByText('0 failed, 2 stopped').parentElement).toHaveTextContent('20 failed, 2 stopped')
+  }
+  const modelTable = screen.getByRole('heading', { name: 'Did Not Complete by Model' }).parentElement!
+  expect(within(modelTable).getByText('40%')).toBeInTheDocument()
+})
+
+it.each(['classic', 'foundry'])('shows the combined fleet number and pie label in %s', async family => {
+  document.documentElement.dataset.themeFamily = family
+  show(<Utilization />)
+  const metric = await screen.findByText('Did not complete', { exact: true })
+  expect(metric.parentElement).toHaveTextContent('3Did not complete')
+  expect(screen.getByText('Success Rate').parentElement).toHaveTextContent('72.7%')
+  const pie = screen.getByRole('heading', { name: 'Completed vs Did Not Complete' }).parentElement!
+  await waitFor(() => expect(pie).toHaveTextContent('Did not complete: 3'))
 })

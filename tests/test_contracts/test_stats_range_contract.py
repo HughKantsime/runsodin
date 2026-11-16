@@ -111,3 +111,42 @@ def test_selected_stats_range_applies_to_mqtt_jobs_in_mixed_timestamp_formats(an
     rows = {days: next(row for row in analytics_client.get(f'/stats?days={days}').json()['printer_stats'] if row['id'] == 9) for days in (7, 30)}
     assert rows[30]['completed_jobs'] == rows[7]['completed_jobs'] + 1
     assert rows[30]['failed_jobs'] == rows[7]['failed_jobs'] + 1
+
+
+@pytest.mark.parametrize('path', ['/stats', '/analytics'])
+def test_stopped_jobs_use_end_window_and_keep_visibility(analytics_client, review_db, path):
+    end = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    # Same printer: only the own, ended, visible cancelled job contributes.
+    for identifier, org, ended in ((801, 1, end), (802, 1, None), (803, 2, end), (804, 1, end)):
+        review_db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id,charged_to_org_id,quantity,created_at,actual_start,actual_end) "
+            "VALUES(:id,'Stopped','cancelled',9,:org,1,:created,:start,:end)"),
+            {'id': identifier, 'org': org, 'created': end, 'start': end-timedelta(hours=2), 'end': ended})
+    review_db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(901,'Private audience')"))
+    review_db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,changed_by,marked_at) VALUES(804,'Restricted',901,'Secure',7,'Synthetic test',3,CURRENT_TIMESTAMP)"))
+    review_db.execute(text("INSERT INTO jobs(item_name,status,printer_id,charged_to_org_id,quantity,created_at,actual_end) "
+        "VALUES('Completed','completed',9,1,1,:end,:end),('Failed','failed',9,1,1,:end,:end)"), {'end': end})
+    review_db.commit()
+    response = analytics_client.get(path, params={'days': 7})
+    assert response.status_code == 200, response.text
+    row = next(p for p in response.json()['printer_stats'] if p['id'] == 9)
+    assert (row['completed_jobs'], row['failed_jobs'], row['stopped_jobs'], row['did_not_complete_jobs']) == (1, 1, 1, 2)
+    assert row['success_rate'] == 33.3
+    if path == '/stats':
+        assert row['total_hours'] == 2
+    review_db.execute(text('UPDATE jobs SET actual_end=:end WHERE id=801'), {'end': end-timedelta(days=10)})
+    review_db.commit()
+    row = next(p for p in analytics_client.get(path, params={'days': 7}).json()['printer_stats'] if p['id'] == 9)
+    assert row['stopped_jobs'] == 0 and row['success_rate'] == 50
+
+
+def test_unlinked_stopped_prints_count_once_with_measured_hours(analytics_client, review_db):
+    end = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    review_db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id,charged_to_org_id,created_at,actual_start,actual_end) "
+        "VALUES(801,'Stopped','cancelled',9,1,:end,:start,:end)"), {'start': end-timedelta(hours=2), 'end': end})
+    for job, ended in ((801, end), (None, end), (None, None)):
+        review_db.execute(text("INSERT INTO print_jobs(printer_id,status,scheduled_job_id,started_at,ended_at) "
+            "VALUES(9,'cancelled',:job,:start,:end)"), {'job': job, 'start': end-timedelta(hours=2), 'end': ended})
+    review_db.commit()
+    row = next(p for p in analytics_client.get('/stats?days=7').json()['printer_stats'] if p['id'] == 9)
+    assert row['stopped_jobs'] == row['did_not_complete_jobs'] == 2
+    assert row['failed_jobs'] == 0 and row['success_rate'] == 0 and row['total_hours'] == 4

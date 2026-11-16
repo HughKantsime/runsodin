@@ -371,7 +371,7 @@ def test_failure_analytics_groups_by_printer_model_filament_and_reason(wire_clie
     assert (model['completed'], model['failed'], model['success_rate']) == (7, 4, 63.6)
     assert {r['reason']: r['count'] for r in data['top_failure_reasons']} == {'adhesion': 2, 'clog': 1, 'unspecified': 1}
     assert data['top_failure_reasons'][0] == {'reason': 'adhesion', 'count': 2}
-    assert sorted(data['by_filament'], key=lambda f: f['type']) == [{'type': 'PLA', 'completed': 6, 'failed': 4, 'failure_rate': 40.0}, {'type': 'unknown', 'completed': 1, 'failed': 0, 'failure_rate': 0.0}]
+    assert sorted(data['by_filament'], key=lambda f: f['type']) == [{'type': 'PLA', 'completed': 6, 'failed': 4, 'stopped': 0, 'did_not_complete': 4, 'failure_rate': 40.0}, {'type': 'unknown', 'completed': 1, 'failed': 0, 'stopped': 0, 'did_not_complete': 0, 'failure_rate': 0.0}]
 
 
 # ---------------- F04-4.7 time tracking (backend) ----------------
