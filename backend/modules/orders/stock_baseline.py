@@ -10,6 +10,7 @@ from core.dependencies import log_audit
 from core.models import AuditLog
 from core.rbac import is_interactive_session
 from modules.orders import square_store as store
+from modules.orders.square_setup_auth import assert_square_setup, setup_audit
 
 
 def admin(user):
@@ -83,7 +84,8 @@ def locked_connection(db, user, revision):
 
 def set_baseline(db, user, product_id, data):
     from modules.orders import batch_production as batches
-    admin(user)
+    assert_square_setup(user)
+    attribution = setup_audit(user, getattr(data, 'approval_note', None))
     owner, doc, encoded = locked_connection(db, user, data.revision)
     store.own_product(db, owner, product_id)
     mapping = doc['mappings'].get(str(product_id))
@@ -98,10 +100,12 @@ def set_baseline(db, user, product_id, data):
             pending.append(row['id'])
     baseline = {'version': str(uuid.uuid4()), 'at': utc(data.at).isoformat(),
                 'quantity': data.quantity, 'attested_by': user['id']}
+    previous_baseline = mapping.get('stock_baseline')
     mapping['stock_baseline'] = baseline
     store.save(db, owner, doc, encoded)
     log_audit(db, 'square.stock_baseline', 'product', product_id,
-              {'owner': owner, **baseline, 'pending_additions': pending})
+              {'owner': owner, **baseline, 'pending_additions': pending,
+               'previous_baseline': previous_baseline, **attribution})
     db.commit()
     return {'connection': store.public(db, owner, doc), 'pending_additions': pending}
 

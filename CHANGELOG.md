@@ -14,6 +14,8 @@ All notable changes to O.D.I.N. are documented here.
 ### Added
 
 - The print history API supports date range filters, paging, and a total count. Utilization now requests prints that ended within the selected period.
+### Security
+- Square setup permission is off by default: no token receives it on upgrade. A signed-in administrator can grant or revoke `write:square_setup` for one personal API token to map products and record stock baselines in ODIN. Each delegated call records an approval note and the token's identity; the note is a record, not a verification. Neither operation writes to Square. Connection changes, activation, unmapping and addition review still require a signed-in administrator.
 
 ## [2.3.0] - 2026-11-15
 

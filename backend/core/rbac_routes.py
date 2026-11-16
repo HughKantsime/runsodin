@@ -401,6 +401,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("DELETE", "/api/push/register/{device_id}"), ("POST", "/api/push/subscribe"), ("DELETE", "/api/push/subscribe"),
         ("DELETE", "/api/sessions"), ("DELETE", "/api/sessions/{session_id}"),
         ("POST", "/api/tokens"), ("DELETE", "/api/tokens/{token_id}"),
+        ("PUT", "/api/tokens/{token_id}/square-setup"),
         ("POST", "/api/cameras/{printer_id}/webrtc"),
     ]},
     # Public, login and setup flows

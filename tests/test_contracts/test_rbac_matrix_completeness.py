@@ -145,6 +145,19 @@ def test_recipe_qualification_declares_production_scope_on_both_aliases(table):
         assert ['__odin_token_scope__', 'write:production'] in outside
 
 
+def test_square_setup_scope_is_declared_only_on_the_two_delegated_routes(table):
+    from modules.orders.square_setup_auth import SQUARE_SETUP_ROUTES
+    for prefix in ('/api', '/api/v1'):
+        delegated = {(method, path[len(prefix):]) for (method, path), marks in table.items()
+                     if path.startswith(prefix + '/') and
+                     ['__odin_token_scope__', 'write:square_setup'] in marks}
+        if prefix == '/api':
+            delegated = {(method, path) for method, path in delegated if not path.startswith('/v1/')}
+        assert delegated == SQUARE_SETUP_ROUTES
+        grant = table[('PUT', prefix + '/tokens/{token_id}/square-setup')]
+        assert ['__odin_token_scope__', 'interactive'] in grant
+
+
 def test_rfid_onboarding_is_in_live_matrix_and_declares_scopes_on_both_aliases(table):
     from rbac_endpoints_a import ENDPOINTS
 
