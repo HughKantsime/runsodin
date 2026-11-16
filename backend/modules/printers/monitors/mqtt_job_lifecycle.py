@@ -20,6 +20,7 @@ from core.order_production import (prepare_job_write, reconcile_job_write, prepa
 # Resolved at call time: never a stale get_db bound at import.
 from core.db_live import live_get_db as get_db
 from core.db_compat import as_utc_datetime, sql
+from core.tenancy_mode import NO_ORGANIZATIONS_SQL
 
 from modules.archives.services import capture_attempt_spools
 
@@ -51,9 +52,11 @@ def capture_mqtt_start_weights(conn,print_job_id,printer_id,state):
     if 'mqtt_start_weights' in snapshot:return load_mqtt_start_weights(conn,print_job_id)
     weights={}
     owner=snapshot.get('printer_org_id')
+    valid_owner=(type(owner) is int and owner>0) or (
+        owner is None and conn.execute('SELECT '+NO_ORGANIZATIONS_SQL).fetchone()[0])
     for captured in snapshot.get('slots',[]):
         slot=captured.get('slot_number');identifier=captured.get('spool_id')
-        if (type(owner) is not int or owner<=0 or type(slot) is not int or slot<0
+        if (not valid_owner or type(slot) is not int or slot<0
                 or type(identifier) is not int or identifier<=0
                 or captured.get('spool_existed') is not True or captured.get('spool_org_id')!=owner):continue
         current=conn.execute('SELECT s.initial_weight_g,s.org_id FROM filament_slots fs JOIN spools s ON s.id=fs.assigned_spool_id WHERE fs.printer_id=? AND fs.slot_number=? AND s.id=?',(printer_id,slot,identifier)).fetchall()

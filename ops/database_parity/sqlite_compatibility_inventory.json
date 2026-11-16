@@ -2458,7 +2458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 38,
+      "line": 39,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2466,7 +2466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 48,
+      "line": 49,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2474,7 +2474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 59,
+      "line": 62,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2482,7 +2482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 67,
+      "line": 70,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2490,7 +2490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 149,
+      "line": 152,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2498,7 +2498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 177,
+      "line": 180,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2506,7 +2506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 268,
+      "line": 271,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2514,7 +2514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 279,
+      "line": 282,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2522,7 +2522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 380,
+      "line": 383,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2530,7 +2530,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 390,
+      "line": 393,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2538,7 +2538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 451,
+      "line": 454,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2546,7 +2546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 478,
+      "line": 481,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2554,7 +2554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 513,
+      "line": 516,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2562,7 +2562,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 522,
+      "line": 525,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2570,7 +2570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 523,
+      "line": 526,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2578,7 +2578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 567,
+      "line": 570,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
