@@ -179,10 +179,7 @@ def ams_environment(db, printer_ids, now):
         at = to_utc(recorded_at)
         if at is None or now - at > AMS_READING_MAX_AGE:
             continue
-        level, index, grade = humidity_scale(humidity)
-        # Rows stored before the no-sensor rule: level 5 at exactly 0 degrees is an AMS lite placeholder.
-        if level == 5 and temperature == 0:
-            level, temperature, index, grade = None, None, None, None
+        level, index, grade, temperature = humidity_scale(humidity, temperature)
         result.setdefault(printer_id, []).append({
             "unit": int(unit),
             "humidity_index": index,

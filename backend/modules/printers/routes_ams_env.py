@@ -79,7 +79,8 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
     Each unit retains the stored `humidity` level (5 driest, 1 wettest).
     `humidity_index` runs from 1 (dry) to 5 (wet), with `grade` A through E.
     `humidity_label` is Dry, Low, Moderate, High, or Wet respectively.
-    Missing or invalid levels have null index/grade and label N/A or Unknown.
+    Missing/zero levels and AMS lite placeholders have null index/grade and label N/A.
+    Other invalid levels have null index/grade and label Unknown.
     """
     _ams_printer(printer_id, db, current_user)
     rows = db.execute(text("""
@@ -99,8 +100,9 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
     units = []
     for row in rows:
         hum = row[1]
-        _, index, grade = humidity_scale(hum)
-        hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(index, "Unknown") if hum is not None else "N/A"
+        _, index, grade, _ = humidity_scale(hum, row[2])
+        missing = hum in (None, 0) or (hum == 5 and index is None)
+        hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(index, "N/A" if missing else "Unknown")
         units.append({
             "unit": row[0], "humidity": hum, "humidity_label": hum_label,
             "humidity_index": index, "grade": grade,

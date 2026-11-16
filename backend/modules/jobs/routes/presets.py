@@ -7,7 +7,7 @@ from core.rbac import should_filter_org, require_action
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from typing import Optional, List
 from datetime import datetime as dt, timezone
 import logging
@@ -178,34 +178,26 @@ def _print_jobs(db, current_user, *, printer_id=None, status=None, limit=50,
         expression = f'datetime({column})' if sqlite else column
         bound = f'datetime(:{name})' if sqlite else f':{name}'
         sql += f" AND {expression} {operator} {bound}"
+        # PostgreSQL stores these columns as timestamp with time zone: an aware bound is exact in any session time zone.
         params[name] = value.isoformat() if sqlite else value
 
     order = 'datetime(pj.started_at)' if sqlite else 'pj.started_at'
-    from core.controlled_parts import allowed, any_controlled_data
+    from core.controlled_parts import any_controlled_data
     if any_controlled_data(db):
-        # Apply the existing controlled-part rule before counting/paging, not after.
-        id_order = 'datetime(started_at)' if sqlite else 'started_at'
-        identifiers = db.execute(text("SELECT id FROM (" + sql + ") AS matching ORDER BY " + id_order + " DESC, id DESC"), params).scalars()
-        total, page = 0, []
-        for identifier in identifiers:
-            if allowed(db, 'print_job', identifier, current_user):
-                if offset <= total < offset + limit:
-                    page.append(identifier)
-                total += 1
-        if not page:
-            return [], total
-        sql += " AND pj.id IN :page"
-        params['page'] = page
-        offset = 0
-    else:
-        total = db.execute(text("SELECT COUNT(*) FROM (" + sql + ") AS matching"), params).scalar_one()
+        # A print inherits its scheduled job's live or deleted-job audience rule.
+        from core.controlled_history import media_visibility
+        from core.controlled_parts import _audience
+        visible, bindings = media_visibility(current_user, 'pj.scheduled_job_id')
+        # Item policy also honors retained orphan marks from older databases.
+        direct, _ = _audience(current_user, 'SELECT audience_id FROM controlled_jobs cp '
+                             'WHERE cp.job_id=pj.scheduled_job_id')
+        sql += " AND (" + visible + ") AND (" + direct + ")"
+        params.update(bindings)
+    total = db.execute(text("SELECT COUNT(*) FROM (" + sql + ") AS matching"), params).scalar_one()
 
     sql += f" ORDER BY {order} DESC, pj.id DESC LIMIT :limit OFFSET :offset"
     params.update(limit=limit, offset=offset)
-    query = text(sql)
-    if 'page' in params:
-        query = query.bindparams(bindparam('page', expanding=True))
-    result = db.execute(query, params).fetchall()
+    result = db.execute(text(sql), params).fetchall()
 
     jobs = []
     for row in result:

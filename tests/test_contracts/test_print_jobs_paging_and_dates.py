@@ -130,3 +130,127 @@ def test_openapi_documents_dates_and_count(history_client):
     assert 'X-Total-Count' in operation['responses']['200']['headers']
     parameters = {p['name']:p for p in operation['parameters']}
     assert all(parameters[name]['description'] for name in ('started_after','started_before','ended_after','ended_before','limit','offset'))
+
+
+@pytest.fixture
+def controlled_history(history_client, review_db):
+    db = review_db
+    db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(901,'History readers')"))
+    db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(901,1)'))
+    db.execute(text("INSERT INTO print_files(id,filename,org_id) VALUES(901,'Marked.3mf',1)"))
+    for identifier in (901, 902, 903, 904):
+        db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,print_file_id) "
+                        "VALUES(:id,'History job','completed',1,:file)"),
+                   {'id': identifier, 'file': 901 if identifier == 902 else None})
+        db.execute(text('UPDATE print_jobs SET scheduled_job_id=:id WHERE id=:id'), {'id': identifier})
+    for table, column, identifier in (('controlled_jobs', 'job_id', 901),
+                                     ('controlled_jobs', 'job_id', 903),
+                                     ('controlled_files', 'file_id', 901)):
+        db.execute(text(f"INSERT INTO {table}({column},label,audience_id,printer_tag,retention_days,reason,changed_by,marked_at) "
+                        "VALUES(:id,'Restricted',901,'Secure',7,'Synthetic test',3,'2026-11-01T00:00:00Z')"),
+                   {'id': identifier})
+    # Exercise the real deletion snapshot, retaining the print's durable job link.
+    from core.controlled_deletion import redact_deleted_job_history
+    redact_deleted_job_history(db, 903)
+    db.execute(text('DELETE FROM controlled_jobs WHERE job_id=903'))
+    db.execute(text('DELETE FROM jobs WHERE id=903'))
+    db.commit()
+    assert db.execute(text('SELECT job_id FROM controlled_job_tombstones')).scalars().all() == [903]
+    return history_client
+
+
+@pytest.mark.parametrize('user_id,expected', [(1, [905,904,903,902,901]), (4, [905,904])])
+def test_controlled_pages_equal_item_policy(controlled_history, review_db, user_id, expected, monkeypatch):
+    from core.auth import create_access_token
+    from core.controlled_parts import allowed
+    from core import display_names
+    actor = {'id': user_id, 'role': 'viewer', 'group_id': 1}
+    admitted = [identifier for identifier in range(905, 900, -1)
+                if allowed(review_db, 'print_job', identifier, actor)]
+    assert admitted == expected
+    original = display_names.name_payloads
+
+    def checked_names(db, kind, rows, user):
+        named = original(db, kind, rows, user)
+        assert [row['id'] for row in named] == [row['id'] for row in rows]
+        return named
+
+    monkeypatch.setattr(display_names, 'name_payloads', checked_names)
+    username = 'student' if user_id == 1 else 'outsider'
+    headers = {'Authorization': 'Bearer ' + create_access_token(data={
+        'sub': username, 'user_id': user_id, 'role': 'viewer', 'group_id': 1})}
+    actual = []
+    for offset in range(0, len(admitted) + 2, 2):
+        response = controlled_history.get('/print-jobs', params={'limit': 2, 'offset': offset}, headers=headers)
+        assert response.status_code == 200, response.text
+        page = [row['id'] for row in response.json()]
+        assert page == admitted[offset:offset + 2]
+        assert response.headers['X-Total-Count'] == str(len(admitted))
+        actual.extend(page)
+    assert actual == admitted
+
+
+def test_controlled_full_page_query_count_does_not_grow_with_history(controlled_history, review_db):
+    from sqlalchemy import event
+    queries = []
+
+    def count_query(*args):
+        queries.append(args[2])
+
+    engine = review_db.get_bind()
+    event.listen(engine, 'before_cursor_execute', count_query)
+    try:
+        first = read(controlled_history, limit=2)
+        initial_count = len(queries)
+        # More hidden history must not add per-record policy queries to a page read.
+        review_db.execute(text("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,status,started_at) "
+                               "VALUES(:id,9,901,'completed','2026-10-01')"),
+                          [{'id': identifier} for identifier in range(1000, 1150)])
+        review_db.commit()
+        queries.clear()
+        second = read(controlled_history, limit=2)
+        assert [row['id'] for row in first.json()] == [row['id'] for row in second.json()] == [905,904]
+        assert first.headers['X-Total-Count'] == second.headers['X-Total-Count'] == '2'
+        assert len(queries) == initial_count
+        assert len(queries) < 150  # Includes authentication, naming and failure annotations.
+    finally:
+        event.remove(engine, 'before_cursor_execute', count_query)
+
+
+def test_retained_orphan_job_mark_is_filtered_before_counting(controlled_history, review_db):
+    from core.controlled_parts import allowed
+    # Older databases can retain orphan marks; item checks still enforce them.
+    review_db.commit()
+    review_db.execute(text('PRAGMA foreign_keys=OFF'))
+    review_db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,marked_at) "
+                           "VALUES(999,'Restricted',901,'Secure',7,'Legacy test','2026-11-01')"))
+    review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=999 WHERE id=905'))
+    review_db.commit()
+    review_db.execute(text('PRAGMA foreign_keys=ON'))
+    assert not allowed(review_db, 'print_job', 905, {'id': 3, 'role': 'admin', 'group_id': 1})
+    response = read(controlled_history, limit=1)
+    assert response.headers['X-Total-Count'] == '1'
+    assert [row['id'] for row in response.json()] == [904]
+
+
+def test_postgres_date_bind_values_are_aware_utc():
+    # print_jobs times are 'timestamp with time zone' on PostgreSQL: a naive bound would be read in
+    # the session time zone (proved on a real server by test_print_jobs_paging_postgres.py).
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+    from modules.jobs.routes.presets import _print_date, _print_jobs
+    db = MagicMock()
+    db.info = {}
+    db.get_bind.return_value.dialect.name = 'postgresql'
+    db.execute.return_value.first.return_value = None
+    db.execute.return_value.scalar_one.return_value = 0
+    db.execute.return_value.fetchall.return_value = []
+    dates = {name: _print_date('2026-11-01T03:00:00+03:00', name) for name in
+             ('started_after', 'started_before', 'ended_after', 'ended_before')}
+    assert _print_jobs(db, {'id': 1, 'role': 'viewer', 'group_id': 1}, dates=dates) == ([], 0)
+    bindings = [call.args[1] for call in db.execute.call_args_list
+                if len(call.args) > 1 and 'started_after' in call.args[1]]
+    assert len(bindings) == 2  # Count and page use the same UTC bounds.
+    for parameters in bindings:
+        assert all(parameters[name] == datetime(2026, 11, 1, tzinfo=timezone.utc)
+                   and parameters[name].utcoffset().total_seconds() == 0 for name in dates)
