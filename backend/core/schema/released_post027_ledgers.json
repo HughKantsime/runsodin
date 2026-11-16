@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "description": "Post-027 migration ids each published release records. Every published release's PostgreSQL archives must restore on current source: its ids equal POST027_MIGRATIONS, or a preservedNNN bundle routes them (docs/SCHEMA_MIGRATIONS.md). Releases before 030 record none. Append with ops/release_control/record_post027_ledger.py before publishing.",
+ "description": "Post-027 migration ids each published release records. Every published release's ids must equal POST027_MIGRATIONS or route to a preservedNNN bundle. PostgreSQL archives from releases 2.0.16 to 2.0.44 (eras 039 through 046) are identified but refused before their frozen restore runs; see docs/BACKUP_RESTORE_RUNBOOK.md. Routing alone does not prove restorability (docs/SCHEMA_MIGRATIONS.md). Releases before 030 record none. Append with ops/release_control/record_post027_ledger.py before publishing.",
  "releases": {
   "1.0.7": [],
   "1.0.8": [],
