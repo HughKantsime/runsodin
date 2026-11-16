@@ -81,31 +81,23 @@ def test_child_era_is_accepted_by_parent():
     assert preserved045._ACK.fullmatch(b'preserved045-validated:45\n')
 
 
-@pytest.mark.parametrize('message,archive_refusal', [
-    ('Preserved045 stage ledger differs: owned fixture', True),
-    ('Preserved045 package hash differs', False),
+@pytest.mark.parametrize('message', [
+    'Preserved045 stage ledger differs: owned fixture',
+    'Preserved045 package hash differs',
 ])
-def test_parent_side_errors_are_classified(tmp_path, monkeypatch, message, archive_refusal):
-    from unittest.mock import MagicMock
-    from core import database_config
-    from modules.system import pre026_restore_stage as stage, postgres_backup_service as backup, restore_artifacts
-    archive = tmp_path / 'owned.dump'
-    archive.write_bytes(b'owned fixture')
-    monkeypatch.setattr(stage, 'identify_contract', lambda *a: stage.PRESERVED045)
-    monkeypatch.setattr(backup, '_require_distinct_maintenance_secret', lambda *a: None)
-    monkeypatch.setattr(backup, '_maintenance_urls', lambda *a: ('unused', 'unused'))
-    engine = MagicMock()
-    engine.execution_options.return_value = engine
-    monkeypatch.setattr(database_config, 'create_database_engine', lambda *a, **k: engine)
-    for name in ('sweep_stale', 'record', 'forget', 'drop_database'):
-        monkeypatch.setattr(restore_artifacts, name, lambda *a, **k: None)
-    def refuse(*a, **k):
-        raise preserved045.Preserved045Error(message)
-    monkeypatch.setattr(preserved045, 'restore_into_stage', refuse)
-    expected = backup.ArchiveRefused if archive_refusal else backup.RestoreEnvironmentError
-    with pytest.raises(expected, match=message):
-        with stage.prepared_archive(archive, 'postgresql://localhost/target', 'postgresql://localhost/maintenance', None, None, tmp_path):
-            pytest.fail('Invalid preserved stage must not be yielded')
+def test_restore_refuses_preserved045_before_stage_errors(tmp_path,monkeypatch,message):
+    from unittest.mock import Mock
+    from core.schema import preserved045
+    from modules.system import pre026_restore_stage as stage, postgres_backup_service as backup
+    archive=tmp_path/'owned.dump';archive.write_bytes(b'owned fixture')
+    monkeypatch.setattr(stage,'identify_contract',lambda *a:stage.PRESERVED045)
+    child=Mock(side_effect=preserved045.Preserved045Error(message))
+    monkeypatch.setattr(preserved045,'restore_into_stage',child)
+    # Neither a ledger error nor a package error is reached: this era is refused first.
+    with pytest.raises(backup.UnsupportedHistoricalArchive,match='This backup was made by ODIN'):
+        with stage.prepared_archive(archive,'postgresql://localhost/target','postgresql://localhost/maintenance',None,None,tmp_path):
+            pytest.fail('Unsupported historical archive must not be yielded')
+    child.assert_not_called()
 
 
 def test_known_defect_postgres_restore_cannot_import_its_backup_service():

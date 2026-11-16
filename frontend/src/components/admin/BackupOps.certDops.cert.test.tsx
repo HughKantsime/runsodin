@@ -109,3 +109,25 @@ it('downloads a database and audit-key bundle when the backup advertises one', a
   await waitFor(() => expect(downloads).toEqual([wire.backup.create.filename + '.zip']))
   expect(transport.mock.calls.some(([url]) => String(url).endsWith('?bundle=true'))).toBe(true)
 })
+
+it('shows the full server refusal when staging a listed historical backup', async () => {
+  const toast = (await import('react-hot-toast')).default
+  const filename = 'failed_restore_owned.dump'
+  const detail = 'This backup was made by ODIN 2.0.31 to 2.0.44 on PostgreSQL. This ODIN version cannot read it. Restore it on the ODIN version that made it, upgrade that install to this version, then take a new backup. Or keep running your current install and take a new backup. Nothing was changed. See "PostgreSQL backups from 2.0.16 to 2.0.44" in the backup guide.'
+  listed = [{ filename, size_bytes: 200, created_at: '2026-11-16T00:00:00Z', quarantined: true, reason: 'Restore refused' }]
+  const normalTransport = transport.getMockImplementation()!
+  transport.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === `/api/backups/${filename}/stage`) return new Response(JSON.stringify({ detail }), { status: 400 })
+    return normalTransport(url, init)
+  })
+  system()
+  fireEvent.click(await screen.findByRole('button', { name: 'Stage again' }))
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Stage restore failed: ' + detail))
+  expect(toast.success).not.toHaveBeenCalled()
+})
+
+it.each(['null', '{"detail":{"code":"unknown"}}', 'not JSON'])('keeps a plain fallback for a staging rejection without text (%s)', async (body) => {
+  const { backups } = await import('../../api/system')
+  transport.mockResolvedValueOnce(new Response(body, { status: 400 }))
+  await expect(backups.stage('owned.dump')).rejects.toThrow('Restore staging refused')
+})

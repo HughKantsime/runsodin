@@ -9,7 +9,7 @@ Archives from an intermediate post-027 build are refused.
 """
 from contextlib import contextmanager
 from pathlib import Path
-import os,re,tempfile,uuid
+import json,os,re,tempfile,uuid
 from time import monotonic
 from sqlalchemy import inspect,text
 from sqlalchemy.engine import make_url
@@ -30,6 +30,10 @@ PRESERVED053=object()
 PRESERVED055=object()
 PRESERVED056=object()
 PRESERVED057=object()
+UNRESTORABLE_POSTGRES_ERAS=(39,40,43,44,45,46)
+_CONTRACT_ERAS={PRESERVED039:39,PRESERVED040:40,PRESERVED043:43,
+                PRESERVED044:44,PRESERVED045:45,PRESERVED046:46}
+_RELEASE_LEDGERS=Path(__file__).resolve().parents[2]/'core/schema/released_post027_ledgers.json'
 STAGE_SECONDS=3600
 _LEDGER_COPY='COPY public.odin_schema_migrations (migration_id, checksum, dialect, applied_at) FROM stdin;'
 _LEDGER_ROW=re.compile(r'([A-Za-z0-9_:./-]{1,255})\t([0-9a-f]{64})\t(sqlite|postgresql)\t[0-9: .+-]{10,40}')
@@ -144,6 +148,18 @@ def archive_metadata(archive):
     return {'size_bytes':archive.stat().st_size,'sha256':b._sha256(archive)}
 
 
+def historical_release_range(era):
+    """First and last numeric release whose ordered post-027 ledger ends at this era."""
+    from modules.system import postgres_backup_service as b
+    releases=json.loads(_RELEASE_LEDGERS.read_text())['releases']
+    versions=sorted((version for version,ids in releases.items()
+                     if ids and int(ids[-1].split(':')[1][:3])==era),
+                    key=lambda version:tuple(map(int,version.split('.'))))
+    if not versions:
+        raise b.RestoreEnvironmentError('This ODIN installation is missing backup compatibility information. Reinstall this ODIN version and try again.')
+    return versions[0]+' to '+versions[-1]
+
+
 @contextmanager
 def prepared_archive(archive,target_url,maintenance_url,password_file,maintenance_password_file,directory,*,_era=None):
     """Yield a current-format archive: the original, or a live-upgraded preserved029 stage dump."""
@@ -156,6 +172,14 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
     if contract is None:
         yield archive
         return
+    era=_CONTRACT_ERAS.get(contract)
+    if era in UNRESTORABLE_POSTGRES_ERAS:
+        raise b.UnsupportedHistoricalArchive(
+            'This backup was made by ODIN '+historical_release_range(era)+' on PostgreSQL. '
+            'This ODIN version cannot read it. Restore it on the ODIN version that made it, '
+            'upgrade that install to this version, then take a new backup. '
+            'Or keep running your current install and take a new backup. Nothing was changed. '
+            'See "PostgreSQL backups from 2.0.16 to 2.0.44" in the backup guide.')
     preserved = preserved057 if contract is PRESERVED057 else preserved056 if contract is PRESERVED056 else preserved055 if contract is PRESERVED055 else preserved053 if contract is PRESERVED053 else preserved046 if contract is PRESERVED046 else preserved045 if contract is PRESERVED045 else preserved044 if contract is PRESERVED044 else preserved043 if contract is PRESERVED043 else preserved040 if contract is PRESERVED040 else preserved039 if contract is PRESERVED039 else preserved038 if contract is PRESERVED038 else preserved037 if contract is PRESERVED037 else preserved036 if contract is PRESERVED036 else preserved035 if contract is PRESERVED035 else preserved034 if contract is PRESERVED034 else preserved029
     maintenance_password_file=b._require_distinct_maintenance_secret(password_file,maintenance_password_file)
     original_sha=b._sha256(archive);original_size=archive.stat().st_size

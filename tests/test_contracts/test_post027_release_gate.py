@@ -1,4 +1,4 @@
-"""Release rule: every published release's post-027 ledger stays restorable.
+"""Release rule: every published release's post-027 ledger stays identifiable.
 
 A published release whose PostgreSQL archives record a post-027 ledger other than the
 current POST027_MIGRATIONS (and not the empty 027-era one) would be refused as an
@@ -257,7 +257,8 @@ def test_routed_bundles_can_import_their_restore_closure(era):
     from .preserved_restore_helpers import RESTORE_CLOSURE, run_frozen
     runner = ROOT / 'backend/core/schema' / ('preserved' + era) / 'runner.py'
     result = run_frozen(runner, RESTORE_CLOSURE)
-    if era in {'039', '040', '043', '044', '045', '046'}:
+    from modules.system.pre026_restore_stage import UNRESTORABLE_POSTGRES_ERAS
+    if int(era) in UNRESTORABLE_POSTGRES_ERAS:
         # Known limitation, pinned exactly (frozen bundles cannot be edited): these six bundles do not
         # admit modules.system.backup_failure_alerts, so their PostgreSQL restore service cannot be
         # imported from the bundle. The test passes only on this exact refusal; any other outcome,

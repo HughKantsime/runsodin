@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
+
 ## [2.3.0] - 2026-11-15
 
 

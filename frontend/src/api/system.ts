@@ -104,7 +104,10 @@ export const backups = {
   remove: (filename: string): Promise<void> => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
   stage: async (filename: string): Promise<StagedRestore> => {
     const response = await controlledRestore(`${API_BASE}/backups/${encodeURIComponent(filename)}/stage`, { method: 'POST', credentials: 'include' })
-    if (!response.ok) throw new Error('Restore staging refused')
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(typeof data?.detail === 'string' ? data.detail : 'Restore staging refused')
+    }
     return response.json()
   },
   download: async (filename: string, bundle = false): Promise<void> => {

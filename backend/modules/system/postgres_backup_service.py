@@ -76,6 +76,10 @@ class RestoreEnvironmentError(BackupValidationError):
     """Credentials, clients or local storage are not usable; the archive was not judged."""
 
 
+class UnsupportedHistoricalArchive(RestoreEnvironmentError):
+    """This release cannot read the archive; keep it for its original ODIN release."""
+
+
 class RestoreAcknowledgementRequired(BackupValidationError):
     """The operator has not acknowledged the staged archive's SHA-256."""
 

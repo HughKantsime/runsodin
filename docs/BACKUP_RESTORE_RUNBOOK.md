@@ -143,9 +143,65 @@ DATABASE_MAINTENANCE_URL=postgresql://odin_maintenance@postgres:5432/postgres
 6. On an application/validation failure ODIN restores the verified rollback automatically. If the process is interrupted after replacement, the next bootstrap-owner start detects `restore_in_progress` and restores that rollback before serving.
 7. Remove the acknowledgement after success. Start remaining roles, then verify `/health/ready`, login, RBAC, WebSocket events, background writes, printers, and jobs before reopening service.
 
+## PostgreSQL backups from 2.0.16 to 2.0.44
+
+This ODIN version cannot read PostgreSQL backups made by ODIN 2.0.16 through
+2.0.44. This applies whenever the backup was made, including backups made today
+by an install still on one of those releases. SQLite backups and upgrades of an
+existing PostgreSQL database are not affected.
+
+Uploading one of these backups or staging a listed backup through
+`POST /api/backups/{filename}/stage` returns a refusal before the historical
+restore starts. The backup list offers **Stage again** for quarantined backups. The message names the
+release range matching that backup. For example, a backup from 2.0.31 to 2.0.44 says:
+
+> This backup was made by ODIN 2.0.31 to 2.0.44 on PostgreSQL. This ODIN version cannot read it. Restore it on the ODIN version that made it, upgrade that install to this version, then take a new backup. Or keep running your current install and take a new backup. Nothing was changed. See "PostgreSQL backups from 2.0.16 to 2.0.44" in the backup guide.
+
+To recover the backup's data:
+
+1. Keep the original backup and the installation's separate data-volume backup.
+   Obtain the ODIN image for the release that made the backup. Availability of old
+   images has not been verified; if you cannot obtain it, retain the backup and
+   contact support before changing your current install.
+2. Start that release in a separate recovery installation with an empty PostgreSQL
+   database and its own data volume. Keep its printer and integration connections
+   isolated. Do not point the old release at your current database.
+3. Restore the archive there using that release's restore procedure and verify the
+   recovered data. Preserve the original installation's keys and uploaded files
+   through the separate data-volume recovery procedure.
+4. Upgrade that recovered installation to the current ODIN release, then take a
+   new backup. The new backup can be restored on the current release.
+
+If the current installation already contains the data you want to keep, continue
+running it and take a new backup instead.
+
+### If an older release already staged the backup
+
+A pending backup carried across an upgrade is refused with the same message at
+startup. ODIN keeps it rather than quarantining it, so restarting repeatedly does
+not resolve the refusal. To cancel this pending restore and keep the current data:
+
+1. Stop every ODIN application container and worker. Keep PostgreSQL available.
+   Preserve a private copy of the full ODIN data volume before making changes.
+2. In `ODIN_DATA_DIR` (normally `/data`), inspect `restore-pending-postgres.json`.
+   Proceed only when its `state` is exactly `staged`, the refusal is the historical
+   backup message above, and `restore-pending.dump` matches the manifest's `sha256`
+   and `size_bytes`. If any check fails, stop and contact support.
+3. Move **both** `restore-pending.dump` and `restore-pending-postgres.json` together
+   into a private recovery directory outside `ODIN_DATA_DIR`. Preserve their names,
+   contents, ownership and permissions. Do not delete them or edit the manifest.
+   This cancels only a restore that has not begun replacing the database.
+4. Remove `ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT` from the application configuration,
+   start ODIN, verify the current data, and take a new backup. Keep the moved pair
+   if you later need to recover its older data on the original release.
+
+Never move aside a manifest whose state is `restore_in_progress`, or one that
+reports incomplete recovery. Keep the application stopped and follow the failure
+rules below; the rollback archive and manifest are needed for recovery.
+
 ## Failure rules
 
-- Do not delete or edit a pending manifest to force startup.
+- Do not delete or edit a pending manifest to force startup. The narrowly scoped cancellation procedure above moves an untouched staged pair aside; it does not apply to an in-progress or incomplete recovery.
 - Do not use a credential-bearing PostgreSQL URL or `PGPASSWORD`.
 - Do not bypass active-session refusal, archive allowlists, checksums, or disposable restore validation.
 - If automatic rollback also fails, keep all application roles stopped, preserve the pending manifest and rollback archive, capture redacted logs, and escalate to database recovery. Do not retry with ad-hoc `pg_restore` flags.
