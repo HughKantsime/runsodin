@@ -4,6 +4,14 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Prints started at the printer now appear in job history on every printer type, not only Bambu.
+
+### Fixed
+
+- Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
+
 ## [2.3.0] - 2026-11-15
 
 

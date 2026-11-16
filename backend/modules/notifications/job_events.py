@@ -218,6 +218,13 @@ def job_completed(
                         cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")
                         log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)
 
+            else:
+                from core.observed_jobs import link_ended_print
+                scheduled_job_id = link_ended_print(
+                    conn, print_job_id,
+                    duration_hours=round(duration_seconds / 3600, 4) if duration_seconds is not None else None)
+                job_applied = scheduled_job_id is not None
+
             from core.job_terminal_observations import claim_terminal, terminal_event
             claim_terminal(conn, print_job_id, alert_job_id=scheduled_job_id if job_applied else None)
             timeline_item=terminal_event(conn, print_job_id)
@@ -392,6 +399,10 @@ def job_cancelled(
                 from modules.jobs.services import transition_job
                 job_applied = transition_job(cur, scheduled_job_id, 'cancelled', 'monitor',
                                              extra_fields={'actual_end': ended_at})
+            else:
+                from core.observed_jobs import link_ended_print
+                scheduled_job_id = link_ended_print(conn, print_job_id)
+                job_applied = scheduled_job_id is not None
             alert_job_id = scheduled_job_id if job_applied else None
 
             from core.job_terminal_observations import claim_terminal, terminal_event
