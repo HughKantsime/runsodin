@@ -244,6 +244,68 @@ def test_existing_session_helper_callers_do_not_need_a_new_field(shop):
     assert result['connection']['mappings'][0]['stock_baseline']['quantity'] == 12
 
 
+def test_existing_map_helper_callers_need_no_request(shop):
+    from modules.orders.routes import square
+    from tests.test_contracts.test_square_readonly_workflow import connect
+    status, _ = connect(shop[0])
+    result = square.map_product(101, square.Mapping(
+        revision=status['revision'], location_id='L1', variation_id='V1'), shop[1], shop[3])
+    assert result['mappings'][0]['variation_id'] == 'V1'
+
+
+@pytest.mark.parametrize('delegated', [False, True])
+def test_mapping_audit_keeps_original_session_string_and_readers_accept_both(shop, tier_license, delegated):
+    import csv
+    import io
+    from core.dependencies import get_current_user
+    from modules.reporting.routes.exports import router
+    tier_license('enterprise')
+    status = mapped(shop)
+    expected = 'Explicit Square variation/location selected'
+    if delegated:
+        token_id = authenticate(shop)
+        assert shop[0].put(path(), json=payload(status['revision'])).status_code == 200
+        expected = {'description': expected, 'auth_kind': 'user_api_token', 'token_id': token_id,
+                    'token_name': 'Inventory setup', 'token_owner_user_id': 3, 'approval_note': NOTE}
+    details = shop[3].execute(text(
+        "SELECT details FROM audit_logs WHERE action='square.product_mapped' ORDER BY id DESC LIMIT 1"
+    )).scalar_one()
+    assert details == json.dumps(expected)
+    shop[4].include_router(router)
+    shop[4].dependency_overrides[get_current_user] = lambda: {
+        'id': 3, 'role': 'admin', 'group_id': None, '_auth_kind': 'bearer_jwt'}
+    params = {'action': 'square.product_mapped'}
+    listed = shop[0].get('/audit-logs', params=params)
+    assert listed.status_code == 200
+    assert listed.json()['logs'][0]['details'] == expected
+    exported = shop[0].get('/export/audit-logs', params=params)
+    assert exported.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(exported.text)))
+    assert rows[0]['Details'] == (json.dumps(expected) if delegated else expected)
+
+
+@pytest.mark.parametrize('route', ['grant', 'map', 'baseline'])
+def test_stored_education_mode_change_blocks_existing_grant(shop, route):
+    status = mapped(shop)
+    token_id = authenticate(shop, ['read'])
+    client, _, calls, db, *_ = shop
+    url = f'/tokens/{token_id}/square-setup'
+    db.execute(text("INSERT INTO system_config(key,value) VALUES('education_mode','false')"))
+    db.commit()
+    assert client.put(url, headers=interactive_headers(), json={'enabled': True}).status_code == 200
+    db.execute(text("UPDATE system_config SET value='true' WHERE key='education_mode'"))
+    db.commit()
+    calls.clear()
+    if route == 'grant':
+        result = client.put(url, headers=interactive_headers(), json={'enabled': True})
+    else:
+        baseline = route == 'baseline'
+        result = client.put(path(baseline), json=payload(status['revision'], baseline))
+    assert result.status_code == 403
+    assert result.json()['detail'] == 'Square setup permission is unavailable in Education mode'
+    assert calls == []
+
+
 @pytest.mark.parametrize('state', ['prepared', 'unknown'])
 def test_existing_addition_barriers_preserved_for_tokens(batch, state):
     from modules.orders import batch_production as batches, stock_recovery

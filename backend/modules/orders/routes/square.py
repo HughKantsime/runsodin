@@ -142,7 +142,11 @@ def catalog(revision: str = Query(max_length=64), cursor: str | None = Query(def
 
 @router.put('/{product_id}/square')
 @limiter.limit('30/minute', key_func=setup_rate_key, cost=setup_rate_cost)
-def map_product(request: Request, product_id: int, data: Mapping, user=Depends(require_square_setup()), db: Session = Depends(get_db)):
+def map_product_route(request: Request, product_id: int, data: Mapping, user=Depends(require_square_setup()), db: Session = Depends(get_db)):
+    return map_product(product_id, data, user, db)
+
+
+def map_product(product_id: int, data: Mapping, user, db: Session):
     attribution = setup_audit(user, data.approval_note)
     owner = store.tenant(user)
     store.own_product(db, owner, product_id)
@@ -169,8 +173,9 @@ def map_product(request: Request, product_id: int, data: Mapping, user=Depends(r
     if baseline:
         latest['mappings'][str(product_id)]['stock_baseline'] = baseline
     doc = store.save(db, owner, latest, previous)
+    description = 'Explicit Square variation/location selected'
     log_audit(db, 'square.product_mapped', 'product', product_id,
-              {'description': 'Explicit Square variation/location selected', **attribution})
+              {'description': description, **attribution} if attribution else description)
     db.commit()
     return store.public(db, owner, doc)
 
