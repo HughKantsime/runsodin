@@ -176,8 +176,19 @@ def training_request(user, action):
     return ('post', f"/api/education/trainings/{created.json()['id']}/quiz",
             {'json': {'command_id': str(uuid.uuid4()), 'revision': 1, 'answers': [0]}})
 
+def settlement_request(user):
+    p = printer()
+    j = job('failed', p)
+    i = next(SEQ)
+    sql("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,status,started_at,ended_at) "
+        "VALUES(:i,:p,:j,'failed','2026-10-01 00:00:00','2026-10-01 01:00:00')", i=i, p=p, j=j)
+    sql("INSERT INTO print_archives(id,print_job_id,printer_id,job_id,org_id,ownership_state,ownership_source,accounting_state,accounting_reason) "
+        "VALUES(:i,:i,:p,:j,1,'known','job_file','unresolved','no_bound_spool')", i=i, p=p, j=j)
+    return ('post', f'/api/archives/{i}/settle-filament', {'json': {'no_deduction': 'nothing_extruded'}})
+
 # key -> builder(user) returning (method, path, request kwargs) for one fresh call
 CASES = {
+    "archives.settle_filament": settlement_request,
     "education.training_read": lambda u: training_request(u, 'read'),
     "education.training_manage": lambda u: training_request(u, 'manage'),
     "education.training_take": lambda u: training_request(u, 'take'),

@@ -64,6 +64,7 @@ const ACTION_GROUPS = [
   { label: 'Printers', actions: ['printers.answer_restart_question', 'printers.dispatch_recovery', 'printers.add', 'printers.edit', 'printers.delete', 'printers.slots', 'printers.reorder', 'printers.plug'] },
   { label: 'Models', actions: ['models.plates', 'models.create', 'models.edit', 'models.delete'] },
   { label: 'Spools', actions: ['spools.edit', 'spools.delete'] },
+  { label: 'Archives', actions: ['archives.settle_filament'] },
   { label: 'Orders', actions: ['orders.create', 'orders.edit', 'orders.delete', 'orders.ship'] },
   { label: 'Products', actions: ['products.create', 'products.edit', 'products.delete'] },
   { label: 'Other', actions: ['timeline.move', 'upload.upload', 'upload.schedule', 'upload.delete', 'maintenance.log', 'maintenance.tasks', 'alerts.read', 'settings.edit'] },

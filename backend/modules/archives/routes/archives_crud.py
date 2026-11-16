@@ -14,7 +14,7 @@ import io
 import json
 import logging
 import os
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
@@ -62,19 +62,7 @@ class ReprintRequest(PydanticBaseModel):
 # Helpers
 # ──────────────────────────────────────────────
 
-def _archive_row_to_dict(r):
-    """Convert a raw archive row to a response dict with printer display name."""
-    d = dict(r._mapping)
-    d["printer_display"] = (
-        d.get("printer_nickname") or d.get("printer_name")
-        or f"Printer {d.get('printer_id')}"
-    )
-    import json
-    d['consumption'] = json.loads(d.get('consumption_json') or '[]')
-    # Parse tags from comma-separated string
-    raw_tags = d.get("tags") or ""
-    d["tags"] = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
-    return d
+from modules.archives.archive_payload import archive_row_to_dict as _archive_row_to_dict
 
 
 def _build_archive_query(conditions, params, printer_id, status, search,
@@ -161,6 +149,7 @@ def list_archives(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
+    accounting: Optional[Literal["unresolved", "reconciliation_required"]] = Query(None),
     user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
@@ -169,6 +158,10 @@ def list_archives(
     params = {}
     _build_archive_query(conditions, params, printer_id, status, search,
                          start_date, end_date, None, tag)
+
+    if accounting:
+        conditions.append("a.accounting_state = :accounting")
+        params["accounting"] = accounting
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
@@ -197,7 +190,7 @@ def list_archives(
     ).fetchall()
 
     return {
-        "items": annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(r) for r in rows], user), archive=True, user=user),
+        "items": annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(r, db, user) for r in rows], user), archive=True, user=user),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -235,8 +228,8 @@ def compare_archives(
     _check_archive_org_access(db, dict(row_a._mapping)["id"], user)
     _check_archive_org_access(db, dict(row_b._mapping)["id"], user)
 
-    da = name_payloads(db, 'archive', [_archive_row_to_dict(row_a)], user)[0]
-    db_dict = name_payloads(db, 'archive', [_archive_row_to_dict(row_b)], user)[0]
+    da = name_payloads(db, 'archive', [_archive_row_to_dict(row_a, db, user)], user)[0]
+    db_dict = name_payloads(db, 'archive', [_archive_row_to_dict(row_b, db, user)], user)[0]
 
     # Build diff — fields that differ between a and b
     compare_fields = [
@@ -410,7 +403,7 @@ def get_archive(
     if not row:
         raise HTTPException(status_code=404, detail="Archive not found")
     _check_archive_org_access(db, dict(row._mapping)["id"], user)
-    return annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(row)], user), archive=True, user=user)[0]
+    return annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(row, db, user)], user), archive=True, user=user)[0]
 
 
 @router.patch("/archives/{archive_id}", tags=["Archives"])

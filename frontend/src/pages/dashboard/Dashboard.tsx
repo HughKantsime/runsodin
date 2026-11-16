@@ -1,6 +1,7 @@
 import { hmsFaults } from '../../utils/hms'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
+import UnaccountedFilament from '../../components/foundry/UnaccountedFilament'
 import Floor from '../../components/foundry/Floor'
 import { useFleet } from '../../components/foundry/data'
 import StatusBadge, { printerBadgeStatus } from '../../components/ui/StatusBadge'
@@ -508,6 +509,7 @@ function ClassicDashboard() {
 
       <SectionErrorBoundary>
         <PrintNextCard />
+        <UnaccountedFilament />
       </SectionErrorBoundary>
 
       <SectionErrorBoundary>

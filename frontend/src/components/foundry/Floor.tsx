@@ -8,6 +8,7 @@ import PrintNextCard from '../orders/PrintNextCard'
 import { useFoundry } from '../../hooks/themePreferences'
 import DensityToggle from './DensityToggle'
 import { Fleet } from './PrinterRows'
+import UnaccountedFilament from './UnaccountedFilament'
 import NeedsYouBanner from './NeedsYouBanner'
 import CameraView from './CameraView'
 import { Schedule } from './ScheduleLane'
@@ -38,6 +39,7 @@ export default function Floor() {
     <PrintNextCard />
     {fleet.isError ? <p role="alert">Could not load printers. <button onClick={() => fleet.refetch()}>Retry</button></p> : fleet.isLoading ? <p role="status">Loading printers…</p> : <>
       <NeedsYouBanner printers={printers} prints={prints.data} alerts={notices.data} cameraIds={cameras.isError ? [] : (cameras.data || []).map(c => c.id)} now={now} />
+      <UnaccountedFilament />
       {(prints.isError || queue.isError || notices.isError) && <p role="status">Some job or alert information could not be loaded. Available printer data is shown.</p>}
       <Fleet printers={printers} prints={prints.data} queue={queue.data} now={now} />
       {!printers.length && <p>No printers configured.</p>}

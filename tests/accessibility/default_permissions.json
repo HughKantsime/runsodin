@@ -257,6 +257,10 @@
     "printers.answer_restart_question": [
       "admin",
       "operator"
+    ],
+    "archives.settle_filament": [
+      "admin",
+      "operator"
     ]
   },
   "page_access": {

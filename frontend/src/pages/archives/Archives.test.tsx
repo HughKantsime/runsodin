@@ -59,3 +59,10 @@ test.each(['classic', 'foundry'])('%s retains printer-recorded failed to cancell
  expect(fetchAPI).toHaveBeenCalledWith('/jobs/901/outcome',{method:'POST',body:JSON.stringify({status:'cancelled',from_status:'failed',print_id:902})})
  document.documentElement.removeAttribute('data-theme-family')
 })
+
+test('unresolved rows show a settlement badge and a filament filter', () => {
+ state.data={items:[{...archivedPrint(40),accounting_state:'unresolved'}],total:1};mount()
+ expect(screen.getByText('Needs its filament settled')).toBeInTheDocument()
+ fireEvent.change(screen.getByLabelText('Filter by filament accounting'),{target:{value:'unresolved'}})
+ expect(screen.getByLabelText('Filter by filament accounting')).toHaveValue('unresolved')
+})

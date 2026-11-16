@@ -1347,3 +1347,17 @@ def test_startup_entrypoints_log_external_filament_accounting():
                  and isinstance(statement.value.func, ast.Name)
                  and statement.value.func.id == 'log_external_filament_accounting']
         assert len(calls) == 1, f'{target}: log the effective policy directly on startup'
+
+
+def test_settlement_source_and_zero_claim_survive_detached_job(lifecycle_client):
+    from core.filament_ledger import SOURCES, record_settlement, record_job_filament, row_kind
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5301)
+    run = sqlalchemy_runner(db)
+    assert 'settlement' in SOURCES and row_kind('auto:settlement: archive 1') == 'ledger'
+    assert record_settlement(run, 111, 5301, grams_by_spool={}, counted_usage_ids=[]).state == 'nothing_deducted'
+    assert json.loads(_keys(db)['quota_attempt:filament:job:111:print:5301'])['source'] == 'settlement'
+    db.execute(text('UPDATE print_jobs SET scheduled_job_id=NULL WHERE id=5301'))
+    assert record_job_filament(run, None, print_job_id=5301, source='archive', grams_by_spool={111: 10}).state == 'already_deducted'
+    assert _spool(db) == (100.0, 0)

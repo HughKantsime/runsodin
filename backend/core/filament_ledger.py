@@ -9,6 +9,7 @@ or inserting a ``spool_usage`` row -- goes through this module (a census test,
                           accounting (Bambu/MQTT and every archived attempt)
     record_manual_usage   an operator's manual "use N grams" (optionally naming a job)
     record_weighed_spool  a scale reading that sets the net weight
+    record_settlement    an operator's final accounting of a physical print
 
 Two claim scopes, both INSERT ... ON CONFLICT DO NOTHING in the caller's
 transaction, kept only when something was actually deducted (with no matching
@@ -28,6 +29,10 @@ can still deduct):
                      print, so a later print-scoped deduction for that attempt
                      is refused as ``job_usage_unattributed`` instead of
                      deducting twice.
+
+Settlement keeps those claims even for zero deductions or unknown balances. It
+also keeps an identity-checked physical-print claim independent of the job link,
+so unlinking a job cannot make a settled print eligible for another deduction.
 
 Attempts are resolved per deduction, never assumed to be the job's current one:
 a physical print belongs to the attempt it was bound to when created/linked
@@ -72,7 +77,7 @@ AUTO_PREFIX = "auto:"
 MANUAL_PREFIX = "manual:"
 NOTES_MAX = 255  # spool_usage.notes is VARCHAR(255)
 MANUAL_NOTES_MAX = NOTES_MAX - len(MANUAL_PREFIX) - 1  # what an operator may write after "manual: "
-SOURCES = frozenset({"operator_complete", "moonraker", "archive"})
+SOURCES = frozenset({"operator_complete", "moonraker", "archive", "settlement"})
 # Notes written by the automatic deducers before the ledger existed.
 LEGACY_AUTO_NOTES = ("Auto-deducted on job #", "Moonraker observed extrusion", "Moonraker sliced estimate",
                      "Physical attempt ")
@@ -266,6 +271,13 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
     attempt *it* belongs to; without it, about the job's current attempt.
     """
     if print_job_id is not None:
+        # A settlement belongs to immutable physical identity, not its mutable job link.
+        settled = run('SELECT value FROM system_config WHERE key=:key',
+                      {'key': f'filament_settlement:print:{int(print_job_id)}'}).fetchone()
+        if settled:
+            marker = json.loads(settled[0]) if isinstance(settled[0], str) else settled[0]
+            if marker.get('print_identity') == _settlement_print_identity(run, print_job_id):
+                return MARKER
         if run("SELECT 1 FROM system_config WHERE key = :k", {"k": print_marker(job_id, print_job_id)}).fetchone():
             return MARKER
         if run("SELECT 1 FROM spool_usage WHERE print_job_id = :pj LIMIT 1", {"pj": int(print_job_id)}).fetchone():
@@ -464,6 +476,85 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
     return LedgerResult("deducted", None, deductions)
 
 
+def manual_rows_for_print(run, job_id, print_job_id) -> list:
+    """Unclaimed manual job rows in this physical print's attempt window."""
+    if job_id is None:
+        return []
+    view = print_attempt(run, job_id, print_job_id)
+    counted = set()
+    for (value,) in run("SELECT value FROM system_config WHERE key LIKE :prefix OR key LIKE :settlement",
+                        {"prefix": f"{PREFIX}filament:%", "settlement": "filament_settlement:print:%"}).fetchall():
+        try:
+            marker = json.loads(value) if isinstance(value, str) else value
+            if isinstance(marker, dict):
+                counted.update(marker.get('counted_usage_ids', []))
+        except (TypeError, ValueError):
+            continue
+    rows = run("SELECT id,spool_id,weight_used_g,used_at,notes FROM spool_usage "
+               "WHERE job_id=:job AND print_job_id IS NULL ORDER BY id", {"job": job_id}).fetchall()
+    return [dict(usage_id=r[0], spool_id=r[1], grams=r[2], used_at=r[3], notes=r[4])
+            for r in rows if r[0] not in counted and row_kind(r[4]) == 'manual' and view.holds(_utc(r[3]))]
+
+
+def existing_rows_for_print(run, job_id, print_job_id) -> list:
+    """Rows underlying a prior deduction; never include another physical print."""
+    view = print_attempt(run, job_id, print_job_id) if job_id is not None else None
+    rows = run("SELECT id,spool_id,weight_used_g,used_at,notes,print_job_id FROM spool_usage "
+               "WHERE print_job_id=:print OR (job_id=:job AND print_job_id IS NULL) ORDER BY id",
+               {"print": print_job_id, "job": job_id}).fetchall()
+    return [dict(usage_id=r[0], spool_id=r[1], grams=r[2], used_at=r[3], notes=r[4]) for r in rows
+            if r[5] == print_job_id or (view and view.holds(_utc(r[3])) and row_kind(r[4]) != 'manual')]
+
+
+def _settlement_print_identity(run, print_job_id):
+    row = run('SELECT economic_birth_nonce,printer_id,started_at FROM print_jobs WHERE id=:id',
+              {'id': print_job_id}).fetchone()
+    return [row[0], row[1], str(row[2])] if row else None
+
+
+def record_settlement(run, job_id, print_job_id, *, grams_by_spool, counted_usage_ids,
+                      accept_existing=False, archive_id=None) -> LedgerResult:
+    """Finalize a physical print, retaining claims even for a zero deduction.
+
+    Caller locks the physical print and validates/reviews manual rows in the same
+    transaction. Spools precede claim keys, as on every other ledger path.
+    """
+    if print_job_id is None:
+        raise ValueError('A settlement requires a physical print')
+    items = _clean(grams_by_spool)
+    if len(items) != len(grams_by_spool):
+        raise ValueError('Settlement deductions must be positive finite quantities')
+    if _lock_spools(run, [spool for spool, _ in items]) != {spool for spool, _ in items}:
+        raise ValueError('Settlement spool disappeared')
+    prior = prior_attempt_usage(run, job_id, print_job_id)
+    if prior and not accept_existing:
+        return LedgerResult('already_deducted', prior)
+    if accept_existing and (not prior or items):
+        raise ValueError('Accept existing requires a prior deduction and no new deduction')
+    value = dict(source='settlement', print_job_id=print_job_id, counted_usage_ids=sorted(counted_usage_ids))
+    key = print_marker(job_id, print_job_id)
+    if not _claim(run, key, value) and not accept_existing:
+        return LedgerResult('already_deducted', MARKER)
+    if job_id is not None:
+        job_key = filament_marker_for(job_id, print_attempt(run, job_id, print_job_id).seq)
+        if not _claim(run, job_key, value) and not accept_existing:
+            marker = run('SELECT value FROM system_config WHERE key=:key', {'key': job_key}).fetchone()
+            if marker and _marker_print(marker[0]) is None:
+                run('DELETE FROM system_config WHERE key=:key', {'key': key})
+                return LedgerResult('already_deducted', JOB_USAGE)
+    run('INSERT INTO system_config(key,value) VALUES(:key,:value) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+        {'key': f'filament_settlement:print:{int(print_job_id)}',
+         'value': json.dumps(dict(value, print_identity=_settlement_print_identity(run, print_job_id)))})
+    deductions = []
+    for spool, grams in items:
+        entry = _deduct(run, spool, grams, job_id=job_id, print_job_id=print_job_id,
+                        notes=f'auto:settlement: archive {archive_id}', allow_unknown_balance=True)
+        if entry is None:
+            raise ValueError('Settlement balance is invalid')
+        deductions.append(entry)
+    return LedgerResult('deducted' if deductions else 'nothing_deducted', None, deductions)
+
+
 def record_manual_usage(run, spool_id, grams, *, job_id=None, notes=None) -> Optional[dict]:
     """An operator's manual consumption. Never counts as a job's automatic deduction."""
     items = _clean({spool_id: grams})
@@ -493,6 +584,9 @@ def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
         run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
             "VALUES (:spool, NULL, NULL, :g, :at, :notes)",
             {"spool": int(spool_id), "g": before - value, "at": _now(), "notes": f"{MANUAL_PREFIX} weigh adjustment"})
+    # Every absolute scale reading matters, including an increase or NULL -> known.
+    run("INSERT INTO system_config(key,value) VALUES(:key,:at) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        {"key": f"filament_balance_weighed:{int(spool_id)}", "at": _now().isoformat()})
     return {"spool_id": int(spool_id), "old_weight_g": before, "remaining_g": value}
 
 

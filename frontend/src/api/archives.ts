@@ -1,6 +1,7 @@
 import { fetchAPI, downloadBlob } from './client'
 import type {
   Archive,
+  SettlementPreview, FilamentSettlement, AccountingSummary,
   ArchiveUpdate,
   ArchiveListParams,
   ArchiveLogParams,
@@ -18,6 +19,12 @@ import type {
 import type { PaginatedResponse } from '../types/common'
 
 export const archives = {
+  accountingSummary: (): Promise<AccountingSummary> => fetchAPI('/archives/accounting-summary?days=30'),
+  settlementPreview: (id: number, spoolIds: number[] = []): Promise<SettlementPreview> => {
+    const q = new URLSearchParams(); spoolIds.forEach(id => q.append('spool_id', String(id)))
+    return fetchAPI(`/archives/${id}/filament-settlement?${q}`)
+  },
+  settleFilament: (id: number, data: FilamentSettlement): Promise<{ deductions: { spool_id: number; remaining_unknown: boolean }[] }> => fetchAPI(`/archives/${id}/settle-filament`, { method: 'POST', body: JSON.stringify(data) }),
   list: (params: ArchiveListParams = {}): Promise<PaginatedResponse<Archive>> => {
     const q = new URLSearchParams()
     if (params.page) q.set('page', String(params.page))
@@ -27,6 +34,7 @@ export const archives = {
     if (params.search) q.set('search', params.search)
     if (params.start_date) q.set('start_date', params.start_date)
     if (params.end_date) q.set('end_date', params.end_date)
+    if (params.accounting) q.set('accounting', params.accounting)
     if (params.tag) q.set('tag', params.tag)
     return fetchAPI(`/archives?${q}`)
   },

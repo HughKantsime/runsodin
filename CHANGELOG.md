@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
+
 ## [2.3.0] - 2026-11-15
 
 
