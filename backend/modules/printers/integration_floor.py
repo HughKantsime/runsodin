@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import bindparam, text
 
+from modules.printers.ams_humidity import humidity_scale
 from core.display_names import display_names
 from core.hms_state import display_entries
 from core.rbac import should_filter_org
@@ -155,7 +156,6 @@ def queue_totals(db, actor, scope, controlled, states):
 # ---------------------------------------------------------------------------
 
 AMS_READING_MAX_AGE = timedelta(hours=24)
-_GRADES = "ABCDE"
 
 
 def ams_environment(db, printer_ids, now):
@@ -179,15 +179,14 @@ def ams_environment(db, printer_ids, now):
         at = to_utc(recorded_at)
         if at is None or now - at > AMS_READING_MAX_AGE:
             continue
-        level = int(humidity) if isinstance(humidity, (int, float)) and 1 <= humidity <= 5 else None
+        level, index, grade = humidity_scale(humidity)
         # Rows stored before the no-sensor rule: level 5 at exactly 0 degrees is an AMS lite placeholder.
         if level == 5 and temperature == 0:
-            level, temperature = None, None
-        index = 6 - level if level is not None else None
+            level, temperature, index, grade = None, None, None, None
         result.setdefault(printer_id, []).append({
             "unit": int(unit),
             "humidity_index": index,
-            "grade": _GRADES[index - 1] if index else None,
+            "grade": grade,
             "bambu_level": level,
             "humidity_percent": None,
             "temperature_c": round(float(temperature), 1) if isinstance(temperature, (int, float)) else None,

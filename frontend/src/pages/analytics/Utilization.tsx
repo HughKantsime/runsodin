@@ -19,7 +19,7 @@ export default function Utilization() {
 
   const { data: jobsData } = useQuery({
     queryKey: ['print-jobs-util', timeRange],
-    queryFn: () => printJobs.list({ limit: 500, days: Number(timeRange) }),
+    queryFn: () => printJobs.list({ limit: 500, ended_after: new Date(Date.now() - Number(timeRange) * 24 * 60 * 60 * 1000).toISOString() }),
   })
 
   const printerStats = statsData?.printer_stats || []

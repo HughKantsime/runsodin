@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Square stock replies now report the actual write switch, AMS humidity labels run from dry to wet correctly, and print history supports date ranges and paging with a total count. Utilization now requests prints that ended within the selected period.
+
 ## [2.3.0] - 2026-11-15
 
 

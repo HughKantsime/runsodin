@@ -12,6 +12,8 @@ Permitted writes:
 
 This does not grant credential creation, Square connection changes, stock activation, mapping/baseline changes, outside-print recipe qualification, assortment configuration or finishing. Those retain their existing password-session requirements. Configured action access, tenant ownership and the operator role floor still apply. A global API key does not qualify.
 
+The send reply’s `square_writes_enabled` reports the switch state when the send was reserved.
+
 ## Operator procedure
 
 1. Obtain the owner's accepted/rejected counts and disposition. Do not infer a good count from a completed print.
