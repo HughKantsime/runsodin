@@ -2,8 +2,8 @@
 
 `POST /printers/{id}/plate-cleared` used to write nothing unless a job was in
 waiting_plate_clear, so `plate_clear_confirmed_at` stayed empty on farms that clear plates
-by hand. The confirmation is recorded as the existing `bed_clear_confirmed` timeline event
-on the printer's last finished print (no new table or column).
+by hand. Confirmations use the job timeline when linked to a job, or one guarded
+printer-owned system_config value for a print started at the printer.
 """
 import json
 import uuid
@@ -12,6 +12,8 @@ from typing import Optional
 
 from sqlalchemy import text
 
+from core.audit import log_audit
+from core.printer_display_facts import plate_clear_key, stored_plate_clear_times
 from core.printer_utils import is_printing_state
 from core.rbac import check_org_access
 
@@ -42,44 +44,70 @@ def record_plate_clear(db, printer, actor) -> Optional[datetime]:
     if db.execute(text("SELECT 1 FROM jobs WHERE printer_id=:p AND status IN ('printing','paused') LIMIT 1"),
                   {"p": printer.id}).first():
         return None
-    # Stored times mix forms (naive UTC, ISO with "T" or an offset), so they are compared as
-    # parsed instants, never as text, across every finished print on this printer (three small
-    # columns; an old low-numbered job can be the one that finished last).
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static SQL; the only interpolated part is the module constant _ENDED (a literal status list); the printer id is bound
+    if not check_org_access(actor, printer.org_id) or db.execute(text(
+            "SELECT 1 FROM print_jobs WHERE printer_id=:p AND status='running' LIMIT 1"),
+            {"p": printer.id}).first():
+        return None
+    # Monitor end times decide linked prints. Keep operator-finished jobs when their
+    # print row was closed with an unknown end. Preserve the archived-submission filter.
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- static status list; printer id is bound
     recent = db.execute(text(
-        f"SELECT id, charged_to_org_id, actual_end FROM jobs WHERE printer_id=:p AND status IN {_ENDED} "
-        "AND actual_end IS NOT NULL "
-        # The printer read hides confirmations on jobs of archived Education submissions
-        # (core.printer_display_facts.plate_clear_times); one written there would be reported
-        # as recorded and never shown, so such a job is never the one written to.
-        "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id AND s.archived_at IS NOT NULL)"),
+        f"SELECT p.id,p.ended_at,p.id,p.scheduled_job_id FROM print_jobs p WHERE p.printer_id=:p AND p.status IN {_ENDED} "
+        "AND p.ended_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM education_submissions s "
+        "WHERE s.job_id=p.scheduled_job_id AND s.archived_at IS NOT NULL) "
+        "UNION ALL SELECT j.id,j.actual_end,NULL,j.id FROM jobs j "
+        f"WHERE j.printer_id=:p AND j.status IN {_ENDED} AND j.actual_end IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM print_jobs p WHERE p.scheduled_job_id=j.id AND p.ended_at IS NOT NULL) "
+        "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=j.id AND s.archived_at IS NOT NULL)"),
         {"p": printer.id}).all()
-    dated = [(as_utc(row[2]), row[0], row) for row in recent if as_utc(row[2]) is not None]
+    # Times mix naive UTC and ISO offsets. The higher id breaks end-time ties; for an
+    # equal id across the two tables, prefer the monitor's print record.
+    dated = [(as_utc(row[1]), row[0], row[2] is not None, row[2], row[3])
+             for row in recent if as_utc(row[1]) is not None]
     if not dated:
         return None
-    ended, _, job = max(dated, key=lambda item: (item[0], item[1]))
-    # Written only against a job this caller may read: its organization and, for controlled
-    # work, its audience (the job routes' own rule).
+    ended, _, _, print_id, job_id = max(dated, key=lambda item: item[:3])
     from core.controlled_parts import allowed
-    if not check_org_access(actor, job[1]) or not allowed(db, "job", job[0], actor):
-        return None
-    # A print that started after an earlier confirmation voids it for the printer read, even if
-    # that print never got an end time (printer went offline): the earlier confirmation must not
-    # be handed back as the answer then, or the plate could never be confirmed again.
+    org_id = printer.org_id
+    if job_id is not None:
+        job = db.execute(text("SELECT charged_to_org_id FROM jobs WHERE id=:id"), {"id": job_id}).first()
+        if job is None or not check_org_access(actor, job[0]) or not allowed(db, "job", job_id, actor):
+            return None
+        org_id = job[0]
+    # Both start sources must agree with the reader, even for a print closed without an end.
     starts = [begun for begun in (as_utc(row[0]) for row in db.execute(text(
-        "SELECT actual_start FROM jobs WHERE printer_id=:p AND actual_start IS NOT NULL"), {"p": printer.id}))
-        if begun is not None]
-    for (at,) in db.execute(text(
-            "SELECT occurred_at FROM job_timeline_events WHERE job_id=:j AND printer_id=:p "
-            "AND kind='bed_clear_confirmed' ORDER BY occurred_at DESC"), {"j": job[0], "p": printer.id}):
-        known = as_utc(at)
-        if known is not None and known >= ended and not any(begun > known for begun in starts):
-            return known  # already confirmed after this print ended and nothing started since: one row
+        "SELECT actual_start FROM jobs WHERE printer_id=:p AND actual_start IS NOT NULL "
+        "UNION ALL SELECT started_at FROM print_jobs WHERE printer_id=:p AND started_at IS NOT NULL"),
+        {"p": printer.id})) if begun is not None]
+    known_times = list(stored_plate_clear_times(db, [printer.id], actor).values())
+    for at, owner, identifier in db.execute(text(
+            "SELECT e.occurred_at,j.charged_to_org_id,j.id FROM job_timeline_events e JOIN jobs j ON j.id=e.job_id "
+            "WHERE e.printer_id=:p AND e.kind='bed_clear_confirmed' AND NOT EXISTS "
+            "(SELECT 1 FROM education_submissions s WHERE s.job_id=j.id AND s.archived_at IS NOT NULL)"),
+            {"p": printer.id}):
+        if check_org_access(actor, owner) and allowed(db, "job", identifier, actor):
+            known_times.append(at)
+    known = max((at for at in (as_utc(value) for value in known_times) if at is not None), default=None)
+    if known is not None and known >= ended and not any(begun > known for begun in starts):
+        return known
     now = datetime.now(timezone.utc)
     user_id = actor.get("id") if isinstance(actor, dict) and type(actor.get("id")) is int else None
-    db.execute(text(
-        "INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,detail,actor_user_id,actor_token_id,occurred_at) "
-        "VALUES(:id,:job,:printer,:org,'bed_clear_confirmed',:detail,:user,NULL,:at)"),
-        {"id": uuid.uuid4().hex, "job": job[0], "printer": printer.id, "org": job[1],
-         "detail": json.dumps({"source": "plate_cleared", "waiting_job": False}), "user": user_id, "at": now})
+    token_id = actor.get("_token_id") if isinstance(actor, dict) and type(actor.get("_token_id")) is int else None
+    if job_id is not None:
+        db.execute(text(
+            "INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,detail,actor_user_id,actor_token_id,occurred_at) "
+            "VALUES(:id,:job,:printer,:org,'bed_clear_confirmed',:detail,:user,:token,:at)"),
+            {"id": uuid.uuid4().hex, "job": job_id, "printer": printer.id, "org": org_id,
+             "detail": json.dumps({"source": "plate_cleared", "waiting_job": False}),
+             "user": user_id, "token": token_id, "at": now})
+    else:
+        # Use the stored creation value, as display facts do, to guard against reused ids.
+        created_at = db.execute(text("SELECT created_at FROM printers WHERE id=:p"), {"p": printer.id}).scalar_one()
+        db.execute(text("INSERT INTO system_config(key,value) VALUES(:key,:value) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"),
+                   {"key": plate_clear_key(printer.id), "value": json.dumps({"at": now.isoformat(),
+                    "print_job_id": print_id, "org_id": org_id, "printer_created_at": str(created_at)})})
+    log_audit(db, "printer.plate_clear_confirmed", "printer", printer.id,
+              {"printer_id": printer.id, "print_job_id": print_id, "job_id": job_id,
+               "actor_token_id": token_id})
     return now

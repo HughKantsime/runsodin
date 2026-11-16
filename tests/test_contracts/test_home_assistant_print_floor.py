@@ -639,3 +639,24 @@ def test_the_model_fallback_reads_filament_type():
     needs, from_file = _needs({'filaments_json': None,
                                'color_requirements': '{"1": {"color": "black", "filament_type": "PETG", "grams": 40}}'})
     assert from_file is False and needs[0]['material'] == 'PETG'
+
+
+def test_unlinked_print_plate_clear_is_visible_in_feed_and_printer_read(ha_client, review_db):
+    from modules.printers import routes_controls, routes_crud
+    client, issue = ha_client
+    client.app.include_router(routes_controls.router)
+    client.app.include_router(routes_crud.router)
+    review_db.execute(text("UPDATE printers SET api_type='moonraker',slot_count=4,tags='[]',"
+                           "timelapse_enabled=0,shared=0 WHERE id=10"))
+    review_db.execute(text("INSERT INTO print_jobs(printer_id,filename,status,started_at,ended_at) "
+                           "VALUES(10,'part.gcode','completed',:start,:end)"),
+                      {'start': _stamp(600), 'end': _stamp(300)})
+    review_db.commit()
+    first = client.post('/printers/10/plate-cleared', headers=issue(['write:printers'])).json()
+    expected = datetime.fromisoformat(first['plate_clear_confirmed_at'])
+    shown = _printers(_get(client, issue))[10]['plate_clear_confirmed_at']
+    assert datetime.fromisoformat(shown.replace('Z', '+00:00')) == expected
+    printer = client.get('/printers/10', headers=issue(['read:printers', 'read:jobs'])).json()
+    assert datetime.fromisoformat(printer['plate_clear_confirmed_at']) == expected
+    assert client.post('/printers/10/plate-cleared', headers=issue(['write:printers'])).json() == first
+    assert review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='printer.plate_clear_confirmed'")).scalar_one() == 1

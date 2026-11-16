@@ -214,4 +214,7 @@ from sqlalchemy import event as _maintenance_event
 @_maintenance_event.listens_for(Printer, 'after_delete')
 def _delete_maintenance_state(mapper, connection, target):
     from core.printer_maintenance import delete_maintenance
+    from core.printer_display_facts import plate_clear_key
+    from sqlalchemy import text
     delete_maintenance(connection, target.id)
+    connection.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': plate_clear_key(target.id)})
