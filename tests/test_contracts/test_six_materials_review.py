@@ -90,6 +90,9 @@ def test_frozen_vocabulary_pin_requires_an_explicit_decision(monkeypatch, change
 def test_release_note_is_under_added_and_states_education_limit():
     from pathlib import Path
     changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
-    added = changelog.split('### Added\n', 1)[1].split('\n### ', 1)[0]
+    # The note belongs to release 2.3.0: read that release's Added section, not the first one in the
+    # file (entries added under [Unreleased] for the next release come before it).
+    release = changelog.split('\n## [2.3.0]', 1)[1].split('\n## [', 1)[0]
+    added = release.split('### Added\n', 1)[1].split('\n### ', 1)[0]
     note = next(line for line in added.splitlines() if line.startswith('- Six more Bambu materials'))
     assert 'Education AMS reads do not yet accept these six materials' in note
