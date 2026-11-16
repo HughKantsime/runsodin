@@ -4,6 +4,15 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Square stock replies now correctly report whether sending stock changes is enabled.
+- AMS humidity labels now run from dry to wet correctly and show N/A when there is no sensor reading. API readers of `humidity_label` will see different, now correct, words.
+
+### Added
+
+- The print history API supports date range filters, paging, and a total count. Utilization now requests prints that ended within the selected period.
+
 ## [2.3.0] - 2026-11-15
 
 

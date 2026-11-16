@@ -132,4 +132,4 @@ def review(db, user, addition_id, data):
                'versions': current, 'attested_by': user['id']})
     db.commit()
     return recovery.result(recovery.operation(db, owner, addition_id),
-        'withdrawn_baseline' if answer == 'counted' else 'reviewed', 'Baseline review recorded')
+        'withdrawn_baseline' if answer == 'counted' else 'reviewed', 'Baseline review recorded', enabled=store.writes_enabled(doc))

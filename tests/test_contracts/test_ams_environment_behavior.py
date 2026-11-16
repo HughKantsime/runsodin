@@ -273,3 +273,33 @@ def test_absent_settings_body_is_rejected(own_ams_operator):
     client, headers, calls = own_ams_operator
     assert client.put('/printers/199/ams/0/slots/0', headers=headers).status_code == 422
     assert calls == []
+
+
+@pytest.mark.parametrize('level,temperature,index,grade,label', [
+    (1,24,5,'E','Wet'), (2,24,4,'D','High'), (3,24,3,'C','Moderate'),
+    (4,24,2,'B','Low'), (5,24,1,'A','Dry'), (None,24,None,None,'N/A'),
+    (9,24,None,None,'Unknown'), (0,24,None,None,'N/A'),
+    (-1,24,None,None,'Unknown'), (5,0,None,None,'N/A'),
+    (4,0,2,'B','Low'), (5,None,1,'A','Dry'),
+])
+def test_current_humidity_scale_matches_feed(ams_client, review_db, level, temperature, index, grade, label):
+    from datetime import datetime, timezone
+    from modules.printers.integration_floor import ams_environment
+    client, issue, _ = ams_client
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199'))
+    review_db.execute(text('UPDATE ams_telemetry SET humidity=:level,temperature=:temperature,recorded_at=:at WHERE printer_id=199'),
+                      {'level':level, 'temperature':temperature, 'at':now.isoformat()})
+    review_db.commit()
+    response = client.get('/printers/199/ams/current', headers=issue(['read:printers']))
+    assert response.status_code == 200
+    unit = response.json()['units'][0]
+    assert (unit['humidity'], unit['humidity_index'], unit['grade'], unit['humidity_label']) == (level,index,grade,label)
+    assert unit['temperature'] == temperature
+    feed = ams_environment(review_db, [199], now)[199][0]
+    assert (unit['humidity_index'], unit['grade']) == (feed['humidity_index'], feed['grade'])
+    assert feed == {'unit':0, 'humidity_index':index, 'grade':grade,
+                    'bambu_level':level if index else None, 'humidity_percent':None,
+                    'temperature_c':None if level == 5 and temperature == 0 else temperature,
+                    'drying':None, 'recorded_at':now.isoformat().replace('+00:00','Z'),
+                    'age_seconds':0}

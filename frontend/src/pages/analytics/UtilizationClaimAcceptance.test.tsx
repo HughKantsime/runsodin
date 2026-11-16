@@ -23,10 +23,12 @@ test('F10-10.3-02 per-printer table renders exact supplied percentages/hours/job
  expect(within(a).getByText('8')).toBeInTheDocument();expect(a.textContent).toContain('12.5h');expect(a.textContent).toContain('70%')
  expect(within(b).getByText('2')).toBeInTheDocument();expect(b.textContent).toContain('7.5h');expect(b.textContent).toContain('30%')
 })
-test('F10-10.3-01/02 changing time window sends exact days to both data sources',async()=>{
- await mount();fireEvent.change(screen.getByRole('combobox'),{target:{value:'7'}})
+test('F10-10.3-01/02 changing time window sends days to stats and ended_after to print history',async()=>{
+ await mount()
+ expect(api.jobs).toHaveBeenLastCalledWith({limit:500,ended_after:'2026-09-13T12:00:00.000Z'})
+ fireEvent.change(screen.getByRole('combobox'),{target:{value:'7'}})
  await waitFor(()=>expect(api.stats).toHaveBeenLastCalledWith(7))
- await waitFor(()=>expect(api.jobs).toHaveBeenLastCalledWith({limit:500,days:7}))
+ await waitFor(()=>expect(api.jobs).toHaveBeenLastCalledWith({limit:500,ended_after:'2026-10-06T12:00:00.000Z'}))
 })
 test('F10-10.3-02 chart transformations preserve printer utilization and aggregate daily jobs',async()=>{
  await mount();await screen.findByTestId('daily-series')

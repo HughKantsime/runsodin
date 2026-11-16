@@ -11,6 +11,7 @@ from pydantic import BaseModel as PydanticBaseModel, Field, field_validator, mod
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from modules.printers.ams_humidity import humidity_scale
 from core.db import get_db
 from core.db_compat import sql
 from core.rbac import require_role, check_org_access, require_action
@@ -73,7 +74,14 @@ async def get_ams_environment(
 @router.get("/printers/{printer_id}/ams/current", tags=["AMS"])
 async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
                           current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
-    """Get latest AMS environmental readings for a printer."""
+    """Get latest AMS environmental readings for a printer.
+
+    Each unit retains the stored `humidity` level (5 driest, 1 wettest).
+    `humidity_index` runs from 1 (dry) to 5 (wet), with `grade` A through E.
+    `humidity_label` is Dry, Low, Moderate, High, or Wet respectively.
+    Missing/zero levels and AMS lite placeholders have null index/grade and label N/A.
+    Other invalid levels have null index/grade and label Unknown.
+    """
     _ams_printer(printer_id, db, current_user)
     rows = db.execute(text("""
         SELECT ams_unit, humidity, temperature, recorded_at
@@ -92,9 +100,12 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
     units = []
     for row in rows:
         hum = row[1]
-        hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(hum, "Unknown") if hum else "N/A"
+        _, index, grade, _ = humidity_scale(hum, row[2])
+        missing = hum in (None, 0) or (hum == 5 and index is None)
+        hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(index, "N/A" if missing else "Unknown")
         units.append({
             "unit": row[0], "humidity": hum, "humidity_label": hum_label,
+            "humidity_index": index, "grade": grade,
             "temperature": row[2], "recorded_at": row[3],
         })
 
