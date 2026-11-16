@@ -19,8 +19,12 @@ def decoded(value, fallback):
 
 
 def physical_print(db, archive):
-    return db.execute(text('SELECT * FROM print_jobs WHERE id=:id'),
+    row = db.execute(text('SELECT * FROM print_jobs WHERE id=:id'),
                       {'id': archive['print_job_id']}).mappings().first()
+    if row and row['scheduled_job_id'] is not None and not db.execute(
+            text('SELECT 1 FROM jobs WHERE id=:id'), {'id': row['scheduled_job_id']}).first():
+        return dict(row, scheduled_job_id=None)
+    return row
 
 
 def not_settleable(db, archive, physical, has_org=None):
@@ -78,7 +82,8 @@ def archive_statuses(db, archives):
     result = {}
     for archive in archives:
         physical = evidence.prints.get(archive['print_job_id']) if evidence else None
-        prior = ledger.prior_attempt_usage(run, physical['scheduled_job_id'], physical['id']) if physical else None
+        job_id = physical['scheduled_job_id'] if physical and physical['scheduled_job_id'] in evidence.jobs else None
+        prior = ledger.prior_attempt_usage(run, job_id, physical['id']) if physical else None
         result[archive['id']] = accounting_status(db, archive, physical, prior, has_org)
     return result
 
@@ -105,17 +110,23 @@ def later_balances(db, archive, spool_ids, user):
             result.append(dict(spool_id=spool_id, at=None, how='unknown_print_time'))
             continue
         evidence = []
-        weighed = moment(config_text(db.execute(text('SELECT value FROM system_config WHERE key=:key'),
-                                    {'key': f'filament_balance_weighed:{spool_id}'}).scalar()))
+        weigh_marker = db.execute(text('SELECT value FROM system_config WHERE key=:key'),
+                                 {'key': f'filament_balance_weighed:{spool_id}'}).first()
+        weighed = moment(config_text(weigh_marker[0])) if weigh_marker else None
+        if weigh_marker and weighed is None:
+            result.append(dict(spool_id=spool_id, at=None, how='unknown_balance_time'))
+            continue
         created = moment(spool['created_at'])
-        if weighed and weighed > ended and (created is None or weighed >= created):
+        if created and created > ended:
+            evidence.append((created, 'added'))
+        if weighed and weighed >= started and (created is None or weighed >= created):
             evidence.append((weighed, 'weighed'))
         measured = moment(spool['remaining_measured_at'])
         if measured and measured >= started:
             evidence.append((measured, 'measured'))
         for row in db.execute(text("SELECT used_at,notes FROM spool_usage WHERE spool_id=:id AND job_id IS NULL"), {'id': spool_id}):
             at = moment(row[0])
-            if row[1] in ('manual: weigh adjustment', 'Manual weigh adjustment') and at and at > ended:
+            if row[1] in ('manual: weigh adjustment', 'Manual weigh adjustment') and at and at >= started:
                 evidence.append((at, 'weighed'))
         if evidence:
             at, how = max(evidence)
@@ -155,8 +166,12 @@ def preview(db, archive, user, entered_spool_ids=()):
         suggested.append(dict(slot_number=item.get('slot_number'), spool_id=spool['id'],
                               spool_label=f"Spool {spool['id']}" + (f" · {spool['color_name']}" if spool['color_name'] else ''), grams=grams,
                               remaining_g=remaining))
-    manual = ledger.manual_rows_for_print(run, job_id, archive['print_job_id']) if physical else []
-    existing = ledger.existing_rows_for_print(run, job_id, archive['print_job_id']) if physical else []
+    try:
+        manual = ledger.manual_rows_for_print(run, job_id, archive['print_job_id']) if physical else []
+        existing = ledger.existing_rows_for_print(run, job_id, archive['print_job_id']) if physical else []
+    except ledger.InvalidSettlementEvidence as exc:
+        refusal = str(exc)
+        manual, existing = [], []
     if any(readable_spool(db, r['spool_id'], user) is None for r in manual + existing):
         refusal = HIDDEN_USAGE
         manual = []

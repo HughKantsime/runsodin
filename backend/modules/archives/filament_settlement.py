@@ -123,7 +123,11 @@ def settle(db, identifier, body, user):
     for later in later_balances(db, archive, grams_by_spool, user):
         spool_id = later['spool_id']
         if spool_id not in body.deduct_despite_later_balance:
-            evidence = 'The print time is unknown, so ODIN cannot tell whether its balance already includes this use.' if later['how'] == 'unknown_print_time' else 'Its balance was set during or after this print and may already include this use.'
+            evidence = {
+                'unknown_print_time': 'The print time is unknown, so ODIN cannot tell whether its balance already includes this use.',
+                'unknown_balance_time': 'The balance time cannot be read, so ODIN cannot tell whether its balance already includes this use.',
+                'added': 'This spool was added after this print ended.',
+            }.get(later['how'], 'Its balance was set during or after this print and may already include this use.')
             refuse('balance_set_after_print', f"Spool {spool_id}: {evidence} Choose 'No further deduction', or confirm you want to deduct anyway.")
     try:
         outcome = ledger.record_settlement(run, job_id, archive['print_job_id'], grams_by_spool=grams_by_spool,

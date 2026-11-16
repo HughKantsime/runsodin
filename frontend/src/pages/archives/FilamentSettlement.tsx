@@ -68,7 +68,7 @@ function SettlementForm({ id, onCancel, onSaved, onRefresh, onBusy }: { onBusy: 
     }
     const grams = data.grams.measured ?? data.grams.sliced_estimate
     setEntries(grouped.size ? [...grouped.values()].map(row => ({ spool: row.spool, grams: row.grams == null ? '' : row.grams.toFixed(1) })) : [{ spool: '', grams: grams == null ? '' : grams.toFixed(1) }])
-    setReason(data.prior_usage ? 'accept_existing' : grouped.size > 0 && [...grouped.keys()].every(id => data.balance_set_after_print.some(row => row.spool_id === id && row.how !== 'unknown_print_time')) ? 'balance_already_updated' : '')
+    setReason(data.prior_usage ? 'accept_existing' : grouped.size > 0 && [...grouped.keys()].every(id => data.balance_set_after_print.some(row => row.spool_id === id && !row.how.startsWith('unknown_'))) ? 'balance_already_updated' : '')
     setInitialized(true)
   }, [data, initialized])
   const later = data?.balance_set_after_print.filter(row => selectedIds.includes(row.spool_id)) || []
@@ -140,7 +140,10 @@ function SettlementForm({ id, onCancel, onSaved, onRefresh, onBusy }: { onBusy: 
           {later.map(row => <div key={row.spool_id} className="flex items-center gap-3 min-h-11">
             <CheckTarget touch>
             <input className="h-6 w-6" aria-label={`Deduct anyway from spool ${row.spool_id}`} type="checkbox" checked={overrides.includes(row.spool_id)} onChange={e => { setOverrides(e.target.checked ? [...overrides, row.spool_id] : overrides.filter(id => id !== row.spool_id)); if (e.target.checked) setReason('') }} /></CheckTarget>
-            <span>{row.how === 'unknown_print_time' ? `The print time is unknown, so ODIN cannot tell whether spool ${row.spool_id} already includes this use.` : `Spool ${row.spool_id} was ${row.how} on ${formatDate(row.at)}.`} Deduct anyway.</span>
+            <span>{row.how === 'unknown_print_time' ? `The print time is unknown, so ODIN cannot tell whether spool ${row.spool_id} already includes this use.`
+              : row.how === 'unknown_balance_time' ? `The balance time cannot be read, so ODIN cannot tell whether spool ${row.spool_id} already includes this use.`
+              : row.how === 'added' ? `Spool ${row.spool_id}: This spool was added after this print ended (${formatDate(row.at)}).`
+              : `Spool ${row.spool_id} was ${row.how} on ${formatDate(row.at)}.`} Deduct anyway.</span>
           </div>)}
         </>}
         <ManualReview data={data} reviewed={reviewed} onChange={(id, value) => setReviewed({ ...reviewed, [id]: value })} />

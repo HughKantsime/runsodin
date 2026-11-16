@@ -20,6 +20,8 @@ def settlement_case(archive_case, monkeypatch):
     archive, engine = archive_case
     with engine.begin() as db:
         db.execute(text("UPDATE print_jobs SET status='failed' WHERE id=7099"))
+        # These fixture spools supplied the historical print, so predate its start.
+        db.execute(text("UPDATE spools SET created_at='2026-10-01' WHERE id IN (7099,7100,7101)"))
     identifier = archive.create_print_archive(7099, 9, False)
     assert identifier
     user = dict(id=3, username='operator', role='operator', group_id=1, is_active=True)

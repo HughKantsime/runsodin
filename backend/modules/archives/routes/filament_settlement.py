@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from core.db import get_db
+from core.filament_ledger import InvalidSettlementEvidence
 from core.rbac import require_action, require_role, require_scope
 from core.order_production import ProductionLinkageChanged
 from modules.archives.access import archive_visibility
@@ -24,10 +25,6 @@ class SettlementRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError as exc:
                 raise HTTPException(422, dict(code='invalid_request', message='Check the spool and manual-use selections. Grams must be numbers greater than zero and at most 10000; each selection must be unique and within the allowed limit.')) from exc
-            except HTTPException as exc:
-                if not isinstance(exc.detail, dict):
-                    exc.detail = dict(code='settlement_refused', message=exc.detail)
-                raise
         return handle
 
 
@@ -67,6 +64,9 @@ def settle_filament(archive_id: int, body: Settlement,
     except ProductionLinkageChanged:
         db.rollback()
         raise HTTPException(409, dict(code='linkage_changed', message='The job linked to this print changed. Refresh and try again.')) from None
+    except InvalidSettlementEvidence as exc:
+        db.rollback()
+        raise HTTPException(409, dict(code='unreadable_usage', message=str(exc))) from None
     except OperationalError as exc:
         db.rollback()
         if getattr(exc.orig, 'sqlstate', None) in ('55P03', '40P01') or getattr(exc.orig, 'sqlite_errorcode', None) in (5, 6, 517):
@@ -74,7 +74,7 @@ def settle_filament(archive_id: int, body: Settlement,
         raise
     except HTTPException as exc:
         db.rollback()
-        if not isinstance(exc.detail, dict):
+        if exc.status_code in (404, 409, 422) and not isinstance(exc.detail, dict):
             exc.detail = dict(code='settlement_refused', message=exc.detail)
         raise
     except Exception:

@@ -22,6 +22,20 @@ beforeEach(() => {
   vi.mocked(archives.get).mockResolvedValue({ ...item, accounting_state: 'accounted', accounting_settled: { by: 'Operator', at: '2026-11-16T12:00:00Z' }, consumption: [{ spool_id: 17, grams_used: 40 }] })
 })
 afterEach(cleanup)
+test.each([
+  ['added', 'This spool was added after this print ended'],
+  ['unknown_balance_time', 'The balance time cannot be read'],
+])('explains %s balance evidence and requires an override to deduct', async (how, message) => {
+  data.balance_set_after_print = [{ spool_id: 17, at: how === 'added' ? '2026-11-16T12:00:00Z' : null, how }]
+  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  await screen.findByText(new RegExp(message))
+  fireEvent.change(screen.getByLabelText('Deduction'), { target: { value: '' } })
+  expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Deduct anyway from spool 17' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
+  await waitFor(() => expect(archives.settleFilament).toHaveBeenCalledWith(1, expect.objectContaining({ deduct_despite_later_balance: [17] })))
+})
 test('cause is readable and settlement button respects permission', () => {
   permissions.allowed = false; mount(); expect(screen.getByText(cause.title)).toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Settle filament' })).not.toBeInTheDocument()
 })

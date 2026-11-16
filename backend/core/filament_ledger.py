@@ -277,7 +277,8 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
     attempt *it* belongs to; without it, about the job's current attempt.
     """
     if print_job_id is not None:
-        if physical_usage_marker(run, print_job_id) is not None:
+        physical_marker = physical_usage_marker(run, print_job_id)
+        if physical_marker is not None and physical_marker.get('prior_usage', True):
             return MARKER
         if config_row(run, print_marker(job_id, print_job_id)):
             return MARKER
@@ -487,22 +488,43 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
 
 def manual_rows_for_print(run, job_id, print_job_id) -> list:
     """Unclaimed manual job rows in this physical print's attempt window."""
-    if job_id is None:
-        return []
-    view = print_attempt(run, job_id, print_job_id)
+    marker = physical_usage_marker(run, print_job_id)
+    retained = _retained_ids(marker, 'manual_usage_ids')
+    view = print_attempt(run, job_id, print_job_id) if job_id is not None else None
     counted = set()
     for (value,) in run("SELECT value FROM system_config WHERE key LIKE :prefix OR key LIKE :settlement",
                         {"prefix": f"{PREFIX}filament:%", "settlement": "filament_settlement:print:%"}).fetchall():
         try:
-            marker = json.loads(value) if isinstance(value, str) else value
-            if isinstance(marker, dict):
-                counted.update(marker.get('counted_usage_ids', []))
+            counted_marker = json.loads(value) if isinstance(value, str) else value
+            if isinstance(counted_marker, dict):
+                counted.update(counted_marker.get('counted_usage_ids', []))
         except (TypeError, ValueError):
             continue
     rows = run("SELECT id,spool_id,weight_used_g,used_at,notes FROM spool_usage "
                "WHERE job_id=:job AND print_job_id IS NULL ORDER BY id", {"job": job_id}).fetchall()
+    if retained:
+        rows += [row[:5] for row in _usage_rows(run, retained) if row[0] not in {r[0] for r in rows}]
     return [dict(usage_id=r[0], spool_id=r[1], grams=r[2], used_at=r[3], notes=r[4])
-            for r in rows if r[0] not in counted and row_kind(r[4]) == 'manual' and view.holds(_utc(r[3]))]
+            for r in rows if r[0] not in counted and row_kind(r[4]) == 'manual'
+            and (r[0] in retained or (view and view.holds(_utc(r[3]))
+                 and not (marker and marker.get('source') == 'detached_usage')))]
+
+
+class InvalidSettlementEvidence(ValueError):
+    pass
+
+
+def _retained_ids(marker, key):
+    ids = marker.get(key, []) if marker else []
+    if not isinstance(ids, list) or any(type(uid) is not int or uid <= 0 for uid in ids):
+        raise InvalidSettlementEvidence("This print's retained filament records cannot be read. An administrator must review them before its filament can be settled.")
+    return ids
+
+
+def _usage_rows(run, ids):
+    return run('SELECT id,spool_id,weight_used_g,used_at,notes,print_job_id FROM spool_usage WHERE id IN ('
+               + ','.join(f':usage{i}' for i in range(len(ids))) + ')',
+               {f'usage{i}': uid for i, uid in enumerate(ids)}).fetchall()
 
 
 def existing_rows_for_print(run, job_id, print_job_id) -> list:
@@ -512,14 +534,12 @@ def existing_rows_for_print(run, job_id, print_job_id) -> list:
                "WHERE print_job_id=:print OR (job_id=:job AND print_job_id IS NULL) ORDER BY id",
                {"print": print_job_id, "job": job_id}).fetchall()
     marker = physical_usage_marker(run, print_job_id)
-    retained = marker.get('usage_ids', []) if marker else []
+    retained = _retained_ids(marker, 'usage_ids')
     if retained:
-        rows += [row for row in run(
-            'SELECT id,spool_id,weight_used_g,used_at,notes,print_job_id FROM spool_usage WHERE id IN ('
-            + ','.join(f':usage{i}' for i in range(len(retained))) + ')',
-            {f'usage{i}': uid for i, uid in enumerate(retained)}).fetchall() if row[0] not in {r[0] for r in rows}]
+        rows += [row for row in _usage_rows(run, retained) if row[0] not in {r[0] for r in rows}]
     return [dict(usage_id=r[0], spool_id=r[1], grams=r[2], used_at=r[3], notes=r[4]) for r in rows
-            if r[0] in retained or r[5] == print_job_id or (view and view.holds(_utc(r[3])) and row_kind(r[4]) != 'manual')]
+            if r[0] in retained or r[5] == print_job_id or (view and view.holds(_utc(r[3])) and row_kind(r[4]) != 'manual'
+                and not (marker and marker.get('source') == 'detached_usage'))]
 
 
 def _settlement_print_identity(run, print_job_id):
@@ -554,15 +574,19 @@ def physical_usage_marker(run, print_job_id):
 
 
 def retain_detached_usage(run, print_job_id, job_id):
-    """Carry deduction evidence across removal of a job-attempt binding."""
-    if prior_attempt_usage(run, job_id, print_job_id) is None:
-        return
+    """Carry deductions and unreviewed manual rows across removal of a binding."""
     if physical_usage_marker(run, print_job_id) is not None:
         return
+    prior = prior_attempt_usage(run, job_id, print_job_id)
     rows = existing_rows_for_print(run, job_id, print_job_id)
-    _claim(run, f'filament_settlement:print:{int(print_job_id)}',
-           dict(source='detached_usage', print_identity=_settlement_print_identity(run, print_job_id),
-                usage_ids=[row['usage_id'] for row in rows]))
+    manual = manual_rows_for_print(run, job_id, print_job_id)
+    if prior is None and not manual:
+        return
+    run('INSERT INTO system_config(key,value) VALUES(:key,:value) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+        {'key': f'filament_settlement:print:{int(print_job_id)}',
+         'value': json.dumps(dict(source='detached_usage', prior_usage=prior,
+             print_identity=_settlement_print_identity(run, print_job_id),
+             usage_ids=[row['usage_id'] for row in rows], manual_usage_ids=[row['usage_id'] for row in manual]))})
 
 
 class InvalidSettlementBalance(ValueError):

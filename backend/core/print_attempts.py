@@ -196,13 +196,16 @@ def filament_marker(run, job_id) -> str:
 
 def clear_job_attempts(run, job_id) -> None:
     """Drop the counter and every per-attempt marker of a deleted job (SQLite id reuse is safe)."""
+    from core.filament_ledger import retain_detached_usage
     jid = int(job_id)
     for key, value in run("SELECT key,value FROM system_config WHERE key LIKE :p", {"p":"outside_print_previous_job:%"}).fetchall():
         saved = json.loads(value) if isinstance(value,str) else value
         if saved["job_id"] == jid:
             run("DELETE FROM system_config WHERE key=:key", {"key":key})
     for (print_job,) in run("SELECT id FROM print_jobs WHERE scheduled_job_id = :jid", {"jid": jid}).fetchall():
+        retain_detached_usage(run, print_job, jid)
         run("DELETE FROM system_config WHERE key = :k", {"k": _print_seq_key(print_job)})
+    run('UPDATE print_jobs SET scheduled_job_id=NULL WHERE scheduled_job_id=:jid', {'jid': jid})
     run("DELETE FROM system_config WHERE key = :seq OR key LIKE :job OR key LIKE :filament OR key LIKE :started",
         {"seq": _seq_key(jid), "job": f"{PREFIX}job:{jid}:%", "filament": f"{PREFIX}filament:job:{jid}:%",
          "started": f"{PREFIX}started:{jid}:%"})

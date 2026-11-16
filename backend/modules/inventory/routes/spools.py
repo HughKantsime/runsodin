@@ -378,7 +378,8 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])
 
-    if "remaining_weight_g" in update_data and update_data["remaining_weight_g"] is not None:
+    if ("remaining_weight_g" in update_data and update_data["remaining_weight_g"] is not None
+            and update_data["remaining_weight_g"] != spool.remaining_weight_g):
         from core.filament_ledger import record_balance_set
         from core.print_attempts import sqlalchemy_runner
         record_balance_set(sqlalchemy_runner(db), spool_id)
