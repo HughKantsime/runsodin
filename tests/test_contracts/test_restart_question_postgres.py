@@ -1,12 +1,11 @@
-"""Opt-in PostgreSQL checks using the existing disposable-server harness.
+"""PostgreSQL checks using the existing disposable-server harness (pg_engine).
 
-ODIN_RESTART_POSTGRES_TESTS=1 enables PostgreSQL cases. Keep disabled for local-only
-sessions that prohibit network access; no application or production DB is used.
-Product lifecycle cases also run against disposable SQLite without the opt-in.
+Skipped only where Docker is unavailable, like every other PostgreSQL contract test; the release
+gate refuses skips. No application or production DB is used.
+Product lifecycle cases also run against disposable SQLite.
 """
 import json
 import logging
-import os
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -24,8 +23,6 @@ pytestmark = pytest.mark.postgresql
 
 @pytest.fixture(scope='module')
 def restart_pg(request):
-    if os.getenv('ODIN_RESTART_POSTGRES_TESTS') != '1':
-        pytest.skip('Disposable PostgreSQL requires explicit opt-in; disabled for no-network work')
     from core.schema import bootstrap_database
     engine = request.getfixturevalue('pg_engine')
     bootstrap_database(engine)
@@ -150,7 +147,7 @@ def pg_product(restart_pg, monkeypatch):
 @pytest.fixture(params=['sqlite', 'postgresql'])
 def product(request, tmp_path, monkeypatch):
     # Run the same lifecycle assertions locally on SQLite. PostgreSQL still uses
-    # the original explicit opt-in and disposable-server fixture above.
+    # the disposable-server fixture above.
     if request.param == 'postgresql':
         return seed_product(request.getfixturevalue('restart_pg'), monkeypatch)
     from core.schema import bootstrap_database

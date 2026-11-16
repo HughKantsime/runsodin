@@ -1,10 +1,9 @@
 """Owned PostgreSQL contention check for marking a print as failed.
 
-ODIN_RESTART_POSTGRES_TESTS=1 enables it (the same opt-in and disposable Docker server as the
-restart-question PostgreSQL tests); it is skipped otherwise, so local-only work needs no network.
+Runs on the shared disposable Docker PostgreSQL server (pg_engine), like every other PostgreSQL
+contract test: it is skipped only where Docker is unavailable. The release gate refuses skips, so
+an environment-variable opt-in here would keep the release from ever passing (2.3.0 pre-check).
 """
-import os
-
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -16,8 +15,6 @@ pytestmark = pytest.mark.postgresql
 
 @pytest.fixture
 def failure_pg(request):
-    if os.getenv('ODIN_RESTART_POSTGRES_TESTS') != '1':
-        pytest.skip('Disposable PostgreSQL requires explicit opt-in; disabled for no-network work')
     from core.schema import bootstrap_database
     engine = request.getfixturevalue('pg_engine')
     bootstrap_database(engine)
