@@ -6,7 +6,7 @@ import Timelapses from './Timelapses'
 const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), remove: vi.fn(), check: vi.fn(), edit: vi.fn(), receipt: vi.fn(), recheck: vi.fn(), allowed: true }))
 vi.mock('../../api', () => ({ auth: { me: vi.fn() }, printers: { list: vi.fn().mockResolvedValue([{ id: 9, name: 'Owned printer' }]) }, timelapses: { list: api.list, recheckFacts: api.recheck, detail: api.detail, delete: api.remove, checkMedia: api.check, edit: api.edit, editReceipt: api.receipt, streamUrl: (id: number) => `/api/timelapses/${id}/stream`, downloadUrl: (id: number) => `/api/timelapses/${id}/download` } }))
 vi.mock('../../permissions', () => ({ canDo: (action: string) => api.allowed && action === 'printers.edit' }))
-const row = { id: 17, printer_id: 9, printer_name: 'Owned printer', status: 'ready', frame_count: 3 }
+const row = { id: 17, printer_id: 9, printer_name: 'Owned printer', print_job_id: 212, print_name: null, status: 'ready', frame_count: 3 }
 const user = { id: 3, username: 'Owned admin', role: 'admin', group_id: 1 }
 function mount(principal: any = user) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); client.setQueryData(['auth', 'me'], principal)
@@ -15,6 +15,34 @@ function mount(principal: any = user) {
 }
 beforeEach(() => { api.allowed = true; api.list.mockResolvedValue({ timelapses: [row], total: 49 }); api.detail.mockResolvedValue({ row, etag: '"exact-authorized-nonce"' }); api.remove.mockResolvedValue(undefined); api.check.mockResolvedValue(undefined) })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
+test.each(['classic', 'foundry'])('%s card shows the full print name with a secondary job number', async theme => {
+  document.documentElement.dataset.theme = theme
+  try {
+    const name = 'Replacement mounting bracket ' + 'x'.repeat(160)
+    api.list.mockResolvedValue({ timelapses: [{ ...row, print_name: name }], total: 1 })
+    mount()
+    const title = await screen.findByText(name)
+    expect(screen.getByRole('heading', { name: 'Owned printer' })).toBeInTheDocument()
+    expect(title).toHaveClass('whitespace-normal', '[overflow-wrap:anywhere]')
+    expect(title).not.toHaveClass('truncate')
+    expect(screen.getByText('Job #212')).toHaveClass('text-sm', 'text-[var(--brand-text-muted)]')
+    expect(screen.getByText('Job #212').parentElement).toBe(title)
+  } finally { delete document.documentElement.dataset.theme }
+})
+test.each(['classic', 'foundry'])('%s card keeps the original job line when print_name is null', async theme => {
+  document.documentElement.dataset.theme = theme
+  try {
+    mount()
+    const job = await screen.findByText('Job #212')
+    expect(job.outerHTML).toBe('<p>Job #212</p>')
+    expect(screen.getByRole('heading', { name: 'Owned printer' })).toBeInTheDocument()
+  } finally { delete document.documentElement.dataset.theme }
+})
+test('card without a job or print name has no job line', async () => {
+  api.list.mockResolvedValue({ timelapses: [{ ...row, print_job_id: null }], total: 1 })
+  mount(); await screen.findByRole('heading', { name: 'Owned printer' })
+  expect(screen.queryByText(/Job #/)).not.toBeInTheDocument()
+})
 test('filters and pagination use bounded list envelope; editor opens only explicitly', async () => {
   mount(); await screen.findByRole('button', { name: 'Play recording 17' })
   expect(screen.getByRole('link', { name: 'Back to Cameras' })).toHaveAttribute('href', '/cameras')

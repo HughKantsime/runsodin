@@ -2,8 +2,9 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { timelapses } from './cameras'
 afterEach(() => vi.unstubAllGlobals())
 test('detail reads actual ETag and DELETE carries exact header and credentials', async () => {
-  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ id: 17 }), { headers: { ETag: '"actual-nonce"' } })).mockResolvedValueOnce(new Response(null, { status: 204 })); vi.stubGlobal('fetch', fetch)
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ id: 17, print_name: 'Mounting bracket' }), { headers: { ETag: '"actual-nonce"' } })).mockResolvedValueOnce(new Response(null, { status: 204 })); vi.stubGlobal('fetch', fetch)
   const detail = await timelapses.detail(17); await timelapses.delete(17, detail.etag)
+  expect(detail.row.print_name).toBe('Mounting bracket')
   expect(fetch.mock.calls[1]).toEqual(['/api/timelapses/17', { method: 'DELETE', credentials: 'include', headers: { 'If-Match': '"actual-nonce"' }, signal: undefined }])
 })
 test('missing or malformed ETag never fabricates a deletion precondition', async () => {

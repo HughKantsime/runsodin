@@ -17,6 +17,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Security
 - Square setup permission is off by default: no token receives it on upgrade. A signed-in administrator can grant or revoke `write:square_setup` for one personal API token to map products and record stock baselines in ODIN. Each delegated call records an approval note and the token's identity; the note is a record, not a verification. Neither operation writes to Square. Connection changes, activation, unmapping and addition review still require a signed-in administrator.
 - Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
+- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
 
 ## [2.3.0] - 2026-11-15
 
