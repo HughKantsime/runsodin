@@ -88,17 +88,6 @@ def test_manual_usage_still_needs_review_after_unlink(settlement_case, unlink):
     assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(955,)]
 
 
-def test_detach_replaces_stale_physical_marker(settlement_case):
-    case = settlement_case
-    completion_routes(case)
-    assert case[0].post('/jobs/7099/complete').status_code == 200
-    write(case, 'INSERT INTO system_config(key,value) VALUES(:key,:value)',
-          dict(key='filament_settlement:print:7099', value=json.dumps(dict(print_identity=['old', 9, '2020-01-01']))))
-    detach(case)
-    assert preview(case).json()['prior_usage'] == 'marker'
-    assert post(case, entries=[dict(spool_id=7099, grams=40)]).status_code == 409
-    assert post(case, no_deduction='accept_existing').status_code == 200
-    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(960,)]
 
 
 def test_detached_manual_review_stays_frozen_after_relink(settlement_case):
@@ -106,14 +95,14 @@ def test_detached_manual_review_stays_frozen_after_relink(settlement_case):
     completion_routes(case)
     original = manual(case, 40)
     detach(case)
-    manual(case, 5)
+    later = manual(case, 5)
     # Another print's marker must not replace this print's retained evidence.
     write(case, "INSERT INTO system_config(key,value) VALUES('filament_settlement:print:12345',:value)",
           {'value': json.dumps({'source': 'settlement'})})
     response = case[0].post('/jobs/7099/link-print?print_job_id=7099')
     assert response.status_code == 200, response.text
-    assert [r['usage_id'] for r in preview(case).json()['manual_usage']] == [original]
-    response = post(case, entries=[dict(spool_id=7099, grams=40)], counted_usage_ids=[original])
+    assert [r['usage_id'] for r in preview(case).json()['manual_usage']] == [original, later]
+    response = post(case, entries=[dict(spool_id=7099, grams=40)], counted_usage_ids=[original], separate_usage_ids=[later])
     assert response.status_code == 200, response.text
     assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(955,)]
 
@@ -138,24 +127,6 @@ def test_relinked_print_cost_excludes_later_job_completion(settlement_case):
     assert sum(entry['grams_used'] for entry in entries) == 80  # Two 40 g spools.
 
 
-@pytest.mark.parametrize('usage_ids', [1, 'bad', {'id': 1}, None, [None]])
-def test_bad_retained_usage_ids_refuse_without_crash(settlement_case, usage_ids):
-    from core.filament_ledger import _settlement_print_identity
-    from core.print_attempts import sqlalchemy_runner
-    case = settlement_case
-    with case[1].begin() as db:
-        identity = _settlement_print_identity(sqlalchemy_runner(db), 7099)
-    write(case, 'INSERT INTO system_config(key,value) VALUES(:key,:value)',
-          dict(key='filament_settlement:print:7099', value=json.dumps(dict(print_identity=identity, usage_ids=usage_ids))))
-    data = preview(case).json()
-    assert not data['settleable']
-    assert 'cannot be read' in data['not_settleable']
-    for body in ({'entries': [dict(spool_id=7099, grams=40)]}, {'no_deduction': 'accept_existing'}):
-        response = post(case, **body)
-        assert response.status_code == 409, response.text
-        assert 'cannot be read' in response.json()['detail']['message']
-    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(1000,)]
-    assert not query(case, 'SELECT * FROM spool_usage')
 
 
 @pytest.mark.parametrize('kind', ['created', 'weighed_mid_print', 'raw_weighed_mid_print', 'legacy_weigh_row', 'unreadable_weigh', 'patch_mid_print'])

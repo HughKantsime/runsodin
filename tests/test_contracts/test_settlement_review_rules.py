@@ -6,10 +6,20 @@ from tests.test_contracts.test_archive_filament_settlement import (
 )
 
 
+def _retain_direct(case):
+    from core.filament_ledger import retain_print_evidence
+    from core.print_attempts import sqlalchemy_runner
+    from sqlalchemy import text
+    with case[1].begin() as db:
+        ids = db.execute(text('SELECT id FROM spool_usage WHERE print_job_id=7099')).scalars().all()
+        retain_print_evidence(sqlalchemy_runner(db), 7099, usage_ids=ids)
+
+
 @pytest.mark.parametrize('surface', ['detail', 'list', 'compare', 'summary'])
 def test_prior_usage_cause_on_every_surface(settlement_case, surface):
     case = settlement_case
     write(case, "INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) VALUES(7099,7099,7099,40,'auto:moonraker')")
+    _retain_direct(case)
     write(case, 'UPDATE print_archives SET completed_at=CURRENT_TIMESTAMP')
     path = {'detail': f'/archives/{case[2]}', 'list': '/archives', 'compare': f'/archives/compare?a={case[2]}&b={case[2]}', 'summary': '/archives/accounting-summary'}[surface]
     result = case[0].get(path)
@@ -70,6 +80,7 @@ def test_unreadable_usage_blocks_settlement(settlement_case, kind):
         manual(case)
     else:
         write(case, "INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) VALUES(7099,7099,7099,40,'auto:moonraker')")
+        _retain_direct(case)
     write(case, 'UPDATE spools SET org_id=2 WHERE id=7099')
     assert not preview(case).json()['settleable']
     response = post(case, no_deduction='accept_existing' if kind == 'existing' else 'nothing_extruded')
@@ -95,6 +106,7 @@ def test_prior_usage_allows_truthful_counted_manual_review(settlement_case):
     case = settlement_case
     row = manual(case)
     write(case, "INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) VALUES(7099,7099,7099,40,'auto:moonraker')")
+    _retain_direct(case)
     response = post(case, no_deduction='accept_existing', counted_usage_ids=[row])
     assert response.status_code == 200, response.text
     assert query(case, 'SELECT COUNT(*) FROM spool_usage') == [(2,)]
@@ -214,17 +226,19 @@ def test_real_legacy_key_auth_records_auth_kind(settlement_case, monkeypatch):
 def test_batch_prior_matches_live_ledger(settlement_case, kind):
     from sqlalchemy.orm import Session
     from sqlalchemy import text
-    from core.filament_read_evidence import batch_runner
-    from core.filament_ledger import prior_attempt_usage
+    from core.filament_ledger import prior_attempt_usage, print_evidence
     from core.print_attempts import sqlalchemy_runner
+    from modules.archives.settlement_data import archive_statuses
     case = settlement_case
-    if kind in ('marker', 'job_usage'):
-        key = 'quota_attempt:filament:job:7099:print:7099' if kind == 'marker' else 'quota_attempt:filament:job:7099:0'
-        write(case, 'INSERT INTO system_config(key,value) VALUES(:key,:value)', {'key': key, 'value': json.dumps({'print_job_id': None})})
-    else:
-        write(case, "INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,used_at,notes) VALUES(7099,7099,:pid,40,'2026-10-11 13:00:00','Auto-deducted on job #7099')", {'pid': 7099 if kind == 'print_usage' else None})
+    evidence_kind = 'closed' if kind == 'marker' else 'usage' if kind == 'print_usage' else 'unattributed'
+    write(case, "INSERT INTO print_filament_evidence(print_job_id,kind,claim,source) VALUES(7099,:kind,:claim,'backfill')",
+          {'kind': evidence_kind, 'claim': 1 if evidence_kind in ('closed', 'usage') else None})
     with Session(case[1]) as db:
-        assert prior_attempt_usage(batch_runner(db, [7099]), 7099, 7099) == prior_attempt_usage(sqlalchemy_runner(db), 7099, 7099) == kind
+        run = sqlalchemy_runner(db)
+        assert prior_attempt_usage(run, 7099, 7099) == ('marker' if evidence_kind in ('closed', 'usage') else 'job_usage')
+        row = dict(db.execute(text('SELECT * FROM print_archives')).mappings().one())
+        assert archive_statuses(db, [row])[row['id']]['accounting_cause']['title'] == 'Filament was already deducted another way'
+        assert print_evidence(run, [7099])[7099][0] == ('final' if evidence_kind in ('closed', 'usage') else 'ask')
 
 
 @pytest.mark.parametrize('kind,phrase', [('missing_print', 'physical print record'), ('reconciliation', 'Weigh the spool')])

@@ -48,27 +48,13 @@ def qmark_runner(cursor):
     return run
 
 
-def config_row(run, key):
-    evidence = getattr(run, 'filament_evidence', None)
-    if evidence is not None:
-        return (evidence.config[key],) if key in evidence.config else None
-    return run('SELECT value FROM system_config WHERE key = :k', {'k': key}).fetchone()
-
-
-def config_prefix(run, prefix):
-    evidence = getattr(run, 'filament_evidence', None)
-    if evidence is not None:
-        return [(k, v) for k, v in evidence.config.items() if k.startswith(prefix)]
-    return run('SELECT key, value FROM system_config WHERE key LIKE :p', {'p': prefix + '%'}).fetchall()
-
-
 def _seq_key(job_id) -> str:
     return f"{PREFIX}seq:{int(job_id)}"
 
 
 def attempt_seq(run, job_id) -> int:
     """The job's current print-attempt counter (0 until a reset bumps it)."""
-    row = config_row(run, _seq_key(job_id))
+    row = run('SELECT value FROM system_config WHERE key=:k', {'k': _seq_key(job_id)}).fetchone()
     if not row:
         return 0
     value = row[0]
@@ -127,10 +113,13 @@ def bind_print_attempt(run, print_job_id, job_id=None, *, seq=None) -> None:
         {"k": _print_seq_key(print_job_id),
          "v": json.dumps({"job_id": int(job_id), "seq": attempt_seq(run, job_id) if seq is None else int(seq)})})
 
+    from core.filament_ledger import carry_job_candidates
+    carry_job_candidates(run, print_job_id, job_id)
+
 
 def bound_print_attempt(run, print_job_id, job_id):
     """The bound attempt seq of a print for this job, or None (unbound or bound elsewhere)."""
-    row = config_row(run, _print_seq_key(print_job_id))
+    row = run('SELECT value FROM system_config WHERE key=:k', {'k': _print_seq_key(print_job_id)}).fetchone()
     if not row:
         return None
     value = row[0]
@@ -171,7 +160,7 @@ def attempt_starts(run, job_id) -> dict:
     it fall back explicitly to the job's audited resets and print times.
     """
     found = {}
-    for key, value in config_prefix(run, f"{PREFIX}started:{int(job_id)}:"):
+    for key, value in run("SELECT key,value FROM system_config WHERE key LIKE :p", {"p": f"{PREFIX}started:{int(job_id)}:%"}).fetchall():
         try:
             parsed = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
             seq = int(str(key).rsplit(":", 1)[1])
@@ -196,16 +185,13 @@ def filament_marker(run, job_id) -> str:
 
 def clear_job_attempts(run, job_id) -> None:
     """Drop the counter and every per-attempt marker of a deleted job (SQLite id reuse is safe)."""
-    from core.filament_ledger import retain_detached_usage
     jid = int(job_id)
     for key, value in run("SELECT key,value FROM system_config WHERE key LIKE :p", {"p":"outside_print_previous_job:%"}).fetchall():
         saved = json.loads(value) if isinstance(value,str) else value
         if saved["job_id"] == jid:
             run("DELETE FROM system_config WHERE key=:key", {"key":key})
     for (print_job,) in run("SELECT id FROM print_jobs WHERE scheduled_job_id = :jid", {"jid": jid}).fetchall():
-        retain_detached_usage(run, print_job, jid)
         run("DELETE FROM system_config WHERE key = :k", {"k": _print_seq_key(print_job)})
-    run('UPDATE print_jobs SET scheduled_job_id=NULL WHERE scheduled_job_id=:jid', {'jid': jid})
     run("DELETE FROM system_config WHERE key = :seq OR key LIKE :job OR key LIKE :filament OR key LIKE :started",
         {"seq": _seq_key(jid), "job": f"{PREFIX}job:{jid}:%", "filament": f"{PREFIX}filament:job:{jid}:%",
          "started": f"{PREFIX}started:{jid}:%"})
@@ -213,8 +199,6 @@ def clear_job_attempts(run, job_id) -> None:
 
 def detach_print_attempt(run, print_job_id, job_id):
     """Undo false monitor attribution without creating a new physical attempt."""
-    from core.filament_ledger import retain_detached_usage
-    retain_detached_usage(run, print_job_id, job_id)
     seq = bound_print_attempt(run, print_job_id, job_id)
     run('DELETE FROM system_config WHERE key=:key', {'key':_print_seq_key(print_job_id)})
     run('DELETE FROM system_config WHERE key=:key', {'key':f'{PREFIX}print:{int(print_job_id)}'})

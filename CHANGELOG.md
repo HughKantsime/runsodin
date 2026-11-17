@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Keep filament deductions with the physical print, so deleting jobs, spools or archives cannot deduct the same print again. Check past usage before startup and preserve manual use for settlement review.
+
 - Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
 
 ## [2.3.0] - 2026-11-15

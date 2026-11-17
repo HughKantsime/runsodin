@@ -810,8 +810,7 @@ def tray_markers(engine):
 def test_reconciled_unreserved_end_marks_its_tray_evidence_incomplete(manual_bambu):
     case = manual_bambu
     packet(case.monitor(), gcode_state='FINISH', subtask_name=case.name, print_error=0)
-    from core.filament_ledger import print_marker
-    assert tray_markers(case.engine) == [print_marker(53, case.identifier) + ':tray_evidence_incomplete']
+    assert tray_markers(case.engine) == [f'quota_attempt:filament:job:53:print:{case.identifier}:tray_evidence_incomplete']
 
 
 @pytest.mark.parametrize('state,error,expected', OUTCOMES)

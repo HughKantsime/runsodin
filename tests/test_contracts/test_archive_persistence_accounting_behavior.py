@@ -10,7 +10,7 @@ def archive_case(review_db,monkeypatch):
  from modules.archives import archive
  engine=review_db.get_bind()
  with engine.begin() as conn:
-  conn.execute(text("INSERT INTO jobs(id,item_name,submitted_by,estimated_cost,print_file_id) VALUES(7099,'Synthetic reprint',3,2.5,7099)"))
+  conn.execute(text("INSERT INTO jobs(id,item_name,submitted_by,estimated_cost,print_file_id,created_at) VALUES(7099,'Synthetic reprint',3,2.5,7099,'2025-01-01')"))
   conn.execute(text("INSERT INTO print_files(id,filename,stored_path,job_id,filament_weight_grams,plate_count,thumbnail_b64,org_id) VALUES(7099,'Synthetic.3mf','/opaque/archive-synthetic.3mf',7000,80,2,'synthetic-thumbnail',1)"))
   conn.execute(text("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,job_name,status,started_at,ended_at) VALUES(7099,9,7099,'Synthetic print','completed','2026-10-11 12:00:00','2026-10-11 13:00:00')"))
   conn.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(7099,'Synthetic','Synthetic PLA')"))
@@ -164,9 +164,11 @@ def test_total_measurement_cannot_guess_multicolor_distribution(archive_case,gra
 def test_legacy_scheduled_usage_is_not_assumed_to_identify_current_attempt(archive_case):
  archive,engine=archive_case
  with engine.begin() as conn:conn.execute(text('INSERT INTO spool_usage(spool_id,job_id,weight_used_g) VALUES(7099,7099,40)'))
+ from core.filament_evidence_backfill import backfill
+ backfill(engine)
  assert archive.create_print_archive(7099,9,True) is not None
  with engine.connect() as conn:
-  assert conn.execute(text('SELECT accounting_reason FROM print_archives WHERE print_job_id=7099')).scalar_one()=='legacy_usage_unattributed'
+  assert conn.execute(text('SELECT accounting_reason FROM print_archives WHERE print_job_id=7099')).scalar_one()=='job_usage_unattributed'
   assert conn.execute(text('SELECT remaining_weight_g FROM spools WHERE id=7099')).scalar_one()==1000
 
 def test_wrong_printer_cannot_create_archive_or_account_foreign_attempt(archive_case):

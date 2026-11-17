@@ -22,9 +22,14 @@ def valid_ams_tray(value):
     return value if type(value) is int and 0 <= value < 16 else None
 
 
+def _tray_evidence_key(job_id, print_job_id, suffix):
+    """Keep existing telemetry keys; these are not filament deduction claims."""
+    prefix = f'quota_attempt:filament:job:{int(job_id)}:' if job_id is not None else 'quota_attempt:filament:'
+    return f'{prefix}print:{int(print_job_id)}:{suffix}'
+
+
 def _observed_trays_key(job_id, print_job_id):
-    from core.filament_ledger import print_marker
-    return print_marker(job_id, print_job_id) + ':observed_trays'
+    return _tray_evidence_key(job_id, print_job_id, 'observed_trays')
 
 
 def record_attempt_tray(connection, print_job_id, printer_id, tray_now):
@@ -67,11 +72,10 @@ def mark_attempt_tray_evidence_incomplete(connection, print_job_id, printer_id):
     This marker survives monitor restarts and archive reconciliation. Never
     clear it after completion: later packets cannot repair an ended attempt.
     """
-    from core.filament_ledger import print_marker
     row = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=? AND printer_id=?',
                   (print_job_id, printer_id)).fetchone()
     if row is not None:
-        key = print_marker(row[0], print_job_id) + ':tray_evidence_incomplete'
+        key = _tray_evidence_key(row[0], print_job_id, 'tray_evidence_incomplete')
         execute(connection, 'INSERT INTO system_config(key,value) VALUES(?,?) '
                 'ON CONFLICT(key) DO NOTHING', (key, json.dumps(True)))
 
@@ -87,9 +91,8 @@ def resolve_attempt_material_plan(connection, snapshot, print_job_id):
             or plan.get('reason') != 'missing_material_mapping'
             or not isinstance(plan.get('observed_tray_fallback'), dict)):
         return plan
-    from core.filament_ledger import print_marker
     incomplete = execute(connection, 'SELECT value FROM system_config WHERE key=?',
-                         (print_marker(plan.get('scheduled_job_id'), print_job_id) + ':tray_evidence_incomplete',)).fetchone()
+                         (_tray_evidence_key(plan.get('scheduled_job_id'), print_job_id, 'tray_evidence_incomplete'),)).fetchone()
     if incomplete:
         return dict(plan, reason='tray_evidence_incomplete')
     stored = execute(connection, 'SELECT value FROM system_config WHERE key=?',
@@ -449,6 +452,11 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
             if prior_status is not None:
                 return prior_status
             return 'externally_managed', 'external_accounting', []
+    from core import filament_ledger
+    prior_status = _prior_accounting_status(filament_ledger.prior_attempt_usage(
+        _ledger_runner(connection), scheduled_job_id, print_job_id))
+    if prior_status is not None:
+        return prior_status
     if not success and measured_grams is None:
         return unresolved('non_successful_attempt_quantity_unconfirmed')
     try:
@@ -590,6 +598,8 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
     zero = [spool_id for spool_id in sorted(consumption) if consumption[spool_id]['grams_used'] == 0]
     if not outcome.deducted and len(zero) != len(consumption):
         return unresolved('nothing_deducted')
+    if not outcome.deducted and len(zero) == len(consumption):
+        filament_ledger.close_print(ledger_run, print_job_id, source='archive', reason=None)
     result = [{'spool_id': spool_id, 'grams_used': consumption[spool_id]['grams_used'],
                'quantity_provenance': consumption[spool_id]['quantity_provenance'],
                'inventory_shortfall_g': 0} for spool_id in zero]

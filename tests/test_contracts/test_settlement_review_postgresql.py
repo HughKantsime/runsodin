@@ -11,6 +11,60 @@ from tests.test_contracts.test_education_classes_migration import pg_engine  # n
 pytestmark = pytest.mark.postgresql
 
 
+def test_postgresql_061_exact_shape_claim_and_immutability(pg_settlement):
+    import importlib
+    from sqlalchemy.exc import DBAPIError
+    migration = importlib.import_module('core.schema.migrations.061_print_filament_evidence')
+    engine = pg_settlement[1]
+    with engine.begin() as db:
+        migration.validate(db)
+        db.execute(text("INSERT INTO print_filament_evidence(print_job_id,kind,claim,source) VALUES(991240,'closed',1,'settlement')"))
+        assert db.execute(text("INSERT INTO print_filament_evidence(print_job_id,kind,claim,source) VALUES(991240,'closed',1,'archive') ON CONFLICT DO NOTHING")).rowcount == 0
+    for sql in ('UPDATE print_filament_evidence SET grams=4', 'DELETE FROM print_filament_evidence', 'TRUNCATE print_filament_evidence'):
+        with engine.begin() as db, pytest.raises(DBAPIError, match='immutable print filament evidence'):
+            db.execute(text(sql))
+
+
+def test_two_deducers_one_print_one_claim_postgresql(pg_settlement, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from core import filament_ledger
+    from core.print_attempts import sqlalchemy_runner
+    engine = pg_settlement[1]
+    with engine.begin() as db:
+        db.execute(text('INSERT INTO spools(id,filament_id,remaining_weight_g) VALUES(991241,991240,1000)'))
+    entered, release, second_started = Event(), Event(), Event()
+    original = filament_ledger._append_evidence
+    def hold(run, key, **kwargs):
+        if kwargs.get('source') == 'archive':
+            result = original(run, key, **kwargs)
+            entered.set()
+            assert release.wait(30)
+            return result
+        second_started.set()
+        return original(run, key, **kwargs)
+    monkeypatch.setattr(filament_ledger, '_append_evidence', hold)
+    def deduct(source, spool):
+        with engine.begin() as db:
+            db.execute(text("SET LOCAL lock_timeout='30s'"))
+            return filament_ledger.record_print_usage(sqlalchemy_runner(db), 991240,
+                source=source, grams_by_spool={spool: 40})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(deduct, 'archive', 991240)
+        try:
+            assert entered.wait(30)
+            second = pool.submit(deduct, 'moonraker', 991241)
+            assert second_started.wait(30)
+        finally:
+            release.set()
+        assert first.result(timeout=30).deducted
+        assert second.result(timeout=30).state == 'already_deducted'
+    with engine.connect() as db:
+        assert db.execute(text('SELECT remaining_weight_g FROM spools ORDER BY id')).scalars().all() == [960, 1000]
+        assert db.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 1
+        assert db.execute(text('SELECT COUNT(*) FROM print_filament_evidence WHERE claim=1')).scalar_one() == 1
+
+
 @pytest.fixture
 def pg_settlement(pg_engine, monkeypatch):
     from core.schema import bootstrap_database
@@ -55,7 +109,7 @@ def settlement_client(engine, monkeypatch):
 
 def seed_completion(engine, shared_spool=True):
     with engine.begin() as db:
-        db.execute(text("INSERT INTO jobs(id,item_name,printer_id,status,quantity,hold,ams_mapping) VALUES(991240,'Fixture',991240,'failed',1,FALSE,'[0]')"))
+        db.execute(text("INSERT INTO jobs(id,item_name,printer_id,status,quantity,hold,ams_mapping,created_at) VALUES(991240,'Fixture',991240,'failed',1,FALSE,'[0]','2026-10-01')"))
         db.execute(text("INSERT INTO print_files(id,filename,job_id,filaments_json) VALUES(991240,'fixture.3mf',991240,:materials)"),
                    {'materials': json.dumps([{'slot': 0, 'used_grams': 40}])})
         db.execute(text('UPDATE jobs SET print_file_id=991240 WHERE id=991240'))
@@ -213,7 +267,7 @@ def test_postgresql_concurrent_writers_deduct_once(pg_settlement, monkeypatch, f
                             pytest.fail(f'Second route returned without contending: {response.status_code} {response.text}')
                         assert monotonic() < deadline, 'Second writer did not contend on the real first transaction'
                     statement = db.execute(text('SELECT query FROM pg_stat_activity WHERE pid=:pid'), {'pid': second_pid}).scalar_one()
-                    assert ('UPDATE print_jobs' if shared_spool else 'INSERT INTO system_config') in statement, statement
+                    assert ('UPDATE print_jobs' if shared_spool else 'INSERT INTO print_filament_evidence') in statement, statement
                 assert not b.done()
         finally:
             release.set()

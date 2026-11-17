@@ -89,7 +89,7 @@ def test_unowned_single_install_and_authoritative_job_link(settlement_case):
     assert preview(case).json()['settleable']
     assert post(case, entries=[dict(spool_id=7099, grams=40)]).status_code == 200
     assert query(case, 'SELECT job_id FROM spool_usage')[0][0] == 7099
-    assert query(case, "SELECT value FROM system_config WHERE key='quota_attempt:filament:job:7099:print:7099'")
+    assert query(case, "SELECT source FROM print_filament_evidence WHERE print_job_id=7099 AND claim=1")
 
 
 @pytest.mark.parametrize('reason', ['nothing_extruded', 'recorded_by_hand', 'spool_not_tracked', 'balance_already_updated'])
@@ -137,13 +137,11 @@ def test_manual_overcount_missing_spool_and_counted_once(settlement_case):
 @pytest.mark.parametrize('kind', ['marker', 'print_usage', 'job_usage', 'legacy_job_usage'])
 def test_accept_each_existing_usage_kind(settlement_case, kind):
     case = settlement_case
-    if kind in ('marker', 'job_usage'):
-        key = 'quota_attempt:filament:job:7099:print:7099' if kind == 'marker' else 'quota_attempt:filament:job:7099:0'
-        write(case, 'INSERT INTO system_config(key,value) VALUES(:key,:value)', dict(key=key, value=json.dumps(dict(source='operator_complete', print_job_id=None))))
-    else:
-        write(case, "INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,used_at,notes) VALUES(7099,7099,:print,40,'2026-10-11 13:00:00','Auto-deducted on job #7099')", {'print': 7099 if kind == 'print_usage' else None})
+    evidence_kind = 'closed' if kind == 'marker' else 'usage' if kind == 'print_usage' else 'unattributed'
+    write(case, "INSERT INTO print_filament_evidence(print_job_id,kind,claim,source,reason) VALUES(7099,:kind,:claim,'backfill','marker')",
+          dict(kind=evidence_kind, claim=1 if evidence_kind in ('closed', 'usage') else None))
     data = preview(case).json()
-    assert data['prior_usage'] == kind
+    assert data['prior_usage'] == ('marker' if evidence_kind in ('closed', 'usage') else 'job_usage')
     assert data['cause']['title'] == 'Filament was already deducted another way'
     assert post(case, entries=[dict(spool_id=7099, grams=40)]).json()['detail']['code'] == 'already_deducted'
     assert post(case, no_deduction='accept_existing').status_code == 200

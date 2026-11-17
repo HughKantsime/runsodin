@@ -22,7 +22,7 @@ def physical_print(db, archive):
     row = db.execute(text('SELECT * FROM print_jobs WHERE id=:id'),
                       {'id': archive['print_job_id']}).mappings().first()
     if row and row['scheduled_job_id'] is not None and not db.execute(
-            text('SELECT 1 FROM jobs WHERE id=:id'), {'id': row['scheduled_job_id']}).first():
+            text('SELECT 1 FROM jobs WHERE id=:id AND created_at<=:started'), {'id': row['scheduled_job_id'], 'started': row['started_at']}).first():
         return dict(row, scheduled_job_id=None)
     return row
 
@@ -74,18 +74,17 @@ def accounting_status(db, archive, physical=None, prior=None, has_org=None):
 
 def archive_statuses(db, archives):
     """Use one batch of ledger evidence for list, comparison and summary causes."""
-    from core.filament_read_evidence import batch_runner
+    from sqlalchemy import bindparam
     archives = list(archives)
-    run = batch_runner(db, {a['print_job_id'] for a in archives if a.get('print_job_id')})
-    evidence = getattr(run, 'filament_evidence', None)
+    ids = {a['print_job_id'] for a in archives if a.get('print_job_id')}
+    prints = {p['id']: p for p in db.execute(text('SELECT * FROM print_jobs WHERE id IN :ids')
+              .bindparams(bindparam('ids', expanding=True)), {'ids': list(ids)}).mappings()} if ids else {}
+    evidence = ledger.print_evidence(sqlalchemy_runner(db), ids)
     has_org = install_has_organizations(db)
-    result = {}
-    for archive in archives:
-        physical = evidence.prints.get(archive['print_job_id']) if evidence else None
-        job_id = physical['scheduled_job_id'] if physical and physical['scheduled_job_id'] in evidence.jobs else None
-        prior = ledger.prior_attempt_usage(run, job_id, physical['id']) if physical else None
-        result[archive['id']] = accounting_status(db, archive, physical, prior, has_org)
-    return result
+    return {a['id']: accounting_status(db, a, prints.get(a['print_job_id']),
+            evidence.get(a['print_job_id'], ('none', []))[0] == 'final' or
+            any(r['kind'] == 'unattributed' for r in evidence.get(a['print_job_id'], ('none', []))[1]), has_org)
+            for a in archives}
 
 
 def readable_spool(db, spool_id, user, org_id=None, *, for_write=False):

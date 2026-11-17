@@ -131,8 +131,8 @@ def settle(db, identifier, body, user):
             refuse('balance_set_after_print', f"Spool {spool_id}: {evidence} Choose 'No further deduction', or confirm you want to deduct anyway.")
     try:
         outcome = ledger.record_settlement(run, job_id, archive['print_job_id'], grams_by_spool=grams_by_spool,
-                                           counted_usage_ids=body.counted_usage_ids, accept_existing=bool(prior), archive_id=identifier)
-    except ledger.InvalidSettlementBalance as exc:
+                                           counted_usage_ids=body.counted_usage_ids, accept_existing=bool(prior), archive_id=identifier, reason=body.no_deduction)
+    except (ledger.InvalidSettlementBalance, ledger.InvalidSettlementEvidence) as exc:
         refuse('invalid_balance', str(exc))
     if outcome.state == 'already_deducted':
         refuse('already_deducted', "Filament for this print was already deducted. Choose 'Keep the existing deduction' to close it.")
@@ -142,23 +142,13 @@ def settle(db, identifier, body, user):
     deducted = {d['spool_id']: d for d in outcome.deductions}
     consumption = []
     if prior:
-        from .settlement_data import decoded
-        listed = set()
-        for (value,) in db.execute(text("SELECT consumption_json FROM print_archives WHERE id<>:id AND accounting_state IN ('accounted','reconciliation_required')"), {'id': identifier}):
-            for entry in decoded(value, []):
-                listed.update(entry.get('usage_ids', []))
         totals, usage_ids = {}, {}
         for row in existing + counted:
-            if row['usage_id'] in listed:
-                continue
             spool = row['spool_id']
             totals[spool] = totals.get(spool, 0) + row['grams']
             usage_ids.setdefault(spool, []).append(row['usage_id'])
         consumption = [dict(spool_id=spool, grams_used=grams, deducted_now_g=0, usage_ids=usage_ids[spool],
                             quantity_provenance='operator_settled', **actor) for spool, grams in totals.items()]
-        if existing and not consumption:
-            consumption = [dict(spool_id=None, grams_used=None, deducted_now_g=0,
-                                reason='usage_listed_on_another_archive', **actor)]
     elif body.entries:
         for entry in body.entries:
             deduction = deducted.get(entry.spool_id, {})

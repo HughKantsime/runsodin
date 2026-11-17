@@ -237,7 +237,7 @@ authorized printer responses.
 
 ## Archive settlement and causes
 
-[Settle filament](settle-filament.md) describes the operator workflow. Local settlement is refused for printers whose filament data is owned by the external display. The ledger's new `settlement` source writes `auto:settlement: archive <id>` usage and retains print and job-attempt claims even for zero additional deduction. A physical-identity claim survives a later change to the job link. Manual rows remain manual; only explicitly counted rows reduce a settlement's new deduction. The archive records entered `grams_used` separately from `deducted_now_g`, actor IDs, time and counted row IDs.
+[Settle filament](settle-filament.md) describes the operator workflow. Local settlement is refused for printers whose filament data is owned by the external display. The ledger's new `settlement` source writes `auto:settlement: archive <id>` usage and retains a physical-print claim even for zero additional deduction. Migration 061 stores this evidence independently of jobs, spools and archives, so their deletion or a changed job link cannot permit a second deduction. Job-only completion retains its attempt claim until a print can be linked and its usage reviewed. Manual rows remain manual; only explicitly counted rows reduce a settlement's new deduction. The archive records entered `grams_used` separately from `deducted_now_g`, actor IDs, time and counted row IDs.
 
 | Cause | Next step |
 | --- | --- |

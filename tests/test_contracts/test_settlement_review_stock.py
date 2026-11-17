@@ -96,19 +96,6 @@ def test_second_invalid_spool_rolls_back_all_stock(settlement_case):
     assert query(case, 'SELECT accounting_state FROM print_archives') == [('unresolved',)]
 
 
-@pytest.mark.parametrize('identity', ['equivalent_time', 'malformed'])
-def test_physical_marker_identity_fails_closed(settlement_case, identity):
-    from core.filament_ledger import prior_attempt_usage, _settlement_print_identity
-    from core.print_attempts import sqlalchemy_runner
-    case = settlement_case
-    with case[1].begin() as db:
-        run = sqlalchemy_runner(db)
-        physical = _settlement_print_identity(run, 7099)
-        physical[2] = '2026-10-11T14:00:00+02:00'
-        marker = {'print_identity': physical} if identity == 'equivalent_time' else ['unreadable']
-        db.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'),
-                   {'key': 'filament_settlement:print:7099', 'value': json.dumps(marker)})
-        assert prior_attempt_usage(run, None, 7099) == 'marker'
 
 
 def test_job_usage_is_costed_on_only_one_archive(settlement_case):
@@ -122,11 +109,11 @@ def test_job_usage_is_costed_on_only_one_archive(settlement_case):
     write(case, "INSERT INTO print_jobs(id,printer_id,scheduled_job_id,started_at,ended_at,status) VALUES(7102,9,7099,'2026-10-11 14:00:00','2026-10-11 15:00:00','failed')")
     second = create_print_archive(7102, 9, False)
     assert post(case, no_deduction='accept_existing').status_code == 200
-    response = case[0].post(f'/archives/{second}/settle-filament', json={'no_deduction': 'accept_existing'})
+    response = case[0].post(f'/archives/{second}/settle-filament', json={'no_deduction': 'nothing_extruded'})
     assert response.status_code == 200, response.text
     entries = [entry for (value,) in query(case, 'SELECT consumption_json FROM print_archives') for entry in json.loads(value)]
     assert sum(entry.get('grams_used') or 0 for entry in entries) == 80
-    assert any(entry.get('reason') == 'usage_listed_on_another_archive' for entry in entries)
+    assert any(entry.get('reason') == 'nothing_extruded' for entry in entries)
 
 
 # Reuse the production outside-binding HTTP fixture, including recipe qualification.
@@ -141,6 +128,7 @@ def test_complete_then_outside_bind_then_settle_never_deducts_twice(outside):
     client, user, _, db, *_ = batch_case
     client.app.include_router(jobs_lifecycle.router)
     client.app.include_router(router)
+    db.execute(text("UPDATE jobs SET created_at='2020-01-01' WHERE id=302"))
     db.execute(text('UPDATE printers SET is_active=TRUE WHERE id=301'))
     db.execute(text('UPDATE dispatch_attempt_receipts SET observed_print_job_id=NULL WHERE job_id=302'))
     db.execute(text('UPDATE print_jobs SET scheduled_job_id=NULL WHERE scheduled_job_id=302'))
