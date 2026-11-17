@@ -24,6 +24,7 @@ All notable changes to O.D.I.N. are documented here.
 - Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
 - Prints started at the printer now appear in job history on every printer type, not only Bambu.
 - Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
+- Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
 
 ## [2.3.0] - 2026-11-15
 ## [2.3.1] - 2026-11-17

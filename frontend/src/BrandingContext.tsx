@@ -137,7 +137,7 @@ export function BrandingProvider({ children }) {
     })
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["class"],
+      attributeFilter: ["class", "data-theme-family", "data-user-accent"],
     })
     return () => observer.disconnect()
   }, [branding])
@@ -185,6 +185,29 @@ function ensureContrast(hex, minRatio = 4.5) {
   return color
 }
 
+// Mid-tone custom fills can miss AA against both white and the Fjord near-black.
+function onBrandFill(fill: string) {
+  const hex = fill.replace(/^#([a-f\d])([a-f\d])([a-f\d])$/i, '#$1$1$2$2$3$3')
+  const text = contrastRatio(hex, '#ffffff') >= contrastRatio(hex, '#1d1d1f') ? '#ffffff' : '#1d1d1f'
+  return contrastRatio(hex, text) >= 4.5 ? text : '#000000'
+}
+
+/** Stock server colors are defaults, not operator overrides of a selected family. */
+export function brandingColors(b, isLight: boolean, isFjord: boolean, userAccent?: string) {
+  const primary = isFjord && b.primary_color?.toLowerCase() === DEFAULT_BRANDING.primary_color
+    ? undefined : isLight ? ensureContrast(b.primary_color) : b.primary_color
+  const accent = userAccent || (isFjord && b.accent_color?.toLowerCase() === DEFAULT_BRANDING.accent_color ? undefined : b.accent_color)
+  return {
+    '--brand-primary': primary,
+    '--brand-accent': accent,
+    '--fjord-on-accent': isFjord && accent
+      ? onBrandFill(accent) : undefined,
+    // Custom primary colors need readable button text in Fjord too.
+    '--brand-on-primary': isFjord && primary
+      ? onBrandFill(primary) : undefined,
+  }
+}
+
 /**
  * Inject CSS custom properties onto :root.
  * Every branded surface reads from these vars so changing
@@ -199,11 +222,12 @@ export function applyBrandingCSS(b) {
   const root = document.documentElement
   const isLight = root.classList.contains("light")
 
-  // Accent / brand — always apply (darken for contrast in light mode)
-  const primary = isLight ? ensureContrast(b.primary_color) : b.primary_color
-  root.style.setProperty("--brand-primary", primary)
-  // A per-user accent (GET /api/auth/me/theme, hooks/serverTheme.ts) wins over the branding accent.
-  root.style.setProperty("--brand-accent", root.dataset.userAccent || b.accent_color)
+  const isFjord = root.dataset.themeFamily === 'fjord' && !root.classList.contains('high-contrast')
+  const colors = brandingColors(b, isLight, isFjord, root.dataset.userAccent)
+  for (const [key, value] of Object.entries(colors)) {
+    if (value) root.style.setProperty(key, value)
+    else root.style.removeProperty(key)
+  }
 
   // Fonts — always apply
   root.style.setProperty("--brand-font-display", b.font_display)
@@ -227,7 +251,9 @@ export function applyBrandingCSS(b) {
     root.style.setProperty("--brand-sidebar-border", b.sidebar_border)
     root.style.setProperty("--brand-sidebar-text", b.sidebar_text)
     root.style.setProperty("--brand-sidebar-active-bg", b.sidebar_active_bg)
-    root.style.setProperty("--brand-sidebar-active-text", b.sidebar_active_text)
+    if (!isFjord || b.sidebar_active_text?.toLowerCase() !== DEFAULT_BRANDING.sidebar_active_text) {
+      root.style.setProperty("--brand-sidebar-active-text", b.sidebar_active_text)
+    } else root.style.removeProperty("--brand-sidebar-active-text")
     root.style.setProperty("--brand-content-bg", b.content_bg)
     root.style.setProperty("--brand-card-bg", b.card_bg)
     root.style.setProperty("--brand-card-border", b.card_border)

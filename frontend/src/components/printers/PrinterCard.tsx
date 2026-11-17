@@ -354,7 +354,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <StatusBadge status={printerBadgeStatus(printer, online)} testId="printer-status" classic={
-                  <div className="flex items-center gap-1.5">
+                  <div data-printer-state={printerBadgeStatus(printer, online)} className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
                   <span
                     data-testid="printer-status"

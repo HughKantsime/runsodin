@@ -120,3 +120,8 @@ describe('ScrollTabs edge fades', () => {
     expect(fade.className).toContain('pointer-events-none')
   })
 })
+
+it('marks the fade wrapper so Fjord clips both fades to its control radius', () => {
+  const { getByTestId } = render(strip('a'))
+  expect(getByTestId('strip').parentElement).toHaveAttribute('data-scrolltabs')
+})

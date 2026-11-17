@@ -1,13 +1,19 @@
+import { useDensity } from '../components/foundry/DensityToggle'
 import { useState, useEffect, useCallback } from 'react'
 import { loadServerTheme, saveServerMode, THEME_EVENT } from './serverTheme'
-import { applyTheme, FAMILY_EVENT, FAMILY_KEY, getFamily, getMode, MODE_KEY, readPreference, writePreference, type ThemeFamily, type ThemeMode } from './themePreferences'
+import { applyTheme, effectiveFamily as resolveFamily, FAMILY_EVENT, FAMILY_KEY, getFamily, getMode, MODE_KEY, readPreference, writePreference, type ThemeFamily, type ThemeMode } from './themePreferences'
 
 /** Classic is the default family. Existing account light/dark sync is retained;
  * family and high-contrast remain device-local until a later backend phase. */
 export function useTheme() {
   const [theme, _setTheme] = useState<ThemeMode>(getMode)
   const [family, _setFamily] = useState<ThemeFamily>(getFamily)
-  useEffect(() => { applyTheme(theme, family) }, [theme, family])
+  const [density, setDensity] = useDensity()
+  useEffect(() => {
+    applyTheme(theme, family)
+    if (resolveFamily(theme, family) === 'fjord') document.documentElement.dataset.fjordDensity = density
+    else delete document.documentElement.dataset.fjordDensity
+  }, [theme, family, density])
 
   useEffect(() => {
     const onMode = (e: Event) => _setTheme((e as CustomEvent<ThemeMode>).detail)
@@ -28,7 +34,8 @@ export function useTheme() {
   }, [])
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)')
+    const mq = window.matchMedia?.('(prefers-color-scheme: light)')
+    if (!mq) return
     const handler = (e: MediaQueryListEvent) => {
       if (!readPreference(MODE_KEY)) _setTheme(e.matches ? 'light' : 'dark')
     }
@@ -48,7 +55,7 @@ export function useTheme() {
     window.dispatchEvent(new CustomEvent(FAMILY_EVENT, { detail: value }))
   }, [])
   const toggleTheme = useCallback(() => setTheme(theme === 'dark' ? 'light' : 'dark'), [theme, setTheme])
-  const effectiveFamily = family === 'foundry' && theme === 'dark' ? 'foundry' : 'classic'
-  return { theme, setTheme, toggleTheme, family, setFamily, effectiveFamily }
+  const effectiveFamily = resolveFamily(theme, family)
+  return { theme, setTheme, toggleTheme, family, setFamily, effectiveFamily, density, setDensity }
 }
 export default useTheme

@@ -68,7 +68,7 @@ function JobWaitingReason({ job, onAction }: { job: any; onAction: (...args: any
   return (
     <div data-testid="job-waiting-reason" className="text-xs text-[var(--brand-text-secondary)]">
       <span role="status">{waitingLine(reason)}</span>
-      {fix && <button type="button" onClick={fix.run} className="ml-2 min-h-[24px] underline text-[var(--brand-primary)]">{fix.label}</button>}
+      {fix && <button type="button" data-job-action={fix.label === 'Open printer' ? 'open-printer' : undefined} onClick={fix.run} className="ml-2 min-h-[24px] underline text-[var(--brand-primary)]">{fix.label}</button>}
     </div>
   )
 }
@@ -134,7 +134,7 @@ function JobItemDetails({ job, onAction, nameClassName = 'font-medium text-sm' }
 
 function PriorityBadge({ priority }: { priority: number }) {
   return (
-    <span className={clsx(
+    <span data-job-priority={priority} className={clsx(
       'px-2 py-0.5 rounded-md text-xs font-medium',
       priority <= 2 ? 'bg-red-900/50 text-red-400' :
       priority >= 4 ? 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]' :
@@ -196,7 +196,8 @@ function JobActions({ job, onAction, isDispatching, dispatchFenced, correctionPr
           icon={isDispatching ? Loader2 : Send}
           loading={isDispatching}
           onClick={() => !isDispatching && onAction('dispatch', job.id, displayName(job), job.printer?.name)}
-          className={clsx(isDispatching ? 'text-emerald-500' : 'text-emerald-400 hover:bg-emerald-900/50')}
+          data-dispatching={isDispatching ? "true" : undefined}
+          className="job-dispatch text-[var(--status-completed)] [.light_&]:text-[color-mix(in_srgb,var(--status-completed),black_45%)] hover:bg-[var(--brand-surface)]"
           title={dispatchFenced ? 'Dispatch requires verification. Check the printer before any further dispatch.' : isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
           aria-label={dispatchFenced ? 'Dispatch requires verification' : isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
           disabled={isDispatching || dispatchFenced}
@@ -251,7 +252,7 @@ function JobCard({ job, onAction, isSelected, onToggleSelect, isDispatching, dis
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <StatusBadge status={job.status} kind="job" />
         {job.hold === true && !['completed', 'failed', 'cancelled', 'rejected'].includes(job.status) && (
-          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
+          <span className="job-held px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
         )}
         <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
       </div>
@@ -344,7 +345,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <StatusBadge status={job.status} kind="job" />
           {job.hold === true && !['completed', 'failed', 'cancelled', 'rejected'].includes(job.status) && (
-            <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
+            <span className="job-held px-2 py-0.5 rounded-md text-xs font-medium bg-amber-900/50 text-amber-400" title="Held: the scheduler skips this job until it is released">Held</span>
           )}
           <OutcomeCorrection key={`${job.id}:${job.status}`} jobId={job.id} status={job.status} />
         </div>

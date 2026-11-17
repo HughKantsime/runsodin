@@ -99,7 +99,7 @@ export default function ScrollTabs({
   const fadeBase = clsx('pointer-events-none absolute inset-y-0 w-8 to-transparent sm:hidden', fadeClassName)
 
   return (
-    <div className={clsx('relative', wrapperClassName)}>
+    <div data-scrolltabs="" className={clsx('relative', wrapperClassName)}>
       <div
         ref={scroller}
         className={clsx(

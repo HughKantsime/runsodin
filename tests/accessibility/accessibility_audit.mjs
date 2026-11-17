@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { scanMainRegion } from './scroll_main.mjs'
 
 const requireFromFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url))
 const AxeBuilder = requireFromFrontend('@axe-core/playwright').default
@@ -71,10 +72,11 @@ async function handleApiRoute(route, fixtureName, persona, unexpected, requests)
   await route.fulfill({ status: response.status, contentType: 'application/json', body: JSON.stringify(response.body) })
 }
 
-async function preparePage(page, fixtureName, persona, theme, unexpected, requests) {
-  await page.addInitScript(({ selectedTheme }) => {
-    localStorage.setItem('odin-theme', selectedTheme === 'light' ? 'light' : 'dark')
-  }, { selectedTheme: theme })
+async function preparePage(page, fixtureName, persona, theme, unexpected, requests, family = 'classic') {
+  await page.addInitScript(({ selectedTheme, selectedFamily }) => {
+    localStorage.setItem('odin-theme', selectedTheme)
+    localStorage.setItem('odin-theme-family', selectedFamily)
+  }, { selectedTheme: theme, selectedFamily: family })
   await page.route('**/*', route => new URL(route.request().url()).origin === parsedBaseURL.origin ? route.continue() : route.abort())
   await page.route('**/api/**', route => handleApiRoute(route, fixtureName, persona, unexpected, requests))
 }
@@ -119,13 +121,38 @@ async function motionAndTargetMetrics(page, checkMotion, mobile) {
 
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
 const results = []
-for (const row of rows) {
+// Reuse each page's personas, fixtures and viewport assertions in both Fjord modes.
+const fjordRows = ['A02', 'A03', 'A04', 'A06', 'A07']
+const fjordReviewRows = [
+  { id: 'A10', route: '/alerts', fixture: 'fjord.json', ready: 'All' },
+  { id: 'A11', route: '/products', fixture: 'fjord.json', ready: 'New Product' },
+  { id: 'A12', route: '/archives', fixture: 'fjord.json', ready: 'Fjord archive' },
+  { id: 'A13', route: '/analytics', fixture: 'fjord.json', ready: 'Revenue vs Cost' },
+  { id: 'A14', route: '/spools', fixture: 'fjord.json' },
+  { id: 'A15', route: '/models', fixture: 'fjord.json' },
+  { id: 'A16', route: '/maintenance', fixture: 'fjord.json' },
+  { id: 'A17', route: '/orders', fixture: 'fjord.json' },
+  { id: 'A18', route: '/settings', tab: 'Integrations', fixture: 'fjord.json', ready: 'Add Webhook' },
+  { id: 'A19', route: '/settings', tab: 'Vigil AI', fixture: 'fjord.json', ready: 'Detachment' },
+  { id: 'A20', route: '/settings', tab: 'Logs', fixture: 'fjord.json', ready: 'No log lines' },
+  { id: 'A21', route: '/settings', tab: 'Branding', fixture: 'fjord.json', ready: 'App Identity' },
+  { id: 'A22', route: '/settings', tab: 'Notifications', fixture: 'fjord.json', ready: 'SMTP Host' },
+  { id: 'A23', route: '/settings', tab: 'Filaments', fixture: 'fjord.json' },
+  { id: 'A24', route: '/settings', tab: 'License', fixture: 'fjord.json' },
+].map(row => ({ ...row, personas: ['admin'], family: 'fjord', themes: ['light', 'dark'], viewports: [[1440, 900], [390, 844]] }))
+const runs = [
+  ...fjordReviewRows,
+  ...rows.flatMap(row => [row, ...(fjordRows.includes(row.id) ? [{ ...row, family: 'fjord', themes: ['light', 'dark'] }] : [])]),
+  { id: 'A09', route: '/settings', tab: 'General', fixture: 'admin.json', personas: ['admin'], family: 'fjord', themes: ['light', 'dark'], viewports: [[1440, 900], [390, 844]] },
+]
+for (const row of runs) {
+  const family = row.family || 'classic'
   if (selectedRows.size && !selectedRows.has(row.id)) continue
   for (const routePath of row.routes || [row.route]) {
   for (const persona of row.personas) {
     for (const theme of row.themes) {
       for (const [width, height] of row.viewports) {
-        const context = await browser.newContext({ viewport: { width, height }, reducedMotion: ['A02', 'A04', 'A06', 'A07'].includes(row.id) ? 'reduce' : 'no-preference' })
+        const context = await browser.newContext({ viewport: { width, height }, reducedMotion: (family === 'fjord' || ['A02', 'A04', 'A06', 'A07'].includes(row.id)) ? 'reduce' : 'no-preference' })
         const page = await context.newPage()
         const consoleErrors = []
         const expectedConsoleErrors = []
@@ -137,29 +164,47 @@ for (const row of rows) {
           else consoleErrors.push(message.text())
         })
         page.on('pageerror', error => consoleErrors.push(String(error)))
-        await preparePage(page, row.fixture, persona, theme, unexpected, requests)
-        const finding = { id: row.id, route: routePath, fixture: row.fixture, persona, theme, viewport: `${width}x${height}`, axeFindings: [], serious: [], assertions: [], consoleErrors, expectedConsoleErrors, unexpected, requests }
+        await preparePage(page, row.fixture, persona, theme, unexpected, requests, family)
+        const finding = { id: row.id, route: routePath, fixture: row.fixture, persona, theme, family, viewport: `${width}x${height}`, axeFindings: [], serious: [], assertions: [], consoleErrors, expectedConsoleErrors, unexpected, requests }
         try {
           await page.goto(`${baseURL}${routePath}`, { waitUntil: 'domcontentloaded' })
           if (theme === 'high-contrast') {
             await page.evaluate(() => document.documentElement.classList.add('high-contrast'))
           }
           await page.waitForTimeout(250)
+          if (family === 'fjord') {
+            finding.assertions.push({ name: 'Fjord family and appearance applied', pass: await page.evaluate(mode => document.documentElement.dataset.themeFamily === 'fjord' && document.documentElement.classList.contains('light') === (mode === 'light'), theme) })
+            await page.keyboard.press('Tab')
+            finding.assertions.push({ name: 'skip link is first focus target', pass: await page.evaluate(() => document.activeElement?.textContent?.trim() === 'Skip to content') })
+            await page.keyboard.press('Enter')
+            finding.assertions.push({ name: 'skip link focuses main content', pass: await page.evaluate(() => document.activeElement?.id === 'main-content') })
+          }
           if (row.tab) {
             const tab = page.getByRole('button', { name: row.tab, exact: true })
-            if (await tab.count()) await tab.first().click()
+            if (family === 'fjord' || await tab.count()) await tab.first().click()
             await page.waitForTimeout(100)
           }
           if (row.id === 'A06') {
             await page.getByRole('button', { name: /Quotas & Restrictions/i }).click()
             await page.waitForTimeout(100)
           }
-          const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
-          finding.axeFindings = axe.violations.map(item => ({
+          if (family === 'fjord' && row.tab === 'Logs') {
+            await page.getByLabel('I acknowledge logs may contain controlled part names and details.').check()
+          }
+          if (row.ready) await page.getByText(row.ready, { exact: true }).first().waitFor()
+          if (family === 'fjord' && row.tab === 'Notifications') {
+            const host = page.getByLabel('SMTP Host')
+            finding.assertions.push({ name: 'SMTP fields are inert while delivery is off', pass: await host.evaluate(input => Boolean(input.closest('[inert]'))) })
+          }
+          const analyze = () => new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
+          const scans = family === 'fjord' ? await scanMainRegion(page, analyze) : [{ scrollTop: 0, result: await analyze() }]
+          finding.scrollPositions = scans.map(scan => scan.scrollTop)
+          finding.axeFindings = scans.flatMap(({ scrollTop, result }) => result.violations.map(item => ({
             id: item.id,
             impact: item.impact,
+            scrollTop,
             nodes: item.nodes.map(node => ({ target: node.target })),
-          }))
+          })))
           finding.serious = finding.axeFindings.filter(item => ['serious', 'critical'].includes(item.impact))
           finding.assertions.push({ name: 'page heading', pass: await page.locator('h1').count() > 0 })
           finding.assertions.push({ name: 'main landmark', pass: await page.locator('main').count() > 0 })
@@ -215,7 +260,7 @@ for (const row of rows) {
               if (process.env.ODIN_A11Y_CARD_SCREENSHOTS === '1') {
                 const screenshotDir = path.join(path.dirname(output), 'accessibility-screenshots')
                 fs.mkdirSync(screenshotDir, { recursive: true })
-                const screenshotPath = path.join(screenshotDir, `A03-card-${persona}-${theme}-${width}.png`)
+                const screenshotPath = path.join(screenshotDir, `A03-card-${family}-${persona}-${theme}-${width}.png`)
                 await page.locator('[data-testid="printer-card"]').first().screenshot({ path: screenshotPath })
                 finding.cardScreenshot = path.relative(path.dirname(output), screenshotPath)
               }
@@ -227,8 +272,9 @@ for (const row of rows) {
           if (row.id === 'A05') finding.assertions.push({ name: 'file input and upload action', pass: await page.locator('input[type=file]').count() > 0 && await page.locator('label[for="file-upload"]').count() > 0 })
           if (row.id === 'A06') finding.assertions.push({ name: 'access groups and quotas ready', pass: await page.getByRole('heading', { name: 'Groups', exact: true }).count() > 0 && await page.getByText(/Print Quotas/i).count() > 0 })
           if (row.id === 'A07') finding.assertions.push({ name: 'backup retention and privacy ready', pass: await page.getByText(/Database Backups/i).count() > 0 && await page.getByText(/Data Retention/i).count() > 0 && await page.getByText(/Privacy & Data/i).count() > 0 })
+          if (row.id === 'A09') finding.assertions.push({ name: 'General theme and interface controls ready', pass: await page.getByLabel('Theme family').count() > 0 && await page.getByRole('heading', { name: 'Interface Mode', exact: true }).count() > 0 })
           if (row.id === 'A08') finding.assertions.push({ name: 'education report filters and export ready', pass: await page.getByRole('heading', { name: 'Usage Reports' }).count() > 0 && await page.getByRole('button', { name: /Export CSV/i }).count() > 0 })
-          const checkMotion = ['A02', 'A04', 'A06', 'A07'].includes(row.id)
+          const checkMotion = family === 'fjord' || ['A02', 'A04', 'A06', 'A07'].includes(row.id)
           const metrics = await motionAndTargetMetrics(page, checkMotion, width <= 390)
           finding.motion = { checked: checkMotion, longestMs: metrics.longestMotionMs }
           finding.targetSizes = metrics.targetSizes
@@ -242,7 +288,7 @@ for (const row of rows) {
           const screenshotDir = path.join(path.dirname(output), 'accessibility-screenshots')
           fs.mkdirSync(screenshotDir, { recursive: true })
           const routeSlug = routePath.replaceAll('/', '_') || '_root'
-          const screenshotPath = path.join(screenshotDir, `${row.id}-${routeSlug}-${persona}-${theme}-${width}x${height}.png`)
+          const screenshotPath = path.join(screenshotDir, `${row.id}-${family}-${routeSlug}-${persona}-${theme}-${width}x${height}.png`)
           await page.screenshot({ path: screenshotPath, fullPage: true })
           finding.screenshot = path.relative(path.dirname(output), screenshotPath)
         }
