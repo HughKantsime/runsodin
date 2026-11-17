@@ -4,7 +4,17 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-## [2.3.0] - 2026-11-15
+## [2.3.1] - 2026-11-17
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: A fix for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again. -->
+
+### Fixed
+
+- On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
+
+## [2.3.0] - 2026-11-17
 
 
 <!-- summary: Print next from live stock, the real cost of every print, your farm's time zone, printer-reported failures, six more Bambu materials. -->

@@ -185,7 +185,9 @@ def transition_job(executor, job_id: int, to, actor: str, *,
         name = f"sm_f{index}"
         placeholders.append(f":{name}")
         values[name] = state
-    status_clause = f"status IN ({', '.join(placeholders)})"
+    # Legacy SQLite state; PostgreSQL's jobstatus enum has no such label.
+    status_column = "CAST(status AS TEXT)" if WAITING_PLATE_CLEAR in allowed else "status"
+    status_clause = f"{status_column} IN ({', '.join(placeholders)})"
     if include_null:
         status_clause = f"({status_clause} OR status IS NULL)"
     statement = f"UPDATE jobs SET {', '.join(sets)} WHERE id=:sm_job AND {status_clause}"

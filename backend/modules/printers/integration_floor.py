@@ -442,7 +442,7 @@ def _clear_plate(db, actor, scope, controlled, printer_ids):
     clauses, params = visible_clauses(actor, scope, controlled, "j")
     params["pids"] = list(printer_ids)
     sql = ("SELECT j.printer_id, COALESCE(j.actual_end, j.updated_at) FROM jobs j "
-           "WHERE j.status = 'waiting_plate_clear' AND j.printer_id IN :pids AND " + " AND ".join(clauses) +
+           "WHERE CAST(j.status AS TEXT) = 'waiting_plate_clear' AND j.printer_id IN :pids AND " + " AND ".join(clauses) +
            " ORDER BY j.printer_id, j.id")
     found = {}
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed clauses plus job_visibility's source-owned predicate; every value is bound
