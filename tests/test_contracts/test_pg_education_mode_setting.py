@@ -69,12 +69,17 @@ def test_stored_value_shapes(stored, expected):
     assert stored_true(stored) is expected
 
 
-def test_readiness_uses_the_same_reading():
-    """The readiness projection must not carry its own comparison again."""
+def test_one_reader_of_the_stored_switch():
+    """No file but core/education_mode.py selects the stored value, so none can carry its
+    own comparison again (two did, and read PostgreSQL's boolean as off)."""
+    import re
     from pathlib import Path
     root = Path(__file__).resolve().parents[2] / 'backend'
+    select = re.compile(r"SELECT\s+value\s+FROM\s+system_config\s+WHERE\s+key\s*=\s*'education_mode'", re.I)
+    readers = sorted(str(path.relative_to(root)) for path in root.rglob('*.py')
+                     if not any(part.startswith('preserved') for part in path.parts)
+                     and select.search(path.read_text()))
+    assert readers == ['core/education_mode.py']
     for relative in ('modules/organizations/education_readiness.py', 'modules/system/routes_settings.py',
                      'core/recipient_policy.py'):
-        source = (root / relative).read_text()
-        assert 'education_mode_enabled' in source, relative
-        assert '== "true"' not in source.split('education_mode')[1][:400], relative
+        assert 'education_mode_enabled(db)' in (root / relative).read_text(), relative
