@@ -6,6 +6,19 @@ from core.audit_integrity import capture_insert_seal, finish_insert_seal
 from core.models import AuditLog
 
 
+def validate_setup_note(note):
+    """Only credential-free, visible approval records may bypass audit redaction."""
+    import unicodedata
+    from fastapi import HTTPException
+    from core.log_redaction import redact_text
+    if (not isinstance(note, str) or not 1 <= len(note) <= 500 or '\x00' in note
+            or not any(not c.isspace() and unicodedata.category(c)[0] not in 'CMZ' for c in note)):
+        raise HTTPException(422, 'Record who approved this setup, where and when (1 to 500 characters, with visible text and no null characters)')
+    if redact_text(note) != note:
+        raise HTTPException(422, 'Remove anything that looks like a password, token or code from the note.')
+    return note
+
+
 def log_audit(
     db: Session,
     action: str,
@@ -32,11 +45,19 @@ def log_audit(
     if action in ('job.dispatched', 'job.dispatch_requested'):
         from core.audit_dispatch import dispatch_details
         details = dispatch_details(db, entity_id, details)
+    approval_note = None
+    if (action in ('square.product_mapped', 'square.stock_baseline') and isinstance(details, dict)
+            and details.get('auth_kind') == 'user_api_token' and 'approval_note' in details):
+        approval_note = validate_setup_note(details['approval_note'])
+        details = {key: value for key, value in details.items() if key != 'approval_note'}
+    details = redact_structure(details)
+    if approval_note is not None:
+        details['approval_note'] = approval_note
     entry = AuditLog(
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        details=redact_structure(details),  # never persist a credential-bearing URL or token
+        details=details,  # never persist a credential-bearing URL or token
         ip_address=ip,
     )
     stage_actor(db, entry, ip)

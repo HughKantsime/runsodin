@@ -1,11 +1,14 @@
 """Explicit token delegation for local Square mapping and baseline records only."""
 from typing import Annotated
+from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request
 from pydantic import StringConstraints
 from slowapi.util import get_remote_address
+from sqlalchemy import text
 
-from core.api_token_policy import SQUARE_SETUP_SCOPE, require_square_setup_available
+from core.api_token_policy import SQUARE_SETUP_SCOPE, parse_token_scopes, require_square_setup_available
+from core.audit import validate_setup_note
 from core.db import get_db
 from core.rbac import mark_token_scope_checker, require_action, require_role
 from modules.orders import square_store as store
@@ -15,7 +18,7 @@ SQUARE_SETUP_ROUTES = frozenset({
     ('PUT', '/products/{product_id}/square'),
     ('PUT', '/products/{product_id}/square/baseline'),
 })
-ApprovalNote = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=500)]
+ApprovalNote = Annotated[str, StringConstraints(strict=True)]
 
 
 def assert_square_setup(user):
@@ -62,9 +65,51 @@ def setup_rate_cost(request: Request):
 
 def setup_audit(user, note):
     if user.get('_auth_kind') != 'user_api_token':
+        # Preserve session input validation while delegated records keep exact whitespace.
+        if note is not None and not 1 <= len(note.strip()) <= 500:
+            raise HTTPException(422, 'Invalid Square request. Check the required fields.')
         return {}
-    if not isinstance(note, str) or not 1 <= len(note.strip()) <= 500:
-        raise HTTPException(422, 'Record who approved this setup, where and when (1 to 500 characters)')
+    validate_setup_note(note)
     return {'auth_kind': 'user_api_token', 'token_id': user['_token_id'],
             'token_name': user['_token_name'], 'token_owner_user_id': user['id'],
             'approval_note': note}
+
+
+def fresh_setup_actor(db, user):
+    """Caller holds the owner/product or connector lock after the Square read."""
+    if user.get('_auth_kind') != 'user_api_token':
+        return user
+    suffix = ' FOR UPDATE' if db.get_bind().dialect.name == 'postgresql' else ''
+    account = db.execute(text('SELECT id,role,group_id,is_active FROM users WHERE id=:id' + suffix),
+                         {'id': user['id']}).first()
+    token = db.execute(text('SELECT user_id,name,scopes,expires_at FROM api_tokens WHERE id=:id' + suffix),
+                       {'id': user['_token_id']}).first()
+    if (not account or not account.is_active or account.role != 'admin'
+            or account.group_id != user.get('group_id') or not token or token.user_id != account.id):
+        raise HTTPException(403, 'Square setup permission is no longer available')
+    if token.expires_at:
+        try:
+            expiry = datetime.fromisoformat(token.expires_at) if isinstance(token.expires_at, str) else token.expires_at
+            expiry = expiry.replace(tzinfo=timezone.utc) if expiry.tzinfo is None else expiry.astimezone(timezone.utc)
+            expired = expiry <= datetime.now(timezone.utc)
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            expired = True
+        if expired:
+            raise HTTPException(403, 'Square setup permission is no longer available')
+    fresh = {**user, '_token_scopes': parse_token_scopes(token.scopes) or [], '_token_name': token.name}
+    assert_square_setup(fresh)
+    require_square_setup_available(db)
+    from core.rbac import _is_platform_superadmin
+    from core.rbac_policy import action_roles
+    if not _is_platform_superadmin(fresh) and fresh['role'] not in action_roles(db, 'products.square_manage'):
+        raise HTTPException(403, 'Insufficient permissions')
+    return fresh
+
+
+def same_mapping(doc, product_id, location, variation):
+    mapping = doc['mappings'].get(str(product_id))
+    if not mapping:
+        return False
+    if (mapping['location_id'], mapping['variation_id']) != (location, variation):
+        raise HTTPException(409, 'This product is already mapped in Square. A signed-in administrator must change the mapping.')
+    return True

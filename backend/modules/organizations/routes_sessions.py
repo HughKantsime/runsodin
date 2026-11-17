@@ -304,6 +304,8 @@ async def set_square_setup_grant(token_id: int, body: SquareSetupGrant,
     scopes = parse_token_scopes(row.scopes)
     if not scopes or 'read:cameras' in scopes:
         raise HTTPException(409, "Create a valid token for Square setup; camera tokens cannot have other permissions")
+    if (SQUARE_SETUP_SCOPE in scopes) == body.enabled:
+        return {"id": token_id, "scopes": scopes}
     updated = [scope for scope in scopes if scope != SQUARE_SETUP_SCOPE]
     if body.enabled:
         updated.append(SQUARE_SETUP_SCOPE)
@@ -314,7 +316,8 @@ async def set_square_setup_grant(token_id: int, body: SquareSetupGrant,
     log_audit(db, "api_token.square_setup_granted" if body.enabled else "api_token.square_setup_revoked",
               "api_token", token_id,
               {"administrator_id": current_user['id'], "token_id": token_id, "token_name": row.name,
-               "token_owner_user_id": current_user['id'], "auth_kind": current_user['_auth_kind']})
+               "token_owner_user_id": current_user['id'], "auth_kind": current_user['_auth_kind'],
+               "scopes_before": scopes, "scopes_after": updated})
     db.commit()
     return {"id": token_id, "scopes": updated}
 

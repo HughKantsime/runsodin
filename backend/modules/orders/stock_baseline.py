@@ -2,6 +2,7 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
@@ -10,7 +11,7 @@ from core.dependencies import log_audit
 from core.models import AuditLog
 from core.rbac import is_interactive_session
 from modules.orders import square_store as store
-from modules.orders.square_setup_auth import assert_square_setup, setup_audit
+from modules.orders.square_setup_auth import assert_square_setup, setup_audit, fresh_setup_actor
 
 
 def admin(user):
@@ -24,6 +25,8 @@ def utc(value):
     try:
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace('Z', '+00:00'))
         return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    except OverflowError:
+        raise HTTPException(422, 'Enter a baseline time that can be represented in UTC') from None
     except (ValueError, TypeError, AttributeError):
         raise HTTPException(409, 'Missing or conflicting observation time evidence; review this batch') from None
 
@@ -86,11 +89,17 @@ def set_baseline(db, user, product_id, data):
     from modules.orders import batch_production as batches
     assert_square_setup(user)
     attribution = setup_audit(user, getattr(data, 'approval_note', None))
+    at = utc(data.at)
+    if attribution:
+        validate_baseline_time(at)
+        read_token_baseline(db, user, product_id, data)
     owner, doc, encoded = locked_connection(db, user, data.revision)
     store.own_product(db, owner, product_id)
     mapping = doc['mappings'].get(str(product_id))
     if not mapping:
         raise HTTPException(409, 'Map the product before attesting its baseline')
+    if attribution and mapping.get('stock_baseline') is not None:
+        raise HTTPException(409, 'This product already has a stock baseline. A signed-in administrator must change it.')
     pending = []
     for row in db.execute(select(batches.additions).where(batches.additions.c.owner == owner,
             batches.additions.c.state.in_(['unknown', 'prepared']))).mappings():
@@ -98,7 +107,10 @@ def set_baseline(db, user, product_id, data):
             if row['state'] == 'unknown':
                 raise HTTPException(409, 'Reconcile unknown additions before setting this baseline')
             pending.append(row['id'])
-    baseline = {'version': str(uuid.uuid4()), 'at': utc(data.at).isoformat(),
+    if attribution:
+        attribution = setup_audit(fresh_setup_actor(db, user), data.approval_note)
+        validate_baseline_time(at)
+    baseline = {'version': str(uuid.uuid4()), 'at': at.isoformat(),
                 'quantity': data.quantity, 'attested_by': user['id']}
     previous_baseline = mapping.get('stock_baseline')
     mapping['stock_baseline'] = baseline
@@ -108,6 +120,38 @@ def set_baseline(db, user, product_id, data):
                'previous_baseline': previous_baseline, **attribution})
     db.commit()
     return {'connection': store.public(db, owner, doc), 'pending_additions': pending}
+
+
+def validate_baseline_time(at):
+    age = (datetime.now(timezone.utc) - at).total_seconds()
+    if age < -60 or age > 15 * 60:
+        raise HTTPException(422, 'The baseline time must be no more than 15 minutes old and no more than 60 seconds in the future.')
+
+
+def read_token_baseline(db, user, product_id, data):
+    """Read before locking, then the caller rechecks revision and authorization."""
+    from modules.orders.square_client import SquareReader, refuse_under_itar
+    refuse_under_itar()
+    owner = store.tenant(user)
+    store.own_product(db, owner, product_id)
+    doc, _ = store.load(db, owner)
+    store.check_revision(doc, data.revision)
+    if doc is None:
+        raise HTTPException(409, 'Connect Square first')
+    mapping = doc['mappings'].get(str(product_id))
+    if not mapping:
+        raise HTTPException(409, 'Map the product before attesting its baseline')
+    if mapping.get('stock_baseline') is not None:
+        raise HTTPException(409, 'This product already has a stock baseline. A signed-in administrator must change it.')
+    db.rollback()
+    reader = SquareReader(doc['environment'], doc['token'])
+    if not reader.variation(mapping['variation_id'], mapping['location_id'])['tracked']:
+        raise HTTPException(409, 'Square is not tracking a stock count for this variation at this location. In Square, open the item, set this variation to "Track by stock count" (not "Track by availability") for this location, then map it again.')
+    count = reader.count(mapping['variation_id'], mapping['location_id'])
+    if count['state'] != 'known' or count['quantity'] is None:
+        raise HTTPException(409, 'Square has no stock count for this variation at this location. Nothing was changed.')
+    if Decimal(count['quantity']) != data.quantity:
+        raise HTTPException(409, f"Square shows {count['quantity']}; you stated {data.quantity}. Nothing was changed.")
 
 
 def review(db, user, addition_id, data):

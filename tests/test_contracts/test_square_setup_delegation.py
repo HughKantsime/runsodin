@@ -1,6 +1,7 @@
 """Real hashed tokens, local SQLite and synthetic Square reads; no network or printers."""
 import json
 import secrets
+from datetime import datetime, timezone
 from unittest.mock import Mock
 
 import pytest
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from core.api_token_policy import SQUARE_SETUP_SCOPE, token_scope_granted
 from core.models import AuditLog, SystemConfig
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.test_square_readonly_workflow import shop, mapped
+from tests.test_contracts.test_square_readonly_workflow import shop, mapped, connect
 from tests.test_contracts.test_batch_acceptance import batch
 from tests.test_contracts.test_square_delivery import prepared
 from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers
@@ -54,7 +55,7 @@ def authenticate(shop, scopes=(SQUARE_SETUP_SCOPE,), role='admin'):
 
 
 def payload(revision, baseline=False, **extra):
-    fields = {'at': '2099-01-01T00:00:00Z', 'quantity': 12} if baseline else {'location_id': 'L1', 'variation_id': 'V1'}
+    fields = {'at': datetime.now(timezone.utc).isoformat(), 'quantity': 7} if baseline else {'location_id': 'L1', 'variation_id': 'V1'}
     return {'revision': revision, 'approval_note': NOTE, **fields, **extra}
 
 
@@ -74,7 +75,7 @@ def test_scope_must_be_explicit_on_both_routes(shop, scopes, baseline):
 @pytest.mark.parametrize('baseline', [False, True])
 def test_delegated_success_has_exact_audit_actor_and_never_constructs_writer(shop, monkeypatch, baseline):
     from modules.orders import square_delivery_client
-    status = mapped(shop)
+    status = mapped(shop) if baseline else connect(shop[0])[0]
     token_id = authenticate(shop)
     writer = Mock(side_effect=AssertionError('Square writer must not be constructed'))
     monkeypatch.setattr(square_delivery_client, 'SquareWriter', writer)
@@ -88,7 +89,7 @@ def test_delegated_success_has_exact_audit_actor_and_never_constructs_writer(sho
     actor = shop[3].execute(text('SELECT actor_auth_kind,actor_user_id FROM audit_logs WHERE id=:id'), {'id': row.id}).one()
     assert actor == ('user_api_token', 3)
     writer.assert_not_called()
-    assert all(method == 'GET' for method, *_ in shop[2])
+    assert all(method == 'GET' or route == '/v2/inventory/counts/batch-retrieve' for method, route, *_ in shop[2])
 
 
 @pytest.mark.parametrize('baseline', [False, True])
@@ -166,9 +167,10 @@ def test_scope_grant_revoke_list_and_immediate_enforcement(shop):
             status = result.json()
     rows = shop[3].execute(select(AuditLog).where(AuditLog.action.like('api_token.square_setup_%')).order_by(AuditLog.id)).scalars().all()
     assert [r.action for r in rows] == ['api_token.square_setup_granted', 'api_token.square_setup_revoked']
-    for row in rows:
+    for row, before, after in zip(rows, [['read'], ['read', SQUARE_SETUP_SCOPE]], [['read', SQUARE_SETUP_SCOPE], ['read']]):
         assert row.details == {'administrator_id': 3, 'token_id': token_id, 'token_name': 'Inventory setup',
-                               'token_owner_user_id': 3, 'auth_kind': 'bearer_jwt'}
+                               'token_owner_user_id': 3, 'auth_kind': 'bearer_jwt',
+                               'scopes_before': before, 'scopes_after': after}
 
 
 @pytest.mark.parametrize('enabled', [True, False])
@@ -228,7 +230,6 @@ def test_sessions_need_no_note_and_baseline_keeps_previous_value(shop):
     assert response.status_code == 200
     status = response.json()['connection']
     previous = status['mappings'][0]['stock_baseline']
-    authenticate(shop)
     response = shop[0].put(path(True), json=payload(status['revision'], True, quantity=22))
     assert response.status_code == 200
     row = shop[3].execute(select(AuditLog).where(AuditLog.action == 'square.stock_baseline').order_by(AuditLog.id.desc())).scalars().first()
@@ -260,12 +261,14 @@ def test_mapping_audit_keeps_original_session_string_and_readers_accept_both(sho
     from core.dependencies import get_current_user
     from modules.reporting.routes.exports import router
     tier_license('enterprise')
-    status = mapped(shop)
+    status = connect(shop[0])[0] if delegated else mapped(shop)
     expected = 'Explicit Square variation/location selected'
     if delegated:
         token_id = authenticate(shop)
         assert shop[0].put(path(), json=payload(status['revision'])).status_code == 200
-        expected = {'description': expected, 'auth_kind': 'user_api_token', 'token_id': token_id,
+        expected = {'description': expected, 'location_id': 'L1', 'variation_id': 'V1',
+                    'item_name': 'Part', 'variation_name': 'Regular', 'previous': None,
+                    'auth_kind': 'user_api_token', 'token_id': token_id,
                     'token_name': 'Inventory setup', 'token_owner_user_id': 3, 'approval_note': NOTE}
     details = shop[3].execute(text(
         "SELECT details FROM audit_logs WHERE action='square.product_mapped' ORDER BY id DESC LIMIT 1"
@@ -334,7 +337,7 @@ def test_stale_revision_and_foreign_products_still_refused(shop, baseline):
 
 def test_untracked_mapping_still_refused(shop, monkeypatch):
     from modules.orders.square_client import SquareReader
-    status = mapped(shop)
+    status = connect(shop[0])[0]
     authenticate(shop)
     monkeypatch.setattr(SquareReader, 'variation', lambda *a: {'tracked': False})
     assert shop[0].put(path(), json=payload(status['revision'])).status_code == 409

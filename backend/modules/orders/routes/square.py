@@ -19,7 +19,7 @@ from core.models import SystemConfig
 from core.rbac import require_role, require_interactive_session
 from modules.orders import square_store as store
 from modules.orders.square_client import SquareReader, identifier
-from modules.orders.square_setup_auth import ApprovalNote, require_square_setup, setup_audit, setup_rate_key, setup_rate_cost
+from modules.orders.square_setup_auth import ApprovalNote, require_square_setup, setup_audit, setup_rate_key, setup_rate_cost, fresh_setup_actor, same_mapping
 # Capture the deployment key while application routes load at process startup.
 from modules.orders import square_delivery_client  # noqa: F401
 
@@ -152,6 +152,16 @@ def map_product(product_id: int, data: Mapping, user, db: Session):
     store.own_product(db, owner, product_id)
     doc, _, reader = connected(db, owner, data.revision)
     location, variation = identifier(data.location_id), identifier(data.variation_id)
+    if attribution and str(product_id) in doc['mappings']:
+        db.rollback()
+        store.lock_owner(db, owner, user)
+        store.own_product(db, owner, product_id, lock=True)
+        latest, _, _ = connected(db, owner, data.revision)
+        fresh_setup_actor(db, user)
+        same_mapping(latest, product_id, location, variation)
+        result = store.public(db, owner, latest)
+        db.rollback()
+        return result
     if not any(v['id'] == location for v in reader.locations(doc['merchant_id'])):
         raise HTTPException(409, 'Choose an active Square location for this account')
     meta = reader.variation(variation, location)
@@ -161,6 +171,12 @@ def map_product(product_id: int, data: Mapping, user, db: Session):
     store.lock_owner(db, owner, user)
     store.own_product(db, owner, product_id, lock=True)
     latest, previous, _ = connected(db, owner, data.revision)
+    if attribution:
+        attribution = setup_audit(fresh_setup_actor(db, user), data.approval_note)
+        if same_mapping(latest, product_id, location, variation):
+            result = store.public(db, owner, latest)
+            db.rollback()
+            return result
     for pid, value in latest['mappings'].items():
         if pid != str(product_id) and value['variation_id'] == variation and value['location_id'] == location:
             raise HTTPException(409, 'This Square variation and location already map to another ODIN product')
@@ -175,7 +191,8 @@ def map_product(product_id: int, data: Mapping, user, db: Session):
     doc = store.save(db, owner, latest, previous)
     description = 'Explicit Square variation/location selected'
     log_audit(db, 'square.product_mapped', 'product', product_id,
-              {'description': description, **attribution} if attribution else description)
+              {'description': description, **latest['mappings'][str(product_id)],
+               'previous': None, **attribution} if attribution else description)
     db.commit()
     return store.public(db, owner, doc)
 

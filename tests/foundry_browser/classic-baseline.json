@@ -14,7 +14,7 @@
     "frontend/src/components/admin/SystemNoticesBanner.tsx": "c741ba0429ed49f7e28801e0cb93de6e3805826a232fb6e189de242d1cfb2bed",
     "frontend/src/components/admin/SystemTab.tsx": "780e8624543f2e6144aab486267a62862a31b38d14a3644ff519e227bb8b3ab6",
     "frontend/src/components/admin/WebhookSettings.tsx": "6ce6e1f438b01eac430903d3cc5b2487ad7fc7b4ce483a49b77f7e121825a63c",
-    "frontend/src/components/auth/APITokenManager.tsx": "390842c33e7e7c93356a734654dd05c07857d73e62fa14c90b0e2e68d90ea542",
+    "frontend/src/components/auth/APITokenManager.tsx": "ef22ed9fd97182f7d2d403c6782019c504ce48dd25dbe526fcb1b1bcfdbcdbbd",
     "frontend/src/components/auth/OIDCBootstrap.tsx": "e72a818bcdd797523dcd1ba0de371150d844e185c75ea09514296b86bfa9332d",
     "frontend/src/components/auth/RoleGate.tsx": "6edc132c33b5cb752a1e23679768750b9afbc458ad3ec1f2414b2cdf12448c09",
     "frontend/src/components/foundry/PrinterRows.tsx": "85d83ad92a41af8c266d1554ab63100db4c01b24fe6129950e9e99449e563673",
