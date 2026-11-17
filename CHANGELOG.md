@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
+
 ## [2.3.0] - 2026-11-15
 
 
@@ -33,7 +37,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
 - Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
 
