@@ -156,7 +156,7 @@ def test_overdue_maintenance_and_pending_order(fixture_report):
 
 def test_read_routes_and_version(fixture_report):
     assert set(fixture_report["reads"].values()) == {200}, fixture_report["reads"]
-    assert fixture_report["version_response"] == dict(status=200, body={"version": "2.2.0"})
+    assert fixture_report["version_response"] == dict(status=200, body={"version": (ROOT / "VERSION").read_text().strip()})
 
 
 def test_administrator_queues_pending_jobs(fixture_report):
