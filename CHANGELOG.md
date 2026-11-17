@@ -5,37 +5,18 @@ All notable changes to O.D.I.N. are documented here.
 ## [Unreleased]
 
 - ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
-### Changed
-- ODIN does slightly less work on every request and during alert delivery. Nothing behaves differently.
-## [2.3.1] - 2026-11-17
 
-
-<!-- summary: Fixes for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again, and Education mode shows as on once it is switched on. -->
-
-### Fixed
-
-- On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
-- On PostgreSQL, Education mode still showed as off in the web app and in the Education readiness check after an administrator switched it on. It now shows as on. Installs on SQLite were not affected.
-- Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
 ### Added
+
 - Printer cards and details now offer “Plate cleared” with a confirmation that says whether a waiting job will be released. A waiting job exists only where the installation's queue uses the `waiting_plate_clear` state; the standard PostgreSQL job enum does not include it. Home Assistant gains a Plate cleared button and a Plate needs clearing sensor, with the same state available on its Status entity.
 - Square stock replies now correctly report whether sending stock changes is enabled.
 - AMS humidity labels now run from dry to wet correctly and show N/A when there is no sensor reading. API readers of `humidity_label` will see different, now correct, words.
-
-### Added
-
 - The print history API supports date range filters, paging, and a total count. Utilization now requests prints that ended within the selected period.
-### Security
-- Square setup delegation remains off by default. Tokens can now only add a mapping or first stock baseline; repeating the same mapping changes nothing. Baselines must match a live Square count and use a time within 15 minutes in the past or 60 seconds in the future. Permission is checked again before saving. Approval notes are stored exactly or refused if they resemble credentials, and setup audits record mappings and permission changes. Signed-in administrator workflows are unchanged.
-- Square setup permission is off by default: no token receives it on upgrade. A signed-in administrator can grant or revoke `write:square_setup` for one personal API token to map products and record stock baselines in ODIN. Each delegated call records an approval note and the token's identity; the note is a record, not a verification. Neither operation writes to Square. Connection changes, activation, unmapping and addition review still require a signed-in administrator.
-- Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
-- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
-- PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
-- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
-- Prints started at the printer now appear in job history on every printer type, not only Bambu.
-- Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
-- Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
+- New: when a Bambu printer's own camera reports a problem (spaghetti, first-layer defects, nozzle clumping, air printing, a shifted or collapsed print, a full waste chute), ODIN now raises an alert and lists it under Detections. ODIN reads the printer's own report over your local network and sends no picture anywhere. ODIN does not pause the print itself: the printer follows its own setting. Detections shows a Printer / Vigil source marker and filter; `GET /api/vision/detections` accepts `source`, and `GET /api/vision/stats` adds `by_source` with confirmed and dismissed counts.
+
 ### Changed
+
+- ODIN does slightly less work on every request and during alert delivery. Nothing behaves differently.
 - Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
 - Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
 - ODIN now stops at start-up on PostgreSQL 18 or newer with a clear message before changing the database, and asks you to use the PostgreSQL 16 server it ships with.
@@ -46,27 +27,42 @@ All notable changes to O.D.I.N. are documented here.
 - Keep filament deductions with the physical print, so deleting jobs, spools or archives cannot deduct the same print again. Check past usage before startup and preserve manual use for settlement review.
 - Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
 
-### Security
-
-- Only a signed-in platform administrator can change Education mode; each change records the previous and new values.
-
 ### Fixed
 
+- Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
 - Moonraker commands now preserve spaces, special characters and multiple lines when sent to a printer.
 - Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
 - Weighing a spool without an empty-spool weight now explains how to enter it instead of failing; editing an unknown empty-spool weight no longer assumes 250 g.
 
-## [2.3.0] - 2026-11-15
+### Security
+
+- Square setup delegation remains off by default. Tokens can now only add a mapping or first stock baseline; repeating the same mapping changes nothing. Baselines must match a live Square count and use a time within 15 minutes in the past or 60 seconds in the future. Permission is checked again before saving. Approval notes are stored exactly or refused if they resemble credentials, and setup audits record mappings and permission changes. Signed-in administrator workflows are unchanged.
+- Square setup permission is off by default: no token receives it on upgrade. A signed-in administrator can grant or revoke `write:square_setup` for one personal API token to map products and record stock baselines in ODIN. Each delegated call records an approval note and the token's identity; the note is a record, not a verification. Neither operation writes to Square. Connection changes, activation, unmapping and addition review still require a signed-in administrator.
+- Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
+- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
+- PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
+- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
+- Prints started at the printer now appear in job history on every printer type, not only Bambu.
+- Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
+- Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
+- Only a signed-in platform administrator can change Education mode; each change records the previous and new values.
+
 ## [2.3.1] - 2026-11-17
-<!-- summary: A fix for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again. -->
+
+
+<!-- summary: Fixes for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again, and Education mode shows as on once it is switched on. -->
+
+### Fixed
+
 - On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
+- On PostgreSQL, Education mode still showed as off in the web app and in the Education readiness check after an administrator switched it on. It now shows as on. Installs on SQLite were not affected.
+
 ## [2.3.0] - 2026-11-17
 
 
 <!-- summary: Print next from live stock, the real cost of every print, your farm's time zone, printer-reported failures, six more Bambu materials. -->
 
 ### Added
-
 
 - If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason. Failure counts and success rates then reflect what happened, and you can undo the change. Recorded filament and cost are not changed.
 - Six more Bambu materials are recognised: ASA-CF, ASA Aero, PET-CF, PPA-CF, PPS-CF and TPU for AMS. On Bambu AMS printers and the Kobra S1, a print that needs one of them starts only when the slot reports exactly that material. Before, ODIN stored some under a similar material's name (for example PET-CF as PETG-CF) and then refused the print at the final check. Existing slots correct themselves on the next printer report or reassignment; imported catalogue entries previously marked Other are corrected automatically. Generic Moonraker printers still have no material-verification gate. Education continues to refuse abrasive materials, and Education AMS reads do not yet accept these six materials.
@@ -81,7 +77,7 @@ All notable changes to O.D.I.N. are documented here.
 - Models: until pricing has been saved, people who may edit pricing see "Set up pricing to see cost and price on each model" with a link to the Calculator. Saving pricing in the Calculator removes the line straight away.
 - Models and Upload now say which of your printers a file runs on: "Runs on 3 of your printers" on the upload result and on each model card, with the printer names when you press it. When none fits, it says which printer the file was sliced for. The count uses the same checks as scheduling (printer type, file type, bed size, the printer model the file was sliced for, and a file uploaded for one printer), and only counts printers you can see. When exactly one printer fits, the Schedule Print dialog selects it for you; a printer you pick yourself, or Auto-assign, is kept. The same places also show what the file states about itself: nozzle size, layer height, plate type, supports on or off and filament colour. A detail the file does not state is left out instead of guessed (a new upload no longer records 0.2 mm layers or "supports off" when the file does not say). This is information only: nothing new is refused.
 - Jobs: a job that is not printing now says what it is waiting for, in one line under its status on the table and on the phone card: waiting for approval, on hold, needs a filament slot chosen for each colour (with a button that opens the job's filament mapping), printer is offline, printer is busy (with the time the running print should end, when known), quiet hours (with the time they end), no printer can run it (naming the material or tag no printer has), or the reason the last dispatch was refused, shown until the next attempt. Offline and busy lines have a button that opens the printer. The line goes away when the cause is fixed. `GET /api/v1/jobs` and `GET /api/v1/jobs/{id}` carry it as `waiting_reason` (`code`, and where they apply `detail`, `until`, `printer_id`); it is worked out when the list is read and nothing is stored. A printer you are not allowed to see is never named or linked.
-- New: when a Bambu printer's own camera reports a problem (spaghetti, first-layer defects, nozzle clumping, air printing, a shifted or collapsed print, a full waste chute), ODIN now raises an alert and lists it under Detections. ODIN reads the printer's own report over your local network and sends no picture anywhere. ODIN does not pause the print itself: the printer follows its own setting. Detections shows a Printer / Vigil source marker and filter; `GET /api/vision/detections` accepts `source`, and `GET /api/vision/stats` adds `by_source` with confirmed and dismissed counts.
+- New: when a Bambu printer's own camera reports a problem (spaghetti, first-layer defects, nozzle clumping, air printing, a shifted or collapsed print, a full waste chute), ODIN now raises an alert and lists it under Detections. Nothing leaves your network, and ODIN does not pause the print itself: the printer follows its own setting. Detections shows a Printer / Vigil source marker and filter; `GET /api/vision/detections` accepts `source`, and `GET /api/vision/stats` adds `by_source` with confirmed and dismissed counts.
 - Adding a printer: a failed connection test now says why and what to do. ODIN tells apart a printer it could not reach, credentials the printer rejected, something at that address that is not the chosen printer type, and an address ODIN does not connect to; when it cannot tell, it says so and shows the checklist as before. The message never repeats the address, serial number, access code or API key. On the Printers page, saving a printer whose connection was not tested with the details entered, or whose last test failed, asks "Save anyway?" first. API: a failed `POST /api/printers/test-connection` carries `reason` (`unreachable`, `auth`, `not_this_type`, `blocked_address`, `control_disabled`, `unknown`) next to `success` and `error`; an address ODIN refuses is now answered as a failed test with `reason: "blocked_address"` instead of HTTP 400. Bambu LAN Only and Developer Mode cannot be seen by the test, so `control_disabled` is not sent yet; Anycubic tests always report `unknown`.
 
 ### Changed
@@ -89,9 +85,6 @@ All notable changes to O.D.I.N. are documented here.
 - Pricing Calculator: the percentage it adds to cost is now correctly called Markup (it was labelled Margin), and the resulting margin is shown under the price. A Target margin field sets the same value the other way round. New optional selling-fee (percentage and fixed) and per-plate handling inputs; with these left at 0 every price is unchanged. Saved settings and prices are unchanged. The cost API also returns `markup_percent`, `selling_fees` and `margin_of_price_percent`.
 
 ### Fixed
-
-- On PostgreSQL, the status feed for integrations and the plate-cleared action no longer fail with a database error.
-- Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
 
 - Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.

@@ -30,17 +30,27 @@ def owned_completion_background(review_db, monkeypatch):
     original = threading.Thread
     workers = []
 
-    def thread(*args, **kwargs):
-        worker = original(*args, **kwargs)
-        if getattr(kwargs.get('target'), '__name__', None) == '_push_async':
-            workers.append(worker)
-        return worker
+    # Timer calls Thread.__init__ directly; keep a class so it initializes itself.
+    class TrackedThread(original):
+        def __init__(self, *args, **kwargs):
+            original.__init__(self, *args, **kwargs)
+            if getattr(kwargs.get('target'), '__name__', None) == '_push_async':
+                workers.append(self)
 
-    monkeypatch.setattr(threading, 'Thread', thread)
+    monkeypatch.setattr(threading, 'Thread', TrackedThread)
     yield
     for worker in workers:
         worker.join(timeout=10)
         assert not worker.is_alive(), 'Completion delivery outlived its fixture'
+
+
+def test_completion_thread_tracking_preserves_timer_initialization(owned_completion_background):
+    fired = []
+    timer = threading.Timer(0, lambda: fired.append(True))
+    timer.start()
+    timer.join(timeout=5)
+    assert not timer.is_alive()
+    assert fired == [True]
 
 
 @pytest.fixture

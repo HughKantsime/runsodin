@@ -472,6 +472,19 @@ def test_sqlite_compatibility_inventory_is_complete_and_current() -> None:
         raise AssertionError("generated qmark placeholder list was not detected")
 
 
+def test_sqlite_inventory_points_to_merged_education_policy_source() -> None:
+    payload = json.loads(
+        (ROOT / "ops/database_parity/sqlite_compatibility_inventory.json").read_text()
+    )
+    path = "backend/modules/organizations/education_policy_inventory.py"
+    sites = [item for item in payload["entries"] if item["path"] == path]
+    assert sites
+    lines = (ROOT / path).read_text().splitlines()
+    for site in sites:
+        assert lines[site["line"] - 1].strip() == site["source"]
+        assert site["classification"] == "dialect-neutral"
+
+
 def test_sqlite_compatibility_inventory_detects_dynamic_construction_forms() -> None:
     from ops.database_parity.sqlite_compatibility_inventory import scan_source
 

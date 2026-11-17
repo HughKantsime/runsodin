@@ -17,6 +17,22 @@ RANGES = {
 GUIDE_TITLE = 'PostgreSQL backups from 2.0.16 to 2.0.44'
 
 
+@pytest.fixture
+def supported_postgres(monkeypatch, tmp_path):
+    from modules.system import restore_coordinator as coordinator
+    from tests.test_contracts.test_postgres_version_gate import FakeEngine, SHOWS
+
+    engine = FakeEngine()
+    monkeypatch.setenv('ODIN_DATA_DIR', str(tmp_path))
+    monkeypatch.setattr(coordinator, 'create_database_engine', lambda *a, **k: engine)
+    monkeypatch.setattr(coordinator.restore_artifacts, 'sweep_stale',
+                        lambda *a, **k: {'databases': [], 'files': []})
+    yield engine
+    # A staged restore checks both the target and maintenance server.
+    assert engine.statements == SHOWS * 2
+    assert engine.disposed
+
+
 def refusal_text(era):
     return (f'This backup was made by ODIN {RANGES[era]} on PostgreSQL. '
             'This ODIN version cannot read it. Restore it on the ODIN version that made it, '
@@ -127,7 +143,7 @@ def test_both_routes_return_the_full_refusal_without_staging(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize('era', stage.UNRESTORABLE_POSTGRES_ERAS)
-def test_coordinator_keeps_pending_archive_and_manifest_without_quarantine(tmp_path, monkeypatch, era):
+def test_coordinator_keeps_pending_archive_and_manifest_without_quarantine(tmp_path, monkeypatch, era, supported_postgres):
     from modules.system import restore_coordinator as coordinator
     from tests.test_contracts.test_postgres_restore_boot_guard import _stage
     paths = _stage(tmp_path)
@@ -155,7 +171,7 @@ def test_refusal_links_to_documented_recovery():
     assert 'restore-pending-postgres.json' in runbook and 'restore_in_progress' in runbook
 
 
-def test_offline_apply_reaches_refusal_before_replacing_target(tmp_path, monkeypatch):
+def test_offline_apply_reaches_refusal_before_replacing_target(tmp_path, monkeypatch, supported_postgres):
     from modules.system import restore_coordinator as coordinator
     from tests.test_contracts.test_postgres_restore_boot_guard import _stage
     paths = _stage(tmp_path)

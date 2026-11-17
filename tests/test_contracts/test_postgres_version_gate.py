@@ -71,26 +71,64 @@ def test_refusal_reads_only_two_settings(number, version, entry):
 @pytest.mark.parametrize("number,version", [(170004, "17.4"), (150010, "15.10"), (140020, "14.20")])
 def test_untested_versions_proceed_with_one_warning(number, version, caplog, monkeypatch):
     from core.schema import bootstrap
+    from core import filament_evidence_backfill
     continued = Mock(return_value={"dialect": "postgresql"})
     monkeypatch.setattr(bootstrap, "_bootstrap_database_contract", continued)
+    backfill = Mock()
+    monkeypatch.setattr(filament_evidence_backfill, "backfill", backfill)
     engine = FakeEngine(number, version)
     with caplog.at_level(logging.WARNING):
         assert bootstrap_database(engine) == {"dialect": "postgresql"}
     continued.assert_called_once_with(engine, None)
+    backfill.assert_called_once_with(engine)
     assert engine.statements == SHOWS
     assert caplog.messages == [f"ODIN is tested on PostgreSQL 16. This server is PostgreSQL {version}."]
 
 
 def test_tested_version_proceeds_silently(caplog, monkeypatch):
     from core.schema import bootstrap
+    from core import filament_evidence_backfill
     continued = Mock(return_value={"dialect": "postgresql"})
     monkeypatch.setattr(bootstrap, "_bootstrap_database_contract", continued)
+    backfill = Mock()
+    monkeypatch.setattr(filament_evidence_backfill, "backfill", backfill)
     engine = FakeEngine()
     with caplog.at_level(logging.WARNING):
         assert bootstrap_database(engine) == {"dialect": "postgresql"}
     continued.assert_called_once_with(engine, None)
+    backfill.assert_called_once_with(engine)
     assert engine.statements == SHOWS
     assert caplog.messages == []
+
+
+@pytest.mark.parametrize("major", [16, 18])
+def test_version_check_precedes_schema_and_filament_backfill(monkeypatch, major):
+    from core.schema import bootstrap
+    from core import filament_evidence_backfill
+
+    engine = FakeEngine(major * 10000, f"{major}.0")
+    steps = []
+
+    def schema(engine_arg, backend_root):
+        assert engine_arg is engine and backend_root is None
+        assert engine.statements == SHOWS
+        steps.append("schema")
+        return {"dialect": "postgresql"}
+
+    def backfill(engine_arg):
+        assert engine_arg is engine
+        assert steps == ["schema"]
+        steps.append("backfill")
+
+    monkeypatch.setattr(bootstrap, "_bootstrap_database_contract", schema)
+    monkeypatch.setattr(filament_evidence_backfill, "backfill", backfill)
+    if major == 18:
+        with pytest.raises(MigrationError, match="does not support PostgreSQL 18"):
+            bootstrap_database(engine)
+        assert steps == []
+    else:
+        assert bootstrap_database(engine) == {"dialect": "postgresql"}
+        assert steps == ["schema", "backfill"]
 
 
 def test_sqlite_bootstrap_never_calls_gate_or_show(monkeypatch):

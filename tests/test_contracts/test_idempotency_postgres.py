@@ -26,7 +26,7 @@ from sqlalchemy import create_engine, inspect, text
 
 pytestmark = pytest.mark.postgresql
 ROOT = Path(__file__).resolve().parents[2]
-IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'  # PostgreSQL 16.15; read from the image by Dev on 2026-11-16.
 PASSWORD = 'Synthetic-retry-test-only-1!'
 
 
