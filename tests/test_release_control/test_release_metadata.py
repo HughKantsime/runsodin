@@ -9,9 +9,10 @@ def test_changelog_preserves_released_history_after_train_merge():
     root = Path(__file__).resolve().parents[2]
     changelog = (root / 'CHANGELOG.md').read_bytes()
     unreleased, released = changelog.split(b'## [2.3.1]', 1)
-    # Byte-for-byte history from tag v2.3.1; works in shallow CI checkouts too.
+    # Byte-for-byte released history as on main after 2.3.1 (e65d4477: the approved 2.3.0 wording
+    # correction is part of it); works in shallow CI checkouts too. Update at each release.
     assert hashlib.sha256(b'## [2.3.1]' + released).hexdigest() == (
-        '174d4017a911d89d3490ce0df8fd78dc90766639def105dd875059c73dc055af'
+        '49e443c077ef8cc57852caa52dbb374c33d1dcdf8f97a4e5729fe8d0ce68e210'
     )
     unreleased = unreleased.split(b'## [Unreleased]\n', 1)[1].split(b'\n## [', 1)[0]
     headings = [line for line in unreleased.splitlines() if line.startswith(b'### ')]
