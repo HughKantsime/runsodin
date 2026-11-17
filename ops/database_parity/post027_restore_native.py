@@ -64,6 +64,33 @@ with engine.begin() as c:
 engine.dispose()
 '''
 
+RELEASED060_ARCHIVE_SOURCE = '''
+import importlib,json,os,sys
+import core
+assert core.__file__.startswith(sys.argv[1]) and '/preserved' not in core.__file__,core.__file__
+from sqlalchemy import inspect,text
+from core.database_config import create_database_engine
+from core.schema import bootstrap_database
+from core.schema.bootstrap import POST027_MIGRATIONS
+assert POST027_MIGRATIONS[-1][0]=='python:060-print-files-stored-path-index'
+engine=create_database_engine(os.environ['DATABASE_URL'],role='restore',password_file=os.environ['DATABASE_PASSWORD_FILE'])
+bootstrap_database(engine)
+assert {'do_not_feed','do_not_feed_note'} <= {c['name'] for c in inspect(engine).get_columns('filament_slots')}
+with engine.begin() as c:
+    c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker',:v)"),{'v':json.dumps('source60')})
+    c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,ace_status) VALUES(990600,'Released 060','moonraker',4,'ready')"))
+    c.execute(text("INSERT INTO filament_library(id,brand,name,catalogue_type,catalogue_code,catalogue_colors) VALUES(990600,'Released 060','Fixture','ASA Aero','owned-code','[]')"))
+    c.execute(text("INSERT INTO print_files(id,filename,stored_path) VALUES(990600,'Shared','/owned/shared'),(990601,'Alias','/owned/shared')"))
+    c.execute(text('INSERT INTO spools(id,filament_id) VALUES(990600,990600)'))
+    c.execute(text('INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note) VALUES(990600,990600,2,:state,TRUE,:note)'),{'state':'{"id":"released060"}', 'note':'Reserved material'})
+    c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990600,'same',990600)"),{'state':'7'*32})
+    c.execute(text("UPDATE filament_slots SET filament_type='ASA_AERO' WHERE id=990600"))
+    for name in ('058_filament_catalogue','059_six_materials','060_print_files_stored_path_index'):
+        importlib.import_module('core.schema.migrations.'+name).validate(c)
+    print(json.dumps(sorted(row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations')))))
+engine.dispose()
+'''
+
 
 def main():
     with tempfile.TemporaryDirectory(prefix='post027-owned-') as folder:
@@ -215,6 +242,63 @@ def main():
         assert facts034['source_schema_version']==34 and facts034['prepared_schema_version']==current_era
         assert leftover()==0
         print('post027-native-published034-frozen-stage-live-upgrade-validated-pass',flush=True)
+
+        # Release 2.3.0 writes an independent archive, then exercises the frozen 060 stage.
+        # Before a later migration ships, simulate a future registry only for identification;
+        # all schema validation, import, bootstrap, staging and application use real sources.
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from core.schema import bootstrap, preserved060
+        from modules.system import pre026_restore_stage as stage
+        released060 = os.environ['POST027_RELEASED060_SOURCE']
+        old060 = fresh('post027_released060'); old060.dispose()
+        env060 = {**os.environ, 'DATABASE_URL':server+'/post027_released060', 'PYTHONPATH':released060, 'PYTHONDONTWRITEBYTECODE':'1'}
+        made060 = subprocess.run([sys.executable,'-c',RELEASED060_ARCHIVE_SOURCE,released060],cwd=root,env=env060,capture_output=True,text=True,timeout=600)
+        assert made060.returncode==0, made060.stderr[-4000:]
+        ledger060 = json.loads(made060.stdout.strip().splitlines()[-1])
+        assert set(ledger060)==set(preserved060.ledger_ids()) and 'python:060-print-files-stored-path-index' in ledger060
+        archive060 = root/'released060.dump'
+        b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(archive060),'--dbname',server+'/post027_released060'],maintenance,str(credential),root)
+        sha060 = b._sha256(archive060)
+        identify = stage.identify_contract
+        def identify_future(*a):
+            registry = bootstrap.POST027_MIGRATIONS + (('python:099-future-synthetic', 'core.schema.migrations.099_future'),)
+            with patch.object(bootstrap, 'POST027_MIGRATIONS', registry):
+                return identify(*a)
+        routing = patch.object(stage, 'identify_contract', identify_future) if set(ledger060) >= set(post_ids) else nullcontext()
+        with routing:
+            assert stage.identify_contract(archive060,target,str(credential),root) is stage.PRESERVED060
+            before = marker()
+            metadata060 = b.validate_postgres_restore(archive060,target,maintenance,**args)
+            assert metadata060['sha256']==sha060 and metadata060['source_schema_version']==60
+            assert metadata060['prepared_schema_version']==current_era and marker()==before
+            staged060 = b.stage_postgres_restore(archive060,target,maintenance,**args)
+            assert staged060['candidate_sha256']==sha060
+            release_sessions(engine)
+            result = b.apply_pending_postgres_restore(target,maintenance,acknowledgement=sha060,**args)
+            assert result['status']=='restored' and marker()=='source60'
+        with engine.connect() as c:
+            ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
+            assert ids==set(ledger060)|set(post_ids)
+            if any(module == 'core.schema.migrations.059_six_materials' for _, module in POST027_MIGRATIONS):
+                importlib.import_module('core.schema.migrations.059_six_materials').validate(c)
+            if current_era >= 60:
+                importlib.import_module('core.schema.migrations.060_print_files_stored_path_index').validate(c)
+            assert c.execute(text('SELECT printer_id,slot_number,tray_observation,do_not_feed,do_not_feed_note FROM filament_slots WHERE id=990600')).one()==(990600,2,'{"id":"released060"}',True,'Reserved material')
+            assert c.execute(text('SELECT slot_id,decision,spool_id FROM tray_confirmations WHERE state_id=:state'),{'state':'7'*32}).one()==(990600,'same',990600)
+            assert c.execute(text('SELECT ace_status FROM printers WHERE id=990600')).scalar_one()=='ready'
+            assert c.execute(text('SELECT catalogue_type,catalogue_code,catalogue_colors FROM filament_library WHERE id=990600')).one()==('ASA Aero','owned-code',[])
+            assert c.execute(text('SELECT filament_type::text FROM filament_slots WHERE id=990600')).scalar_one()=='ASA_AERO'
+            assert c.execute(text('SELECT id,stored_path FROM print_files ORDER BY id')).all()==[(990600,'/owned/shared'),(990601,'/owned/shared')]
+            importlib.import_module('core.schema.migrations.058_filament_catalogue').validate(c)
+            validate_executables(c)
+        again060 = bootstrap_database(engine)
+        assert again060['applied']==[] and bootstrap_database(engine)['schema_fingerprint']==again060['schema_fingerprint']
+        backups = b.postgres_paths(root).backups
+        assert b._sha256(archive060)==sha060 and leftover()==0 and has_index(engine)
+        assert not list(backups.glob('.odin-preserved060-*')) and not list(backups.glob('.odin-upgraded029-*'))
+        assert not list(restore_artifacts.journal_dir(backups).glob('.odin-preserved060-*'))
+        print('post027-native-released060-independent-archive-frozen-stage-validated-staged-applied-catalogue-materials-files-preserved-no-leftovers-pass',flush=True)
 
         # Release 2.2.0 writes an independent archive, then exercises the frozen 057 stage.
         # Before a later migration ships, simulate a future registry only for identification;
@@ -599,7 +683,7 @@ def main():
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_released060', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 
