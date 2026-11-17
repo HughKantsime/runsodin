@@ -4,6 +4,9 @@ Run in a fresh process: python3.11 -B ops/edu_readiness/request_profile.py
 Use --tree /path/to/detached/v2.0.45 to run this same instrument against an old
 checkout. --compare /path/to/detached/v2.0.45 runs both in fresh child processes.
 Each workload runs in one process, with 25 concurrent users and three repetitions.
+--sequential issues one request at a time and measures active wall/CPU spans.
+--statements lists SQL callers from one warm-up request per class (no parameters).
+--smoke runs just 50 measured operations once, after the usual warm-up.
 The shared fixture creates and removes a disposable database and signed licence.
 No lifespan, WebSocket cycles, production services, or network sockets are used.
 """
@@ -20,6 +23,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from contextlib import redirect_stdout
 from pathlib import Path
 from statistics import mean
@@ -83,6 +87,8 @@ def install(profile, app):
                 raise
             continue
         for name in names:
+            if not hasattr(module, name):
+                continue
             original, replacement = profile.wrap(module, name, label)
             aliases[original] = replacement
     # Already-imported routes and helpers retain from-import aliases.
@@ -170,7 +176,22 @@ def summarize(runs):
     return result
 
 
-async def run(tree):
+def smoke_workload(operations):
+    """Keep the shuffled mix, with proportional class counts rounded to 50."""
+    counts = Counter(operation.category for operation in operations)
+    quotas = {kind: counts[kind] * 50 // len(operations) for kind in CLASSES}
+    remainder = sorted(CLASSES, key=lambda kind: -(counts[kind] * 50 % len(operations)))
+    for kind in remainder[:50 - sum(quotas.values())]:
+        quotas[kind] += 1
+    selected = []
+    for operation in operations:
+        if quotas[operation.category]:
+            selected.append(operation)
+            quotas[operation.category] -= 1
+    return selected
+
+
+async def run(tree, sequential=False, statements=False, smoke=False):
     workload = load_workload(tree)
     import httpx
 
@@ -178,38 +199,67 @@ async def run(tree):
         os.environ["ODIN_AUDIT_KEY_DIR"] = str(Path(directory) / "audit")
         app, tokens = workload._prepare_database(Path(directory) / "odin.db")
         from core.db import engine
-        profile = Profile()
+        profile = Profile(sequential=sequential)
+        concurrency = 1 if sequential else 25
         try:
             install(profile, app)
             original = httpx.AsyncClient.request
+            warmup_operations = workload.warmup_workload()
+            trace_remaining = Counter(operation.category for operation in warmup_operations) if statements else Counter()
+            traces = {}
 
             async def measured(client, method, url, *args, **kwargs):
-                with profile.request(category(method, url)):
-                    return await original(client, method, url, *args, **kwargs)
+                kind = category(method, url)
+                capture = trace_remaining[kind] == 1
+                trace_remaining[kind] -= 1
+                with profile.request(kind, statements=capture) as sample:
+                    response = await original(client, method, url, *args, **kwargs)
+                if capture:
+                    traces[kind] = {"phase": "warmup", "method": method, "path": str(url),
+                                    "status": response.status_code, "statements": sample.sql_trace}
+                return response
 
             profile.patch(httpx.AsyncClient, "request", measured)
             runs = []
+            samples = []
             with profile.database(engine):
-                _, errors, leaks, _ = await workload._execute_repetition(app, tokens, workload.warmup_workload(), 25)
+                _, errors, leaks, _ = await workload._execute_repetition(app, tokens, warmup_operations, concurrency)
                 warmup = {"errors": errors, "tenant_leaks": leaks}
-                for number in range(3):
+                for number in range(1 if smoke else 3):
                     profile.samples.clear()
                     current_tokens = dict(tokens, churn=tokens["churn"][number * 50:(number + 1) * 50])
                     operations = workload.workload(list(range(10000 + number * 75, 10075 + number * 75)), number)
-                    _, errors, leaks, duration = await workload._execute_repetition(app, current_tokens, operations, 25)
+                    if smoke:
+                        operations = smoke_workload(operations)
+                    _, errors, leaks, duration = await workload._execute_repetition(app, current_tokens, operations, concurrency)
                     runs.append({"repetition": number + 1, "duration_seconds": duration,
                                  "errors": errors, "tenant_leaks": leaks, "table": profile.table()})
-            return {"schema_version": 1, "tree": str(tree), "python": sys.version.split()[0],
-                    "fastapi": __import__("fastapi").__version__, "concurrency": 25,
+                    samples.extend(profile.samples)
+            result = {"schema_version": 2, "tree": str(tree), "python": sys.version.split()[0],
+                    "fastapi": __import__("fastapi").__version__, "concurrency": concurrency, "smoke": smoke,
                     "warmup": warmup, "runs": runs, "mean": summarize(runs), "sources": profile.sources,
-                    "notes": ["Exclusive elapsed-time partition; suspension is included, not CPU time.",
+                    "notes": ["Exclusive active wall and process CPU time; async suspension belongs to framework_wait."
+                              if sequential else "Exclusive elapsed-time partition; suspension is included, not CPU time.",
                               "Framework wait includes routing, dependency scheduling, transport and profiling overhead.",
                               "Database events time cursor execution, not fetching, commit, pool wait or ORM conversion.",
                               "Inclusive SQL is diagnostic: do not add it to layers_ms.",
-                              "Three repetitions share one fixture, like api_load; no WebSocket or lifespan work.",
+                              "Repetitions share one fixture, like api_load; no WebSocket or lifespan work.",
                               "The fixture has no restricted parts; authorization/redaction costs with restricted data are not measured.",
                               "API key perimeter and fleet-lock enforcement are off, matching clean fixture defaults.",
                               "Changes below 5% of the before value are noise, not evidence of regression."]}
+            if sequential:
+                result["statistics"] = profile.distributions(samples)
+                result["notes"].extend([
+                    "Percentiles use individual measured requests pooled across repetitions; layer medians are not additive.",
+                    "Process CPU includes all process threads; overlapping work is partitioned, not thread-local CPU.",
+                    "Synchronous blocking inside a measured function remains part of its wall time.",
+                ])
+            if statements:
+                result["statement_requests"] = traces
+                result["notes"].append("SQL lists come from the last warm-up request per class; stack inspection is outside measured runs.")
+            if smoke:
+                result["notes"].append("50-operation smoke check only; not a performance measurement.")
+            return result
         finally:
             profile.restore()
             engine.dispose()
@@ -250,6 +300,22 @@ def render_text(result):
              f"Warmup errors/leaks: {len(result['warmup']['errors'])}/{result['warmup']['tenant_leaks']}",
              "Measured errors/leaks: " + ", ".join(f"{len(r['errors'])}/{r['tenant_leaks']}" for r in result["runs"])]
     kinds = (*CLASSES, "all")
+    if "statistics" in result:
+        lines.append("Median [p10, p90] per request | " + " | ".join(kinds))
+
+        def cells(values):
+            return " | ".join(f"{value['median']:.3f} [{value['p10']:.3f}, {value['p90']:.3f}]" for value in values)
+
+        table = result["statistics"]
+        lines.append("Requests | " + " | ".join(str(table[kind]["requests"]) for kind in kinds))
+        for metric in ("wall_ms", "cpu_ms", "statements", "sql_ms"):
+            lines.append(metric + " | " + cells(table[kind][metric] for kind in kinds))
+        for metric in ("layers_wall_ms", "layers_cpu_ms"):
+            for label in table["all"][metric]:
+                lines.append(f"{metric}.{label} | " + cells(table[kind][metric][label] for kind in kinds))
+        lines.extend(render_statements(result))
+        lines.extend(result["notes"])
+        return "\n".join(lines)
     lines.append("Mean milliseconds per request | " + " | ".join(kinds))
     for label in result["mean"]["all"]["layers_ms"]:
         lines.append(label + " | " + " | ".join(f"{result['mean'][kind]['layers_ms'].get(label, 0):.3f}" for kind in kinds))
@@ -261,8 +327,21 @@ def render_text(result):
     for label in result["mean"]["all"]["sql_by_layer_ms"]:
         lines.append(label + " | " + " | ".join(
             f"{result['mean'][kind]['sql_by_layer_ms'].get(label, 0):.3f}" for kind in kinds))
+    lines.extend(render_statements(result))
     lines.extend(result["notes"])
     return "\n".join(lines)
+
+
+def render_statements(result):
+    lines = []
+    for kind in CLASSES:
+        request = result.get("statement_requests", {}).get(kind)
+        if request is None:
+            continue
+        lines.append(f"SQL {kind}: {request['method']} {request['path']} ({request['phase']}, status {request['status']})")
+        for index, statement in enumerate(request["statements"], 1):
+            lines.append(f"{index}. {statement['source']} | {statement['statement']}")
+    return lines
 
 
 def isolate():
@@ -288,19 +367,24 @@ def main():
     parser.add_argument("--tree", type=Path, default=ROOT)
     parser.add_argument("--compare", type=Path, help="Existing detached checkout to compare with --tree")
     parser.add_argument("--format", choices=("json", "text"), default="text")
+    parser.add_argument("--sequential", action="store_true", help="Issue one request at a time; measure active wall and CPU time")
+    parser.add_argument("--statements", action="store_true", help="List SQL and callers from one warm-up request per class")
+    parser.add_argument("--smoke", action="store_true", help="Run only 50 measured operations once after warm-up")
     args = parser.parse_args()
     isolate()
     if args.compare:
         results = []
+        options = [flag for flag, enabled in (("--sequential", args.sequential), ("--statements", args.statements),
+                                              ("--smoke", args.smoke)) if enabled]
         for tree in (args.compare, args.tree):
             child = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), "--tree", str(tree.resolve()),
-                                    "--format", "json"], capture_output=True, text=True, check=True)
+                                    "--format", "json", *options], capture_output=True, text=True, check=True)
             results.append(json.loads(child.stdout))
         result = compare(*results)
     else:
         # Bootstrap prints progress; keep it out of JSON without creating a log.
         with redirect_stdout(io.StringIO()):
-            result = asyncio.run(run(args.tree.resolve()))
+            result = asyncio.run(run(args.tree.resolve(), args.sequential, args.statements, args.smoke))
     print(json.dumps(result, indent=2) if args.format == "json" else render_text(result))
 
 

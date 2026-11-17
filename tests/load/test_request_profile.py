@@ -3,6 +3,8 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
+from collections import Counter
 from types import SimpleNamespace
 
 import httpx
@@ -11,8 +13,8 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
-from ops.edu_readiness.request_profile import CLASSES, category, compare, install_framework, render_text, summarize
-from ops.edu_readiness.request_profile_layers import Profile, Sample, span
+from ops.edu_readiness.request_profile import CLASSES, category, compare, install_framework, render_text, smoke_workload, summarize
+from ops.edu_readiness.request_profile_layers import Profile, Sample, distribution, span, timed
 
 
 def test_nested_layers_are_exclusive_and_sum_to_total_within_five_percent():
@@ -67,9 +69,10 @@ def test_sql_events_count_errors_and_remove_listeners():
         engine.dispose()
 
 
-def test_real_asgi_layers_and_thread_sql_add_up_per_concurrent_request():
+@pytest.mark.parametrize("sequential", [False, True])
+def test_real_asgi_layers_and_thread_sql_add_up_per_request(sequential):
     app = FastAPI()
-    profile = Profile()
+    profile = Profile(sequential=sequential)
     engine = create_engine("sqlite:///:memory:")
 
     async def authenticate():
@@ -101,7 +104,12 @@ def test_real_asgi_layers_and_thread_sql_add_up_per_concurrent_request():
                     response = await client.get(path)
                 assert response.status_code == 200
                 assert response.headers["X-Profile-Test"] == "yes"
-            await asyncio.gather(*(one(path) for path in ["/api/jobs", "/api/permissions"] * 5))
+            paths = ["/api/jobs", "/api/permissions"] * 5
+            if sequential:
+                for path in paths:
+                    await one(path)
+            else:
+                await asyncio.gather(*(one(path) for path in paths))
 
     try:
         original, replacement = profile.wrap(dependencies, "authenticate", "auth.user_resolution")
@@ -118,6 +126,11 @@ def test_real_asgi_layers_and_thread_sql_add_up_per_concurrent_request():
             assert layers["auth.user_resolution"] > 0
             assert sample.sql_by_layer["auth.user_resolution"] > 0
             assert sample.statements == (2 if sample.category == "jobs" else 1)
+            if sequential:
+                cpu = sample.partition(cpu=True)
+                assert sum(cpu.values()) == pytest.approx((sample.cpu_ended - sample.cpu_started) * 1000, rel=.05)
+                assert cpu["route_handler"] > 0
+                assert cpu["database"] > 0
         assert profile.table()["all"]["statements"] == 1.5
     finally:
         profile.restore()
@@ -125,6 +138,219 @@ def test_real_asgi_layers_and_thread_sql_add_up_per_concurrent_request():
     assert app.middleware_stack is None
     assert app.routes[-1].dependant.call is permissions
     assert app.routes[-1].dependant.dependencies[0].call is authenticate
+
+
+def test_sequential_middleware_excludes_call_next_and_suspension():
+    app = FastAPI()
+    profile = Profile(sequential=True)
+    waits = []
+
+    @app.middleware("http")
+    async def headers(request, call_next):
+        started = time.perf_counter()
+        await asyncio.sleep(.02)
+        waits.append((time.perf_counter() - started) * 1000)
+        response = await call_next(request)
+        response.headers["X-Profile-Test"] = "yes"
+        return response
+
+    @app.get("/api/jobs")
+    async def jobs():
+        started = time.perf_counter()
+        await asyncio.sleep(.02)
+        waits.append((time.perf_counter() - started) * 1000)
+        return {"count": sum(range(1000))}
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://odin.test") as client:
+            with profile.request("jobs"):
+                response = await client.get("/api/jobs")
+            assert response.json() == {"count": 499500}
+            assert response.headers["X-Profile-Test"] == "yes"
+
+    try:
+        install_framework(profile, app)
+        asyncio.run(exercise())
+        sample = profile.samples[0]
+        layers = sample.partition()
+        assert layers["middleware.headers"] < waits[0] * .25
+        assert layers["route_handler"] < waits[1] * .25
+        assert layers["framework_wait"] >= sum(waits) * .95
+        assert sum(layers.values()) == pytest.approx((sample.ended - sample.started) * 1000, rel=.05)
+    finally:
+        profile.restore()
+
+
+@pytest.mark.parametrize("sequential", [False, True])
+def test_async_function_asgi_leaf_keeps_framework_work_out_of_middleware(sequential):
+    profile = Profile(sequential=sequential)
+
+    async def leaf(scope, receive, send):
+        # A busy segment proves the leaf itself is awaited under a framework
+        # span, even when it is a function rather than a callable class.
+        end = time.process_time() + .005
+        while time.process_time() < end:
+            pass
+
+    class Middleware:
+        def __init__(self):
+            self.app = leaf
+
+        async def __call__(self, scope, receive, send):
+            await self.app(scope, receive, send)
+
+    async def exercise():
+        with profile.request("auth"):
+            await profile.middleware(Middleware())({}, None, None)
+
+    try:
+        asyncio.run(exercise())
+        layers = profile.samples[0].partition()
+        assert layers["framework_wait"] >= 5
+        assert layers["middleware.Middleware"] < layers["framework_wait"] * .25
+    finally:
+        profile.restore()
+
+
+def test_active_timing_preserves_cancellation_and_context():
+    profile = Profile(sequential=True)
+    finished = []
+
+    async def blocked():
+        try:
+            await asyncio.sleep(10)
+        finally:
+            finished.append(True)
+
+    async def exercise():
+        with profile.request("auth"):
+            task = asyncio.create_task(timed(blocked, "auth", True)())
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        with span("outside_request"):
+            pass
+
+    asyncio.run(exercise())
+    assert finished == [True]
+    assert profile.samples[0].partition()["auth"] > 0
+    assert "outside_request" not in profile.samples[0].partition()
+
+
+def test_statement_trace_preserves_order_callers_and_omits_parameters():
+    engine = create_engine("sqlite:///:memory:")
+    profile = Profile(sequential=True)
+
+    def issue_sql():
+        with engine.connect() as connection:
+            connection.execute(text("SELECT :value"), {"value": "synthetic-private-value"})
+            with pytest.raises(OperationalError):
+                connection.execute(text("SELECT * FROM missing_table"))
+
+    try:
+        with profile.database(engine), profile.request("jobs", statements=True):
+            issue_sql()
+        sample = profile.samples[0]
+        assert [row["statement"] for row in sample.sql_trace] == ["SELECT ?", "SELECT * FROM missing_table"]
+        assert all(row["source"].endswith("test_request_profile.py:issue_sql") for row in sample.sql_trace)
+        assert sample.statements == len(sample.sql_trace)
+        assert "synthetic-private-value" not in json.dumps(sample.sql_trace)
+        with profile.database(engine), profile.request("jobs"):
+            issue_sql()
+        assert profile.samples[1].sql_trace is None
+    finally:
+        engine.dispose()
+
+
+def test_sequential_distributions_use_requests_and_include_zero_layers():
+    profile = Profile(sequential=True)
+    samples = [Sample("jobs", 0, wall, [(0, wall / 2, "route_handler", 1)],
+                      statements=index, sql_seconds=wall / 10, cpu_started=0, cpu_ended=wall / 4,
+                      cpu_intervals=[(0, wall / 8, "route_handler", 1)])
+               for index, wall in enumerate((1, 2, 10))]
+    table = profile.distributions(samples)
+    assert distribution([1, 2, 10]) == {"median": 2, "p10": 1.2, "p90": 8.4}
+    assert table["all"]["wall_ms"] == {"median": 2000, "p10": 1200, "p90": 8400}
+    assert table["jobs"]["cpu_ms"]["median"] == 500
+    assert table["jobs"]["layers_wall_ms"]["route_handler"]["median"] == 1000
+    assert table["jobs"]["layers_cpu_ms"]["route_handler"]["median"] == 250
+    assert table["jobs"]["layers_wall_ms"]["database"] == dict.fromkeys(("median", "p10", "p90"), 0)
+
+
+def test_smoke_selects_fifty_operations_with_proportional_class_coverage():
+    from ops.edu_readiness.api_load import workload
+
+    operations = workload(list(range(10000, 10075)), 0)
+    smoke = smoke_workload(operations)
+    assert len(smoke) == 50
+    assert smoke == smoke_workload(operations)
+    counts = Counter(operation.category for operation in smoke)
+    assert set(counts) == set(CLASSES)
+    for kind, count in Counter(operation.category for operation in operations).items():
+        assert abs(counts[kind] - count / 20) <= 1
+    assert len({op.path for op in smoke if op.category == "auth"}) == 2
+    assert len({op.path for op in smoke if op.category == "reports"}) == 2
+
+
+@pytest.mark.parametrize("smoke,expected", [(False, 3000), (True, 50)])
+def test_sequential_runner_warms_then_measures_and_traces_without_timing_stack_walks(monkeypatch, smoke, expected):
+    from ops.edu_readiness import api_load, request_profile, request_profile_layers
+
+    engine = create_engine("sqlite:///:memory:")
+    calls, active, maximum = [], 0, 0
+    original_execute = api_load._execute_repetition
+    caller_walks = []
+    original_source = request_profile_layers.statement_source
+
+    def caller():
+        caller_walks.append(True)
+        return original_source()
+
+    async def response(client, method, url, *args, **kwargs):
+        nonlocal active, maximum
+        active += 1
+        maximum = max(maximum, active)
+        try:
+            await asyncio.sleep(0)
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            return httpx.Response(201 if method == "POST" and url == "/api/jobs" else 200, json={})
+        finally:
+            active -= 1
+
+    async def execute(app, tokens, operations, concurrency):
+        calls.append((len(operations), concurrency))
+        return await original_execute(app, tokens, operations, concurrency)
+
+    fixture = SimpleNamespace(
+        _prepare_database=lambda path: (None, {kind: ["synthetic"] * 150 for kind in
+                                              ("viewer", "admin", "operator", "churn", "warmup_churn")}),
+        _execute_repetition=execute, warmup_workload=api_load.warmup_workload, workload=api_load.workload,
+    )
+    monkeypatch.setattr(request_profile, "load_workload", lambda tree: fixture)
+    monkeypatch.setattr(request_profile, "install", lambda profile, app: None)
+    monkeypatch.setitem(sys.modules, "core.db", SimpleNamespace(engine=engine))
+    monkeypatch.setattr(request_profile.os, "environ", request_profile.os.environ.copy())
+    monkeypatch.setattr(httpx.AsyncClient, "request", response)
+    monkeypatch.setattr(request_profile_layers, "statement_source", caller)
+    result = asyncio.run(request_profile.run(request_profile.ROOT, sequential=True, statements=True, smoke=smoke))
+    assert calls == [(100, 1)] + ([(50, 1)] if smoke else [(1000, 1)] * 3)
+    assert maximum == 1
+    assert result["statistics"]["all"]["requests"] == expected
+    assert result["statistics"]["all"]["statements"]["median"] == 1
+    assert not result["warmup"]["errors"]
+    assert all(not run["errors"] and not run["tenant_leaks"] for run in result["runs"])
+    assert set(result["statement_requests"]) == set(CLASSES)
+    assert len(caller_walks) == len(CLASSES)
+    assert all(trace["phase"] == "warmup" and len(trace["statements"]) == 1
+               for trace in result["statement_requests"].values())
+    rendered = render_text(result)
+    assert "Median [p10, p90]" in rendered
+    assert "layers_cpu_ms.database" in rendered
+    assert "SQL job_approve: POST" in rendered
+    assert json.loads(json.dumps(result))["statistics"]["all"]["requests"] == expected
+    assert httpx.AsyncClient.request is response
 
 
 @pytest.mark.parametrize("method,path,expected", [
