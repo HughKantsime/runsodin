@@ -100,9 +100,13 @@ def test_plate_clear_preserves_completion_after_waiting_selection(linked_job, mo
         connection.execute(text("UPDATE jobs SET status='waiting_plate_clear' WHERE id=:id"), {'id':identifier})
     original = Session.execute
     raced = []
+    selections = []
     def selected_then_completed(session, statement, *args, **kwargs):
         result = original(session, statement, *args, **kwargs)
-        if race and not raced and 'SELECT id FROM jobs' in str(statement) and "'waiting_plate_clear'" in str(statement):
+        waiting_selection = 'SELECT id FROM jobs' in str(statement) and "'waiting_plate_clear'" in str(statement)
+        if waiting_selection:
+            selections.append(str(statement))
+        if race and not raced and waiting_selection:
             raced.append(True)
             selected = result.fetchone()
             result.close()  # Release SQLite cursor before the other transaction commits.
@@ -122,6 +126,9 @@ def test_plate_clear_preserves_completion_after_waiting_selection(linked_job, mo
     monkeypatch.setattr(Session, 'execute', selected_then_completed)
     response = client.post('/printers/9/plate-cleared')
     assert response.status_code == 200, response.text
+    # The route selects a waiting job exactly once, so the hooked statement is that
+    # selection and not an earlier look-alike that would let the race go untested.
+    assert len(selections) == 1, selections
     if race:
         assert raced == [True]
         assert_completed(engine, order_id, identifier)
