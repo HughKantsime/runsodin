@@ -4,10 +4,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-- ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
-
 ### Added
 
+- ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
 - Printer cards and details now offer “Plate cleared” with a confirmation that says whether a waiting job will be released. A waiting job exists only where the installation's queue uses the `waiting_plate_clear` state; the standard PostgreSQL job enum does not include it. Home Assistant gains a Plate cleared button and a Plate needs clearing sensor, with the same state available on its Status entity.
 - Square stock replies now correctly report whether sending stock changes is enabled.
 - AMS humidity labels now run from dry to wet correctly and show N/A when there is no sensor reading. API readers of `humidity_label` will see different, now correct, words.
