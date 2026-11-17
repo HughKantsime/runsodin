@@ -111,9 +111,12 @@ def test_sqlite_plate_queries_keep_the_postgresql_safe_cast(plate_client, plate_
         assert plate_client.post(CLEAR_URL).status_code == 200
     finally:
         event.remove(engine, 'before_cursor_execute', capture)
-    assert len(statements) == 2
-    assert "CAST(j.status AS TEXT) = 'waiting_plate_clear'" in statements[0]
-    assert "CAST(status AS TEXT) = 'waiting_plate_clear'" in statements[1]
+    # Every query that names the legacy state compares it as text; a bare enum comparison fails on PostgreSQL.
+    assert len(statements) >= 2
+    for statement in statements:
+        compact = statement.replace(' ', '')
+        assert ("CAST(j.statusASTEXT)='waiting_plate_clear'" in compact
+                or "CAST(statusASTEXT)='waiting_plate_clear'" in compact), statement
 
 
 @pytest.mark.parametrize('plate_db', ['sqlite'], indirect=True)
