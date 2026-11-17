@@ -8,7 +8,10 @@ import Settings from '../../pages/admin/Settings'
 const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, fetch: vi.fn() }))
 vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: (name: string) => ['user_groups', 'sso', 'permissions'].includes(name), atUserLimit: () => false, maxUsers: 0 }) }))
-vi.mock('../../BrandingContext', () => ({ useBrandingUpdate: () => vi.fn(), applyBrandingFavicon: vi.fn() }))
+vi.mock('../../BrandingContext', async importOriginal => ({
+  ...await importOriginal<typeof import('../../BrandingContext')>(),
+  useBrandingUpdate: () => vi.fn(), applyBrandingFavicon: vi.fn(),
+}))
 const org = { id: 17, name: 'Fixture organization', member_count: 1, is_org: true }
 const users = [{ id: 3, username: 'Existing member', email: 'existing@example.test', role: 'viewer', group_id: 17, is_active: true }, { id: 4, username: 'Unassigned user', email: 'unassigned@example.test', role: 'operator', group_id: null, is_active: true }]
 const printers = [{ id: 7, name: 'Fixture printer', org_id: null }]
@@ -42,6 +45,28 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
 })
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.unstubAllGlobals(); vi.restoreAllMocks() })
+it('actual Settings renders both Fjord previews with the branding module contract', () => {
+  const family = localStorage.getItem('odin-theme-family')
+  const root = document.documentElement
+  const attributes = ['class', 'data-theme-family', 'data-fjord-density'].map(name => [name, root.getAttribute(name)] as const)
+  const view = show(<Settings />)
+  try {
+    fireEvent.change(screen.getByLabelText('Theme family'), { target: { value: 'fjord' } })
+    expect(screen.getByRole('img', { name: 'Fjord preview: light and dark' })).toBeVisible()
+    expect(screen.getByLabelText('Fjord light primary')).toHaveStyle({ background: '#9a5b00', color: '#ffffff' })
+    expect(screen.getByLabelText('Fjord dark primary')).toHaveStyle({ background: '#ffb340', color: '#1d1d1f' })
+    expect(screen.getByLabelText('Fjord light accent')).toHaveStyle({ background: '#f5a524' })
+    expect(screen.getByLabelText('Fjord dark accent')).toHaveStyle({ background: '#ffb340' })
+  } finally {
+    view.unmount()
+    if (family === null) localStorage.removeItem('odin-theme-family')
+    else localStorage.setItem('odin-theme-family', family)
+    for (const [name, value] of attributes) {
+      if (value === null) root.removeAttribute(name)
+      else root.setAttribute(name, value)
+    }
+  }
+})
 it('F11-11.5-02 add member sends exact org/user identifiers through actual API adapter and refreshes organizations', async () => {
   await manager(); const reads = calls('/api/orgs','GET').length; fireEvent.change(selectFor('Add member...'), { target: { value: '4' } }); fireEvent.click(screen.getByRole('button', { name: 'Add', exact: true }))
   await waitFor(() => expect(calls('/api/orgs/17/members','POST')).toHaveLength(1)); const options = calls('/api/orgs/17/members','POST')[0][1]
