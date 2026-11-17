@@ -368,3 +368,38 @@ export interface Camera {
   has_camera: boolean;
   display_order: number;
 }
+
+export interface PrintObject {
+  id: string;
+  number: number;
+  name: string | null;
+  state: 'printing' | 'skipped';
+  skippable: boolean;
+  bounds: { x: number; y: number; w: number; h: number } | null;
+  outline: null;
+}
+
+export interface PrintObjects {
+  printer_id: number;
+  supported: boolean;
+  reason_code: string | null;
+  reason: string | null;
+  retry_after_seconds: number | null;
+  experimental: boolean;
+  source: 'bambu_3mf' | null;
+  print: { print_job_id: number; job_id: number | null; name: string | null; plate: number | null } | null;
+  skipped_reported: boolean;
+  current_object_id: string | null;
+  can_skip: boolean;
+  max_selectable: number;
+  picture: { available: boolean; aspect: number | null; front_edge: 'bottom' | null };
+  objects: PrintObject[];
+}
+
+export interface SkipObjectsReceipt {
+  success: boolean;
+  outcome: 'accepted' | 'nothing_to_send';
+  sent: string[];
+  already_skipped: string[];
+  message: string;
+}

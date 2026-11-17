@@ -4,6 +4,14 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Skip objects (Experimental, Bambu Lab printers): while a print that ODIN started is running, choose objects on the plate to stop printing, from a numbered plate picture and a list on the printer page, on desktop and phone. It is off by default: a platform administrator turns it on per printer under Experimental features on the printer page. Built from how Bambu's own software sends this command and not yet verified on a real printer. API: `GET /api/printers/{id}/print-objects` lists the objects; `POST /api/printers/{id}/skip-objects` now requires `print_job_id` and is audited.
+
+### Fixed
+
+- Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
+
 ## [2.3.0] - 2026-11-15
 
 

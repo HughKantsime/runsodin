@@ -22,7 +22,8 @@ Output frames on stdout for mesh_isolation:
 Modes: ``upload`` (analysis + mesh), ``metadata`` (analysis only), ``education``
 (analysis + the Education rule: exactly one nonempty Metadata/plate_1.gcode),
 ``mesh`` (mesh only), ``plates`` (a ``P`` frame: per-plate summaries of a stored package),
-``platefacts`` (an ``F`` frame: per-plate facts and thumbnails for the plate cache).
+``platefacts`` (an ``F`` frame: per-plate facts and thumbnails for the plate cache),
+``plateobjects`` (an ``O`` frame: Bambu object ids and pick-picture bounds).
 """
 import json
 import os
@@ -119,15 +120,16 @@ def _plates(path: str) -> dict:
         return {"status": "bad_zip"}
 
 
-def _plate_facts(path: str) -> dict:
+def _plate_facts(path: str, *, objects=False) -> dict:
     """Per-plate facts and thumbnails of a package (plate_cache). Same archive bounds as _plates."""
     import zipfile
     from core.zip_bounds import ArchiveRefused, check_expansion, open_bounded
-    from modules.models_library.threemf_parser import plate_facts_from_archive
+    from modules.models_library.threemf_parser import plate_facts_from_archive, plate_objects_from_archive
     try:
         with open_bounded(path) as package:
             check_expansion(package)
-            return {"status": "ok", **plate_facts_from_archive(package)}
+            parser = plate_objects_from_archive if objects else plate_facts_from_archive
+            return {"status": "ok", **parser(package)}
     except ArchiveRefused as refused:
         if refused.reason == "compression_ratio":
             return {"status": "bad_zip"}
@@ -170,6 +172,9 @@ def main() -> int:
         with open(spawn, "w") as marker:
             marker.write(str(child.pid))
     try:
+        if mode == "plateobjects":
+            _frame(b"O", json.dumps(_plate_facts(INPUT, objects=True)).encode())
+            return 0
         if mode == "platefacts":
             _frame(b"F", json.dumps(_plate_facts(INPUT)).encode())
             return 0

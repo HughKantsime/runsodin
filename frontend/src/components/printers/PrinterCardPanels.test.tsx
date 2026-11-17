@@ -50,3 +50,14 @@ it('shows maintenance warning on the actual printer card', async () => {
  expect(await screen.findByText('Part fan replacement ordered')).toBeInTheDocument()
  expect(printerMaintenance.get).not.toHaveBeenCalled()
 })
+
+
+it.each(['bambu', 'elegoo', 'octoprint', 'ultimaker'])('shows Experimental notices only for Experimental types on a %s card', api_type => {
+ render(<PrinterCard printer={{ ...base, api_type }} {...props} />)
+ if (api_type === 'octoprint') expect(screen.getByTestId('experimental-opt-in')).toBeInTheDocument()
+ else if (api_type === 'ultimaker') expect(screen.getByTestId('experimental-monitor-only')).toBeInTheDocument()
+ else {
+   expect(screen.queryByTestId('experimental-opt-in')).not.toBeInTheDocument()
+   expect(screen.queryByText('Experimental features')).not.toBeInTheDocument()
+ }
+})

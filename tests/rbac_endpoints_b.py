@@ -283,6 +283,7 @@ ENDPOINTS = [
     ("GET",    "/api/printers/{printer_id}/hms-history",                     _api_read(),   None, "HMS history"),
     ("GET",    "/api/printers/{printer_id}/nozzle-status",                   _api_read(),   None, "Nozzle status (H2D dual-nozzle aware)"),
     ("GET",    "/api/printers/{printer_id}/current-plate-thumbnail",         _api_read(),   None, "Current plate thumbnail"),
+    ("GET",    "/api/printers/{printer_id}/print-objects",         _api_read(),   None, "Running print objects"),
     ("GET",    "/api/printers/{printer_id}/nozzle",                          _api_read(),   None, "Get current nozzle"),
     ("GET",    "/api/printers/{printer_id}/nozzle/history",                  _api_read(),   None, "Nozzle history"),
     ("POST",   "/api/printers/{printer_id}/nozzle",                          _op_write(),   {},   "Install nozzle"),

@@ -49,7 +49,7 @@ ENDPOINTS = [
     ("POST", "/api/printers/{printer_id}/lights", _op_write(), None, "Lights"),
     ("POST", "/api/printers/{printer_id}/sync-ams", _op_write(), None, "Sync AMS"),
     ("POST", "/api/printers/{printer_id}/clear-errors", _op_write(), None, "Clear HMS errors (Bambu)"),
-    ("POST", "/api/printers/{printer_id}/skip-objects", _op_write(), {"object_ids": [0]}, "Skip objects (Bambu)"),
+    ("POST", "/api/printers/{printer_id}/skip-objects", _op_write(), {"print_job_id": 1, "object_ids": [15]}, "Skip objects (Bambu)"),
     ("POST", "/api/printers/{printer_id}/speed", _op_write(), {"speed": 2}, "Set print speed (Bambu)"),
     ("GET",  "/api/printers/{printer_id}/live-status", _api_read(), None, "Live status"),
     ("GET",  "/api/printers/live-status", _api_read(), None, "All live status"),

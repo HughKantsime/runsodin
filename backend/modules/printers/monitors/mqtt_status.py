@@ -101,6 +101,8 @@ def handle_status(self, status, generation, runtime):
         # the token observation must be claimed/quarantined first.
         speed_fields = runtime.parse_bambu_speed(raw)
         for key, value in raw.items():
+            if key == 's_obj':
+                continue  # bound to the current print after lifecycle transitions below
             if key in ('nozzle_temper_1', 'nozzle_target_temper_1'):
                 value = runtime.finite_nozzle_measurement(value)
             elif key in ('spd_lvl', 'spd_mag'):
@@ -568,6 +570,8 @@ def handle_status(self, status, generation, runtime):
                 printer_events.discover_camera(self.printer_id, full_url)
                 self._camera_discovered = True
 
+        from modules.printers.monitor_commands import observe_skip_state
+        observe_skip_state(self, raw, retained=getattr(status, 'mqtt_retained', None) is True)
         refresh_ams_remain(self)
 
         # Update progress if we have an active job (throttled to every 5 seconds)

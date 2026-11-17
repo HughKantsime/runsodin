@@ -18,6 +18,7 @@ ROUTES = [
     "printers.routes_nozzle",
     "printers.routes_filament_slots",
     "printers.routes_plate_thumbnail",
+    "printers.routes_print_objects",
 ]
 
 TABLES = [

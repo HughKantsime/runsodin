@@ -218,12 +218,12 @@ class TestByteEquivalence:
             "print": {"sequence_id": "0", "command": "clean_print_error"}
         }
 
-    def test_skip_objects_stringifies_ids(self, adapter):
+    def test_skip_objects_preserves_integer_ids(self, adapter):
         adapter.skip_objects([1, 2, 3])
         d = _last_published_dict(adapter)["print"]
         assert d["command"] == "skip_objects"
-        # legacy stringifies each ID
-        assert d["obj_list"] == ["1", "2", "3"]
+        # identify_id values stay integers on the wire
+        assert d["obj_list"] == [1, 2, 3]
 
     def test_set_print_speed_levels(self, adapter):
         for level in (1, 2, 3, 4):
