@@ -32,8 +32,8 @@ def resolve_alert_scope(db, *, printer_id=None, job_id=None, spool_id=None):
 
 def education_notification_scope(db, *, org_id=None, job_id=None, printer_id=None):
     """Fail closed for Education mode and Education-owned jobs/active printers."""
-    mode = db.execute(text("SELECT value FROM system_config WHERE key='education_mode'")).scalar()
-    if str(mode).strip('"').lower() == 'true':
+    from core.education_mode import education_mode_enabled
+    if education_mode_enabled(db):
         return True
     if job_id is not None and db.execute(text(
         'SELECT 1 FROM education_submissions WHERE job_id=:job LIMIT 1'), {'job': job_id}).first():

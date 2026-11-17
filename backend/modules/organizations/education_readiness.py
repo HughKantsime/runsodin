@@ -5,9 +5,8 @@ from core.db import get_db_type
 
 
 def readiness_for(db: Session, effective_org: int) -> dict:
-    mode = db.execute(
-        text("SELECT value FROM system_config WHERE key='education_mode'")
-    ).fetchone()
+    from core.education_mode import education_mode_enabled
+    mode = education_mode_enabled(db)
     oidc = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled IS TRUE LIMIT 1")).fetchone()
     oidc_map = oidc._mapping if oidc else {}
     provider = oidc_map.get("provider_type") or "microsoft"
@@ -64,7 +63,7 @@ def readiness_for(db: Session, effective_org: int) -> dict:
 
     return {
         "education_license": True,
-        "education_mode": bool(mode and mode.value == "true"),
+        "education_mode": mode,
         "oidc": {
             "ready": oidc_ready,
             "provider": provider,

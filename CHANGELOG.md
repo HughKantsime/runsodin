@@ -7,11 +7,12 @@ All notable changes to O.D.I.N. are documented here.
 ## [2.3.1] - 2026-11-17
 
 
-<!-- summary: A fix for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again. -->
+<!-- summary: Fixes for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again, and Education mode shows as on once it is switched on. -->
 
 ### Fixed
 
 - On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
+- On PostgreSQL, Education mode still showed as off in the web app and in the Education readiness check after an administrator switched it on. It now shows as on. Installs on SQLite were not affected.
 
 ## [2.3.0] - 2026-11-17
 

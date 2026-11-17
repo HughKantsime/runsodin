@@ -206,8 +206,8 @@ async def remove_favicon(current_user: dict = Depends(require_superadmin(scope="
 @router.get("/settings/education-mode", tags=["Settings"])
 async def get_education_mode(db: Session = Depends(get_db)):
     """Get education mode status. Public (frontend needs this at load time)."""
-    row = db.execute(text("SELECT value FROM system_config WHERE key = 'education_mode'")).fetchone()
-    return {"enabled": row[0] == "true" if row else False}
+    from core.education_mode import education_mode_enabled
+    return {"enabled": education_mode_enabled(db)}
 
 
 @router.put("/settings/education-mode", tags=["Settings"])
