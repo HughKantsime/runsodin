@@ -102,7 +102,7 @@ def test_plate_clear_preserves_completion_after_waiting_selection(linked_job, mo
     raced = []
     def selected_then_completed(session, statement, *args, **kwargs):
         result = original(session, statement, *args, **kwargs)
-        if race and not raced and 'SELECT id FROM jobs' in str(statement) and "status = 'waiting_plate_clear'" in str(statement):
+        if race and not raced and 'SELECT id FROM jobs' in str(statement) and "'waiting_plate_clear'" in str(statement):
             raced.append(True)
             selected = result.fetchone()
             result.close()  # Release SQLite cursor before the other transaction commits.
