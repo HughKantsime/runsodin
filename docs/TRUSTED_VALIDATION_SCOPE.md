@@ -6,6 +6,16 @@ order; console status prints as each component finishes. This page says what eac
 proves and what it does not. A behaviour missing from every "proves" column has
 no trusted-validation evidence. It is not covered by a stage this page forgot.
 
+The npm audit gate contains a pending build-only acceptance for picomatch advisory
+GHSA-fc5q-39xc-vjpf, expiring at **2026-12-17T00:00:00Z**. Its affected packages
+are development tools using project glob patterns; the pinned Dockerfile copies
+only the built frontend into the runtime image. The acceptance pins the current
+lockfile, Dockerfile, versions and dependency graph, and requires a separate
+isolated production-only audit with no findings. It remains locked until Shane
+approves and Dev records `approved_by` and `approved_on` in a separate commit;
+both fields are empty. Policy tests use recorded full and production-only npm
+audit captures. The expired braces acceptance remains refused.
+
 ## Licence posture
 
 The release image ships unlicensed. CV04 (candidate) and CV05 (database parity)
