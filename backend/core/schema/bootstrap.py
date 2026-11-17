@@ -710,4 +710,8 @@ def _bootstrap_database_contract(
 
 def bootstrap_database(engine: Engine, backend_root: Path | None = None) -> dict[str, object]:
     """Ordinary startup always uses the current schema contract."""
+    if engine.dialect.name == "postgresql":
+        from core.schema.postgres_version import check_postgres_version
+        with engine.connect() as connection:
+            check_postgres_version(connection)
     return _bootstrap_database_contract(engine,backend_root)
