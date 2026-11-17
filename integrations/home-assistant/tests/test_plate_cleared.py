@@ -17,7 +17,7 @@ async def test_press_calls_odin_and_refreshes_state(hass, aioclient_mock, status
     aioclient_mock.get(STATUS_URL, json=status_next)
     aioclient_mock.post(URL + '/api/v1/printers/1/plate-cleared', json={'success': True, 'message': 'Plate clear recorded'})
     await hass.services.async_call('button', 'press', {'entity_id': 'button.x1c_plate_cleared'}, blocking=True)
-    assert [r['method'] for r in aioclient_mock.mock_calls] == ['POST', 'GET']
+    assert [r[0] for r in aioclient_mock.mock_calls] == ['POST', 'GET']
     assert hass.states.get('binary_sensor.x1c_plate_needs_clearing').state == 'off'
     assert hass.states.get('sensor.x1c_status').attributes['plate_clear']['needed'] is False
 
