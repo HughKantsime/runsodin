@@ -78,6 +78,7 @@ export interface Printer {
   training_warnings?: string[];
   feeding_slot?: number | null;
   chamber_temp?: number | null;
+  plate_clear?: { needed: boolean; has_waiting_job: boolean; releases_job: { id: number; name: string } | null; last_print_ended_at: string | null } | null;
   plate_clear_confirmed_at?: string | null;
   ace_status?: string | null;
   // Reported by GET /api/printers; null for a manual printer (no api_type).

@@ -15,6 +15,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Printer cards and details now offer “Plate cleared” with a confirmation that says whether a waiting job will be released. A waiting job exists only where the installation's queue uses the `waiting_plate_clear` state; the standard PostgreSQL job enum does not include it. Home Assistant gains a Plate cleared button and a Plate needs clearing sensor, with the same state available on its Status entity.
+
 - If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason. Failure counts and success rates then reflect what happened, and you can undo the change. Recorded filament and cost are not changed.
 - Six more Bambu materials are recognised: ASA-CF, ASA Aero, PET-CF, PPA-CF, PPS-CF and TPU for AMS. On Bambu AMS printers and the Kobra S1, a print that needs one of them starts only when the slot reports exactly that material. Before, ODIN stored some under a similar material's name (for example PET-CF as PETG-CF) and then refused the print at the final check. Existing slots correct themselves on the next printer report or reassignment; imported catalogue entries previously marked Other are corrected automatically. Generic Moonraker printers still have no material-verification gate. Education continues to refuse abrasive materials, and Education AMS reads do not yet accept these six materials.
 - Import your Bambu filament catalogue and pick spools by their exact Bambu name. ODIN shows that name on spools and slots; material checks before a print are unchanged.

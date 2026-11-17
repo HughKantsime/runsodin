@@ -89,7 +89,9 @@
       "queued_hours": {"name": "Queued hours"},
       "queued_unestimated": {"name": "Queued jobs without estimate"}
     },
+    "button": {"plate_cleared": {"name": "Plate cleared"}},
     "binary_sensor": {
+      "plate_needs_clearing": {"name": "Plate needs clearing"},
       "online": {"name": "Online"},
       "problem": {"name": "Needs attention"},
       "out_of_service": {"name": "Out of service"}

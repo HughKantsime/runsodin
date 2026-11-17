@@ -20,6 +20,7 @@ from core.rbac import (
 from core.responses import build_next_actions, next_action
 import core.crypto as crypto
 from modules.printers.models import Printer
+from modules.printers.schemas import PlateClearConfirmation, PlateClearState
 from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
 from modules.printers.resume_guard import may_suggest_pause, resume_refusal
 
@@ -395,24 +396,33 @@ async def plate_cleared(
     printer_id: int,
     current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
+    body: PlateClearConfirmation | None = None,
 ):
-    """Confirm plate is cleared, allowing the next queued job to dispatch."""
+    """Confirm plate is cleared, allowing the next queued job to dispatch.
+
+    Clients without a confirmation step (including Home Assistant) may omit the
+    precondition and retain the legacy behavior: release the current selection.
+    """
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
-    waiting = db.execute(
-        text("""
-            SELECT id FROM jobs
-            WHERE printer_id = :pid AND status = 'waiting_plate_clear'
-            ORDER BY priority ASC, (queue_position IS NULL) ASC, queue_position ASC, created_at ASC, id ASC LIMIT 1
-        """),
-        {"pid": printer_id},
-    ).fetchone()
-
-    from modules.printers.plate_clear import record_plate_clear
+    from modules.printers.plate_clear import plate_clear_states, record_plate_clear, select_plate_clear
+    waiting_ids, _, _ = select_plate_clear(db, [printer_id])
+    selected_id = waiting_ids.get(printer_id)
+    if body is not None and (
+        ('expected_release_job_id' in body.model_fields_set and body.expected_release_job_id != selected_id)
+        or ('expected_has_waiting_job' in body.model_fields_set
+            and body.expected_has_waiting_job != (selected_id is not None))
+    ):
+        raise HTTPException(status_code=409, detail={
+            'message': 'The queue changed since you looked. Check what is waiting and confirm again.',
+            'plate_clear': PlateClearState.model_validate(
+                plate_clear_states(db, [printer], current_user)[printer_id]).model_dump(mode='json'),
+        })
+    waiting = (waiting_ids[printer_id],) if printer_id in waiting_ids else None
     if not waiting:
         # Nothing to release, but the plate WAS cleared: record it against the last finished
         # print so plate_clear_confirmed_at is set (Home Assistant shows the printer as ready).

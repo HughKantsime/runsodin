@@ -89,8 +89,12 @@ def _previous_names(db, rows):
     return names
 
 
-def display_names(db, kind, ids, user=None):
-    """One bounded batch query, with the same tenant visibility as source names."""
+def display_names(db, kind, ids, user=None, *, visibility_checked=False):
+    """One bounded batch query, with the same tenant visibility as source names.
+
+    ``visibility_checked`` is for source-owned readers that already applied the
+    controlled job predicate in a batch. Model and file organization checks remain.
+    """
     from core.rbac import check_org_access
     ids = list(dict.fromkeys(ids))
     result = {}
@@ -100,7 +104,7 @@ def display_names(db, kind, ids, user=None):
         previous = _previous_names(db, rows) if kind == 'job' else {}
         for row in rows:
             from core.controlled_parts import allowed
-            if user is not None and not allowed(db, kind, row['id'], user):
+            if user is not None and not visibility_checked and not allowed(db, kind, row['id'], user):
                 result[row['id']] = 'Controlled work'
                 continue
             model = row['model_name'] if user is None or check_org_access(user, row['model_org']) else None

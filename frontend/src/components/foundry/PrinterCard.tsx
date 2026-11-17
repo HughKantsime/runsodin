@@ -1,3 +1,4 @@
+import PlateCleared from '../printers/PlateCleared'
 import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Modal from '../ui/Modal'
@@ -56,7 +57,7 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
       {!!next.ams_slot_nozzles?.length && <p className="f-mono">{next.ams_slot_nozzles.map(({ source_index, slot_number, nozzle }) => <span key={source_index}>{nozzle ? `${nozzle === 'right' ? 'Right' : 'Left'} nozzle · ` : ''}{slotLabel(printer.api_type, slot_number)}{source_index < next.ams_slot_nozzles!.length - 1 ? ' · ' : ''}</span>)}</p>}
       {!next.ams_slot_nozzles?.length && next.ams_mapping?.length > 0 && <p className="f-mono">{next.ams_mapping.filter(n => Number.isInteger(n) && n >= 0 && n < 16).map(n => slotLabel('bambu', n + 1)).join(' · ')}</p>}
     </div>}
-    {Number.isFinite(utc(printer.plate_clear_confirmed_at)) && <p className="f-mono">Plate clear confirmed <time dateTime={printer.plate_clear_confirmed_at!} title={new Date(utc(printer.plate_clear_confirmed_at)).toLocaleString()}>{new Date(utc(printer.plate_clear_confirmed_at)).toLocaleString()}</time></p>}
+    <PlateCleared printer={printer} />
     {(slots || printer.filament_slots?.length > 0) && <div className={slotVariant === 'compact' ? 'f-slots f-slots-compact' : 'f-slots'} style={slotVariant === 'compact' ? { gridTemplateColumns: `repeat(${Math.min(5, printer.filament_slots?.length || 4)}, minmax(0, 1fr))` } : undefined}>{slots || printer.filament_slots.map(slot => <SlotTile key={slot.slot_number} apiType={printer.api_type} slot={slot} variant={slotVariant} label={slotVariant === 'compact' && printer.api_type === 'bambu' && slot.slot_number <= 16 && (isDualNozzle(printer.machine_type) || printer.filament_slots.some(s => s.slot_number > 4)) ? `${Math.floor((slot.slot_number - 1) / 4) + 1}·${(slot.slot_number - 1) % 4 + 1}` : undefined} state={printer.feeding_slot === slot.slot_number ? 'feeding' : undefined} />)}</div>}
     {!slots && slotVariant === 'compact' && printer.filament_slots?.length > 0 && <>
       <button type="button" className="min-h-11 text-left underline" aria-expanded={filamentsOpen}

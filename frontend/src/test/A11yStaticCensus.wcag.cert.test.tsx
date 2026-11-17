@@ -137,6 +137,7 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
     'components/ui/ExpandableNote.tsx', // Full note
     'components/foundry/PrinterCard.tsx', // Filaments
     'components/inventory/SpoolCard.tsx', // Filament name
+    'components/printers/PlateCleared.tsx', // Plate-clear confirmation
   ]
   for (const file of disclosures) {
     expect(C.modalUsages.filter(modal => modal.file === file)).toEqual([
@@ -151,7 +152,7 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   expect(summary.custom_dialog_role_elements).toHaveLength(24)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
   expect(dialogOnly).toBe(22)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(62)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(63)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 
