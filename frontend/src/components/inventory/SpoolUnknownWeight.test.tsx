@@ -61,6 +61,21 @@ it('an unchanged core weight is not sent, and an out-of-range one is refused', (
   expect(screen.getByRole('alert')).toHaveTextContent('Empty-spool weight must be from 0 to 10000 g')
 })
 
+it.each([0, 180, 250])('a missing core weight stays blank until the operator enters %s g', core => {
+  const onSave = vi.fn()
+  const view = render(<EditSpoolModal spool={{ ...base, spool_weight_g: null }} onClose={noop} onSave={onSave} />)
+  const input = screen.getByLabelText('Empty spool weight (g)')
+  expect(input).toHaveValue(null)
+  const form = view.container.ownerDocument.querySelector('form')!
+  fireEvent.change(screen.getByPlaceholderText('Any notes...'), { target: { value: 'note' } })
+  fireEvent.submit(form)
+  expect(onSave.mock.calls[0][0]).not.toHaveProperty('spool_weight_g')
+  fireEvent.change(input, { target: { value: String(core) } })
+  fireEvent.submit(form)
+  expect(onSave.mock.calls[1][0].spool_weight_g).toBe(core)
+  expect(onSave.mock.calls[1][0]).not.toHaveProperty('remaining_weight_g')
+})
+
 it('editing an unknown balance does not turn it into 0', () => {
   const onSave = vi.fn()
   const view = render(<EditSpoolModal spool={base} onClose={noop} onSave={onSave} />)

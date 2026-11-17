@@ -227,7 +227,7 @@ def is_interactive_session(current_user: Optional[dict]) -> bool:
     return not current_user.get("_token_scopes")
 
 
-def require_interactive_session():
+def require_interactive_session(detail: str = CREDENTIAL_ROUTE_DETAIL):
     """Route dependency for credential routes (see INTERACTIVE_AUTH_KINDS)."""
     from core.dependencies import get_current_user
 
@@ -235,7 +235,7 @@ def require_interactive_session():
         if not current_user:
             raise HTTPException(status_code=401, detail="Not authenticated")
         if not is_interactive_session(current_user):
-            raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
+            raise HTTPException(status_code=403, detail=detail)
         return current_user
     return mark_token_scope_checker(interactive_checker, "interactive")
 

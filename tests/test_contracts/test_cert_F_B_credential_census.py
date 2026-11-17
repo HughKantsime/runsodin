@@ -233,6 +233,17 @@ def test_log_and_bundle_reads_are_interactive_only():
     assert REQUIRED_INTERACTIVE_READS <= set(enforced), REQUIRED_INTERACTIVE_READS - set(enforced)
 
 
+# Policy switches that can remove protections require a signed-in administrator.
+REQUIRED_INTERACTIVE_SETTINGS = {
+    ("PUT", "/config/require-mfa"), ("PUT", "/settings/education-mode"),
+}
+
+
+def test_policy_switches_are_interactive_only():
+    _, enforced = _collect()
+    assert REQUIRED_INTERACTIVE_SETTINGS <= set(enforced), REQUIRED_INTERACTIVE_SETTINGS - set(enforced)
+
+
 def test_the_census_actually_found_the_known_guarded_routes():
     # Guard against a silently empty census (e.g. a parse regression).
     guarded, enforced = _collect()

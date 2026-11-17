@@ -15,7 +15,7 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
   const [form, setForm] = useState({
     filament_id: String(spool?.filament_id || ''),
     remaining_weight_g: spool?.remaining_weight_g ?? '',
-    spool_weight_g: spool?.spool_weight_g ?? 250,
+    spool_weight_g: spool?.spool_weight_g ?? '',
     pa_profile: spool?.pa_profile ?? '',
     low_stock_threshold_g: spool?.low_stock_threshold_g ?? 50,
     notes: spool?.notes || '',
@@ -45,15 +45,15 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
       return;
     }
     const coreText = String(form.spool_weight_g).trim();
-    const core = Number(coreText);
-    if (coreText === '' || !Number.isFinite(core) || core < 0 || core > 10000) {
+    const core = coreText === '' ? null : Number(coreText);
+    if ((core === null && spool.spool_weight_g != null) || (core !== null && (!Number.isFinite(core) || core < 0 || core > 10000))) {
       setError('Empty-spool weight must be from 0 to 10000 g.');
       return;
     }
     onSave({
       id: spool.id,
       ...(form.filament_id !== String(spool.filament_id || '') ? { filament_id: Number(form.filament_id) } : {}),
-      ...(core !== (spool.spool_weight_g ?? 250) ? { spool_weight_g: core } : {}),
+      ...(core !== null && core !== spool.spool_weight_g ? { spool_weight_g: core } : {}),
       // Only a changed link is sent: an existing (possibly duplicate) link is not re-written.
       ...(spoolmanId !== (spool.spoolman_spool_id ?? null) ? { spoolman_spool_id: spoolmanId } : {}),
       pa_profile: form.pa_profile || null,

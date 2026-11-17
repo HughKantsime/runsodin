@@ -583,6 +583,10 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
         raise HTTPException(status_code=404, detail="Spool not found")
     if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
+    if spool.spool_weight_g is None:
+        raise HTTPException(status_code=409, detail=(
+            "This spool has no empty-spool weight on record. Edit the spool, enter the "
+            "weight of the empty spool, then weigh it again."))
 
     # Calculate net filament weight
     old_weight = spool.remaining_weight_g
