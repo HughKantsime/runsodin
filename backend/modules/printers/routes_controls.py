@@ -3,7 +3,7 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Body, APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -271,26 +271,73 @@ async def clear_printer_errors(printer_id: int, current_user: dict = Depends(req
 
 
 @router.post("/printers/{printer_id}/skip-objects", tags=["Printers"])
-async def skip_printer_objects(
+def skip_printer_objects(
     printer_id: int,
-    body: dict,
+    body: object = Body(None),
     current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
-    """Skip objects during an active Bambu print. Body: {"object_ids": [0, 1]}"""
+    """Send selected identify_id values once, fenced to the listed running print."""
+    from core.audit import log_audit
+    from modules.printers.print_objects import running_print_objects
+    from modules.printers.monitor_commands import request_command
+    from starlette.responses import JSONResponse
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
+    if not printer or not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
-    if printer.api_type != "bambu":
-        raise HTTPException(status_code=400, detail="Skip objects is only supported on Bambu printers")
-    object_ids = body.get("object_ids", [])
-    if not isinstance(object_ids, list) or not object_ids or any(type(value) is not int or value < 0 for value in object_ids):
-        raise HTTPException(status_code=422, detail="object_ids must be a non-empty list of integers")
-    if _bambu_command_direct(printer, "skip_objects", object_ids):
-        return {"success": True, "message": f"Skip command sent for objects {object_ids}"}
-    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+    invalid = "Send print_job_id and object_ids exactly as the object list gave them (1 to 64 objects)."
+    if type(body) is not dict:
+        raise OdinError('invalid_request', invalid, status=422)
+    job_id, ids = body.get('print_job_id'), body.get('object_ids')
+    if (type(job_id) is not int or job_id <= 0 or type(ids) is not list or not 1 <= len(ids) <= 64
+            or any(not (type(i) is str and 1 <= len(i) <= 128 or type(i) is int and i >= 0) for i in ids)):
+        raise OdinError('invalid_request', invalid, status=422)
+    ids = [str(i) for i in ids]
+    if len(set(ids)) != len(ids):
+        raise OdinError('invalid_request', invalid, status=422)
+    listing = running_print_objects(db, printer, current_user)
+    if not listing['supported']:
+        error = OdinError(listing['reason_code'], listing['reason'], status=409)
+        if listing['retry_after_seconds'] is not None:
+            return JSONResponse(error.to_envelope(), status_code=409,
+                                headers={'Retry-After': str(listing['retry_after_seconds'])})
+        raise error
+    changed = 'The print on this printer has changed since the list was loaded. Reload the list and choose again.'
+    if job_id != listing['print']['print_job_id']:
+        raise OdinError('print_changed', changed, status=409)
+    objects = {o['id']: o for o in listing['objects']}
+    for identifier in ids:
+        if identifier not in objects:
+            raise OdinError('unknown_object', f'Object {identifier} is not in the running print. Reload the list and choose again.', status=422)
+    already = [i for i in ids if objects[i]['state'] == 'skipped']
+    pending = [i for i in ids if i not in already]
+    if not pending:
+        return dict(success=True, outcome='nothing_to_send', sent=[], already_skipped=already,
+                    message='That object is already skipped.' if len(already) == 1 else 'Those objects are already skipped.')
+    if len(pending) >= sum(o['state'] == 'printing' for o in objects.values()):
+        raise OdinError('would_skip_everything', 'That would skip every object left in this print. To end the print, use Stop.', status=409)
+    outcome = request_command(printer_id, 'skip_objects', print_job_id=job_id, object_ids=[int(i) for i in pending])
+    action = {'accepted': 'requested', 'unavailable': 'failed', 'refused': 'failed'}.get(outcome, 'unconfirmed')
+    unknown = 'ODIN could not confirm that the printer received the skip. Reload the object list before trying again.'
+    try:
+        log_audit(db, 'printer.skip_objects_' + action, 'printer', printer_id,
+                  dict(print_job_id=job_id, job_id=listing['print']['job_id'], source=listing['source'],
+                       object_ids=pending if outcome in ('accepted', 'unknown') else [],
+                       object_ids_not_sent=pending if outcome in ('unavailable', 'refused') else [],
+                       already_skipped=already, outcome=outcome, actor_token_id=current_user.get('_token_id')))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise OdinError('outcome_unknown', unknown, status=503, retriable=False) from None
+    if outcome == 'unavailable':
+        raise OdinError('not_connected', 'ODIN is not connected to this printer right now, so nothing was sent. Check that the printer is online and try again.', status=503)
+    if outcome == 'refused':
+        raise OdinError('print_changed', changed, status=409)
+    if outcome != 'accepted':
+        raise OdinError('outcome_unknown', unknown, status=503, retriable=False)
+    return dict(success=True, outcome='accepted', sent=pending, already_skipped=already,
+                message=(f"Skip sent for {len(pending)} {'object' if len(pending) == 1 else 'objects'}. "
+                         f"{'It shows' if len(pending) == 1 else 'They show'} as skipped in the list once the printer confirms."))
 
 
 @router.post("/printers/{printer_id}/speed", tags=["Printers"])

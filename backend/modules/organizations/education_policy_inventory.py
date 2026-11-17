@@ -144,7 +144,9 @@ POLICY_INVENTORY = (
     _entry("printers.dispatch", "dispatch_job", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printer adapter",), "test_education_dispatch_policy.py", "guarded"),
     _entry("printers.smart_plug", "printer state subscriber", "submission/job/printer", "dispatch", "trusted physical-action worker", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.routes_smart_plug", "router:/printers/{id}/plug/*", "printer", "physical-control", "authorized operator/admin", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
-    _entry("printers.routes_controls", "plate-clear/control routes", "submission/job/printer", "mutate", "authorized manager/admin", ("scheduler",), "test_education_dispatch_policy.py", "batch2_required"),
+    _entry("printers.print_objects", "running_print_objects", "print job/job/file", "read", "visible printer; controlled print and accessible file with Education preview policy", (), "test_print_objects_route.py", "guarded"),
+    _entry("printers.routes_print_objects", "router:GET print-objects", "print job/job/file", "read", "viewer with read:printers and read:models; controlled and Education file access", (), "test_print_objects_route.py", "guarded"),
+    _entry("printers.routes_controls", "plate-clear/control routes including skip objects", "submission/job/printer", "mutate", "authorized manager/admin", ("scheduler",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.monitors.mqtt_job_lifecycle", "job lifecycle topic", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.mqtt_printer", "printer telemetry topic", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.moonraker_job_tracking", "Moonraker job tracking", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
@@ -246,6 +248,7 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "modules/printers/routes_print_objects.py",
     "modules/organizations/education_submission_service.py",
     'modules/organizations/routes_education_training.py',
     'modules/organizations/education_training_service.py',

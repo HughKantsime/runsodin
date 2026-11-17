@@ -242,11 +242,12 @@ class BambuCommandAdapter:
         })
 
     def skip_objects(self, object_ids: list[int]) -> bool:
+        """Skip identify_id values from Metadata/slice_info.config."""
         return self._publish({
             "print": {
                 "sequence_id": "0",
                 "command": "skip_objects",
-                "obj_list": [str(oid) for oid in object_ids],
+                "obj_list": [int(oid) for oid in object_ids],
             }
         })
 

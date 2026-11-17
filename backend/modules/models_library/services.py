@@ -131,3 +131,13 @@ def price_one_item(config, *, material_cost, print_hours, units_per_plate=1):
     """The one pricing rule, sharing plate handling across the supplied item count."""
     from modules.models_library.pricing_rule import price_item
     return price_item(config, material_cost=material_cost, print_hours=print_hours, units_per_plate=units_per_plate)
+
+
+def stored_print_objects(row):
+    """Objects of an already-authorized stored file; Busy crosses the service boundary as a status."""
+    from modules.models_library.plate_cache import objects_for_row
+    from modules.models_library.mesh_isolation import Busy
+    try:
+        return objects_for_row(row), None
+    except Busy as exc:
+        return None, exc.retry_after

@@ -29,6 +29,8 @@ All notable changes to O.D.I.N. are documented here.
 - Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
 - Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
 - ODIN now stops at start-up on PostgreSQL 18 or newer with a clear message before changing the database, and asks you to use the PostgreSQL 16 server it ships with.
+- Skip objects (Experimental, Bambu Lab printers): while a print that ODIN started is running, choose objects on the plate to stop printing, from a numbered plate picture and a list on the printer page, on desktop and phone. It is off by default: a platform administrator turns it on per printer under Experimental features on the printer page. Built from how Bambu's own software sends this command and not yet verified on a real printer. API: `GET /api/printers/{id}/print-objects` lists the objects; `POST /api/printers/{id}/skip-objects` now requires `print_job_id` and is audited.
+- Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
 
 ## [2.3.0] - 2026-11-15
 ## [2.3.1] - 2026-11-17

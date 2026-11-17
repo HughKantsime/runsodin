@@ -138,6 +138,7 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
     'components/foundry/PrinterCard.tsx', // Filaments
     'components/inventory/SpoolCard.tsx', // Filament name
     'components/printers/PlateCleared.tsx', // Plate-clear confirmation
+    'components/printers/SkipObjectsDialog.tsx', // Running print object selection
   ]
   for (const file of disclosures) {
     expect(C.modalUsages.filter(modal => modal.file === file)).toEqual([

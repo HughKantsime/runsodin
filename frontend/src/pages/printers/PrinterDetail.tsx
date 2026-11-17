@@ -1,5 +1,9 @@
 import PlateCleared from '../../components/printers/PlateCleared'
 import { FilamentSlotsPanel } from '../../components/printers/PrinterPanels'
+import { optInApplies, supportLevelOfPrinter } from '../../utils/supportLevels'
+import { useState } from 'react'
+import { canDo, getCurrentUser } from '../../permissions'
+import SkipObjectsDialog from '../../components/printers/SkipObjectsDialog'
 import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import ActiveHms from '../../components/printers/ActiveHms'
 import PrinterDetectionLink from '../../components/printers/PrinterDetectionLink'
@@ -19,7 +23,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
 import { printers, printerTelemetry, printJobs } from '../../api'
-import { isOnline, parseServerDate } from '../../utils/shared'
+import { isActivePrintState, isOnline, parseServerDate } from '../../utils/shared'
 import { PageHeader, Card, StatCard, StatusBadge, Button, ProgressBar } from '../../components/ui'
 
 
@@ -44,6 +48,7 @@ export default function PrinterDetail() {
   const foundry = useFoundry()
   const { id } = useParams()
   const navigate = useNavigate()
+  const [skipOpen, setSkipOpen] = useState(false)
 
   const { data: printer, isLoading, error } = useQuery({
     queryKey: ['printer', id],
@@ -129,6 +134,11 @@ export default function PrinterDetail() {
       <PrinterDetectionLink printer={printer} />
       {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
       {foundry ? <PrinterDetailOverview printer={printer} /> : <div className="mb-6"><FilamentSlotsPanel printer={printer} /></div>}
+      {online && isActivePrintState(printer.gcode_state) && printer.api_type === 'bambu'
+        && canDo('printers.edit') && ['operator', 'admin'].includes(getCurrentUser()?.role || '') && (
+        <div className="mb-4"><Button variant="secondary" className="min-h-11" onClick={() => setSkipOpen(true)}>Skip objects</Button></div>
+      )}
+      {skipOpen && <SkipObjectsDialog key={printer.id} printerId={printer.id} onClose={() => setSkipOpen(false)} />}
 
       <DetailPresentation foundry={foundry}>
       {/* Stats row */}
@@ -192,6 +202,7 @@ export default function PrinterDetail() {
       </Card>
 
       </DetailPresentation>
+      <ExperimentalFeatures printer={printer} foundry={foundry} />
       <InstalledNozzles nozzles={printer.installed_nozzles} />
 
       {/* Telemetry */}
@@ -322,4 +333,15 @@ export default function PrinterDetail() {
 function DetailPresentation({ foundry, children }) {
   const { hash } = useLocation()
   return foundry ? <details className="f-management" open={hash === '#dispatch-recovery' || undefined}><summary>Printer status and recovery</summary>{children}</details> : <>{children}</>
+}
+
+
+function ExperimentalFeatures({ printer, foundry }) {
+  const { hash } = useLocation()
+  if (supportLevelOfPrinter(printer) !== 'supported' || !optInApplies(printer.api_type)) return null
+  const id = `experimental-opt-in-${printer.id}`
+  return <details id={id} className={foundry ? 'f-management' : 'mb-6 border border-[var(--brand-card-border)] rounded-md text-[var(--brand-text-primary)]'} open={hash === `#${id}` || undefined}>
+    <summary className={foundry ? undefined : 'p-4 cursor-pointer text-sm'}>Experimental features</summary>
+    <ExperimentalOptIn printer={printer} capabilities />
+  </details>
 }

@@ -24,7 +24,7 @@ LEVELS = (SUPPORTED, EXPERIMENTAL, UNSUPPORTED)
 # api_type -> (level, what the adapter was built from).
 # Tests mark a type experimental by monkeypatching this dict; there is no production flag.
 SUPPORT_TABLE: dict[str, tuple[str, str]] = {
-    'bambu': (SUPPORTED, 'Bambu Lab LAN-mode MQTT and FTPS; verified on real hardware'),
+    'bambu': (SUPPORTED, 'Bambu Lab LAN-mode MQTT and FTPS; skipping objects is Experimental and needs the per-printer opt-in; other supported controls verified on real hardware'),
     'moonraker': (SUPPORTED, 'Moonraker REST API; verified on real hardware'),
     'prusalink': (SUPPORTED, 'PrusaLink REST API; verified on real hardware'),
     'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring, pause, resume, speed and stop; job sending is Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in'),
@@ -41,6 +41,11 @@ EXPERIMENTAL_MESSAGE = (
     "administrator turns them on for this printer. Monitoring still works."
 )
 EXPERIMENTAL_REFUSAL = f'{EXPERIMENTAL_NOT_ENABLED}: {EXPERIMENTAL_MESSAGE}'
+SKIP_OBJECTS_MESSAGE = (
+    "Skipping objects is Experimental on Bambu printers and is off for this printer. "
+    "A platform administrator can turn it on in this printer's Experimental features."
+)
+
 UNSUPPORTED_NOT_ENABLED = 'printer_type_unsupported'
 UNSUPPORTED_REFUSAL = (f"{UNSUPPORTED_NOT_ENABLED}: ODIN has no support for this printer type, so job sending "
                        "and printer controls are off. Pause and stop still work, and so does monitoring.")
@@ -86,9 +91,10 @@ DISPATCH = 'dispatch'
 GATED_CAPABILITIES: dict[str, frozenset] = {
     # Resume and speed shipped as Supported before job sending existed: they stay ungated.
     'elegoo': frozenset({DISPATCH}),
+    'bambu': frozenset({'skip_objects'}),
 }
 # Control route suffix or command name -> the capability it needs.
-ACTION_CAPABILITY = {'resume': 'resume', 'resume_print': 'resume', 'speed': 'speed', 'set_print_speed': 'speed'}
+ACTION_CAPABILITY = {'skip-objects': 'skip_objects', 'skip_objects': 'skip_objects', 'resume': 'resume', 'resume_print': 'resume', 'speed': 'speed', 'set_print_speed': 'speed'}
 
 
 def gated_capabilities(api_type) -> frozenset:
@@ -166,7 +172,14 @@ def control_refusal(db, printer_id, api_type, action) -> Optional[str]:
     refusal = experimental_refusal(db, printer_id, api_type)
     if refusal is not None or ACTION_CAPABILITY.get(action) not in gated_capabilities(api_type):
         return refusal
-    return None if experimental_enabled(db, printer_id, api_type) else EXPERIMENTAL_REFUSAL
+    message = experimental_capability_message(api_type, ACTION_CAPABILITY.get(action))
+    return None if experimental_enabled(db, printer_id, api_type) else f'{EXPERIMENTAL_NOT_ENABLED}: {message}'
+
+
+def experimental_capability_message(api_type, capability):
+    if support_level(api_type) == SUPPORTED and normalize(api_type) == 'bambu' and capability == 'skip_objects':
+        return SKIP_OBJECTS_MESSAGE
+    return EXPERIMENTAL_MESSAGE
 
 
 def command_refusal(printer, action=None) -> Optional[str]:
@@ -196,11 +209,12 @@ def command_refusal(printer, action=None) -> Optional[str]:
                 enabled = experimental_enabled(conn, printer_id, api_type)
     except Exception:
         enabled = False
-    return None if enabled else EXPERIMENTAL_REFUSAL
+    message = experimental_capability_message(api_type, ACTION_CAPABILITY.get(action))
+    return None if enabled else f'{EXPERIMENTAL_NOT_ENABLED}: {message}'
 
 
 def enabled_for_printer(printer) -> bool:
-    """Response field: only an Experimental type can be enabled, and only through the store."""
+    """Response field: Experimental types or capabilities can be enabled only through the store."""
     return opt_in_applies(getattr(printer, 'api_type', None)) and command_refusal(printer) is None
 
 

@@ -370,7 +370,7 @@ def test_only_the_cache_routes_reference_the_cache_or_the_endpoint():
                 endpoint_users.add(relative.as_posix())
     # The parser, its isolated worker and the Education inventory entry name it; nothing that
     # builds a status, event, overlay, Home Assistant or camera payload does.
-    assert cache_users == {'modules/models_library/plate_cache.py', 'modules/models_library/mesh_isolation.py',
+    assert cache_users == {'modules/models_library/services.py', 'modules/models_library/plate_cache.py', 'modules/models_library/mesh_isolation.py',
                            'modules/models_library/mesh_worker.py', 'modules/models_library/threemf_parser.py',
                            'modules/models_library/routes/print_file_plates.py',
                            'modules/printers/routes_plate_thumbnail.py',

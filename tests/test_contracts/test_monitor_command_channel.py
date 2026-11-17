@@ -222,3 +222,124 @@ def test_unknown_family_never_falls_back_to_a_new_bambu_connection(monkeypatch,f
     monkeypatch.setattr(route_utils,'_send_printer_command',lambda *args:calls.append(1))
     assert request_observed_task_resume(SimpleNamespace(api_type=family),991)=='refused'
     assert calls==[]
+
+
+@pytest.mark.parametrize('ids', [[], [0], [16777216], [True], ['15'], [15,15], list(range(1,66)), None])
+def test_skip_ids_are_bounded_distinct_integers(ids):
+    from modules.printers import monitor_commands as channel
+    mon,calls=monitor()
+    assert channel.execute({9:mon},dict(printer_id=9,action='skip_objects',print_job_id=991,
+        object_ids=ids,deadline=time.monotonic()+3))=='refused'
+    assert calls==[]
+
+
+@pytest.mark.parametrize('state', ['RUNNING','PAUSE','PAUSED'])
+@pytest.mark.parametrize('v2', [False,True])
+def test_skip_uses_existing_transport_integer_wire(state,v2):
+    from modules.printers import monitor_commands as channel
+    mon,calls=monitor();mon._state['gcode_state']=state
+    if v2:mon._v2_adapter=mon._bambu;mon._bambu=None
+    assert channel.execute({9:mon},dict(printer_id=9,action='skip_objects',print_job_id=991,
+        object_ids=[15,300],deadline=time.monotonic()+3))=='accepted'
+    assert len(calls)==1 and calls[0][1]==dict(qos=0)
+    assert json.loads(calls[0][0][1])=={'print':{'sequence_id':'0','command':'skip_objects','obj_list':[15,300]}}
+
+
+@pytest.mark.parametrize('changes', [dict(print_job_id=992), dict(print_job_id=True),dict(print_job_id=None),dict(deadline=0),dict(state='IDLE')])
+def test_skip_job_state_and_deadline_fences(changes):
+    from modules.printers import monitor_commands as channel
+    mon,calls=monitor()
+    message=dict(printer_id=9,action='skip_objects',print_job_id=991,object_ids=[15],deadline=time.monotonic()+3)
+    if 'state' in changes:mon._state['gcode_state']=changes.pop('state')
+    message.update(changes)
+    assert channel.execute({9:mon},message)=='refused' and calls==[]
+
+
+def test_skip_state_binds_only_reports_of_current_print():
+    from modules.printers import monitor_commands as channel
+    mon,calls=monitor()
+    mon._state.update(s_obj=[15],fun=format(1<<49,'x'),plate_idx=1)
+    assert channel.skip_state(mon)['skipped'] is None
+    channel.observe_skip_state(mon, {'s_obj':[15]})
+    result=channel.execute({9:mon},dict(printer_id=9,action='skip_state',deadline=time.monotonic()+3))
+    assert result==dict(print_job_id=991,gcode_state='PAUSE',skipped=[15],fun=format(1<<49,'x'),plate_idx=1)
+    assert len(json.dumps(result))<channel.MAX_FRAME and calls==[]
+    mon._current_job_id=992
+    channel.observe_skip_state(mon,{})
+    assert channel.skip_state(mon)['skipped'] is None and 's_obj' not in mon._state
+    mon._current_job_id=993
+    channel.observe_skip_state(mon,{'s_obj':[300]})
+    assert channel.skip_state(mon)['skipped']==[300]
+    channel.observe_skip_state(mon,{'s_obj':['300']})
+    assert channel.skip_state(mon)['skipped'] is None
+
+
+@pytest.mark.parametrize('answer', [None, [], {}, {'print_job_id':True}, 'accepted', 'unknown'])
+def test_bad_skip_state_reply_is_unavailable(monkeypatch,answer):
+    from modules.printers import monitor_commands as channel
+    class Connection:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def settimeout(self,*args):pass
+        def connect(self,*args):pass
+        def sendall(self,*args):pass
+        def recv(self,*args):return json.dumps(answer).encode()+b'\n'
+    monkeypatch.setattr(channel.socket,'socket',lambda *args:Connection())
+    assert channel.request_skip_state(9) is None
+
+
+def test_v2_preserves_skip_fields_in_legacy_bridge():
+    from modules.printers.telemetry.bambu.raw import BambuPrintSection
+    report = BambuPrintSection.model_validate(dict(gcode_state='RUNNING',s_obj=[15,300],fun=format(1<<49,'x'),plate_idx=2))
+    raw = report.model_dump(exclude_unset=True)
+    assert raw['s_obj']==[15,300] and raw['fun']==format(1<<49,'x') and raw['plate_idx']==2
+
+
+def test_skip_request_is_sent_once_and_reply_is_validated(monkeypatch):
+    from modules.printers import monitor_commands as channel
+    sent=[]
+    class Connection:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def settimeout(self,*args):pass
+        def connect(self,*args):pass
+        def sendall(self,packet):sent.append(json.loads(packet))
+        def recv(self,*args):return b'"accepted"\n'
+    monkeypatch.setattr(channel.socket,'socket',lambda *args:Connection())
+    assert channel.request_command(9,'skip_objects',print_job_id=991,object_ids=[15,79])=='accepted'
+    assert len(sent)==1 and sent[0]['object_ids']==[15,79] and sent[0]['print_job_id']==991
+
+
+def test_real_status_path_discards_old_skip_list_and_keeps_opening_report(wire_monitor):
+    from modules.printers import monitor_commands as channel
+    mon,sock,clock,events=wire_monitor
+    mon._state['s_obj']=[79]
+    mon._skip_report_job_id=111
+    mon._restart_check_needed=False
+    mon._recovery_pending=False
+    sock.deliver({'print':dict(gcode_state='RUNNING',subtask_name='synthetic-first',s_obj=[15],fun=format(1<<49,'x'),plate_idx=1)})
+    assert mon._current_job_id is not None
+    assert channel.skip_state(mon)['skipped']==[15]
+    sock.deliver({'print':dict(gcode_state='FINISH')})
+    assert mon._current_job_id is None
+    clock[0]+=20
+    sock.deliver({'print':dict(gcode_state='RUNNING',subtask_name='synthetic-second')})
+    assert mon._current_job_id is not None
+    assert channel.skip_state(mon)['skipped'] is None
+
+
+from tests.test_contracts.test_cert_A_harness import wire_monitor, broker_socket, fernet_env  # noqa: F401,E402
+
+
+def test_skip_deadline_expires_while_waiting_for_owner_lock(monkeypatch):
+    from modules.printers import monitor_commands as channel
+    mon,calls=monitor()
+    now=[100.0]
+    monkeypatch.setattr(channel,'time',SimpleNamespace(monotonic=lambda:now[0]))
+    class Lock:
+        def acquire(self,timeout):now[0]=104.0;return True
+        def release(self):pass
+    mon._lock=Lock()
+    assert channel.execute({9:mon},dict(printer_id=9,action='skip_objects',print_job_id=991,
+        object_ids=[15],deadline=103.0))=='unknown'
+    assert calls==[]

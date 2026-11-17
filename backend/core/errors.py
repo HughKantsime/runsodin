@@ -68,6 +68,27 @@ class ErrorCode(str, Enum):
     feature_disabled = "feature_disabled"
     training_required = "training_required"
 
+    # Running-print object controls
+    invalid_request = "invalid_request"
+    print_changed = "print_changed"
+    unknown_object = "unknown_object"
+    object_not_skippable = "object_not_skippable"
+    would_skip_everything = "would_skip_everything"
+    not_connected = "not_connected"
+    outcome_unknown = "outcome_unknown"
+    not_printing = "not_printing"
+    printer_type_unsupported = "printer_type_unsupported"
+    started_outside_odin = "started_outside_odin"
+    dispatch_not_proven = "dispatch_not_proven"
+    file_unavailable = "file_unavailable"
+    preparing = "preparing"
+    no_object_list = "no_object_list"
+    labels_off = "labels_off"
+    single_object = "single_object"
+    too_many_objects = "too_many_objects"
+    firmware_unsupported = "firmware_unsupported"
+    experimental_not_enabled = "experimental_not_enabled"
+
     # Auth / authorization
     not_authenticated = "not_authenticated"
     permission_denied = "permission_denied"

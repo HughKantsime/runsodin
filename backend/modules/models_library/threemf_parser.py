@@ -958,3 +958,74 @@ def plate_facts_from_archive(zf: zipfile.ZipFile) -> dict:
             "thumbnail_b64": thumbnail,
         })
     return {"slicer": _slicer_facts(zf, sorted(gcode), slice_info), "plates": plates}
+
+
+def _pick_bounds(zf, index, identifiers):
+    """Decode only the requested ids; a readable picture also identifies hidden objects."""
+    from io import BytesIO
+    from PIL import Image
+    from core.thumbnail_check import thumbnail_kind
+    data = _member_bytes(zf, f"Metadata/pick_{index}.png", MAX_THUMBNAIL_BYTES)
+    if thumbnail_kind(data) != "png":
+        return None, None
+    try:
+        with Image.open(BytesIO(data)) as image:
+            width, height = image.size
+            boxes = {}
+            for offset, (r, g, b, alpha) in enumerate(image.convert("RGBA").getdata()):
+                identifier = r + 256 * g + 65536 * b
+                if alpha != 255 or identifier not in identifiers:
+                    continue
+                x, y = offset % width, offset // width
+                box = boxes.setdefault(identifier, [x, y, x, y])
+                box[0], box[1] = min(box[0], x), min(box[1], y)
+                box[2], box[3] = max(box[2], x), max(box[3], y)
+            return {key: {"x": x / width, "y": y / height,
+                          "w": (right - x + 1) / width, "h": (bottom - y + 1) / height}
+                    for key, (x, y, right, bottom) in boxes.items()}, width / height
+    except Exception:
+        return None, None
+
+
+def plate_objects_from_archive(zf: zipfile.ZipFile) -> dict:
+    """Bambu identify_id values, never plate JSON ids or positional indices."""
+    data = _member_bytes(zf, "Metadata/slice_info.config", MAX_SLICE_INFO_BYTES)
+    try:
+        root = ET.fromstring(data) if data is not None else None
+    except Exception:
+        root = None
+    if root is None:
+        return {"plates": []}
+    elements = root.findall("plate")
+    if len(elements) > MAX_FACT_PLATES:
+        return {"plates": []}
+    plates = {}
+    for element in elements:
+        meta = {m.get("key"): m.get("value") for m in element.findall("metadata")}
+        value = meta.get("index", "")
+        if not re.fullmatch(r"[1-9][0-9]{0,3}", value):
+            return {"plates": []}
+        index = int(value)
+        if index in plates:
+            return {"plates": []}
+        objects, seen = [], set()
+        entries = element.findall("object")
+        valid = len(entries) <= 256
+        for item in entries if valid else ():
+            value = item.get("identify_id", "")
+            if not re.fullmatch(r"[0-9]{1,8}", value) or not 1 <= int(value) <= 16777215 or int(value) in seen:
+                valid = False
+                break
+            identifier = int(value)
+            seen.add(identifier)
+            if item.get("skipped") == "false":
+                objects.append({"identify_id": identifier, "name": _fact_text(item.get("name")),
+                                "skipped_at_slice": False, "bounds": None})
+        if not valid:
+            objects = []
+        bounds, aspect = _pick_bounds(zf, index, {o["identify_id"] for o in objects}) if objects else (None, None)
+        if bounds is not None:
+            objects = [{**o, "bounds": bounds[o["identify_id"]]} for o in objects if o["identify_id"] in bounds]
+        plates[index] = {"index": index, "label_object_enabled": meta.get("label_object_enabled") == "true",
+                         "objects": objects, "aspect": aspect}
+    return {"plates": [plates[n] for n in sorted(plates)]}
