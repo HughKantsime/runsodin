@@ -207,6 +207,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Filter by printer, detection type, and review status (pending/confirmed/dismissed/auto_paused)
 - Frame viewer showing captured image with detection overlay
 - Review workflow: confirm, dismiss, or label detections for training data
+- Printer-reported failures: when a Bambu printer's own camera reports a problem (spaghetti, first-layer defects, nozzle clumping, air printing, a shifted print, a full waste chute), ODIN raises an alert and lists it under Detections. ODIN does not pause the print itself.
 
 ### 3.3 Vigil API
 - `GET /api/vision/detections` lists detections; `PATCH /api/vision/detections/{id}` reviews one
@@ -261,6 +262,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 4.5 Failure Logging
 - Failure reason dropdown (nozzle clog, adhesion failure, filament tangle, etc.) + free-text notes
+- Mark a stopped print as failed afterwards, with a reason, so failure counts and success rates reflect what happened. It can be undone, and recorded filament and cost are not changed.
 - Failure analytics (v1.2.0) — success/failure counts and failure rates by printer (ranked, with MTBF), model and filament type, top failure reasons, and HMS error frequency
 
 ### 4.6 Job Approval Workflow (Education, Enterprise)
@@ -341,6 +343,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Track material type, color, brand, batch, starting weight, current weight remaining, cost per gram, status (active/empty/archived)
 - Stat cards: total spools, total weight remaining, low-stock warnings
 - Create/edit/delete spools (operator/admin)
+- Six more Bambu materials are recognised (ASA-CF, ASA Aero, PET-CF, PPA-CF, PPS-CF, TPU for AMS). On Bambu AMS printers and the Kobra S1, a print that needs one starts only when the slot reports exactly that material.
 
 ### 6.2 QR Label System
 - Unique QR code per spool
@@ -400,6 +403,9 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Two component types: Printed (models from library) and Consumables
 - Quantity per product for each component
 - COGS auto-calculated from filament usage + consumable costs
+
+### 8.3 Print Next (Pro, Education, Enterprise)
+- Set a reorder point and target for each product, and ODIN ranks what to print next from your live Square stock and open orders. "Queue N plates" creates held jobs from the product's recipe. Nothing is queued automatically and Square is never written.
 
 ---
 
@@ -483,6 +489,9 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Report runner daemon (`report_runner.py`) — executes scheduled reports and delivers via SMTP with HTML body (v1.3.19)
 - "Run Now" button for on-demand report generation with immediate email delivery (v1.3.47)
 - Quiet hours suppression + digest — configurable per-org time window (UTC) suppresses external notifications (push, email, webhooks); in-app alerts are still recorded; when the window ends, a digest is delivered per-user (email + push, per alert-type preference) and by webhook (the org's webhook and system-wide webhook integrations) covering what was suppressed during the window (v1.8.5)
+
+### 10.10 Actual Cost per Print
+- Every finished print shows what it really cost next to its estimate, and the total says "at least" when something was not recorded. Pro adds a Cost per print table by model or product with CSV export.
 
 ---
 
@@ -645,6 +654,9 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - SSRF-safe dispatch via a dedicated DNS-pinned Spoolman client (`_post_spoolman_usage`: user-configured Spoolman URL resolved and validated, metadata/link-local destinations refused, no redirects or proxies, public destinations blocked in ITAR mode)
 - Spoolman delivery failures are logged. Manual-completion failures are appended to job notes; printer-observed delivery outcomes are retained in the filament-delivery outbox
 
+### 14.6 Home Assistant Integration (0.3.0)
+- A Spools loaded sensor for each printer, Last print finished and Plate cleared times, a Next job sensor that says what is queued and whether it is ready, and a printer no longer shows "error" after its print completed.
+
 ---
 
 ## 15. White-Label Branding
@@ -696,6 +708,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - 10 tabs in Advanced view; 9 in Simple view (Vigil AI is hidden)
 - Simple/Advanced view toggle
 - Sub-sections: General, Filaments, Notifications, Access, Integrations, Vigil AI (Advanced only), Branding, License, System, Logs
+- Farm time zone: set it once in Settings > General so "Completed today", daily totals and Home Assistant's day follow your clock instead of UTC. Quiet hours can use it too.
 
 ### 16.8 Live Application Log Viewer
 - Real-time log viewer in Settings → Logs tab (admin-only)
