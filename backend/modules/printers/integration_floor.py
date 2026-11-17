@@ -574,6 +574,8 @@ class Floor:
         from core.printer_display_facts import plate_clear_times
         job_clauses, job_params = visible_clauses(actor, scope, controlled, "j")
         self.plate_cleared = plate_clear_times(db, ids, actor, job_clauses, job_params) if ids else {}
+        from modules.printers.plate_clear import plate_clear_states
+        self.plate_clear = plate_clear_states(db, printers, actor)
         self.slots = printer_slots(db, printers, actor)
         by_id = {printer.id: printer for printer in printers}
         self.short = {row["id"]: short_spools(db, row["id"], by_id[printer_id], actor)
@@ -748,6 +750,7 @@ class Floor:
                 "last_completed_at": iso(last.get("completed")),
                 # The print on the bed now has not finished: no end time while one is running.
                 "finished_at": None if printer.id in self.running else iso(last.get("ended")),
+                "plate_clear": self.plate_clear[printer.id],
                 "plate_clear_confirmed_at": iso(_instant(self.plate_cleared.get(printer.id))),
                 # What is loaded on a printer carrying controlled work the caller cannot name
                 # describes that work's filaments: withheld (null) with the job's own details.

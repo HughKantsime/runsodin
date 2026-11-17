@@ -180,7 +180,10 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
 def enrich_printer_facts(db, printers, actor):
     facts = read_facts(db, printers)
     cleared = plate_clear_times(db, [p.id for p in printers], actor)
+    from modules.printers.plate_clear import plate_clear_states
+    plate_states = plate_clear_states(db, printers, actor)
     for printer in printers:
+        printer.plate_clear = plate_states[printer.id]
         observed = facts.get(printer.id, {})
         printer.feeding_slot = observed.get('feeding_slot')
         printer.chamber_temp = observed.get('chamber_temp')

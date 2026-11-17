@@ -1,6 +1,6 @@
 # ODIN for Home Assistant
 
-Read-only print farm status from an ODIN server. Home Assistant talks only to ODIN and never connects to the printers, so it does not compete with ODIN for the printers' MQTT or camera connection slots.
+Print farm status and plate clearing from an ODIN server. Home Assistant talks only to ODIN and never connects to the printers, so it does not compete with ODIN for the printers' MQTT or camera connection slots.
 
 ## Requirements
 - ODIN with the Home Assistant status endpoint (`/api/v1/integrations/home-assistant/status`), the release after 2.0.50.
@@ -39,7 +39,19 @@ The ODIN fleet device has:
 - Plates done today and Plates that did not complete today (failed plus stopped, counted since midnight in ODIN's farm time zone). The separate Plates failed today and Plates stopped today sensors stay enabled by default.
 - Queued hours (estimated hours in the queue, 1 decimal) and Queued jobs without estimate.
 
-Polling defaults to every 20 s (10-120 s in the options). v1 has no controls.
+Polling defaults to every 20 s (10-120 s in the options).
+
+### Plate cleared
+
+Each printer has a **Plate cleared** button (`button.<printer>_plate_cleared`) and a **Plate needs clearing** binary sensor (`binary_sensor.<printer>_plate_needs_clearing`). If a job is waiting for the plate, pressing this releases it to start.
+
+A waiting job exists only where the installation's queue puts jobs into the `waiting_plate_clear` state. The standard PostgreSQL job enum does not include that state; clearing a plate there records the finished print's confirmation without releasing a job.
+
+The button calls ODIN's existing plate-clear route and refreshes the coordinator immediately after a successful press. It requires the `write:printers` token scope and `printers.edit` permission. The button is created for every printer: ODIN has no read that unambiguously reports the active token's permissions. A refused press names the required scope and permission and is never retried automatically.
+
+Home Assistant has no confirmation step and sends no queue precondition: pressing releases whichever job is waiting at that moment. Older clients and scripts that omit the optional precondition keep this behavior. The web confirmation sends `expected_release_job_id` (the displayed ID, or null for no job); when the job is hidden it sends only `expected_has_waiting_job: true`, checking the already-disclosed presence without exposing an ID or name. A changed expectation returns 409 with the current reader-visible `plate_clear` state and requires confirmation again; it is not retried automatically.
+
+The Status entity includes the feed's `plate_clear` object as an attribute: `needed`, `releases_job` (ID and display name, or null), `last_print_ended_at`, and `has_waiting_job`. A hidden job keeps its name and ID private; `has_waiting_job` still warns that clearing the plate can release work. On older ODIN versions without this object, the binary sensor reports unknown.
 
 ## Status feed day totals
 `GET /api/v1/integrations/home-assistant/status` returns `fleet.today` with `plates_done`,

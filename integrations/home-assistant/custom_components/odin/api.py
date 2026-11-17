@@ -1,4 +1,4 @@
-"""Small async client for ODIN's read-only Home Assistant status endpoint.
+"""Small async client for ODIN's Home Assistant status and plate-clear control.
 
 Home Assistant only ever talks to ODIN. It never opens a connection to a
 printer: ODIN owns the printers' limited MQTT/RTSP slots.
@@ -67,6 +67,27 @@ class OdinClient:
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise OdinConnectionError(str(err) or type(err).__name__) from err
         return validate_status(data)
+
+    async def async_plate_cleared(self, printer_id: int) -> dict[str, Any]:
+        try:
+            async with self._session.post(
+                f"{self._url}/api/v1/printers/{printer_id}/plate-cleared",
+                headers={"X-API-Key": self._api_key, "Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT.total_seconds()),
+            ) as response:
+                if response.status == 403:
+                    raise OdinError("Plate cleared requires the write:printers token scope and printers.edit permission in ODIN.")
+                if response.status == 401:
+                    raise OdinAuthError(response.status)
+                data = await response.json()
+                if response.status >= 400 or not data.get("success"):
+                    detail = data.get("detail") or data.get("message")
+                    if isinstance(detail, dict):
+                        detail = detail.get("message")
+                    raise OdinError(detail or f"ODIN answered HTTP {response.status}")
+                return data
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            raise OdinConnectionError("Plate clear was not confirmed. Check ODIN before trying again.") from err
 
 
 def validate_status(data: Any) -> dict[str, Any]:

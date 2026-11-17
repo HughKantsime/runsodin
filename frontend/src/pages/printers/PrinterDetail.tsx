@@ -1,3 +1,4 @@
+import PlateCleared from '../../components/printers/PlateCleared'
 import { FilamentSlotsPanel } from '../../components/printers/PrinterPanels'
 import PrintFailureControl from '../../components/jobs/PrintFailureControl'
 import ActiveHms from '../../components/printers/ActiveHms'
@@ -121,6 +122,7 @@ export default function PrinterDetail() {
         {foundry ? <StatusBadge status={state(printer)} /> : <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />}
       </PageHeader>
 
+      {!foundry && <PlateCleared printer={printer} />}
       <ExperimentalOptIn printer={printer} />
       <PauseCause printer={printer} />
       <ActiveHms printer={printer} />

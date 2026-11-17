@@ -16,7 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OdinConfigEntry,
     entry.async_on_unload(track_printers(
         coordinator, async_add_entities,
         lambda pid: [OdinOnlineSensor(coordinator, pid), OdinProblemSensor(coordinator, pid),
-                     OdinOutOfServiceSensor(coordinator, pid)],
+                     OdinOutOfServiceSensor(coordinator, pid), OdinPlateNeedsClearingSensor(coordinator, pid)],
     ))
 
 
@@ -62,3 +62,14 @@ class OdinOutOfServiceSensor(OdinPrinterEntity, BinarySensorEntity):
         printer = self.printer
         value = printer.get("out_of_service") if printer else None
         return value if isinstance(value, bool) else None
+
+
+class OdinPlateNeedsClearingSensor(OdinPrinterEntity, BinarySensorEntity):
+    def __init__(self, coordinator: OdinCoordinator, printer_id: int) -> None:
+        super().__init__(coordinator, printer_id, "plate_needs_clearing")
+
+    @property
+    def is_on(self) -> bool | None:
+        plate = (self.printer or {}).get("plate_clear")
+        needed = plate.get("needed") if isinstance(plate, dict) else None
+        return needed if isinstance(needed, bool) else None

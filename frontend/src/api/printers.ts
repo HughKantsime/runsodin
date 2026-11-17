@@ -79,6 +79,7 @@ export interface MoonrakerDiscoveryResult {
 }
 
 export const printers = {
+  plateCleared: (id: number, expected: { expected_release_job_id: number | null } | { expected_has_waiting_job: boolean }) => fetchAPI<{ success: boolean; message: string; plate_clear_confirmed_at?: string }>(`/printers/${id}/plate-cleared`, { method: 'POST', body: JSON.stringify(expected), quiet: true }),
   recoverDispatch: (id: number, action: DispatchRecoveryAction, body: Record<string, unknown>): Promise<DispatchRecoveryDecision> => fetchAPI(`/printers/${id}/dispatch-recovery/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   answerRestartQuestion: (id: number, question_id: string, answer: 'same' | 'new'): Promise<{ outcome: string; print_job_id: number }> => fetchAPI(`/printers/${id}/dispatch-recovery/restart-question`, { method: 'POST', body: JSON.stringify({ question_id, answer }) }),
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),

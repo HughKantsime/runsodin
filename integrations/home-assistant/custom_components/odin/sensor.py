@@ -86,10 +86,11 @@ def _status_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
     The status itself comes from ODIN, which no longer reports "error" once a print has
     completed after the recorded error. Absent on an ODIN that does not send these times.
     """
-    if "last_completed_at" not in printer and "last_error_at" not in printer:
+    if not any(key in printer for key in ("last_completed_at", "last_error_at", "plate_clear")):
         return None
     return {"last_completed_at": _text(printer.get("last_completed_at")),
-            "last_error_at": _text(printer.get("last_error_at"))}
+            "last_error_at": _text(printer.get("last_error_at")),
+            **({"plate_clear": printer["plate_clear"]} if isinstance(printer.get("plate_clear"), dict) else {})}
 
 
 def _text(value: Any) -> str | None:

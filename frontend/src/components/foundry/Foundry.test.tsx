@@ -282,7 +282,7 @@ it('shows reported chamber, next nozzle and plate confirmation time', () => {
     next={{ display_name: 'Fixture plate', ams_slot_nozzles: [{ source_index: 0, slot_number: 5, nozzle: 'right' }] } as Job} />)
   expect(screen.getByText('Chamber 38°')).toBeInTheDocument()
   expect(screen.getByText('Right nozzle · AMS 2 · 1')).toBeInTheDocument()
-  expect(screen.getByText(/Plate clear confirmed/).querySelector('time')).toHaveAttribute('dateTime', '2026-11-04T18:31:00Z')
+  expect(screen.getByText(/Plate cleared/).querySelector('time')).toHaveAttribute('dateTime', '2026-11-04T18:31:00Z')
 })
 it('does not invent nozzle, chamber or confirmation when missing', () => {
   mount(<PrinterCard printer={printer({ nozzle_temp: null })}

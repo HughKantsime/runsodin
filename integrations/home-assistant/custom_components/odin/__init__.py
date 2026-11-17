@@ -1,4 +1,4 @@
-"""The ODIN integration: read-only print farm status from an ODIN server."""
+"""The ODIN integration: print farm status and plate clearing from an ODIN server."""
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,7 +11,7 @@ from .api import OdinClient
 from .coordinator import OdinCoordinator
 from .entity import fleet_device
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.EVENT, Platform.CAMERA]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.EVENT, Platform.CAMERA, Platform.BUTTON]
 
 type OdinConfigEntry = ConfigEntry[OdinCoordinator]
 

@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Literal, Optional, List
-from pydantic import StrictBool, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
+from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
 
 from core.base import FilamentType
 
@@ -197,6 +197,25 @@ class PrinterMaintenance(BaseModel):
     set_at: Optional[str] = None
 
 
+class PlateClearConfirmation(BaseModel):
+    """Omitted fields preserve legacy presses; hidden-job readers confirm presence only."""
+    model_config = ConfigDict(extra='forbid')
+    expected_release_job_id: Optional[StrictInt] = None
+    expected_has_waiting_job: StrictBool = False
+
+
+class PlateClearJob(BaseModel):
+    id: int
+    name: str
+
+
+class PlateClearState(BaseModel):
+    needed: bool
+    has_waiting_job: bool
+    releases_job: Optional[PlateClearJob] = None
+    last_print_ended_at: Optional[datetime] = None
+
+
 class PrinterResponse(PrinterBase):
     training_warnings: list[str] = Field(default_factory=list)
     hms_model_prefix: str = Field(default='', exclude=True)
@@ -219,6 +238,7 @@ class PrinterResponse(PrinterBase):
     feeding_slot: Optional[int] = None
     chamber_temp: Optional[float] = None
     plate_clear_confirmed_at: Optional[datetime] = None
+    plate_clear: Optional[PlateClearState] = None
     @field_serializer('print_stage')
     def _pause_stage_text(self, value):
         from modules.printers.monitors.pause_cause import display_stage
