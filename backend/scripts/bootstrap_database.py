@@ -13,6 +13,7 @@ from core.database_config import create_database_engine, database_identity
 from core.db_integrity import DAMAGED, boot_refusal, check_database
 from core.schema import bootstrap_database
 from core.schema.postgres_version import UnsupportedPostgresVersion
+from core.filament_evidence_backfill import FilamentEvidenceBackfillError
 
 
 def _refuse_damaged_sqlite(database_url: str) -> bool:
@@ -45,10 +46,19 @@ def main() -> int:
         role="bootstrap",
         password_file=os.getenv("DATABASE_PASSWORD_FILE"),
     )
+    import core.filament_evidence_backfill as evidence_backfill
+    evidence_backfill.announce = lambda done, total: print(
+        f"ODIN is checking past filament use: {done} of {total} prints.", file=sys.stderr, flush=True)
     try:
         result = bootstrap_database(engine)
-    except UnsupportedPostgresVersion as exc:
+    except (UnsupportedPostgresVersion, FilamentEvidenceBackfillError) as exc:
         print(str(exc), file=sys.stderr, flush=True)
+        cause = exc.__cause__ if isinstance(exc, FilamentEvidenceBackfillError) else None
+        if cause is not None:
+            # One plain line for support: the driver's own first line. The statement and its
+            # parameters are on later lines of the error and are not printed.
+            first = (str(cause).splitlines() or [""])[0][:300]
+            print(f"Cause: {type(cause).__name__}: {first}", file=sys.stderr, flush=True)
         engine.dispose()
         return 1
     # The entrypoint has copied bundled models; only the boot schema owner seeds

@@ -26,5 +26,7 @@ def bind_reprint(view, print_job_id, printer_id, protocol, names, key):
             changed = view.execute(text('UPDATE print_jobs SET scheduled_job_id=:job WHERE id=:id AND scheduled_job_id IS NULL'),
                                   {'job': receipt[0], 'id': print_job_id})
             if changed.rowcount:
+                from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+                bind_print_attempt(sqlalchemy_runner(view), print_job_id, receipt[0])
                 return receipt[0]
     return None

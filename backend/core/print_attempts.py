@@ -54,7 +54,7 @@ def _seq_key(job_id) -> str:
 
 def attempt_seq(run, job_id) -> int:
     """The job's current print-attempt counter (0 until a reset bumps it)."""
-    row = run("SELECT value FROM system_config WHERE key = :k", {"k": _seq_key(job_id)}).fetchone()
+    row = run('SELECT value FROM system_config WHERE key=:k', {'k': _seq_key(job_id)}).fetchone()
     if not row:
         return 0
     value = row[0]
@@ -113,10 +113,13 @@ def bind_print_attempt(run, print_job_id, job_id=None, *, seq=None) -> None:
         {"k": _print_seq_key(print_job_id),
          "v": json.dumps({"job_id": int(job_id), "seq": attempt_seq(run, job_id) if seq is None else int(seq)})})
 
+    from core.filament_ledger import carry_job_candidates
+    carry_job_candidates(run, print_job_id, job_id)
+
 
 def bound_print_attempt(run, print_job_id, job_id):
     """The bound attempt seq of a print for this job, or None (unbound or bound elsewhere)."""
-    row = run("SELECT value FROM system_config WHERE key = :k", {"k": _print_seq_key(print_job_id)}).fetchone()
+    row = run('SELECT value FROM system_config WHERE key=:k', {'k': _print_seq_key(print_job_id)}).fetchone()
     if not row:
         return None
     value = row[0]
@@ -157,8 +160,7 @@ def attempt_starts(run, job_id) -> dict:
     it fall back explicitly to the job's audited resets and print times.
     """
     found = {}
-    for key, value in run("SELECT key, value FROM system_config WHERE key LIKE :p",
-                          {"p": f"{PREFIX}started:{int(job_id)}:%"}).fetchall():
+    for key, value in run("SELECT key,value FROM system_config WHERE key LIKE :p", {"p": f"{PREFIX}started:{int(job_id)}:%"}).fetchall():
         try:
             parsed = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
             seq = int(str(key).rsplit(":", 1)[1])

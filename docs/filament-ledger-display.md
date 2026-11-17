@@ -248,3 +248,22 @@ inventory, telemetry observations, consumption accounting and dispatch decisions
 remain independent of this feed. In 2.x, organization and shared-printer visibility
 are applied before enrichment; external IDs are exposed only through those
 authorized printer responses.
+
+## Archive settlement and causes
+
+[Settle filament](settle-filament.md) describes the operator workflow. Local settlement is refused for printers whose filament data is owned by the external display. The ledger's new `settlement` source writes `auto:settlement: archive <id>` usage and retains a physical-print claim even for zero additional deduction. Migration 061 stores this evidence independently of jobs, spools and archives, so their deletion or a changed job link cannot permit a second deduction. Job-only completion retains its attempt claim until a print can be linked and its usage reviewed. Manual rows remain manual; only explicitly counted rows reduce a settlement's new deduction. The archive records entered `grams_used` separately from `deducted_now_g`, actor IDs, time and counted row IDs.
+
+| Cause | Next step |
+| --- | --- |
+| No spool was bound | Bind spools and settle the print |
+| Spool changed without confirmation | Confirm it on Printers; ODIN retries accounting |
+| Unknown spool balance | Weigh the spool or settle its use |
+| Incomplete print without an amount | Settle with the grams used |
+| Printer-started print without an ODIN job | Settle the print when ownership rules allow |
+| Conflicting job, file or organization records | Administrator review |
+| ODIN did not see the whole print | Settle with the grams used |
+| Another deduction already exists | Keep the existing deduction |
+| Inventory shortfall | Weigh the spool |
+| Other missing attribution | Settle the print |
+
+The complete reason vocabulary and customer text live in `modules/archives/accounting_causes.py`; a source census covers accounting and project-import reasons. Archive list and detail include the cause. `GET /archives/accounting-summary?days=30` uses the same archive and Education audience as the archive list. Preview and settlement are `/archives/{id}/filament-settlement` and `/archives/{id}/settle-filament`; the write requires `archives.settle_filament` and `write:spools`.

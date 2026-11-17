@@ -1,58 +1,8 @@
-"""The one filament consumption ledger.
+"""The only writer of filament consumption and durable physical-print evidence.
 
-Every write that consumes filament -- decrementing ``spools.remaining_weight_g``
-or inserting a ``spool_usage`` row -- goes through this module (a census test,
-``test_cert_D_filament_ledger.py``, fails on any other writer):
-
-    record_job_filament   automatic deduction for a job's physical print attempt:
-                          operator /complete, the Moonraker monitor, and archive
-                          accounting (Bambu/MQTT and every archived attempt)
-    record_manual_usage   an operator's manual "use N grams" (optionally naming a job)
-    record_weighed_spool  a scale reading that sets the net weight
-
-Two claim scopes, both INSERT ... ON CONFLICT DO NOTHING in the caller's
-transaction, kept only when something was actually deducted (with no matching
-spool or an unknown/NULL balance every claim is withdrawn, so a later correction
-can still deduct):
-
-    physical print   ``quota_attempt:filament:job:<job>:print:<print_job>`` (or
-                     ``quota_attempt:filament:print:<print_job>`` without a job):
-                     each physical print deducts once (archive accounting, and
-                     the Moonraker monitor when it knows the print)
-    job attempt      ``quota_attempt:filament:job:<job>:<seq>`` (core.print_attempts):
-                     the job's current attempt has been deducted. A physical
-                     print also records itself here (value ``{"print_job_id": n}``),
-                     so an operator /complete correction never deducts again; a
-                     job-level deduction (operator /complete, value
-                     ``{"print_job_id": null}``) cannot be attributed to a physical
-                     print, so a later print-scoped deduction for that attempt
-                     is refused as ``job_usage_unattributed`` instead of
-                     deducting twice.
-
-Attempts are resolved per deduction, never assumed to be the job's current one:
-a physical print belongs to the attempt it was bound to when created/linked
-(core.print_attempts.bind_print_attempt), else to the attempt whose reset window
-holds its started_at -- so a late archive (or startup recovery) after a reset
-claims and checks the print's own attempt. Usage rows naming a print belong to
-that print's attempt; job-level rows to the attempt whose window holds used_at.
-
-A marker-less deduction (written before markers existed, or by a pre-ledger
-build) still counts when its spool_usage row belongs to the same attempt:
-a row for the given physical print, or an automatic job row written at or after
-the attempt's anchor -- the reset that began it (the counter's ``started`` key,
-or for pre-counter data the latest ``job.reset`` audit entry) or, later, the
-job's actual_start. With no anchor at all (never reset, never started) every
-automatic row counts. Manual adjustments never count as the job's deduction.
-A legacy row whose writer cannot be told from its notes ("unknown") is not the
-job's deduction either, but print-scoped accounting refuses to deduct over it
-(reconciliation: ``legacy_usage_unattributed``).
-
-Row kinds are recorded in ``spool_usage.notes`` (no schema change): automatic rows
-start with ``auto:<source>:``, manual ones with ``manual:``. Older rows are
-classified by the notes the previous writers used (LEGACY_AUTO_NOTES).
-
-``run`` is a ``run(sql, params)`` callable (core.print_attempts.sqlalchemy_runner /
-qmark_runner); the caller owns the transaction.
+Print claims survive job, spool and archive deletion. Job-only completions keep
+an attempt marker until a physical print is linked and carries usage candidates.
+The caller owns the transaction; no ledger function commits.
 """
 from __future__ import annotations
 
@@ -72,7 +22,7 @@ AUTO_PREFIX = "auto:"
 MANUAL_PREFIX = "manual:"
 NOTES_MAX = 255  # spool_usage.notes is VARCHAR(255)
 MANUAL_NOTES_MAX = NOTES_MAX - len(MANUAL_PREFIX) - 1  # what an operator may write after "manual: "
-SOURCES = frozenset({"operator_complete", "moonraker", "archive"})
+SOURCES = frozenset({"operator_complete", "moonraker", "archive", "settlement"})
 # Notes written by the automatic deducers before the ledger existed.
 LEGACY_AUTO_NOTES = ("Auto-deducted on job #", "Moonraker observed extrusion", "Moonraker sliced estimate",
                      "Physical attempt ")
@@ -220,24 +170,6 @@ def attempt_anchor(run, job_id):
     return max(known) if known else None
 
 
-def print_marker(job_id, print_job_id) -> str:
-    if job_id is None:
-        return f"{PREFIX}filament:print:{int(print_job_id)}"
-    return f"{PREFIX}filament:job:{int(job_id)}:print:{int(print_job_id)}"
-
-
-def _marker_print(value):
-    """The print_job_id a job-attempt marker names (None: a job-level deduction)."""
-    if isinstance(value, (bytes, bytearray)):
-        value = value.decode("utf-8", "replace")
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError:
-            return None
-    return value.get("print_job_id") if isinstance(value, dict) else None
-
-
 def _attempt_rows(run, job_id, view, kinds):
     """print_job_id of every usage row of ``kinds`` that belongs to attempt ``view``.
 
@@ -246,8 +178,8 @@ def _attempt_rows(run, job_id, view, kinds):
     job-level row belongs to the attempt whose window holds its used_at.
     """
     prints = {}
-    for print_job, used_at, notes in run("SELECT print_job_id, used_at, notes FROM spool_usage WHERE job_id = :jid",
-                                         {"jid": int(job_id)}).fetchall():
+    rows = run("SELECT print_job_id, used_at, notes FROM spool_usage WHERE job_id = :jid", {"jid": int(job_id)}).fetchall()
+    for print_job, used_at, notes in rows:
         if row_kind(notes) not in kinds:
             continue
         if print_job is not None:
@@ -259,38 +191,131 @@ def _attempt_rows(run, job_id, view, kinds):
             yield None
 
 
-def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
-    """Why this deduction is already accounted for (None when it is not).
+def print_key(run, print_job_id):
+    row = run("SELECT id,COALESCE(economic_birth_nonce,'') FROM print_jobs WHERE id=:id",
+              {'id': print_job_id}).fetchone()
+    return tuple(row) if row else None
 
-    With ``print_job_id`` the question is about that physical print and the
-    attempt *it* belongs to; without it, about the job's current attempt.
-    """
+
+def print_evidence(run, print_job_ids):
+    """One indexed batch, matched to each physical print's immutable birth."""
+    ids = sorted(set(p for p in print_job_ids if p is not None))
+    result = {pid: ('none', []) for pid in ids}
+    if not ids:
+        return result
+    params = {f'p{i}': pid for i, pid in enumerate(ids)}
+    rows = run("SELECT e.print_job_id,e.kind,e.usage_id,e.spool_id,e.grams,e.used_at,e.reason,e.source,u.notes,u.id IS NOT NULL "
+               "FROM print_filament_evidence e JOIN print_jobs p ON p.id=e.print_job_id "
+               "AND COALESCE(p.economic_birth_nonce,'')=e.print_birth_nonce "
+               "LEFT JOIN spool_usage u ON u.id=e.usage_id AND u.spool_id=e.spool_id AND u.used_at=e.used_at "
+               "WHERE NOT (e.kind IN ('manual','unattributed') AND EXISTS ("
+               "SELECT 1 FROM print_filament_evidence claimed WHERE claimed.kind='usage' "
+               "AND claimed.usage_id=e.usage_id AND claimed.spool_id=e.spool_id AND claimed.used_at=e.used_at "
+               "AND (claimed.print_job_id<>e.print_job_id OR claimed.print_birth_nonce<>e.print_birth_nonce))) "
+               "AND e.print_job_id IN ("
+               + ','.join(':'+k for k in params) + ') ORDER BY e.id', params).fetchall()
+    for pid, kind, uid, spool, grams, at, reason, source, notes, live in rows:
+        state, evidence = result[pid]
+        evidence.append(dict(kind=kind, usage_id=uid, spool_id=spool, grams=grams,
+                             used_at=at, reason=reason, source=source, notes=notes or '', live=bool(live)))
+        result[pid] = ('final' if kind in ('usage', 'closed') or state == 'final' else 'ask', evidence)
+    return result
+
+
+def job_link_is_live(run, print_job_id, job_id):
+    """Distinguish explicit/legacy live links from a deleted job's reused id."""
+    row = run('SELECT p.started_at,p.ended_at,j.created_at,j.actual_start FROM print_jobs p '
+              'JOIN jobs j ON j.id=p.scheduled_job_id WHERE p.id=:pid AND j.id=:job',
+              {'pid': print_job_id, 'job': job_id}).fetchone()
+    if row is None:
+        return False
+    if bound_print_attempt(run, print_job_id, job_id) is not None:
+        return True
+    started, ended, created, actual = map(moment, row)
+    return bool((started is not None and created is not None and started >= created)
+                or (actual is not None and (ended or started) is not None and actual <= (ended or started)))
+
+
+def _current_prints(run, job_id):
+    current = current_attempt(run, job_id)
+    rows = run('SELECT p.id,p.started_at FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id '
+               'WHERE j.id=:job ORDER BY p.id', {'job': job_id}).fetchall()
+    return [pid for pid, started in rows if job_link_is_live(run, pid, job_id) and print_attempt(run, job_id, pid).same_attempt(current)
+            and (bound_print_attempt(run, pid, job_id) is not None or current.holds(moment(started)))]
+
+
+def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
     if print_job_id is not None:
-        if run("SELECT 1 FROM system_config WHERE key = :k", {"k": print_marker(job_id, print_job_id)}).fetchone():
+        state, rows = print_evidence(run, [print_job_id])[print_job_id]
+        if state == 'final':
             return MARKER
-        if run("SELECT 1 FROM spool_usage WHERE print_job_id = :pj LIMIT 1", {"pj": int(print_job_id)}).fetchone():
-            return PRINT_USAGE
-        if job_id is None:
-            return None
-        view = print_attempt(run, job_id, print_job_id)
-        row = run("SELECT value FROM system_config WHERE key = :k",
-                  {"k": filament_marker_for(job_id, view.seq)}).fetchone()
-        if row and _marker_print(row[0]) is None:
+        if any(r['kind'] == 'unattributed' for r in rows):
             return JOB_USAGE
-        # A marker-less job row of this attempt (a legacy automatic deduction, or a
-        # legacy row whose writer is unknown) cannot be attributed to this print:
-        # reconcile. Rows this ledger wrote are covered by their own claim markers.
-        if any(print_job is None for print_job in _attempt_rows(run, job_id, view, ("auto", "unknown"))):
-            return LEGACY_JOB_USAGE
-        return None
+        # A usage row that names this print without evidence: written by an older
+        # version (a rollback after the upgrade) or by anything that bypassed this
+        # ledger. The row itself is the direct record; never deduct on top of it.
+        if run('SELECT 1 FROM spool_usage WHERE print_job_id=:pid LIMIT 1', {'pid': print_job_id}).fetchone():
+            return PRINT_USAGE
+        return None  # Manual use never names a print and never prevents automatic deduction.
     if job_id is None:
         return None
     view = current_attempt(run, job_id)
-    if run("SELECT 1 FROM system_config WHERE key = :k", {"k": filament_marker_for(job_id, view.seq)}).fetchone():
+    if run('SELECT 1 FROM system_config WHERE key=:key', {'key': filament_marker_for(job_id, view.seq)}).fetchone():
         return MARKER
-    for print_job in _attempt_rows(run, job_id, view, ("auto",)):
-        return PRINT_USAGE if print_job is not None else LEGACY_JOB_USAGE
+    if any(state == 'final' or any(r['kind'] == 'unattributed' for r in rows)
+           for state, rows in print_evidence(run, _current_prints(run, job_id)).values()):
+        return PRINT_USAGE
+    if any(True for _ in _attempt_rows(run, job_id, view, ('auto',))):
+        return LEGACY_JOB_USAGE
     return None
+
+
+def _append_evidence(run, key, *, kind, source, claim=None, row=None, reason=None):
+    row = row or {}
+    return run('INSERT INTO print_filament_evidence '
+               '(print_job_id,print_birth_nonce,kind,claim,source,usage_id,spool_id,grams,used_at,reason) '
+               'VALUES(:pid,:nonce,:kind,:claim,:source,:uid,:spool,:grams,:at,:reason) ON CONFLICT DO NOTHING',
+               dict(pid=key[0], nonce=key[1], kind=kind, claim=claim, source=source,
+                    uid=row.get('usage_id'), spool=row.get('spool_id'), grams=row.get('grams'),
+                    at=row.get('used_at'), reason=reason)).rowcount == 1
+
+
+def _claimed_elsewhere(run, key, row):
+    return run("SELECT 1 FROM print_filament_evidence WHERE kind='usage' AND usage_id=:uid "
+               'AND spool_id=:spool AND used_at=:at AND (print_job_id<>:pid OR print_birth_nonce<>:nonce) LIMIT 1',
+               dict(uid=row['usage_id'], spool=row['spool_id'], at=row['used_at'], pid=key[0], nonce=key[1])).fetchone()
+
+
+def note_candidates(run, print_job_id, usage_ids, *, kind, source, reason=None):
+    if kind not in ('manual', 'unattributed'):
+        raise ValueError('A candidate must be manual or unattributed')
+    key = print_key(run, print_job_id)
+    if key is None:
+        return
+    rows = _usage_rows(run, usage_ids)
+    _lock_spools(run, [r['spool_id'] for r in rows])
+    existing = print_evidence(run, [print_job_id])[print_job_id][1]
+    identities = {(r['usage_id'], r['spool_id'], str(r['used_at']), r['kind']) for r in existing}
+    for row in rows or ([{}] if not usage_ids else []):
+        if row and (_claimed_elsewhere(run, key, row) or
+                    (row['usage_id'], row['spool_id'], str(row['used_at']), kind) in identities):
+            continue
+        if not row and any(r['kind'] == kind and r['reason'] == reason and r['usage_id'] is None for r in existing):
+            continue
+        _append_evidence(run, key, kind=kind, source=source, row=row, reason=reason)
+
+
+def carry_job_candidates(run, print_job_id, job_id, *, source='link'):
+    if not job_link_is_live(run, print_job_id, job_id):
+        return
+    view = print_attempt(run, job_id, print_job_id)
+    rows = run('SELECT id,used_at,notes FROM spool_usage WHERE job_id=:job AND print_job_id IS NULL',
+               {'job': job_id}).fetchall()
+    for kind in ('manual', 'unattributed'):
+        ids = [uid for uid, at, notes in rows if view.holds(moment(at))
+               and (row_kind(notes) == 'manual') == (kind == 'manual')]
+        if ids:
+            note_candidates(run, print_job_id, ids, kind=kind, source=source)
 
 
 def _claim(run, key, value) -> bool:
@@ -327,15 +352,20 @@ def _deduct(run, spool_id, grams, *, job_id, print_job_id, notes, allow_unknown_
     """Read and decrement one locked spool. Confirmed usage may retain an unknown balance."""
     row = run("SELECT remaining_weight_g, spoolman_spool_id FROM spools WHERE id = :id", {"id": spool_id}).fetchone()
     before = row[0] if row else None
-    if row is None or (before is None and not allow_unknown_balance) or (before is not None and not math.isfinite(float(before))):
+    try:
+        invalid_balance = before is not None and not math.isfinite(float(before))
+    except (ValueError, TypeError):
+        invalid_balance = True
+    if row is None or (before is None and not allow_unknown_balance) or invalid_balance:
         return None
     before = float(before) if before is not None else None
     run("UPDATE spools SET remaining_weight_g = CASE WHEN remaining_weight_g > :g THEN remaining_weight_g - :g "
         "ELSE 0 END WHERE id = :id AND remaining_weight_g IS NOT NULL", {"g": grams, "id": spool_id})
-    run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
-        "VALUES (:spool, :job, :pj, :g, :at, :notes)",
-        {"spool": spool_id, "job": job_id, "pj": print_job_id, "g": grams, "at": _now(), "notes": notes})
-    return {"spool_id": spool_id, "grams": grams, "remaining_g": max(0.0, before - grams) if before is not None else None,
+    at = _now()
+    uid = run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
+        "VALUES (:spool, :job, :pj, :g, :at, :notes) RETURNING id",
+        {"spool": spool_id, "job": job_id, "pj": print_job_id, "g": grams, "at": at, "notes": notes}).fetchone()[0]
+    return {"_usage_id": uid, "_used_at": at, "spool_id": spool_id, "grams": grams, "remaining_g": max(0.0, before - grams) if before is not None else None,
             "shortfall_g": max(0.0, grams - before) if before is not None else 0, "spoolman_spool_id": row[1]}
 
 
@@ -356,8 +386,13 @@ def job_accounting_skip_reason(run, job_id) -> Optional[str]:
     current = current_attempt(run, job_id)
     prints = []
     for pid, printer, started in run(
-            "SELECT id, printer_id, started_at FROM print_jobs WHERE scheduled_job_id = :id",
+            "SELECT p.id,p.printer_id,p.started_at FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id "
+            "WHERE j.id=:id",
             {"id": int(job_id)}).fetchall():
+        # An unreadable legacy start cannot rule out an external physical owner.
+        # Keep that refusal conservative without treating the link as usage evidence.
+        if not job_link_is_live(run, pid, job_id) and moment(started) is not None:
+            continue
         if not print_attempt(run, job_id, pid).same_attempt(current):
             continue
         # Explicit bindings survive clock skew. Legacy unbound prints must also
@@ -421,61 +456,224 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
         decision = _job_accounting or job_accounting_decision(run, job_id)
         if decision.skip_reason:
             return LedgerResult("nothing_deducted", decision.skip_reason)
-    prior = prior_attempt_usage(run, job_id, print_job_id)
-    if prior:
-        return LedgerResult("already_deducted", prior)
-    items = _clean(grams_by_spool)
-    if not items:
-        return LedgerResult("nothing_deducted")
-    locked = _lock_spools(run, [spool_id for spool_id, _ in items])
-    items = [(spool_id, grams) for spool_id, grams in items if spool_id in locked]
-    claimed = []
-    if job_id is None:
-        job_key = None
-    else:  # the attempt this deduction belongs to: the print's own, or the job's current one
-        view = print_attempt(run, job_id, print_job_id) if print_job_id is not None else current_attempt(run, job_id)
-        job_key = filament_marker_for(job_id, view.seq)
+    if print_job_id is None:
+        prior = prior_attempt_usage(run, job_id)
+        if prior:
+            return LedgerResult('already_deducted', prior)
+        prints = _current_prints(run, job_id)
+        if prints:
+            print_job_id = max(prints)
     if print_job_id is not None:
-        key = print_marker(job_id, print_job_id)
-        if not _claim(run, key, {"source": source}):
-            return LedgerResult("already_deducted", MARKER)
-        claimed.append(key)
-        if job_key is not None:
-            if _claim(run, job_key, {"source": source, "print_job_id": print_job_id}):
-                claimed.append(job_key)
-            else:
-                row = run("SELECT value FROM system_config WHERE key = :k", {"k": job_key}).fetchone()
-                if row and _marker_print(row[0]) is None:  # a job-level deduction won the attempt
-                    run("DELETE FROM system_config WHERE key = :k", {"k": key})
-                    return LedgerResult("already_deducted", JOB_USAGE)
-    else:
-        if not _claim(run, job_key, {"source": source, "print_job_id": None}):
-            return LedgerResult("already_deducted", MARKER)
-        claimed.append(job_key)
-    label = (f"{AUTO_PREFIX}{source}: {notes}" if notes else f"{AUTO_PREFIX}{source}")[:NOTES_MAX]
-    deductions = [entry for entry in (
-        _deduct(run, spool_id, grams, job_id=job_id, print_job_id=print_job_id, notes=label, allow_unknown_balance=allow_unknown_balance)
-        for spool_id, grams in items) if entry is not None]
+        return record_print_usage(run, print_job_id, source=source, grams_by_spool=grams_by_spool,
+                                  allow_unknown_balance=allow_unknown_balance, notes=notes)
+    items = _clean(grams_by_spool)
+    locked = _lock_spools(run, [spool for spool, _ in items])
+    key = filament_marker_for(job_id, current_attempt(run, job_id).seq)
+    if not items:
+        return LedgerResult('nothing_deducted')
+    if not _claim(run, key, {'source': source, 'print_job_id': None}):
+        return LedgerResult('already_deducted', MARKER)
+    deductions = []
+    for spool, grams in items:
+        if spool not in locked:
+            continue
+        row = _deduct(run, spool, grams, job_id=job_id, print_job_id=None,
+                      notes=f'auto:{source}: {notes}'[:NOTES_MAX], allow_unknown_balance=allow_unknown_balance)
+        if row:
+            row.pop('_usage_id'); row.pop('_used_at')
+            deductions.append(row)
     if not deductions:
-        for key in claimed:
-            # Nothing was deducted: withdraw the claims so a later correction can still deduct.
-            run("DELETE FROM system_config WHERE key = :k", {"k": key})
-        return LedgerResult("nothing_deducted")
-    return LedgerResult("deducted", None, deductions)
+        run('DELETE FROM system_config WHERE key=:key', {'key': key})
+    return LedgerResult('deducted' if deductions else 'nothing_deducted', None, deductions)
 
 
-def record_manual_usage(run, spool_id, grams, *, job_id=None, notes=None) -> Optional[dict]:
-    """An operator's manual consumption. Never counts as a job's automatic deduction."""
+def _usage_rows(run, ids):
+    ids = sorted(set(ids))
+    if not ids:
+        return []
+    if len(ids) > 500:
+        return [row for offset in range(0, len(ids), 500) for row in _usage_rows(run, ids[offset:offset + 500])]
+    params = {f'u{i}': uid for i, uid in enumerate(ids)}
+    return [dict(zip(('usage_id', 'spool_id', 'grams', 'used_at', 'notes'), r)) for r in run(
+        'SELECT id,spool_id,weight_used_g,used_at,notes FROM spool_usage WHERE id IN ('
+        + ','.join(':'+k for k in params) + ') ORDER BY id', params).fetchall()]
+
+
+def manual_rows_for_print(run, job_id, print_job_id):
+    key = print_key(run, print_job_id)
+    rows = print_evidence(run, [print_job_id]).get(print_job_id, ('none', []))[1]
+    counted = {(r['usage_id'], r['spool_id'], str(r['used_at'])) for r in rows if r['kind'] == 'usage'}
+    candidates = _distinct_usage([r for r in rows if r['kind'] == 'manual'
+            and (r['usage_id'], r['spool_id'], str(r['used_at'])) not in counted
+            and not _claimed_elsewhere(run, key, r)])
+    return [r for r in candidates if r['live']]
+
+
+def existing_rows_for_print(run, job_id, print_job_id):
+    key = print_key(run, print_job_id)
+    state, rows = print_evidence(run, [print_job_id]).get(print_job_id, ('none', []))
+    kinds = ('usage',) if state == 'final' else ('unattributed',)
+    result = {}
+    for row in rows:
+        if row['kind'] in kinds and row['usage_id'] is not None and not _claimed_elsewhere(run, key, row):
+            result[(row['usage_id'], row['spool_id'], str(row['used_at']))] = row
+    return [r for r in _distinct_usage(list(result.values())) if r['live']]
+
+
+def _distinct_usage(rows):
+    selected = {}
+    for row in rows:
+        previous = selected.get(row["usage_id"])
+        if previous and (previous["spool_id"], str(previous["used_at"])) != (row["spool_id"], str(row["used_at"])):
+            raise InvalidSettlementEvidence("This print has different filament records with the same number. An administrator must review them before its filament can be settled.")
+        selected[row["usage_id"]] = row
+    return list(selected.values())
+
+
+class InvalidSettlementEvidence(ValueError):
+    pass
+
+
+class InvalidSettlementBalance(ValueError):
+    pass
+
+
+def close_print(run, print_job_id, *, source, reason, counted_usage_ids=(), accepted_usage_ids=()):
+    key = print_key(run, print_job_id)
+    if key is None:
+        raise ValueError('A settlement requires a physical print')
+    rows = print_evidence(run, [print_job_id])[print_job_id][1]
+    selected = set(counted_usage_ids) | set(accepted_usage_ids)
+    candidates = {r['usage_id']: r for r in _distinct_usage([
+        r for r in rows if r['usage_id'] in selected and not _claimed_elsewhere(run, key, r)])}
+    if selected != set(candidates):
+        raise InvalidSettlementEvidence('A selected filament record is no longer available. Reload the print and review its filament use.')
+    _lock_spools(run, [r['spool_id'] for r in candidates.values()])
+    if any(_claimed_elsewhere(run, key, r) for r in candidates.values()):
+        raise InvalidSettlementEvidence('This filament use already belongs to another print. Reload the print and review its filament use.')
+    if not _append_evidence(run, key, kind='closed', claim=1, source=source, reason=reason):
+        return LedgerResult('already_deducted', MARKER)
+    for uid, row in candidates.items():
+        _append_evidence(run, key, kind='usage', source='settlement_counted' if uid in counted_usage_ids else 'settlement_accepted', row=row)
+    return LedgerResult('nothing_deducted')
+
+
+def record_print_usage(run, print_job_id, *, source, grams_by_spool, allow_unknown_balance=False, notes=''):
+    """Claim and deduct atomically, including when rival writers name different spools."""
+    if source not in SOURCES:
+        raise ValueError('Unknown filament ledger source')
+    from core.interfaces.filament_ownership import uses_external_filament_accounting
+    physical = run('SELECT scheduled_job_id,printer_id FROM print_jobs WHERE id=:id', {'id': print_job_id}).fetchone()
+    if physical is None:
+        return LedgerResult('nothing_deducted', 'missing_physical_print')
+    if uses_external_filament_accounting(physical[1]):
+        return LedgerResult('nothing_deducted', 'external_accounting')
+    prior = prior_attempt_usage(run, None, print_job_id)
+    if prior:
+        return LedgerResult('already_deducted', prior)
+    key = print_key(run, print_job_id)
+    items = _clean(grams_by_spool)
+    locked = _lock_spools(run, [spool for spool, _ in items])
+    prior = prior_attempt_usage(run, None, print_job_id)
+    if prior:
+        return LedgerResult('already_deducted', prior)
+    # A deleted job link is retained for history, but cannot be used as a usage FK.
+    job_id = physical[0] if job_link_is_live(run, print_job_id, physical[0]) else None
+    run('SAVEPOINT filament_deduction', {})
+    try:
+        # Claim before deducting, as a settlement does: a rival writer for this print
+        # waits on the claim (PostgreSQL) and is refused, instead of deducting from a
+        # different spool and being rolled back. Nothing deducted keeps no claim.
+        if not _append_evidence(run, key, kind='closed', claim=1, source=source, reason='deducted'):
+            return LedgerResult('already_deducted', MARKER)
+        deductions = []
+        for spool, grams in items:
+            if spool not in locked:
+                continue
+            entry = _deduct(run, spool, grams, job_id=job_id, print_job_id=print_job_id,
+                            notes=f'auto:{source}: {notes}'[:NOTES_MAX], allow_unknown_balance=allow_unknown_balance)
+            if entry is None:
+                continue
+            row = dict(usage_id=entry.pop('_usage_id'), used_at=entry.pop('_used_at'), spool_id=spool, grams=grams)
+            _append_evidence(run, key, kind='usage', source=source, row=row)
+            deductions.append(entry)
+        if not deductions:
+            run('ROLLBACK TO SAVEPOINT filament_deduction', {})
+            return LedgerResult('nothing_deducted')
+        return LedgerResult('deducted', None, deductions)
+    except Exception:
+        run('ROLLBACK TO SAVEPOINT filament_deduction', {})
+        raise
+    finally:
+        run('RELEASE SAVEPOINT filament_deduction', {})
+
+
+def record_settlement(run, job_id, print_job_id, *, grams_by_spool, counted_usage_ids,
+                      accept_existing=False, archive_id=None, reason=None):
+    items = _clean(grams_by_spool)
+    if len(items) != len(grams_by_spool):
+        raise ValueError('Settlement deductions must be positive finite quantities')
+    prior = prior_attempt_usage(run, job_id, print_job_id)
+    if prior and not accept_existing:
+        return LedgerResult('already_deducted', prior)
+    if accept_existing:
+        if not prior or items:
+            raise ValueError('Accept existing requires a prior deduction and no new deduction')
+        state, rows = print_evidence(run, [print_job_id])[print_job_id]
+        if state == 'final':
+            key = print_key(run, print_job_id)
+            selected = {r['usage_id']: r for r in _distinct_usage([
+                r for r in rows if r['kind'] == 'manual' and r['usage_id'] in counted_usage_ids
+                and not _claimed_elsewhere(run, key, r)])}
+            if set(selected) != set(counted_usage_ids):
+                raise InvalidSettlementEvidence('A selected filament record is no longer available. Reload the print and review its filament use.')
+            _lock_spools(run, [r['spool_id'] for r in selected.values()])
+            for row in selected.values():
+                if _claimed_elsewhere(run, key, row):
+                    raise InvalidSettlementEvidence('This filament use already belongs to another print. Reload the print and review its filament use.')
+                if not any(r['kind'] == 'usage' and r['usage_id'] == row['usage_id'] and r['spool_id'] == row['spool_id'] and str(r['used_at']) == str(row['used_at']) for r in rows):
+                    _append_evidence(run, key, kind='usage', source='settlement_counted', row=row)
+            return LedgerResult('nothing_deducted')
+    if _lock_spools(run, [spool for spool, _ in items]) != {spool for spool, _ in items}:
+        raise InvalidSettlementBalance('A selected spool is no longer available. Reload the print and choose a spool.')
+    selected = list(counted_usage_ids)
+    accepted = [r['usage_id'] for r in existing_rows_for_print(run, job_id, print_job_id)] if accept_existing else []
+    # Close first, then add usage under that claim. Caller rolls the transaction
+    # back on any refused balance, outbox or audit write.
+    outcome = close_print(run, print_job_id, source='settlement', reason=reason or 'operator_settled',
+                          counted_usage_ids=selected, accepted_usage_ids=accepted)
+    if outcome.state == 'already_deducted':
+        return outcome
+    key = print_key(run, print_job_id)
+    job_id = job_id if job_link_is_live(run, print_job_id, job_id) else None
+    deductions = []
+    for spool, grams in items:
+        entry = _deduct(run, spool, grams, job_id=job_id, print_job_id=print_job_id,
+                        notes=f'auto:settlement: archive {archive_id}', allow_unknown_balance=True)
+        if entry is None:
+            raise InvalidSettlementBalance(f'Spool {spool} has an invalid balance. Correct or weigh the spool, then try again.')
+        row = dict(usage_id=entry.pop('_usage_id'), used_at=entry.pop('_used_at'), spool_id=spool, grams=grams)
+        _append_evidence(run, key, kind='usage', source='settlement', row=row)
+        deductions.append(entry)
+    return LedgerResult('deducted' if deductions else 'nothing_deducted', None, deductions)
+
+
+def record_manual_usage(run, spool_id, grams, *, job_id=None, notes=None):
     items = _clean({spool_id: grams})
     if not items:
         return None
     if notes is not None and len(notes) > MANUAL_NOTES_MAX:
-        raise ValueError(f"Manual usage notes are limited to {MANUAL_NOTES_MAX} characters")
-    label = f"{MANUAL_PREFIX} {notes}" if notes else MANUAL_PREFIX
+        raise ValueError(f'Manual usage notes are limited to {MANUAL_NOTES_MAX} characters')
     if not _lock_spools(run, [items[0][0]]):
         return None
-    return _deduct(run, items[0][0], items[0][1], job_id=int(job_id) if job_id is not None else None,
-                   print_job_id=None, notes=label)
+    entry = _deduct(run, items[0][0], items[0][1], job_id=job_id, print_job_id=None,
+                    notes=f'manual: {notes}' if notes else 'manual:')
+    if entry:
+        uid = entry.pop('_usage_id'); entry.pop('_used_at')
+        if job_id is not None:
+            for pid in _current_prints(run, job_id):
+                note_candidates(run, pid, [uid], kind='manual', source='manual_use')
+    return entry
 
 
 def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
@@ -493,7 +691,14 @@ def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
         run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
             "VALUES (:spool, NULL, NULL, :g, :at, :notes)",
             {"spool": int(spool_id), "g": before - value, "at": _now(), "notes": f"{MANUAL_PREFIX} weigh adjustment"})
+    record_balance_set(run, spool_id)
     return {"spool_id": int(spool_id), "old_weight_g": before, "remaining_g": value}
+
+
+def record_balance_set(run, spool_id):
+    """Retain an absolute balance correction, including increases and NULL -> known."""
+    run("INSERT INTO system_config(key,value) VALUES(:key,:at) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        {"key": f"filament_balance_weighed:{int(spool_id)}", "at": json.dumps(_now().isoformat())})
 
 
 def create_rfid_spool(run, *, filament_id, qr_code, tag, tray_uuid, color_hex, color_name, org_id):
@@ -533,15 +738,22 @@ def transfer_rfid_balance(run, source_id, target_id):
             dict(weight=row[0], measured=row[1], at=row[2], printer=row[3], id=target_id))
 
 
-def flag_reconciliation(run, job_id, print_job_id, *, reason: str, source: str) -> None:
-    """Durably record that a print's filament needs reconciliation (first flag wins).
+def flag_reconciliation(run, job_id, print_job_id, *, reason, source):
+    note_candidates(run, print_job_id, [], kind='unattributed', source=source, reason=reason)
 
-    The archive path records the same outcome on its print_archives row
-    (accounting_state 'unresolved'); monitors that deduct without an archive row
-    record it here. The key sits under the job's filament namespace, so
-    clear_job_attempts removes it with the job.
-    """
-    key = (f"{PREFIX}filament:job:{int(job_id)}:reconcile:print:{int(print_job_id)}" if job_id is not None
-           else f"{PREFIX}filament:reconcile:print:{int(print_job_id)}")
-    run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
-        {"k": key, "v": json.dumps({"reason": reason, "source": source, "at": _now().isoformat()})})
+
+def retain_print_evidence(run, print_job_id, *, usage_ids=(), reason=None):
+    """Startup-only adoption of direct legacy evidence, without changing stock."""
+    key = print_key(run, print_job_id)
+    if key is None:
+        raise ValueError('Physical print is missing')
+    rows = _usage_rows(run, usage_ids)
+    _lock_spools(run, [r['spool_id'] for r in rows])
+    if not rows:
+        _append_evidence(run, key, kind='closed', source='backfill', claim=1, reason=reason)
+        return
+    for index, row in enumerate(rows):
+        if _claimed_elsewhere(run, key, row):
+            raise InvalidSettlementEvidence('Filament use belongs to another print')
+        if not _append_evidence(run, key, kind='usage', source='backfill', row=row, claim=1 if index == 0 else None):
+            return

@@ -38,6 +38,9 @@ All notable changes to O.D.I.N. are documented here.
 - ODIN now stops at start-up on PostgreSQL 18 or newer with a clear message before changing the database, and asks you to use the PostgreSQL 16 server it ships with.
 - Skip objects (Experimental, Bambu Lab printers): while a print that ODIN started is running, choose objects on the plate to stop printing, from a numbered plate picture and a list on the printer page, on desktop and phone. It is off by default: a platform administrator turns it on per printer under Experimental features on the printer page. Built from how Bambu's own software sends this command and not yet verified on a real printer. API: `GET /api/printers/{id}/print-objects` lists the objects; `POST /api/printers/{id}/skip-objects` now requires `print_job_id` and is audited.
 - Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
+- Recover past filament deductions recorded while an older version was running on an upgraded database, so those prints cannot be deducted again after upgrading.
+- Keep filament deductions with the physical print, so deleting jobs, spools or archives cannot deduct the same print again. Check past usage before startup and preserve manual use for settlement review.
+- Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
 
 ## [2.3.0] - 2026-11-15
 ## [2.3.1] - 2026-11-17

@@ -123,6 +123,10 @@ POLICY_INVENTORY = (
     _entry("models_library.plate_cache", "facts_for_row/thumbnail_for_row/sweep", "file/derived plate facts and pictures", "read derived data; delete orphaned cache", "callers pass a row already authorized by accessible_preview_file (canonical file audience incl. Education policy); sweep removes only entries no present file refers to", ("print-file plate routes", "Printers page", "hourly maintenance"), "test_plate_cache_routes.py", "guarded"),
     _entry("models_library.file_management", "list/read/delete/schedule generic file", "file/model/job/printer/submission", "read/delete/queue", "current scoped viewer/operator; canonical file audience; persisted Education lifecycle protection", ("generic queue",), "test_print_file_management_audience_behavior.py", "guarded"),
     _entry("models_library.library_search", "model_clause/apply_model_filters/file_clause", "model/file/job/printer", "narrow the library list queries (read only)", "narrows only: callers keep their organization, controlled-audience and Education predicates; files matched only when organization-fenced, canonical file audience and not Education-owned; printed-on needs a visible printer and visible completed job", ("models list", "priced models list", "print-files list"), "test_library_search.py", "guarded"),
+    _entry("core.filament_evidence_backfill", "backfill/_print", "physical print/job/usage/archive", "retain evidence", "database setup only before workers; no stock writes or audience changes; missing or unreadable evidence requires settlement review", (), "test_print_filament_evidence.py", "excluded_internal"),
+    _entry("archives.filament_settlement", "settle", "archive/physical print/manual use/spools", "settle", "archive visibility and no Education marker, including superadmin; locked physical job linkage", ("ledger", "audit", "outbox"), "test_archive_filament_settlement.py", "guarded"),
+    _entry("archives.settlement_data", "preview", "archive/physical print/manual use/spools", "read", "archive visibility and spool visibility; Education settlement refused", (), "test_archive_filament_settlement.py", "guarded"),
+    _entry("archives.routes.filament_settlement", "accounting_summary", "archive/job/file", "read", "same archive visibility and Education audience as archive list", (), "test_archive_accounting_causes.py", "guarded"),
     _entry("archives.attempt_accounting", "capture_attempt_spools/account_archive", "physical attempt/job/file/spool", "capture/account", "trusted archive persistence; unresolved ownership leaves inventory unchanged", ("spool usage", "filament delivery outbox"), "test_archive_ownership_accounting_boundary.py", "guarded"),
     _entry("archives.ownership", "capture_content_owner", "job/file/model/Education submission", "read ownership", "trusted first-start or explicit superadmin repair", ("immutable archive ownership",), "test_archive_legacy_ownership_behavior.py", "guarded"),
     _entry("archives.legacy_ownership", "resolve_legacy_archive_ownership", "archive/job/file/Education source graph", "bounded ownership repair", "explicit superadmin with write:jobs; caller-owned atomic transaction", ("archive visibility",), "test_archive_legacy_ownership_behavior.py", "guarded"),
@@ -249,6 +253,10 @@ _SENSITIVE_SQL = re.compile(
 )
 _EXPLICIT_SURFACE_PATHS = (
     "modules/printers/routes_print_objects.py",
+    "core/filament_evidence_backfill.py",
+    "modules/archives/filament_settlement.py",
+    "modules/archives/settlement_data.py",
+    "modules/archives/routes/filament_settlement.py",
     "modules/organizations/education_submission_service.py",
     'modules/organizations/routes_education_training.py',
     'modules/organizations/education_training_service.py',

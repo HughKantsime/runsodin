@@ -70,6 +70,7 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "models.create": ["admin", "operator"],
     "models.edit": ["admin", "operator"],
     "models.delete": ["admin"],
+    "archives.settle_filament": ["admin", "operator"],
     "spools.edit": ["admin", "operator"],
     # Operators archive spools (certified claim F06-6.1-03; the server always allowed it).
     "spools.delete": ["admin", "operator"],

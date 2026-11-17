@@ -1,3 +1,4 @@
+import FilamentAccounting from './FilamentSettlement'
 import CheckTarget from '../../components/ui/CheckTarget'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
@@ -241,13 +242,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
 
         {!archive.failure_correction && <OutcomeCorrection key={archive.id} jobId={archive.job_id} printId={archive.print_job_id} status={archive.status} onCorrected={onClose} />}
         <PrintFailureControl canCorrect={archive.failure_correction_allowed} inline key={`${archive.id}:${archive.status}`} printId={archive.print_job_id} status={archive.status} endedAt={archive.completed_at} correction={archive.failure_correction} onCorrected={onClose} />
-        {archive.accounting_state === 'unresolved' && <div className="mb-4 rounded-md border border-amber-500/40 p-3 text-sm" role="status">
-          <p>Filament consumption is unattributed.</p>
-          {archive.consumption?.map((item, index) => <p key={index}>
-            {item.slot_number ? `Slot ${item.slot_number}: ` : ''}{item.grams_used != null ? `${item.grams_used.toFixed(1)} g` : 'Quantity unknown'}
-            {item.reason === 'spool_change_pending' ? ' — confirm the spool on the Printers page.' : ' — no confirmed spool for this print.'}
-          </p>)}
-        </div>}
+        <FilamentAccounting archive={archive} />
 
         {/* Tags */}
         {canDo('printers.edit') ? (
@@ -388,6 +383,7 @@ export default function ArchivesPage() {
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '')
   const [filterPrinter, _setFilterPrinter] = useState(() => searchParams.get('printer') || '')
   const [filterStatus, _setFilterStatus] = useState(() => searchParams.get('status') || '')
+  const [filterAccounting, setFilterAccounting] = useState(() => ['unresolved', 'reconciliation_required'].includes(searchParams.get('accounting') || '') ? searchParams.get('accounting')! : '')
   const [filterTag, _setFilterTag] = useState(() => searchParams.get('tag') || '')
   const [selected, setSelected] = useState(null)
   const [compareIds, setCompareIds] = useState(new Set<number>())
@@ -447,7 +443,7 @@ export default function ArchivesPage() {
   })
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['archives', page, search, filterPrinter, filterStatus, filterTag],
+    queryKey: ['archives', page, search, filterPrinter, filterStatus, filterTag, filterAccounting],
     queryFn: () => archives.list({
       page,
       per_page: 50,
@@ -455,6 +451,7 @@ export default function ArchivesPage() {
       printer_id: filterPrinter || undefined,
       status: filterStatus || undefined,
       tag: filterTag || undefined,
+      accounting: filterAccounting || undefined,
     }),
   })
 
@@ -516,6 +513,12 @@ export default function ArchivesPage() {
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <select aria-label="Filter by filament accounting" value={filterAccounting}
+          onChange={e => { setFilterAccounting(e.target.value); updateSearchParams({ accounting: e.target.value }); setPage(1) }}
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm">
+          <option value="">All filament records</option><option value="unresolved">Needs filament settled (last 30 days)</option>
+          <option value="reconciliation_required">Spool balance needs review</option>
+        </select>
         {filterTag && (
           <button
             onClick={() => { setFilterTag(''); setPage(1) }}
@@ -542,8 +545,8 @@ export default function ArchivesPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={Archive}
-          title="No archived prints yet"
-          description="Prints are automatically archived when they complete"
+          title={search || filterPrinter || filterStatus || filterAccounting || filterTag ? 'No prints match these filters' : 'No archived prints yet'}
+          description={search || filterPrinter || filterStatus || filterAccounting || filterTag ? 'Change or clear the filters to see more prints.' : 'Prints are automatically archived when they complete'}
         />
       ) : (
         <>
@@ -572,6 +575,7 @@ export default function ArchivesPage() {
                     ['Date', formatDate(item.completed_at)],
                   ]}
                 >
+                  <AccountingBadge item={item} />
                   {item.tags && item.tags.length > 0 && (
                     <TagChips tags={item.tags} onTagClick={t => { setFilterTag(t); setPage(1) }} />
                   )}
@@ -623,6 +627,7 @@ export default function ArchivesPage() {
                     </td>
                     <td className="py-2 px-3">
                       <div className="font-medium truncate max-w-[200px]">{displayName(item)}</div>
+                      <AccountingBadge item={item} />
                       {item.tags && item.tags.length > 0 && (
                         <TagChips tags={item.tags} onTagClick={t => { setFilterTag(t); setPage(1) }} />
                       )}
@@ -696,4 +701,8 @@ export default function ArchivesPage() {
       )}
     </div>
   )
+}
+
+function AccountingBadge({ item }: { item: ArchiveDto }) {
+  return item.accounting_badge ? <span className="text-xs text-amber-500">{item.accounting_badge}</span> : null
 }

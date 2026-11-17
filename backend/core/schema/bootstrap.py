@@ -240,7 +240,8 @@ for _economic_table in ('orders', 'order_items', 'jobs'):
 for _source_table in ('spools', 'print_jobs'):
     RAW_REQUIRED_COLUMNS[_source_table] = RAW_REQUIRED_COLUMNS.get(_source_table, frozenset()) | frozenset({'economic_uid', 'economic_birth_nonce'})
 RAW_REQUIRED_COLUMNS['dispatch_recovery_history'] = frozenset('id created_at audit_id actor_id actor_identity owner_org_id charged_org_id printer_id job_id attempt_handle snapshot_handle decision reason_category facts'.split())
-RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'dispatch_recovery_global_history'})
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'dispatch_recovery_global_history', 'print_filament_evidence'})
+RAW_REQUIRED_COLUMNS['print_filament_evidence'] = frozenset('id print_job_id print_birth_nonce kind claim source usage_id spool_id grams used_at reason recorded_at'.split())
 RAW_REQUIRED_COLUMNS['dispatch_recovery_global_history'] = frozenset('id created_at audit_id actor_id actor_identity printer_id job_id attempt_handle snapshot_handle decision reason_category facts'.split())
 RAW_REQUIRED_COLUMNS['terminal_filament_measurements'] = frozenset('observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams reported_value reconciliation_reason snapshot_json created_at'.split())
 RAW_REQUIRED_COLUMNS['filament_cost_events'] = frozenset('event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at'.split())
@@ -380,6 +381,7 @@ POST027_MIGRATIONS = (
     ("python:058-filament-catalogue", "core.schema.migrations.058_filament_catalogue"),
     ("python:059-six-materials", "core.schema.migrations.059_six_materials"),
     ("python:060-print-files-stored-path-index", "core.schema.migrations.060_print_files_stored_path_index"),
+    ("python:061-print-filament-evidence", "core.schema.migrations.061_print_filament_evidence"),
 )
 
 
@@ -646,7 +648,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -685,7 +687,7 @@ def _bootstrap_database_contract(
             applied.append("python:052-traceability")
         # Keep the release tail ordered after Education rebuilds and identity guards.
         for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
-            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index"} and apply_python_migration(connection, module_name):
+            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence"} and apply_python_migration(connection, module_name):
                 applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
@@ -714,4 +716,7 @@ def bootstrap_database(engine: Engine, backend_root: Path | None = None) -> dict
         from core.schema.postgres_version import check_postgres_version
         with engine.connect() as connection:
             check_postgres_version(connection)
-    return _bootstrap_database_contract(engine,backend_root)
+    result = _bootstrap_database_contract(engine,backend_root)
+    from core.filament_evidence_backfill import backfill
+    backfill(engine)
+    return result

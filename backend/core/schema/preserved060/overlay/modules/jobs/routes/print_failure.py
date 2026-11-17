@@ -1,0 +1,60 @@
+"""Documented operator correction endpoints; never publish printer events."""
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
+from core.db import get_db
+from core.rbac import require_action
+from modules.jobs.print_failure import change
+
+router = APIRouter(tags=['Print Jobs'])
+
+
+class MarkPrintFailed(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    reason: Literal['no_filament', 'filament_supply', 'first_layer', 'came_loose', 'under_extrusion', 'printer_fault', 'power_connection', 'other']
+    note: str = Field(default='', max_length=1000)
+
+    @field_validator('note')
+    @classmethod
+    def plain_note(cls, value):
+        value = value.replace('\r\n', '\n')
+        if any(ord(char) < 32 and char not in '\n\t' for char in value) or '<' in value or '>' in value:
+            raise ValueError('Use plain text for the note.')
+        return value.strip()
+
+
+def _apply(db, print_id, user, body=None):
+    try:
+        result = change(db, print_id, user, body)
+        db.commit()
+        return result
+    except OperationalError:
+        db.rollback()
+        raise HTTPException(409, 'This print is being updated. Reload and try again.') from None
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post('/print-jobs/{print_id}/mark-failed')
+def mark_print_failed(print_id: int, body: MarkPrintFailed, db: Session = Depends(get_db),
+                      user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
+    """Mark one finished cancelled print as failed, with a required reason.
+
+    This changes the outcome only. Recorded filament and cost stay as they are.
+    No alert or notification is sent.
+    """
+    return _apply(db, print_id, user, body)
+
+
+@router.post('/print-jobs/{print_id}/undo-failure')
+def undo_print_failure(print_id: int, db: Session = Depends(get_db),
+                       user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
+    """Back to cancelled: restore only outcomes still belonging to this correction.
+
+    Later outcomes, new archives and job workflow changes are preserved and reported in
+    warnings. The original, corrected and undo details remain in the audit log.
+    """
+    return _apply(db, print_id, user)

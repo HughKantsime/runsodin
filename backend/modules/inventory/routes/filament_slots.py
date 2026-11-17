@@ -207,6 +207,13 @@ def confirm_tray_identity(printer_id: int, slot_number: int, body: ConfirmTrayId
         entries = json.loads(archive[4] or '[]')
         if not any(item.get('identity_state') in (body.observed_state, hold_id) for item in entries):
             continue
+        # A zero-deduction settlement may have finished after this candidate was selected.
+        # Preserve spool -> archive lock order and never overwrite a final settlement.
+        db.execute(text('UPDATE print_archives SET id=id WHERE id=:id'), {'id': archive[0]})
+        current = db.execute(text('SELECT accounting_state,accounting_reason FROM print_archives WHERE id=:id'),
+                             {'id': archive[0]}).first()
+        if current is None or tuple(current) != ('unresolved', 'spool_change_pending'):
+            continue
         outcome, reason, _ = attempt_accounting().account_archive(db.connection(), archive_id=archive[0], print_job_id=archive[1],
             printer_id=printer_id, snapshot_json=archive[5], scheduled_job_id=archive[2], measured_grams=archive[6], success=archive[3] == 'completed')
         db.execute(text('UPDATE print_archives SET accounting_state=:state,accounting_reason=:reason WHERE id=:id'),

@@ -140,12 +140,13 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
     'components/printers/PlateCleared.tsx', // Plate-clear confirmation
     'components/printers/SkipObjectsDialog.tsx', // Running print object selection
   ]
-  for (const file of disclosures) {
+  const settlementDialogs = ['pages/archives/FilamentSettlement.tsx']
+  for (const file of [...disclosures, ...settlementDialogs]) {
     expect(C.modalUsages.filter(modal => modal.file === file)).toEqual([
       { file, line: expect.any(Number), alert: false },
     ])
   }
-  expect(summary.shared_modal_call_sites).toBe(40 + disclosures.length)
+  expect(summary.shared_modal_call_sites).toBe(40 + disclosures.length + settlementDialogs.length)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
   // Super Admin restore adds one named, focus-trapped confirmation dialog.
   // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
@@ -153,7 +154,7 @@ it('F12-12.7-04 census: dialog-role modal surfaces include the current shared an
   expect(summary.custom_dialog_role_elements).toHaveLength(24)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
   expect(dialogOnly).toBe(22)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(64)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(65)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 

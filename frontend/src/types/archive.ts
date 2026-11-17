@@ -3,6 +3,12 @@
 import type { PaginatedResponse } from './common';
 
 export interface Archive {
+  accounting_state?: string;
+  settleable?: boolean;
+  accounting_badge?: string | null;
+  accounting_cause?: AccountingCause;
+  accounting_settled?: { by: string | null; at: string } | null;
+  consumption?: { spool_id: number | null; grams_used: number | null; slot_number?: number; reason?: string; remaining_unknown?: boolean; deducted_now_g?: number }[];
   print_job_id?: number;
   failure_correction_allowed?: boolean;
   failure_correction?: import('./job').FailureCorrection | null;
@@ -38,6 +44,7 @@ export interface ArchiveUpdate {
 }
 
 export interface ArchiveListParams {
+  accounting?: string;
   page?: number;
   per_page?: number;
   printer_id?: number | string;
@@ -176,3 +183,21 @@ export interface TimelapseTrimRequest {
 export interface TimelapseSpeedRequest {
   multiplier: number;
 }
+
+export interface AccountingCause { code: string; title: string; next_step: string }
+export interface SettlementPreview {
+  archive_id: number; job_id: number | null; accounting_state: string; accounting_reason: string | null;
+  cause: AccountingCause; settleable: boolean; not_settleable: string | null;
+  grams: { measured: number | null; sliced_estimate: number | null };
+  suggested: { slot_number: number | null; spool_id: number; spool_label: string; grams: number | null; remaining_g: number | null }[];
+  manual_usage: { usage_id: number; spool_id: number; grams: number; used_at: string; notes: string }[];
+  prior_usage: string | null;
+  balance_set_after_print: { spool_id: number; at: string | null; how: string }[];
+}
+export type NoDeduction = 'nothing_extruded' | 'recorded_by_hand' | 'spool_not_tracked' | 'accept_existing' | 'balance_already_updated';
+export interface FilamentSettlement {
+  entries: { spool_id: number; grams: number }[];
+  counted_usage_ids: number[]; separate_usage_ids: number[];
+  no_deduction: NoDeduction | null; note: string; deduct_despite_later_balance: number[];
+}
+export interface AccountingSummary { unresolved: number; by_cause: { code: string; title: string; count: number }[]; oldest_completed_at: string | null }

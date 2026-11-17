@@ -215,10 +215,11 @@ def archive_terminal(private_attempt,review_db,monkeypatch):
 
 
 def test_archive_writes_cost_even_after_earlier_monitor_deduction(archive_terminal):
-    from core.filament_ledger import print_marker
+    from core.filament_ledger import close_print
+    from core.print_attempts import sqlalchemy_runner
     archive,engine,identifier,printer,job=archive_terminal
     with engine.begin() as c:
-        c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'),{'key':print_marker(job,identifier),'value':'earlier-monitor'})
+        close_print(sqlalchemy_runner(c), identifier, source='moonraker', reason='marker')
     archive_id=archive.create_print_archive(identifier,printer,True)
     assert archive_id is not None
     with engine.connect() as c:

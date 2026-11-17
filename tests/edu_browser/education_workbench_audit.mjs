@@ -58,6 +58,7 @@ const commonResponses = {
   'GET /api/alerts/unread-count': { count: 0 },
   'GET /api/printers': [{ id: 7, name: 'Bambu P1S Pilot', nickname: 'Bambu P1S Pilot', type: 'bambu', status: 'idle', last_seen: '2026-09-19T13:00:00Z', filament_slots: [] }],
   'GET /api/stats': {},
+  'GET /api/archives/accounting-summary': { unresolved: 0, by_cause: [], oldest_completed_at: null },
   'GET /api/auth/capabilities': { smtp_enabled: false },
   'GET /api/auth/oidc/config': { enabled: true },
   'POST /api/auth/ws-token': { token: '' },

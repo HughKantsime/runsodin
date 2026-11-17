@@ -143,7 +143,7 @@ def test_operator_completion_then_archive_is_reconciled_not_deducted_twice(archi
     assert client.post("/jobs/7099/complete").status_code == 200
     assert _balances(engine) == [960, 960]
     assert archive.create_print_archive(7099, 9, True) is not None
-    assert _accounting(engine) == ("unresolved", "job_usage_unattributed")
+    assert _accounting(engine) == ("accounted", "attempt_already_accounted")
     assert _balances(engine) == [960, 960]
 
 
@@ -609,7 +609,7 @@ def test_late_archive_after_reset_sees_the_operator_deduction_of_its_own_attempt
     assert _balances(engine) == [960, 960]
     _reset_after_print(client, engine)
     assert archive.create_print_archive(7099, 9, True) is not None       # the attempt-0 print archives late
-    assert _accounting(engine) == ("unresolved", "job_usage_unattributed")
+    assert _accounting(engine) == ("accounted", "attempt_already_accounted")
     assert _balances(engine) == [960, 960]
 
 
@@ -621,7 +621,9 @@ def test_late_archive_claims_its_own_attempt_not_the_next_one(archive_case, monk
     assert _accounting(engine) == ("accounted", None) and _balances(engine) == [960, 960]
     with engine.connect() as conn:
         keys = set(conn.execute(text("SELECT key FROM system_config WHERE key LIKE 'quota_attempt:filament:job:7099:%'")).scalars())
-    assert "quota_attempt:filament:job:7099:0" in keys and "quota_attempt:filament:job:7099:1" not in keys
+    assert not keys
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT COUNT(*) FROM print_filament_evidence WHERE print_job_id=7099 AND claim=1')).scalar_one() == 1
     _reprint(client, engine)                                              # attempt 1 deducts its own print
     assert _balances(engine) == [920, 920]
 
@@ -637,7 +639,7 @@ def test_startup_recovery_accounts_a_late_print_to_its_own_attempt(archive_case,
 
 
 @pytest.mark.parametrize("print_started,expected", [
-    ("2026-01-01 08:00:00", ("unresolved", "legacy_usage_unattributed")),  # same attempt as the legacy row
+    ("2026-01-01 08:00:00", ("unresolved", "job_usage_unattributed")),  # same attempt as the legacy row
     ("2026-01-03 08:00:00", ("accounted", None)),                          # after the audited reset
 ])
 def test_legacy_operator_rows_belong_to_the_attempt_of_their_time(archive_case, monkeypatch, print_started, expected):
@@ -647,6 +649,8 @@ def test_legacy_operator_rows_belong_to_the_attempt_of_their_time(archive_case, 
                           "VALUES(7099,7099,40,'2026-01-01 10:00:00','Auto-deducted on job #7099 complete (Synthetic)')"))
         conn.execute(text("INSERT INTO audit_logs(timestamp,action,entity_type,entity_id) VALUES('2026-01-02 09:00:00','job.reset','job',7099)"))
         conn.execute(text("UPDATE print_jobs SET started_at=:s WHERE id=7099"), {"s": print_started})
+    from core.filament_evidence_backfill import backfill
+    backfill(engine)
     assert archive.create_print_archive(7099, 9, True) is not None
     assert _accounting(engine) == expected
 
@@ -671,7 +675,7 @@ def test_a_bound_print_keeps_its_attempt_and_that_attempts_window_whatever_its_s
     bind_print_attempt(run, 5101, 111)                                    # first binding wins
     assert print_attempt(run, 111, 5101).seq == 0
     outcome = record_job_filament(run, 111, source="archive", print_job_id=5101, grams_by_spool={111: 10})
-    assert (outcome.state, outcome.reason) == ("already_deducted", LEGACY_JOB_USAGE)
+    assert (outcome.state, outcome.reason) == ("already_deducted", "job_usage")
     db.commit()
     assert _spool(db) == (90.0, 1)                                         # no second deduction
     keys = _keys(db)
@@ -699,12 +703,15 @@ def test_moonraker_flags_an_unattributable_print_for_reconciliation(lifecycle_cl
     assert client.post("/jobs/111/complete").status_code == 200        # job-level deduction of attempt 0
     assert _spool(db) == (90.0, 1)
     _print_job(db, 5104)
+    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+    bind_print_attempt(sqlalchemy_runner(db), 5104, 111)
+    db.commit()
     deduct = _moonraker(db, print_job_id=5104)
     outcome = deduct()
     assert outcome.unattributed and outcome.reason == "job_usage"
     assert _spool(db) == (90.0, 1)
-    flag = json.loads(_keys(db)["quota_attempt:filament:job:111:reconcile:print:5104"])
-    assert flag["reason"] == "job_usage" and flag["source"] == "moonraker"
+    flag = db.execute(text("SELECT reason,source FROM print_filament_evidence WHERE print_job_id=5104 AND source='moonraker'")).one()
+    assert tuple(flag) == ('job_usage', 'moonraker')
     assert any("reconciliation required" in record.getMessage() for record in caplog.records)
 
 
@@ -803,7 +810,7 @@ def _ledger_statement_order(engine, action):
         flat = " ".join(statement.split())
         if flat.startswith("UPDATE spools SET id = id") or flat.startswith("UPDATE spools SET id=id"):
             seen.append("lock spool")
-        elif flat.startswith("INSERT INTO system_config") and "ON CONFLICT" in flat and "filament:" in flat:
+        elif flat.startswith("INSERT INTO print_filament_evidence") or (flat.startswith("INSERT INTO system_config") and "ON CONFLICT" in flat and "filament:" in flat):
             seen.append("claim")
 
     def checkout(dbapi_connection, record_, proxy):
@@ -1105,7 +1112,7 @@ def test_legacy_unbound_external_history_before_actual_start_is_not_current(life
     _, db = lifecycle_client
     _print_job(db, 5201)
     db.execute(text("UPDATE print_jobs SET started_at='2026-01-01 08:00:00' WHERE id=5201"))
-    db.execute(text("UPDATE jobs SET printer_id=10,actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
+    db.execute(text("UPDATE jobs SET printer_id=10,created_at='2025-01-01',actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
     monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
     assert record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10}).deducted
 
@@ -1148,7 +1155,7 @@ def test_empty_policy_preserves_legacy_missing_physical_behavior(lifecycle_clien
     monkeypatch.setattr(settings, 'external_filament_accounting_printers', [])
     result = record_job_filament(sqlalchemy_runner(db), 111, source='archive',
                                  print_job_id=999999, grams_by_spool={})
-    assert (result.state, result.reason) == ('nothing_deducted', None)
+    assert (result.state, result.reason) == ('nothing_deducted', 'missing_physical_print')
     args = dict(archive_id=999999, print_job_id=999999, printer_id=999999,
                 snapshot_json=None, scheduled_job_id=111, measured_grams=None, success=True)
     assert account_archive(db.connection(), **args) == ('unresolved', 'missing_or_invalid_start_snapshot', [])
@@ -1304,13 +1311,15 @@ def test_delegated_archive_preserves_unattributed_prior_usage(archive_case, monk
         if prior == 'job_usage':
             conn.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:filament:job:7099:0',:value)"),
                          {'value': json.dumps({'source': 'operator_complete', 'print_job_id': None})})
-        assert prior_attempt_usage(sqlalchemy_runner(conn), 7099, 7099) == prior
+        from core.filament_evidence_backfill import _print
+        _print(sqlalchemy_runner(conn), 7099, (set(), {}, set()))
+        assert prior_attempt_usage(sqlalchemy_runner(conn), 7099, 7099) == ('marker' if prior == 'print_usage' else 'job_usage')
         before_usage = conn.execute(text('SELECT * FROM spool_usage ORDER BY id')).all()
         before_claims = conn.execute(text("SELECT key,value FROM system_config WHERE key LIKE 'quota_attempt:filament:%' ORDER BY key")).all()
         before_outbox = conn.execute(text('SELECT * FROM filament_delivery_outbox ORDER BY id')).all()
     monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
     assert archive.create_print_archive(7099, 9, True) is not None
-    assert _accounting(engine) == ('unresolved', expected_reason)
+    assert _accounting(engine) == (('accounted', 'attempt_already_accounted') if prior == 'print_usage' else ('unresolved', 'job_usage_unattributed'))
     assert _balances(engine) == [960, 1000]
     with engine.connect() as conn:
         assert conn.execute(text('SELECT * FROM spool_usage ORDER BY id')).all() == before_usage
@@ -1347,3 +1356,38 @@ def test_startup_entrypoints_log_external_filament_accounting():
                  and isinstance(statement.value.func, ast.Name)
                  and statement.value.func.id == 'log_external_filament_accounting']
         assert len(calls) == 1, f'{target}: log the effective policy directly on startup'
+
+
+def test_settlement_source_and_zero_claim_survive_detached_job(lifecycle_client):
+    from core.filament_ledger import SOURCES, record_settlement, record_job_filament, row_kind
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5301)
+    run = sqlalchemy_runner(db)
+    assert 'settlement' in SOURCES and row_kind('auto:settlement: archive 1') == 'ledger'
+    assert record_settlement(run, 111, 5301, grams_by_spool={}, counted_usage_ids=[]).state == 'nothing_deducted'
+    assert db.execute(text('SELECT source FROM print_filament_evidence WHERE print_job_id=5301 AND claim=1')).scalar_one() == 'settlement'
+    db.execute(text('UPDATE print_jobs SET scheduled_job_id=NULL WHERE id=5301'))
+    assert record_job_filament(run, None, print_job_id=5301, source='archive', grams_by_spool={111: 10}).state == 'already_deducted'
+    assert _spool(db) == (100.0, 0)
+
+
+def test_census_every_physical_deduction_writes_evidence():
+    """A new physical-print writer cannot silently bypass the evidence ledger."""
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[2] / 'backend/core/filament_ledger.py'
+    tree = ast.parse(path.read_text())
+    physical_writers = set()
+    for function in tree.body:
+        if not isinstance(function, ast.FunctionDef):
+            continue
+        calls = [node for node in ast.walk(function) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
+        for call in calls:
+            if call.func.id != '_deduct':
+                continue
+            physical = next(arg.value for arg in call.keywords if arg.arg == 'print_job_id')
+            if isinstance(physical, ast.Constant) and physical.value is None:
+                continue
+            physical_writers.add(function.name)
+            assert any(node.func.id == '_append_evidence' for node in calls), function.name
+    assert physical_writers == {'record_print_usage', 'record_settlement'}

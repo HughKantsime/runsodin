@@ -59,3 +59,16 @@ test.each(['classic', 'foundry'])('%s retains printer-recorded failed to cancell
  expect(fetchAPI).toHaveBeenCalledWith('/jobs/901/outcome',{method:'POST',body:JSON.stringify({status:'cancelled',from_status:'failed',print_id:902})})
  document.documentElement.removeAttribute('data-theme-family')
 })
+
+test('unresolved rows show a settlement badge and a filament filter', () => {
+ state.data={items:[{...archivedPrint(40),accounting_state:'unresolved',settleable:true,accounting_badge:'Needs its filament settled'}],total:1};mount()
+ expect(screen.getByText('Needs its filament settled')).toBeInTheDocument()
+ fireEvent.change(screen.getByLabelText('Filter by filament accounting'),{target:{value:'unresolved'}})
+ expect(screen.getByLabelText('Filter by filament accounting')).toHaveValue('unresolved')
+})
+
+test.each(['import', 'education', 'records', 'reconciliation'])('%s has no actionable filament badge', kind => {
+ state.data={items:[{...archivedPrint(40),accounting_state:kind==='reconciliation'?'reconciliation_required':'unresolved',settleable:false,accounting_badge:kind==='records'?'Records disagree':null}],total:1};mount()
+ expect(screen.queryByText('Needs its filament settled')).not.toBeInTheDocument()
+ if(kind==='records') expect(screen.getByText('Records disagree')).toBeInTheDocument()
+})
