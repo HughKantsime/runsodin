@@ -45,6 +45,9 @@ def redact_job_history_ids(db, captured):
                         :purge_previewed_at,:retention_initial_days,:retention_changes,:rule_index)"""),
                 {**rule, 'job': identifier, 'created': now, 'audit_max': audit_max,
                  'rule_index': rule_index})
+    if captured:
+        from core.controlled_cache import invalidate
+        invalidate(db)
 
 
 def redact_deleted_job_history(db, identifier):

@@ -515,9 +515,10 @@ def deliver_staged_alert(db: Session, plan: Optional[StagedAlert]):
 
 def _deliver_staged_alert(db: Session, plan: StagedAlert):
     from core.dispatch_connection import dispatch_transaction
+    from core.controlled_cache import delivery_cache
     from modules.notifications.recipient_policy import resolve_alert_scope
     try:
-        with dispatch_transaction(db.get_bind()) as scope_connection:
+        with dispatch_transaction(db.get_bind()) as scope_connection, delivery_cache(scope_connection):
             eligible, org_id = resolve_alert_scope(scope_connection, printer_id=plan.printer_id,
                 job_id=plan.job_id, spool_id=plan.spool_id)
             from core.controlled_events import external_copy
