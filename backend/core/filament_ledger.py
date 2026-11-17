@@ -251,7 +251,12 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
             return MARKER
         if any(r['kind'] == 'unattributed' for r in rows):
             return JOB_USAGE
-        return None  # Manual use never prevents automatic deduction.
+        # A usage row that names this print without evidence: written by an older
+        # version (a rollback after the upgrade) or by anything that bypassed this
+        # ledger. The row itself is the direct record; never deduct on top of it.
+        if run('SELECT 1 FROM spool_usage WHERE print_job_id=:pid LIMIT 1', {'pid': print_job_id}).fetchone():
+            return PRINT_USAGE
+        return None  # Manual use never names a print and never prevents automatic deduction.
     if job_id is None:
         return None
     view = current_attempt(run, job_id)
