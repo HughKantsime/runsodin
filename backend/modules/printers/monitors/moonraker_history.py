@@ -1,8 +1,11 @@
 """Match terminal history conservatively; malformed/unavailable history is optional."""
+import logging
 import math
 from datetime import datetime, timezone
 
 from core.datetime_wire import to_storage_utc
+
+log = logging.getLogger('moonraker_monitor')
 
 TERMINAL = {'completed': 'completed', 'cancelled': 'cancelled', 'error': 'failed',
             'klippy_shutdown': 'failed', 'klippy_disconnect': 'failed', 'interrupted': 'failed'}
@@ -40,24 +43,32 @@ def terminal_history(printer, filename, observed_end, *, row_started_at=None):
     try:
         jobs = []
         for job in printer.get_job_history(limit=20):
-            if job.get('filename') != filename:
-                continue
-            if job.get('status') == 'in_progress':
-                return None  # Not settled: an earlier job of this print cannot speak for its end.
-            if job.get('status') not in TERMINAL:
-                continue
-            end = float(job['end_time'])
-            start = float(job['start_time'])
-            duration = job.get('print_duration')
-            if duration is None:
-                duration = job.get('total_duration')
-            duration = float(duration)
-            total = job.get('total_duration')
-            total = None if total is None else float(total)
-            if (not all(math.isfinite(v) for v in (start, end, duration))
-                    or start > end or duration < 0 or (total is not None and not math.isfinite(total))):
-                continue
-            jobs.append({'status': job['status'], 'start': start, 'end': end, 'duration': duration, 'total': total})
+            try:
+                if job.get('filename') != filename:
+                    continue
+                if job.get('status') == 'in_progress':
+                    return None  # Not settled: an earlier job of this print cannot speak for its end.
+                if job.get('status') not in TERMINAL:
+                    continue
+                end = float(job['end_time'])
+                start = float(job['start_time'])
+                duration = job.get('print_duration')
+                if duration is None:
+                    duration = job.get('total_duration')
+                duration = float(duration)
+                total = job.get('total_duration')
+                total = None if total is None else float(total)
+                if (not all(math.isfinite(v) for v in (start, end, duration))
+                        or start > end or duration < 0 or (total is not None and not math.isfinite(total))):
+                    raise ValueError('invalid history times or duration')
+                # Validate timestamp range here so one bad entry cannot abort matching.
+                datetime.fromtimestamp(start, timezone.utc)
+                datetime.fromtimestamp(end, timezone.utc)
+                jobs.append({'status': job['status'], 'start': start, 'end': end, 'duration': duration, 'total': total})
+            except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError) as exc:
+                log.warning("[%s] Skipped unreadable print history entry: %s",
+                            getattr(printer, 'name', None) or getattr(printer, 'host', 'Moonraker'),
+                            type(exc).__name__)
         candidates = []
         for run in _prints(jobs):
             matches = (abs(observed_end - run['end']) <= 300 if row_started_at is None

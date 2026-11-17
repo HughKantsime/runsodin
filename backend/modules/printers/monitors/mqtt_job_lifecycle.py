@@ -506,28 +506,11 @@ def record_job_ended(
                 else:
                     log.info(f"[{printer_name}] Linked job {linked_job_id} already terminal; kept operator status")
             else:
-                job_applied = True
-                # Create a jobs record for metrics tracking
-                from core.display_names import observed_item_name
-                item_name = observed_item_name(conn, current_job_id)
-                actual_start = pj_row[0] if pj_row else now_utc
-                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
-                from core.job_identity import insert_job
-                insert_job(cur, f"""
-                    INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end,
-                                     duration_hours, quantity, hold, is_locked, quantity_on_bed)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, FALSE, FALSE, 1)
-                    {sql.returning_id()}
-                """, (item_name, printer_id, job_status, actual_start, now_utc, duration_hours), postgres=sql.is_postgres)
-                if sql.is_postgres:
-                    linked_job_id = cur.fetchone()[0]
-                else:
-                    linked_job_id = cur.lastrowid
-                cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
-                            (linked_job_id, current_job_id))
-                from core.print_attempts import bind_print_attempt, qmark_runner
-                bind_print_attempt(qmark_runner(cur), current_job_id, linked_job_id)
-                log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
+                from core.observed_jobs import link_ended_print
+                linked_job_id = link_ended_print(conn, current_job_id, duration_hours=duration_hours)
+                job_applied = linked_job_id is not None
+                if job_applied:
+                    log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             from core.job_terminal_observations import claim_terminal, terminal_event
             claim_terminal(conn, current_job_id, alert_job_id=linked_job_id if job_applied else None, alert_cancelled=True)

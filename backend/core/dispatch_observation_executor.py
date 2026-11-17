@@ -60,4 +60,5 @@ class TransactionView:
         if not hasattr(statement,'compile'):statement=text(statement)
         compiled=statement.compile(dialect=dialect(paramstyle='qmark'))
         values=compiled.construct_params(parameters or {})
-        return _Result(self.executor.cursor().execute(str(compiled),tuple(values[name] for name in compiled.positiontup)))
+        cursor = self.executor.cursor() if hasattr(self.executor, 'cursor') else self.executor
+        return _Result(cursor.execute(str(compiled),tuple(values[name] for name in compiled.positiontup)))

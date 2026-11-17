@@ -81,6 +81,10 @@ def test_history_cancelled_overrides_standby_completion(review_db,monkeypatch):
     monitor._job_ended('completed',SimpleNamespace(filename='part.gcode',raw_print_state='standby',error_message='',filament_used_mm=0),history=history)
     row=review_db.execute(text('SELECT status,started_at,ended_at,print_duration_seconds FROM print_jobs WHERE id=:id'),{'id':identifier}).one()
     assert tuple(row)==('cancelled',history['started_at'],history['ended_at'],3500)
+    job=review_db.execute(text('SELECT j.status,j.actual_start,j.actual_end,j.duration_hours '
+                              'FROM jobs j JOIN print_jobs p ON p.scheduled_job_id=j.id WHERE p.id=:id'),
+                         {'id':identifier}).one()
+    assert tuple(job)==('cancelled',history['started_at'],history['ended_at'],round(3500/3600,4))
 
 
 @pytest.mark.parametrize('mode',['ambiguous','wrong_name','old','unavailable','malformed'])
@@ -96,6 +100,19 @@ def test_history_refuses_ambiguous_or_unavailable(mode):
         if mode=='unavailable':raise RuntimeError('owned offline')
         return jobs
     assert terminal_history(SimpleNamespace(get_job_history=history),'part.gcode',2000) is None
+
+
+@pytest.mark.parametrize('bad', [None, 'invalid', float('nan'), 1e100])
+def test_unreadable_history_entry_keeps_valid_print_and_logs_once(caplog, bad):
+    from modules.printers.monitors.moonraker_history import terminal_history
+    job = dict(filename='part.gcode', status='completed', start_time=1000,
+               end_time=2000, print_duration=900)
+    printer = SimpleNamespace(host='fixture-printer', get_job_history=lambda limit: [
+        dict(job, status='interrupted', end_time=bad), job])
+    result = terminal_history(printer, 'part.gcode', 2000)
+    assert result['status'] == 'completed' and result['duration'] == 900
+    assert len(caplog.records) == 1
+    assert 'fixture-printer' in caplog.text and 'Skipped unreadable' in caplog.text
 
 
 def test_terminal_history_fetch_does_not_hold_status_lock(monkeypatch):
