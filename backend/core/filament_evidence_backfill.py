@@ -5,10 +5,28 @@ import re
 
 from sqlalchemy import text
 from core import filament_ledger as ledger
+from core.schema.migrator import MigrationError
 from core.print_attempts import sqlalchemy_runner, filament_marker_for
 
 CURSOR = 'print_filament_evidence_backfill_cursor'
 log = logging.getLogger(__name__)
+# Configured application handlers retain the cause; the standalone CLI prints
+# its plain refusal instead of logging's fallback traceback on stderr.
+log.addHandler(logging.NullHandler())
+
+
+class FilamentEvidenceBackfillError(MigrationError):
+    """Startup cannot admit workers until evidence adoption finishes."""
+
+
+def _announce(done, total):
+    log.info('Checking past filament use: %s of %s prints', done, total)
+
+
+# Called after each batch when the work spans more than one. The start-up script
+# replaces it with a line on stderr: no logging is configured there, and a long
+# first start after an upgrade must not look like a hang.
+announce = _announce
 
 
 def _decoded(value):
@@ -49,10 +67,8 @@ def _print(run, pid, markers):
     if any(state in ('accounted', 'reconciliation_required') for state, _ in archives) or pid in direct:
         ledger.retain_print_evidence(run, pid, reason='marker' if pid in direct else 'archive_accounted')
         return 'closed'
-    physical = run('SELECT p.scheduled_job_id,j.id,p.started_at,j.created_at FROM print_jobs p '
-                   'LEFT JOIN jobs j ON j.id=p.scheduled_job_id WHERE p.id=:pid', {'pid': pid}).fetchone()
-    job, existing, started, created = physical
-    valid = existing is not None and ledger.moment(started) is not None and ledger.moment(created) is not None and ledger.moment(started) >= ledger.moment(created)
+    job = run('SELECT scheduled_job_id FROM print_jobs WHERE id=:pid', {'pid': pid}).fetchone()[0]
+    valid = ledger.job_link_is_live(run, pid, job)
     if valid:
         ledger.carry_job_candidates(run, pid, job, source='backfill')
         kinds = {row['kind'] for row in ledger.print_evidence(run, [pid])[pid][1]}
@@ -63,7 +79,7 @@ def _print(run, pid, markers):
     if reason is None and valid and filament_marker_for(job, ledger.print_attempt(run, job, pid).seq) in job_only:
         reason = 'job_usage_unattributed'
     rule = 'unknown'
-    if reason is None and job is not None and existing is None and any(state == 'unresolved' for state, _ in archives):
+    if reason is None and job is not None and not valid and any(state == 'unresolved' for state, _ in archives):
         reason = 'job_deleted_before_upgrade'
         rule = 'job_deleted'
     if reason:
@@ -78,6 +94,10 @@ def backfill(engine, *, batch_size=500):
     try:
         with engine.connect() as connection:
             markers = _markers(connection)
+            total = connection.execute(text(
+                'SELECT COUNT(*) FROM print_jobs WHERE id>COALESCE((SELECT CAST(TRIM(CAST(value AS TEXT), :quote) AS INTEGER) '
+                'FROM system_config WHERE key=:key),0)'), {'key': CURSOR, 'quote': '"'}).scalar_one()
+        done = 0
         while True:
             with engine.begin() as connection:
                 cursor = connection.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': CURSOR}).scalar()
@@ -104,7 +124,14 @@ def backfill(engine, *, batch_size=500):
                 connection.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value) '
                                         'ON CONFLICT(key) DO UPDATE SET value=excluded.value'),
                                    {'key': CURSOR, 'value': str(ids[-1])})
+            done += len(ids)
+            if total > batch_size:
+                announce(done, max(total, done))
     except Exception as exc:
-        raise RuntimeError('ODIN could not finish checking past filament use. Database setup must finish before ODIN can start.') from exc
+        log.exception('Filament evidence backfill could not finish')
+        raise FilamentEvidenceBackfillError(
+            'ODIN could not finish checking past filament use, so it did not start. '
+            'No filament balance was changed. Start ODIN again; if this repeats, restore your latest backup.'
+        ) from exc
     log.info('Filament evidence backfill: %s', counts)
     return counts

@@ -143,3 +143,97 @@ def test_print_of_deleted_job_refuses_outside_binding(outside):
     response = bind(outside)
     assert response.status_code == 409, response.text
     assert 'Print resources changed' in response.text
+
+
+@pytest.mark.parametrize('kind', ['manual', 'unattributed'])
+def test_deleted_spool_candidate_does_not_block_settlement(settlement_case, kind):
+    case = settlement_case
+    uid = manual(case, 40)
+    if kind == 'unattributed':
+        with case[1].begin() as db:
+            ledger.note_candidates(sqlalchemy_runner(db), 7099, [uid], kind=kind, source='backfill')
+    write(case, 'DELETE FROM spools WHERE id=7099')
+    data = preview(case).json()
+    assert data['settleable'], data
+    assert data['manual_usage'] == []
+    if kind == 'unattributed':
+        assert data['prior_usage']
+        response = post(case, no_deduction='accept_existing')
+        expected = 1000
+    else:
+        response = post(case, entries=[dict(spool_id=7100, grams=40)])
+        expected = 960
+    assert response.status_code == 200, response.text
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7100') == [(expected,)]
+    assert post(case, entries=[dict(spool_id=7100, grams=40)]).status_code == 409
+
+
+def test_deleted_spool_final_print_accepts_existing(settlement_case):
+    case = settlement_case
+    with case[1].begin() as db:
+        assert ledger.record_print_usage(sqlalchemy_runner(db), 7099, source='archive', grams_by_spool={7099: 40}).deducted
+    write(case, 'DELETE FROM spools WHERE id=7099')
+    data = preview(case).json()
+    assert data['settleable'] and data['prior_usage'], data
+    response = post(case, no_deduction='accept_existing')
+    assert response.status_code == 200, response.text
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7100') == [(1000,)]
+    assert not query(case, 'SELECT * FROM spool_usage')
+
+
+@pytest.mark.parametrize('kind', ['manual', 'unattributed'])
+def test_candidate_taken_by_another_print_frees_the_others(settlement_case, kind):
+    from core.print_attempts import bind_print_attempt
+    from modules.archives import settlement_data
+    case = settlement_case
+    write(case, 'UPDATE print_jobs SET scheduled_job_id=NULL WHERE id=7099')
+    with case[1].begin() as db:
+        run = sqlalchemy_runner(db)
+        if kind == 'manual':
+            ledger.record_manual_usage(run, 7099, 40, job_id=7099)
+        else:
+            assert ledger.record_job_filament(run, 7099, source='operator_complete', grams_by_spool={7099: 40}).deducted
+        db.execute(text('UPDATE print_jobs SET scheduled_job_id=7099 WHERE id=7099'))
+        db.execute(text("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,started_at) VALUES(7102,9,7099,'2026-10-11 12:00:00')"))
+        bind_print_attempt(run, 7099, 7099)
+        bind_print_attempt(run, 7102, 7099)
+        uid = db.execute(text('SELECT id FROM spool_usage')).scalar_one()
+        if kind == 'manual':
+            ledger.close_print(run, 7102, source='settlement', reason='recorded_by_hand', counted_usage_ids=[uid])
+        else:
+            ledger.record_settlement(run, 7099, 7102, grams_by_spool={}, counted_usage_ids=[], accept_existing=True)
+        assert ledger.print_evidence(run, [7099])[7099] == ('none', [])
+        archive = dict(db.execute(text('SELECT * FROM print_archives WHERE id=:id'), {'id': case[2]}).mappings().one())
+        status = settlement_data.archive_statuses(db, [archive])[case[2]]
+        assert status['accounting_cause']['code'] != 'attempt_usage_without_archive'
+    data = preview(case).json()
+    assert data['settleable'] and data['prior_usage'] is None and data['manual_usage'] == [], data
+    response = post(case, entries=[dict(spool_id=7099, grams=40)])
+    assert response.status_code == 200, response.text
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(920,)]
+
+
+@pytest.mark.parametrize('bound', [True, False], ids=['bound', 'legacy_hand_started'])
+@pytest.mark.parametrize('archive_first', [True, False])
+def test_late_job_link_archive_and_complete_route_deduct_once(settlement_case, bound, archive_first):
+    from core.print_attempts import bind_print_attempt
+    from modules.jobs.routes import jobs_lifecycle
+    case = settlement_case
+    case[0].app.include_router(jobs_lifecycle.router)
+    write(case, "UPDATE print_jobs SET ended_at='2026-11-01' WHERE id=7099")
+    write(case, 'UPDATE print_files SET filaments_json=:materials WHERE id=7099',
+          {'materials': json.dumps([{'slot': 0, 'used_grams': 40}])})
+    write(case, "UPDATE jobs SET ams_mapping='[0]' WHERE id=7099")
+    write(case, "UPDATE jobs SET created_at='2026-11-01',actual_start=:start WHERE id=7099",
+          {'start': None if bound else '2026-10-11 12:00:00'})
+    with case[1].begin() as db:
+        if bound:
+            bind_print_attempt(sqlalchemy_runner(db), 7099, 7099)
+        if archive_first:
+            assert ledger.record_print_usage(sqlalchemy_runner(db), 7099, source='archive', grams_by_spool={7099: 40}).deducted
+    response = case[0].post('/jobs/7099/complete')
+    assert response.status_code == 200, response.text
+    with case[1].begin() as db:
+        assert ledger.record_print_usage(sqlalchemy_runner(db), 7099, source='archive', grams_by_spool={7099: 40}).state == 'already_deducted'
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(960,)]
+    assert query(case, 'SELECT job_id,print_job_id,weight_used_g FROM spool_usage') == [(7099, 7099, 40)]

@@ -66,12 +66,17 @@ def test_legacy_dangling_job_is_absent_for_settlement(settlement_case):
 
 
 @pytest.mark.parametrize('unlink', ['detach', 'delete'])
-def test_manual_usage_still_needs_review_after_unlink(settlement_case, unlink):
+def test_manual_usage_still_needs_review_after_unlink(settlement_case, unlink, monkeypatch):
+    from datetime import datetime
+    from core import filament_ledger
     case = settlement_case
-    row = manual(case, 40)
+    # Record the use at its real time: a usage row's time is part of its identity in the
+    # evidence table and is never rewritten afterwards.
+    with monkeypatch.context() as during_the_print:
+        during_the_print.setattr(filament_ledger, '_now', lambda: datetime(2026, 10, 11, 12, 30))
+        row = manual(case, 40)
     # A different attempt's manual row must not be retained for this print.
     write(case, "INSERT INTO audit_logs(action,entity_type,entity_id,timestamp) VALUES('job.reset','job',7099,'2026-10-11 14:00:00')")
-    write(case, "UPDATE spool_usage SET used_at='2026-10-11 12:30:00' WHERE id=:id", {'id': row})
     manual(case, 5)
     if unlink == 'detach':
         detach(case)

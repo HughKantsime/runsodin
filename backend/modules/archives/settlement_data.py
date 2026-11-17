@@ -21,8 +21,8 @@ def decoded(value, fallback):
 def physical_print(db, archive):
     row = db.execute(text('SELECT * FROM print_jobs WHERE id=:id'),
                       {'id': archive['print_job_id']}).mappings().first()
-    if row and row['scheduled_job_id'] is not None and not db.execute(
-            text('SELECT 1 FROM jobs WHERE id=:id AND created_at<=:started'), {'id': row['scheduled_job_id'], 'started': row['started_at']}).first():
+    if row and row['scheduled_job_id'] is not None and not ledger.job_link_is_live(
+            sqlalchemy_runner(db), row['id'], row['scheduled_job_id']):
         return dict(row, scheduled_job_id=None)
     return row
 

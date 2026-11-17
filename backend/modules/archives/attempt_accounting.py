@@ -453,10 +453,6 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
                 return prior_status
             return 'externally_managed', 'external_accounting', []
     from core import filament_ledger
-    prior_status = _prior_accounting_status(filament_ledger.prior_attempt_usage(
-        _ledger_runner(connection), scheduled_job_id, print_job_id))
-    if prior_status is not None:
-        return prior_status
     if not success and measured_grams is None:
         return unresolved('non_successful_attempt_quantity_unconfirmed')
     try:

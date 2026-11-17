@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 from core.database_config import create_database_engine, database_identity
 from core.db_integrity import DAMAGED, boot_refusal, check_database
 from core.schema import bootstrap_database
+from core.filament_evidence_backfill import FilamentEvidenceBackfillError
 
 
 def _refuse_damaged_sqlite(database_url: str) -> bool:
@@ -44,7 +45,20 @@ def main() -> int:
         role="bootstrap",
         password_file=os.getenv("DATABASE_PASSWORD_FILE"),
     )
-    result = bootstrap_database(engine)
+    import core.filament_evidence_backfill as evidence_backfill
+    evidence_backfill.announce = lambda done, total: print(
+        f"ODIN is checking past filament use: {done} of {total} prints.", file=sys.stderr, flush=True)
+    try:
+        result = bootstrap_database(engine)
+    except FilamentEvidenceBackfillError as exc:
+        print(str(exc), file=sys.stderr, flush=True)
+        cause = exc.__cause__
+        if cause is not None:
+            # One plain line for support; no traceback, statement or parameters.
+            first = (str(cause).splitlines() or [""])[0][:300]
+            print(f"Cause: {type(cause).__name__}: {first}", file=sys.stderr, flush=True)
+        engine.dispose()
+        return 1
     # The entrypoint has copied bundled models; only the boot schema owner seeds
     # the registry, before API/vision workers start (also on PostgreSQL).
     from modules.vision.default_model import register_default_model

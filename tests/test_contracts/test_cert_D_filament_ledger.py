@@ -1125,7 +1125,7 @@ def test_bound_external_current_attempt_survives_clock_skew(lifecycle_client, mo
     _print_job(db, 5201)
     bind_print_attempt(sqlalchemy_runner(db), 5201, 111)
     db.execute(text("UPDATE print_jobs SET started_at='2026-01-01 08:00:00' WHERE id=5201"))
-    db.execute(text("UPDATE jobs SET printer_id=10,created_at='2025-01-01',actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
+    db.execute(text("UPDATE jobs SET printer_id=10,actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
     monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
     result = record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10})
     assert result.reason == 'external_accounting'

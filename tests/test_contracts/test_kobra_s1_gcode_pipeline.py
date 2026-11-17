@@ -347,6 +347,10 @@ def _monitor_deduct(s1, monkeypatch, job_id, observed):
         monitor._current_job_db_id = c.execute(text(
             "INSERT INTO print_jobs(printer_id,job_name,filename,status,started_at,scheduled_job_id) "
             "VALUES(59,'x','x.gcode','running','2026-10-30T00:00:00',:job) RETURNING id"), {'job': job_id}).scalar_one()
+        # The monitor binds a print to its job when it links them (moonraker_job_tracking);
+        # the binding is what proves this link is real.
+        from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+        bind_print_attempt(sqlalchemy_runner(c), monitor._current_job_db_id, job_id)
         return monitor._auto_deduct_filament(c, job_id, observed_grams=observed)
 
 
@@ -603,8 +607,9 @@ def test_monitor_flags_reconciliation_when_the_attempt_already_holds_job_usage(s
     assert outcome.unattributed
     assert _weights(s1) == [100, 95, 100]
     with s1.engine.connect() as c:
-        flags = c.execute(text("SELECT key FROM system_config WHERE key LIKE '%:reconcile:print:%'")).scalars().all()
-    assert len(flags) == 1
+        flags = c.execute(text("SELECT reason FROM print_filament_evidence WHERE kind='unattributed' "
+                               "AND source='moonraker' AND usage_id IS NULL")).scalars().all()
+    assert flags == ['job_usage']
 
 
 # ---- The monitor and the archive agree. ----

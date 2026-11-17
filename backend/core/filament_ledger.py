@@ -204,25 +204,43 @@ def print_evidence(run, print_job_ids):
     if not ids:
         return result
     params = {f'p{i}': pid for i, pid in enumerate(ids)}
-    rows = run("SELECT e.print_job_id,e.kind,e.usage_id,e.spool_id,e.grams,e.used_at,e.reason,e.source,u.notes "
+    rows = run("SELECT e.print_job_id,e.kind,e.usage_id,e.spool_id,e.grams,e.used_at,e.reason,e.source,u.notes,u.id IS NOT NULL "
                "FROM print_filament_evidence e JOIN print_jobs p ON p.id=e.print_job_id "
                "AND COALESCE(p.economic_birth_nonce,'')=e.print_birth_nonce "
                "LEFT JOIN spool_usage u ON u.id=e.usage_id AND u.spool_id=e.spool_id AND u.used_at=e.used_at "
-               "WHERE e.print_job_id IN ("
+               "WHERE NOT (e.kind IN ('manual','unattributed') AND EXISTS ("
+               "SELECT 1 FROM print_filament_evidence claimed WHERE claimed.kind='usage' "
+               "AND claimed.usage_id=e.usage_id AND claimed.spool_id=e.spool_id AND claimed.used_at=e.used_at "
+               "AND (claimed.print_job_id<>e.print_job_id OR claimed.print_birth_nonce<>e.print_birth_nonce))) "
+               "AND e.print_job_id IN ("
                + ','.join(':'+k for k in params) + ') ORDER BY e.id', params).fetchall()
-    for pid, kind, uid, spool, grams, at, reason, source, notes in rows:
+    for pid, kind, uid, spool, grams, at, reason, source, notes, live in rows:
         state, evidence = result[pid]
         evidence.append(dict(kind=kind, usage_id=uid, spool_id=spool, grams=grams,
-                             used_at=at, reason=reason, source=source, notes=notes or ''))
+                             used_at=at, reason=reason, source=source, notes=notes or '', live=bool(live)))
         result[pid] = ('final' if kind in ('usage', 'closed') or state == 'final' else 'ask', evidence)
     return result
+
+
+def job_link_is_live(run, print_job_id, job_id):
+    """Distinguish explicit/legacy live links from a deleted job's reused id."""
+    row = run('SELECT p.started_at,p.ended_at,j.created_at,j.actual_start FROM print_jobs p '
+              'JOIN jobs j ON j.id=p.scheduled_job_id WHERE p.id=:pid AND j.id=:job',
+              {'pid': print_job_id, 'job': job_id}).fetchone()
+    if row is None:
+        return False
+    if bound_print_attempt(run, print_job_id, job_id) is not None:
+        return True
+    started, ended, created, actual = map(moment, row)
+    return bool((started is not None and created is not None and started >= created)
+                or (actual is not None and (ended or started) is not None and actual <= (ended or started)))
 
 
 def _current_prints(run, job_id):
     current = current_attempt(run, job_id)
     rows = run('SELECT p.id,p.started_at FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id '
-               'WHERE j.id=:job AND p.started_at>=j.created_at ORDER BY p.id', {'job': job_id}).fetchall()
-    return [pid for pid, started in rows if print_attempt(run, job_id, pid).same_attempt(current)
+               'WHERE j.id=:job ORDER BY p.id', {'job': job_id}).fetchall()
+    return [pid for pid, started in rows if job_link_is_live(run, pid, job_id) and print_attempt(run, job_id, pid).same_attempt(current)
             and (bound_print_attempt(run, pid, job_id) is not None or current.holds(moment(started)))]
 
 
@@ -283,9 +301,7 @@ def note_candidates(run, print_job_id, usage_ids, *, kind, source, reason=None):
 
 
 def carry_job_candidates(run, print_job_id, job_id, *, source='link'):
-    valid = run('SELECT p.started_at,j.created_at FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id '
-                'WHERE p.id=:pid AND j.id=:job', {'pid': print_job_id, 'job': job_id}).fetchone()
-    if not valid or moment(valid[0]) is None or moment(valid[1]) is None or moment(valid[0]) < moment(valid[1]):
+    if not job_link_is_live(run, print_job_id, job_id):
         return
     view = print_attempt(run, job_id, print_job_id)
     rows = run('SELECT id,used_at,notes FROM spool_usage WHERE job_id=:job AND print_job_id IS NULL',
@@ -366,8 +382,12 @@ def job_accounting_skip_reason(run, job_id) -> Optional[str]:
     prints = []
     for pid, printer, started in run(
             "SELECT p.id,p.printer_id,p.started_at FROM print_jobs p JOIN jobs j ON j.id=p.scheduled_job_id "
-            "WHERE j.id=:id AND p.started_at>=j.created_at",
+            "WHERE j.id=:id",
             {"id": int(job_id)}).fetchall():
+        # An unreadable legacy start cannot rule out an external physical owner.
+        # Keep that refusal conservative without treating the link as usage evidence.
+        if not job_link_is_live(run, pid, job_id) and moment(started) is not None:
+            continue
         if not print_attempt(run, job_id, pid).same_attempt(current):
             continue
         # Explicit bindings survive clock skew. Legacy unbound prints must also
@@ -478,9 +498,10 @@ def manual_rows_for_print(run, job_id, print_job_id):
     key = print_key(run, print_job_id)
     rows = print_evidence(run, [print_job_id]).get(print_job_id, ('none', []))[1]
     counted = {(r['usage_id'], r['spool_id'], str(r['used_at'])) for r in rows if r['kind'] == 'usage'}
-    return _distinct_usage([r for r in rows if r['kind'] == 'manual'
+    candidates = _distinct_usage([r for r in rows if r['kind'] == 'manual'
             and (r['usage_id'], r['spool_id'], str(r['used_at'])) not in counted
             and not _claimed_elsewhere(run, key, r)])
+    return [r for r in candidates if r['live']]
 
 
 def existing_rows_for_print(run, job_id, print_job_id):
@@ -491,7 +512,7 @@ def existing_rows_for_print(run, job_id, print_job_id):
     for row in rows:
         if row['kind'] in kinds and row['usage_id'] is not None and not _claimed_elsewhere(run, key, row):
             result[(row['usage_id'], row['spool_id'], str(row['used_at']))] = row
-    return _distinct_usage(list(result.values()))
+    return [r for r in _distinct_usage(list(result.values())) if r['live']]
 
 
 def _distinct_usage(rows):
@@ -552,24 +573,29 @@ def record_print_usage(run, print_job_id, *, source, grams_by_spool, allow_unkno
     if prior:
         return LedgerResult('already_deducted', prior)
     # A deleted job link is retained for history, but cannot be used as a usage FK.
-    job = run('SELECT id FROM jobs WHERE id=:id AND created_at<=(SELECT started_at FROM print_jobs WHERE id=:pid)',
-              {'id': physical[0], 'pid': print_job_id}).fetchone()
+    job_id = physical[0] if job_link_is_live(run, print_job_id, physical[0]) else None
     run('SAVEPOINT filament_deduction', {})
     try:
+        # Claim before deducting, as a settlement does: a rival writer for this print
+        # waits on the claim (PostgreSQL) and is refused, instead of deducting from a
+        # different spool and being rolled back. Nothing deducted keeps no claim.
+        if not _append_evidence(run, key, kind='closed', claim=1, source=source, reason='deducted'):
+            return LedgerResult('already_deducted', MARKER)
         deductions = []
         for spool, grams in items:
             if spool not in locked:
                 continue
-            entry = _deduct(run, spool, grams, job_id=job[0] if job else None, print_job_id=print_job_id,
+            entry = _deduct(run, spool, grams, job_id=job_id, print_job_id=print_job_id,
                             notes=f'auto:{source}: {notes}'[:NOTES_MAX], allow_unknown_balance=allow_unknown_balance)
             if entry is None:
                 continue
             row = dict(usage_id=entry.pop('_usage_id'), used_at=entry.pop('_used_at'), spool_id=spool, grams=grams)
-            if not _append_evidence(run, key, kind='usage', source=source, claim=None if deductions else 1, row=row):
-                run('ROLLBACK TO SAVEPOINT filament_deduction', {})
-                return LedgerResult('already_deducted', MARKER)
+            _append_evidence(run, key, kind='usage', source=source, row=row)
             deductions.append(entry)
-        return LedgerResult('deducted' if deductions else 'nothing_deducted', None, deductions)
+        if not deductions:
+            run('ROLLBACK TO SAVEPOINT filament_deduction', {})
+            return LedgerResult('nothing_deducted')
+        return LedgerResult('deducted', None, deductions)
     except Exception:
         run('ROLLBACK TO SAVEPOINT filament_deduction', {})
         raise
@@ -614,11 +640,10 @@ def record_settlement(run, job_id, print_job_id, *, grams_by_spool, counted_usag
     if outcome.state == 'already_deducted':
         return outcome
     key = print_key(run, print_job_id)
-    job = run('SELECT id FROM jobs WHERE id=:id AND created_at<=(SELECT started_at FROM print_jobs WHERE id=:pid)',
-              {'id': job_id, 'pid': print_job_id}).fetchone()
+    job_id = job_id if job_link_is_live(run, print_job_id, job_id) else None
     deductions = []
     for spool, grams in items:
-        entry = _deduct(run, spool, grams, job_id=job[0] if job else None, print_job_id=print_job_id,
+        entry = _deduct(run, spool, grams, job_id=job_id, print_job_id=print_job_id,
                         notes=f'auto:settlement: archive {archive_id}', allow_unknown_balance=True)
         if entry is None:
             raise InvalidSettlementBalance(f'Spool {spool} has an invalid balance. Correct or weigh the spool, then try again.')
