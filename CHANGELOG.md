@@ -21,6 +21,10 @@ All notable changes to O.D.I.N. are documented here.
 - PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
 
 ## [2.3.0] - 2026-11-15
+## [2.3.1] - 2026-11-17
+<!-- summary: A fix for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again. -->
+- On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
+## [2.3.0] - 2026-11-17
 
 
 <!-- summary: Print next from live stock, the real cost of every print, your farm's time zone, printer-reported failures, six more Bambu materials. -->
