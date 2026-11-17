@@ -19,6 +19,7 @@ All notable changes to O.D.I.N. are documented here.
 - Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
 - Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
 - PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
+- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
 
 ## [2.3.0] - 2026-11-15
 ## [2.3.1] - 2026-11-17
@@ -53,7 +54,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
 - Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
 
