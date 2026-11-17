@@ -7,5 +7,8 @@
   const root = document.documentElement
   root.classList.toggle('light', mode === 'light')
   root.classList.toggle('high-contrast', mode === 'high-contrast')
-  root.dataset.themeFamily = read('odin-theme-family') === 'foundry' && mode === 'dark' ? 'foundry' : 'classic'
+  const family = read('odin-theme-family')
+  root.dataset.themeFamily = mode !== 'high-contrast' && (family === 'fjord' || (family === 'foundry' && mode === 'dark')) ? family : 'classic'
+  if (root.dataset.themeFamily === 'fjord') root.dataset.fjordDensity = read('odin-foundry-density') === 'compact' ? 'compact' : 'comfortable'
+  else delete root.dataset.fjordDensity
 })()

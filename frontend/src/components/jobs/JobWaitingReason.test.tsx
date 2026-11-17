@@ -85,3 +85,12 @@ describe.each([['table row', row], ['phone card', card]] as const)('waiting reas
     expect(within(line()).queryByRole('button')).toBeNull()
   })
 })
+
+describe.each([['table row', row], ['phone card', card]] as const)('Dispatch contrast on the %s', (_name, mount) => {
+  it('uses the success token with a light-mode contrast adjustment', () => {
+    mount(job())
+    const dispatch = screen.getByRole('button', { name: 'Dispatch to printer' })
+    expect(dispatch).toHaveClass('text-[var(--status-completed)]', '[.light_&]:text-[color-mix(in_srgb,var(--status-completed),black_45%)]')
+    expect(dispatch.className).not.toContain('text-emerald')
+  })
+})

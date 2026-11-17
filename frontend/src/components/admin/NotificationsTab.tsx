@@ -407,7 +407,7 @@ export default function NotificationsTab() {
               {!smtp.enabled && ' Enable the toggle above to activate email delivery.'}
             </p>
 
-            <div className={`space-y-3 ${!smtp.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div {...(!smtp.enabled ? { inert: '' } : {})} className={`space-y-3 ${!smtp.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Input
                   label="SMTP Host"

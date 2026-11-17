@@ -76,3 +76,20 @@ it('describes a not-configured server and an unexpected failure without blaming 
   expect(await screen.findByText('Phone ending c0ffee: Not sent: phone push is unavailable or not set up on this server.')).toBeInTheDocument()
   expect(screen.getByText('Phone 7: Not sent: the test could not be sent because of an unexpected error.')).toBeInTheDocument()
 })
+
+it('makes disabled SMTP fields inert and restores them when SMTP is enabled', async () => {
+  render(<NotificationsTab />)
+  const host = await screen.findByLabelText('SMTP Host')
+  const block = host.closest('.space-y-3')!
+  expect(block).toHaveAttribute('inert')
+  for (const label of ['Port', 'Username', 'SMTP password', 'From Address', 'Application URL (used in password-reset links)']) {
+    expect(block).toContainElement(screen.getByLabelText(label))
+  }
+  expect(block).toContainElement(screen.getByRole('button', { name: 'Show' }))
+  expect(block).not.toContainElement(screen.getByRole('button', { name: 'Save SMTP' }))
+  const toggle = host.closest('.bg-farm-900, [class~="bg-[var(--brand-card-bg)]"]')!.querySelector('[role="switch"]')!
+  fireEvent.click(toggle)
+  expect(block).not.toHaveAttribute('inert')
+  fireEvent.click(toggle)
+  expect(block).toHaveAttribute('inert')
+})

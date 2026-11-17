@@ -1,0 +1,159 @@
+{
+  "$include": [
+    "fleet.json",
+    "admin.json"
+  ],
+  "GET /api/auth/me": {
+    "id": 1,
+    "username": "admin@school.test",
+    "email": "admin@school.test",
+    "role": "admin",
+    "group_id": null
+  },
+  "GET /api/license": {
+    "valid": true,
+    "tier": "education",
+    "features": [
+      "rbac",
+      "permissions",
+      "job_approval",
+      "user_groups",
+      "print_quotas",
+      "usage_reports",
+      "analytics",
+      "csv_export",
+      "maintenance",
+      "products",
+      "branding",
+      "vision"
+    ],
+    "max_printers": 50,
+    "max_users": 500,
+    "managed_externally": true
+  },
+  "GET /api/alerts": [],
+  "GET /api/alerts/digest-status": {
+    "enabled": false
+  },
+  "GET /api/products": [],
+  "GET /api/consumables": [],
+  "GET /api/orders": [],
+  "GET /api/production/replenishment": {
+    "rows": [],
+    "stock": {
+      "connected": false,
+      "source": "none",
+      "refresh_in_seconds": 0
+    },
+    "work_hidden": false,
+    "truncated": false
+  },
+  "GET /api/filaments": [],
+  "GET /api/models-with-pricing": [],
+  "GET /api/maintenance/tasks": [],
+  "GET /api/maintenance/logs": [],
+  "GET /api/archives": {
+    "items": [
+      {
+        "id": 1,
+        "name": "Fjord archive",
+        "file_name": "Fjord archive",
+        "status": "completed",
+        "printer_id": 1,
+        "printer_name": "EDU Printer",
+        "tags": [
+          "review"
+        ],
+        "completed_at": "2026-11-16T12:00:00Z",
+        "duration_seconds": 3600,
+        "filament_used_grams": 15
+      }
+    ],
+    "total": 1
+  },
+  "GET /api/analytics": {
+    "summary": {
+      "total_jobs": 2,
+      "completed_jobs": 2,
+      "pending_jobs": 0,
+      "total_models": 1,
+      "total_revenue": 40,
+      "projected_revenue": 0,
+      "avg_value_per_hour": 20,
+      "total_print_hours": 2,
+      "total_cost": 10,
+      "total_margin": 30
+    },
+    "top_by_hour": [],
+    "worst_performers": [],
+    "printer_stats": [
+      {
+        "id": 1,
+        "name": "EDU Printer",
+        "completed_jobs": 2,
+        "failed_jobs": 0,
+        "total_hours": 2,
+        "utilization_pct": 40,
+        "success_rate": 100,
+        "avg_job_hours": 1
+      }
+    ],
+    "jobs_by_date": {
+      "2026-11-15": {
+        "created": 1,
+        "completed": 1,
+        "revenue": 20,
+        "cost": 5
+      },
+      "2026-11-16": {
+        "created": 1,
+        "completed": 1,
+        "revenue": 20,
+        "cost": 5
+      }
+    }
+  },
+  "GET /api/analytics/time-accuracy": null,
+  "GET /api/analytics/failures": null,
+  "GET /api/settings/energy-rate": {
+    "energy_cost_per_kwh": 0.1
+  },
+  "GET /api/webhooks": [],
+  "GET /api/vision/settings": {
+    "enabled": true,
+    "retention_days": 30
+  },
+  "GET /api/vision/monitor-status": null,
+  "GET /api/vision/models": [],
+  "GET /api/vision/printers": [
+    {
+      "printer_id": 1,
+      "camera_source": "auto"
+    }
+  ],
+  "GET /api/printers/1/vision": {
+    "enabled": true
+  },
+  "POST /api/admin/logs": {
+    "lines": [],
+    "source": "backend",
+    "next_cursor": null
+  },
+  "GET /api/alert-preferences": [],
+  "GET /api/config/temperature-alerts": {
+    "enabled": false
+  },
+  "GET /api/smtp-config": {
+    "enabled": false,
+    "host": "",
+    "port": 587,
+    "username": "",
+    "password_set": false,
+    "from_address": "",
+    "use_tls": true,
+    "base_url": ""
+  },
+  "GET /api/analytics/cost-per-print": {
+    "rows": []
+  }
+}

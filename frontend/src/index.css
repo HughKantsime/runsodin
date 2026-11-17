@@ -568,3 +568,11 @@ html.light .setup-wizard textarea {
    squares on dark surfaces (seen on the Jobs table and the printer list). */
 html:not(.light) input[type="checkbox"] { color-scheme: dark; }
 input[type="checkbox"] { accent-color: var(--brand-primary); }
+
+/* Preserve Dispatch's original emerald styling in Classic dark only.
+   Light-mode contrast and the other families keep their current values. */
+html:not(.light):not(.high-contrast):not([data-theme-family="fjord"]):not([data-theme-family="foundry"]) {
+  .job-dispatch:not(:hover) { color: #34d399; }
+  .job-dispatch[data-dispatching="true"]:not(:hover) { color: #10b981; }
+  .job-dispatch:not([data-dispatching="true"]):hover { background-color: rgb(6 78 59 / 50%); }
+}

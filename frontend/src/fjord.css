@@ -1,0 +1,151 @@
+/* All surface rules are family scoped. Data surfaces stay solid and unblurred. */
+html[data-theme-family="fjord"]:not(.high-contrast) {
+  color-scheme: dark;
+  &.light { color-scheme: light; }
+  body { color: var(--brand-text-primary); font-variant-numeric: tabular-nums; }
+  body, main {
+    background-image: var(--fjord-wash);
+    background-attachment: fixed;
+  }
+  :is(.bg-farm-900, [class~="bg-[var(--brand-card-bg)]"]):not(button):not(input):not(select):not(textarea) {
+    border-radius: var(--fjord-radius-card);
+    box-shadow: var(--fjord-shadow);
+  }
+  :is(section, [role="region"])[class~="bg-[var(--brand-card-bg)]"] { border-radius: var(--fjord-radius-panel); }
+  :is([data-testid="printer-card"], .dashboard-printer-card) { border-radius: var(--fjord-radius-card); }
+  &[data-fjord-density="compact"] :is([data-testid="printer-card"], .dashboard-printer-card) { border-radius: var(--fjord-radius-compact); }
+  button, [role="button"], .rounded-full, span.rounded-sm { border-radius: var(--fjord-radius-pill); }
+  /* Classic's base input radius is !important in the base layer. Match it there. */
+  @layer base {
+    input, select, textarea { border-radius: var(--fjord-radius-control) !important; }
+  }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { border-width: 1px; border-style: solid; }
+  button.border, [role="button"].border { border-color: var(--brand-border); }
+  [data-scrolltabs] { border-radius: var(--fjord-radius-control); overflow: hidden; }
+  /* Keep spacing outside the clipped strip, so fades stop at the tab edge. */
+  [data-scrolltabs]:has(> .mb-4) { margin-bottom: 1rem; }
+  [data-scrolltabs]:has(> .mb-6) { margin-bottom: 1.5rem; }
+  [data-scrolltabs] > :is(.mb-4, .mb-6) { margin-bottom: 0; }
+  .border.rounded-md.overflow-hidden:has(> button) { border-radius: var(--fjord-radius-control); }
+  input::placeholder, textarea::placeholder { color: var(--brand-text-muted); }
+  :focus-visible { outline: 2px solid var(--brand-focus-ring); outline-offset: 2px; }
+  /* Solid brand fills share their on-fill color, including legacy controls
+     with inherited/white text. Accent is a distinct fill in light mode. */
+  [class~="bg-[var(--brand-primary)]"] { color: var(--brand-on-primary); }
+  [class~="bg-[var(--brand-primary)]"][class~="hover:bg-[var(--brand-primary)]/80"]:hover { background-color: var(--brand-primary); }
+  [class~="bg-[var(--brand-accent)]"], [class~="hover:bg-[var(--brand-accent)]"]:hover { color: var(--fjord-on-accent); }
+  /* Inline colors on selected filters require an important override. Saved
+     branding preview colors use literal values and do not match these rules. */
+  [style*="background-color: var(--brand-primary)"] { color: var(--brand-on-primary) !important; }
+  [style*="background-color: var(--brand-accent)"] { color: var(--fjord-on-accent) !important; }
+  [style*="background-color: var(--brand-sidebar-active-bg)"][style*="color: var(--brand-accent)"] { color: var(--brand-text-primary) !important; }
+  /* Recharts supplies presentation attributes for ticks and inline series
+     colors for legend text. Keep the swatches, but use readable text. */
+  .recharts-cartesian-axis-tick-value { fill: var(--chart-axis); }
+  .recharts-legend-item-text { color: var(--chart-axis) !important; }
+  .bg-black.font-mono > [class~="text-[var(--brand-text-muted)]"] { color: #aaaab2; }
+  /* Interface choices need a tested selection pair; faded descriptions lose
+     contrast in both selected and unselected states. */
+  div:has(> #settings-interface) + p + div {
+    button[class~="bg-[var(--brand-primary)]/20"] {
+      color: var(--brand-selection-text);
+      background-color: var(--brand-selection-bg);
+    }
+    button > .opacity-70 { opacity: 1; }
+  }
+
+  /* Layout chrome and overlays only. The toolbar is already outside the scroll
+     container, so it remains visible without changing Classic's layout. */
+  :is(.sidebar, .mobile-header, [role="toolbar"][aria-label="Global actions"], header.sticky,
+      [role="dialog"] > [class~="bg-[var(--brand-card-bg)]"], [role="alertdialog"] > [class~="bg-[var(--brand-card-bg)]"],
+      [role="menu"], [role="listbox"], .absolute.top-full, .theme-settings-panel, [data-rht-toaster] > div > div) {
+    background: var(--fjord-glass-solid) !important;
+    border-color: var(--brand-card-border);
+    @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      background: var(--fjord-glass) !important;
+      backdrop-filter: var(--fjord-blur);
+      /* Lightning CSS aliases these properties and keeps only the last one in
+         a declaration block. A separate feature rule preserves both engines. */
+      @supports (-webkit-backdrop-filter: blur(1px)) {
+        -webkit-backdrop-filter: var(--fjord-blur);
+      }
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      background: var(--fjord-glass-solid) !important;
+      backdrop-filter: none;
+      @supports (-webkit-backdrop-filter: blur(1px)) {
+        -webkit-backdrop-filter: none;
+      }
+    }
+  }
+  :is([role="dialog"], [role="alertdialog"]) > [class~="bg-[var(--brand-card-bg)]"],
+  [role="menu"], [role="listbox"], .absolute.top-full, .theme-settings-panel, [data-rht-toaster] > div > div {
+    border-radius: var(--fjord-radius-panel);
+    box-shadow: var(--fjord-shadow);
+  }
+  @media (max-width: 639px) {
+    :is([role="dialog"], [role="alertdialog"]) > .h-full { border-radius: 0; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    body, main { background-image: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Classic badges use both semantic tokens and Tailwind colour utilities. Keep
+ * their markup and wording, but use the same tested Fjord text/tint pairs. */
+html[data-theme-family="fjord"]:not(.high-contrast) {
+  [class~="bg-[var(--status-printing)]/8"] { background-color: var(--fjord-status-printing-bg); border-radius: var(--fjord-radius-pill); }
+  [class~="bg-[var(--status-completed)]/8"] { background-color: var(--fjord-status-completed-bg); border-radius: var(--fjord-radius-pill); }
+  [class~="bg-[var(--status-failed)]/8"] { background-color: var(--fjord-status-failed-bg); border-radius: var(--fjord-radius-pill); }
+  [class~="bg-[var(--status-warning)]/8"] { background-color: var(--fjord-status-warning-bg); border-radius: var(--fjord-radius-pill); }
+  [class~="bg-[var(--status-pending)]/8"] { background-color: var(--fjord-status-pending-bg); border-radius: var(--fjord-radius-pill); }
+  [class~="bg-[var(--status-scheduled)]/8"] { background-color: var(--fjord-status-scheduled-bg); border-radius: var(--fjord-radius-pill); }
+  .text-blue-200, .text-blue-300, .text-blue-400, .text-blue-500 { color: var(--status-printing); }
+  [class~="bg-blue-500/10"], [class~="bg-blue-500/20"], [class~="bg-blue-600/20"], [class~="bg-blue-900/20"], [class~="bg-blue-900/30"], [class~="bg-blue-900/50"], [class~="bg-blue-950/20"] { background-color: var(--fjord-status-printing-bg); }
+  .text-green-200, .text-green-300, .text-green-400, .text-green-500 { color: var(--status-completed); }
+  [class~="bg-green-500/10"], [class~="bg-green-500/20"], [class~="bg-green-600/20"], [class~="bg-green-900/20"], [class~="bg-green-900/30"], [class~="bg-green-900/50"], [class~="bg-green-950/20"] { background-color: var(--fjord-status-completed-bg); }
+  .text-red-200, .text-red-300, .text-red-400, .text-red-500 { color: var(--status-failed); }
+  [class~="bg-red-500/10"], [class~="bg-red-500/20"], [class~="bg-red-600/20"], [class~="bg-red-900/20"], [class~="bg-red-900/30"], [class~="bg-red-900/50"], [class~="bg-red-950/20"] { background-color: var(--fjord-status-failed-bg); }
+  .text-purple-200, .text-purple-300, .text-purple-400, .text-purple-500 { color: var(--status-pending); }
+  [class~="bg-purple-500/10"], [class~="bg-purple-500/20"], [class~="bg-purple-600/20"], [class~="bg-purple-900/20"], [class~="bg-purple-900/30"], [class~="bg-purple-900/50"], [class~="bg-purple-950/20"] { background-color: var(--fjord-status-pending-bg); }
+  .text-amber-200, .text-amber-300, .text-amber-400, .text-amber-500 { color: var(--status-warning); }
+  [class~="bg-amber-500/10"], [class~="bg-amber-500/20"], [class~="bg-amber-600/20"], [class~="bg-amber-900/20"], [class~="bg-amber-900/30"], [class~="bg-amber-900/50"], [class~="bg-amber-950/20"] { background-color: var(--fjord-status-warning-bg); }
+  .text-orange-400, [class~="text-orange-400/80"] { color: var(--status-warning); }
+  [class~="bg-orange-500/20"], [class~="bg-orange-600/10"], [class~="bg-orange-600/20"],
+  [class~="hover:bg-orange-600/30"]:hover,
+  [class~="bg-amber-500/5"], [class~="bg-amber-500/15"], [class~="bg-amber-600/10"],
+  [class~="bg-yellow-400/10"], [class~="bg-yellow-500/15"],
+  [class~="hover:bg-amber-600/20"]:hover, [class~="hover:bg-amber-900/20"]:hover,
+  [class~="hover:bg-amber-900/30"]:hover, [class~="hover:bg-amber-900/50"]:hover,
+  [class~="hover:bg-yellow-500/20"]:hover { background-color: var(--fjord-status-warning-bg); }
+  .text-yellow-200, .text-yellow-300, .text-yellow-400, .text-yellow-500 { color: var(--status-warning); }
+  /* Vigil's caution and HMS severity labels retain their warning/error meaning
+     at full contrast; opacity-suffixed utilities are distinct class names. */
+  [class~="text-amber-400/70"], [class~="text-yellow-400/80"] { color: var(--status-warning); }
+  [class~="text-red-400/80"] { color: var(--status-failed); }
+  [class~="bg-yellow-600/10"] { background-color: var(--fjord-status-warning-bg); }
+  [class~="bg-red-600/10"] { background-color: var(--fjord-status-failed-bg); }
+  [class~="bg-yellow-500/10"], [class~="bg-yellow-500/20"], [class~="bg-yellow-600/20"], [class~="bg-yellow-900/20"], [class~="bg-yellow-900/30"], [class~="bg-yellow-900/50"], [class~="bg-yellow-950/20"] { background-color: var(--fjord-status-warning-bg); }
+  /* Brand tags are informational; selected-tab counts inherit accessible text. */
+  .rounded[class~="bg-[var(--brand-primary)]/20"],
+  .rounded-full[class~="bg-[var(--brand-primary)]/20"] { background-color: var(--fjord-status-neutral-bg); color: var(--fjord-status-neutral); }
+  [data-scrolltab-active="true"] > span { background-color: transparent; }
+  /* Idle telemetry, ordinary links, and informational chips are not warnings.
+     Semantic --status-warning chips retain amber for waits needing attention. */
+  [data-job-priority="3"], .job-held { color: var(--fjord-status-neutral); background-color: var(--fjord-status-neutral-bg); }
+  .bg-yellow-500:has(+ .text-yellow-400), .dashboard-printer-card .bg-yellow-500,
+  [data-testid="tv-printer-card"] .bg-yellow-500,
+  [data-printer-state="IDLE" i] > div { background-color: var(--fjord-status-ready); }
+  .bg-yellow-500 + .text-yellow-400, .bg-yellow-500 + [data-testid="tv-printer-status"],
+  .dashboard-printer-card .bg-yellow-500 + span,
+  [data-printer-state="IDLE" i] > [data-testid="printer-status"] { color: var(--fjord-status-ready); }
+  [data-job-action="open-printer"] { color: var(--status-printing); }
+  .alert-count { color: var(--fjord-on-failed); background-color: var(--status-failed); }
+}

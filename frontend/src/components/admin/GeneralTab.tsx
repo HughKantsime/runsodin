@@ -1,3 +1,4 @@
+import ThemeSettings from './ThemeSettings'
 import RemoteAccessStatus from './RemoteAccessStatus'
 import { getCurrentUser } from '../../permissions'
 import { useTranslation } from '../../contexts/I18nContext'
@@ -306,6 +307,7 @@ export default function GeneralTab() {
 
   return (
     <div className="max-w-4xl">
+      <ThemeSettings />
 
       {/* This page is long: say what is on it and let people jump. Links that point at a section
           this install does not show simply do nothing. */}
