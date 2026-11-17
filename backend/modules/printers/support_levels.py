@@ -45,6 +45,11 @@ SKIP_OBJECTS_MESSAGE = (
     "Skipping objects is Experimental on Bambu printers and is off for this printer. "
     "A platform administrator can turn it on in this printer's Experimental features."
 )
+SEND_JOBS_MESSAGE = (
+    "Sending jobs is Experimental on Elegoo printers and is off for this printer. "
+    "A platform administrator can turn it on in this printer's Experimental features. "
+    "Monitoring, pause, resume, speed and stop work without it."
+)
 
 UNSUPPORTED_NOT_ENABLED = 'printer_type_unsupported'
 UNSUPPORTED_REFUSAL = (f"{UNSUPPORTED_NOT_ENABLED}: ODIN has no support for this printer type, so job sending "
@@ -163,7 +168,8 @@ def dispatch_refusal(db, printer_id, api_type) -> Optional[str]:
     refusal = experimental_refusal(db, printer_id, api_type)
     if refusal is not None or DISPATCH not in gated_capabilities(api_type):
         return refusal
-    return None if experimental_enabled(db, printer_id, api_type) else EXPERIMENTAL_REFUSAL
+    message = experimental_capability_message(api_type, DISPATCH)
+    return None if experimental_enabled(db, printer_id, api_type) else f'{EXPERIMENTAL_NOT_ENABLED}: {message}'
 
 
 def control_refusal(db, printer_id, api_type, action) -> Optional[str]:
@@ -177,8 +183,9 @@ def control_refusal(db, printer_id, api_type, action) -> Optional[str]:
 
 
 def experimental_capability_message(api_type, capability):
-    if support_level(api_type) == SUPPORTED and normalize(api_type) == 'bambu' and capability == 'skip_objects':
-        return SKIP_OBJECTS_MESSAGE
+    if support_level(api_type) == SUPPORTED and capability in gated_capabilities(api_type):
+        messages = {('bambu', 'skip_objects'): SKIP_OBJECTS_MESSAGE, ('elegoo', DISPATCH): SEND_JOBS_MESSAGE}
+        return messages.get((normalize(api_type), capability), EXPERIMENTAL_MESSAGE)
     return EXPERIMENTAL_MESSAGE
 
 
@@ -209,7 +216,8 @@ def command_refusal(printer, action=None) -> Optional[str]:
                 enabled = experimental_enabled(conn, printer_id, api_type)
     except Exception:
         enabled = False
-    message = experimental_capability_message(api_type, ACTION_CAPABILITY.get(action))
+    capability = DISPATCH if action is None and DISPATCH in gated_capabilities(api_type) else ACTION_CAPABILITY.get(action)
+    message = experimental_capability_message(api_type, capability)
     return None if enabled else f'{EXPERIMENTAL_NOT_ENABLED}: {message}'
 
 
