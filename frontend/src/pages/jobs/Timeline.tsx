@@ -229,7 +229,7 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
 }
 
 export default function Timeline() {
-  return useFoundry() ? <><FoundryTimeline /><details className="f-planning"><summary>Plan ahead and move jobs</summary><ClassicTimeline /></details></> : <ClassicTimeline />
+  return useFoundry() ? <><FoundryTimeline /><details className="f-planning"><summary>Move jobs: drag them in the planner below</summary><ClassicTimeline /></details></> : <ClassicTimeline />
 }
 
 function ClassicTimeline() {
