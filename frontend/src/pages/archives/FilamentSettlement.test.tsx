@@ -25,6 +25,7 @@ afterEach(cleanup)
 test.each([
   ['added', 'This spool was added after this print ended'],
   ['unknown_balance_time', 'The balance time cannot be read'],
+  ['edited', 'Its balance was set during or after this print and may already include this use'],
 ])('explains %s balance evidence and requires an override to deduct', async (how, message) => {
   data.balance_set_after_print = [{ spool_id: 17, at: how === 'added' ? '2026-11-16T12:00:00Z' : null, how }]
   mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))

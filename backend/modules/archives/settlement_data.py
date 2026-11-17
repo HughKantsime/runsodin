@@ -109,24 +109,29 @@ def later_balances(db, archive, spool_ids, user):
             result.append(dict(spool_id=spool_id, at=None, how='unknown_print_time'))
             continue
         evidence = []
-        weigh_marker = db.execute(text('SELECT value FROM system_config WHERE key=:key'),
-                                 {'key': f'filament_balance_weighed:{spool_id}'}).first()
-        weighed = moment(config_text(weigh_marker[0])) if weigh_marker else None
-        if weigh_marker and weighed is None:
-            result.append(dict(spool_id=spool_id, at=None, how='unknown_balance_time'))
-            continue
         created = moment(spool['created_at'])
         if created and created > ended:
             evidence.append((created, 'added'))
-        if weighed and weighed >= started and (created is None or weighed >= created):
-            evidence.append((weighed, 'weighed'))
+        invalid_time = False
+        for how in ('weighed', 'edited'):
+            marker = db.execute(text('SELECT value FROM system_config WHERE key=:key'),
+                                {'key': f'filament_balance_{how}:{spool_id}'}).first()
+            at = moment(config_text(marker[0])) if marker else None
+            if marker and at is None:
+                result.append(dict(spool_id=spool_id, at=None, how='unknown_balance_time'))
+                invalid_time = True
+                break
+            if at and at >= started and (created is None or at >= created):
+                evidence.append((at, how))
+        if invalid_time:
+            continue
         measured = moment(spool['remaining_measured_at'])
         if measured and measured >= started:
             evidence.append((measured, 'measured'))
         for row in db.execute(text("SELECT used_at,notes FROM spool_usage WHERE spool_id=:id AND job_id IS NULL"), {'id': spool_id}):
             at = moment(row[0])
-            if row[1] in ('manual: weigh adjustment', 'Manual weigh adjustment') and at and at >= started:
-                evidence.append((at, 'weighed'))
+            if row[1] in ('manual: weigh adjustment', 'Manual weigh adjustment', 'manual: balance edit') and at and at >= started:
+                evidence.append((at, 'edited' if row[1] == 'manual: balance edit' else 'weighed'))
         if evidence:
             at, how = max(evidence)
             result.append(dict(spool_id=spool_id, at=at.isoformat(), how=how))

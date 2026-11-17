@@ -143,6 +143,7 @@ function SettlementForm({ id, onCancel, onSaved, onRefresh, onBusy }: { onBusy: 
             <span>{row.how === 'unknown_print_time' ? `The print time is unknown, so ODIN cannot tell whether spool ${row.spool_id} already includes this use.`
               : row.how === 'unknown_balance_time' ? `The balance time cannot be read, so ODIN cannot tell whether spool ${row.spool_id} already includes this use.`
               : row.how === 'added' ? `Spool ${row.spool_id}: This spool was added after this print ended (${formatDate(row.at)}).`
+              : row.how === 'edited' ? `Spool ${row.spool_id}: Its balance was set during or after this print and may already include this use.`
               : `Spool ${row.spool_id} was ${row.how} on ${formatDate(row.at)}.`} Deduct anyway.</span>
           </div>)}
         </>}

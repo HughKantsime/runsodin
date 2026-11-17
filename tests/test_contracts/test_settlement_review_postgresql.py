@@ -164,6 +164,52 @@ def test_postgresql_weigh_writes_json_and_preview_decodes_it(pg_settlement):
     assert result.json()['balance_set_after_print'][0]['how'] == 'weighed'
 
 
+@pytest.mark.parametrize('before,after', [(1000, 900), (900, 1000), (None, 700)])
+def test_postgresql_patch_balance_marker_usage_and_preview(pg_settlement, before, after):
+    client, engine, archive, _ = pg_settlement
+    with engine.begin() as db:
+        db.execute(text('UPDATE spools SET remaining_weight_g=:g WHERE id=991240'), {'g': before})
+    response = client.patch('/spools/991240', json={'remaining_weight_g': after})
+    assert response.status_code == 200, response.text
+    with engine.connect() as db:
+        assert db.execute(text("SELECT json_typeof(value) FROM system_config WHERE key='filament_balance_edited:991240'")).scalar_one() == 'string'
+        assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=991240')).scalar_one() == after
+        rows = db.execute(text('SELECT weight_used_g,notes,job_id,print_job_id FROM spool_usage')).all()
+        assert rows == ([(100, 'manual: balance edit', None, None)] if before == 1000 else [])
+        assert db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='spool.balance_edited'")).scalar_one() == 1
+    result = client.get(f'/archives/{archive}/filament-settlement?spool_id=991240')
+    assert result.status_code == 200, result.text
+    assert result.json()['balance_set_after_print'][0]['how'] == 'edited'
+    assert result.json()['manual_usage'] == []
+
+
+def test_postgresql_patch_balance_reads_after_waiting_for_spool_lock(pg_settlement):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from sqlalchemy import event
+    client, engine, _, _ = pg_settlement
+    waiting = Event()
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if 'UPDATE spools SET id=id' in statement:
+            waiting.set()
+    event.listen(engine, 'before_cursor_execute', observe)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with engine.begin() as holder:
+                holder.execute(text('UPDATE spools SET remaining_weight_g=950 WHERE id=991240'))
+                pending = pool.submit(client.patch, '/spools/991240', json={'remaining_weight_g': 900})
+                assert waiting.wait(10), 'PATCH did not reach the spool lock'
+                assert not pending.done()
+            response = pending.result(timeout=10)
+        assert response.status_code == 200, response.text
+        with engine.connect() as db:
+            assert db.execute(text('SELECT weight_used_g FROM spool_usage')).all() == [(50,)]
+            details = db.execute(text("SELECT details FROM audit_logs WHERE action='spool.balance_edited'")).scalar_one()
+            assert (json.loads(details) if isinstance(details, str) else details) == {'before_g': 950, 'after_g': 900}
+    finally:
+        event.remove(engine, 'before_cursor_execute', observe)
+
+
 def test_postgresql_busy_stock_uses_real_nowait_and_rolls_back(pg_settlement):
     client, engine, archive, _ = pg_settlement
     with engine.connect() as holder, holder.begin():
