@@ -10,12 +10,13 @@ import logging
 
 import core.crypto as crypto
 from core.db import get_db
+from core.enum_filters import enum_filter
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_superadmin, require_interactive_session, require_action
 from core.responses import build_next_actions, next_action
-from core.base import AlertType
+from core.base import AlertType, AlertSeverity
 from core.models import SystemConfig
 from modules.notifications.models import Alert, AlertPreference
 from modules.inventory.models import Spool
@@ -131,9 +132,9 @@ async def list_alerts(
     ).filter(Alert.user_id == current_user["id"])
 
     if severity:
-        query = query.filter(Alert.severity == severity)
+        query = query.filter(Alert.severity == enum_filter(severity, AlertSeverity, "severity"))
     if alert_type:
-        query = query.filter(Alert.alert_type == alert_type)
+        query = query.filter(Alert.alert_type == enum_filter(alert_type, AlertType, "alert_type"))
     if is_read is not None:
         query = query.filter(Alert.is_read == is_read)
     # Dismissed alerts are hidden by default (filtered before paging, so a page
