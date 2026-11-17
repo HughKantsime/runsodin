@@ -53,11 +53,13 @@ def report(job, reason):
         gate_refusal=GateRefusal('printer_maintenance_hold', reason), message=reason)
 
 
-def report_experimental(job):
+def report_experimental(job, reason):
     from modules.printers.dispatch import _notify_start_outcome
     from modules.printers.support_levels import EXPERIMENTAL_MESSAGE, EXPERIMENTAL_NOT_ENABLED
+    prefix = f'{EXPERIMENTAL_NOT_ENABLED}: '
+    message = reason[len(prefix):] if reason.startswith(prefix) else EXPERIMENTAL_MESSAGE
     _notify_start_outcome(job, 'adapter_rejected',
-        gate_refusal=GateRefusal(EXPERIMENTAL_NOT_ENABLED, EXPERIMENTAL_MESSAGE), message=EXPERIMENTAL_MESSAGE)
+        gate_refusal=GateRefusal(EXPERIMENTAL_NOT_ENABLED, message), message=message)
 
 
 @contextmanager
@@ -79,7 +81,7 @@ def check_command():
             raise MaintenanceHold(reason)
         reason = experimental_refusal(engine, job['printer_id'])
         if reason:
-            report_experimental(job)
+            report_experimental(job, reason)
             raise ExperimentalNotEnabled(reason)
 
 

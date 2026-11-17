@@ -10,6 +10,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Elegoo: when job sending is switched off, the refusal now explains that sending jobs is Experimental and that monitoring, pause, resume, speed and stop still work.
 - Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
 
 ## [2.3.0] - 2026-11-15
