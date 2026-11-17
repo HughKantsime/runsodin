@@ -339,6 +339,9 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Spool not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    remaining = update_data.pop("remaining_weight_g", None)
+    if "remaining_weight_g" in updates.model_fields_set:
+        updates.validate_balance_edit(spool)
     # Lock order on every spool write path: the Spoolman-link lock first, then the
     # purchase/financial locks (write_purchase, require_financial_owner).
     if "spoolman_spool_id" in update_data:
@@ -379,11 +382,21 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])
 
-    if ("remaining_weight_g" in update_data and update_data["remaining_weight_g"] is not None
-            and update_data["remaining_weight_g"] != spool.remaining_weight_g):
-        from core.filament_ledger import record_balance_set
+    if "remaining_weight_g" in updates.model_fields_set:
+        from core.filament_ledger import record_balance_edit
         from core.print_attempts import sqlalchemy_runner
-        record_balance_set(sqlalchemy_runner(db), spool_id)
+        # Compare and validate under the same row lock used by the ledger.
+        db.flush()
+        db.execute(text('UPDATE spools SET id=id WHERE id=:id'), {'id': spool_id})
+        db.refresh(spool)
+        updates.validate_balance_edit(spool)
+        if remaining != spool.remaining_weight_g:
+            balance = record_balance_edit(sqlalchemy_runner(db), spool_id, remaining)
+            db.refresh(spool)
+            if remaining <= 10:
+                update_data['status'] = SpoolStatus.EMPTY
+            log_audit(db, 'spool.balance_edited', 'spool', spool_id,
+                      {'before_g': balance['old_weight_g'], 'after_g': balance['remaining_g']})
 
     for field, value in update_data.items():
         setattr(spool, field, value)

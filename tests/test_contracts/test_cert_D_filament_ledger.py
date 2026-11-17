@@ -462,7 +462,33 @@ def _purchase_evidence_set_list(sites):
 PRICED = "backend/core/priced_estimate_restore.py"
 PRICED_TABLES = {"table": lambda: _resolved_call_args(PRICED, "_insert", 1)() | _resolved_call_args(PRICED, "_cas", 1)()}
 
+
+def _spool_edit_fields(sites, node=None):
+    """The generic field loop must consume a dict with the balance removed first."""
+    node = node or _function_node('backend/modules/inventory/routes/spools.py', 'update_spool')
+    statements = [ast.unparse(statement) for statement in node.body]
+    pop = "remaining = update_data.pop('remaining_weight_g', None)"
+    loop = 'for field, value in update_data.items():\n    setattr(spool, field, value)'
+    if pop not in statements or loop not in statements or statements.index(pop) >= statements.index(loop):
+        return False
+    # Pin subsequent dict method calls and assignments to keep the exclusion explicit.
+    references = [ast.unparse(n) for statement in node.body[statements.index(pop) + 1:]
+                  for n in ast.walk(statement) if isinstance(n, ast.Call)
+                  and isinstance(n.func, ast.Attribute) and ast.unparse(n.func.value) == 'update_data']
+    return (_exact('setattr(spool, field, value)')(sites)
+            and sum(isinstance(n, ast.Name) and n.id == 'update_data' and isinstance(n.ctx, ast.Store)
+                    for n in ast.walk(node)) == 1
+            and references == ["update_data.pop('purchase_evidence', None)",
+                               "update_data.pop('expected_purchase_revision', None)",
+                               "update_data.pop('price')", "update_data.pop('filament_id', None)",
+                               'update_data.items()']
+            and not any(isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store)
+                        and ast.unparse(n.value) == 'update_data'
+                        and ast.unparse(n.slice) != "'status'" for n in ast.walk(node)))
+
 # Writers the census sees outside the ledger that do not consume filament.
+# backend/modules/inventory/models.py declares the ORM column (not a write to a
+# saved spool); job_census ignores column definitions. Creation sites are pinned below.
 # Each (file, function, kind) pins its exact number of call sites, and its check
 # runs on those sites: the SQL text the node builds, or the call it makes.
 SHARED_DYNAMIC = {
@@ -491,11 +517,17 @@ ALLOWED = {
         **SHARED_DYNAMIC,
         ("backend/core/economic_source_creation.py", "_insert_inside", "sql insert (dynamic table)"):
             (1, "a fresh spool's opening balance (spool birth through the source factory)", _source_factory),
+        ("backend/scripts/seed_edu_sandbox.py", "seed_connection", "sql insert"):
+            (1, "creates the Education sandbox's sample spool, never updates an existing balance",
+             lambda sites: all(site.detail.startswith('INSERT INTO spools ') for site in sites)),
+        ("backend/scripts/seed_release_gate.py", "_ensure_domain_graph", "sql insert"):
+            (1, "creates the release gate's sample spool, never updates an existing balance",
+             lambda sites: all(site.detail.startswith('INSERT INTO spools ') for site in sites)),
         ("backend/core/spool_purchase_evidence.py", "write_purchase", "sql update (dynamic SET)"):
             (1, "purchase evidence: the SET list is limited to price/initial_weight_g", _purchase_evidence_set_list),
         ("backend/modules/inventory/routes/spools.py", "update_spool", "setattr"):
-            (1, "operator edit of spool fields, including an absolute weight correction",
-             _exact("setattr(spool, field, value)")),
+            (1, "operator edits other fields; remaining_weight_g is removed before the generic loop",
+             _spool_edit_fields),
     },
     "spool_usage": {
         **SHARED_DYNAMIC,
@@ -507,7 +539,7 @@ ALLOWED = {
 
 @pytest.mark.parametrize("target", [job_census.SPOOLS, job_census.SPOOL_USAGE], ids=lambda t: t.table)
 def test_census_no_filament_stock_writer_outside_the_ledger(target):
-    writes, _, _ = job_census.scan(job_census.backend_sources(("backend/scripts/seed_",)), target)
+    writes, _, _ = job_census.scan(target=target)
     outside = [w for w in writes if w.path != LEDGER]
     found = job_census.counts(outside)
     allowed = ALLOWED[target.table]
@@ -530,6 +562,19 @@ def test_census_refuses_a_weight_write_reintroduced_in_the_monitor():
     key = (path, "sync_ams_inventory", "sql update")
     assert job_census.counts(writes)[key] == 1
     assert key not in ALLOWED["spools"]
+
+
+@pytest.mark.parametrize('replacement', ['', 'remaining = update_data.get("remaining_weight_g")',
+                                          'remaining = update_data.pop("remaining_weight_g", None)\n    update_data["remaining_weight_g"] = remaining'])
+def test_census_refuses_balance_returned_to_generic_patch(replacement):
+    path = 'backend/modules/inventory/routes/spools.py'
+    source = job_census.function_source(path, 'update_spool')
+    original = "remaining = update_data.pop('remaining_weight_g', None)"
+    assert original in source
+    source = source.replace(original, replacement)
+    node = next(n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.FunctionDef))
+    writes, _, _ = job_census.scan({path: source}, job_census.SPOOLS)
+    assert not _spool_edit_fields([w for w in writes if w.kind == 'setattr'], node)
 
 
 def _filament_writes(source):

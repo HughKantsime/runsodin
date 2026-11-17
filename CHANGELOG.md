@@ -78,6 +78,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - On PostgreSQL, the status feed for integrations and the plate-cleared action no longer fail with a database error.
+- Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
 - Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
 

@@ -678,6 +678,15 @@ def record_manual_usage(run, spool_id, grams, *, job_id=None, notes=None):
 
 def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
     """A scale reading: set the net weight; a decrease is recorded as a manual adjustment."""
+    return _record_balance(run, spool_id, net_weight_g, 'manual: weigh adjustment')
+
+
+def record_balance_edit(run, spool_id, net_weight_g) -> Optional[dict]:
+    """An absolute balance edit, never a physical print's consumption claim."""
+    return _record_balance(run, spool_id, net_weight_g, 'manual: balance edit')
+
+
+def _record_balance(run, spool_id, net_weight_g, notes):
     value = float(net_weight_g)
     if not math.isfinite(value):
         raise ValueError("Weight must be finite")
@@ -690,15 +699,16 @@ def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
     if before is not None and value < before:
         run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
             "VALUES (:spool, NULL, NULL, :g, :at, :notes)",
-            {"spool": int(spool_id), "g": before - value, "at": _now(), "notes": f"{MANUAL_PREFIX} weigh adjustment"})
-    record_balance_set(run, spool_id)
+            {"spool": int(spool_id), "g": before - value, "at": _now(), "notes": notes})
+    record_balance_set(run, spool_id, edited=notes == 'manual: balance edit')
     return {"spool_id": int(spool_id), "old_weight_g": before, "remaining_g": value}
 
 
-def record_balance_set(run, spool_id):
+def record_balance_set(run, spool_id, *, edited=False):
     """Retain an absolute balance correction, including increases and NULL -> known."""
     run("INSERT INTO system_config(key,value) VALUES(:key,:at) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        {"key": f"filament_balance_weighed:{int(spool_id)}", "at": json.dumps(_now().isoformat())})
+        {"key": f"filament_balance_{'edited' if edited else 'weighed'}:{int(spool_id)}",
+         "at": json.dumps(_now().isoformat())})
 
 
 def create_rfid_spool(run, *, filament_id, qr_code, tag, tray_uuid, color_hex, color_name, org_id):

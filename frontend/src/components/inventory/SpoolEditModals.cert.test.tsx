@@ -7,6 +7,19 @@ import fixture from '../../test-fixtures/cert-C-spools-wire.json'
 afterEach(() => cleanup())
 const spool = (fixture.spools as any[])[0]
 
+it('explains balance edits and omits an unchanged balance when saving', () => {
+  const onSave = vi.fn()
+  const view = render(<EditSpoolModal spool={{ ...spool, remaining_weight_g: 900 }} onClose={() => {}} onSave={onSave} />)
+  expect(screen.getByText('Changing this sets the balance directly. To record filament you used, use Use.')).toBeInTheDocument()
+  fireEvent.change(screen.getByPlaceholderText('Any notes...'), { target: { value: 'updated' } })
+  fireEvent.submit(view.container.querySelector('form')!)
+  expect(onSave).toHaveBeenCalledTimes(1)
+  expect(onSave.mock.calls[0][0]).not.toHaveProperty('remaining_weight_g')
+  fireEvent.change(screen.getByLabelText('Remaining Weight (g)'), { target: { value: '850' } })
+  fireEvent.submit(view.container.querySelector('form')!)
+  expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ remaining_weight_g: 850 }))
+})
+
 it('filament cost per gram is sent as a number, and blank as null', () => {
   const onSave = vi.fn()
   const view = render(<EditFilamentModal filament={{ id: 'lib_5', brand: 'Cert', name: 'ASA', material: 'ASA', color_hex: '', cost_per_gram: 0.031 }} onClose={() => {}} onSave={onSave} />)

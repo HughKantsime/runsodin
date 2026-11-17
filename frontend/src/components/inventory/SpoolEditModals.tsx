@@ -138,6 +138,7 @@ export function EditSpoolModal({ spool, filaments = [], onClose, onSave }: { spo
           <div className="text-xs text-[var(--brand-text-muted)] mt-1">
             Initial: {spool.initial_weight_g}g{spool.remaining_weight_g == null ? ' · Remaining is not measured; leave blank to keep it that way' : ''}
           </div>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Changing this sets the balance directly. To record filament you used, use Use.</p>
         </div>
 
         <div>

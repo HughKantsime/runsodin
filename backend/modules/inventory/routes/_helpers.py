@@ -4,7 +4,9 @@ from datetime import datetime
 from io import BytesIO
 from modules.inventory.constants import MAX_LOW_STOCK_THRESHOLD_G
 from typing import Optional
+import math
 
+from fastapi import HTTPException
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, field_validator, model_validator
@@ -78,6 +80,28 @@ class SpoolUpdate(PydanticBaseModel):
     pa_profile: Optional[str] = Field(default=None, max_length=50)
     low_stock_threshold_g: Optional[int] = Field(default=None, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     remaining_weight_g: Optional[float] = None
+
+    @field_validator('remaining_weight_g', mode='before')
+    @classmethod
+    def remaining_weight(cls, value):
+        if value is None:
+            return None
+        try:
+            value = float(value)
+        except (ValueError, TypeError, OverflowError):
+            raise HTTPException(422, 'Remaining weight must be zero or more grams.')
+        if not math.isfinite(value) or value < 0:
+            raise HTTPException(422, 'Remaining weight must be zero or more grams.')
+        return value
+
+    def validate_balance_edit(self, spool):
+        if self.remaining_weight_g is None:
+            if spool.remaining_weight_g is not None:
+                raise HTTPException(422, 'A known remaining weight cannot be cleared. Enter the grams, or weigh the spool.')
+        elif spool.initial_weight_g is not None and self.remaining_weight_g > spool.initial_weight_g * 1.1:
+            raise HTTPException(422, 'Remaining weight cannot be more than the spool held '
+                                f'when new ({spool.initial_weight_g:g} g).')
+
     # Empty-spool (core) weight: correctable after receiving, e.g. for refill cores.
     # Same bounds as receiving. It is never cleared: weigh needs a number.
     spool_weight_g: Optional[float] = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
