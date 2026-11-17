@@ -24,7 +24,7 @@ Each printer gets one device with these entities:
 - Current job, current layer and total layers.
 - Active errors.
 - Next job: the name of the next queued job for this printer, unknown when nothing is queued. Attributes: `job_id`, `held`, `est_minutes`, `copies_on_plate`, `filaments` (slot, color, material, grams), `plate_index`, `plate_count`, `ams_status` (match, mismatch or unknown), `ams_slots`, `scheduled_start`, `queued_after` (how many more jobs are queued for this printer after this one), `short_spools` (the spools ODIN's filament check finds too low for this job: `slot`, `needed_g`, `remaining_g`; an empty list when every spool has enough, unknown when the check is off or a weight is not known) and `ready` (true when the loaded colours match, no spool is short, and the job is neither held nor blocked; false when one of those fails; unknown when the colours cannot be compared).
-- Waiting on: what is holding the printer back, one of `nothing`, `paused`, `out_of_service`, `clear_plate`, `blocked`, `held`. Attributes: `reason`, `since`, `pause_cause` (set when paused).
+- Waiting on: what is holding the printer back, one of `nothing`, `paused`, `out_of_service`, `clear_plate`, `blocked`, `held`. Attributes: `reason`, `since`, `pause_cause` (set when paused), and `paused_seconds`. Causes include `filament` when a runout was recorded for this pause.
 - AMS humidity: the wettest AMS unit's humidity index, 1 (dry) to 5 (wet), the same order as the A-E scale on the printer. Attributes: `grade` (A-E), `wettest_unit`, `units` (each unit's index, grade, temperature and reading age). Unknown when no unit has a humidity sensor (AMS lite).
 - Spools loaded: how many spool slots have filament in them. One sensor per printer; its `slots` attribute lists every slot (`slot`, `color_hex`, `name`, `material`, `remaining_percent`, `remaining_g`) with the same names the ODIN Printers page shows. Remaining amounts are unknown when ODIN does not know them, and on a printer another organization shares with you. The sensor is unknown on a printer that carries controlled work you are not allowed to see.
 - Last print finished (timestamp): when the printer's last print ended, whatever its outcome. Unknown while a print is running.
@@ -68,3 +68,18 @@ completed / (completed + did not complete); Education usage and program reports 
 uv venv -p 3.13 .venv && VIRTUAL_ENV=.venv uv pip install pytest-homeassistant-custom-component PyTurboJPEG
 .venv/bin/python -m pytest
 ```
+
+### Long pause reminders
+
+ODIN reminds you when a print stays paused. In Settings > Notifications > Print Paused,
+admins can turn farm-wide reminders on or off and set the first delay (default 2 hours)
+and repeat interval (default 12 hours; 0 sends only one). Reminders use your existing
+Print Paused channels and respect quiet hours. Education-managed prints do not send reminders.
+
+Each printer has a **Paused too long** problem binary sensor (`paused_long`), with
+`hours`, `cause`, `since`, and `reason` attributes. The fleet sensor **Printers paused too
+long** (`fleet_paused_long`) counts visible printers whose pauses have reached the first
+reminder delay. `bench.paused_seconds` measures from the saved pause start;
+`bench.paused_long` is unknown when reminders are off, the printer is offline, or the
+pause start is unknown. The sensors are unavailable against an older ODIN that does not
+send these fields. The status schema remains 2. No Kobra ACE slot inference is used.

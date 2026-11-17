@@ -104,3 +104,16 @@ export function describePushTestDevice(device: PushTestDevice): string {
   const reason = device.status !== 'sent' && device.reason ? ` (${device.reason})` : ''
   return `${phone}: ${PUSH_TEST_COPY[device.status] ?? PUSH_TEST_COPY.other}${reason}`
 }
+
+
+export interface PauseReminderSettings {
+  enabled: boolean
+  first_hours: number
+  repeat_hours: number
+}
+
+export const pauseReminders = {
+  get: (): Promise<PauseReminderSettings> => fetchAPI('/config/pause-reminders', { quiet: true }),
+  update: (data: { enabled: boolean; first_hours: number | null; repeat_hours: number | null }): Promise<PauseReminderSettings> =>
+    fetchAPI('/config/pause-reminders', { method: 'PUT', body: JSON.stringify(data), quiet: true }),
+}

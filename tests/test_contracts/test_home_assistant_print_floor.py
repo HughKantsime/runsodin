@@ -662,3 +662,71 @@ def test_unlinked_print_plate_clear_is_visible_in_feed_and_printer_read(ha_clien
     assert datetime.fromisoformat(printer['plate_clear_confirmed_at']) == expected
     assert client.post('/printers/10/plate-cleared', headers=issue(['write:printers'])).json() == first
     assert review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='printer.plate_clear_confirmed'")).scalar_one() == 1
+
+
+def _pause_episode(db, printer=9, hours=5, **changes):
+    from core.system_config_values import write_config_text
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+    attempt = db.execute(text("SELECT economic_uid FROM print_jobs WHERE printer_id=:p AND status='running' ORDER BY id DESC LIMIT 1"), {'p': printer}).scalar()
+    episode = {'paused': True, 'since': since.isoformat(), 'at': since.isoformat(), 'attempt': attempt, **changes}
+    write_config_text(db, 'pause_episode:' + str(printer), json.dumps(episode))
+    db.execute(text("UPDATE printers SET gcode_state='PAUSE',last_seen=:now WHERE id=:id"), {'now': _utc_text(now), 'id': printer})
+    db.commit()
+    return since
+
+
+def test_pause_duration_filament_and_fleet_for_hand_started_print(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=NULL WHERE printer_id=9'))
+    since = _pause_episode(review_db, runout_at=(datetime.now(timezone.utc) - timedelta(hours=6)).isoformat())
+    body = _get(client, issue)
+    bench = _printers(body)[9]['bench']
+    assert bench['since'] == since.isoformat().replace('+00:00', 'Z')
+    assert 18000 <= bench['paused_seconds'] < 18010
+    assert bench['paused_long'] is True and bench['pause_cause'] == 'filament'
+    assert body['fleet']['paused_long'] == 1
+
+
+@pytest.mark.parametrize('condition', ['off', 'unknown_time', 'offline', 'controlled'])
+def test_pause_timing_unknown_and_visibility(ha_client, review_db, condition):
+    from core.system_config_values import write_config_text
+    client, issue = ha_client
+    _pause_episode(review_db)
+    if condition == 'off':
+        write_config_text(review_db, 'pause_reminder_settings', json.dumps({'enabled': False}))
+    elif condition == 'unknown_time':
+        write_config_text(review_db, 'pause_episode:9', json.dumps({'paused': True}))
+    elif condition == 'offline':
+        review_db.execute(text("UPDATE printers SET last_seen='2020-01-01' WHERE id=9"))
+    else:
+        _mark_controlled(review_db, 13)
+    review_db.commit()
+    body = _get(client, issue)
+    bench = _printers(body)[9]['bench']
+    assert bench['paused_long'] is None
+    assert body['fleet']['paused_long'] == 0
+
+
+def test_pause_timing_under_threshold(ha_client, review_db):
+    client, issue = ha_client
+    _pause_episode(review_db, hours=1)
+    bench = _printers(_get(client, issue))[9]['bench']
+    assert 3600 <= bench['paused_seconds'] < 3610
+    assert bench['paused_long'] is False
+
+
+@pytest.mark.parametrize('hidden_by', ['organization', 'archived'])
+def test_pause_times_and_count_exclude_invisible_jobs(ha_client, review_db, hidden_by):
+    client, issue = ha_client
+    review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=13 WHERE printer_id=9'))
+    if hidden_by == 'organization':
+        _job(review_db, 903, 'Foreign print', printer=9, charged_to_org_id=2)
+        review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=903 WHERE printer_id=9'))
+    else:
+        review_db.execute(text('UPDATE education_submissions SET archived_at=CURRENT_TIMESTAMP WHERE job_id=13'))
+    _pause_episode(review_db)
+    body = _get(client, issue)
+    bench = _printers(body)[9]['bench']
+    assert bench['since'] is None and bench['paused_seconds'] is None and bench['paused_long'] is None
+    assert body['fleet']['paused_long'] == 0

@@ -15,6 +15,7 @@ beforeEach(() => {
       { alert_type: 'PRINT_FAILED', in_app: true, browser_push: false, email: false },
       { alert_type: 'spool_low', in_app: false, browser_push: true, email: true, threshold_value: 100 },
     ]
+    else if (url === '/api/config/pause-reminders') body = { enabled: true, first_hours: 2, repeat_hours: 12 }
     else if (url === '/api/smtp-config') body = { enabled: false }
     else if (url === '/api/config/temperature-alerts') body = {
       enabled: true, under_c: 15, over_c: 15, sustain_minutes: 2, warmup_minutes: 5,
@@ -56,6 +57,6 @@ it('gives every rendered switch an accessible name, including temperature alerts
   render(<NotificationsTab />)
   await screen.findByRole('switch', { name: 'In-app alerts for Print Failed' })
   await screen.findByRole('switch', { name: 'Temperature anomaly alerts' })
-  await waitFor(() => expect(screen.getAllByRole('switch')).toHaveLength(32))
+  await waitFor(() => expect(screen.getAllByRole('switch')).toHaveLength(33))
   for (const control of screen.getAllByRole('switch')) expect(control).toHaveAccessibleName()
 })

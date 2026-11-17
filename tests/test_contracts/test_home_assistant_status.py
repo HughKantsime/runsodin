@@ -77,7 +77,7 @@ def test_status_payload_shape_and_values(ha_client):
     assert kobra['last_error'] == {'code': 'PRINT_FAILED', 'message': 'Nozzle clog', 'at': '2026-11-08T23:36:50Z',
                                    'unresolved': True}
     assert printers[72]['status'] == 'offline' and printers[72]['online'] is False
-    floor_keys = {'today', 'queued_hours', 'queued_unestimated', 'next_unassigned'}  # covered in test_home_assistant_print_floor.py
+    floor_keys = {'today', 'queued_hours', 'queued_unestimated', 'next_unassigned', 'paused_long'}  # covered in test_home_assistant_print_floor.py
     assert {k: v for k, v in body['fleet'].items() if k not in floor_keys} == {
         'printing': 1, 'paused': 1, 'error': 1, 'offline': 1, 'idle': 0,
         'total': 4, 'queue_length': 3}  # 301, 302 and the seeded submitted job 13

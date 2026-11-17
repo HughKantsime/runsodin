@@ -97,6 +97,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/production/replenishment/queue"),
     ],
     "settings.edit": [
+        ("PUT", "/api/config/pause-reminders"),
         ("DELETE", "/api/education/term-retention/{term_id}"),
         ("GET", "/api/education/term-retention"),
         ("POST", "/api/education/term-retention"),

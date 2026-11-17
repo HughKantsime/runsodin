@@ -132,7 +132,8 @@ def _waiting_on_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
     bench = printer.get("bench")
     if not isinstance(bench, dict):
         return None
-    return {"reason": bench.get("reason"), "since": bench.get("since"), "pause_cause": bench.get("pause_cause")}
+    return {"reason": bench.get("reason"), "since": bench.get("since"), "pause_cause": bench.get("pause_cause"),
+            "paused_seconds": bench.get("paused_seconds")}
 
 
 def _ams_humidity(printer: dict[str, Any]) -> int | None:
@@ -200,6 +201,8 @@ PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
 )
 
 FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
+    OdinSensorDescription(key="fleet_paused_long", state_class=SensorStateClass.MEASUREMENT,
+                          value=lambda f: f.get("paused_long"), unavailable_when_missing=True),
     OdinSensorDescription(key="fleet_printing", state_class=SensorStateClass.MEASUREMENT,
                           value=lambda f: f.get("printing")),
     OdinSensorDescription(key="fleet_paused", state_class=SensorStateClass.MEASUREMENT,

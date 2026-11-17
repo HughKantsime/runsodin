@@ -216,3 +216,24 @@ async def test_ams_humidity_is_unknown_on_an_older_odin(hass, aioclient_mock, st
     aioclient_mock.get(STATUS_URL, json=status)
     await _setup(hass)
     assert hass.states.get("sensor.x1c_ams_humidity").state == "unknown"
+
+
+async def test_long_pause_feed_attributes_and_count(hass, aioclient_mock, status_v2):
+    status_v2['fleet']['paused_long'] = 1
+    status_v2['printers'][1]['bench'].update(paused_seconds=18000, paused_long=True, pause_cause='filament')
+    aioclient_mock.get(STATUS_URL, json=status_v2)
+    await _setup(hass)
+    assert hass.states.get('sensor.odin_fleet_printers_paused_too_long').state == '1'
+    waiting = hass.states.get('sensor.kobra_s1_waiting_on')
+    assert waiting.state == 'paused'
+    assert waiting.attributes['paused_seconds'] == 18000
+    assert waiting.attributes['pause_cause'] == 'filament'
+
+
+@pytest.mark.parametrize('version', [1, 2])
+async def test_long_pause_sensors_unavailable_on_older_server(hass, aioclient_mock, status, status_v2, version):
+    payload = status if version == 1 else status_v2
+    aioclient_mock.get(STATUS_URL, json=payload)
+    await _setup(hass)
+    assert hass.states.get('binary_sensor.kobra_s1_paused_too_long').state == STATE_UNAVAILABLE
+    assert hass.states.get('sensor.odin_fleet_printers_paused_too_long').state == STATE_UNAVAILABLE

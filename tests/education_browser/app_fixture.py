@@ -35,6 +35,8 @@ def main():
         connection.execute(text('UPDATE users SET password_hash=:hash'), {'hash': hash_password(os.environ['ODIN_EDU_TEST_PASSWORD'])})
         connection.execute(text("INSERT INTO printers (id,name,api_type,api_host,is_active) VALUES (99,'Synthetic diagnostic printer','bambu','127.0.0.1',1)"))
         connection.execute(text("INSERT INTO system_config (key,value) VALUES ('education_mode','true'),('setup_complete','true')"))
+        connection.execute(text("INSERT INTO system_config(key,value) VALUES ('pause_reminder_settings',:value)"),
+                           {'value': json.dumps({'enabled': True, 'first_hours': 2, 'repeat_hours': 12})})
         connection.execute(text('UPDATE users SET role=\'operator\' WHERE id=3'))
         connection.execute(text('INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) SELECT 6,\'superadmin\',\'superadmin@example.test\',password_hash,\'admin\',1,NULL FROM users WHERE id=1'))
         connection.execute(text("INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) SELECT 7,'student-two','student-two@example.test',password_hash,'viewer',1,1 FROM users WHERE id=1"))

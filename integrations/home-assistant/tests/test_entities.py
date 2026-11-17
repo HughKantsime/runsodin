@@ -165,3 +165,23 @@ def test_first_jpeg_parsing():
     assert first_jpeg(b"--frame\r\n\xff\xd8abc\xff\xd9rest") == b"\xff\xd8abc\xff\xd9"
     assert first_jpeg(b"\xff\xd8partial") is None
     assert first_jpeg(b"no image") is None
+
+
+async def test_paused_long_problem_sensor_attributes(hass, aioclient_mock, status_v2):
+    status_v2['fleet']['paused_long'] = 1
+    status_v2['printers'][1]['bench'].update(paused_long=True, paused_seconds=18000, pause_cause='filament', reason='Waiting for filament')
+    aioclient_mock.get(STATUS_URL, json=status_v2)
+    await _setup(hass)
+    paused = hass.states.get('binary_sensor.kobra_s1_paused_too_long')
+    assert paused.state == 'on'
+    assert paused.attributes['device_class'] == 'problem'
+    assert paused.attributes['hours'] == 5
+    assert paused.attributes['cause'] == 'filament'
+    assert paused.attributes['since'] == '2026-11-09T00:40:00Z'
+    assert paused.attributes['reason'] == 'Waiting for filament'
+    assert hass.states.get('binary_sensor.x1c_paused_too_long').state == 'off'
+    status_v2['printers'][1]['online'] = False
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(STATUS_URL, json=status_v2)
+    await _poll(hass)
+    assert hass.states.get('binary_sensor.kobra_s1_paused_too_long').state == 'unknown'

@@ -20,6 +20,16 @@ def _pause_claim(db, item):
     stamp = occurred.isoformat() if hasattr(occurred, 'isoformat') else str(occurred)
     if state.get('at', '') > stamp:
         return False
+    if item['kind'] == 'runout':
+        # A runout belongs to this physical print, never to a previous attempt.
+        if state.get('attempt') and item.get('attempt') and state['attempt'] != item['attempt']:
+            state = {'paused': False, 'attempt': item['attempt']}
+        else:
+            state['attempt'] = item.get('attempt') or state.get('attempt')
+        state['runout_at'] = state.get('runout_at') or stamp
+        from core.system_config_values import write_config_text
+        write_config_text(db, key, json.dumps(state))
+        return False
     paused = item['kind'] == 'paused'
     claimed = paused and (not state.get('paused') or state.get('attempt') != item.get('attempt'))
     # Missing physical identity can become known during a pre-print pause. That
@@ -31,7 +41,18 @@ def _pause_claim(db, item):
     if db.get_bind().dialect.name == 'postgresql':
         stmt = stmt.bindparams(bindparam('value', type_=JSON))
     attempt = item.get('attempt') if claimed or not paused else item.get('attempt') or state.get('attempt')
-    db.execute(stmt, {'key': key, 'value': json.dumps({'paused': paused, 'at': stamp, 'attempt': attempt})})
+    same_print = state.get('attempt') == attempt
+    updated = {'paused': paused, 'at': stamp, 'attempt': attempt}
+    if paused:
+        updated['since'] = stamp if claimed else state.get('since') or state.get('at') or stamp
+        updated['context'] = item.get('context', {}) if claimed else state.get('context', {})
+        updated['code'] = item.get('code') if claimed else state.get('code')
+    # Idle telemetry closes episodes repeatedly. Keep a running print's runout
+    # until its pause arrives, but clear it on a real resume or terminal event.
+    keep_runout = paused or (item['kind'] == 'resumed' and not state.get('paused'))
+    if same_print and keep_runout and state.get('runout_at'):
+        updated['runout_at'] = state['runout_at']
+    db.execute(stmt, {'key': key, 'value': json.dumps(updated)})
     return claimed
 
 
@@ -52,7 +73,9 @@ def stage(db, item):
     if kind == 'paused':
         if not _pause_claim(db, item):
             return None
-    elif item.get('attempt'):
+    else:
+        _pause_claim(db, item)
+    if kind == 'runout' and item.get('attempt'):
         from core.durable_config import insert
         identity = [item.get('attempt') or item['printer'], kind, item.get('code')]
         key = 'job_fault:' + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
@@ -89,7 +112,7 @@ def _notify(printer_id, kind, code, *, occurred=None, context=None):
         from core.interfaces.education_policy import is_education_reserved_filename
         engine = current_engine()
         with Session(engine) as db:
-            rows = db.execute(text("SELECT scheduled_job_id,economic_uid,filename FROM print_jobs WHERE printer_id=:id AND status IN ('running','printing','paused') ORDER BY id DESC LIMIT 2"), {'id': printer_id}).all()
+            rows = db.execute(text("SELECT scheduled_job_id,economic_uid,filename,id FROM print_jobs WHERE printer_id=:id AND status IN ('running','printing','paused') ORDER BY id DESC LIMIT 2"), {'id': printer_id}).all()
             if len(rows) > 1:
                 return
             row = rows[0] if rows else None
@@ -97,7 +120,8 @@ def _notify(printer_id, kind, code, *, occurred=None, context=None):
                 return
             if not db.execute(text('SELECT 1 FROM printers WHERE id=:id'), {'id': printer_id}).first():
                 return
-            plan = stage(db, dict(job=row[0] if row else None, attempt=row[1] if row else None,
+            from core.physical_print import pause_identity
+            plan = stage(db, dict(job=row[0] if row else None, attempt=pause_identity(row[1], row[3]) if row else None,
                                   printer=printer_id, kind=kind, code=code, occurred=occurred, context=context or {}))
             db.commit()
             if plan is not None:

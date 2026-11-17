@@ -164,7 +164,7 @@ def home_assistant_status(
     if printers:
         ids = {"ids": [p.id for p in printers]}
         rows = db.execute(
-            text("SELECT id, printer_id, progress_percent, current_layer, total_layers, remaining_minutes "
+            text("SELECT id, printer_id, economic_uid, progress_percent, current_layer, total_layers, remaining_minutes "
                  "FROM print_jobs WHERE status = 'running' AND printer_id IN :ids "
                  "ORDER BY started_at DESC, id DESC").bindparams(bindparam("ids", expanding=True)), ids,
         ).mappings().all()

@@ -140,6 +140,7 @@
     "next_cursor": null
   },
   "GET /api/alert-preferences": [],
+  "GET /api/config/pause-reminders": {"enabled": true, "first_hours": 2, "repeat_hours": 12},
   "GET /api/config/temperature-alerts": {
     "enabled": false
   },

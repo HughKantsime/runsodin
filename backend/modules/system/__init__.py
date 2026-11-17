@@ -11,6 +11,7 @@ ROUTES = [
     "system.routes_audit_integrity",
     "system.routes_config",
     "system.routes_temperature_alerts",
+    "system.routes_pause_reminders",
     "system.routes_setup",
     "system.routes_backup",
     "system.routes_settings",

@@ -173,3 +173,8 @@ def test_rfid_onboarding_is_in_live_matrix_and_declares_scopes_on_both_aliases(t
         assert ['__odin_token_scope__', 'read:spools'] in read
         assert ['__odin_token_scope__', 'write:spools'] in merge
         assert ['__odin_rbac_action__', ['spools.edit', None]] in merge
+
+
+def test_pause_reminder_settings_are_in_the_matrix(table):
+    assert ['__odin_rbac_action__', ['settings.edit', None]] in table[('PUT', '/api/config/pause-reminders')]
+    assert ('GET', '/api/config/pause-reminders') in table

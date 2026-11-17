@@ -80,6 +80,7 @@
       "spools": {"name": "Spools loaded"},
       "fleet_printing": {"name": "Printers printing"},
       "fleet_paused": {"name": "Printers paused"},
+      "fleet_paused_long": {"name": "Printers paused too long"},
       "fleet_error": {"name": "Printers in error"},
       "fleet_offline": {"name": "Printers offline"},
       "queue_length": {"name": "Queue length"},
@@ -93,6 +94,7 @@
     "button": {"plate_cleared": {"name": "Plate cleared"}},
     "binary_sensor": {
       "plate_needs_clearing": {"name": "Plate needs clearing"},
+      "paused_long": {"name": "Paused too long"},
       "online": {"name": "Online"},
       "problem": {"name": "Needs attention"},
       "out_of_service": {"name": "Out of service"}

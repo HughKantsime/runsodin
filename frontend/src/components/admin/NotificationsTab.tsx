@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
 import { Button, Input, Card } from '../ui'
 import TemperatureAlertsCard from './TemperatureAlertsCard'
+import PauseRemindersCard from './PauseRemindersCard'
 
 export default function NotificationsTab() {
   const descriptionId = useId()
@@ -340,6 +341,8 @@ export default function NotificationsTab() {
                         </button>
                       </div>
                     </div>
+
+                    {typeKey === 'print_paused' && <PauseRemindersCard editable={isAdmin} />}
 
                     {/* Threshold for spool_low */}
                     {typeKey === 'spool_low' && (
