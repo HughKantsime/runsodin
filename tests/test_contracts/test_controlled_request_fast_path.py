@@ -163,12 +163,10 @@ def test_asgi_stream_passthrough_or_redaction(database, tier_license, monkeypatc
         assert queries == []
 
 
-def test_asgi_replay_auth_refusal_suppresses_original_body(database, tier_license, monkeypatch):
+def test_asgi_replay_auth_refusal_suppresses_original_body(database, monkeypatch):
     import core.db
     import core.dependencies
     monkeypatch.setattr(core.db, 'SessionLocal', sessionmaker(bind=database.get_bind()))
-    tier_license('enterprise')
-    change_mark(database, 'files', 1, mark(), actor())
     async def refuse(*args):
         raise HTTPException(403, 'scope refused')
     monkeypatch.setattr(core.dependencies, '_resolve_current_user', refuse)

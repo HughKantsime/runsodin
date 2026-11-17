@@ -33,8 +33,8 @@ def invalidate(db):
 @contextmanager
 def delivery_cache(connection):
     """Share reads only within one owned delivery transaction, never across commits."""
-    previous = {key: value for key, value in connection.info.items()
-                if isinstance(key, str) and key.startswith('_controlled_')}
+    previous = {key: connection.info[key] for key in ('_controlled_request',)
+                if key in connection.info}
     connection.info['_controlled_request'] = True
     invalidate(connection)
     try:

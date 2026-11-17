@@ -18,9 +18,8 @@ async def _response_actor(request):
         token = authorization[7:] if authorization.lower().startswith('bearer ') else None
         with SessionLocal() as db:
             db.info['_controlled_request'] = True
-            restricted = any_read_restrictions(db)
-            request.state.controlled_actor = await _resolve_current_user(request, token, db) if restricted else None
-            request.state.controlled_marks = bool(request.state.controlled_actor) and restricted
+            request.state.controlled_actor = await _resolve_current_user(request, token, db)
+            request.state.controlled_marks = bool(request.state.controlled_actor) and any_read_restrictions(db)
     return getattr(request.state, 'controlled_actor', None) if getattr(request.state, 'controlled_marks', False) else None
 
 

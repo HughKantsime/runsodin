@@ -3,7 +3,7 @@ import asyncio
 import json
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
@@ -16,6 +16,8 @@ from core.middleware.license_principal import LicensePrincipalMiddleware
 from tests.test_contracts.test_controlled_parts import database, actor, mark
 from tests.test_contracts.test_controlled_request_fast_path import statements
 from modules.organizations.routes_controlled_parts import change_mark
+from tests.test_contracts.test_education_review_workflow import review_db
+from tests.test_contracts.test_license_policy_b1 import auth_client, policy_db, PASSWORD
 
 
 @pytest.mark.parametrize('controlled', [False, True])
@@ -148,42 +150,38 @@ def run_response():
     return sent
 
 
-def test_unauthenticated_route_without_restrictions_issues_no_user_lookup(database, monkeypatch):
+@pytest.mark.parametrize('restricted', [False, True])
+@pytest.mark.parametrize('refused', [False, True])
+def test_response_resolves_caller_before_restrictions(database, tier_license, monkeypatch, restricted, refused):
     import core.db
     import core.dependencies
-    monkeypatch.setattr(core.db, 'SessionLocal', sessionmaker(bind=database.get_bind()))
-    async def unexpected(*args):
-        pytest.fail('unrestricted response resolved a user')
-    monkeypatch.setattr(core.dependencies, '_resolve_current_user', unexpected)
-    with statements(database) as queries:
-        assert run_response() == response_messages()
-    assert len(queries) == 1 and 'controlled_files' in queries[0]
-
-
-def test_unauthenticated_route_with_restrictions_still_resolves_and_redacts(database, tier_license, monkeypatch):
-    import core.db
-    import core.dependencies
-    import core.middleware.controlled_response as response
+    import core.controlled_parts
     tier_license('enterprise')
-    change_mark(database, 'files', 1, mark(), actor())
+    if restricted:
+        change_mark(database, 'files', 1, mark(), actor())
     monkeypatch.setattr(core.db, 'SessionLocal', sessionmaker(bind=database.get_bind()))
     calls = []
+    original = core.controlled_parts.any_read_restrictions
     async def principal(*args):
-        calls.append(True)
+        calls.append('principal')
+        if refused:
+            raise HTTPException(403, 'scope refused')
         return actor(2)
+    def restrictions(db):
+        assert calls == ['principal']
+        calls.append('restrictions')
+        return original(db)
     monkeypatch.setattr(core.dependencies, '_resolve_current_user', principal)
+    monkeypatch.setattr(core.controlled_parts, 'any_read_restrictions', restrictions)
     actual = run_response()
-    assert calls == [True]
-    # The previous order, on the same marked fixture, must produce identical bytes.
-    async def before(request):
-        with core.db.SessionLocal() as db:
-            db.info['_controlled_request'] = True
-            request.state.controlled_actor = await principal(request, None, db)
-            request.state.controlled_marks = bool(request.state.controlled_actor) and any_read_restrictions(db)
-        return request.state.controlled_actor if request.state.controlled_marks else None
-    monkeypatch.setattr(response, '_response_actor', before)
-    assert run_response() == actual
-    assert json.loads(actual[1]['body']) == [{'id': 1, 'item_name': '[controlled]'}]
+    if refused:
+        assert calls == ['principal']
+        assert actual[0]['status'] == 403
+        assert json.loads(actual[1]['body']) == {'detail': 'scope refused'}
+    else:
+        assert calls == ['principal', 'restrictions']
+        assert actual[0]['status'] == 200
+        assert json.loads(actual[1]['body']) == [{'id': 1, 'item_name': '[controlled]' if restricted else 'Secret'}]
 
 
 def gate():
@@ -286,3 +284,89 @@ def test_middleware_order_is_unchanged():
                          'idempotency_middleware', 'dry_run_middleware']
     assert names.count('LicensePrincipalMiddleware') == 1
     assert 'license_principal_gate' not in names
+
+
+@pytest.mark.parametrize('previous_flag', ['absent', False, True])
+@pytest.mark.parametrize('failed', [False, True])
+def test_delivery_discards_existing_answers_and_restores_only_flag(database, previous_flag, failed):
+    from contextlib import nullcontext
+    with database.get_bind().connect() as connection:
+        if previous_flag != 'absent':
+            connection.info['_controlled_request'] = previous_flag
+        connection.info['_controlled_present'] = False
+        connection.info[('_controlled_ids', 1)] = {'job': set()}
+        connection.info['unrelated'] = 'preserved'
+        with pytest.raises(ValueError) if failed else nullcontext():
+            with delivery_cache(connection):
+                assert '_controlled_present' not in connection.info
+                assert ('_controlled_ids', 1) not in connection.info
+                assert not any_controlled_data(connection)
+                connection.execute(text("INSERT INTO controlled_jobs(job_id,audience_id,label,printer_tag,retention_days,reason,marked_at) "
+                                        "VALUES(1,1,'CUI','Secure',7,'Regression test',CURRENT_TIMESTAMP)"))
+                connection.commit()
+                if failed:
+                    raise ValueError('delivery failed after commit')
+        assert '_controlled_present' not in connection.info
+        assert ('_controlled_ids', 1) not in connection.info
+        assert connection.info.get('_controlled_request', 'absent') == previous_flag
+        assert connection.info['unrelated'] == 'preserved'
+        assert any_controlled_data(connection)
+        # Do not leave test-owned opt-in state on the pool.
+        connection.info.clear()
+
+
+@pytest.mark.parametrize('binding', ['http', 'owned'])
+@pytest.mark.parametrize('writer', ['revoke', 'grant', 'erase'])
+def test_membership_writers_invalidate_denied_projection(database, tier_license, binding, writer):
+    from core.controlled_redaction import denied_ids
+    from modules.organizations.routes_controlled_audiences import AudienceRequest, save
+    from modules.organizations.gdpr_erasure import erase_user_data_sync
+    tier_license('enterprise')
+    change_mark(database, 'files', 1, mark(), actor())
+    scope = RequestAuditScope(None)
+    if binding == 'http':
+        scope.register(database)
+    else:
+        database.info['_controlled_request'] = True
+    subject = actor(2) if writer == 'grant' else actor()
+    try:
+        assert (1 in denied_ids(database, subject)['job']) == (writer == 'grant')
+        if writer == 'erase':
+            erase_user_data_sync(1, actor(2), database)
+        else:
+            save(database, AudienceRequest(name='Secure', user_ids=[1, 2] if writer == 'grant' else []), actor(2), 1)
+        assert (1 in denied_ids(database, subject)['job']) == (writer != 'grant')
+    finally:
+        scope.clear()
+        database.info.clear()
+
+
+@pytest.fixture
+def enabled_gate_client(auth_client):
+    auth_client.app.add_middleware(LicensePrincipalMiddleware, **gate())
+    response = auth_client.post('/api/v1/auth/login', data={'username': 'admin', 'password': PASSWORD})
+    assert response.status_code == 200
+    assert auth_client.cookies.get('session')
+    return auth_client
+
+
+def test_enabled_gate_preserves_full_json_body_for_valid_session(enabled_gate_client):
+    @enabled_gate_client.app.post('/api/v1/body-probe')
+    async def body_probe(request: Request):
+        assert request.state.resolved_license_principal['id'] == 3
+        return {'body': (await request.body()).decode(), 'json': await request.json()}
+    body = '{"message": "complete body", "nested": {"items": [1, 2, 3]}}'
+    response = enabled_gate_client.post('/api/v1/body-probe', content=body, headers={'Content-Type': 'application/json'})
+    assert response.status_code == 200
+    assert response.json() == {'body': body, 'json': json.loads(body)}
+
+
+def test_enabled_gate_exposes_principal_to_downstream_dependency(enabled_gate_client):
+    def principal(request: Request):
+        return request.state.resolved_license_principal
+    @enabled_gate_client.app.get('/api/v1/principal-probe')
+    def principal_probe(user=Depends(principal)):
+        return {'id': user['id'], 'auth_kind': user['_auth_kind']}
+    response = enabled_gate_client.get('/api/v1/principal-probe')
+    assert response.status_code == 200
+    assert response.json() == {'id': 3, 'auth_kind': 'session_jwt'}
