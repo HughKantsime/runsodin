@@ -1,5 +1,6 @@
 """Native JSON and real two-connection regressions; run on the owned PostgreSQL harness."""
 import json
+from contextlib import contextmanager
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,19 +12,29 @@ pytestmark = pytest.mark.postgresql
 
 
 @pytest.fixture
-def pg_settlement(pg_engine):
+def pg_settlement(pg_engine, monkeypatch):
     from core.schema import bootstrap_database
-    from core.db import get_db
-    from core.dependencies import get_current_user
-    from modules.archives.routes import router
-    from modules.inventory.routes.spools import router as spools
     with pg_engine.begin() as db:
         db.exec_driver_sql('DROP SCHEMA public CASCADE')
         db.exec_driver_sql('CREATE SCHEMA public')
     bootstrap_database(pg_engine)
-    with pg_engine.begin() as db:
+    with settlement_client(pg_engine, monkeypatch) as case:
+        yield case
+
+
+@contextmanager
+def settlement_client(engine, monkeypatch):
+    """Use the same bare app and rows for native races and local fixture checks."""
+    from core.db import get_db
+    from core.dependencies import get_current_user
+    from core.registry import registry
+    from modules.organizations.services import EducationPolicyService
+    from modules.archives.routes import router
+    from modules.inventory.routes.spools import router as spools
+    monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
+    with engine.begin() as db:
         db.execute(text("INSERT INTO users(id,username,role,is_active,password_hash) VALUES(991240,'settle-test','admin',TRUE,'fixture')"))
-        db.execute(text("INSERT INTO printers(id,name) VALUES(991240,'Settlement test')"))
+        db.execute(text("INSERT INTO printers(id,name,is_active) VALUES(991240,'Settlement test',TRUE)"))
         db.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(991240,'Fixture','PLA')"))
         db.execute(text("INSERT INTO spools(id,filament_id,initial_weight_g,remaining_weight_g,spool_weight_g,status,created_at) VALUES(991240,991240,1000,1000,250,'active','2026-10-01')"))
         db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,assigned_spool_id) VALUES(991240,1,991240)"))
@@ -34,12 +45,24 @@ def pg_settlement(pg_engine):
     app.include_router(router)
     app.include_router(spools)
     def session():
-        with Session(pg_engine) as db:
+        with Session(engine) as db:
             yield db
     app.dependency_overrides[get_db] = session
     app.dependency_overrides[get_current_user] = lambda: user
     with TestClient(app) as client:
-        yield client, pg_engine, archive, user
+        yield client, engine, archive, user
+
+
+def seed_completion(engine, shared_spool=True):
+    with engine.begin() as db:
+        db.execute(text("INSERT INTO jobs(id,item_name,printer_id,status,quantity,hold,ams_mapping) VALUES(991240,'Fixture',991240,'failed',1,FALSE,'[0]')"))
+        db.execute(text("INSERT INTO print_files(id,filename,job_id,filaments_json) VALUES(991240,'fixture.3mf',991240,:materials)"),
+                   {'materials': json.dumps([{'slot': 0, 'used_grams': 40}])})
+        db.execute(text('UPDATE jobs SET print_file_id=991240 WHERE id=991240'))
+        db.execute(text('UPDATE print_jobs SET scheduled_job_id=991240 WHERE id=991240'))
+        if not shared_spool:
+            db.execute(text("INSERT INTO spools(id,filament_id,initial_weight_g,remaining_weight_g,spool_weight_g,status,created_at) VALUES(991241,991240,1000,1000,250,'active','2026-10-01')"))
+            db.execute(text('UPDATE filament_slots SET assigned_spool_id=991241 WHERE printer_id=991240'))
 
 
 def test_postgresql_weigh_writes_json_and_preview_decodes_it(pg_settlement):
@@ -110,13 +133,16 @@ def test_postgresql_busy_archive_uses_real_nowait_and_rolls_back(pg_settlement):
         assert db.execute(text('SELECT accounting_state FROM print_archives WHERE id=:id'), {'id': archive}).scalar_one() == 'unresolved'
 
 
-@pytest.mark.parametrize('first,second', [('settle', 'complete'), ('complete', 'settle'), ('settle', 'settle')])
-def test_postgresql_concurrent_writers_deduct_once(pg_settlement, monkeypatch, first, second):
-    """Pause a real uncommitted deduction; prove the other connection waits on it."""
+@pytest.mark.parametrize('first,second,shared_spool', [
+    ('settle', 'complete', True), ('complete', 'settle', True), ('settle', 'settle', True),
+    ('settle', 'complete', False), ('complete', 'settle', False),
+])
+def test_postgresql_concurrent_writers_deduct_once(pg_settlement, monkeypatch, first, second, shared_spool):
+    """Keep a real deduction open until the other connection contends or refuses."""
     from concurrent.futures import ThreadPoolExecutor
     from queue import Queue
     from threading import Event
-    from time import monotonic, sleep
+    from time import monotonic
     from core import filament_ledger
     from core.db import get_db
     from modules.jobs.routes.jobs_lifecycle import router
@@ -124,26 +150,24 @@ def test_postgresql_concurrent_writers_deduct_once(pg_settlement, monkeypatch, f
     client, engine, archive, _ = pg_settlement
     client.app.include_router(router)
     monkeypatch.setattr(services, 'push_consumption_to_spoolman', lambda *_: [])
-    with engine.begin() as db:
-        db.execute(text("INSERT INTO jobs(id,item_name,printer_id,status,quantity,hold,ams_mapping) VALUES(991240,'Fixture',991240,'failed',1,FALSE,'[0]')"))
-        db.execute(text("INSERT INTO print_files(id,filename,job_id,filaments_json) VALUES(991240,'fixture.3mf',991240,:materials)"),
-                   {'materials': json.dumps([{'slot': 0, 'used_grams': 40}])})
-        db.execute(text('UPDATE jobs SET print_file_id=991240 WHERE id=991240'))
-        db.execute(text('UPDATE print_jobs SET scheduled_job_id=991240 WHERE id=991240'))
+    seed_completion(engine, shared_spool)
+    nowait = first != second and shared_spool
     pids = Queue()
     def session():
         with Session(engine) as db:
-            db.execute(text("SET LOCAL lock_timeout = '8s'"))
+            db.execute(text("SET LOCAL lock_timeout = '120s'"))
             pids.put(db.execute(text('SELECT pg_backend_pid()')).scalar_one())
             yield db
     client.app.dependency_overrides[get_db] = session
-    deducted, release = Event(), Event()
+    deducted, first_progress, release = Event(), Event(), Event()
     original = filament_ledger._deduct
     def hold_deduction(*args, **kwargs):
         result = original(*args, **kwargs)
+        assert result is not None, 'Fixture did not supply a deductible spool'
         if not deducted.is_set():
             deducted.set()
-            assert release.wait(8), 'Test did not release the first writer'
+            first_progress.set()
+            assert release.wait(90), 'Test did not release the first writer'
         return result
     monkeypatch.setattr(filament_ledger, '_deduct', hold_deduction)
     def request(kind):
@@ -152,25 +176,52 @@ def test_postgresql_concurrent_writers_deduct_once(pg_settlement, monkeypatch, f
         return client.post(f'/archives/{archive}/settle-filament', json={'entries': [{'spool_id': 991240, 'grams': 40}]})
     with ThreadPoolExecutor(max_workers=2) as pool:
         a = pool.submit(request, first)
+        a.add_done_callback(lambda _: first_progress.set())
         try:
-            assert deducted.wait(5), 'First route did not deduct'
-            first_pid = pids.get(timeout=1)
+            assert first_progress.wait(30), 'First route did not reach accounting or return'
+            if not deducted.is_set():
+                response = a.result(timeout=30)
+                pytest.fail(f'First route did not deduct: {response.status_code} {response.text}')
+            first_pid = pids.get(timeout=30)
             b = pool.submit(request, second)
-            second_pid = pids.get(timeout=2)
+            second_pid = pids.get(timeout=30)
             assert first_pid != second_pid
-            deadline = monotonic() + 4
-            while True:
+            if nowait:
+                # Both routes use NOWAIT for spools (completion via lock_slot_graph).
+                # Require the actual refusal while the first transaction is open.
+                response = b.result(timeout=30)
+                assert response.status_code == 409, response.text
+                if second == 'complete':
+                    assert response.json()['detail'] == 'Spool assignments are busy; retry'
+                else:
+                    assert response.json()['detail']['code'] == 'busy'
                 with engine.connect() as db:
-                    blockers = db.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': second_pid}).scalar_one()
-                if first_pid in blockers or monotonic() >= deadline:
-                    break
-                sleep(0.01)
-            assert first_pid in blockers, 'Second writer did not contend on the real first transaction'
-            assert not b.done()
+                    assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=991240')).scalar_one() == 1000
+                    assert db.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 0
+            else:
+                # Two settlements wait on the physical print row before NOWAIT;
+                # writers using different spools can only meet at the claim key.
+                # Observe the server's blocker, never infer contention from time.
+                deadline = monotonic() + 30
+                with engine.connect() as db:
+                    while True:
+                        blockers = db.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': second_pid}).scalar_one()
+                        if first_pid in blockers:
+                            break
+                        if b.done():
+                            response = b.result()
+                            pytest.fail(f'Second route returned without contending: {response.status_code} {response.text}')
+                        assert monotonic() < deadline, 'Second writer did not contend on the real first transaction'
+                    statement = db.execute(text('SELECT query FROM pg_stat_activity WHERE pid=:pid'), {'pid': second_pid}).scalar_one()
+                    assert ('UPDATE print_jobs' if shared_spool else 'INSERT INTO system_config') in statement, statement
+                assert not b.done()
         finally:
             release.set()
-        first_response, second_response = a.result(timeout=5), b.result(timeout=5)
+        first_response, second_response = a.result(timeout=30), b.result(timeout=30)
     assert first_response.status_code == 200, first_response.text
+    if nowait:
+        # Retry the busy route after commit: retained claims must prevent a second debit.
+        second_response = request(second)
     if second == 'complete':
         assert second_response.status_code == 200, second_response.text
     else:
@@ -180,7 +231,10 @@ def test_postgresql_concurrent_writers_deduct_once(pg_settlement, monkeypatch, f
         response = client.post(f'/archives/{archive}/settle-filament', json={'no_deduction': 'accept_existing'})
         assert response.status_code == 200, response.text
     with engine.connect() as db:
-        assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=991240')).scalar_one() == 960
+        winning_spool = 991241 if first == 'complete' and not shared_spool else 991240
+        assert db.execute(text('SELECT id,remaining_weight_g FROM spools ORDER BY id')).all() == [
+            (spool, 960 if spool == winning_spool else 1000)
+            for spool in ([991240] if shared_spool else [991240, 991241])]
         assert db.execute(text('SELECT COUNT(*),SUM(weight_used_g) FROM spool_usage')).one() == (1, 40)
         assert db.execute(text('SELECT accounting_state FROM print_archives WHERE id=:id'), {'id': archive}).scalar_one() == 'accounted'
         assert db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='archive.filament_settled'")).scalar_one() == 1
