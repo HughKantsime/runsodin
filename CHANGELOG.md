@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
+
 ## [2.3.0] - 2026-11-15
 
 
@@ -33,7 +37,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
 - Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
 
