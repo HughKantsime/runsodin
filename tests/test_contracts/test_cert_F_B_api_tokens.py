@@ -170,6 +170,9 @@ READ_SCOPED_POSTS = {
 # Destructive or process-level routes not probed live (their scope checks are census-covered elsewhere).
 SKIP_SIDE_EFFECTS = ("restore", "restart", "shutdown", "license", "logout")
 CREDENTIAL_DETAIL = "API tokens cannot create or change credentials; sign in with a password session"
+CREDENTIAL_ROUTE_DETAILS = {
+    "/api/settings/education-mode": "Education mode can only be changed by a signed-in administrator.",
+}
 # Routes that create or change authentication material: interactive password sessions only.
 CREDENTIAL_ROUTES = [
     ("POST", "/api/auth/biometric-token?device_id=cert-device"), ("DELETE", "/api/auth/biometric-token?device_id=cert-device"),
@@ -179,6 +182,7 @@ CREDENTIAL_ROUTES = [
     ("DELETE", "/api/sessions"), ("DELETE", "/api/sessions/99999"), ("DELETE", "/api/admin/sessions/99999"),
     ("POST", "/api/users"), ("POST", "/api/users/import"), ("POST", "/api/users/{victim}/reset-password-email"),
     ("PUT", "/api/admin/oidc"), ("PUT", "/api/smtp-config"),
+    ("PUT", "/api/settings/education-mode"),
 ]
 
 
@@ -223,7 +227,7 @@ def test_no_api_token_can_create_or_change_credentials(odin, scopes):
     before = {t: odin.one(f"SELECT COUNT(*) AS n FROM {t}").n for t in ("api_tokens", "biometric_tokens", "users")}
     results = {(m, p): r for m, p, r in _credential_calls(odin, key(token))}
     wrong = {k: (r.status_code, r.text[:120]) for k, r in results.items()
-             if r.status_code != 403 or r.json().get("detail") != CREDENTIAL_DETAIL}
+             if r.status_code != 403 or r.json().get("detail") != CREDENTIAL_ROUTE_DETAILS.get(k[1], CREDENTIAL_DETAIL)}
     assert wrong == {}, wrong
     after = {t: odin.one(f"SELECT COUNT(*) AS n FROM {t}").n for t in ("api_tokens", "biometric_tokens", "users")}
     assert after == {**before, "api_tokens": before["api_tokens"] + 1}  # only the probe's own revocation target

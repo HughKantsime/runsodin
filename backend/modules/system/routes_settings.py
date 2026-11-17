@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
-from core.rbac import require_role, require_superadmin
+from core.rbac import require_role, require_superadmin, require_interactive_session
 from modules.organizations.branding import get_or_create_branding, branding_to_dict, effective_branding, UPDATABLE_FIELDS
 from license_manager import feature_gate
 
@@ -210,18 +210,21 @@ async def get_education_mode(db: Session = Depends(get_db)):
     return {"enabled": row[0] == "true" if row else False}
 
 
-@router.put("/settings/education-mode", tags=["Settings"])
+@router.put("/settings/education-mode", tags=["Settings"], dependencies=[Depends(require_interactive_session(
+    detail="Education mode can only be changed by a signed-in administrator."))])
 async def set_education_mode(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
-    """Enable or disable education mode. Admin only."""
+    """Enable or disable education mode. Signed-in platform administrators only."""
     data = await request.json()
     enabled = bool(data.get("enabled", False))
     str_val = "true" if enabled else "false"
-    existing = db.execute(text("SELECT 1 FROM system_config WHERE key = 'education_mode'")).fetchone()
+    existing = db.execute(text("SELECT value FROM system_config WHERE key = 'education_mode'")).fetchone()
+    # JSON column: SQLite returns the text, PostgreSQL the boolean (see 2.3.1, core/education_mode.py on main).
+    before = str(existing[0]).strip('"').lower() == 'true' if existing else False
     if existing:
         db.execute(text("UPDATE system_config SET value = :v WHERE key = 'education_mode'"), {"v": str_val})
     else:
         db.execute(text("INSERT INTO system_config (key, value) VALUES ('education_mode', :v)"), {"v": str_val})
-    log_audit(db, "education_mode_toggled", details=f"Education mode {'enabled' if enabled else 'disabled'}")
+    log_audit(db, "education_mode_toggled", details={"before": before, "after": enabled})
     db.commit()
     return {"enabled": enabled}
 

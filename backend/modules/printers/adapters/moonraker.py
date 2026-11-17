@@ -524,10 +524,10 @@ class MoonrakerPrinter:
     def send_gcode(self, gcode: str) -> bool:
         """Send a G-code command to the printer."""
         try:
-            resp = self._post(f"/printer/gcode/script?script={gcode}")
+            resp = self._post("/printer/gcode/script", {"script": gcode})
             return resp is not None
         except Exception as e:
-            log.error(f"Failed to send gcode: {e}")
+            log.error("Failed to send gcode: %s", type(e).__name__)
             return False
     
     # ==================== Job History ====================
@@ -605,8 +605,10 @@ class MoonrakerPrinter:
             log.warning(f"HTTP {e.code} from {url}")
             return None
         except URLError as e:
-            log.warning(f"Connection failed to {url}: {e.reason}")
+            log.warning("Connection failed to %s: %s", url,
+                        type(e).__name__ if path == "/printer/gcode/script" else e.reason)
             return None
         except Exception as e:
-            log.warning(f"POST failed: {url} - {e}")
+            log.warning("POST failed: %s - %s", url,
+                        type(e).__name__ if path == "/printer/gcode/script" else e)
             return None

@@ -10,6 +10,16 @@ All notable changes to O.D.I.N. are documented here.
 
 - Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
 
+### Security
+
+- Only a signed-in platform administrator can change Education mode; each change records the previous and new values.
+
+### Fixed
+
+- Moonraker commands now preserve spaces, special characters and multiple lines when sent to a printer.
+- Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
+- Weighing a spool without an empty-spool weight now explains how to enter it instead of failing; editing an unknown empty-spool weight no longer assumes 250 g.
+
 ## [2.3.0] - 2026-11-15
 
 
@@ -39,7 +49,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
 - Shared print-file checks are faster in large libraries, and supported API previews now work on both `/api/...` and `/api/v1/...` without changing saved data.
 - Long filament names wrap on small screens, catalogue controls and failure-correction forms are easier to use by touch, and Print Log notes expand to show the full text. Classic printer detail and dashboard now show catalogue names, import counts use the correct singular or plural, and failure corrections use the shared date format.
 
