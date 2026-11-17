@@ -16,7 +16,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: OdinConfigEntry,
     entry.async_on_unload(track_printers(
         coordinator, async_add_entities,
         lambda pid: [OdinOnlineSensor(coordinator, pid), OdinProblemSensor(coordinator, pid),
-                     OdinOutOfServiceSensor(coordinator, pid)],
+                     OdinOutOfServiceSensor(coordinator, pid), OdinPlateNeedsClearingSensor(coordinator, pid),
+                     OdinPausedLongSensor(coordinator, pid)],
     ))
 
 
@@ -62,3 +63,49 @@ class OdinOutOfServiceSensor(OdinPrinterEntity, BinarySensorEntity):
         printer = self.printer
         value = printer.get("out_of_service") if printer else None
         return value if isinstance(value, bool) else None
+
+
+class OdinPlateNeedsClearingSensor(OdinPrinterEntity, BinarySensorEntity):
+    def __init__(self, coordinator: OdinCoordinator, printer_id: int) -> None:
+        super().__init__(coordinator, printer_id, "plate_needs_clearing")
+
+    @property
+    def is_on(self) -> bool | None:
+        plate = (self.printer or {}).get("plate_clear")
+        needed = plate.get("needed") if isinstance(plate, dict) else None
+        return needed if isinstance(needed, bool) else None
+
+
+class OdinPausedLongSensor(OdinPrinterEntity, BinarySensorEntity):
+    """Unknown while offline or the pause time is unknown; unavailable on older ODIN."""
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: OdinCoordinator, printer_id: int) -> None:
+        super().__init__(coordinator, printer_id, "paused_long")
+
+    @property
+    def available(self) -> bool:
+        fleet = (self.coordinator.data or {}).get("fleet") or {}
+        bench = (self.printer or {}).get("bench")
+        supported = "paused_long" in fleet or (isinstance(bench, dict) and "paused_long" in bench)
+        return super().available and supported
+
+    @property
+    def is_on(self) -> bool | None:
+        printer = self.printer or {}
+        if not printer.get("online"):
+            return None
+        bench = printer.get("bench")
+        if not isinstance(bench, dict) or bench.get("state") != "paused":
+            return False
+        value = bench.get("paused_long")
+        return value if isinstance(value, bool) else None
+
+    @property
+    def extra_state_attributes(self):
+        bench = (self.printer or {}).get("bench")
+        if not isinstance(bench, dict) or bench.get("state") != "paused":
+            return None
+        seconds = bench.get("paused_seconds")
+        return {"hours": seconds / 3600 if type(seconds) in (int, float) else None,
+                "cause": bench.get("pause_cause"), "since": bench.get("since"), "reason": bench.get("reason")}

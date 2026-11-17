@@ -15,6 +15,12 @@ def control_client(token_client,review_db,monkeypatch):
     calls=[]
     monkeypatch.setattr(routes_controls,'_bambu_command_direct',lambda printer,command,*args:(calls.append((printer.id,command,args)) or True))
     monkeypatch.setattr(routes_controls,'_send_printer_command',lambda printer,command:(calls.append((printer.id,command,())) or True))
+    from modules.printers import print_objects, monitor_commands
+    monkeypatch.setattr(print_objects, 'running_print_objects', lambda *a: dict(
+        supported=True, print=dict(print_job_id=912,job_id=501), source='bambu_3mf',
+        objects=[dict(id=str(i),state='printing',skippable=True) for i in (15,79,300)]))
+    monkeypatch.setattr(monitor_commands, 'request_command', lambda pid,action,**kw:
+        calls.append((pid,action,(kw['object_ids'],))) or 'accepted')
     return client,issue,calls
 
 @pytest.mark.parametrize('endpoint,body',[
@@ -35,7 +41,7 @@ def test_invalid_command_values_are_rejected_before_transport(control_client,end
     ('speed',{'speed':4},'set_print_speed',(4,)),
     ('fan',{'fan':'part_cooling','speed':0},'set_fan_speed',('part_cooling',0)),
     ('fan',{'fan':'chamber','speed':255},'set_fan_speed',('chamber',255)),
-    ('skip-objects',{'object_ids':[0,1]},'skip_objects',([0,1],)),
+    ('skip-objects',{'print_job_id':912,'object_ids':[15,79]},'skip_objects',([15,79],)),
 ])
 def test_valid_command_values_reach_transport_once(control_client,endpoint,body,command,args):
     client,issue,calls=control_client
@@ -118,7 +124,7 @@ def test_light_command_requires_printer_write_scope(control_client,review_db,mon
     ('clear-errors',None,'clear_print_errors',()),
     ('speed',{'speed':2},'set_print_speed',(2,)),
     ('fan',{'fan':'auxiliary','speed':100},'set_fan_speed',('auxiliary',100)),
-    ('skip-objects',{'object_ids':[1,0]},'skip_objects',([1,0],)),
+    ('skip-objects',{'print_job_id':912,'object_ids':['79','15']},'skip_objects',([79,15],)),
 ])
 def test_resource_write_token_commands_once(control_client,endpoint,body,command,args):
     client,issue,calls=control_client

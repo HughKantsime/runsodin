@@ -3,7 +3,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import PrinterDetail from './PrinterDetail'
-vi.mock('../../permissions', () => ({canDo: () => true, canAccessPage: () => false}))
+vi.mock('../../permissions', () => ({canDo: () => true, canAccessPage: () => false, getCurrentUser: () => ({ role: 'operator' })}))
 vi.mock('../../components/printers/MaintenanceBanner', () => ({default: () => null}))
 vi.mock('../../components/printers/DispatchRecoveryPanel', () => ({default: () => null}))
 vi.mock('../../api/client', () => ({fetchAPI: vi.fn().mockResolvedValue([])}))

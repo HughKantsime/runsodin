@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # Refused without the opt-in. pause and stop are safety actions and are never refused (SAFETY_ACTIONS).
 CONTROL_ACTIONS = ['resume', 'speed', 'fan', 'clear-errors', 'skip-objects', 'lights']
 SAFETY_ACTIONS = ['pause', 'stop']
-CONTROL_BODIES = {'speed': {'speed': 2}, 'fan': {'fan': 'part_cooling', 'speed': 10}, 'skip-objects': {'object_ids': [0]}}
+CONTROL_BODIES = {'speed': {'speed': 2}, 'fan': {'fan': 'part_cooling', 'speed': 10}, 'skip-objects': {'print_job_id': 912, 'object_ids': [15]}}
 
 
 def experimental(monkeypatch, api_type):
@@ -53,6 +53,14 @@ def test_frontend_table_matches_backend():
     block = re.search(r'export const SUPPORT_LEVELS[^=]*= \{(.*?)\n\}', source, re.S).group(1)
     frontend = dict(re.findall(r"^\s*(\w+): '(\w+)',?\s*$", block, re.M))
     assert frontend == {t: v[0] for t, v in support_levels.SUPPORT_TABLE.items()}
+
+
+def test_frontend_gated_capabilities_match_backend():
+    source = (ROOT / 'frontend/src/utils/supportLevels.ts').read_text()
+    block = re.search(r'export const GATED_CAPABILITIES[^=]*= \{(.*?)\}', source, re.S).group(1)
+    frontend = {kind: frozenset(re.findall(r"'([^']+)'", values))
+                for kind, values in re.findall(r'(\w+): \[([^\]]*)\]', block)}
+    assert frontend == support_levels.GATED_CAPABILITIES
 
 
 # ---- the store ----
@@ -324,3 +332,15 @@ def test_every_controls_route_is_keyed_by_printer_id():
     for route in routes_controls.router.routes:
         if isinstance(route, APIRoute) and route.methods - {'GET', 'HEAD', 'OPTIONS'}:
             assert '{printer_id}' in route.path, route.path
+
+
+def test_bambu_only_skip_capability_is_gated(graph):
+    assert support_levels.gated_capabilities('bambu') == frozenset({'skip_objects'})
+    assert support_levels.control_refusal(graph,9,'bambu','skip-objects') == (
+        'experimental_not_enabled: ' + support_levels.SKIP_OBJECTS_MESSAGE)
+    for family in ('bambu','moonraker'):
+        for action in ('pause','resume','stop','speed','lights'):
+            assert support_levels.control_refusal(graph,9,family,action) is None
+        assert support_levels.dispatch_refusal(graph,9,family) is None
+    opt_in(graph)
+    assert support_levels.control_refusal(graph,9,'bambu','skip-objects') is None

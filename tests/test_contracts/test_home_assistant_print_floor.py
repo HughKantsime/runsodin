@@ -55,15 +55,15 @@ def test_schema_version_bumped_and_keys_are_additive(ha_client):
         assert 'next_job' in printer and 'bench' in printer
         assert {'id', 'name', 'status', 'job_name', 'last_error', 'camera_available'} <= set(printer)
     assert {'queue_length', 'today', 'queued_hours', 'queued_unestimated', 'next_unassigned'} <= set(body['fleet'])
-    assert {'plates_done', 'plates_failed', 'plates_stopped', 'since'} == set(body['fleet']['today'])
+    assert {'plates_done', 'plates_failed', 'plates_stopped', 'plates_did_not_complete', 'since'} == set(body['fleet']['today'])
 
 
 def test_openapi_documents_all_day_totals(ha_client):
     client, _ = ha_client
     schema = client.app.openapi()['paths'][URL]['get']['responses']['200']['content']['application/json']['schema']
     today = schema['properties']['fleet']['properties']['today']
-    assert set(today['required']) == {'plates_done', 'plates_failed', 'plates_stopped', 'since'}
-    for key in ('plates_done', 'plates_failed', 'plates_stopped'):
+    assert set(today['required']) == {'plates_done', 'plates_failed', 'plates_stopped', 'plates_did_not_complete', 'since'}
+    for key in ('plates_done', 'plates_failed', 'plates_stopped', 'plates_did_not_complete'):
         assert today['properties'][key]['type'] == 'integer'
         assert today['properties'][key]['minimum'] == 0
 
@@ -74,7 +74,7 @@ def test_day_totals_are_zero_without_print_records(ha_client, review_db):
     for printers in ([12], []):
         assert day_totals(review_db, actor, None, False, printers,
                           datetime(2026, 11, 12, 12, tzinfo=timezone.utc), timezone.utc) == {
-            'plates_done': 0, 'plates_failed': 0, 'plates_stopped': 0, 'since': '2026-11-12T00:00:00Z',
+            'plates_done': 0, 'plates_failed': 0, 'plates_stopped': 0, 'plates_did_not_complete': 0, 'since': '2026-11-12T00:00:00Z',
         }
 
 
@@ -97,7 +97,8 @@ def test_stopped_totals_exclude_hidden_jobs(ha_client, review_db, hidden_by):
                       {'t': _utc_text(datetime.now(timezone.utc)), 'job': hidden_job})
     review_db.commit()
     after = _get(client, issue)['fleet']['today']
-    assert after == {**before, 'plates_stopped': before['plates_stopped'] + 1}
+    assert after == {**before, 'plates_stopped': before['plates_stopped'] + 1,
+                     'plates_did_not_complete': before['plates_did_not_complete'] + 1}
 
 
 def test_next_job_is_the_first_queued_job_assigned_to_the_printer(ha_client, review_db):
@@ -465,7 +466,7 @@ def test_day_totals_start_at_local_midnight(ha_client, review_db, monkeypatch):
                           {'p': printer, 's': status, 'a': _utc_text(ended - timedelta(hours=1)), 'e': _utc_text(ended)})
     review_db.commit()
     today = _get(client, issue)['fleet']['today']
-    assert today == {'plates_done': 2, 'plates_failed': 1, 'plates_stopped': 1, 'since': start.isoformat().replace('+00:00', 'Z')}
+    assert today == {'plates_done': 2, 'plates_failed': 1, 'plates_stopped': 1, 'plates_did_not_complete': 2, 'since': start.isoformat().replace('+00:00', 'Z')}
 
 
 @pytest.mark.parametrize('status', ['completed', 'failed', 'cancelled'])
@@ -502,6 +503,7 @@ def test_day_totals_compare_stored_instants(ha_client, review_db, monkeypatch, s
         'plates_done': count if status == 'completed' else 0,
         'plates_failed': count if status == 'failed' else 0,
         'plates_stopped': count if status == 'cancelled' else 0,
+        'plates_did_not_complete': count if status in ('failed', 'cancelled') else 0,
         'since': '2026-11-12T05:00:00Z',
     }
 
@@ -639,3 +641,92 @@ def test_the_model_fallback_reads_filament_type():
     needs, from_file = _needs({'filaments_json': None,
                                'color_requirements': '{"1": {"color": "black", "filament_type": "PETG", "grams": 40}}'})
     assert from_file is False and needs[0]['material'] == 'PETG'
+
+
+def test_unlinked_print_plate_clear_is_visible_in_feed_and_printer_read(ha_client, review_db):
+    from modules.printers import routes_controls, routes_crud
+    client, issue = ha_client
+    client.app.include_router(routes_controls.router)
+    client.app.include_router(routes_crud.router)
+    review_db.execute(text("UPDATE printers SET api_type='moonraker',slot_count=4,tags='[]',"
+                           "timelapse_enabled=0,shared=0 WHERE id=10"))
+    review_db.execute(text("INSERT INTO print_jobs(printer_id,filename,status,started_at,ended_at) "
+                           "VALUES(10,'part.gcode','completed',:start,:end)"),
+                      {'start': _stamp(600), 'end': _stamp(300)})
+    review_db.commit()
+    first = client.post('/printers/10/plate-cleared', headers=issue(['write:printers'])).json()
+    expected = datetime.fromisoformat(first['plate_clear_confirmed_at'])
+    shown = _printers(_get(client, issue))[10]['plate_clear_confirmed_at']
+    assert datetime.fromisoformat(shown.replace('Z', '+00:00')) == expected
+    printer = client.get('/printers/10', headers=issue(['read:printers', 'read:jobs'])).json()
+    assert datetime.fromisoformat(printer['plate_clear_confirmed_at']) == expected
+    assert client.post('/printers/10/plate-cleared', headers=issue(['write:printers'])).json() == first
+    assert review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='printer.plate_clear_confirmed'")).scalar_one() == 1
+
+
+def _pause_episode(db, printer=9, hours=5, **changes):
+    from core.system_config_values import write_config_text
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+    attempt = db.execute(text("SELECT economic_uid FROM print_jobs WHERE printer_id=:p AND status='running' ORDER BY id DESC LIMIT 1"), {'p': printer}).scalar()
+    episode = {'paused': True, 'since': since.isoformat(), 'at': since.isoformat(), 'attempt': attempt, **changes}
+    write_config_text(db, 'pause_episode:' + str(printer), json.dumps(episode))
+    db.execute(text("UPDATE printers SET gcode_state='PAUSE',last_seen=:now WHERE id=:id"), {'now': _utc_text(now), 'id': printer})
+    db.commit()
+    return since
+
+
+def test_pause_duration_filament_and_fleet_for_hand_started_print(ha_client, review_db):
+    client, issue = ha_client
+    review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=NULL WHERE printer_id=9'))
+    since = _pause_episode(review_db, runout_at=(datetime.now(timezone.utc) - timedelta(hours=6)).isoformat())
+    body = _get(client, issue)
+    bench = _printers(body)[9]['bench']
+    assert bench['since'] == since.isoformat().replace('+00:00', 'Z')
+    assert 18000 <= bench['paused_seconds'] < 18010
+    assert bench['paused_long'] is True and bench['pause_cause'] == 'filament'
+    assert body['fleet']['paused_long'] == 1
+
+
+@pytest.mark.parametrize('condition', ['off', 'unknown_time', 'offline', 'controlled'])
+def test_pause_timing_unknown_and_visibility(ha_client, review_db, condition):
+    from core.system_config_values import write_config_text
+    client, issue = ha_client
+    _pause_episode(review_db)
+    if condition == 'off':
+        write_config_text(review_db, 'pause_reminder_settings', json.dumps({'enabled': False}))
+    elif condition == 'unknown_time':
+        write_config_text(review_db, 'pause_episode:9', json.dumps({'paused': True}))
+    elif condition == 'offline':
+        review_db.execute(text("UPDATE printers SET last_seen='2020-01-01' WHERE id=9"))
+    else:
+        _mark_controlled(review_db, 13)
+    review_db.commit()
+    body = _get(client, issue)
+    bench = _printers(body)[9]['bench']
+    assert bench['paused_long'] is None
+    assert body['fleet']['paused_long'] == 0
+
+
+def test_pause_timing_under_threshold(ha_client, review_db):
+    client, issue = ha_client
+    _pause_episode(review_db, hours=1)
+    bench = _printers(_get(client, issue))[9]['bench']
+    assert 3600 <= bench['paused_seconds'] < 3610
+    assert bench['paused_long'] is False
+
+
+@pytest.mark.parametrize('hidden_by', ['organization', 'archived'])
+def test_pause_times_and_count_exclude_invisible_jobs(ha_client, review_db, hidden_by):
+    client, issue = ha_client
+    review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=13 WHERE printer_id=9'))
+    if hidden_by == 'organization':
+        _job(review_db, 903, 'Foreign print', printer=9, charged_to_org_id=2)
+        review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=903 WHERE printer_id=9'))
+    else:
+        review_db.execute(text('UPDATE education_submissions SET archived_at=CURRENT_TIMESTAMP WHERE job_id=13'))
+    _pause_episode(review_db)
+    body = _get(client, issue)
+    bench = _printers(body)[9]['bench']
+    assert bench['since'] is None and bench['paused_seconds'] is None and bench['paused_long'] is None
+    assert body['fleet']['paused_long'] == 0

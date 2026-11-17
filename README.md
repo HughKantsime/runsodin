@@ -89,6 +89,8 @@ For how O.D.I.N. compares with hosted print-farm services, see [runsodin.com/com
 - **AI** — ONNX Runtime (Vigil AI failure detection)
 - **Deploy** — Docker, supervisord managing the backend, printer monitors and support processes
 
+ODIN ships with and is tested on PostgreSQL 16; PostgreSQL 18 is not supported yet, and ODIN stops at start-up on it without changing anything.
+
 ## Agents (v1.8.9+)
 
 O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with safe retries (a successful write repeated with the same key within 24 hours is not run a second time; in the current release this does not yet hold for API tokens that have an expiry date), dry-run previews, structured error codes, and a local-model deployment path that can run on-premises with ITAR mode on.

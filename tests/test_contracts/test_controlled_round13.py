@@ -93,7 +93,11 @@ def test_orm_and_raw_allocators_serialize_writers(tmp_path):
         db.execute(text('DELETE FROM jobs'))
         db.commit()
     def create(index):
-        if index % 2:
+        if index % 3 == 2:
+            with engine.begin() as db:
+                return insert_job(db, 'INSERT INTO jobs (item_name,status) VALUES (:name, :status) RETURNING id',
+                                  {'name': 'observed', 'status': 'completed'}).scalar_one()
+        if index % 3 == 1:
             with Session(engine) as db:
                 identifier = new_job(db)
                 db.commit()
@@ -143,7 +147,7 @@ def test_job_creation_census_requires_shared_allocator():
     """New raw/bulk/Core birth paths require explicit review and allocator wiring."""
     root = Path(__file__).resolve().parents[2] / 'backend'
     expected_raw = {
-        'modules/printers/monitors/mqtt_job_lifecycle.py',
+        'core/observed_jobs.py',
         'scripts/seed_edu_sandbox.py', 'scripts/seed_release_gate.py',
     }
     raw = set()

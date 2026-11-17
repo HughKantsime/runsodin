@@ -5,7 +5,7 @@ import Utilization from './Utilization'
 const api=vi.hoisted(()=>({stats:vi.fn(),jobs:vi.fn()}))
 vi.mock('../../api',()=>({stats:{get:api.stats},printJobs:{list:api.jobs}}))
 vi.mock('recharts',()=>({ResponsiveContainer:({children}:any)=><div>{children}</div>,BarChart:({data,children}:any)=><div data-testid={data[0]?.date?'daily-series':'util-series'}>{JSON.stringify(data)}{children}</div>,PieChart:({children}:any)=><div>{children}</div>,Pie:()=>null,Bar:()=>null,XAxis:()=>null,YAxis:()=>null,CartesianGrid:()=>null,Tooltip:()=>null,Cell:()=>null}))
-const printers=[{id:9,name:'Synthetic Alpha',total_hours:12.5,completed_jobs:8,failed_jobs:3,utilization_pct:70,success_rate:72.7,avg_job_hours:1.5},{id:10,name:'Synthetic Beta',total_hours:7.5,completed_jobs:2,failed_jobs:2,utilization_pct:30,success_rate:50,avg_job_hours:3.75}]
+const printers=[{id:9,name:'Synthetic Alpha',total_hours:12.5,completed_jobs:8,failed_jobs:3,stopped_jobs:2,did_not_complete_jobs:5,utilization_pct:70,success_rate:72.7,avg_job_hours:1.5},{id:10,name:'Synthetic Beta',total_hours:7.5,completed_jobs:2,failed_jobs:2,stopped_jobs:1,did_not_complete_jobs:3,utilization_pct:30,success_rate:50,avg_job_hours:3.75}]
 beforeEach(()=>{vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-13T12:00:00Z'));api.stats.mockResolvedValue({printer_stats:printers});api.jobs.mockResolvedValue([{status:'completed',ended_at:'2026-10-10T12:00:00Z'},{status:'failed',ended_at:'2026-10-10T13:00:00Z'},{status:'completed',ended_at:'2026-10-11T12:00:00Z'}])})
 afterEach(()=>{vi.useRealTimers();cleanup();vi.clearAllMocks();vi.unstubAllGlobals();vi.restoreAllMocks()})
 async function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});const view=render(<QueryClientProvider client={client}><Utilization/></QueryClientProvider>);await screen.findAllByText('Synthetic Alpha');return view}
@@ -15,18 +15,20 @@ test('F10-10.3-01 actual fleet arithmetic calculates mean utilization, summed ho
  expect(metric('Avg Utilization')).toHaveTextContent('50.0%')
  expect(metric('Total Print Hours')).toHaveTextContent('20h')
  expect(metric('Jobs Completed')).toHaveTextContent('10')
- expect(metric('Success Rate')).toHaveTextContent('66.7%')
- expect(metric('Failed Prints')).toHaveTextContent('5')
+ expect(metric('Success Rate')).toHaveTextContent('55.6%')
+ expect(metric('Did not complete')).toHaveTextContent('8')
 })
 test('F10-10.3-02 per-printer table renders exact supplied percentages/hours/job counts',async()=>{
  await mount();const table=screen.getByRole('table');const a=within(table).getByText('Synthetic Alpha').closest('tr')!,b=within(table).getByText('Synthetic Beta').closest('tr')!
  expect(within(a).getByText('8')).toBeInTheDocument();expect(a.textContent).toContain('12.5h');expect(a.textContent).toContain('70%')
  expect(within(b).getByText('2')).toBeInTheDocument();expect(b.textContent).toContain('7.5h');expect(b.textContent).toContain('30%')
 })
-test('F10-10.3-01/02 changing time window sends exact days to both data sources',async()=>{
- await mount();fireEvent.change(screen.getByRole('combobox'),{target:{value:'7'}})
+test('F10-10.3-01/02 changing time window sends days to stats and ended_after to print history',async()=>{
+ await mount()
+ expect(api.jobs).toHaveBeenLastCalledWith({limit:500,ended_after:'2026-09-13T12:00:00.000Z'})
+ fireEvent.change(screen.getByRole('combobox'),{target:{value:'7'}})
  await waitFor(()=>expect(api.stats).toHaveBeenLastCalledWith(7))
- await waitFor(()=>expect(api.jobs).toHaveBeenLastCalledWith({limit:500,days:7}))
+ await waitFor(()=>expect(api.jobs).toHaveBeenLastCalledWith({limit:500,ended_after:'2026-10-06T12:00:00.000Z'}))
 })
 test('F10-10.3-02 chart transformations preserve printer utilization and aggregate daily jobs',async()=>{
  await mount();await screen.findByTestId('daily-series')

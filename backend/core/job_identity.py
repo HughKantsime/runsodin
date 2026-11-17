@@ -22,7 +22,18 @@ def before_job_insert(mapper, connection, job):
 
 
 def insert_job(cursor, statement, values, *, postgres=False):
-    """Raw qmark creation paths use the same allocator as ORM flushes."""
+    """Qmark cursors and named-parameter transactions share the ORM allocator."""
+    if isinstance(values, dict):
+        from core.dispatch_observation_executor import TransactionView
+        transaction = TransactionView(cursor)
+        if transaction.dialect.name == 'sqlite':
+            if statement.count('INSERT INTO jobs (') != 1 or statement.count('VALUES (') != 1:
+                raise ValueError('Expected a single explicit-column job INSERT')
+            identifier = allocate_sqlite_job_id(lambda query: transaction.execute(text(query)))
+            statement = statement.replace('INSERT INTO jobs (', 'INSERT INTO jobs (id, ', 1)
+            statement = statement.replace('VALUES (', 'VALUES (:_job_id, ', 1)
+            values = dict(values, _job_id=identifier)
+        return transaction.execute(text(statement), values)
     if not postgres:
         if statement.count('INSERT INTO jobs (') != 1 or statement.count('VALUES (') != 1:
             raise ValueError('Expected a single explicit-column job INSERT')

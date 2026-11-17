@@ -61,7 +61,7 @@ def test_failure_model_groups_match_tenant_access(analytics_client,review_db,sco
     assert response.status_code==200
     rows=[r for r in response.json()['by_model'] if r['name']=='Synthetic access model']
     if scope=='foreign':assert rows==[]
-    else:assert rows==[{'name':'Synthetic access model','completed':1,'failed':1,'success_rate':50.0}]
+    else:assert rows==[{'name':'Synthetic access model','completed':1,'failed':1,'stopped':0,'did_not_complete':1,'success_rate':50.0}]
 
 
 
@@ -148,3 +148,28 @@ def test_time_accuracy_uses_current_retained_interval_after_completed_job_edit(a
     row=analytics_client.get('/analytics/time-accuracy').json()['recent'][0]
     assert row['estimated_hours']==3 and row['accuracy_pct']==100
     assert analytics_client.get('/analytics/time-accuracy').json()['estimate_basis']=='retained_schedule_interval'
+
+
+def test_stopped_jobs_in_all_failure_buckets_reasons_and_mtbf(analytics_client, review_db):
+    from datetime import datetime, timedelta, timezone
+    end = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    for identifier, status, ended, org in ((801, 'completed', end, 1), (802, 'failed', end-timedelta(hours=4), 1),
+            (803, 'cancelled', end, 1), (804, 'cancelled', None, 1), (805, 'cancelled', end, 2), (806, 'cancelled', end, 1)):
+        review_db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id,model_id,filament_type,charged_to_org_id,created_at,actual_end) "
+            "VALUES(:id,'Outcome',:status,9,101,'PLA',:org,:created,:end)"),
+            {'id': identifier, 'status': status, 'org': org, 'created': end, 'end': ended})
+    review_db.execute(text("INSERT INTO controlled_audiences(id,name) VALUES(901,'Private audience')"))
+    review_db.execute(text("INSERT INTO controlled_jobs(job_id,label,audience_id,printer_tag,retention_days,reason,changed_by,marked_at) VALUES(806,'Restricted',901,'Secure',7,'Synthetic test',3,CURRENT_TIMESTAMP)"))
+    review_db.commit()
+    response = analytics_client.get('/analytics/failures')
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body['total_completed'], body['total_failed'], body['total_stopped'], body['total_did_not_complete']) == (1, 1, 1, 2)
+    assert body['overall_success_rate'] == 33.3
+    for key in ('by_printer', 'by_model', 'by_filament'):
+        row = body[key][0]
+        assert (row['completed'], row['failed'], row['stopped'], row['did_not_complete']) == (1, 1, 1, 2)
+    assert body['by_printer'][0]['mtbf_hours'] == 4
+    assert body['by_filament'][0]['failure_rate'] == 66.7
+    assert body['by_model'][0]['success_rate'] == 33.3
+    assert body['top_failure_reasons'] == [{'reason': 'unspecified', 'count': 1}, {'reason': 'stopped', 'count': 1}]

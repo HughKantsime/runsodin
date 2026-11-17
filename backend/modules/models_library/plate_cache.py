@@ -3,6 +3,7 @@
 This is derived data, re-creatable from the stored file, so it is a file cache, not a table:
 
     <cache_root>/<hash[:2]>/<hash>/facts.json
+    <cache_root>/<hash[:2]>/<hash>/objects.json     (independently versioned Bambu object lists)
     <cache_root>/<hash[:2]>/<hash>/plate_<N>.png | plate_<N>.jpg
     <cache_root>/<hash[:2]>/<hash>/unavailable.json   (deterministic parse refusal; stops re-parsing)
 
@@ -440,3 +441,98 @@ def build_in_background(row) -> bool:
                 _BUILDING.discard(snapshot.file_hash)
     threading.Thread(target=run, name="plate-cache-build", daemon=True).start()
     return True
+
+
+# Object lists have their own schema/version; facts and thumbnails are unchanged.
+OBJECTS_VERSION = 1
+MAX_OBJECTS_BYTES = 8 * 2**20
+
+
+def validate_objects_wire(parsed):
+    if type(parsed) is not dict:
+        return "failed", None
+    if parsed.get("status") in _REFUSALS and set(parsed) == {"status"}:
+        return parsed["status"], None
+    if set(parsed) != {"status", "plates"} or parsed["status"] != "ok":
+        return "failed", None
+    plates = parsed["plates"]
+    if type(plates) is not list or len(plates) > MAX_FACT_PLATES:
+        return "failed", None
+    previous = 0
+    for plate in plates:
+        if type(plate) is not dict or set(plate) != {"index", "label_object_enabled", "objects", "aspect"}:
+            return "failed", None
+        index, aspect = plate["index"], plate["aspect"]
+        if (type(index) is not int or not previous < index <= MAX_PLATE_NUMBER
+                or type(plate["label_object_enabled"]) is not bool
+                or not (aspect is None or (type(aspect) in (int, float) and math.isfinite(aspect) and 1/1024 <= aspect <= 1024))):
+            return "failed", None
+        previous = index
+        objects, seen = plate["objects"], set()
+        if type(objects) is not list or len(objects) > 256:
+            return "failed", None
+        for obj in objects:
+            if type(obj) is not dict or set(obj) != {"identify_id", "name", "skipped_at_slice", "bounds"}:
+                return "failed", None
+            identifier, name, bounds = obj["identify_id"], obj["name"], obj["bounds"]
+            if (type(identifier) is not int or not 1 <= identifier <= 16777215 or identifier in seen
+                    or not _text_ok(name) or (name is not None and not all(c.isprintable() for c in name))
+                    or obj["skipped_at_slice"] is not False):
+                return "failed", None
+            seen.add(identifier)
+            if bounds is not None:
+                if (aspect is None or type(bounds) is not dict or set(bounds) != {"x", "y", "w", "h"}
+                        or not all(type(v) in (int, float) and math.isfinite(v) and 0 <= v <= 1 for v in bounds.values())
+                        or bounds["w"] <= 0 or bounds["h"] <= 0
+                        or bounds["x"] + bounds["w"] > 1 + 1e-12 or bounds["y"] + bounds["h"] > 1 + 1e-12):
+                    return "failed", None
+            elif aspect is not None:
+                return "failed", None
+    return "ok", {"plates": plates}
+
+
+def read_objects(file_hash):
+    try:
+        if is_unavailable(file_hash):
+            return None
+        data = _read_regular(entry_dir(file_hash) / "objects.json", MAX_OBJECTS_BYTES)
+        document = json.loads(data) if data else None
+        if (type(document) is not dict or set(document) != {"version", "file_hash", "plates"}
+                or type(document["version"]) is not int or document["version"] != OBJECTS_VERSION
+                or document["file_hash"] != file_hash):
+            return None
+        status, _ = validate_objects_wire({"status": "ok", "plates": document["plates"]})
+        return document if status == "ok" else None
+    except (ValueError, RecursionError, OSError):
+        return None
+
+
+def objects_for_row(row, *, timeout=30):
+    """Authorized stored row only. Backfill through the same staged, bounded child as facts."""
+    if not eligible(row) or is_unavailable(row.file_hash):
+        return None
+    cached = read_objects(row.file_hash)
+    if cached is not None:
+        return cached
+    from core.print_payload_snapshot import PayloadUnavailable, stage_payload
+    from modules.models_library.mesh_isolation import plate_objects_blocking
+    try:
+        with stage_payload(row.stored_path, row.file_hash) as snapshot:
+            analysis = plate_objects_blocking(snapshot.path, timeout=timeout)
+        if analysis.status != "ok" or analysis.objects is None:
+            if analysis.status in _REFUSALS or analysis.status in ("failed", "invalid"):
+                mark_unavailable(row.file_hash, analysis.status)
+            return None
+        status, checked = validate_objects_wire({"status": "ok", **analysis.objects})
+        if status != "ok":
+            return None
+        document = {"version": OBJECTS_VERSION, "file_hash": row.file_hash, **checked}
+        content = json.dumps(document, allow_nan=False).encode()
+        if len(content) > MAX_OBJECTS_BYTES:
+            return None
+        directory = entry_dir(row.file_hash)
+        _prepare_directory(directory)
+        _atomic_write(directory, "objects.json", content)
+        return document
+    except (PayloadUnavailable, OSError, ValueError):
+        return None

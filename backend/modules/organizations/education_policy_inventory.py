@@ -44,6 +44,8 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("reporting.failure_analytics", "build_failure_analytics", "job/printer/model", "read", "analytics route caller; existing job visibility and tenant predicates", ("failure analytics",), "test_analytics_reporting_behavior.py", "guarded"),
+    _entry('core.observed_jobs', 'link_ended_print', 'job/print/printer', 'create/link', 'monitor terminal transaction; reserved Education filenames excluded; existing linked jobs untouched', ('job history', 'analytics', 'timeline'), 'test_moonraker_unlinked_job_row.py', 'guarded'),
     _entry("jobs.print_failure", "change/_load/_settled", "job/print/archive", "correct the outcome of a finished cancelled print (outcome only: no quantity, cost or inventory write)", "jobs.edit and write:jobs; operator/admin; printer and job owner, archive audience, controlled-parts and Education mutation guards; no terminal event delivery", ("Print Log", "archive", "printer history"), "test_mark_print_failed.py", "guarded"),
     _entry('printers.monitors.restart_question', 'initialize/handle/clear_finished', 'print/job/printer', 'read/mutate', 'Bambu startup candidate check and scoped durable decision; receipt and Education exclusions', (), 'test_restart_question_review.py', 'guarded'),
     _entry('notifications.restart_alerts', 'stage/resolve', 'printer/job/alert', 'in-app delivery', 'shared recipient policy; active scoped operators and administrators; caller transaction', (), 'test_restart_ask_operator.py', 'guarded'),
@@ -105,11 +107,11 @@ POLICY_INVENTORY = (
     _entry("orders.services", "assert_job_history_deletable", "job/production acceptance", "retention guard", "caller-authorized job deletion; retains inspected business history", ("job deletion",), "test_job_terminal_foundation.py", "excluded_internal"),
     _entry("jobs.queue_creation", "_stage_prospective_queue_job", "job/model/file/upload destination", "stage caller-authorized queue entry", "internal adapter; callers retain tenant and Education authorization; bound files require exact destination", ("queue",), "test_upload_binding_and_plates.py", "excluded_internal"),
     # 2.2.0: the job queries behind the Home Assistant status payload live in integration_floor (routes_integrations reads no job table itself).
-    _entry("printers.integration_floor", "visible_clauses/queue_totals/day_totals/floor rows/_last_prints/short_spools (home_assistant_status)", "printer/job/print/spool slots", "read", "viewer with read:printers and read:jobs; organization/shared fence; controlled job names and error text redacted; queue, last-print times and plate-clear time use GET /api/jobs visibility; spool amounts withheld on a printer reached only because it is shared", ("printers.routes_integrations", "Home Assistant"), "test_home_assistant_print_floor.py", "guarded"),
+    _entry("printers.integration_floor", "visible_clauses/queue_totals/day_totals/floor rows/_last_prints/short_spools/paused_prints (home_assistant_status and reminders)", "printer/job/print/spool slots", "read", "viewer with read:printers and read:jobs; organization/shared fence; controlled job names and error text redacted; queue, last-print times and plate-clear time use GET /api/jobs visibility; spool amounts withheld on a printer reached only because it is shared", ("printers.routes_integrations", "Home Assistant", "notifications.pause_reminders (Education suppression before delivery)"), "test_home_assistant_print_floor.py", "guarded"),
     _entry("jobs.list_query", "list_job_rows/search_filter", "job/model/file/printer/order", "read", "GET /api/jobs caller; archived Education submissions, controlled-parts audience and organization predicates are applied before any filter or search term", ("jobs.routes.jobs_crud",), "test_jobs_list_filters.py", "guarded"),
     _entry("reporting.routes.cost_per_print", "router:GET /analytics/cost-per-print and /export/cost-per-print", "completed job/model/product/print attempt", "aggregate/export", "licensed analytics reader (CSV: operator with csv_export); tenant filter, controlled-parts audience and explicit Education submission exclusion before any job is costed; model and product names only when the caller may read them", ("Analytics page", "Models page", "CSV"), "test_cost_per_print.py", "guarded"),
     _entry("jobs.routes.cost", "router:GET /jobs/{job_id}/cost", "job/print attempt/spool usage", "read", "same caller, organization and controlled-parts checks as GET /api/jobs/{job_id}; whoever may read the job may read its cost; amounts only, no file, model or student content", ("job detail", "jobs list row"), "test_cost_actual.py", "guarded"),
-    _entry("printers.plate_clear", "record_plate_clear", "job/printer/timeline event", "write plate-clear confirmation", "caller already authorized by the plate-cleared control route; written only to the printer's last finished job and only when the caller may read it (organization and controlled-parts audience); nothing about the job is returned", ("printers.routes_controls",), "test_plate_clear_confirmation.py", "batch2_required"),
+    _entry("printers.plate_clear", "record_plate_clear/select_plate_clear/plate_clear_states/current_plate_confirmations", "job/print record/printer/timeline event", "read plate state/write plate-clear confirmation", "reads batch the writer selection and withhold names through job visibility; caller authorized by the plate-cleared control route; last finished print uses its readable job (organization, controlled-parts audience and archived-submission exclusion) or printer-owned confirmation for an unlinked print; only the time is returned", ("printers.routes_controls",), "test_plate_clear_confirmation.py", "batch2_required"),
     _entry("printers.routes_dispatch_recovery", "inspect_dispatch_recovery/hold_dispatch_recovery/retain_dispatch_recovery/release_dispatch_recovery", "printer/job/submission/monitor claim", "inspect/hold/retain/release", "owner and charged tenant admin; Education provider school/center authority; no Education revocation", ("recovery history",), "test_dispatch_recovery_actions.py", "guarded"),
     _entry("jobs.education_order", "education_order/ordered_waiting/head_refusal", "Education job/printer/dispatch claim", "order/head check", "trusted scheduler/dispatch; authoritative head check under target lock", ("scheduler", "automatic and explicit dispatch"), "test_education_followup_queues.py", "guarded"),
     _entry("organizations.education_queues", "list_queue/reorder_queue", "Education submission/job/printer/grant", "read/reorder", "live tenant admin or active manager; explicit-org platform reads only; target-serialized full-list revision check", ("Education workbench", "dispatch ordering"), "test_education_followup_queues.py", "guarded"),
@@ -142,7 +144,9 @@ POLICY_INVENTORY = (
     _entry("printers.dispatch", "dispatch_job", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printer adapter",), "test_education_dispatch_policy.py", "guarded"),
     _entry("printers.smart_plug", "printer state subscriber", "submission/job/printer", "dispatch", "trusted physical-action worker", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.routes_smart_plug", "router:/printers/{id}/plug/*", "printer", "physical-control", "authorized operator/admin", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
-    _entry("printers.routes_controls", "plate-clear/control routes", "submission/job/printer", "mutate", "authorized manager/admin", ("scheduler",), "test_education_dispatch_policy.py", "batch2_required"),
+    _entry("printers.print_objects", "running_print_objects", "print job/job/file", "read", "visible printer; controlled print and accessible file with Education preview policy", (), "test_print_objects_route.py", "guarded"),
+    _entry("printers.routes_print_objects", "router:GET print-objects", "print job/job/file", "read", "viewer with read:printers and read:models; controlled and Education file access", (), "test_print_objects_route.py", "guarded"),
+    _entry("printers.routes_controls", "plate-clear/control routes including skip objects", "submission/job/printer", "mutate", "authorized manager/admin", ("scheduler",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.monitors.mqtt_job_lifecycle", "job lifecycle topic", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.mqtt_printer", "printer telemetry topic", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.moonraker_job_tracking", "Moonraker job tracking", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
@@ -244,6 +248,7 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "modules/printers/routes_print_objects.py",
     "modules/organizations/education_submission_service.py",
     'modules/organizations/routes_education_training.py',
     'modules/organizations/education_training_service.py',
@@ -296,6 +301,7 @@ _EXPLICIT_SURFACE_PATHS = (
     "modules/notifications/channels.py",
     # Job status now flows through jobs.state_machine; these workers remain surfaces.
     "modules/jobs/scoped_cancel.py",
+    "core/observed_jobs.py",
     "modules/notifications/job_events.py",
     "modules/notifications/error_handling.py",
     "modules/notifications/event_dispatcher.py",

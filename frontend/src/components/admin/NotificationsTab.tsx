@@ -1,5 +1,5 @@
 import PageState from '../ui/PageState'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useId } from 'react'
 import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle, Wrench, FileText, XOctagon, Thermometer, ListPlus, SkipForward } from 'lucide-react'
 import usePushNotifications from '../../hooks/usePushNotifications'
 import { alertPreferences, smtpConfig, pushKeys, pushTest, describePushTestDevice } from '../../api'
@@ -8,8 +8,10 @@ import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
 import { Button, Input, Card } from '../ui'
 import TemperatureAlertsCard from './TemperatureAlertsCard'
+import PauseRemindersCard from './PauseRemindersCard'
 
 export default function NotificationsTab() {
+  const descriptionId = useId()
   const lic = useLicense()
   const { isSupported: pushSupported, isSubscribed: pushSubscribed, permission: pushPermission,
           loading: pushLoading, subscribe: subscribePush, unsubscribe: unsubscribePush } = usePushNotifications()
@@ -265,6 +267,8 @@ export default function NotificationsTab() {
           <PageState kind="loading" className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading preferences...</PageState>
         ) : (
           <>
+            <span id={`${descriptionId}-push`} className="sr-only">Requires browser push setup</span>
+            <span id={`${descriptionId}-email`} className="sr-only">Requires SMTP configuration</span>
             {/* Header row */}
             <div className="hidden md:grid md:grid-cols-[1fr_80px_80px_80px] gap-3 mb-2 px-3">
               <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider">Alert Type</div>
@@ -297,6 +301,7 @@ export default function NotificationsTab() {
                           type="button"
                           role="switch"
                           aria-checked={pref.in_app}
+                          aria-label={`In-app alerts for ${meta.label}`}
                           onClick={() => toggleAlertPref(pref.alert_type, 'in_app')}
                           className={`w-10 h-5 rounded-full transition-colors relative ${pref.in_app ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
                         >
@@ -310,6 +315,8 @@ export default function NotificationsTab() {
                           type="button"
                           role="switch"
                           aria-checked={pref.browser_push}
+                          aria-label={`Push alerts for ${meta.label}`}
+                          aria-describedby={`${descriptionId}-push`}
                           onClick={() => toggleAlertPref(pref.alert_type, 'browser_push')}
                           className={`w-10 h-5 rounded-full transition-colors relative ${pref.browser_push ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
                           title="Requires browser push setup"
@@ -324,6 +331,8 @@ export default function NotificationsTab() {
                           type="button"
                           role="switch"
                           aria-checked={pref.email}
+                          aria-label={`Email alerts for ${meta.label}`}
+                          aria-describedby={`${descriptionId}-email`}
                           onClick={() => toggleAlertPref(pref.alert_type, 'email')}
                           className={`w-10 h-5 rounded-full transition-colors relative ${pref.email ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
                           title="Requires SMTP configuration"
@@ -332,6 +341,8 @@ export default function NotificationsTab() {
                         </button>
                       </div>
                     </div>
+
+                    {typeKey === 'print_paused' && <PauseRemindersCard editable={isAdmin} />}
 
                     {/* Threshold for spool_low */}
                     {typeKey === 'spool_low' && (
@@ -391,6 +402,7 @@ export default function NotificationsTab() {
             type="button"
             role="switch"
             aria-checked={smtp.enabled}
+            aria-label="Email notifications (SMTP)"
             onClick={() => setSmtp(s => ({ ...s, enabled: !s.enabled }))}
             className={`ml-auto w-10 h-5 rounded-full transition-colors relative ${smtp.enabled ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
           >
@@ -407,7 +419,7 @@ export default function NotificationsTab() {
               {!smtp.enabled && ' Enable the toggle above to activate email delivery.'}
             </p>
 
-            <div className={`space-y-3 ${!smtp.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div {...(!smtp.enabled ? { inert: '' } : {})} className={`space-y-3 ${!smtp.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Input
                   label="SMTP Host"

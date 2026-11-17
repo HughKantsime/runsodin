@@ -17,6 +17,37 @@ def cache_key(printer_id):
     return f'printer.display_facts.{printer_id}'
 
 
+def plate_clear_key(printer_id):
+    return f'plate_clear:{printer_id}'
+
+
+def stored_plate_clear_times(db, printer_ids, actor):
+    """Printer-owned confirmations; job predicates do not apply to unlinked prints."""
+    if not printer_ids:
+        return {}
+    printers = db.execute(text('SELECT id,created_at FROM printers WHERE id IN :ids')
+                          .bindparams(bindparam('ids', expanding=True)), {'ids': printer_ids}).all()
+    rows = db.execute(text('SELECT key,value FROM system_config WHERE key IN :keys')
+                      .bindparams(bindparam('keys', expanding=True)),
+                      {'keys': [plate_clear_key(p) for p in printer_ids]})
+    stored = dict(rows.all())
+    from modules.printers.plate_clear import as_utc
+    result = {}
+    for printer_id, created_at in printers:
+        try:
+            entry = stored.get(plate_clear_key(printer_id), {})
+            entry = json.loads(entry) if isinstance(entry, str) else entry
+            if str(created_at) != entry.get('printer_created_at') or 'org_id' not in entry:
+                continue
+            # An unowned printer's confirmation is visible to everyone who can see the
+            # printer, including in multi-organization installs. Only a time is exposed.
+            if check_org_access(actor, entry['org_id']) and as_utc(entry.get('at')) is not None:
+                result[printer_id] = entry['at']
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return result
+
+
 def may_read(actor, resource):
     return not is_scoped_token(actor) or any(token_scope_granted(actor.get('_token_scopes', []), scope)
         for scope in ('admin', 'agent:read', 'agent:write', f'read:{resource}'))
@@ -92,7 +123,7 @@ def read_facts(db, printers):
 
 
 def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
-    """Only confirmations on jobs visible to this caller; no actor/job details leak.
+    """Visible job and printer-owned confirmations; no actor/job details leak.
 
     ``job_clauses`` are further source-owned predicates on the job (alias ``j``) with their
     bound ``job_params``: the Home Assistant status feed passes its own job visibility rule.
@@ -115,6 +146,10 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
             continue
         moment = as_utc(at)
         if printer_id not in result or (moment is not None and (newest[printer_id] is None or moment > newest[printer_id])):
+            result[printer_id], newest[printer_id] = at, moment
+    for printer_id, at in stored_plate_clear_times(db, printer_ids, actor).items():
+        moment = as_utc(at)
+        if newest.get(printer_id) is None or moment > newest[printer_id]:
             result[printer_id], newest[printer_id] = at, moment
     if not result:
         return result
@@ -145,7 +180,10 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
 def enrich_printer_facts(db, printers, actor):
     facts = read_facts(db, printers)
     cleared = plate_clear_times(db, [p.id for p in printers], actor)
+    from modules.printers.plate_clear import plate_clear_states
+    plate_states = plate_clear_states(db, printers, actor)
     for printer in printers:
+        printer.plate_clear = plate_states[printer.id]
         observed = facts.get(printer.id, {})
         printer.feeding_slot = observed.get('feeding_slot')
         printer.chamber_temp = observed.get('chamber_temp')

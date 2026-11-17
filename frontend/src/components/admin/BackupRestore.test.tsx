@@ -35,3 +35,11 @@ it('shows definite server rejection without claiming an applied restore', async 
   selectBackup()
   expect(await screen.findByRole('alert')).toHaveTextContent('Backup format does not match')
 })
+
+it('shows the complete historical PostgreSQL refusal and recovery steps', async () => {
+  const detail = 'This backup was made by ODIN 2.0.31 to 2.0.44 on PostgreSQL. This ODIN version cannot read it. Restore it on the ODIN version that made it, upgrade that install to this version, then take a new backup. Or keep running your current install and take a new backup. Nothing was changed. See "PostgreSQL backups from 2.0.16 to 2.0.44" in the backup guide.'
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ detail }) }))
+  selectBackup()
+  expect((await screen.findByRole('alert')).textContent).toBe(detail)
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+})

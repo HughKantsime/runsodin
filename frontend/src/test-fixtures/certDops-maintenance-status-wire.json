@@ -19,13 +19,17 @@
       "failure_rate": {
         "last_30_days": {
           "completed": 0,
+          "did_not_complete": 0,
           "failed": 0,
-          "rate_percent": null
+          "rate_percent": null,
+          "stopped": 0
         },
         "last_90_days": {
           "completed": 0,
+          "did_not_complete": 0,
           "failed": 0,
-          "rate_percent": null
+          "rate_percent": null,
+          "stopped": 0
         }
       },
       "hours_since_maintenance": 28.0,
@@ -96,13 +100,17 @@
       "failure_rate": {
         "last_30_days": {
           "completed": 0,
+          "did_not_complete": 0,
           "failed": 0,
-          "rate_percent": null
+          "rate_percent": null,
+          "stopped": 0
         },
         "last_90_days": {
           "completed": 0,
+          "did_not_complete": 0,
           "failed": 0,
-          "rate_percent": null
+          "rate_percent": null,
+          "stopped": 0
         }
       },
       "hours_since_maintenance": 0.0,

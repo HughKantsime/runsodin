@@ -97,6 +97,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/production/replenishment/queue"),
     ],
     "settings.edit": [
+        ("PUT", "/api/config/pause-reminders"),
         ("DELETE", "/api/education/term-retention/{term_id}"),
         ("GET", "/api/education/term-retention"),
         ("POST", "/api/education/term-retention"),
@@ -401,6 +402,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("DELETE", "/api/push/register/{device_id}"), ("POST", "/api/push/subscribe"), ("DELETE", "/api/push/subscribe"),
         ("DELETE", "/api/sessions"), ("DELETE", "/api/sessions/{session_id}"),
         ("POST", "/api/tokens"), ("DELETE", "/api/tokens/{token_id}"),
+        ("PUT", "/api/tokens/{token_id}/square-setup"),
         ("POST", "/api/cameras/{printer_id}/webrtc"),
     ]},
     # Public, login and setup flows

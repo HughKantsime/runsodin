@@ -10,8 +10,8 @@ selected, so it cannot be named, counted or described.
 Unlinked prints have no durable resume history: the timeline writer drops events
 without a scheduled job. Monitors overwrite print_jobs progress/layer values;
 vision detections store no progress/layer snapshot, and printer_telemetry stores
-only temperatures/fan speed. The attention lane's pause_episode is also overwritten
-on each transition. None can tie an old auto_paused detection to the current pause.
+only temperatures/fan speed. The attention lane keeps the current episode's start, but does not keep a
+resume history. None can tie an old auto_paused detection to the current pause.
 For an unlinked print with such a detection, pause_cause is null and the reason is
 "Paused (Vigil flagged this print earlier; cause of this pause unknown)", unless current HMS/print-error evidence supplies a cause.
 Even a recent detection cannot prove that no resume has intervened. Scheduled
@@ -32,6 +32,9 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import bindparam, text
 
+from modules.printers.ams_humidity import humidity_scale
+from core.print_outcomes import PRINT_DID_NOT_COMPLETE_SQL, print_outcome
+from core.physical_print import pause_identity
 from core.display_names import display_names
 from core.hms_state import display_entries
 from core.rbac import should_filter_org
@@ -155,7 +158,6 @@ def queue_totals(db, actor, scope, controlled, states):
 # ---------------------------------------------------------------------------
 
 AMS_READING_MAX_AGE = timedelta(hours=24)
-_GRADES = "ABCDE"
 
 
 def ams_environment(db, printer_ids, now):
@@ -179,15 +181,11 @@ def ams_environment(db, printer_ids, now):
         at = to_utc(recorded_at)
         if at is None or now - at > AMS_READING_MAX_AGE:
             continue
-        level = int(humidity) if isinstance(humidity, (int, float)) and 1 <= humidity <= 5 else None
-        # Rows stored before the no-sensor rule: level 5 at exactly 0 degrees is an AMS lite placeholder.
-        if level == 5 and temperature == 0:
-            level, temperature = None, None
-        index = 6 - level if level is not None else None
+        level, index, grade, temperature = humidity_scale(humidity, temperature)
         result.setdefault(printer_id, []).append({
             "unit": int(unit),
             "humidity_index": index,
-            "grade": _GRADES[index - 1] if index else None,
+            "grade": grade,
             "bambu_level": level,
             "humidity_percent": None,
             "temperature_c": round(float(temperature), 1) if isinstance(temperature, (int, float)) else None,
@@ -212,13 +210,13 @@ def day_start(now, zone=None):
 
 def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
     start = day_start(now, zone)
-    result = {"plates_done": 0, "plates_failed": 0, "plates_stopped": 0, "since": iso(start)}
+    result = {"plates_done": 0, "plates_failed": 0, "plates_stopped": 0, "plates_did_not_complete": 0, "since": iso(start)}
     if not printer_ids:
         return result
     # The exact test is on parsed instants below. This text bound only keeps the scan to recent
     # rows (this feed is polled every few seconds): the date prefix sorts the same in every
     # stored form, and two days cover any UTC offset.
-    clauses = ["p.printer_id IN :pids", "p.status IN ('completed', 'failed', 'cancelled')", "p.ended_at >= :day"]
+    clauses = ["p.printer_id IN :pids", "(p.status = 'completed' OR " + PRINT_DID_NOT_COMPLETE_SQL.format(prefix="p.") + ")", "p.ended_at >= :day"]
     params = {"pids": list(printer_ids), "day": (start.astimezone(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")}
     # A print that belongs to a job counts only when the caller could list that job (the queue's
     # own predicates: org, archived Education, controlled parts). A print with no job is the
@@ -233,7 +231,9 @@ def day_totals(db, actor, scope, controlled, printer_ids, now, zone=None):
         # Monitors store both naive UTC and ISO timestamps with offsets; text order is not time order.
         ended = _instant(ended_at)
         if ended is not None and ended >= start:
-            result[{"completed": "plates_done", "failed": "plates_failed", "cancelled": "plates_stopped"}[status]] += 1
+            outcome = print_outcome(status, ended_at)
+            result["plates_" + outcome if outcome else "plates_done"] += 1
+    result["plates_did_not_complete"] = result["plates_failed"] + result["plates_stopped"]
     return result
 
 
@@ -575,6 +575,8 @@ class Floor:
         from core.printer_display_facts import plate_clear_times
         job_clauses, job_params = visible_clauses(actor, scope, controlled, "j")
         self.plate_cleared = plate_clear_times(db, ids, actor, job_clauses, job_params) if ids else {}
+        from modules.printers.plate_clear import plate_clear_states
+        self.plate_clear = plate_clear_states(db, printers, actor)
         self.slots = printer_slots(db, printers, actor)
         by_id = {printer.id: printer for printer in printers}
         self.short = {row["id"]: short_spools(db, row["id"], by_id[printer_id], actor)
@@ -587,6 +589,35 @@ class Floor:
             for printer_id, slot, color, kind in db.execute(query, {"ids": list(self.next_rows)}).all():
                 self.loaded.setdefault(printer_id, {})[slot] = {"color": color, "material": _material(kind)}
         self.clear_plate = _clear_plate(db, actor, scope, controlled, ids) if ids else {}
+        self.load_pauses(db, printers, running, now)
+        self.hidden_pause_times = set()
+        if running:
+            clauses, params = visible_clauses(actor, scope, controlled)
+            params['ids'] = [row['id'] for row in running.values()]
+            sql = ("SELECT p.printer_id FROM print_jobs p WHERE p.id IN :ids AND p.scheduled_job_id IS NOT NULL "
+                   "AND p.scheduled_job_id NOT IN (SELECT jobs.id FROM jobs WHERE " + " AND ".join(clauses) + ")")
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- source-owned visibility predicates, values bound
+            self.hidden_pause_times = set(db.execute(text(sql).bindparams(bindparam('ids', expanding=True)), params).scalars())
+        return self
+
+    def load_pauses(self, db, printers, running, now):
+        """Shared read-only pause facts for the feed and reminder worker."""
+        from modules.notifications.services import read_pause_reminder_settings
+        self.pause_settings = read_pause_reminder_settings(db)
+        self.now = now
+        self.paused_long_count = 0
+        self.episodes = {}
+        keys = ['pause_episode:' + str(p.id) for p in printers]
+        if keys:
+            query = text('SELECT key,value FROM system_config WHERE key IN :keys').bindparams(bindparam('keys', expanding=True))
+            for key, value in db.execute(query, {'keys': keys}):
+                while isinstance(value, str):
+                    value = _json(value)
+                if isinstance(value, dict) and value.get('paused'):
+                    pid = int(key.split(':')[1])
+                    current = running.get(pid)
+                    if current is None or not value.get('attempt') or value['attempt'] == pause_identity(current.get('economic_uid'), current['id']):
+                        self.episodes[pid] = value
         self.paused_since, self.vision_paused, self.vision_unattributed = {}, set(), set()
         paused = [p.id for p in printers if (p.gcode_state or "").strip().upper() in ("PAUSE", "PAUSED")]
         if paused:
@@ -620,7 +651,18 @@ class Floor:
                     seen, last_resume = _instant(created), resumed.get(pid)
                     if last_resume is None or (seen is not None and seen > last_resume):
                         self.vision_paused.add(print_id)
-        return self
+        for pid, episode in self.episodes.items():
+            if episode.get('since'):
+                self.paused_since[pid] = iso(episode['since'])
+
+    def pause_timing(self, printer, *, redact=False):
+        from modules.printers.routes_integrations import is_online
+        since = to_utc(self.episodes.get(printer.id, {}).get('since'))
+        seconds = max(0, int((self.now - since).total_seconds())) if since and not redact else None
+        long = None
+        if seconds is not None and self.pause_settings['enabled'] and is_online(printer.gcode_state, printer.last_seen, self.now):
+            long = seconds >= self.pause_settings['first_hours'] * 3600
+        return {'paused_seconds': seconds, 'paused_long': long}
 
     # -- jobs ---------------------------------------------------------------
 
@@ -723,9 +765,13 @@ class Floor:
                 # colours that cannot be compared leave the answer unknown.
                 next_job["ready"] = True if colours == "match" else None
         last = self.last_prints.get(printer.id) or {}
-        if status == "paused":
+        if status == "paused" or (status == "offline" and (printer.gcode_state or "").strip().upper() in ("PAUSE", "PAUSED")):
             cause, reason = self._pause(printer, running, error_unresolved, redact)
-            bench = {"state": "paused", "reason": reason, "since": self.paused_since.get(printer.id), "pause_cause": cause}
+            hide_time = redact or printer.id in self.hidden_pause_times
+            bench = {"state": "paused", "reason": reason,
+                     "since": None if hide_time else self.paused_since.get(printer.id), "pause_cause": cause,
+                     **self.pause_timing(printer, redact=hide_time)}
+            self.paused_long_count += bench["paused_long"] is True
         elif held_out:
             # A free-text note can name the work on the bed: withheld like every other reason.
             bench = {"state": "out_of_service",
@@ -749,6 +795,7 @@ class Floor:
                 "last_completed_at": iso(last.get("completed")),
                 # The print on the bed now has not finished: no end time while one is running.
                 "finished_at": None if printer.id in self.running else iso(last.get("ended")),
+                "plate_clear": self.plate_clear[printer.id],
                 "plate_clear_confirmed_at": iso(_instant(self.plate_cleared.get(printer.id))),
                 # What is loaded on a printer carrying controlled work the caller cannot name
                 # describes that work's filaments: withheld (null) with the job's own details.
@@ -761,6 +808,10 @@ class Floor:
         vision = running is not None and running["id"] in self.vision_paused
         if vision or any(_is_spaghetti(a, c) for a, c, _ in entries) or _is_spaghetti(*_stage_code(stage)):
             return "spaghetti", "Paused: possible spaghetti"
+        episode = self.episodes.get(printer.id, {})
+        runout, since = to_utc(episode.get('runout_at')), to_utc(episode.get('since'))
+        if runout is not None and since is not None and runout <= since:
+            return "filament", "Waiting for filament"
         recorded = bool(printer.last_error_code or printer.last_error_message) and error_unresolved
         if entries or stage.startswith("Paused: print_error=") or recorded:
             if redact:
@@ -784,5 +835,54 @@ class Floor:
             payload, _ = self._describe(row, True, None)
             payload["candidate_printer_id"] = None
             unassigned.append(payload)
-        return {"today": self.today, "queued_hours": self.queue["hours"],
+        return {"today": self.today, "paused_long": self.paused_long_count, "queued_hours": self.queue["hours"],
                 "queued_unestimated": self.queue["unestimated"], "next_unassigned": unassigned}
+
+
+def paused_prints(db, now):
+    """Current physical prints only; the reminder caller applies Education suppression."""
+    from modules.printers.models import Printer
+    from modules.printers.routes_integrations import is_online, unresolved_error
+    printers = [p for p in db.query(Printer).filter(Printer.is_active.isnot(False)).all()
+                if (p.gcode_state or '').strip().upper() in ('PAUSE', 'PAUSED')
+                and is_online(p.gcode_state, p.last_seen, now)]
+    if not printers:
+        return []
+    query = text("SELECT id,printer_id,scheduled_job_id,economic_uid,filename,job_name,current_layer,started_at,ended_at,status "
+                 "FROM print_jobs p WHERE printer_id IN :ids AND (status IN ('running','printing','paused') "
+                 "OR id=(SELECT MAX(q.id) FROM print_jobs q WHERE q.printer_id=p.printer_id)) "
+                 "ORDER BY started_at DESC,id DESC").bindparams(bindparam('ids', expanding=True))
+    running, latest, ambiguous = {}, {}, set()
+    for row in db.execute(query, {'ids': [p.id for p in printers]}).mappings():
+        latest.setdefault(row['printer_id'], row)
+        if row['status'] not in ('running', 'printing', 'paused'):
+            continue
+        if row['printer_id'] in running:
+            ambiguous.add(row['printer_id'])
+        running.setdefault(row['printer_id'], row)
+    floor = Floor()
+    floor.load_pauses(db, printers, running, now)
+    result = []
+    for printer in printers:
+        row = running.get(printer.id)
+        episode = floor.episodes.get(printer.id, {})
+        if printer.id in ambiguous or not episode.get('since'):
+            continue
+        # A printer can pause before a physical print record exists. A known
+        # attempt with no active record has ended and must not be reminded.
+        if row is None:
+            last = latest.get(printer.id)
+            ended = to_utc(last['ended_at']) if last else None
+            if episode.get('attempt') or (last and (ended is None or ended >= to_utc(episode['since']))):
+                continue
+        timing = floor.pause_timing(printer)
+        if timing['paused_long'] is not True:
+            continue
+        cause, reason = floor._pause(printer, row, unresolved_error(printer.last_error_at, row['started_at'] if row else None), False)
+        if row is None:
+            context = episode.get('context', {})
+            row = {'scheduled_job_id': None, 'filename': context.get('filename'), 'job_name': context.get('job_name')}
+        result.append({'printer': printer.id, 'printer_name': printer.nickname or printer.name,
+                       'job': row['scheduled_job_id'], 'filename': row['filename'], 'job_name': row['job_name'],
+                       'episode': episode, 'cause': cause, 'reason': reason, **timing})
+    return result

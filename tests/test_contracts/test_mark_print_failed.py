@@ -353,12 +353,23 @@ def test_success_rate_and_hours_follow_outcome(client, review_db, monkeypatch, l
         result = asyncio.run(analytics.get_stats(db=review_db, current_user={'id': 3, 'role': 'admin', 'group_id': 1}, days=365))
         return next(row for row in result['printer_stats'] if row['id'] == 9)
     before = stats()
-    assert before['success_rate'] == 100
+    # Unlinking the print leaves the stopped job as a separate record in this
+    # fixture. Both already count as did not complete before the correction.
+    stopped = 1 if linked else 2
+    assert before['completed_jobs'] == 1
+    assert before['failed_jobs'] == 0
+    assert before['stopped_jobs'] == stopped
+    assert before['did_not_complete_jobs'] == stopped
+    assert before['success_rate'] == (50 if linked else 33.3)
+    assert before['total_hours'] == 1 + stopped
     assert mark(client).status_code == 200
     after = stats()
     assert after['failed_jobs'] == before['failed_jobs'] + 1
-    assert after['success_rate'] == 50
-    assert after['total_hours'] == before['total_hours'] + 1  # this view excludes cancellations
+    assert after['stopped_jobs'] == before['stopped_jobs'] - 1
+    assert after['completed_jobs'] == before['completed_jobs']
+    assert after['did_not_complete_jobs'] == before['did_not_complete_jobs']
+    assert after['success_rate'] == before['success_rate']
+    assert after['total_hours'] == before['total_hours']
     assert undo(client).status_code == 200
     assert stats() == before
 

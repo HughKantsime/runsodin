@@ -119,7 +119,7 @@ export function NavCount({ count, label, tone = 'muted', collapsed, text }: { co
   if (collapsed) return <span role="status" aria-label={label} title={label} className="pointer-events-none absolute right-2 top-1 h-1.5 w-1.5 rounded-full" style={{ backgroundColor: hot ? 'var(--status-failed, #dc2626)' : 'var(--brand-text-muted)' }} />
   return <span role="status" aria-label={label} title={label}
     className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1.5 text-[10px] font-mono leading-4"
-    style={hot ? { backgroundColor: 'var(--status-failed, #dc2626)', color: '#fff' } : { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-text)' }}>
+    style={hot ? { backgroundColor: 'var(--status-failed, #dc2626)', color: 'var(--fjord-on-failed, #fff)' } : { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-text)' }}>
     {text || (count > 99 ? '99+' : count)}
   </span>
 }

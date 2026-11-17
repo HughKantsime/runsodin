@@ -17,10 +17,12 @@
     {
       "avg_job_hours": 2.0,
       "completed_jobs": 2,
+      "did_not_complete_jobs": 0,
       "failed_jobs": 0,
       "has_plug": false,
       "id": 9,
       "name": "P1S-09",
+      "stopped_jobs": 0,
       "success_rate": 100.0,
       "total_hours": 4.0,
       "utilization_pct": 7.8
@@ -28,10 +30,12 @@
     {
       "avg_job_hours": 2.0,
       "completed_jobs": 1,
+      "did_not_complete_jobs": 1,
       "failed_jobs": 1,
       "has_plug": false,
       "id": 10,
       "name": "P1S-10",
+      "stopped_jobs": 0,
       "success_rate": 50.0,
       "total_hours": 2.0,
       "utilization_pct": 8.0

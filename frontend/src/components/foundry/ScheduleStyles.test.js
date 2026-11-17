@@ -84,3 +84,146 @@ it('table overflow stays within its container even above the tablet breakpoint',
   expect(scroller.parent.selector).toBe('html[data-theme-family="foundry"]:not(.light):not(.high-contrast)')
   expect(Object.fromEntries(scroller.nodes.map(d => [d.prop, d.value]))).toEqual({ 'overflow-x': 'auto', 'max-width': '100%' })
 })
+
+it('contains phone scrolling, pins printer links, keeps the undated target and ellipsizes names without animation', () => {
+  const rules = {}
+  postcss.parse(readFileSync('src/foundry.css', 'utf8')).walkRules(rule => {
+    const declarations = {}
+    rule.walkDecls(d => { declarations[d.prop] = d.value })
+    rules[rule.selector] = declarations
+  })
+  expect(rules['.f-schedule']).toMatchObject({ 'min-width': '0', 'max-width': '100%' })
+  expect(rules['.f-schedule-scroll']).toMatchObject({ 'overflow-x': 'auto', 'max-width': '100%', 'min-width': '0' })
+  expect(rules['.f-schedule-chart']).toMatchObject({ 'min-width': 'calc(720px + var(--unknown-width, 0px))' })
+  expect(rules['.f-page .f-lane .f-lane-name']).toMatchObject({ position: 'sticky', left: '0', 'min-width': '44px', 'min-height': '48px' })
+  expect(rules['.f-lane .f-lane-hit']).toMatchObject({ 'min-width': '44px', 'min-height': '48px' })
+  expect(rules['.f-lane .f-lane-block']).toMatchObject({ 'min-width': '0', 'min-height': '48px', 'box-sizing': 'border-box' })
+  expect(rules['.f-lane-block::after']).toMatchObject({ width: 'min(2px, 25%)' })
+  expect(rules['.f-lane-block > span']).toMatchObject({ 'text-overflow': 'ellipsis', overflow: 'hidden', 'white-space': 'nowrap' })
+  expect(rules['.f-schedule-range select']).toMatchObject({ 'min-height': '44px' })
+  expect(rules['.f-lane .f-lane-block'].animation).toBeUndefined()
+})
+
+function declarations(selector) {
+  let result
+  css.walkRules(rule => { if (rule.selector === selector) result = Object.fromEntries(rule.nodes.filter(n => n.type === 'decl').map(d => [d.prop, d.value])) })
+  return result
+}
+it('long-range date labels cannot be clipped or ellipsized', () => {
+  expect(declarations('.f-date-line time')).toMatchObject({ left: 'clamp(0px, var(--date-left), calc(100% - 10ch))', width: '10ch' })
+  expect(declarations('.f-date-line').overflow).not.toBe('hidden')
+  expect(declarations('.f-date-line time').overflow).not.toBe('hidden')
+  expect(declarations('.f-date-line time')['text-overflow']).not.toBe('ellipsis')
+})
+it('pins an opaque axis corner above the scrolling time labels', () => {
+  expect(declarations('.f-time-axis > span')).toMatchObject({ position: 'sticky', left: '0', 'z-index': '3', background: '#1b1a18' })
+})
+it('reserves bottom space for the floating active control on both viewport sizes', () => {
+  expect(declarations('.f-schedule-scroll')['padding-bottom']).toBe('80px')
+})
+it('keeps timed buttons at drawn geometry while the undated target remains at least 44px', () => {
+  expect(declarations('.f-lane .f-lane-block')).toMatchObject({ 'min-width': '0', padding: '0', cursor: 'inherit' })
+  expect(declarations('.f-lane .f-lane-hit')).toMatchObject({ 'min-width': '44px', 'min-height': '48px', background: 'transparent', border: '0' })
+  expect(declarations('.f-lane [data-kind="mixed"]')).toBeUndefined()
+  expect(declarations('.f-lane-tick')).toBeUndefined()
+})
+
+it('aligns the hour/date labels, current time, and every timed lane after the undated pocket', () => {
+  expect(declarations('.f-time-labels')['margin-left']).toBe('var(--unknown-width, 0px)')
+  expect(declarations('.f-lane-timed')['margin-left']).toBe('var(--unknown-width, 0px)')
+  expect(declarations('.f-now-track').inset).toBe('0 0 0 calc(var(--printer-width) + var(--unknown-width, 0px))')
+})
+
+it.each([390, 1440].flatMap(width => [false, true].map(unknown => [width, unknown])))('leaves half the %spx screen for time at rest (unknown: %s)', (width, unknown) => {
+  const phone = width === 390
+  const responsive = {}
+  css.walkAtRules('media', media => {
+    if (media.params !== '(max-width: 600px)') return
+    media.walkRules(rule => { responsive[rule.selector] = Object.fromEntries(rule.nodes.filter(n => n.type === 'decl').map(d => [d.prop, d.value])) })
+  })
+  const chart = declarations('.f-schedule-chart')
+  expect(chart['--printer-width']).toBe('min(144px, 20vw)')
+  expect(responsive['.f-page .f-schedule']).toMatchObject({ padding: '8px' })
+  expect(responsive['.f-schedule .f-schedule-chart']).toMatchObject({ '--unknown-cap': '64px' })
+  // The app's desktop sidebar is 256px; phone uses the bottom navigation.
+  const content = width - (phone ? 0 : 256) - (phone ? 32 : 48) - (phone ? 16 : 40) - 2
+  const timeline = content - Math.min(144, width * .2) - (unknown ? (phone ? 64 : 148) : 0)
+  expect(timeline).toBeGreaterThanOrEqual(width / 2)
+})
+
+it('covers the Now label and line in the pinned column, including the inter-lane gaps', () => {
+  expect(declarations('.f-page .f-lane .f-lane-name')['box-shadow']).toBe('0 -8px 0 #1b1a18')
+  const firstName = '.f-page .f-now-track + .f-lane .f-lane-name'
+  expect(declarations(firstName)['box-shadow']).toBe('0 -24px 0 #1b1a18')
+  const dom = new JSDOM('<div class="f-page"><div class="f-schedule-lanes"><div class="f-now-track"></div><div class="f-lane"><a class="f-lane-name">First</a></div><div class="f-lane"><a class="f-lane-name">Second</a></div></div></div>')
+  try { expect([...dom.window.document.querySelectorAll(firstName)].map(n => n.textContent)).toEqual(['First']) }
+  finally { dom.window.close() }
+  expect(Number(declarations('.f-page .f-lane .f-lane-name')['z-index'])).toBeGreaterThan(Number(declarations('.f-now-track')['z-index']))
+})
+
+it('keeps the schedule viewport above the fixed Active control, rather than just padding its content', () => {
+  expect(declarations('#main-content:has(.f-schedule)')).toMatchObject({ 'margin-bottom': '80px' })
+  // Desktop: 24px bottom + 48px button. Phone: 80px bottom + 48px
+  // button, with the app already reserving 56px for bottom navigation.
+  expect(80).toBeGreaterThanOrEqual(24 + 48)
+  expect(56 + 80).toBeGreaterThanOrEqual(80 + 48)
+})
+
+it('uses a neutral dotted key for both unknown-time work and its legend', () => {
+  expect(declarations('.f-time-unset')).toMatchObject({ border: '1px dotted #bfbaae', background: '#24231f', color: '#bfbaae' })
+})
+
+it('shows an unclipped focus ring of at least 8px without enlarging the timed button', () => {
+  expect(declarations('.f-lane .f-lane-block')).toMatchObject({ 'min-width': '0', overflow: 'visible' })
+  expect(declarations('.f-lane .f-lane-block:focus-visible')).toMatchObject({ 'z-index': '1' })
+  expect(declarations('.f-lane-block:focus-visible::before')).toMatchObject({
+    width: 'max(100%, 8px)', outline: '2px solid #f0ece4', 'pointer-events': 'none',
+  })
+  expect(declarations('.f-lane-block[data-kind]')).toMatchObject({ 'border-width': 'min(1px, calc(var(--bar-pixels) / 2))' })
+})
+
+it('exempts timed bars from the phone/coarse-pointer minimum while retaining ordinary touch targets', () => {
+  const pages = postcss.parse(readFileSync('src/foundry-pages.css', 'utf8'))
+  let touchRule
+  pages.walkAtRules('media', media => {
+    if (media.params !== '(max-width: 768px), (pointer: coarse)') return
+    media.walkRules(rule => {
+      if (rule.selector.includes('.sidebar nav a')) touchRule = rule
+    })
+  })
+  const dom = new JSDOM('<div class="f-lane"><button class="f-lane-block"></button><button class="f-lane-hit"></button><button></button></div>')
+  try {
+    const [bar, pocket, ordinary] = dom.window.document.querySelectorAll('button')
+    expect(bar.matches(touchRule.selector)).toBe(false)
+    expect(pocket.matches(touchRule.selector)).toBe(true)
+    expect(ordinary.matches(touchRule.selector)).toBe(true)
+    expect(touchRule.nodes.find(d => d.prop === 'min-width').value).toBe('44px')
+    expect(declarations('.f-lane .f-lane-block')['min-width']).toBe('0')
+  } finally { dom.window.close() }
+})
+
+it('does not add the generic important focus outline to the bar’s existing focus ring', () => {
+  const pages = postcss.parse(readFileSync('src/foundry-pages.css', 'utf8'))
+  let focusRule
+  pages.walkRules(rule => {
+    if (rule.selector.includes(':focus-visible') && rule.nodes.some(d => d.prop === 'outline' && d.important)) focusRule = rule
+  })
+  const dom = new JSDOM('<button class="f-lane-block"></button><button class="f-lane-hit"></button><button></button>')
+  try {
+    const [bar, pocket, ordinary] = dom.window.document.querySelectorAll('button')
+    const selector = focusRule.selector.replaceAll(':focus-visible', '')
+    expect(bar.matches(selector)).toBe(false)
+    expect(pocket.matches(selector)).toBe(true)
+    expect(ordinary.matches(selector)).toBe(true)
+    expect(declarations('.f-lane .f-lane-block:focus-visible').outline).toBe('none')
+  } finally { dom.window.close() }
+})
+
+it('paints lane status text on an opaque background above the now line', () => {
+  const status = declarations('.f-lane-status')
+  expect(status.position).toBe('absolute')
+  // The status follows the now track in DOM order (covered in ScheduleLane.test).
+  expect(Number(status['z-index'])).toBe(Number(declarations('.f-now-track')['z-index']))
+  expect(Number(status['z-index'])).toBeLessThan(Number(declarations('.f-page .f-lane .f-lane-name')['z-index']))
+  expect(status.background).toBe(declarations('.f-lane-track').background)
+})

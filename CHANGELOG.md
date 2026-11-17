@@ -4,7 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-## [2.3.1] - 2026-11-17
+- ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
 
 
 <!-- summary: Fixes for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again, and Education mode shows as on once it is switched on. -->
@@ -13,13 +13,42 @@ All notable changes to O.D.I.N. are documented here.
 
 - On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
 - On PostgreSQL, Education mode still showed as off in the web app and in the Education readiness check after an administrator switched it on. It now shows as on. Installs on SQLite were not affected.
+- Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
+### Added
+- Printer cards and details now offer “Plate cleared” with a confirmation that says whether a waiting job will be released. A waiting job exists only where the installation's queue uses the `waiting_plate_clear` state; the standard PostgreSQL job enum does not include it. Home Assistant gains a Plate cleared button and a Plate needs clearing sensor, with the same state available on its Status entity.
+- Square stock replies now correctly report whether sending stock changes is enabled.
+- AMS humidity labels now run from dry to wet correctly and show N/A when there is no sensor reading. API readers of `humidity_label` will see different, now correct, words.
 
+### Added
+
+- The print history API supports date range filters, paging, and a total count. Utilization now requests prints that ended within the selected period.
+### Security
+- Square setup permission is off by default: no token receives it on upgrade. A signed-in administrator can grant or revoke `write:square_setup` for one personal API token to map products and record stock baselines in ODIN. Each delegated call records an approval note and the token's identity; the note is a record, not a verification. Neither operation writes to Square. Connection changes, activation, unmapping and addition review still require a signed-in administrator.
+- Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
+- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
+- PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
+- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
+- Prints started at the printer now appear in job history on every printer type, not only Bambu.
+- Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
+- Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
+### Changed
+- Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
+- Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
+- ODIN now stops at start-up on PostgreSQL 18 or newer with a clear message before changing the database, and asks you to use the PostgreSQL 16 server it ships with.
+- Skip objects (Experimental, Bambu Lab printers): while a print that ODIN started is running, choose objects on the plate to stop printing, from a numbered plate picture and a list on the printer page, on desktop and phone. It is off by default: a platform administrator turns it on per printer under Experimental features on the printer page. Built from how Bambu's own software sends this command and not yet verified on a real printer. API: `GET /api/printers/{id}/print-objects` lists the objects; `POST /api/printers/{id}/skip-objects` now requires `print_job_id` and is audited.
+- Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
+
+## [2.3.0] - 2026-11-15
+## [2.3.1] - 2026-11-17
+<!-- summary: A fix for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again. -->
+- On PostgreSQL, the status feed for integrations (Home Assistant and others) and the plate-cleared action failed with a database error on every call. Both work again. Installs on SQLite, the default, were not affected.
 ## [2.3.0] - 2026-11-17
 
 
 <!-- summary: Print next from live stock, the real cost of every print, your farm's time zone, printer-reported failures, six more Bambu materials. -->
 
 ### Added
+
 
 - If you stop a print because it was failing, you can now mark it as failed afterwards, with a reason. Failure counts and success rates then reflect what happened, and you can undo the change. Recorded filament and cost are not changed.
 - Six more Bambu materials are recognised: ASA-CF, ASA Aero, PET-CF, PPA-CF, PPS-CF and TPU for AMS. On Bambu AMS printers and the Kobra S1, a print that needs one of them starts only when the slot reports exactly that material. Before, ODIN stored some under a similar material's name (for example PET-CF as PETG-CF) and then refused the print at the final check. Existing slots correct themselves on the next printer report or reassignment; imported catalogue entries previously marked Other are corrected automatically. Generic Moonraker printers still have no material-verification gate. Education continues to refuse abrasive materials, and Education AMS reads do not yet accept these six materials.

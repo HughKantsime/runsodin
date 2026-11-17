@@ -41,3 +41,8 @@ def same_physical_print(row, filename, elapsed, now=None):
         return math.isfinite(elapsed) and elapsed >= 0 and -120 <= age <= elapsed + 120
     except (TypeError, ValueError, OverflowError):
         return False
+
+
+def pause_identity(economic_uid, print_id):
+    """Attention identity for ordinary prints without an economic allocation."""
+    return economic_uid or f'print_record:{print_id}'

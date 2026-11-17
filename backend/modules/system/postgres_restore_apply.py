@@ -18,7 +18,7 @@ def apply_pending_postgres_restore(
     if target_url in service._FAILED_RESTORE_BARRIERS:
         raise service.BackupValidationError('PostgreSQL recovery incomplete; this process retains the offline barrier')
     paths = service.postgres_paths(base_dir)
-    if not paths.pending.exists() and not paths.manifest.exists():
+    if not postgres_restore_in_progress(paths):
         return None
     if not paths.manifest.is_file():
         raise service.BackupValidationError("Pending PostgreSQL restore pair is incomplete")
@@ -272,6 +272,10 @@ def apply_pending_postgres_restore(
                 barrier_connection.close()
             barrier_engine.dispose()
         maintenance_engine.dispose()
+
+def postgres_restore_in_progress(paths) -> bool:
+    return paths.pending.exists() or paths.manifest.exists()
+
 
 # Bind after definitions so either the service or this module can be imported first.
 from modules.system import postgres_backup_service as service

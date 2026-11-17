@@ -88,6 +88,7 @@ class Analysis:
     file_meta: Optional[dict] = None
     mesh: Optional[dict] = None
     plates: Optional[list] = None
+    objects: Optional[dict] = None    # mode "plateobjects": validated ids and geometry
     facts: Optional[dict] = None      # mode "platefacts": validated per-plate facts, thumbnails decoded
 
 
@@ -489,6 +490,12 @@ def _decode(blob: bytes, mode: str, clean_exit: bool) -> Analysis:
             if not clean_exit or b"P" not in frames or len(frames[b"P"]) > ANALYSIS_LIMIT_BYTES:
                 return Analysis(status="failed")
             return validate_plates(json.loads(frames[b"P"]))
+        if mode == "plateobjects":
+            if not clean_exit or b"O" not in frames or len(frames[b"O"]) > ANALYSIS_LIMIT_BYTES:
+                return Analysis(status="failed")
+            from modules.models_library.plate_cache import validate_objects_wire
+            status, objects = validate_objects_wire(json.loads(frames[b"O"]))
+            return Analysis(status=status, objects=objects)
         if mode == "platefacts":
             if not clean_exit or b"F" not in frames or len(frames[b"F"]) > ANALYSIS_LIMIT_BYTES:
                 return Analysis(status="failed")
@@ -607,3 +614,7 @@ def quick_print_readiness(plate1_gcode: bool) -> dict:
                 "This 3MF has no sliced plate (Metadata/plate_1.gcode). Slice it in Bambu Studio "
                 "or OrcaSlicer and upload the sliced .gcode.3mf to print it."}
     return {"quick_print_ready": True, "quick_print_blocked_reason": None}
+
+
+def plate_objects_blocking(path, *, timeout: float = TIMEOUT_SECONDS) -> Analysis:
+    return analyze_blocking(path, mode="plateobjects", timeout=timeout)

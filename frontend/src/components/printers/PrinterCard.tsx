@@ -1,3 +1,4 @@
+import PlateCleared from './PlateCleared'
 import { materialLabel } from '../../utils/shared'
 import PrinterNumber from '../ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
@@ -127,6 +128,7 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
 }
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome, showPlatePicture }: PrinterCardProps) {
+  const foundry = useFoundry()
   const externallyManagedFilament = printer.filament_source === 'filament-ledger'
 
   const [syncing, setSyncing] = useState(false)
@@ -250,6 +252,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           {canDo('printers.delete') && <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(printer.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete printer" />}
         </div>
       </div>
+      {!foundry && <PlateCleared printer={printer} />}
       {printer.plug_type && plugStates?.[printer.id] === undefined && <p className="px-3 text-xs text-[var(--brand-text-muted)]">State unknown</p>}
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
@@ -351,7 +354,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <StatusBadge status={printerBadgeStatus(printer, online)} testId="printer-status" classic={
-                  <div className="flex items-center gap-1.5">
+                  <div data-printer-state={printerBadgeStatus(printer, online)} className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
                   <span
                     data-testid="printer-status"

@@ -23,7 +23,7 @@ from ops.database_parity.restore_baselines import ROOT, load_baselines, select_b
 from ops.release_gate.policy import redact_text
 from ops.database_parity.restore_proof_support import DEFAULT_PREFIX, LABEL, owned_run, run, validate_facts
 
-IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'  # PostgreSQL 16.15; read from the image by Dev on 2026-11-16.
 RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin@' + next(
     row['image_digest'] for row in load_baselines()['releases'] if row['version'] == '1.9.24')
 

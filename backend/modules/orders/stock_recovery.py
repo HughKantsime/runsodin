@@ -86,15 +86,25 @@ def lock_snapshot(db,user,addition_id,revision):
     return row,doc,dest
 
 
-def result(row, readiness, message, *, enabled=False):
+def result(row, readiness, message, *, enabled):
     return {'id':row['id'],'state':row['state'],'attempts':row['attempts'],
         'readiness':readiness,'message':message,'square_writes_enabled':enabled,'retry_allowed':False}
 
 
+def switch_state(db, owner):
+    """Read only the local switch; unreadable configuration reports disabled."""
+    try:
+        doc, _ = store.load(db, owner)
+        return store.writes_enabled(doc)
+    except Exception:
+        db.rollback()
+        return False
+
+
 def check(db,user,addition_id):
     owner=store.tenant(user);row=operation(db,owner,addition_id)
-    if row['state']=='withdrawn_baseline':return result(row,'withdrawn_baseline','Counted in baseline; permanently withdrawn, never sent.')
-    if row['state']=='confirmed':return result(row,'confirmed','Square previously acknowledged this addition. Do not send it again.')
+    if row['state']=='withdrawn_baseline':return result(row,'withdrawn_baseline','Counted in baseline; permanently withdrawn, never sent.',enabled=switch_state(db,owner))
+    if row['state']=='confirmed':return result(row,'confirmed','Square previously acknowledged this addition. Do not send it again.',enabled=switch_state(db,owner))
     try:
         doc,_,_=snapshot(db,owner,row)
         revision=doc['revision']
@@ -117,9 +127,10 @@ def check(db,user,addition_id):
                     'location': locations[a['to_location_id']], 'location_id': a['to_location_id'],
                     'current_count': count['quantity']})
 
-        current,_,_=lock_snapshot(db,user,addition_id,revision)
+        current,doc,_=lock_snapshot(db,user,addition_id,revision)
+        enabled=store.writes_enabled(doc)
         if current['state']=='confirmed':
-            db.rollback();return result(current,'confirmed','Square previously acknowledged this addition. Do not send it again.')
+            db.rollback();return result(current,'confirmed','Square previously acknowledged this addition. Do not send it again.',enabled=enabled)
         if current['state']!=row['state'] or current['request_body']!=row['request_body']:
             raise HTTPException(409,'Addition changed while checking. Reload before continuing.')
         if current['state']=='unknown':
@@ -127,10 +138,9 @@ def check(db,user,addition_id):
                 db.execute(update(batches.additions).where(batches.additions.c.id==addition_id,
                     batches.additions.c.owner==owner,batches.additions.c.state=='unknown').values(state='confirmed'))
                 db.commit();current['state']='confirmed'
-                return result(current,'confirmed','Exact Square adjustment history confirms this addition. No stock was sent.')
+                return result(current,'confirmed','Exact Square adjustment history confirms this addition. No stock was sent.',enabled=enabled)
             db.rollback()
-            return result(current,'manual_review','The outcome is still unknown. Retain this receipt and review Square history; do not create another addition.')
-        enabled=store.writes_enabled(doc)
+            return result(current,'manual_review','The outcome is still unknown. Retain this receipt and review Square history; do not create another addition.',enabled=enabled)
         db.rollback()
         from modules.orders.stock_snapshots import best_effort
         best_effort(db.get_bind(),owner,count_reads)
@@ -138,7 +148,7 @@ def check(db,user,addition_id):
     except HTTPException as exc:
         db.rollback()
         # Reader/store errors have fixed text, never upstream response bodies.
-        return result(row,'blocked',str(exc.detail))
+        return result(row,'blocked',str(exc.detail),enabled=switch_state(db,owner))
 
 
 def execute_prepared(db,user,addition_id):
@@ -148,7 +158,7 @@ def execute_prepared(db,user,addition_id):
     if not wire.LIVE_WRITES_ENABLED:
         raise HTTPException(503,'Square stock writes require both activation keys')
     owner=store.tenant(user);row=operation(db,owner,addition_id)
-    if row['state']=='confirmed':return result(row,'confirmed','Already confirmed; no request sent.')
+    if row['state']=='confirmed':return result(row,'confirmed','Already confirmed; no request sent.',enabled=switch_state(db,owner))
     if row['state']=='withdrawn_baseline':
         raise HTTPException(409,'This addition was withdrawn into a baseline and is never sent.')
     if row['state']!='prepared' or row['attempts']!=0:
@@ -165,6 +175,7 @@ def execute_prepared(db,user,addition_id):
     if not store.writes_enabled(doc):
         db.rollback()
         raise HTTPException(503,'Square stock writes require both activation keys')
+    enabled=store.writes_enabled(doc)
     changed=db.execute(update(batches.additions).where(batches.additions.c.id==addition_id,
         batches.additions.c.owner==owner,batches.additions.c.state=='prepared',batches.additions.c.attempts==0)
         .values(state='unknown',attempts=1)).rowcount
@@ -182,4 +193,4 @@ def execute_prepared(db,user,addition_id):
             batches.additions.c.owner==owner,batches.additions.c.state=='unknown').values(state='confirmed'))
         db.commit()
     return result(operation(db,owner,addition_id),'confirmed' if confirmed else 'manual_review',
-        'Square acknowledged this addition.' if confirmed else 'Outcome unknown. Use read-only reconciliation; do not resend.')
+        'Square acknowledged this addition.' if confirmed else 'Outcome unknown. Use read-only reconciliation; do not resend.',enabled=enabled)

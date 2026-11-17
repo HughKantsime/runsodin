@@ -347,3 +347,8 @@ def latest_gate_refusals(db, job_ids, actor):
             cleared.add(job_id)
     return {job_id: (code, None if job_id in hidden else detail)
             for job_id, (code, detail) in found.items() if job_id not in cleared}
+
+
+def paused_prints(db, now):
+    from modules.printers.integration_floor import paused_prints as load
+    return load(db, now)

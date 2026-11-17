@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 from core.ams_evidence_schema import EVIDENCE_TABLES
 
-IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'  # PostgreSQL 16.15; read from the image by Dev on 2026-11-16.
 
 
 def run(*args, input=None):

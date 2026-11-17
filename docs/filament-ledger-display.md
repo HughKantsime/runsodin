@@ -53,6 +53,20 @@ unlinked printers: confirming a slot on an inaccessible organization's printer
 returns HTTP 404, and unloading a spool checks access to its recorded location
 printer as well as printers linked through slots.
 
+## Bambu filament measurements
+
+For a print with one mapped spool, Odin uses the filament amount measured by
+the AMS when it has one, including for failed or cancelled prints. This also
+works on installations without organizations when both the printer and spool
+have no organization.
+
+The AMS reports remaining filament in whole percent, and only for spools it can
+read. Measured usage therefore moves in steps of one percent of the spool's
+initial weight: 10 g on a 1 kg spool. If the percentage does not change, there
+is no measurement. A completed print then uses the sliced weight when available;
+a failed or cancelled print stays unaccounted because its used amount is unknown.
+Previously archived prints keep their existing accounting state.
+
 ## External filament accounting
 
 Set `EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS` to a JSON list of positive Odin

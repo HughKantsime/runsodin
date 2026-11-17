@@ -422,7 +422,7 @@ class BambuPrinter:
         """Skip objects during an active print.
 
         Args:
-            object_ids: List of object indices to skip (0-based).
+            object_ids: identify_id values from Metadata/slice_info.config.
         """
         if not self._connected:
             return False
@@ -430,7 +430,7 @@ class BambuPrinter:
             "print": {
                 "sequence_id": "0",
                 "command": "skip_objects",
-                "obj_list": [str(oid) for oid in object_ids]
+                "obj_list": [int(oid) for oid in object_ids]
             }
         }
         return self._publish(payload)

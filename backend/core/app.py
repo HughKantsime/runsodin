@@ -537,6 +537,8 @@ def create_app() -> FastAPI:
         maintenance_alert_task = asyncio.create_task(maintenance_alerts())
         from modules.notifications.temperature_alerts import run as temperature_alerts
         temperature_task = asyncio.create_task(temperature_alerts())
+        from modules.notifications.pause_reminders import run as pause_reminders
+        pause_reminder_task = asyncio.create_task(pause_reminders())
         from modules.printers.dispatch_background import startup, drain
         startup()
         try:
@@ -552,7 +554,8 @@ def create_app() -> FastAPI:
         audit_task.cancel()
         maintenance_alert_task.cancel()
         temperature_task.cancel()
-        await asyncio.gather(audit_task, maintenance_alert_task, temperature_task, return_exceptions=True)
+        pause_reminder_task.cancel()
+        await asyncio.gather(audit_task, maintenance_alert_task, temperature_task, pause_reminder_task, return_exceptions=True)
         app.state.branding_assets.close()
 
     # FastAPI instance

@@ -88,13 +88,13 @@ function PrinterUtilization({ data }) {
                 <span className="text-sm font-bold tabular-nums">{pct}%</span>
               </div>
               <SharedProgressBar value={pct} color={barColor} size="md" />
-              <div className="flex gap-3 mt-1.5 text-xs text-[var(--brand-text-muted)]">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-[var(--brand-text-muted)]">
                 <span>{printer.completed_jobs} jobs</span>
                 <span>{printer.total_hours}h total</span>
                 <span>~{printer.avg_job_hours || 0}h/job</span>
-                {printer.failed_jobs > 0 && (
+                {printer.did_not_complete_jobs > 0 && (
                   <span className="text-red-400 flex items-center gap-0.5">
-                    <XCircle size={10} />{printer.failed_jobs} failed
+                    <XCircle size={10} /><span title={`${printer.failed_jobs} failed, ${printer.stopped_jobs} stopped`}>{printer.did_not_complete_jobs} did not complete</span>
                   </span>
                 )}
               </div>
@@ -261,12 +261,12 @@ function FailureRateByPrinterChart({ data }) {
   const chartData = data.by_printer.map(p => ({
     name: p.name,
     completed: p.completed,
-    failed: p.failed,
+    did_not_complete: p.did_not_complete,
   }))
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Success / Failure by Printer</h3>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Completed / Did Not Complete by Printer</h3>
         <span className="text-xs text-[var(--brand-text-muted)]">{data.overall_success_rate}% fleet success</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
@@ -277,7 +277,7 @@ function FailureRateByPrinterChart({ data }) {
           <Tooltip contentStyle={CHART_TOOLTIP} />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
           <Bar dataKey="completed" stackId="a" fill="#22C55E" name="Completed" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="failed" stackId="a" fill="#EF4444" name="Failed" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="did_not_complete" stackId="a" fill="#EF4444" name="Did not complete" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -309,8 +309,8 @@ function TopFailureReasons({ data }) {
 
 function FailureBreakdownTable({ title, rows, label }) {
   if (!rows?.length) return null
-  // Rank by failed count (most failures first), then by failure share.
-  const ranked = [...rows].sort((a, b) => (b.failed - a.failed) || ((b.failed / Math.max(1, b.failed + b.completed)) - (a.failed / Math.max(1, a.failed + a.completed))))
+  // Rank by did-not-complete count, then by its share of ended jobs.
+  const ranked = [...rows].sort((a, b) => (b.did_not_complete - a.did_not_complete) || ((b.did_not_complete / Math.max(1, b.did_not_complete + b.completed)) - (a.did_not_complete / Math.max(1, a.did_not_complete + a.completed))))
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">{title}</h3>
@@ -319,19 +319,19 @@ function FailureBreakdownTable({ title, rows, label }) {
           <tr className="text-xs text-[var(--brand-text-muted)] text-left">
             <th scope="col" className="pb-2 font-medium">{label}</th>
             <th scope="col" className="pb-2 font-medium text-right">Completed</th>
-            <th scope="col" className="pb-2 font-medium text-right">Failed</th>
-            <th scope="col" className="pb-2 font-medium text-right">Failure rate</th>
+            <th scope="col" className="pb-2 font-medium text-right">Did not complete</th>
+            <th scope="col" className="pb-2 font-medium text-right">Did not complete (%)</th>
           </tr>
         </thead>
         <tbody>
           {ranked.map((r, i) => {
-            const total = r.completed + r.failed
-            const rate = total ? Math.round((r.failed / total) * 1000) / 10 : 0
+            const total = r.completed + r.did_not_complete
+            const rate = total ? Math.round((r.did_not_complete / total) * 1000) / 10 : 0
             return (
               <tr key={i} className="border-t border-[var(--brand-card-border)]">
                 <td className="py-1.5 text-[var(--brand-text-primary)] truncate max-w-[12rem]">{r.name ?? r.type}</td>
                 <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{r.completed}</td>
-                <td className="py-1.5 text-right font-mono text-red-400">{r.failed}</td>
+                <td className="py-1.5 text-right font-mono text-red-400">{r.did_not_complete}<span className="block text-xs text-[var(--brand-text-muted)]">{r.failed} failed, {r.stopped} stopped</span></td>
                 <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{rate}%</td>
               </tr>
             )
@@ -344,15 +344,15 @@ function FailureBreakdownTable({ title, rows, label }) {
 
 function PrinterReliability({ data }) {
   if (!data?.by_printer?.length) return null
-  const ranked = [...data.by_printer].sort((a, b) => b.failed - a.failed)
+  const ranked = [...data.by_printer].sort((a, b) => b.did_not_complete - a.did_not_complete)
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
-      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Printers by Failures</h3>
+      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Printers by Did Not Complete</h3>
       <Table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-[var(--brand-text-muted)] text-left">
             <th scope="col" className="pb-2 font-medium">Printer</th>
-            <th scope="col" className="pb-2 font-medium text-right">Failed</th>
+            <th scope="col" className="pb-2 font-medium text-right">Did not complete</th>
             <th scope="col" className="pb-2 font-medium text-right">Success</th>
             <th scope="col" className="pb-2 font-medium text-right">MTBF</th>
           </tr>
@@ -361,7 +361,7 @@ function PrinterReliability({ data }) {
           {ranked.map((p, i) => (
             <tr key={i} className="border-t border-[var(--brand-card-border)]">
               <td className="py-1.5 text-[var(--brand-text-primary)]">{p.name}</td>
-              <td className="py-1.5 text-right font-mono text-red-400">{p.failed}</td>
+              <td className="py-1.5 text-right font-mono text-red-400">{p.did_not_complete}<span className="block text-xs text-[var(--brand-text-muted)]">{p.failed} failed, {p.stopped} stopped</span></td>
               <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{p.success_rate}%</td>
               <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{p.mtbf_hours != null ? `${p.mtbf_hours}h` : '—'}</td>
             </tr>
@@ -585,7 +585,7 @@ export default function Analytics() {
           <div className="h-6 bg-[var(--brand-input-bg)] rounded w-48 mb-4"></div>
           <div className="h-48 bg-[var(--brand-input-bg)]/50 rounded"></div>
         </div>
-      ) : failureData && failureData.total_failed > 0 && (
+      ) : failureData && failureData.total_did_not_complete > 0 && (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <FailureRateByPrinterChart data={failureData} />
@@ -593,8 +593,8 @@ export default function Analytics() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <PrinterReliability data={failureData} />
-            <FailureBreakdownTable title="Failures by Model" rows={failureData.by_model} label="Model" />
-            <FailureBreakdownTable title="Failures by Filament" rows={failureData.by_filament} label="Filament" />
+            <FailureBreakdownTable title="Did Not Complete by Model" rows={failureData.by_model} label="Model" />
+            <FailureBreakdownTable title="Did Not Complete by Filament" rows={failureData.by_filament} label="Filament" />
           </div>
           <HmsErrorFrequency data={failureData} />
         </>

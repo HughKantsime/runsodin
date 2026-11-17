@@ -19,7 +19,7 @@ export default function Utilization() {
 
   const { data: jobsData } = useQuery({
     queryKey: ['print-jobs-util', timeRange],
-    queryFn: () => printJobs.list({ limit: 500, days: Number(timeRange) }),
+    queryFn: () => printJobs.list({ limit: 500, ended_after: new Date(Date.now() - Number(timeRange) * 24 * 60 * 60 * 1000).toISOString() }),
   })
 
   const printerStats = statsData?.printer_stats || []
@@ -28,12 +28,12 @@ export default function Utilization() {
   // Compute fleet-wide metrics
   const fleetHours = printerStats.reduce((s, p) => s + (p.total_hours || 0), 0)
   const fleetJobs = printerStats.reduce((s, p) => s + (p.completed_jobs || 0), 0)
-  const fleetFailed = printerStats.reduce((s, p) => s + (p.failed_jobs || 0), 0)
+  const fleetDidNotComplete = printerStats.reduce((s, p) => s + (p.did_not_complete_jobs || 0), 0)
   const fleetAvgUtil = printerStats.length > 0
     ? (printerStats.reduce((s, p) => s + (p.utilization_pct || 0), 0) / printerStats.length).toFixed(1)
     : 0
-  const fleetSuccessRate = (fleetJobs + fleetFailed) > 0
-    ? ((fleetJobs / (fleetJobs + fleetFailed)) * 100).toFixed(1)
+  const fleetSuccessRate = (fleetJobs + fleetDidNotComplete) > 0
+    ? ((fleetJobs / (fleetJobs + fleetDidNotComplete)) * 100).toFixed(1)
     : 100
   const busiestPrinter = printerStats
     .filter(p => typeof p.utilization_pct === 'number' && Number.isFinite(p.utilization_pct))
@@ -72,13 +72,13 @@ export default function Utilization() {
   // Success pie
   const pieData = [
     { name: 'Completed', value: fleetJobs, color: '#34d399' },
-    { name: 'Failed', value: fleetFailed, color: '#f87171' },
+    { name: 'Did not complete', value: fleetDidNotComplete, color: '#f87171' },
   ].filter(d => d.value > 0)
 
   const exportCSV = () => {
-    const rows: (string | number)[][] = [['Printer', 'Jobs', 'Hours', 'Utilization %', 'Success Rate %', 'Failed', 'Avg Job (hrs)']]
+    const rows: (string | number)[][] = [['Printer', 'Jobs', 'Hours', 'Utilization %', 'Success Rate %', 'Failed', 'Avg Job (hrs)', 'did_not_complete', 'stopped']]
     printerStats.forEach(p => {
-      rows.push([p.name, p.completed_jobs, p.total_hours, p.utilization_pct, p.success_rate, p.failed_jobs, p.avg_job_hours])
+      rows.push([p.name, p.completed_jobs, p.total_hours, p.utilization_pct, p.success_rate, p.failed_jobs, p.avg_job_hours, p.did_not_complete_jobs, p.stopped_jobs])
     })
     const csvCell = (value) => {
       const text = String(value ?? '')
@@ -142,8 +142,8 @@ export default function Utilization() {
         </div>
         <div className="bg-red-900/30 rounded-md p-4 text-center border border-red-700/30">
           <XCircle size={18} className="mx-auto mb-1 text-red-400" />
-          <div className="text-2xl font-bold font-display tabular-nums text-red-400">{fleetFailed}</div>
-          <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Failed Prints</div>
+          <div className="text-2xl font-bold font-display tabular-nums text-red-400">{fleetDidNotComplete}</div>
+          <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Did not complete</div>
         </div>
       </div>
 
@@ -194,7 +194,7 @@ export default function Utilization() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Pie */}
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Success vs Failure</h3>
+          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Completed vs Did Not Complete</h3>
           {pieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>

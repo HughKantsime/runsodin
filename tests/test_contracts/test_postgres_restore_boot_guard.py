@@ -30,6 +30,8 @@ def _run(monkeypatch, base, *errors, result=None):
     """Coordinator main() with apply raising ``errors`` in turn, then returning ``result``."""
     from modules.system import postgres_backup_service as b
     from modules.system import restore_coordinator
+    from tests.test_contracts.test_postgres_version_gate import FakeEngine
+    monkeypatch.setattr(restore_coordinator, "create_database_engine", lambda *a, **k: FakeEngine())
     calls = []
     def apply(*args, **kwargs):
         calls.append(1)

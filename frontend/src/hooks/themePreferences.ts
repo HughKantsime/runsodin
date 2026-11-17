@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-export type ThemeFamily = 'classic' | 'foundry'
+export type ThemeFamily = 'classic' | 'foundry' | 'fjord'
 export type ThemeMode = 'dark' | 'light' | 'high-contrast'
 export const FAMILY_KEY = 'odin-theme-family'
 export const MODE_KEY = 'odin-theme'
@@ -12,18 +12,23 @@ export function writePreference(key: string, value: string) {
   try { localStorage.setItem(key, value) } catch { /* Still usable without storage. */ }
 }
 export function getFamily(): ThemeFamily {
-  return readPreference(FAMILY_KEY) === 'foundry' ? 'foundry' : 'classic'
+  const stored = readPreference(FAMILY_KEY)
+  return stored === 'foundry' || stored === 'fjord' ? stored : 'classic'
 }
 export function getMode(): ThemeMode {
   const stored = readPreference(MODE_KEY)
   if (stored === 'light' || stored === 'dark' || stored === 'high-contrast') return stored
   return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
+export function effectiveFamily(mode: ThemeMode, family: ThemeFamily): ThemeFamily {
+  if (mode === 'high-contrast') return 'classic'
+  return family === 'fjord' || (family === 'foundry' && mode === 'dark') ? family : 'classic'
+}
 export function applyTheme(mode: ThemeMode, family: ThemeFamily) {
   const root = document.documentElement
   root.classList.toggle('light', mode === 'light')
   root.classList.toggle('high-contrast', mode === 'high-contrast')
-  root.dataset.themeFamily = family === 'foundry' && mode === 'dark' ? 'foundry' : 'classic'
+  root.dataset.themeFamily = effectiveFamily(mode, family)
 }
 
 // Badges need the effective family, without initiating account-theme requests.

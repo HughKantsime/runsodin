@@ -20,6 +20,7 @@ from core.order_production import (prepare_job_write, reconcile_job_write, prepa
 # Resolved at call time: never a stale get_db bound at import.
 from core.db_live import live_get_db as get_db
 from core.db_compat import as_utc_datetime, sql
+from core.tenancy_mode import NO_ORGANIZATIONS_SQL
 
 from modules.archives.services import capture_attempt_spools
 
@@ -51,9 +52,11 @@ def capture_mqtt_start_weights(conn,print_job_id,printer_id,state):
     if 'mqtt_start_weights' in snapshot:return load_mqtt_start_weights(conn,print_job_id)
     weights={}
     owner=snapshot.get('printer_org_id')
+    valid_owner=(type(owner) is int and owner>0) or (
+        owner is None and conn.execute('SELECT '+NO_ORGANIZATIONS_SQL).fetchone()[0])
     for captured in snapshot.get('slots',[]):
         slot=captured.get('slot_number');identifier=captured.get('spool_id')
-        if (type(owner) is not int or owner<=0 or type(slot) is not int or slot<0
+        if (not valid_owner or type(slot) is not int or slot<0
                 or type(identifier) is not int or identifier<=0
                 or captured.get('spool_existed') is not True or captured.get('spool_org_id')!=owner):continue
         current=conn.execute('SELECT s.initial_weight_g,s.org_id FROM filament_slots fs JOIN spools s ON s.id=fs.assigned_spool_id WHERE fs.printer_id=? AND fs.slot_number=? AND s.id=?',(printer_id,slot,identifier)).fetchall()
@@ -503,28 +506,11 @@ def record_job_ended(
                 else:
                     log.info(f"[{printer_name}] Linked job {linked_job_id} already terminal; kept operator status")
             else:
-                job_applied = True
-                # Create a jobs record for metrics tracking
-                from core.display_names import observed_item_name
-                item_name = observed_item_name(conn, current_job_id)
-                actual_start = pj_row[0] if pj_row else now_utc
-                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
-                from core.job_identity import insert_job
-                insert_job(cur, f"""
-                    INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end,
-                                     duration_hours, quantity, hold, is_locked, quantity_on_bed)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, FALSE, FALSE, 1)
-                    {sql.returning_id()}
-                """, (item_name, printer_id, job_status, actual_start, now_utc, duration_hours), postgres=sql.is_postgres)
-                if sql.is_postgres:
-                    linked_job_id = cur.fetchone()[0]
-                else:
-                    linked_job_id = cur.lastrowid
-                cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
-                            (linked_job_id, current_job_id))
-                from core.print_attempts import bind_print_attempt, qmark_runner
-                bind_print_attempt(qmark_runner(cur), current_job_id, linked_job_id)
-                log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
+                from core.observed_jobs import link_ended_print
+                linked_job_id = link_ended_print(conn, current_job_id, duration_hours=duration_hours)
+                job_applied = linked_job_id is not None
+                if job_applied:
+                    log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             from core.job_terminal_observations import claim_terminal, terminal_event
             claim_terminal(conn, current_job_id, alert_job_id=linked_job_id if job_applied else None, alert_cancelled=True)

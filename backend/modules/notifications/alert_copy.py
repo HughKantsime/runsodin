@@ -43,6 +43,8 @@ def reason_for(code, model_prefix=''):
 
 def humanize(db, alert_type, title, message, printer_id, job_id, metadata=None):
     kind = getattr(alert_type, 'value', alert_type)
+    if kind == 'print_paused' and (metadata or {}).get('kind') == 'pause_reminder':
+        return title, message, metadata
     if kind not in {'print_complete', 'print_failed', 'print_cancelled', 'print_paused', 'printer_error'}:
         return title, message, metadata
     # Context-free integration notifications already supply their own copy.

@@ -13,6 +13,7 @@ import logging
 
 from core.economic_identity import _add_created
 from core.db import get_db
+from core.enum_filters import enum_filter
 from core.dependencies import log_audit
 from core.rbac import (
     AGENT_READ_SCOPE,
@@ -141,7 +142,7 @@ def list_orders(
         query = query.filter((Order.org_id == org) | (Order.org_id == None))
 
     if status_filter:
-        query = query.filter(Order.status == status_filter)
+        query = query.filter(Order.status == enum_filter(status_filter, OrderStatus, "status_filter"))
     if platform:
         query = query.filter(Order.platform == platform)
 

@@ -227,7 +227,7 @@ def test_withdrawal_terminal_audited_and_cannot_revive(batch,monkeypatch):
     logs=batch[3].execute(select(AuditLog).where(AuditLog.action=='square.baseline_review')).scalars().all()
     assert len(logs)==1 and logs[0].details['answer']=='counted'
     assert review(batch,row).status_code==409
-    monkeypatch.setattr(store,'load',lambda *_:pytest.fail('withdrawn must need no connector'))
+    monkeypatch.setattr(recovery,'live_check',lambda *_:pytest.fail('withdrawn must not contact Square'))
     assert recovery.check(batch[3],batch[1],row['id'])['state']=='withdrawn_baseline'
     monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     assert send(batch,row).status_code==409
@@ -356,8 +356,14 @@ def test_success_send_route_operator_exact_bytes_and_confirmed_no_resend(batch,m
     _,session=http(monkeypatch,counts(row['request_body']));batch[1]['role']='operator'
     result=send(batch,row)
     assert result.status_code==200 and result.json()['state']=='confirmed'
+    assert result.json()['square_writes_enabled'] is True
     assert session.request.call_args.kwargs['data']==row['request_body'].encode()
-    assert send(batch,row).json()['state']=='confirmed' and session.request.call_count==1
+    second=send(batch,row).json()
+    assert second['state']=='confirmed' and second['square_writes_enabled'] is True
+    doc,old=store.load(batch[3],1);doc['stock_writes_enabled']=False
+    store.save(batch[3],1,doc,old);batch[3].commit()
+    assert send(batch,row).json()['square_writes_enabled'] is False
+    assert session.request.call_count==1
 
 
 def test_tenant_flag_corrupt_nonboolean_fails_closed(batch):
@@ -375,7 +381,8 @@ def test_disable_after_reservation_does_not_cancel_inflight_send(batch,monkeypat
         assert tenant_enabled is True
         return True
     monkeypatch.setattr(wire.SquareWriter,'send',inflight)
-    assert send(batch,row).json()['state']=='confirmed'
+    result=send(batch,row).json()
+    assert result['state']=='confirmed' and result['square_writes_enabled'] is True
 
 
 def test_withdrawal_audit_failure_rolls_back_state(batch,monkeypatch):
@@ -451,3 +458,78 @@ def test_count_snapshots_commit_only_after_remote_reads_and_authority_recheck(ba
     db.rollback()
     saved=db.execute(text("SELECT quantity,owner_key FROM stock_snapshots WHERE variation='V1' AND location='L1'")).one()
     assert saved==('7.00000',1)
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+@pytest.mark.parametrize('state,matched', [('confirmed', False), ('unknown', True),
+                                         ('unknown', False), ('withdrawn_baseline', False)])
+def test_check_reply_reports_local_switch(batch, monkeypatch, enabled, state, matched):
+    row=prepared(batch)
+    if enabled:enable(batch)
+    monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    db=batch[3]
+    db.execute(update(recovery.batches.additions).values(state=state,attempts=1));db.commit()
+    http(monkeypatch,history(row['request_body']) if matched else {'changes':[]})
+    result=recovery.check(db,batch[1],row['id'])
+    assert result['square_writes_enabled'] is enabled
+    assert result['readiness']==('confirmed' if matched else 'manual_review' if state=='unknown' else state)
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_baseline_review_reply_reports_switch(batch, monkeypatch, enabled):
+    row=prepared(batch)
+    if enabled:enable(batch)
+    monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    response=review(batch,row)
+    assert response.status_code==200
+    assert response.json()['square_writes_enabled'] is enabled
+
+
+def test_unknown_send_reply_reports_reservation_switch(batch, monkeypatch):
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    def fail(*args,**kwargs):raise RuntimeError('synthetic writer failure')
+    monkeypatch.setattr(wire.SquareWriter,'send',fail)
+    response=send(batch,row)
+    assert response.status_code==200
+    assert response.json()['readiness']=='manual_review'
+    assert response.json()['square_writes_enabled'] is True
+
+
+@pytest.mark.parametrize('reason', ['disconnected', 'unreadable', 'other'])
+def test_blocked_reply_reports_switch_without_masking_reason(batch, monkeypatch, reason):
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    if reason=='disconnected':monkeypatch.setattr(store,'load',lambda *_:(None,None))
+    elif reason=='unreadable':
+        def unreadable(*_):raise HTTPException(503,'Configuration unavailable')
+        monkeypatch.setattr(store,'load',unreadable)
+    else:
+        def fail(*args,**kwargs):raise HTTPException(409,'Saved location unavailable')
+        monkeypatch.setattr(recovery,'live_check',fail)
+    result=recovery.check(batch[3],batch[1],row['id'])
+    assert result['readiness']=='blocked'
+    assert result['square_writes_enabled'] is (reason=='other')
+
+
+@pytest.mark.parametrize('state', ['confirmed', 'withdrawn_baseline'])
+def test_terminal_check_unreadable_switch_stays_boolean(batch, monkeypatch, state):
+    row=prepared(batch);db=batch[3]
+    db.execute(update(recovery.batches.additions).values(state=state));db.commit()
+    def fail(*_):raise HTTPException(503,'Configuration unavailable')
+    monkeypatch.setattr(store,'load',fail)
+    result=recovery.check(db,batch[1],row['id'])
+    assert result['state']==state and result['square_writes_enabled'] is False
+
+
+def test_confirmed_during_check_reports_locked_switch(batch, monkeypatch):
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    original=recovery.lock_snapshot
+    def confirmed(*args):
+        current,doc,dest=original(*args)
+        return {**current,'state':'confirmed'},doc,dest
+    monkeypatch.setattr(recovery,'lock_snapshot',confirmed)
+    result=recovery.check(batch[3],batch[1],row['id'])
+    assert result['readiness']=='confirmed' and result['square_writes_enabled'] is True
+
+
+def test_result_requires_explicit_switch():
+    with pytest.raises(TypeError):recovery.result({},'blocked','Unavailable')

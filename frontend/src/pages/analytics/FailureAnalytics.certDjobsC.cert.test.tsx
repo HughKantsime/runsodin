@@ -27,8 +27,8 @@ const card = (heading: string) => screen.getByText(heading).closest('div.rounded
 
 it('F04-4.5-02 failure analytics shows per-printer success/failure bars, fleet success rate and ranked reasons from the wire', async () => {
   const view = mount()
-  await screen.findByText('Success / Failure by Printer')
-  const printers = card('Success / Failure by Printer')
+  await screen.findByText('Completed / Did Not Complete by Printer')
+  const printers = card('Completed / Did Not Complete by Printer')
   expect(printers).toHaveTextContent(`${wire.failure_analytics.overall_success_rate}% fleet success`)
   for (const p of wire.failure_analytics.by_printer) expect(within(printers).getAllByText(p.name).length).toBeGreaterThan(0)
   // stacked completed + failed bars, one pair per printer
@@ -42,19 +42,19 @@ it('F04-4.5-02 failure analytics shows per-printer success/failure bars, fleet s
 // The producer's by_model, by_filament and per-printer MTBF are rendered as ranked failure breakdowns.
 it('F04-4.5-02 failure analytics shows which model, filament and printer fail most', async () => {
   mount()
-  await screen.findByText('Success / Failure by Printer')
+  await screen.findByText('Completed / Did Not Complete by Printer')
   const model = wire.failure_analytics.by_model[0]
   // A failure-by-model card naming the model with its failed count must exist.
-  const heading = screen.getByText(/failure.*model|model.*failure/i)
+  const heading = screen.getByText(/did not complete.*model/i)
   const section = heading.closest('div.rounded-md') as HTMLElement
   expect(section).toHaveTextContent(model.name)
   expect(section).toHaveTextContent(String(model.failed))
-  const filament = card('Failures by Filament')
+  const filament = card('Did Not Complete by Filament')
   const filamentRows = Array.from(filament.querySelectorAll('tbody tr')).map(r => r.querySelector('td')?.textContent)
   const worstFilament = [...wire.failure_analytics.by_filament].sort((a: any, b: any) => b.failed - a.failed)[0]
   expect(filamentRows[0]).toBe(worstFilament.type)
-  const printers = card('Printers by Failures')
+  const printers = card('Printers by Did Not Complete')
   const printerRows = Array.from(printers.querySelectorAll('tbody tr')).map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent))
   const worstPrinter = [...wire.failure_analytics.by_printer].sort((a: any, b: any) => b.failed - a.failed)[0]
-  expect(printerRows[0]).toEqual([worstPrinter.name, String(worstPrinter.failed), `${worstPrinter.success_rate}%`, `${worstPrinter.mtbf_hours}h`])
+  expect(printerRows[0]).toEqual([worstPrinter.name, `${worstPrinter.did_not_complete}${worstPrinter.failed} failed, ${worstPrinter.stopped} stopped`, `${worstPrinter.success_rate}%`, `${worstPrinter.mtbf_hours}h`])
 })

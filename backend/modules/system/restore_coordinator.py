@@ -9,12 +9,15 @@ import sys
 import time
 from pathlib import Path
 
+from core.database_config import create_database_engine
+from core.schema.postgres_version import check_postgres_version, UnsupportedPostgresVersion
 from modules.system.backup_service import (
     apply_pending_restore,
     finalize_pending_restore,
     rollback_pending_restore,
 )
 from modules.system import restore_artifacts
+from modules.system.postgres_restore_apply import postgres_restore_in_progress
 from modules.system.postgres_backup_service import (
     ArchiveRefused,
     PostgreSQLClientFailed,
@@ -29,6 +32,25 @@ from modules.system.postgres_backup_service import (
 RETRY_DELAYS = (2, 4, 8, 16, 30)
 
 
+def _check_server_version(url, password_file):
+    engine = create_database_engine(url, role="restore", password_file=password_file)
+    try:
+        with engine.connect() as connection:
+            # The following bootstrap command owns the startup warning.
+            check_postgres_version(connection, warn_untested=False)
+    finally:
+        engine.dispose()
+
+
+def _sweep_stale(maintenance_url, maintenance_password_file):
+    try:
+        swept = restore_artifacts.sweep_stale(postgres_paths().backups, maintenance_url, maintenance_password_file)
+        if swept["databases"] or swept["files"]:
+            print(json.dumps({"stale_restore_artifacts_removed": swept}, sort_keys=True))
+    except Exception as exc:  # A sweep failure must not block startup; it is retried.
+        print(json.dumps({"stale_restore_artifact_sweep_failed": type(exc).__name__}), file=sys.stderr)
+
+
 def _retryable(error: BaseException) -> bool:
     from sqlalchemy.exc import SQLAlchemyError
     if isinstance(error, PostgreSQLClientFailed):
@@ -37,7 +59,7 @@ def _retryable(error: BaseException) -> bool:
         isinstance(error, OSError) and not isinstance(error, (FileNotFoundError, PermissionError)))
 
 
-def _apply_postgres_with_retry(database_url, maintenance_url, password_file, maintenance_password_file):
+def _apply_postgres_with_retry(database_url, maintenance_url, password_file, maintenance_password_file, *, preflight=True):
     """Apply a staged restore. Only a deterministic archive refusal is quarantined.
 
     Transient failures are retried with a bounded backoff, then re-raised. Operator and
@@ -46,8 +68,18 @@ def _apply_postgres_with_retry(database_url, maintenance_url, password_file, mai
     process exits non-zero as before.
     """
     attempt = 0
+    checked = False
     while True:
         try:
+            if preflight and not checked:
+                servers = [(database_url, password_file)]
+                if postgres_restore_in_progress(postgres_paths()):
+                    # Frozen restore stages use the maintenance server, which may differ.
+                    servers.append((maintenance_url, maintenance_password_file))
+                for url, secret_file in servers:
+                    _check_server_version(url, secret_file)
+                checked = True
+                _sweep_stale(maintenance_url, maintenance_password_file)
             return apply_pending_postgres_restore(
                 database_url,
                 maintenance_url,
@@ -55,6 +87,8 @@ def _apply_postgres_with_retry(database_url, maintenance_url, password_file, mai
                 password_file=password_file,
                 maintenance_password_file=maintenance_password_file,
             )
+        except UnsupportedPostgresVersion:
+            raise
         except ArchiveRefused as exc:
             result = quarantine_failed_pending_postgres_restore(database_url, error=exc, password_file=password_file)
             if result is None:
@@ -90,12 +124,23 @@ def main() -> int:
         password_file = os.getenv("DATABASE_PASSWORD_FILE")
         maintenance_password_file = os.getenv("DATABASE_MAINTENANCE_PASSWORD_FILE")
         try:
-            swept = restore_artifacts.sweep_stale(postgres_paths().backups, maintenance_url, maintenance_password_file)
-            if swept["databases"] or swept["files"]:
-                print(json.dumps({"stale_restore_artifacts_removed": swept}, sort_keys=True))
-        except Exception as exc:  # A sweep failure must not block startup; it is retried.
-            print(json.dumps({"stale_restore_artifact_sweep_failed": type(exc).__name__}), file=sys.stderr)
-        result = _apply_postgres_with_retry(database_url, maintenance_url, password_file, maintenance_password_file)
+            in_progress = postgres_restore_in_progress(postgres_paths())
+            if not in_progress:
+                try:
+                    _check_server_version(database_url, password_file)
+                except UnsupportedPostgresVersion:
+                    raise
+                except Exception:
+                    # Bootstrap reports connection/configuration errors when no restore is pending.
+                    pass
+                _sweep_stale(maintenance_url, maintenance_password_file)
+            # With nothing staged this still runs the apply step's own environment checks (a maintenance
+            # secret that is missing or the same file as the application's refuses start-up, as before).
+            result = _apply_postgres_with_retry(
+                database_url, maintenance_url, password_file, maintenance_password_file, preflight=in_progress)
+        except UnsupportedPostgresVersion as exc:
+            print(str(exc), file=sys.stderr, flush=True)
+            return 1
         if result:
             print(json.dumps(result, sort_keys=True))
         return 0

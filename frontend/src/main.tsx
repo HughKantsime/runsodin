@@ -9,6 +9,12 @@ import { LicenseProvider } from './LicenseContext'
 import { I18nProvider } from './contexts/I18nContext'
 import { OrgProvider } from './contexts/OrgContext'
 import './index.css'
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
+import './fjord-tokens.css'
+import './fjord.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {

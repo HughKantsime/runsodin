@@ -675,13 +675,14 @@ class PrinterMonitor:
             errors = parse_hms_errors(self._state.get('hms') or [])
             worst = max(errors, key=lambda e: {'critical': 3, 'error': 2, 'warning': 1}.get(e['severity'], 0)) if errors else None
             code = self._state.get('print_error') or (worst['code'] if worst else None)
+            # Record runout before the pause so both lanes agree on its cause.
+            if self._state.get('stg_cur') == 6:
+                for_printer(self.printer_id, 'runout')
             for_printer(self.printer_id, 'paused', code=str(code).upper() if code else None,
                         context={'before_printing': not self._state.get('layer_num', 0),
                                  'hms_codes': [error['code'] for error in errors],
                                  'print_error': self._state.get('print_error'),
                                  'filename': self._state.get('gcode_file') or self._state.get('subtask_name')})
-            if self._state.get('stg_cur') == 6:
-                for_printer(self.printer_id, 'runout')
         elif new_state != 'PAUSE':
             if old_state == 'PAUSE' and new_state == 'RUNNING':
                 for_printer(self.printer_id, 'resumed')

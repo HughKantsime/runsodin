@@ -200,6 +200,11 @@ class MoonrakerJobTracking:
                     # Auto-deduct filament if completed
                     if end_status == "completed" and ended:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
+                else:
+                    from core.observed_jobs import link_ended_print
+                    created_job_id = link_ended_print(conn, self._current_job_db_id)
+                    row = (created_job_id,)
+                    ended = created_job_id is not None
                 from core.job_terminal_observations import claim_terminal, terminal_event
                 # As on origin/main, a Moonraker cancellation alerts as a failure.
                 claim_terminal(conn, self._current_job_db_id,

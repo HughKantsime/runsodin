@@ -4,15 +4,16 @@ from core.quota import charge_job_quota
 
 from core.rbac import should_filter_org, require_action
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional, List
-from datetime import datetime as dt
+from datetime import datetime as dt, timezone
 import logging
 import json
 
+from core.print_outcomes import PRINT_FAILED_SQL, PRINT_STOPPED_SQL, PRINT_DID_NOT_COMPLETE_SQL
 from core.db import get_db
 from core.rbac import require_role, get_org_scope, _get_org_filter
 from modules.jobs.models import Job, PrintPreset
@@ -85,17 +86,60 @@ def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user
 # Print jobs (MQTT-tracked)
 # ──────────────────────────────────────────────
 
-@router.get("/print-jobs", tags=["Print Jobs"])
+def _print_date(value, name):
+    if value is None:
+        return None
+    try:
+        parsed = dt.fromisoformat(value.replace('Z', '+00:00'))
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        raise HTTPException(422, f"{name} must be a date or date-time, for example 2026-11-01 or 2026-11-01T00:00:00Z.") from None
+
+
+@router.get("/print-jobs", tags=["Print Jobs"], responses={
+    200: {"headers": {"X-Total-Count": {"description": "Visible records matching the filters before paging.",
+                                       "schema": {"type": "integer"}}}},
+})
 def get_print_jobs(
+    response: Response,
     printer_id: Optional[int] = None,
     status: Optional[str] = None,
-    limit: int = 50,
+    limit: int = Query(50, description="Records per page, from 1 to 1000."),
     job_id: Optional[int] = None,
     org_id: Optional[int] = None,
+    started_after: Optional[str] = Query(None, description="Inclusive start date or date-time; no offset means UTC."),
+    started_before: Optional[str] = Query(None, description="Exclusive start date or date-time; no offset means UTC."),
+    ended_after: Optional[str] = Query(None, description="Inclusive end date or date-time; excludes unknown ends; no offset means UTC."),
+    ended_before: Optional[str] = Query(None, description="Exclusive end date or date-time; excludes unknown ends; no offset means UTC."),
+    offset: int = Query(0, description="Records to skip, 0 or more."),
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
 ):
-    """Get print job history from MQTT tracking."""
+    """Print history, newest start instant then newest id first, as a bare array.
+
+    Dates mean midnight UTC. After bounds are inclusive; before bounds are exclusive.
+    X-Total-Count reports the visible matching records before limit and offset.
+    """
+    if not 1 <= limit <= 1000:
+        raise HTTPException(422, "limit must be between 1 and 1000.")
+    if offset < 0:
+        raise HTTPException(422, "offset must be 0 or more.")
+    dates = {name: _print_date(value, name) for name, value in (
+        ('started_after', started_after), ('started_before', started_before),
+        ('ended_after', ended_after), ('ended_before', ended_before))}
+    for prefix in ('started', 'ended'):
+        after, before = dates[prefix + '_after'], dates[prefix + '_before']
+        if after is not None and before is not None and after > before:
+            raise HTTPException(422, f"{prefix}_after must not be later than {prefix}_before.")
+    jobs, total = _print_jobs(db, current_user, printer_id=printer_id, status=status,
+                              limit=limit, job_id=job_id, org_id=org_id, dates=dates, offset=offset)
+    response.headers['X-Total-Count'] = str(total)
+    return jobs
+
+
+def _print_jobs(db, current_user, *, printer_id=None, status=None, limit=50,
+                job_id=None, org_id=None, dates=None, offset=0):
+    """Shared list/detail read with ordinary Python defaults."""
     org = _get_org_filter(current_user, org_id)
     # Build query dynamically
     sql = """
@@ -122,13 +166,40 @@ def get_print_jobs(
     if job_id is not None:
         sql += " AND pj.id = :job_id"
         params["job_id"] = job_id
-    if status is not None:
+    if status == "did_not_complete":
+        sql += " AND " + PRINT_DID_NOT_COMPLETE_SQL.format(prefix="pj.")
+    elif status is not None:
         sql += " AND pj.status = :status"
         params["status"] = status
 
-    sql += " ORDER BY pj.started_at DESC LIMIT :limit"
-    params["limit"] = limit
+    sqlite = db.get_bind().dialect.name == 'sqlite'
+    for name, value in (dates or {}).items():
+        if value is None:
+            continue
+        column = 'pj.started_at' if name.startswith('started_') else 'pj.ended_at'
+        operator = '>=' if name.endswith('_after') else '<'
+        expression = f'datetime({column})' if sqlite else column
+        bound = f'datetime(:{name})' if sqlite else f':{name}'
+        sql += f" AND {expression} {operator} {bound}"
+        # PostgreSQL stores these columns as timestamp with time zone: an aware bound is exact in any session time zone.
+        params[name] = value.isoformat() if sqlite else value
 
+    order = 'datetime(pj.started_at)' if sqlite else 'pj.started_at'
+    from core.controlled_parts import any_controlled_data
+    if any_controlled_data(db):
+        # A print inherits its scheduled job's live or deleted-job audience rule.
+        from core.controlled_history import media_visibility
+        from core.controlled_parts import _audience
+        visible, bindings = media_visibility(current_user, 'pj.scheduled_job_id')
+        # Item policy also honors retained orphan marks from older databases.
+        direct, _ = _audience(current_user, 'SELECT audience_id FROM controlled_jobs cp '
+                             'WHERE cp.job_id=pj.scheduled_job_id')
+        sql += " AND (" + visible + ") AND (" + direct + ")"
+        params.update(bindings)
+    total = db.execute(text("SELECT COUNT(*) FROM (" + sql + ") AS matching"), params).scalar_one()
+
+    sql += f" ORDER BY {order} DESC, pj.id DESC LIMIT :limit OFFSET :offset"
+    params.update(limit=limit, offset=offset)
     result = db.execute(text(sql), params).fetchall()
 
     jobs = []
@@ -163,7 +234,7 @@ def get_print_jobs(
 
     from core.display_names import name_payloads
     from modules.jobs.print_failure import annotate
-    return annotate(db, name_payloads(db, 'print_job', jobs, current_user), user=current_user)
+    return annotate(db, name_payloads(db, 'print_job', jobs, current_user), user=current_user), total
 
 
 @router.get("/print-jobs/stats", tags=["Print Jobs"])
@@ -187,7 +258,9 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
             p.name as printer_name,
             COUNT(*) as total_jobs,
             SUM(CASE WHEN pj.status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
-            SUM(CASE WHEN pj.status = 'failed' THEN 1 ELSE 0 END) as failed_jobs,
+            SUM(CASE WHEN {PRINT_FAILED_SQL.format(prefix='pj.')} THEN 1 ELSE 0 END) as failed_jobs,
+            SUM(CASE WHEN {PRINT_STOPPED_SQL.format(prefix='pj.')} THEN 1 ELSE 0 END) as stopped_jobs,
+            SUM(CASE WHEN {PRINT_DID_NOT_COMPLETE_SQL.format(prefix='pj.')} THEN 1 ELSE 0 END) as did_not_complete_jobs,
             SUM(CASE WHEN pj.status = 'running' THEN 1 ELSE 0 END) as running_jobs,
             ROUND(SUM(
                 CASE WHEN pj.ended_at IS NOT NULL
@@ -368,8 +441,7 @@ def get_print_job(
     current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
 ):
     """Timeline detail with the same ownership and display-name policy as history."""
-    jobs = get_print_jobs(printer_id=None, status=None, limit=1, job_id=job_id,
-                          db=db, current_user=current_user)
+    jobs, _ = _print_jobs(db, current_user, limit=1, job_id=job_id)
     if not jobs:
         raise HTTPException(status_code=404, detail="Print job not found")
     return jobs[0]

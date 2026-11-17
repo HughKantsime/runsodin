@@ -1,4 +1,5 @@
 import { fetchAPI } from './client'
+import type { PrintObjects, SkipObjectsReceipt } from '../types/printer'
 import type {
   Printer,
   PrinterCreate,
@@ -79,6 +80,7 @@ export interface MoonrakerDiscoveryResult {
 }
 
 export const printers = {
+  plateCleared: (id: number, expected: { expected_release_job_id: number | null } | { expected_has_waiting_job: boolean }) => fetchAPI<{ success: boolean; message: string; plate_clear_confirmed_at?: string }>(`/printers/${id}/plate-cleared`, { method: 'POST', body: JSON.stringify(expected), quiet: true }),
   recoverDispatch: (id: number, action: DispatchRecoveryAction, body: Record<string, unknown>): Promise<DispatchRecoveryDecision> => fetchAPI(`/printers/${id}/dispatch-recovery/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   answerRestartQuestion: (id: number, question_id: string, answer: 'same' | 'new'): Promise<{ outcome: string; print_job_id: number }> => fetchAPI(`/printers/${id}/dispatch-recovery/restart-question`, { method: 'POST', body: JSON.stringify({ question_id, answer }) }),
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
@@ -104,7 +106,8 @@ export const printers = {
   testConnection: (data: ConnectionTestRequest): Promise<ConnectionTestResult> => fetchAPI('/printers/test-connection', { method: 'POST', body: JSON.stringify(data) }),
   syncAms: (printerId: number): Promise<unknown> => fetchAPI(`/printers/${printerId}/sync-ams`, { method: 'POST' }),
   clearErrors: (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/clear-errors`, { method: 'POST' }),
-  skipObjects: (printerId: number, objectIds: number[]): Promise<void> => fetchAPI(`/printers/${printerId}/skip-objects`, { method: 'POST', body: JSON.stringify({ object_ids: objectIds }) }),
+  printObjects: (printerId: number): Promise<PrintObjects> => fetchAPI(`/printers/${printerId}/print-objects`, { quiet: true }),
+  skipObjects: (printerId: number, printJobId: number, objectIds: string[]): Promise<SkipObjectsReceipt> => fetchAPI(`/printers/${printerId}/skip-objects`, { method: 'POST', quiet: true, body: JSON.stringify({ print_job_id: printJobId, object_ids: objectIds }) }),
   setSpeed: (printerId: number, speed: number): Promise<{ lights_on?: boolean; success?: boolean }> => fetchAPI(`/printers/${printerId}/speed`, { method: 'POST', body: JSON.stringify({ speed }) }),
   confirmTrayIdentity: (printerId: number, slot: number, data: { observed_state: string; decision: 'same' | 'new'; spool_id?: number }): Promise<{ spool_id: number; replayed: boolean }> => fetchAPI(`/printers/${printerId}/slots/${slot}/confirm-identity`, { method: 'POST', body: JSON.stringify(data) }),
   assignSlotSpool: (printerId: number, slotNumber: number, spoolId: number): Promise<void> => fetchAPI(`/printers/${printerId}/slots/${slotNumber}/assign?spool_id=${spoolId}`, { method: 'POST' }),

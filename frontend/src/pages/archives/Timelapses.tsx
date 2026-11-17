@@ -95,7 +95,7 @@ export default function Timelapses() {
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{items.map(row => <article key={row.id} className="border rounded-lg p-4 space-y-2"><h2>{row.printer_name || `Printer ${row.printer_id}`}</h2><p>Recording {row.id}: {row.status}, {row.frame_count} frames</p>
       {row.created_at && <p>{parseServerDate(row.created_at).toLocaleString()}</p>}
       {durationLabel(row.duration_seconds) !== null && <p>{durationLabel(row.duration_seconds)}</p>}
-      {Number.isInteger(row.print_job_id) && (row.print_job_id ?? 0) > 0 && <p>Job #{row.print_job_id}</p>}
+      {Number.isInteger(row.print_job_id) && (row.print_job_id ?? 0) > 0 && (row.print_name ? <p className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{row.print_name}<span className="block text-sm text-[var(--brand-text-muted)]">Job #{row.print_job_id}</span></p> : <p>Job #{row.print_job_id}</p>)}
       {row.status === 'ready' && <><button onClick={() => { retire(); setError(''); setPlaying({ row, owner, epoch: generation.current }) }}>Play recording {row.id}</button><button disabled={pending} onClick={() => download(row)}>Download recording {row.id}</button></>}
       {canEdit && row.status === 'ready' && <button disabled={pending} onClick={() => { if (current()) { retire(); setEditing({ row, owner }) } }}>Edit recording {row.id}</button>}
       {canDelete && ['ready', 'failed', 'deleting'].includes(row.status) && <button data-foundry-ui={foundry ? 'button' : undefined} data-foundry-variant={foundry ? 'danger' : undefined} disabled={pending} onClick={() => prepare(row)}>Delete recording {row.id}</button>}

@@ -86,10 +86,11 @@ def _status_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
     The status itself comes from ODIN, which no longer reports "error" once a print has
     completed after the recorded error. Absent on an ODIN that does not send these times.
     """
-    if "last_completed_at" not in printer and "last_error_at" not in printer:
+    if not any(key in printer for key in ("last_completed_at", "last_error_at", "plate_clear")):
         return None
     return {"last_completed_at": _text(printer.get("last_completed_at")),
-            "last_error_at": _text(printer.get("last_error_at"))}
+            "last_error_at": _text(printer.get("last_error_at")),
+            **({"plate_clear": printer["plate_clear"]} if isinstance(printer.get("plate_clear"), dict) else {})}
 
 
 def _text(value: Any) -> str | None:
@@ -131,7 +132,8 @@ def _waiting_on_attrs(printer: dict[str, Any]) -> dict[str, Any] | None:
     bench = printer.get("bench")
     if not isinstance(bench, dict):
         return None
-    return {"reason": bench.get("reason"), "since": bench.get("since"), "pause_cause": bench.get("pause_cause")}
+    return {"reason": bench.get("reason"), "since": bench.get("since"), "pause_cause": bench.get("pause_cause"),
+            "paused_seconds": bench.get("paused_seconds")}
 
 
 def _ams_humidity(printer: dict[str, Any]) -> int | None:
@@ -199,6 +201,8 @@ PRINTER_SENSORS: tuple[OdinSensorDescription, ...] = (
 )
 
 FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
+    OdinSensorDescription(key="fleet_paused_long", state_class=SensorStateClass.MEASUREMENT,
+                          value=lambda f: f.get("paused_long"), unavailable_when_missing=True),
     OdinSensorDescription(key="fleet_printing", state_class=SensorStateClass.MEASUREMENT,
                           value=lambda f: f.get("printing")),
     OdinSensorDescription(key="fleet_paused", state_class=SensorStateClass.MEASUREMENT,
@@ -213,6 +217,8 @@ FLEET_SENSORS: tuple[OdinSensorDescription, ...] = (
                           value=lambda f: _today(f, "plates_done")),
     OdinSensorDescription(key="plates_failed_today", state_class=SensorStateClass.TOTAL,
                           value=lambda f: _today(f, "plates_failed")),
+    OdinSensorDescription(key="plates_did_not_complete_today", state_class=SensorStateClass.TOTAL,
+                          value=lambda f: _today(f, "plates_did_not_complete"), unavailable_when_missing=True),
     OdinSensorDescription(key="plates_stopped_today", state_class=SensorStateClass.TOTAL,
                           value=lambda f: _today(f, "plates_stopped"), unavailable_when_missing=True),
     OdinSensorDescription(key="queued_hours", device_class=SensorDeviceClass.DURATION,
