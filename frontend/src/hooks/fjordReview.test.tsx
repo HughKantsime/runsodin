@@ -85,15 +85,27 @@ function theme(mode: 'dark' | 'light', family = 'fjord') {
   })
   style.textContent = renderedRules.join('\n')
 }
-function resolve(value: string): string {
+let variableState = ''
+let rootVariables: Record<string, string>
+function variables(): Record<string, string> {
+  const root = document.documentElement
+  // Every sample shares these variables. Re-scan only when theme/branding
+  // changes, including changes made by a mounted component after theme().
+  const state = JSON.stringify([root.className, root.dataset.themeFamily, root.getAttribute('style')])
+  if (state === variableState) return rootVariables
   const vars: Record<string, string> = {}
   for (const rule of rules) {
     if (rule.nodes.some(n => n.type === 'decl' && n.prop.startsWith('--')) && document.documentElement.matches(rule.selector)) {
       rule.nodes.forEach(n => { if (n.type === 'decl' && n.prop.startsWith('--')) vars[n.prop] = !n.important && document.documentElement.style.getPropertyValue(n.prop) || n.value })
     }
   }
-  return value.replace(/var\((--[\w-]+)(?:,\s*([^()]+))?\)/g, (_, key, fallback) => resolve(vars[key] ?? fallback ?? key)).replace(/^#([a-f\d])([a-f\d])([a-f\d])$/i, '#$1$1$2$2$3$3')
+  variableState = state
+  return rootVariables = vars
 }
+function resolve(value: string, vars = variables()): string {
+  return value.replace(/var\((--[\w-]+)(?:,\s*([^()]+))?\)/g, (_, key, fallback) => resolve(vars[key] ?? fallback ?? key, vars)).replace(/^#([a-f\d])([a-f\d])([a-f\d])$/i, '#$1$1$2$2$3$3')
+}
+const colorDocument = document.implementation.createHTMLDocument('')
 function color(el: Element, prop = 'color') {
   // JSDOM also mis-parses commas inside escaped class/attribute selectors.
   // Give every compiled class an equivalent simple selector on the real DOM.
@@ -116,11 +128,11 @@ function color(el: Element, prop = 'color') {
   if (prop === 'opacity') return value || '1'
   if (!value && prop === 'color' && el.parentElement) return color(el.parentElement)
   const css = transform({ filename: 'color.css', code: Buffer.from(`a{${prop}:${value}}`), minify: true, targets: { chrome: 100 << 16 } }).code.toString()
-  const probe = document.createElement('span')
+  const probe = colorDocument.createElement('span')
   probe.style.color = css.slice(css.indexOf(':') + 1, -1)
-  document.body.append(probe)
+  // The cascade and variables are already resolved. An empty document still
+  // normalizes named/alpha colors without re-evaluating the full stylesheet.
   const result = getComputedStyle(probe).color
-  probe.remove()
   const rgb = result.match(/^rgb\((\d+), (\d+), (\d+)\)$/)
   return rgb ? '#' + rgb.slice(1).map(n => Number(n).toString(16).padStart(2, '0')).join('') : result
 }
@@ -139,6 +151,36 @@ function token(el: Element, name: string, prop = 'color') {
   const expected = resolve(`var(${name})`).toLowerCase().replace(/^#([a-f\d])([a-f\d])([a-f\d])$/, '#$1$1$2$2$3$3')
   expect(color(el, prop)).toBe(expected)
 }
+it('reuses root variables for repeated resolutions and refreshes them when branding changes', () => {
+  theme('light')
+  const expected = resolve('var(--brand-primary)')
+  const matches = vi.spyOn(document.documentElement, 'matches')
+  try {
+    for (let i = 0; i < 10; i++) expect(resolve('var(--brand-primary)')).toBe(expected)
+    expect(matches.mock.calls.length).toBe(0)
+    document.documentElement.style.setProperty('--brand-primary', '#123456')
+    expect(resolve('var(--brand-primary)')).toBe('#123456')
+    document.documentElement.removeAttribute('style')
+    expect(resolve('var(--brand-primary)')).toBe(expected)
+  } finally { matches.mockRestore() }
+})
+it('normalizes resolved colors without attaching a probe to the full stylesheet', () => {
+  theme('dark')
+  const el = document.createElement('button')
+  el.style.color = '#abc'
+  el.style.backgroundColor = 'rgba(6, 78, 59, 0.5)'
+  document.body.append(el)
+  const append = vi.spyOn(document.body, 'append')
+  try {
+    expect(color(el)).toBe('#aabbcc')
+    expect(color(el, 'background-color')).toBe('rgba(6, 78, 59, 0.5)')
+    el.style.color = 'red'
+    expect(color(el)).toBe('#ff0000')
+    el.style.backgroundColor = 'transparent'
+    expect(color(el, 'background-color')).toBe('rgba(0, 0, 0, 0)')
+    expect(append.mock.calls.length).toBe(0)
+  } finally { append.mockRestore(); el.remove() }
+})
 const base = { id: 1, name: 'Test printer', is_active: true, api_type: 'bambu', gcode_state: 'IDLE', last_seen: new Date().toISOString(), filament_slots: [], tags: [], maintenance: { state: 'ok' } }
 const cardProps = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn() }
 function mount(ui: React.ReactNode, seed: Array<[unknown[], unknown]> = []) {
