@@ -11,7 +11,7 @@ mkdir -p "$out"
 cd "$root" || exit 2
 git rev-parse HEAD > "$out/source-head.txt"
 git status --short >> "$out/source-head.txt"
-find tests/test_contracts tests/test_telemetry tests/test_release_control -name 'test_*.py' | sort > "$out/files.txt"
+find tests/test_contracts tests/test_telemetry tests/test_release_control backend/tests -name 'test_*.py' | sort > "$out/files.txt"
 split -l "$size" "$out/files.txt" "$out/batch-"
 status=0
 for list in "$out"/batch-*; do

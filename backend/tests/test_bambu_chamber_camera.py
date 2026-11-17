@@ -80,11 +80,8 @@ def fake_printer(tmp_path, monkeypatch):
                 with suppress(ConnectionError):
                     await writer.wait_closed()
                 tasks.discard(asyncio.current_task())
-        try:
-            server = await asyncio.start_server(handle, "127.0.0.1", 0,
-                                                ssl=None if mode == "handshake" else context)
-        except PermissionError:
-            pytest.skip("Sandbox forbids binding the local TLS fake printer")
+        server = await asyncio.start_server(handle, "127.0.0.1", 0,
+                                            ssl=None if mode == "handshake" else context)
         monkeypatch.setattr(chamber, "PORT", server.sockets[0].getsockname()[1])
         try:
             yield auth, closed, policy_calls

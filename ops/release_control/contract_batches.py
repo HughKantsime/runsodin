@@ -9,7 +9,7 @@ merges every batch's JUnit into one file for the gate's JUnit policy. A batch th
 exits non-zero, times out or writes no JUnit makes the whole run fail.
 
 Usage:
-  python3.11 -m ops.release_control.contract_batches --tests tests/test_contracts \
+  python3.11 -m ops.release_control.contract_batches --tests tests/test_contracts backend/tests \
       --junit <junit.xml> --work <dir> [--jobs 6] [--batch-size 40] [--batch-timeout 1800] \
       [--exclude-marker live_environment --inventory <node-id list>]
 
@@ -51,12 +51,14 @@ class BatchResult:
     log: Path
 
 
-def discover(tests: str) -> list[str]:
-    base = Path(tests) if Path(tests).is_absolute() else ROOT / tests
-    if not base.is_dir():
-        raise SystemExit(f"test directory not found: {tests}")
-    files = sorted(base.rglob("test_*.py"))
-    return [str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path) for path in files]
+def discover(tests: str | list[str]) -> list[str]:
+    files: set[Path] = set()
+    for directory in [tests] if isinstance(tests, str) else tests:
+        base = Path(directory) if Path(directory).is_absolute() else ROOT / directory
+        if not base.is_dir():
+            raise SystemExit(f"test directory not found: {directory}")
+        files.update(base.rglob("test_*.py"))
+    return sorted(str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path) for path in files)
 
 
 # Certification families share capture artifacts: a family's wire-fixture file
@@ -92,10 +94,11 @@ def plan(files: list[str], batch_size: int) -> list[Batch]:
     return [Batch(f"batch-{index:03d}", tuple(batch)) for index, batch in enumerate(batches)]
 
 
-def marked_node_ids(tests: str, marker: str) -> list[str]:
+def marked_node_ids(tests: str | list[str], marker: str) -> list[str]:
     """Node ids under ``tests`` that carry ``marker`` (pytest collection, no execution)."""
     completed = subprocess.run(
-        [sys.executable, "-m", "pytest", tests, "--collect-only", "-q", "-p", "no:cacheprovider", "-m", marker],
+        [sys.executable, "-m", "pytest", *([tests] if isinstance(tests, str) else tests),
+         "--collect-only", "-q", "-p", "no:cacheprovider", "-m", marker],
         cwd=ROOT, capture_output=True, text=True, timeout=600, check=False)
     if completed.returncode not in (0, 5):  # 5: nothing carries the marker
         raise SystemExit(f"collecting {marker} tests failed:\n{completed.stdout[-2000:]}{completed.stderr[-2000:]}")
@@ -160,7 +163,7 @@ def merge(results: list[BatchResult], output: Path) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tests", required=True)
+    parser.add_argument("--tests", nargs="+", required=True)
     parser.add_argument("--junit", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--jobs", type=int, default=6)

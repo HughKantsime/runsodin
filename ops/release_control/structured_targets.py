@@ -72,7 +72,7 @@ def contracts() -> int:
     result = execute(
         gate_id="contracts",
         command=[str(python), "-m", "ops.release_control.contract_batches",
-                 "--tests", "tests/test_contracts", "--junit", "{junit}",
+                 "--tests", "tests/test_contracts", "backend/tests", "--junit", "{junit}",
                  "--work", str(directory / "batches"), "--jobs", str(CONTRACT_BATCH_JOBS),
                  "--batch-size", str(CONTRACT_BATCH_FILES),
                  "--batch-timeout", str(CONTRACT_BATCH_TIMEOUT_SECONDS),
