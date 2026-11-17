@@ -140,23 +140,49 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   .f-camera-empty p { flex: 1 1 140px; min-width: 0; }
   .f-camera-empty button { background: #24231f; }
   .f-camera-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; }
-  .f-schedule { min-width: 0; background: #1b1a18; border: 1px solid #36332e; border-radius: 12px; padding: 20px; }
-  .f-schedule-scroll { padding-block: 16px; container-type: inline-size; }
-  .f-time-axis { display: grid; grid-template-columns: minmax(44px, 24%) minmax(0, 1fr); color: #bfbaae; margin-bottom: 12px; }
-  .f-time-axis > div { display: flex; justify-content: space-between; }
-  .f-time-axis time:last-child { text-align: right; }
-  .f-lane { display: grid; grid-template-columns: minmax(44px, 24%) minmax(0, 1fr); margin-block: 8px; align-items: center; }
-  .f-page .f-lane .f-lane-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; font-size: 13px; line-height: 48px; }
+  .f-schedule { min-width: 0; max-width: 100%; background: #1b1a18; border: 1px solid #36332e; border-radius: 12px; padding: 20px; }
+  #main-content:has(.f-schedule) { margin-bottom: 80px; }
+  .f-schedule-range { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .f-schedule-range select { min-height: 44px; padding: 8px; background: #24231f; color: #f0ece4; border: 1px solid #36332e; border-radius: 6px; }
+  .f-schedule-scroll { padding-block: 16px; padding-bottom: 80px; overflow-x: auto; max-width: 100%; min-width: 0; }
+  .f-schedule-chart { min-width: calc(720px + var(--unknown-width, 0px)); --printer-width: min(144px, 20vw); }
+  .f-time-axis { display: grid; grid-template-columns: var(--printer-width) minmax(0, 1fr); color: #bfbaae; margin-bottom: 24px; font-size: 13px; }
+  .f-time-axis > span { position: sticky; left: 0; z-index: 3; background: #1b1a18; }
+  .f-time-labels { margin-left: var(--unknown-width, 0px); min-width: 0; }
+  .f-hour-line { position: relative; height: 24px; overflow: hidden; }
+  .f-date-line { position: relative; height: 48px; }
+  .f-hour-line time, .f-date-line time { position: absolute; white-space: nowrap; }
+  .f-date-line time { left: clamp(0px, var(--date-left), calc(100% - 10ch)); width: 10ch; white-space: nowrap; }
+  .f-hour-line time { transform: translateX(-50%); }
+  .f-hour-line time:first-child { transform: none; }
+  .f-hour-line time:last-child { transform: translateX(-100%); }
+  .f-schedule-lanes { position: relative; }
+  .f-now-track { position: absolute; inset: 0 0 0 calc(var(--printer-width) + var(--unknown-width, 0px)); pointer-events: none; z-index: 2; }
+  .f-day-grid-line { position: absolute; top: 0; bottom: 0; border-left: 1px solid #5b554b; }
+  .f-now-line { position: absolute; top: 0; bottom: 0; border-left: 1px solid #f0ece4; }
+  .f-now-line > span { position: absolute; top: -20px; left: 2px; font-size: 13px; color: #f0ece4; }
+  .f-lane { display: grid; grid-template-columns: var(--printer-width, 144px) minmax(0, 1fr); margin-block: 8px; align-items: stretch; }
+  .f-page .f-lane .f-lane-name { display: block; position: sticky; left: 0; z-index: 3; background: #1b1a18; box-shadow: 0 -8px 0 #1b1a18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; font-size: 13px; line-height: 48px; min-width: 44px; min-height: 48px; }
+  .f-page .f-now-track + .f-lane .f-lane-name { box-shadow: 0 -24px 0 #1b1a18; }
   .f-lane-track { position: relative; min-width: 0; height: 52px; background: #24231f; border-radius: 6px; }
-  .f-lane .f-lane-block { position: absolute; top: 2px; min-width: 44px; min-height: 48px; height: 48px; padding: 4px; display: flex; justify-content: flex-start; overflow: hidden; white-space: nowrap; overflow-wrap: normal; word-break: normal; font-size: 13px; text-align: left; opacity: 1; }
-  .f-lane-block > span { flex: none; white-space: nowrap; }
+  .f-lane-timed { position: relative; height: 100%; margin-left: var(--unknown-width, 0px); }
+  /* Later than the now track at the same z-index, below the pinned printer names. */
+  .f-lane-status { position: absolute; left: 4px; top: 2px; font-size: 13px; color: #bfbaae; z-index: 2; background: #24231f; }
+  .f-lane .f-lane-hit { position: absolute; min-width: 44px; min-height: 48px; height: 48px; padding: 0; background: transparent; border: 0; border-radius: 0; }
+  .f-lane .f-lane-block { position: absolute; top: 0; box-sizing: border-box; min-width: 0; cursor: inherit; min-height: 48px; height: 48px; padding: 0; display: flex; justify-content: flex-start; overflow: visible; white-space: nowrap; overflow-wrap: normal; word-break: normal; font-size: 13px; text-align: left; opacity: 1; }
+  /* A divider keeps touching jobs separate without changing their scheduled width. */
+  .f-lane-block::after { content: ''; position: absolute; inset: 0 0 0 auto; width: min(2px, 25%); background: #24231f; pointer-events: none; }
+  .f-lane-block > span { display: block; min-width: 0; padding: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .f-lane-pocket { display: block; padding: 4px; font-size: 13px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .f-lane-pocket-size { position: absolute; visibility: hidden; white-space: nowrap; width: max-content; }
+  .f-time-unset { border: 1px dotted #bfbaae; background: #24231f; color: #bfbaae; }
   .f-lane [data-kind="printing"] { background: #1f2d40; color: #a9cbfa; border: 1px solid #7db2f7; }
   .f-lane [data-kind="queued"] { background: #2a2640; color: #c9c1f7; border: 1px dashed #ab9ff2; }
   .f-lane [data-kind="waiting"] { background: #3a2a14; color: #f0c07c; border: 1px dashed #dc9a3e; }
+  .f-lane-block[data-kind] { border-width: min(1px, calc(var(--bar-pixels) / 2)); }
+  .f-lane .f-lane-block:focus-visible { outline: none; z-index: 1; }
+  .f-lane-block:focus-visible::before { content: ''; position: absolute; top: -2px; bottom: -2px; left: 50%; transform: translateX(-50%); width: max(100%, 8px); outline: 2px solid #f0ece4; pointer-events: none; }
   .f-lane-details { display: grid; gap: 16px; }
-  @container (max-width: 440px) {
-    .f-time-axis time[data-hour="3"], .f-time-axis time[data-hour="9"] { display: none; }
-  }
   .f-legend { font-size: 13px; color: #bfbaae; }
   .f-fleet-summary { margin-right: auto; display: flex; flex-wrap: nowrap; white-space: nowrap; gap: 12px; }
   @media (max-width: 1100px) { .f-fleet-summary { display: none; } }
@@ -173,6 +199,10 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
     .emergency-controls-panel { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); right: 16px; max-width: calc(100vw - 32px); }
   }
   @media (max-width: 600px) {
+    .f-page .f-schedule { padding: 8px; }
+    .f-schedule .f-schedule-chart { --unknown-cap: 64px; }
+    .f-lane-pocket { white-space: normal; }
+    .f-lane-pocket-count { display: none; }
     /* The chooser gets the whole row and Full screen drops below it, so a long camera name fits in view. */
     .f-camera-toolbar { flex-wrap: wrap; }
     .f-camera-tabs { flex-basis: 100%; }

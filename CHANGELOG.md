@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
+
 ## [2.3.0] - 2026-11-15
 
 

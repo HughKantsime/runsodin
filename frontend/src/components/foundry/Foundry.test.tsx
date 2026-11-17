@@ -202,21 +202,22 @@ it('schedule keeps waits inside the row and opens complete descriptions for shor
   ]
   const { container } = mount(<ScheduleLane printer={printer()} blocks={blocks} start={now} />)
   expect(container.querySelectorAll('.f-lane-track')).toHaveLength(1)
-  const waits = screen.getByRole('button', { name: /Wait · waits for you · time unknown/ })
+  const waits = screen.getByRole('button', { name: /Wait · waits for you · Time not set/ })
   expect(waits.parentElement).toHaveClass('f-lane-track')
   fireEvent.click(waits)
-  expect(screen.getByRole('dialog')).toHaveTextContent('Wait · waits for you · time unknown')
+  expect(screen.getByRole('dialog')).toHaveTextContent('Wait · waits for you · Time not set')
   expect(screen.getByRole('link', { name: 'Test press' })).toHaveAttribute('title', 'Test press')
   const wide = layoutLane(blocks.slice(0, 1), now, 12, 1200)
   expect(wide[0].left).toBe(0)
   expect(wide[0].width).toBeCloseTo(100 / 12)
 })
-it.each([120, 208, 300, 800])('schedule has bounded non-overlapping 44px targets at track width %s', width => {
+it.each([120, 208, 300, 800])('schedule has bounded non-overlapping true-width buttons at track width %s', width => {
   const blocks = Array.from({ length: 12 }, (_, i) => ({ key: `${i}`, name: `Job ${i}`, kind: 'queued' as const, start: now + i * 3600000, end: now + i * 3600000 + 60000 }))
   const groups = layoutLane(blocks, now, 12, width)
   expect(groups.flatMap(g => g.blocks)).toHaveLength(12)
   for (let i = 0; i < groups.length; i++) {
-    expect(groups[i].pixels).toBeGreaterThanOrEqual(44)
+    expect(groups[i].pixels).toBeCloseTo(width / 720)
+    expect(groups[i].left).toBeCloseTo(i / 12 * 100)
     expect(groups[i].left).toBeGreaterThanOrEqual(0)
     expect(groups[i].left + groups[i].width).toBeLessThanOrEqual(100.00001)
     if (i) expect(groups[i].left).toBeGreaterThanOrEqual(groups[i - 1].left + groups[i - 1].width)
@@ -299,36 +300,43 @@ it('one slotted job opens its details in one click without an intermediate drawe
   expect(onSelect).toHaveBeenCalledExactlyOnceWith(slot)
   expect(screen.queryByRole('dialog')).toBeNull()
 })
-it('undated waiting work begins at now and retains timed jobs in a grouped drawer', () => {
+it('undated waiting work has its own pocket alongside timed jobs', () => {
   const slot = { job_id: 42 } as TimelineSlot
   const blocks = [{ key: 'wait', name: 'Load filament', kind: 'waiting' as const },
     { key: 'scheduled', name: 'Part', kind: 'queued' as const, start: now, end: now + 3600000, slot }]
   const groups = layoutLane(blocks, now, 12, 300)
-  expect(groups).toHaveLength(1)
+  expect(groups).toHaveLength(2)
   expect(groups[0].left).toBe(0)
+  expect(groups[0].unknown).toBe(true)
+  expect(groups.every(group => group.row === 0)).toBe(true)
   const onSelect = vi.fn()
   mount(<ScheduleLane printer={printer()} blocks={blocks} start={now} onSelect={onSelect} />)
   fireEvent.click(screen.getByRole('button', { name: /Load filament/ }))
   expect(onSelect).not.toHaveBeenCalled()
-  expect(screen.getByRole('dialog')).toHaveTextContent('time unknown')
-  fireEvent.click(screen.getByRole('button', { name: 'Open job details' }))
+  expect(screen.getByRole('dialog')).toHaveTextContent('Time not set')
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  fireEvent.click(screen.getByRole('button', { name: /Part · queued/ }))
   expect(onSelect).toHaveBeenCalledExactlyOnceWith(slot)
 })
 it('a single unslotted block still opens its complete facts', () => {
   const onSelect = vi.fn()
   mount(<ScheduleLane printer={printer()} blocks={[{ key: 'wait', name: 'Held part', kind: 'waiting' }]} start={now} onSelect={onSelect} />)
   fireEvent.click(screen.getByRole('button', { name: /Held part/ }))
-  expect(screen.getByRole('dialog')).toHaveTextContent('Held part · waits for you · time unknown')
+  expect(screen.getByRole('dialog')).toHaveTextContent('Held part · waits for you · Time not set')
   expect(onSelect).not.toHaveBeenCalled()
 })
 it('a short block hides a label that cannot fit while preserving its full accessible name', () => {
   const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(44)
   const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(48)
+  const style = document.createElement('style')
+  style.textContent = '.f-lane-block { padding: 4px; }'
+  document.head.appendChild(style)
   try {
     mount(<ScheduleLane printer={printer()} blocks={[{ key: 'short', name: 'Complete job name', kind: 'queued', start: now, end: now + 60000 }]} start={now} />)
     const button = screen.getByRole('button', { name: /Complete job name/ })
-    expect(button.querySelector('span')).toHaveStyle({ visibility: 'hidden' })
-  } finally { clientWidth.mockRestore(); scrollWidth.mockRestore() }
+    expect((button.querySelector('.f-lane-label') as HTMLElement).style.visibility).toBe('hidden')
+    expect(button).toHaveAttribute('title', button.getAttribute('aria-label'))
+  } finally { clientWidth.mockRestore(); scrollWidth.mockRestore(); style.remove() }
 })
 
 it.each(['card', 'banner', 'camera'])('%s does not show frozen progress while awaiting confirmation', surface => {

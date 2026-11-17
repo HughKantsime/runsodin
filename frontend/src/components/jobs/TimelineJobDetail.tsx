@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import ControlledPart from '../shared/ControlledPart'
 import PrinterNumber from '../ui/PrinterNumber'
 import { displayName } from '../../utils/displayName'
@@ -35,6 +36,7 @@ export default function BlockDetail({ block }) {
 }
 
 function ScheduledJobDetail({ block }) {
+  const foundry = useFoundry()
   const { data: job, isLoading } = useQuery({
     queryKey: ['job', block.job_id],
     queryFn: () => jobs.get(block.job_id),
@@ -55,7 +57,7 @@ function ScheduledJobDetail({ block }) {
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[var(--brand-text-primary)] font-medium">{displayName(job.display_name || job.item_name ? job : block)}</span>
-          <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[job.status] || 'bg-[var(--brand-card-border)]')}>{job.status}</span>
+          <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', foundry && job.hold ? 'bg-amber-900/30 text-amber-300' : statusColors[job.status] || 'bg-[var(--brand-card-border)]')}>{foundry && job.hold ? 'Waits for you (held)' : job.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
       </div>
