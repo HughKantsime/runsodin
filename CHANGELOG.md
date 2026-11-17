@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.3.1] - 2026-11-17
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: A fix for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again. -->
 
