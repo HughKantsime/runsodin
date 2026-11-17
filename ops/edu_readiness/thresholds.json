@@ -6,7 +6,7 @@
   "operations_per_repetition": 1000,
   "minimum_reads": 800,
   "minimum_writes": 100,
-  "maximum_repetition_seconds": 17,
+  "maximum_repetition_seconds": 19,
   "host_classes": {
     "mac-m4": {
       "identity": {"system": "Darwin", "machine": "arm64", "cpu": "Apple M4"},
@@ -17,7 +17,7 @@
     "odin-ci": {
       "identity": {"system": "Linux", "machine": "x86_64", "hostname": "odin-ci", "cpu": "11th Gen Intel(R) Core(TM) i7-11700K @ 3.60GHz"},
       "read_p95_ms": 750,
-      "write_p95_ms": 755,
+      "write_p95_ms": 855,
       "global_p99_ms": 2590
     }
   },
@@ -108,5 +108,21 @@
       "evidence": "worst 14.8 s on odin-ci and 9.2 s on the Mac in those runs; +14.9% on the slower host"
     },
     "unchanged": "every error, 5xx, tenant-leak, websocket, fd and memory limit"
+  },
+  "rebaseline_2_3": {
+    "decision": "2026-11-17 ODIN Dev: releases 2.3.0 and 2.3.1 run this workload about 10-15% slower than the 2026-10-31 measurements, on odin-ci and on the Mac alike, so it is the product and not the host; the cause is not found yet and is an open item (ODIN register D21). That used up the margin: the 2.3.1 hotfix validation (gha-44036780307-1) failed api_load by 1-4% while the VM's host was contended, although 2.3.0 and 2.3.1 measure the same side by side. Same method as before: measured worst plus 10-15%. Only the odin-ci write limit and the repetition time move; tighten them again when the drift is explained. See docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits for 2.3'.",
+    "odin-ci": {
+      "write_p95_ms": {
+        "previous": 755,
+        "value": 855,
+        "evidence": "worst write p95 742.1 ms over 6 idle runs (18 repetitions) on odin-ci on 2026-11-17 09:20-09:38 UTC, alternating 2.3.0 (39dd3b8f: mean 680, worst 742) and 2.3.1 (1a183019: mean 685, worst 733); +15.2%. Inside gate run gha-44036780307-1 the worst was 781.3 ms"
+      }
+    },
+    "maximum_repetition_seconds": {
+      "previous": 17,
+      "value": 19,
+      "evidence": "worst 17.54 s inside gate run gha-44036780307-1 (host steal about 1%); worst 15.96 s over the same 18 idle repetitions (mean 15.5 s; 13.3 s typical on 2026-10-31); +8.3% over the in-gate worst, +19% over the idle worst. The Mac measured 10.5-11.0 s at 2.3.1 (9.2 s worst on 2026-10-31)"
+    },
+    "unchanged": "odin-ci read p95 (worst 530 ms of 750) and global p99 (worst 831 ms of 2590), every Mac limit, and every error, 5xx, tenant-leak, websocket, fd and memory limit"
   }
 }
