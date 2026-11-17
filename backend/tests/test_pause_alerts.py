@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import text
 
 from backend.tests.test_alert_phone_delivery import alert_db, devices  # noqa: F401
@@ -14,9 +15,28 @@ from core.base import AlertType, AlertSeverity
 from modules.notifications import job_faults
 
 
+FEED_REASON = 'Failed to feed the filament into the toolhead. Possible cause: filament or spool stuck.'
+FAN_REASON = ('The Part Cooling Fan speed is too slow or stopped. It may be stuck, '
+              'or the connector may not be plugged in properly.')
+PRINT_ERROR = 0x07008011
+PRINT_ERROR_REASON = 'AMS filament ran out. Please insert a new filament into the same AMS slot.'
+
+
 @pytest.fixture(autouse=True)
 def synthetic_auth(monkeypatch):
     monkeypatch.setenv('JWT_SECRET_KEY', 'test-key-for-contract-tests-only')
+
+
+@pytest.fixture
+def bambu_alert_db(alert_db, monkeypatch):
+    from core.crypto import encrypt
+    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    # A real P1P model prefix with a synthetic serial and access code. The shared
+    # review_db printer has no credentials, so it cannot select a Bambu bundle.
+    alert_db.execute(text("UPDATE printers SET model='P1P',machine_type='P1P',api_key=:key WHERE id=9"),
+                     {'key': encrypt('01PSYNTHETIC|test-code')})
+    alert_db.commit()
+    return alert_db
 
 
 def pause_item(**changes):
@@ -25,18 +45,20 @@ def pause_item(**changes):
                 context={'filename': 'gear.gcode', 'before_printing': True}, **changes)
 
 
-def test_pause_once_per_episode_across_transactions_and_reason_changes(alert_db, devices):
+def test_pause_once_per_episode_across_transactions_and_reason_changes(bambu_alert_db, devices):
     from modules.notifications.alert_dispatcher import deliver_staged_alert
+    alert_db = bambu_alert_db
     plan = job_faults.stage(alert_db, pause_item())
     alert_db.commit()
     deliver_staged_alert(alert_db, plan)
     assert devices.send_push_result.call_count == 1
     assert plan.alert_type == AlertType.PRINT_PAUSED and plan.severity == AlertSeverity.CRITICAL
     assert 'gear paused before printing' in plan.title
-    assert 'AMS' in plan.message and '07007000' not in plan.title
+    assert FEED_REASON in plan.message and '07007000' not in plan.title
+    assert FEED_REASON in devices.send_push_result.call_args.kwargs['body']
     assert devices.send_push_result.call_args.kwargs['category'] == 'PRINT_PAUSED'
     # A changed HMS code and newly linked physical identity do not start a new pause.
-    repeated = {**pause_item(), 'attempt': 'physical', 'code': '03000D00_00020002'}
+    repeated = {**pause_item(), 'attempt': 'physical', 'code': '03003100_00010001'}
     assert job_faults.stage(alert_db, repeated) is None
     alert_db.commit()
     resumed = {**repeated, 'kind': 'resumed', 'occurred': repeated['occurred'] + timedelta(seconds=5)}
@@ -49,7 +71,8 @@ def test_pause_once_per_episode_across_transactions_and_reason_changes(alert_db,
     alert_db.commit()
     deliver_staged_alert(alert_db, plan2)
     assert devices.send_push_result.call_count == 2
-    assert 'Motion/toolhead' in plan2.message
+    assert FAN_REASON in plan2.message
+    assert FAN_REASON in devices.send_push_result.call_args.kwargs['body']
     assert job_faults.stage(alert_db, again) is None
 
 
@@ -195,8 +218,9 @@ def test_get_preferences_returns_defaults_without_writes(alert_db, monkeypatch, 
     ('odin-dispatch-deadbeef', '', 'nice-gear.gcode.3mf', 'nice-gear'),
     ('odin-dispatch-deadbeef', '', 'odin-dispatch-another.3mf', 'print'),
 ])
-def test_human_job_name_precedence(alert_db, item_name, project_name, original, expected):
+def test_human_job_name_precedence(bambu_alert_db, item_name, project_name, original, expected):
     from modules.notifications.alert_copy import humanize
+    alert_db = bambu_alert_db
     alert_db.execute(text("UPDATE printers SET nickname='Herbie' WHERE id=9"))
     alert_db.execute(text("UPDATE print_files SET project_name=:project,original_filename=:original,filename='odin-dispatch-hidden.3mf' WHERE id=11"), {'project': project_name, 'original': original})
     alert_db.execute(text("INSERT INTO jobs(id,item_name,status,print_file_id,submitted_by,charged_to_org_id) VALUES(99,:name,'pending',11,3,1)"), {'name': item_name})
@@ -204,7 +228,7 @@ def test_human_job_name_precedence(alert_db, item_name, project_name, original, 
                                 '', 9, 99, {'hms_code': '07007000_00020002'})
     assert title == f'Herbie: {expected} failed'
     assert 'odin-dispatch-' not in title + body
-    assert 'Check' in body and 'AMS' in body
+    assert 'Check' in body and FEED_REASON in body
     assert 'Details:' in body
     assert meta['hms_code'] == '07007000_00020002'
 
@@ -357,11 +381,28 @@ def test_new_unlinked_pause_does_not_inherit_previous_print_identity(alert_db):
     assert job_faults.stage(alert_db, {**second, 'attempt': 'new-print'}) is None
 
 
-def test_numeric_print_error_keeps_decoded_slot_reason():
+@pytest.mark.parametrize('code', [PRINT_ERROR, str(PRINT_ERROR)])
+def test_numeric_print_error_uses_bundled_reason(code):
     from modules.notifications.alert_copy import reason_for
-    reason = reason_for(0x12028005)
-    assert 'slot 2' in reason and 'feed' in reason
-    assert 'Camera' not in reason
+    assert reason_for(code, '01P') == PRINT_ERROR_REASON
+
+
+def test_unknown_numeric_print_error_does_not_invent_a_slot_reason():
+    from modules.notifications.alert_copy import reason_for
+    # The old structural decoder guessed a slot/feed fault for this code. It is
+    # absent from the bundled list, so the exact code must survive without a guess.
+    assert reason_for(0x12028005, '01P') == 'Printer code 1202-8005'
+
+
+def test_numeric_pause_alert_uses_stored_model_prefix(bambu_alert_db, devices):
+    from modules.notifications.alert_dispatcher import deliver_staged_alert
+    plan = job_faults.stage(bambu_alert_db, {**pause_item(), 'code': PRINT_ERROR})
+    bambu_alert_db.commit()
+    deliver_staged_alert(bambu_alert_db, plan)
+    assert PRINT_ERROR_REASON in plan.message
+    assert 'Printer code' not in plan.message
+    devices.send_push_result.assert_called_once()
+    assert PRINT_ERROR_REASON in devices.send_push_result.call_args.kwargs['body']
 
 
 def test_summary_and_alert_api_job_names_hide_dispatch_aliases(alert_db):

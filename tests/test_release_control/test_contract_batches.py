@@ -46,6 +46,36 @@ def test_a_clean_suite_passes(tmp_path):
     assert parse_junit(junit).passed == 4
 
 
+def test_multiple_roots_run_once_and_a_failure_in_either_root_fails(tmp_path):
+    first = _suite(tmp_path / "contracts", {"test_contract.py": "def test_ok():\n    assert True\n"})
+    second = _suite(tmp_path / "backend", {"test_backend.py": "def test_broken():\n    assert False\n"})
+    roots = [str(second), str(first), str(second)]
+    assert contract_batches.discover(roots) == sorted([str(first / "test_contract.py"), str(second / "test_backend.py")])
+    junit = tmp_path / "junit.xml"
+    assert contract_batches.main(["--tests", *roots, "--junit", str(junit), "--work", str(tmp_path / "work"),
+                                  "--jobs", "2", "--batch-size", "1"]) == 1
+    counts = parse_junit(junit)
+    assert (counts.tests, counts.passed, counts.failures, counts.skipped) == (2, 1, 1, 0)
+
+
+def test_marker_inventory_covers_every_root(tmp_path, capsys):
+    first = _suite(tmp_path / "contracts", {"test_contract.py": _MARKED["test_live.py"]})
+    second = _suite(tmp_path / "backend", {"test_backend.py": _MARKED["test_live.py"],
+                                          "test_plain.py": _MARKED["test_plain.py"]})
+    roots = [str(first), str(second)]
+    marked = contract_batches.marked_node_ids(roots, "live_environment")
+    assert len(marked) == 2
+    assert {Path(node.split('::')[0]).name for node in marked} == {'test_contract.py', 'test_backend.py'}
+    inventory = tmp_path / "inventory.txt"
+    inventory.write_text(next(node for node in marked if 'test_contract.py::' in node) + '\n')
+    junit = tmp_path / "junit.xml"
+    assert contract_batches.main(["--tests", *roots, "--junit", str(junit), "--work", str(tmp_path / "work"),
+                                  "--exclude-marker", "live_environment", "--inventory", str(inventory)]) == 1
+    assert "deselected but not in the inventory:" in capsys.readouterr().out
+    counts = parse_junit(junit)
+    assert (counts.tests, counts.passed, counts.skipped) == (1, 1, 0)
+
+
 def test_a_batch_that_times_out_fails_the_run(tmp_path, capsys):
     suite = _suite(tmp_path / "suite", {"test_hang.py": "import time\n\ndef test_hang():\n    time.sleep(30)\n"})
     code = contract_batches.main(["--tests", str(suite), "--junit", str(tmp_path / "junit.xml"),
@@ -104,7 +134,7 @@ def test_the_committed_live_inventory_matches_the_marked_contract_tests():
     from pathlib import Path
     root = Path(contract_batches.ROOT)
     inventory = contract_batches.read_inventory(root / "tests/test_contracts/live_environment_inventory.txt")
-    assert contract_batches.marked_node_ids("tests/test_contracts", "live_environment") == inventory
+    assert contract_batches.marked_node_ids(["tests/test_contracts", "backend/tests"], "live_environment") == inventory
 
 
 def test_certification_families_stay_in_one_batch_in_sorted_order():
