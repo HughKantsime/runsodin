@@ -406,7 +406,7 @@ async def plate_cleared(
     waiting = db.execute(
         text("""
             SELECT id FROM jobs
-            WHERE printer_id = :pid AND status = 'waiting_plate_clear'
+            WHERE printer_id = :pid AND CAST(status AS TEXT) = 'waiting_plate_clear'
             ORDER BY priority ASC, (queue_position IS NULL) ASC, queue_position ASC, created_at ASC, id ASC LIMIT 1
         """),
         {"pid": printer_id},
