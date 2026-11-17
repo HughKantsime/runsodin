@@ -129,7 +129,7 @@ export default function APITokenManager() {
         Create personal API tokens with specific permissions for scripts, integrations, and CI/CD.
       </p>
       {isAdmin && <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
-        Square setup permission is off by default. It allows this administrator's token to map products and record stock baselines in ODIN. It does not write to Square. Each call needs an approval note naming who approved, where and when. The approval note is a record, not a verification. ODIN does not check the approval.
+        Square setup permission is off by default. It allows this administrator's token to map products that have no mapping and record their first stock baseline in ODIN. Repeating the same mapping changes nothing. Changing a mapping or baseline needs a signed-in administrator. The baseline must match Square's live count; if Square cannot be read or ITAR mode is on, nothing is changed. The baseline time must be no more than 15 minutes old and no more than 60 seconds in the future. It does not write to Square. Each call needs an approval note naming who approved, where and when. The approval note is a record, not a verification. ODIN does not check the approval.
       </p>}
 
       {error && (

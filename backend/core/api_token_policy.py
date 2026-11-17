@@ -52,9 +52,9 @@ def require_square_setup_available(db):
     from sqlalchemy import text
     from license_manager import require_feature
     require_feature("products")
-    # Match modules.system.routes_settings.get_education_mode's raw stored "true" check.
+    # JSON may arrive as a boolean (PostgreSQL) or encoded text (SQLite).
     mode = db.execute(text("SELECT value FROM system_config WHERE key='education_mode'")).scalar()
-    if mode == "true":
+    if str(mode).strip('"').lower() == 'true':
         raise HTTPException(403, "Square setup permission is unavailable in Education mode")
 
 
