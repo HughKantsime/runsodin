@@ -71,6 +71,8 @@ def save(db, body, actor, audience_id=None):
         db.execute(text('DELETE FROM controlled_audience_members WHERE audience_id=:id'), {'id': audience_id})
     for uid in ids:
         db.execute(text('INSERT INTO controlled_audience_members(audience_id,user_id) VALUES(:id,:uid)'), {'id': audience_id, 'uid': uid})
+    from core.controlled_cache import invalidate
+    invalidate(db)
     log_audit(db, 'controlled_audience.saved', 'controlled_audience', audience_id, {'before': before, 'after': ids, 'self_added': actor['id'] in ids and actor['id'] not in before})
     db.commit()
     return {'id': audience_id, 'name': body.name.strip(), 'user_ids': ids}

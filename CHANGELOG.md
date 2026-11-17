@@ -5,6 +5,9 @@ All notable changes to O.D.I.N. are documented here.
 ## [Unreleased]
 
 - ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
+### Changed
+- ODIN does slightly less work on every request and during alert delivery. Nothing behaves differently.
+## [2.3.1] - 2026-11-17
 
 
 <!-- summary: Fixes for installs on PostgreSQL: the status feed for integrations and the plate-cleared action work again, and Education mode shows as on once it is switched on. -->

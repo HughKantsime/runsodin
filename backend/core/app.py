@@ -269,44 +269,8 @@ def _register_http_middleware(app: FastAPI) -> None:
             content={"detail": "Invalid or missing API key"},
         )
 
-    @app.middleware("http")
-    async def license_principal_gate(request: Request, call_next):
-        from core.license_lock import enabled
-        if not enabled():
-            return await call_next(request)
-        path = request.scope.get('path', '')
-        api_path = path[7:] if path.startswith('/api/v1/') else path[4:] if path.startswith('/api/') else path
-        public = (request.method == 'OPTIONS' or _is_public_browser_request(request)
-                  or api_path == '/license' and request.method in {'GET', 'HEAD'}
-                  or api_path in {'/health', '/setup'}
-                  or api_path.startswith(('/auth/', '/health/', '/setup/', '/static/'))
-                  or path.startswith(('/static/', '/assets/'))
-                  or api_path == '/branding' and request.method == 'GET')
-        # Defer only when credentials are exclusively route-specific carriers.
-        # An added query token/API key must never bypass a session/bearer lock.
-        authorization = request.headers.get('authorization', '')
-        scheme, _, bearer = authorization.partition(' ')
-        understood = (request.cookies.get('session') or
-                      scheme.lower() == 'bearer' and bearer.strip())
-        if understood and not public:
-            from core.dependencies import resolve_current_user_sync
-            from core.db import SessionLocal
-            from starlette.concurrency import run_in_threadpool
-            authorization = request.headers.get('authorization', '')
-            scheme, _, bearer = authorization.partition(' ')
-            def resolve():
-                with SessionLocal() as policy_db:
-                    return resolve_current_user_sync(request, bearer if scheme.lower() == 'bearer' else None,
-                                                     policy_db, side_effects=False)
-            try:
-                request.state.resolved_license_principal = await run_in_threadpool(resolve)
-            except HTTPException as exc:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=exc.status_code, content={'detail': exc.detail}, headers=exc.headers)
-            except Exception:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=503, content={'detail': 'Service temporarily unavailable'})
-        return await call_next(request)
+    from core.middleware.license_principal import LicensePrincipalMiddleware
+    app.add_middleware(LicensePrincipalMiddleware, is_public_browser_request=_is_public_browser_request)
 
     # security_headers must be the OUTERMOST middleware so it runs on every
     # response — including 401/403/503 short-circuits from authenticate_request

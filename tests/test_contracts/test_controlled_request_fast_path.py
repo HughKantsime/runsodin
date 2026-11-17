@@ -209,8 +209,8 @@ def record(conn,cursor,statement,*args):
 event.listen(engine,'before_cursor_execute',record)
 with patch.object(dependencies,'_resolve_current_user',resolve):
  for method,path,c,payload,expected,budget in [
-  ('POST','/api/jobs',viewer,{'item_name':'Measured','duration_hours':0.25},201,5),
-  ('POST','/api/jobs/1/approve',admin,None,200,5),
+  ('POST','/api/jobs',viewer,{'item_name':'Measured','duration_hours':0.25},201,4),
+  ('POST','/api/jobs/1/approve',admin,None,200,4),
   ('GET','/api/jobs',viewer,None,200,1),
   ('GET','/api/printers',viewer,None,200,1),
  ]:

@@ -123,14 +123,12 @@ def change_mark(db, resource_type, identifier, body, actor):
     else:
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table, key and owner column come from closed file/job mappings; marking values and identities are bound
         db.execute(text(f'DELETE FROM {table} WHERE {key}=:id'), {'id': identifier})
+    from core.controlled_cache import invalidate as invalidate_cache
+    invalidate_cache(db)
     log_audit(db, 'controlled_part.changed', kind, identifier,
               {'before': dict(before) if before else None, 'after': body.model_dump(), 'retention_extended': bool(before and body.retention_days > before['retention_days'])})
     db.commit()
-    from core.controlled_cache import request_cache
-    cache = request_cache(db)
-    if cache is not None:
-        for key in ('_controlled_present', '_controlled_any', '_controlled_history', '_controlled_tombstones'):
-            cache.pop(key, None)
+    invalidate_cache(db)
     from core.controlled_mqtt import invalidate
     invalidate()
     return {'controlled': body.controlled}
