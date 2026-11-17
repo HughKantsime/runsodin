@@ -54,7 +54,8 @@ def main() -> int:
         print(str(exc), file=sys.stderr, flush=True)
         cause = exc.__cause__
         if cause is not None:
-            # One plain line for support; no traceback, statement or parameters.
+            # One plain line for support: the driver's own first line. The statement and its
+            # parameters are on later lines of the error and are not printed.
             first = (str(cause).splitlines() or [""])[0][:300]
             print(f"Cause: {type(cause).__name__}: {first}", file=sys.stderr, flush=True)
         engine.dispose()

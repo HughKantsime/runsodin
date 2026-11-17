@@ -17,3 +17,5 @@ The dashboard summarizes unresolved visible prints finished in the last 30 days.
 Spoolman receives only grams newly deducted by the settlement, through the existing delivery queue. Previously recorded manual use is not sent again. No new network integration is involved. Migration 061 retains filament evidence with the physical print. Database setup checks past usage before ODIN starts; records it cannot establish require review. Job, spool and archive deletion do not erase that evidence.
 
 Historical weighing that increased, preserved, or established an unknown balance did not retain a timestamp in older versions. Those readings cannot be detected retrospectively. New weigh-ins retain a timestamp, and existing downward weigh adjustments and AMS measurement timestamps are checked.
+
+After running an older version on an upgraded database, review unresolved prints from that period before settling them.

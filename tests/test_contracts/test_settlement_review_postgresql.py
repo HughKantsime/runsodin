@@ -11,6 +11,39 @@ from tests.test_contracts.test_education_classes_migration import pg_engine  # n
 pytestmark = pytest.mark.postgresql
 
 
+@pytest.mark.parametrize('source', ['usage', 'accounted', 'marker'])
+def test_postgresql_backfill_heals_prints_behind_the_cursor(pg_settlement, source):
+    from core import filament_ledger as ledger
+    from core.filament_evidence_backfill import backfill, CURSOR
+    from core.print_attempts import sqlalchemy_runner
+    engine = pg_settlement[1]
+    with engine.begin() as db:
+        db.execute(text('INSERT INTO system_config(key,value) VALUES(:key,\'991241\')'), {'key': CURSOR})
+        if source == 'usage':
+            db.execute(text("INSERT INTO spool_usage(spool_id,print_job_id,weight_used_g,used_at) VALUES(991240,991240,40,'2026-10-11')"))
+        elif source == 'accounted':
+            db.execute(text("UPDATE print_archives SET accounting_state='accounted' WHERE print_job_id=991240"))
+        else:
+            db.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:filament:print:991240','{}')"))
+        db.execute(text('UPDATE spools SET remaining_weight_g=960 WHERE id=991240'))
+    assert backfill(engine) == {'usage' if source == 'usage' else 'closed': 1}
+    with engine.begin() as db:
+        run = sqlalchemy_runner(db)
+        assert ledger.print_evidence(run, [991240])[991240][0] == 'final'
+        assert ledger.record_print_usage(run, 991240, source='archive', grams_by_spool={991240: 40}).state == 'already_deducted'
+        assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=991240')).scalar_one() == 960
+    assert backfill(engine) == {}
+
+
+@pytest.mark.parametrize('cursor', ['"broken"', '2147483648'])
+def test_postgresql_backfill_progress_accepts_recoverable_cursor(pg_settlement, cursor):
+    from core.filament_evidence_backfill import backfill, CURSOR
+    engine = pg_settlement[1]
+    with engine.begin() as db:
+        db.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'), {'key': CURSOR, 'value': cursor})
+    assert backfill(engine) == ({'none': 1} if cursor == '"broken"' else {})
+
+
 def test_postgresql_061_exact_shape_claim_and_immutability(pg_settlement):
     import importlib
     from sqlalchemy.exc import DBAPIError

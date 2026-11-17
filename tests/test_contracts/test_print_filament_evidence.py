@@ -61,6 +61,19 @@ def test_two_deducers_one_print_one_claim(evidence_engine):
         assert balance(c) == 955
 
 
+@pytest.mark.parametrize('grams', [{}, {999: 40}, {1: 40}])
+def test_no_deduction_releases_the_print_claim(evidence_engine, grams):
+    with evidence_engine.begin() as c:
+        c.exec_driver_sql('UPDATE spools SET remaining_weight_g=NULL WHERE id=1')
+        run = sqlalchemy_runner(c)
+        assert ledger.record_print_usage(run, 1, source='archive', grams_by_spool=grams).state == 'nothing_deducted'
+        assert ledger.print_evidence(run, [1])[1] == ('none', [])
+        assert c.exec_driver_sql('SELECT COUNT(*) FROM spool_usage').scalar_one() == 0
+        c.exec_driver_sql('UPDATE spools SET remaining_weight_g=1000 WHERE id=1')
+        assert ledger.record_print_usage(run, 1, source='archive', grams_by_spool={1: 40}).deducted
+        assert balance(c) == 960
+
+
 @pytest.mark.parametrize('ending', ['delete', 'detach'])
 def test_manual_detach_relink_complete_then_delete_or_detach_deducts_once(evidence_engine, ending):
     with evidence_engine.begin() as c:
@@ -224,6 +237,102 @@ def test_backfill_error_and_cursor_resume(evidence_engine, monkeypatch):
         c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'),
                   {'key': 'quota_attempt:filament:job:1:reconcile:print:3', 'value': '{bad'})
     assert backfill(evidence_engine) == {'unknown': 1}
+
+
+@pytest.mark.parametrize('source', ['usage', 'accounted', 'reconciliation_required', 'marker', 'job_print_marker', 'named_marker'])
+def test_backfill_heals_prints_behind_the_cursor(evidence_engine, source):
+    with evidence_engine.begin() as c:
+        c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,\'500\')'), {'key': CURSOR})
+        c.exec_driver_sql('UPDATE spools SET remaining_weight_g=960 WHERE id=1')
+        if source == 'usage':
+            c.exec_driver_sql("INSERT INTO spool_usage(spool_id,print_job_id,weight_used_g,used_at) VALUES(1,1,40,'2026-01-01')")
+            assert ledger.prior_attempt_usage(sqlalchemy_runner(c), None, 1) == ledger.PRINT_USAGE
+        elif source in ('accounted', 'reconciliation_required'):
+            c.execute(text('INSERT INTO print_archives(print_job_id,accounting_state) VALUES(1,:state)'), {'state': source})
+        else:
+            key = {'marker': 'quota_attempt:filament:print:1',
+                   'job_print_marker': 'quota_attempt:filament:job:1:print:1',
+                   'named_marker': 'quota_attempt:filament:job:1:0'}[source]
+            c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'),
+                      {'key': key, 'value': json.dumps({'print_job_id': 1})})
+    assert backfill(evidence_engine) == {'usage' if source == 'usage' else 'closed': 1}
+    with evidence_engine.begin() as c:
+        run = sqlalchemy_runner(c)
+        assert ledger.print_evidence(run, [1])[1][0] == 'final'
+        assert balance(c) == 960
+        assert ledger.record_print_usage(run, 1, source='archive', grams_by_spool={1: 40}).state == 'already_deducted'
+        assert balance(c) == 960
+        assert str(c.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': CURSOR}).scalar_one()) == '500'
+        before = c.exec_driver_sql('SELECT * FROM print_filament_evidence').all()
+    assert backfill(evidence_engine) == {}
+    with evidence_engine.connect() as c:
+        assert c.exec_driver_sql('SELECT * FROM print_filament_evidence').all() == before
+
+
+def test_backfill_heal_adds_no_statements_when_nothing_qualifies(evidence_engine, monkeypatch):
+    from core import filament_evidence_backfill as adoption
+    with evidence_engine.begin() as c:
+        c.execute(text("INSERT INTO print_jobs(id,printer_id,started_at) VALUES(:id,1,'2026-01-01')"),
+                  [{'id': pid} for pid in range(3, 501)])
+        c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,\'500\')'), {'key': CURSOR})
+        c.exec_driver_sql("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,used_at) VALUES(1,1,40,'2026-01-01')")
+        c.exec_driver_sql("INSERT INTO print_archives(print_job_id,accounting_state) VALUES(1,'unresolved')")
+        c.exec_driver_sql("INSERT INTO system_config(key,value) VALUES('quota_attempt:filament:job:1:reconcile:print:1','{}')")
+    statements = []
+    def capture(_c, _cursor, sql, *_):
+        statements.append(sql)
+    event.listen(evidence_engine, 'before_cursor_execute', capture)
+    try:
+        with evidence_engine.connect() as c:
+            assert adoption._heal_ids(c, adoption._markers(c)[0]) == []
+    finally:
+        event.remove(evidence_engine, 'before_cursor_execute', capture)
+    assert len(statements) <= 3
+    monkeypatch.setattr(adoption, '_print', lambda *a: pytest.fail('An unqualified print was processed'))
+    assert backfill(evidence_engine) == {}
+
+
+def test_backfill_heal_deduplicates_sources_and_ignores_existing_evidence(evidence_engine):
+    with evidence_engine.begin() as c:
+        c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,\'500\')'), {'key': CURSOR})
+        c.exec_driver_sql("INSERT INTO spool_usage(spool_id,print_job_id,weight_used_g,used_at) VALUES(1,1,40,'2026-01-01')")
+        for pid in (1, 2, 999):
+            c.execute(text("INSERT INTO print_archives(print_job_id,accounting_state) VALUES(:pid,'accounted')"), {'pid': pid})
+            c.execute(text("INSERT INTO system_config(key,value) VALUES(:key,'{}')"), {'key': f'quota_attempt:filament:print:{pid}'})
+        ledger.note_candidates(sqlalchemy_runner(c), 2, [], kind='unattributed', source='backfill', reason='backfill_error')
+    assert backfill(evidence_engine) == {'usage': 1}
+    assert backfill(evidence_engine) == {}
+    with evidence_engine.connect() as c:
+        assert ledger.print_evidence(sqlalchemy_runner(c), [2])[2][0] == 'ask'
+
+
+def test_backfill_heal_rolls_back_partial_evidence_before_error_fallback(evidence_engine, monkeypatch):
+    from core import filament_evidence_backfill as adoption
+    with evidence_engine.begin() as c:
+        c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,\'500\')'), {'key': CURSOR})
+        c.exec_driver_sql("INSERT INTO print_archives(print_job_id,accounting_state) VALUES(1,'accounted')")
+    def broken(run, pid, markers):
+        ledger.close_print(run, pid, source='backfill', reason='marker')
+        raise ValueError('Unreadable legacy evidence')
+    monkeypatch.setattr(adoption, '_print', broken)
+    assert backfill(evidence_engine) == {'error': 1}
+    with evidence_engine.connect() as c:
+        state, rows = ledger.print_evidence(sqlalchemy_runner(c), [1])[1]
+        assert state == 'ask'
+        assert [(r['kind'], r['reason']) for r in rows] == [('unattributed', 'backfill_error')]
+        assert balance(c) == 1000
+    assert backfill(evidence_engine) == {}
+
+
+@pytest.mark.parametrize('cursor', ['0', '"0"', 'broken'])
+def test_backfill_progress_uses_the_same_cursor_as_the_loop(evidence_engine, monkeypatch, cursor):
+    from core import filament_evidence_backfill as adoption
+    with evidence_engine.begin() as c:
+        c.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'), {'key': CURSOR, 'value': cursor})
+    progress = []
+    monkeypatch.setattr(adoption, 'announce', lambda done, total: progress.append((done, total)))
+    assert backfill(evidence_engine, batch_size=1) == {'none': 2}
+    assert progress == [(1, 2), (2, 2)]
 
 
 def test_backfill_storage_failure_stops_setup(evidence_engine, monkeypatch):
@@ -448,7 +557,7 @@ def timing_backfill_5000_prints_2000_jobs_50k_usage(evidence_engine):
         event.remove(evidence_engine, 'before_cursor_execute', capture)
     print(f'Backfill 5000 prints / 2000 jobs / 50000 usage: {elapsed:.3f}s; '
           f'{statements} statements; {statements / 5000:.2f} statements/print; rules={counts}')
-    assert counts == {'usage': 2500, 'closed': 1000, 'unattributed': 1500}
+    assert counts == {'usage': 2500, 'closed': 1000, 'unattributed': 1500, 'existing': 3500}
     with evidence_engine.connect() as c:
         assert balance(c) == 1000
         assert c.exec_driver_sql('SELECT COUNT(*) FROM spool_usage').scalar_one() == 50000
