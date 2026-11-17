@@ -120,7 +120,7 @@ async def test_did_not_complete_sensor_reads_the_count(hass, aioclient_mock, sta
     status_v2["fleet"]["today"]["plates_did_not_complete"] = count
     aioclient_mock.get(STATUS_URL, json=status_v2)
     await _setup(hass)
-    stopped = hass.states.get("sensor.odin_fleet_plates_did_not_complete_today")
+    stopped = hass.states.get("sensor.odin_fleet_plates_that_did_not_complete_today")
     assert stopped.state == str(count)
     assert stopped.attributes["state_class"] == "total"
     assert hass.states.get("sensor.odin_fleet_plates_failed_today").state == "1"
@@ -131,17 +131,17 @@ async def test_did_not_complete_sensor_is_unavailable_on_older_servers(hass, aio
     payload = status if version == 1 else status_v2
     aioclient_mock.get(STATUS_URL, json=payload)
     await _setup(hass)
-    assert hass.states.get("sensor.odin_fleet_plates_did_not_complete_today").state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.odin_fleet_plates_that_did_not_complete_today").state == STATE_UNAVAILABLE
     payload["fleet"].setdefault("today", {})["plates_did_not_complete"] = 3
     aioclient_mock.clear_requests()
     aioclient_mock.get(STATUS_URL, json=payload)
     await _poll(hass)
-    assert hass.states.get("sensor.odin_fleet_plates_did_not_complete_today").state == "3"
+    assert hass.states.get("sensor.odin_fleet_plates_that_did_not_complete_today").state == "3"
     del payload["fleet"]["today"]["plates_did_not_complete"]
     aioclient_mock.clear_requests()
     aioclient_mock.get(STATUS_URL, json=payload)
     await _poll(hass)
-    assert hass.states.get("sensor.odin_fleet_plates_did_not_complete_today").state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.odin_fleet_plates_that_did_not_complete_today").state == STATE_UNAVAILABLE
 
 
 async def test_maintenance_hold_shows_as_out_of_service(hass, aioclient_mock, status_v2):
