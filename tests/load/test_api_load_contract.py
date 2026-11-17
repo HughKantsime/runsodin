@@ -95,9 +95,9 @@ def test_rebaselined_limits_carry_their_previous_value_and_evidence():
     assert set(later["odin-ci"]) == {"write_p95_ms"}
     write = later["odin-ci"]["write_p95_ms"]
     assert write["previous"] == untraced["odin-ci"]["write_p95_ms"]["value"] == 755
-    assert write["previous"] < write["value"] == 855 and write["evidence"]
+    assert write["previous"] < write["value"] == 853 and write["evidence"]
     assert {key: classes["odin-ci"][key] for key in api_load.LATENCY_LIMITS} == {
-        "read_p95_ms": 750, "write_p95_ms": 855, "global_p99_ms": 2590}
+        "read_p95_ms": 750, "write_p95_ms": 853, "global_p99_ms": 2590}
     seconds = untraced["maximum_repetition_seconds"]
     assert seconds["previous"] == 45 and seconds["evidence"]
     assert seconds["value"] == later["maximum_repetition_seconds"]["previous"] == 17
@@ -123,7 +123,7 @@ def _thresholds():
     (MAC, "mac-m4", {"read_p95_ms": 385, "write_p95_ms": 525, "global_p99_ms": 525}),
     (dict(MAC, hostname="renamed.local"), "mac-m4", {"read_p95_ms": 385, "write_p95_ms": 525, "global_p99_ms": 525}),
     (dict(MAC, hostname="odin-ci"), "mac-m4", {"read_p95_ms": 385, "write_p95_ms": 525, "global_p99_ms": 525}),  # no name gets the Mac the looser limits
-    (ODIN_CI, "odin-ci", {"read_p95_ms": 750, "write_p95_ms": 855, "global_p99_ms": 2590}),
+    (ODIN_CI, "odin-ci", {"read_p95_ms": 750, "write_p95_ms": 853, "global_p99_ms": 2590}),
 ])
 def test_each_known_host_gets_exactly_its_own_limits(facts, expected, limits):
     host_class, observed, identity = api_load.host_limits(_thresholds(), facts)
