@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 image="${ODIN_PARITY_IMAGE:-odin-dbparity:local}"
 expected_image_id="${ODIN_PARITY_IMAGE_ID:-}"
-postgres_image="postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685"
+postgres_image="postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685"  # PostgreSQL 16.15; read from the image by Dev on 2026-11-16.
 suffix="${ODIN_PARITY_RESOURCE_SUFFIX:-$$}"
 if [[ ! "${suffix}" =~ ^[a-z0-9][a-z0-9-]{1,63}$ ]]; then
     echo "ODIN_PARITY_RESOURCE_SUFFIX is invalid" >&2

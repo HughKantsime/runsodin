@@ -24,7 +24,7 @@ def postgres_server(tmp_path_factory):
         pytest.skip('Docker unavailable for disposable PostgreSQL')
     name = 'odin-spoolid-test-' + uuid.uuid4().hex[:10]
     started = docker('run', '--pull=never', '-d', '--name', name, '-e', 'POSTGRES_HOST_AUTH_METHOD=trust',
-                     '-p', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data', 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea')
+                     '-p', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data', 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea')  # PostgreSQL 16.15; read from the image by Dev on 2026-11-16.
     if started.returncode:
         pytest.skip('Pinned local PostgreSQL image unavailable; no registry credentials used')
     try:
