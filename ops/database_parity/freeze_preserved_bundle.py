@@ -141,13 +141,19 @@ def build(commit, release, era, base_era, *, migration):
     if ids[-1] != migration:
         raise FreezeError(f'Commit registry ends at {ids[-1]}, not {migration}')
     base = base_manifest(base_era)
+    base_ids = set(base['ledger_ids'])
+    additions = [item for item in ids if item not in base_ids]
+    if (base_era >= era or not additions or
+            [item for item in ids if item in base_ids] != ids[:-len(additions)] or
+            any(not base_era < int(item.split(':')[1][:3]) <= era for item in additions)):
+        raise FreezeError(f'Released registry does not extend preserved{base_era:03} through {era:03}')
     sources = {path[len('backend/'):]: blob(commit, path) for path in selected_paths(commit)}
     missing = sorted(set(base['sources']) - set(sources))
     if missing:
         raise FreezeError(f'Base sources are absent from the released inventory: {missing}')
     ledger = independent_ledger(sources)
-    if set(ledger) != set(base['ledger_ids']) | {migration} or migration not in ledger:
-        raise FreezeError(f'Released ledger is not preserved{base_era:03} plus {migration}')
+    if set(ledger) != base_ids | set(ids) or migration not in ledger:
+        raise FreezeError(f'Released ledger is not preserved{base_era:03} plus the released registry')
     following = f'python:{era + 1:03}-'
     if any(item.startswith(following) for item in ledger) or any(f'/{era + 1:03}_' in name for name in sources):
         raise FreezeError(f'Released source already contains migration {era + 1:03}')
@@ -192,7 +198,7 @@ def _check_metadata(manifest, base_manifest):
     """The pin proves these bytes; this states what the bytes must mean."""
     if manifest.get('profile') != PROFILE or manifest.get('source_commit') != SOURCE_COMMIT:
         raise Preserved{era}Error('Preserved{era} manifest provenance differs')
-    if set(manifest.get('ledger_ids') or ()) != set(base_manifest['ledger_ids']) | {{ERA_MIGRATION}}:
+    if set(manifest.get('ledger_ids') or ()) != set(base_manifest['ledger_ids']) | {ledger_additions}:
         raise Preserved{era}Error('Preserved{era} manifest ledger differs')
     if manifest.get('sql_paths') != sorted(n for n in manifest['sources'] if n.endswith('.sql')):
         raise Preserved{era}Error('Preserved{era} manifest SQL inventory differs')
@@ -255,13 +261,17 @@ def _wrapper(text, era, base_era):
 def control_files(manifest, era, base_era, *, migration):
     raw = manifest_bytes(manifest)
     base = SCHEMA / f'preserved{base_era:03}'
+    additions = sorted(set(manifest['ledger_ids']) - set(base_manifest(base_era)['ledger_ids']))
+    # Preserve the generator's original bytes for existing single-migration bundles.
+    ledger_additions = ('{ERA_MIGRATION}' if additions == [migration]
+                        else '{' + ', '.join(repr(item) for item in additions) + '}')
     return {
         'manifest.json': raw,
         '__init__.py': _wrapper((base / '__init__.py').read_text(), era, base_era).encode(),
         'runner.py': _wrapper((base / 'runner.py').read_text(), era, base_era).encode(),
         'integrity.py': _INTEGRITY.format(era=f'{era:03}', base=f'{base_era:03}', pin=hashlib.sha256(raw).hexdigest(),
                                           profile=manifest['profile'], commit=manifest['source_commit'],
-                                          migration=migration).encode(),
+                                          migration=migration, ledger_additions=ledger_additions).encode(),
     }
 
 
