@@ -17,6 +17,8 @@ import io
 
 from core.audit import audit_download, export_filters
 from core.db import get_db
+from core.base import JobStatus
+from core.enum_filters import enum_filter
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.models import AuditLog
 from license_manager import feature_gate, require_feature
@@ -59,7 +61,7 @@ def export_jobs_csv(
     if should_filter_org(current_user, org):
         query = query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     if status:
-        query = query.filter(Job.status == status)
+        query = query.filter(Job.status == enum_filter(status, JobStatus, "status"))
     from core.controlled_parts import job_visibility
     controlled, params = job_visibility(current_user)
     jobs = query.filter(text(controlled)).params(**params).order_by(Job.created_at.desc()).all()

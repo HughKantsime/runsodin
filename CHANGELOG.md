@@ -27,6 +27,7 @@ All notable changes to O.D.I.N. are documented here.
 - Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
 ### Changed
 - Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
+- Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
 
 ## [2.3.0] - 2026-11-15
 ## [2.3.1] - 2026-11-17

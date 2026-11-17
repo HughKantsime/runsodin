@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.enum_filters import enum_filter
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
@@ -88,7 +89,7 @@ def list_spools(
     query = db.query(Spool)
 
     if status:
-        query = query.filter(Spool.status == status)
+        query = query.filter(Spool.status == enum_filter(status, SpoolStatus, "status"))
     if filament_id:
         query = query.filter(Spool.filament_id == filament_id)
     if printer_id:
