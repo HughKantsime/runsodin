@@ -124,6 +124,8 @@ def test_patch_lifecycle_and_ownership_guards(mapping_client, review_db, state):
     for value in (MAPPING, None):
         response = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': value})
         assert response.status_code == (200 if state in ('held', 'scheduled') else 409), response.text
+        if state == 'claim':
+            assert response.json()['detail'].endswith("An administrator can release it from the printer's Dispatch recovery panel.")
     review_db.expire_all()
     if state not in ('held', 'scheduled'):
         assert json.loads(review_db.execute(text('SELECT ams_mapping FROM jobs WHERE id=:id'), {'id': job}).scalar_one()) == [3]

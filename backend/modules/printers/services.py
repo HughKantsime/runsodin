@@ -242,6 +242,15 @@ def configured_identity(printer_id, connection):
     return build_identity(_get_printer_info(printer_id,connection=connection),SECRET_KEY.encode())
 
 
+def recovery_configuration(connection, evidence):
+    from core.auth import SECRET_KEY
+    from core.dispatch_recovery_identity import compare
+    from modules.printers.dispatch import _get_printer_info
+    claim = evidence['claim']
+    creds = _get_printer_info(claim['printer_id'], connection=connection)
+    return compare(connection, claim, evidence['receipts'], creds, SECRET_KEY.encode())
+
+
 def configured_recipe_key(printer_id, connection):
     """Read-only stable recipe identity; does not lock or backfill receipts."""
     from modules.printers.dispatch import _get_printer_info

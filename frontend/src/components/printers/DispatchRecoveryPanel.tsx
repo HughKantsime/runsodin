@@ -17,6 +17,7 @@ const states: Record<string, string> = {
   education_reservation_retained: 'An Education reservation is retained',
 }
 const blockers: Record<string, string> = {
+  configuration_changed: 'ODIN could not confirm that this start still belongs to the same printer with the same connection settings.',
   hold_required: 'Hold the job before releasing its fence.',
   education_authority_unresolved: 'Education authority remains unresolved. Ask an authorized school administrator to repair its lifecycle.',
   status_unavailable: 'Fresh monitor telemetry is unavailable. Wait for the monitor, then refresh.',
@@ -109,6 +110,7 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
       : <div className="space-y-3 text-sm">
         <p role="status">{states[data.state] || 'Dispatch evidence needs investigation'}. Repeat dispatch is blocked.</p>
         <p>Printer {printerId}. Scheduled job: {data.job_id ?? 'unavailable in this scope'}. {data.job ? `Recorded state: ${data.job.status}. ${data.job.held ? 'Held from scheduling.' : 'Not held from scheduling.'}` : 'Job details are unavailable in this scope.'}</p>
+        {data.filament_slots_changed && <p>Filament slots have changed since this start was attempted.</p>}
         <p>{data.receipt_present ? 'Admission receipt is retained.' : 'No admission receipt is linked.'}</p>
         <p>{data.observed_print ? `Linked print observation ${data.observed_print.id}: ${data.observed_print.status}.` : 'No matching print observation is linked. Do not infer completion.'}</p>
         {data.education && <p>Education submission {data.education.submission_id}: {data.education.status}. Reservation: {data.education.reservation_state || 'none recorded'}.</p>}

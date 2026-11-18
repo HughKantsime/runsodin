@@ -141,7 +141,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
             return False, f'{refusal.code}: {refusal.detail}'
     from modules.printers.dispatch_background import attempt_token
     claim=dispatch_claims.acquire(engine,job['printer_id'],job['id'],identity.target_key,
-        identity.configuration_key,payload_sha256,creds.get('org_id'), token=attempt_token())
+        identity.configuration_key,payload_sha256,creds.get('org_id'), token=attempt_token(), recovery_creds=creds)
     if claim.status!='acquired':
         return False,'An unresolved dispatch claim or database uncertainty blocks dispatch; check diagnostics and reconcile before retrying'
     provider=reservation=None

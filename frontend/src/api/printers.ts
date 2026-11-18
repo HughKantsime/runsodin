@@ -41,6 +41,7 @@ export interface DispatchRecoveryInspection {
   refresh_required?: boolean
   refresh?: { method: 'GET'; endpoint: string }
   state: string
+  filament_slots_changed?: boolean | null
   release_available: boolean
   attempt_handle?: string
   snapshot_handle?: string

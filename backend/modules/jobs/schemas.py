@@ -4,7 +4,7 @@ modules/jobs/schemas.py — Pydantic schemas for the jobs domain.
 
 from datetime import datetime
 from typing import Optional, List, Union, Any
-from pydantic import BaseModel, Field, ConfigDict, StrictInt, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, StrictInt, field_serializer, field_validator, model_serializer, model_validator
 
 from core.base import JobStatus, FilamentType
 from core.datetime_wire import to_wire
@@ -136,6 +136,16 @@ class WaitingReason(BaseModel):
 
 
 class JobResponse(JobBase):
+    printer_has_dispatch_claim: bool = False
+
+    @model_serializer(mode='wrap')
+    def serialize_recovery_hint(self, handler):
+        # An absent hint conveys no evidence about claims outside the caller's scope.
+        result = handler(self)
+        if not self.printer_has_dispatch_claim:
+            result.pop('printer_has_dispatch_claim', None)
+        return result
+
     ams_slot_nozzles: List[AMSSlotNozzle] = Field(default_factory=list)
     # Set on GET /jobs and GET /jobs/{id}; None when printing, finished, or simply next in the queue.
     waiting_reason: Optional[WaitingReason] = None

@@ -28,7 +28,7 @@ def rows(db, sql, values):
     return [dict(r) for r in db.execute(text(sql), values).mappings()]
 
 
-def capture(db, printer_id, actor, identity_loader=None):
+def capture(db, printer_id, actor, identity_loader=None, *, authority_only=False):
     args = {'pid':printer_id}
     printers = rows(db, 'SELECT * FROM printers WHERE id=:pid', args)
     if not printers or not check_org_access(actor, printers[0]['org_id']):
@@ -58,6 +58,9 @@ def capture(db, printer_id, actor, identity_loader=None):
         refuse('not_found',404)
     visible = bool(job and (global_printer or job['charged_to_org_id'] is not None) and check_org_access(actor,job['charged_to_org_id']) and job['printer_id']==printer_id)
     submissions = rows(db,'SELECT * FROM education_submissions WHERE job_id=:id ORDER BY id',{'id':job_id})
+    authority = dict(printer=printer, claim=claim, reservations=reservations, job=job, visible=visible, submissions=submissions)
+    if authority_only:
+        return authority
     receipts = rows(db,'SELECT * FROM dispatch_attempt_receipts WHERE printer_id=:pid ORDER BY claim_token',args)
     target_ids = [printer_id]
     if claim and identity_loader:
@@ -85,7 +88,7 @@ def capture(db, printer_id, actor, identity_loader=None):
     senders = rows(db,'SELECT * FROM dispatch_sender_registrations WHERE printer_id=:pid OR physical_key=:key ORDER BY claim_token',{'pid':printer_id,'key':claim['physical_key'] if claim else ''})
     power = rows(db,'SELECT * FROM power_target_operations WHERE printer_id=:pid OR target_key=:key ORDER BY operation_nonce',{'pid':printer_id,'key':claim['physical_key'] if claim else ''})
     snapshot = mac('ds1',[attempt,claim,job,receipts,observations,reservations,submissions,configured,senders,power,target_ids,target_jobs])
-    return dict(printer=printer,claim=claim,reservations=reservations,job=job,visible=visible,submissions=submissions,receipts=receipts,observations=observations,target_jobs=target_jobs,attempt=attempt,snapshot=snapshot)
+    return dict(**authority,receipts=receipts,observations=observations,target_jobs=target_jobs,attempt=attempt,snapshot=snapshot)
 
 
 def education_authority(db, evidence, actor, lock=False):
@@ -130,11 +133,13 @@ def telemetry(db, evidence):
     return None
 
 
-def release_checks(db, evidence, identity):
+def release_checks(db, evidence):
+    from modules.printers.services import recovery_configuration
     claim = evidence['claim']
     if not claim:
         refuse('education_authority_unresolved')
-    if identity is None or identity.target_key != claim['physical_key'] or identity.configuration_key != claim['configuration_key']:
+    matches, slots_changed = recovery_configuration(db.connection(), evidence)
+    if not matches:
         refuse('configuration_changed')
     conn = db.connection()
     senders = rows(db,'SELECT state,finished_at,cleanup_evidence_key FROM dispatch_sender_registrations WHERE printer_id=:pid OR physical_key=:key',{'pid':claim['printer_id'],'key':claim['physical_key']})
@@ -147,6 +152,7 @@ def release_checks(db, evidence, identity):
     if others: refuse('target_busy')
     failure = telemetry(db,evidence)
     if failure: refuse(failure)
+    return slots_changed
 
 
 def release_evidence_checks(db, current):
@@ -203,7 +209,7 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
             if not handle.held(): refuse('evidence_unavailable')
             current = capture(db,printer_id,actor,identity_loader)
             if current is None or current['attempt'] != before['attempt']: refuse('attempt_changed')
-            release_checks(db,current,identity_loader(db.connection()))
+            release_checks(db,current)
             db.rollback()
         dialect = db.get_bind().dialect.name
         if dialect == 'sqlite':
@@ -248,13 +254,14 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
         if not hmac.compare_digest(request.snapshot_handle,current['snapshot']): refuse('snapshot_changed')
         job = current['job']
         if action == 'release':
-            release_checks(db,current,identity_loader(db.connection()))
+            slots_changed = release_checks(db,current)
             release_evidence_checks(db,current)
             claim = current['claim']
             table = PrinterDispatchClaim.__table__
             values = {k:claim[k] for k in (*IDENTITY,'state')}
             predicate = [table.c[k].is_(None) if v is None else table.c[k]==v for k,v in values.items()]
-            if db.execute(delete(table).where(*predicate)).rowcount != 1: refuse('attempt_changed')
+            from core.dispatch_claims import delete_claim
+            if not delete_claim(db, delete(table).where(*predicate)): refuse('attempt_changed')
         else:
             db.execute(text('UPDATE jobs SET hold=true WHERE id=:id'),{'id':job['id']})
             if action=='reconcile-retain' and request.education_action=='request_unbound_cancellation':
@@ -270,6 +277,7 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
         # Cancellation intent binds exact authority with a purpose-separated MAC;
         # token/digest never enter history. Revocation is deliberately separate.
         if action=='release':
+            facts['filament_slots_changed'] = slots_changed
             facts['verified_evidence'] = {'target_exclusion':'held_through_commit',
                 'monitor_last_seen':str(current['printer']['last_seen']),
                 'monitor_state':current['printer']['gcode_state'],

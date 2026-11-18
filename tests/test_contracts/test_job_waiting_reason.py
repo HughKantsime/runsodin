@@ -450,3 +450,62 @@ def test_quiet_hours_end_follows_the_saved_time_zone(review_db):  # noqa: F811
     assert quiet_hours_end(review_db, datetime(2026, 1, 16, 4, 0)) == datetime(2026, 1, 16, 10, 30)
     # July: 05:30 local is 09:30 UTC (daylight time).
     assert quiet_hours_end(review_db, datetime(2026, 7, 16, 4, 0)) == datetime(2026, 7, 16, 9, 30)
+
+
+def test_job_on_claimed_printer_points_only_authorized_admin_to_recovery(db):
+    from core.dispatch_claims import acquire
+    from modules.jobs.routes.jobs_crud import get_job
+    add_job(db, 991, 'scheduled', printer_id=9)
+    add_job(db, 992, 'pending', printer_id=9, hold=True)
+    assert acquire(db.get_bind(), 9, 991, 'a'*64, 'b'*64, 'c'*64, 1).status == 'acquired'
+    admin = {**OPERATOR, 'role':'admin'}
+    def hint(actor):
+        return get_job(992, current_user=actor, _agent_scope={}, db=db).get('printer_has_dispatch_claim')
+    assert hint(admin)
+    assert not hint(OPERATOR)
+    assert not hint({**admin, '_token_scopes':['agent:write','write:printers']})
+    run(db, 'UPDATE printer_dispatch_claims SET owner_org_id=2 WHERE printer_id=9')
+    assert not hint(admin)
+    run(db, 'DELETE FROM printer_dispatch_claims WHERE printer_id=9')
+    assert not hint(admin)
+
+
+@pytest.mark.parametrize('failure', ['education', 'permission', 'orphan', 'database', 'policy_database'])
+def test_failed_recovery_hint_preserves_job_list_and_detail(db, bom_client, monkeypatch, failure):
+    from fastapi import HTTPException
+    from core.dependencies import get_current_user
+    from core.dispatch_claims import acquire
+    from modules.jobs.routes import jobs_crud
+    bom_client.app.include_router(jobs_crud.router)
+    bom_client.app.dependency_overrides[get_current_user] = lambda: {**OPERATOR, 'role': 'admin'}
+    for printer in (9, 10):
+        job = 990 + printer
+        add_job(db, job, 'scheduled', printer_id=printer)
+        assert acquire(db.get_bind(), printer, job, str(printer-9)*64, 'b'*64, 'c'*64, 1).status == 'acquired'
+    if failure == 'orphan':
+        run(db, 'UPDATE printer_dispatch_claims SET job_id=77777 WHERE printer_id=9')
+    elif failure == 'policy_database':
+        from core import rbac_policy
+        original = rbac_policy.action_roles
+        def policy(session, action):
+            if action == 'printers.dispatch_recovery':
+                session.execute(text('SELECT * FROM missing_hint_relation'))
+            return original(session, action)
+        monkeypatch.setattr(rbac_policy, 'action_roles', policy)
+    else:
+        from core import dispatch_recovery
+        original = dispatch_recovery.education_authority
+        def authority(session, evidence, actor, lock=False):
+            if evidence['printer']['id'] == 9:
+                if failure == 'database':
+                    session.execute(text('SELECT * FROM missing_hint_relation'))
+                raise HTTPException(409 if failure == 'education' else 403)
+            return original(session, evidence, actor, lock)
+        monkeypatch.setattr(dispatch_recovery, 'education_authority', authority)
+    response = bom_client.get('/jobs')
+    assert response.status_code == 200
+    jobs = {job['id']: job for job in response.json()}
+    assert not jobs[999].get('printer_has_dispatch_claim')
+    assert bool(jobs[1000].get('printer_has_dispatch_claim')) == (failure != 'policy_database')
+    response = bom_client.get('/jobs/999')
+    assert response.status_code == 200 and not response.json().get('printer_has_dispatch_claim')

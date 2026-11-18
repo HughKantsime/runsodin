@@ -62,7 +62,7 @@ class ReleaseRequest(RecoveryExpectation):
     attestation: Attestation
 
 
-from modules.printers.services import configured_identity
+from modules.printers.services import configured_identity, recovery_configuration
 
 @router.get('/printers/{printer_id}/dispatch-recovery',tags=['Printers'])
 def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depends(require_role('viewer',scope='read:printers')), db:Session=Depends(get_db)):
@@ -135,10 +135,9 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
     if claim and unresolved_target(db.get_bind(),printer_id,claim['physical_key'],connection=db.connection()):
         blockers.append('sender_quiescence_unverified')
     if can_write and claim:
-        identity = configured_identity(printer_id,db.connection())
-        if identity is None or identity.target_key!=claim['physical_key'] or identity.configuration_key!=claim['configuration_key']:
+        matches, slots_changed = recovery_configuration(db.connection(), evidence)
+        if not matches:
             blockers.append('configuration_changed')
-    if can_write and claim:
         from core.dispatch_recovery import release_evidence_checks
         try:
             release_evidence_checks(db,evidence)
@@ -157,6 +156,8 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         'blockers':blockers,'guidance':GUIDANCE,
         'refresh_required':failure=='status_unavailable',
         'refresh':{'method':'GET','endpoint':f'/api/printers/{printer_id}/dispatch-recovery'}}
+    if can_write and claim:
+        result['filament_slots_changed'] = slots_changed
     if result['refresh_required']:
         result['guidance'] = 'Wait for fresh monitor telemetry, then use Refresh evidence or GET '+result['refresh']['endpoint']+'. '+GUIDANCE
     result.update(confirmation)

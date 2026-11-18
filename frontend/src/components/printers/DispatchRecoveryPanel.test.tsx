@@ -36,6 +36,12 @@ it('requires four explicit checks and explains unseen senders', async () => {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh evidence' })).toHaveFocus())
   expect(vi.mocked(printers.recoverDispatch).mock.calls[0][2].attestation).toEqual({ version: 1, printer_checked: true, sender_stopped_and_checked: true, transport_and_device_queues_checked: true, no_pending_dispatch_can_arrive: true })
 })
+it('explains a filament change while keeping Release available', async () => {
+  vi.mocked(printers.dispatchRecovery).mockResolvedValue({ ...evidence, filament_slots_changed: true })
+  mount()
+  expect(await screen.findByText('Filament slots have changed since this start was attempted.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Release fence' })).toBeEnabled()
+})
 it('read only users have refresh without mutations', async () => {
   vi.mocked(canDo).mockReturnValue(false)
   mount()

@@ -42,3 +42,8 @@ def store_pause_reminder_settings(db, settings):
 def validate_pause_reminder_update(body, current):
     from modules.notifications.pause_reminder_settings import validate_update
     return validate_update(body, current)
+
+
+def recovery_power_connection(connection):
+    from modules.notifications.mqtt_republish import get_power_connection_snapshot
+    return get_power_connection_snapshot(connection=connection)

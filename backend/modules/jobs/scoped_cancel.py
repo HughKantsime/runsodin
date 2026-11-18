@@ -17,8 +17,11 @@ def assert_cancel_allowed(db, job, user):
     if job.status not in ('pending', 'scheduled') or (job.status != 'pending' and not job.hold):
         raise OdinError(ErrorCode.permission_denied,
                         'Scoped cancel requires a pending or held job that has never been dispatched', status=403)
+    if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), {'id':job.id}).first():
+        raise OdinError(ErrorCode.permission_denied,
+                        "Dispatch or observed print evidence exceeds write:jobs cancellation authority. "
+                        "An administrator can release it from the printer's Dispatch recovery panel.", status=403)
     for statement in (
-        'SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id',
         'SELECT 1 FROM print_jobs WHERE scheduled_job_id=:id',
         'SELECT 1 FROM dispatch_sender_registrations WHERE job_id=:id',
     ):

@@ -46,6 +46,7 @@ All notable changes to O.D.I.N. are documented here.
 - Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
 - Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
 - Only a signed-in platform administrator can change Education mode; each change records the previous and new values.
+- A stuck start can now be released from Dispatch recovery after filament was moved or reloaded. Before, changing a slot's filament after a failed start blocked the release for good.
 
 ## [2.3.1] - 2026-11-17
 

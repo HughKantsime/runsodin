@@ -16,7 +16,7 @@ class ClaimAcquisition:
     token: str = field(default=None,repr=False)
 
 
-def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id=None, *, token=None):
+def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id=None, *, token=None, recovery_creds=None):
     if (type(printer_id) is not int or printer_id<=0 or type(job_id) is not int or job_id<=0
             or owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id<=0)
             or any(not isinstance(key,str) or not re.fullmatch('[0-9a-f]{64}',key) for key in (physical_key,configuration_key,payload_sha256))):
@@ -39,6 +39,13 @@ def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha2
                 return ClaimAcquisition('refused')
             conn.execute(insert(TABLE).values(printer_id=printer_id,job_id=job_id,physical_key=physical_key,
                 configuration_key=configuration_key,payload_sha256=payload_sha256,owner_org_id=owner_org_id,state='preparing',token=token))
+            if recovery_creds is None:
+                from core.dispatch_recovery_identity import clear
+                clear(conn, printer_id)
+            else:
+                from core.auth import SECRET_KEY
+                from core.dispatch_recovery_identity import store
+                store(conn, printer_id, token, configuration_key, recovery_creds, SECRET_KEY.encode())
         return ClaimAcquisition('acquired',token)
     except IntegrityError:
         return ClaimAcquisition('conflict')
@@ -46,13 +53,25 @@ def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha2
         return ClaimAcquisition('uncertain')
 
 
+def delete_claim(conn, statement):
+    """Remove the fingerprint only if the fenced delete removed its claim."""
+    from core.dispatch_recovery_identity import clear
+    printer_id = conn.execute(statement.returning(TABLE.c.printer_id)).scalar_one_or_none()
+    if printer_id is None:
+        return False
+    clear(conn, printer_id)
+    return True
+
+
 def _change(engine,token,statement):
     if not isinstance(token,str) or not re.fullmatch('[0-9a-f]{32}',token):
         return False
     try:
         with engine.begin() as conn:
-            result=conn.execute(statement.where(TABLE.c.token==token))
-            changed=result.rowcount==1
+            statement = statement.where(TABLE.c.token == token)
+            if statement.is_delete:
+                return delete_claim(conn, statement)
+            changed = conn.execute(statement).rowcount == 1
         return changed
     except Exception:
         return False
@@ -201,8 +220,7 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
                 if any(row['state']!='quiesced' for row in conn.execute(query).mappings()):return 'retained'
                 if not target_handle.held():return 'uncertain'
                 predicate=[TABLE.c[k].is_(None) if claim[k] is None else TABLE.c[k]==claim[k] for k in identity_fields]
-                deleted=conn.execute(delete(TABLE).where(*predicate))
-                if deleted.rowcount!=1:raise RuntimeError('Terminal claim changed')
+                if not delete_claim(conn, delete(TABLE).where(*predicate)):raise RuntimeError('Terminal claim changed')
                 result='retired'
             if not target_handle.held():raise RuntimeError('Target lock changed')
         return result

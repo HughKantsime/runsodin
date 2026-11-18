@@ -219,6 +219,9 @@ def test_scoped_cancel_refusals(cancel_client,reason):
     response = client.post('/jobs/401/cancel')
     assert response.status_code in ((400,) if reason=='printing' else (409,) if reason=='education' else (403,404)), response.text
     assert db.execute(text('SELECT status FROM jobs WHERE id=401')).scalar_one() != 'cancelled'
+    if reason == 'claim':
+        assert response.status_code == 403
+        assert response.json()['detail'].endswith("An administrator can release it from the printer's Dispatch recovery panel.")
     if reason in ('receipt', 'claim', 'bound', 'scheduled'):
         assert response.json()['error']['code'] == 'permission_denied'
         assert response.json()['error']['retriable'] is False
