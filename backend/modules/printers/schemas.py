@@ -288,9 +288,6 @@ class PrinterResponse(PrinterBase):
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''
         values['camera_url'] = url
         values['camera_source'] = None if not url else ('configured' if data.camera_url else 'auto')
-        from modules.printers.support_levels import enabled_for_printer, printer_opt_in
-        values['ams_ht_enabled'] = data.api_type == 'bambu' and printer_opt_in(data, ams_ht=True)
-        values['experimental_actions_enabled'] = bool(values.get('experimental_actions_enabled')) or enabled_for_printer(data)
         return values
 
     @field_validator('camera_enabled', mode='before')

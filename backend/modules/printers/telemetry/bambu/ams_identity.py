@@ -40,22 +40,31 @@ def unit_and_tray(slot):
     raise ValueError('Unknown AMS slot')
 
 
-def print_mapping_fields(mapping):
+SPARSE_HT_MESSAGE = 'This file leaves a filament unused; sending it to an AMS HT tray is not supported yet'
+
+
+def has_ht_target(mapping):
+    return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
+
+
+def print_mapping_fields(mapping, *, ams_ht_enabled=False):
     """Both senders share this experimental translation at the wire boundary."""
-    if not any(16 <= index < 24 for index in mapping):
+    if any(AMS_HT_FIRST_UNIT <= index < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT for index in mapping):
+        raise ValueError('Select an AMS HT tray by its physical slot')
+    if not has_ht_target(mapping):
         return {'ams_mapping': mapping}
+    if ams_ht_enabled is not True:
+        from modules.printers.support_levels import AMS_HT_MESSAGE
+        raise ValueError(AMS_HT_MESSAGE)
+    if -1 in mapping:
+        raise ValueError(SPARSE_HT_MESSAGE)
     flat = []
     pairs = []
     for index in mapping:
-        if index == -1:
-            flat.append(-1)
-            continue
         unit, tray = unit_and_tray(index + 1)
         flat.append(unit if unit >= AMS_HT_FIRST_UNIT else index)
         pairs.append({'ams_id': unit, 'slot_id': tray})
-    # The captured Studio command has dense pairs. For sparse files only the
-    # flat -1 convention is evidenced; never shift pairs across file sources.
-    return {'ams_mapping': flat, **({'ams_mapping2': pairs} if len(pairs) == len(flat) else {})}
+    return {'ams_mapping': flat, 'ams_mapping2': pairs}
 
 
 def is_rfid_tag(tag_uid):

@@ -22,7 +22,7 @@ from core.rbac import require_role, check_org_access, get_org_scope, should_filt
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from core.interfaces.filament_ownership import ensure_local_filament_management
-from ._helpers import ScanAssignRequest, ScanAssignResponse, generate_single_label
+from ._helpers import ScanAssignRequest, ScanAssignResponse, generate_single_label, spool_slot_error
 
 log = logging.getLogger("odin.api")
 router = APIRouter(prefix="/spools", tags=["Spools"])
@@ -186,12 +186,11 @@ def scan_assign_spool(
     ensure_local_filament_management(data.printer_id)
 
     # Validate slot number
-    from core.printer_display_facts import reported_ht_slots
-    if not 1 <= data.slot <= (printer.slot_count or 4) and data.slot not in reported_ht_slots(db, printer.id):
-        return ScanAssignResponse(
-            success=False,
-            message=f"Invalid slot {data.slot} for {printer.name} (has {printer.slot_count or 4} slots)",
-        )
+    limit = printer.slot_count or 4
+    error = spool_slot_error(db, printer, data.slot, limit,
+                           f"Invalid slot {data.slot} for {printer.name} (has {limit} slots)")
+    if error:
+        return ScanAssignResponse(success=False, message=error)
 
     lock_slot_graph(db)
 

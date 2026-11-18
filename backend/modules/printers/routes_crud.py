@@ -36,6 +36,7 @@ from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refu
 from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
 )
+from modules.printers.support_levels import enrich_response_opt_ins
 from modules.printers.ledger_display import enrich_printers, ensure_local_filaments
 from modules.printers.route_utils import (
     TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url, camera_url_has_credentials,
@@ -73,6 +74,7 @@ def list_printers(
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
+    enrich_response_opt_ins(db, printers)
     return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, printers, current_user), current_user)), current_user))
 
 
@@ -161,6 +163,7 @@ def create_printer(
             sync_go2rtc_config(db)
         except Exception as e:
             log.debug(f"Failed to sync go2rtc config: {e}")
+    enrich_response_opt_ins(db, [db_printer])
     return db_printer
 
 
@@ -231,6 +234,7 @@ def get_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
+    enrich_response_opt_ins(db, [printer])
     return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, [printer], current_user), current_user)), current_user))[0]
 
 
@@ -324,6 +328,7 @@ def update_printer(
         except Exception as e:
             log.debug(f"Failed to sync go2rtc config: {e}")
 
+    enrich_response_opt_ins(db, [printer])
     return printer
 
 

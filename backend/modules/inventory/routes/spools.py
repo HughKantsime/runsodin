@@ -32,7 +32,7 @@ from modules.inventory.services import OTHER_ORG_SPOOL, spoolman_link_conflicts,
 from modules.printers.models import FilamentSlot, Printer
 from core.interfaces.filament_ownership import ensure_local_filament_management
 from ._helpers import (
-    SpoolCreate, SpoolUpdate,
+    spool_slot_error, SpoolCreate, SpoolUpdate,
     SpoolLoadRequest, SpoolUseRequest, SpoolWeighRequest,
 )
 
@@ -441,9 +441,10 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
         raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filament_management(request.printer_id)
 
-    from core.printer_display_facts import reported_ht_slots
-    if not 1 <= request.slot_number <= (printer.slot_count or 4) and request.slot_number not in reported_ht_slots(db, printer.id):
-        raise HTTPException(status_code=400, detail=f"Invalid slot number (1-{printer.slot_count})")
+    error = spool_slot_error(db, printer, request.slot_number, printer.slot_count,
+                           f"Invalid slot number (1-{printer.slot_count})")
+    if error:
+        raise HTTPException(status_code=400, detail=error)
 
     lock_slot_graph(db)
     slot = db.query(FilamentSlot).filter(

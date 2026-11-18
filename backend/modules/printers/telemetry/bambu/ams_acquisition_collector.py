@@ -109,9 +109,13 @@ class RawAMSAcquisitionCollector:
                 self._snapshot = replace(self._snapshot,
                     idle_without_error=self._snapshot.idle_without_error and idle_without_error,
                     **diagnostics)
+            self._last_receipt=now;self._order+=1
+            ams = packet.get('ams') if isinstance(packet, dict) else None
+            if isinstance(ams, dict) and 'ams' not in ams:
+                # A status delta has no unit inventory and cannot renew tray evidence.
+                return False
             try: facts=parse_raw_ams_facts(packet)
             except ValueError:self.retire();return False
-            self._last_receipt=now;self._order+=1
             addressed={f.slot_number:f for f in facts if f.slot_number in self._selected}
             if any(f.material_state != 'reported' and not (self._allow_unreported
                     and f.material_state in ('explicit_empty', 'unknown')) for f in addressed.values()):

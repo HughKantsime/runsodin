@@ -8,7 +8,7 @@ Spec: .claude/specs/octoprint-adapter.md, Part 1.
 * The opt-in lives in ``system_config`` under ``CONFIG_KEY``:
   ``{printer_id: {"enabled": true, "by": user_id, "at": iso, "api_type": type}}``.
   ``api_type`` is stored so an opt-in never carries over to a different type.
-* Everything here fails closed: an unreadable or malformed store means "not enabled".
+* Command checks fail closed. A Bambu printer response surfaces an unreadable opt-in store.
 """
 import json
 from datetime import datetime, timezone
@@ -130,6 +130,25 @@ def _entry_key(printer_id, ams_ht):
     return f'ams_ht:{printer_id}' if ams_ht else str(printer_id)
 
 
+def _entry_enabled(store, printer_id, api_type, name, *, ams_ht=False):
+    entry = store.get(_entry_key(printer_id, ams_ht))
+    return (isinstance(entry, dict) and entry.get('enabled') is True and entry.get('api_type') == normalize(api_type)
+            and name is not None and entry.get('name') == name)
+
+
+def enrich_response_opt_ins(db, printers):
+    """Read both display flags from one snapshot for this response."""
+    try:
+        store = _read_store(db) if any(opt_in_applies(p.api_type) for p in printers) else {}
+    except Exception:
+        if any(p.api_type == 'bambu' for p in printers):
+            raise
+        store = {}  # Existing non-HT opt-ins fail closed on an unreadable store.
+    for p in printers:
+        p.experimental_actions_enabled = opt_in_applies(p.api_type) and _entry_enabled(store, p.id, p.api_type, p.name)
+        p.ams_ht_enabled = p.api_type == 'bambu' and _entry_enabled(store, p.id, p.api_type, p.name, ams_ht=True)
+
+
 def experimental_enabled(db, printer_id, api_type, *, ams_ht=False) -> bool:
     """True only for a well-formed entry, enabled, recorded for this printer's current type AND
     name. The name binds the entry to this printer: a recycled id (bulk delete, raw SQL, cascade)
@@ -137,13 +156,13 @@ def experimental_enabled(db, printer_id, api_type, *, ams_ht=False) -> bool:
     if is_monitor_only(api_type) or (ams_ht and normalize(api_type) != "bambu"):
         return False  # nothing to opt in to yet: a hand-written store entry enables nothing
     try:
-        entry = _read_store(db).get(_entry_key(printer_id, ams_ht))
-        if not (isinstance(entry, dict) and entry.get('enabled') is True and entry.get('api_type') == normalize(api_type)):
+        store = _read_store(db)
+        if _entry_key(printer_id, ams_ht) not in store:
             return False
         name = db.execute(text('SELECT name FROM printers WHERE id=:id'), {'id': printer_id}).scalar_one_or_none()
     except Exception:
         return False
-    return name is not None and entry.get('name') == name
+    return _entry_enabled(store, printer_id, api_type, name, ams_ht=ams_ht)
 
 
 def experimental_refusal(db, printer_id, api_type) -> Optional[str]:
@@ -250,9 +269,7 @@ def set_experimental_enabled(db, printer, enabled: bool, user_id, *, ams_ht=Fals
         store = {}
     key = _entry_key(printer.id, ams_ht)
     api_type = normalize(printer.api_type)
-    current = store.get(key)
-    was_enabled = (isinstance(current, dict) and current.get('enabled') is True and current.get('api_type') == api_type
-                   and current.get('name') == printer.name)
+    was_enabled = _entry_enabled(store, printer.id, api_type, printer.name, ams_ht=ams_ht)
     if enabled:
         if was_enabled:
             return {'changed': False, 'enabled': True}

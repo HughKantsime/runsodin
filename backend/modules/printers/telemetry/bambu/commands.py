@@ -271,6 +271,7 @@ class BambuCommandAdapter:
         bed_leveling: bool = True,
         timelapse: bool = False,
         ams_mapping: Optional[list[int]] = None,
+        *, ams_ht_enabled: bool = False,
     ) -> bool:
         """Start a print of an already-uploaded .3mf file.
 
@@ -301,5 +302,5 @@ class BambuCommandAdapter:
         }
         if ams_mapping is not None:
             from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
-            payload["print"].update(print_mapping_fields(ams_mapping))
+            payload["print"].update(print_mapping_fields(ams_mapping, ams_ht_enabled=ams_ht_enabled))
         return self._publish(payload)

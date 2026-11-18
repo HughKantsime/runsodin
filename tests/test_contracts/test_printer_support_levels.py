@@ -359,3 +359,25 @@ def test_ht_switch_requires_superadmin_and_is_independent_from_existing_bambu_op
     view = client.get('/printers/9', headers=headers).json()
     assert view['ams_ht_enabled'] is True and view['experimental_actions_enabled'] is False
     assert client.put(path, headers=headers, json={**ht, 'enabled': False}).json()['ams_ht_enabled'] is False
+
+
+def test_list_reads_both_opt_ins_once_and_surfaces_store_errors(graph, monkeypatch):
+    from modules.printers.routes_crud import list_printers
+    from modules.printers.schemas import PrinterResponse
+    from unittest.mock import Mock
+    graph.execute(text("UPDATE printers SET api_type='bambu',org_id=1,shared=FALSE,tags='[]',timelapse_enabled=FALSE WHERE id IN (9,10)"))
+    opt_in(graph, 9)
+    support_levels.set_experimental_enabled(graph, graph.get(Printer, 10), True, 3, ams_ht=True)
+    graph.commit()
+    read = Mock(wraps=support_levels._read_store)
+    monkeypatch.setattr(support_levels, '_read_store', read)
+
+    def views():
+        return {row.id: PrinterResponse.model_validate(row) for row in list_printers(current_user=USER, db=graph)}
+    rows = views()
+    assert rows[9].experimental_actions_enabled and not rows[9].ams_ht_enabled
+    assert rows[10].ams_ht_enabled and not rows[10].experimental_actions_enabled
+    assert read.call_count == 1
+    read.side_effect = RuntimeError('store unavailable')
+    with pytest.raises(RuntimeError, match='store unavailable'):
+        views()

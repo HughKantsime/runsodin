@@ -25,6 +25,18 @@ log = logging.getLogger("odin.api")
 MAX_SPOOLMAN_ID = 2_147_483_647  # spools.spoolman_spool_id is a 32-bit INTEGER
 
 
+def spool_slot_error(db, printer, slot, limit, invalid_message):
+    if printer.api_type == 'bambu' and 17 <= slot <= 24:
+        from core.printer_display_facts import reported_ht_slots
+        if slot in reported_ht_slots(db, printer.id):
+            return None
+        if slot <= (limit or 0) or any(row.slot_number == slot for row in printer.filament_slots):
+            return f'AMS HT {slot - 16} is not reported by the printer right now.'
+    if slot < 1 or slot > limit:
+        return invalid_message
+    return None
+
+
 class SpoolCreate(PydanticBaseModel):
     purchase_evidence: Optional[PurchaseInput] = None
     pa_profile: Optional[str] = Field(default=None, max_length=50)
