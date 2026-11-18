@@ -29,7 +29,7 @@ def assert_editable(db, job):
     if job.status not in ('pending', 'scheduled'):
         raise HTTPException(409, 'AMS mapping can only change on a pending, held or scheduled job')
     if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), {'id': job.id}).first():
-        raise HTTPException(409, 'Job has an active dispatch claim; AMS mapping cannot change')
+        raise HTTPException(409, "Job has an active dispatch claim. Filament mapping cannot change. An administrator can release it from the printer's Dispatch recovery panel.")
     # A dispatched attempt can outlive its claim; never edit after start was recorded.
     if job.actual_start is not None:
         raise HTTPException(409, 'AMS mapping cannot change after dispatch')

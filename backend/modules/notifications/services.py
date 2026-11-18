@@ -27,3 +27,8 @@ def stage_restart_alerts(db, printer_id, printer_name, question):
 def resolve_restart_alerts(db, identifiers):
     from modules.notifications.restart_alerts import resolve
     return resolve(db, identifiers)
+
+
+def recovery_power_connection(connection):
+    from modules.notifications.mqtt_republish import get_power_connection_snapshot
+    return get_power_connection_snapshot(connection=connection)

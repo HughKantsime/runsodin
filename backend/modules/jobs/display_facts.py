@@ -6,6 +6,36 @@ from core.rbac import check_org_access
 from core.printer_display_facts import read_facts, may_read
 
 
+def _recovery_printers(db, printers, actor):
+    """Only point an admin to a retained claim within their recovery authority."""
+    from fastapi import HTTPException
+    from core.controlled_parts import allowed
+    from core.dispatch_claim_schema import PrinterDispatchClaim
+    from core.dispatch_recovery import capture, authorized
+    from core.rbac import is_scoped_token, token_scope_granted
+    from core.rbac_policy import action_roles
+    if not printers or actor.get('role') != 'admin':
+        return set()
+    if is_scoped_token(actor) and not all(token_scope_granted(actor.get('_token_scopes', []), scope)
+                                          for scope in ('read:printers', 'write:printers')):
+        return set()
+    if actor.get('group_id') is not None and 'admin' not in action_roles(db, 'printers.dispatch_recovery'):
+        return set()
+    claimed = db.query(PrinterDispatchClaim.printer_id).filter(PrinterDispatchClaim.printer_id.in_(printers))
+    result = set()
+    for (printer_id,) in claimed:
+        try:
+            evidence = capture(db, printer_id, actor, authority_only=True)
+            if evidence and evidence['claim']:
+                authorized(db, evidence, actor)
+                if allowed(db, 'job', evidence['job']['id'], actor):
+                    result.add(printer_id)
+        except HTTPException as error:
+            if error.status_code != 404:
+                raise
+    return result
+
+
 def enrich_job_facts(db, jobs, actor):
     """Display facts for already-visible jobs: nozzle/slot selections and what each job waits for."""
     from sqlalchemy import or_
@@ -32,7 +62,9 @@ def enrich_job_facts(db, jobs, actor):
                 and (check_org_access(actor, p.org_id) or p.shared)]
     facts = read_facts(db, printers)
     visible = {p.id: p for p in printers}
+    recovery = _recovery_printers(db, list(visible), actor)
     for job in jobs:
+        job.printer_has_dispatch_claim = job.printer_id in recovery
         job.ams_slot_nozzles = []
         printer_id = job.printer_id or job_pin(job)
         printer = visible.get(printer_id)

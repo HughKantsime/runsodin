@@ -62,7 +62,7 @@ class ReleaseRequest(RecoveryExpectation):
     attestation: Attestation
 
 
-from modules.printers.services import configured_identity
+from modules.printers.services import configured_identity, recovery_configuration
 
 @router.get('/printers/{printer_id}/dispatch-recovery',tags=['Printers'])
 def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depends(require_role('viewer',scope='read:printers')), db:Session=Depends(get_db)):
@@ -134,9 +134,10 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
     from core.dispatch_target_guard import unresolved_target
     if claim and unresolved_target(db.get_bind(),printer_id,claim['physical_key'],connection=db.connection()):
         blockers.append('sender_quiescence_unverified')
-    if can_write and claim:
-        identity = configured_identity(printer_id,db.connection())
-        if identity is None or identity.target_key!=claim['physical_key'] or identity.configuration_key!=claim['configuration_key']:
+    slots_changed = None
+    if claim and (can_write or visible and not evidence['reservations'] and (not evidence['submissions'] or edu_visible)):
+        matches, slots_changed = recovery_configuration(db.connection(), evidence)
+        if can_write and not matches:
             blockers.append('configuration_changed')
     if can_write and claim:
         from core.dispatch_recovery import release_evidence_checks
@@ -153,7 +154,7 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         'observed_print':{'id':observed['id'],'status':observed['status']} if visible and observed else None,
         'education':{'submission_id':evidence['submissions'][0]['id'],'status':evidence['submissions'][0]['status'],
                      'reservation_state':evidence['reservations'][0]['state'] if evidence['reservations'] else None} if edu_visible else None,
-        'release_available':available,'actions':{'hold':can_write,'reconcile_retain':can_write,'release':available},
+        'filament_slots_changed':slots_changed, 'release_available':available,'actions':{'hold':can_write,'reconcile_retain':can_write,'release':available},
         'blockers':blockers,'guidance':GUIDANCE,
         'refresh_required':failure=='status_unavailable',
         'refresh':{'method':'GET','endpoint':f'/api/printers/{printer_id}/dispatch-recovery'}}

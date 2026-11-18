@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobRow, { JobCardList } from './JobRow'
 
-const perms = vi.hoisted(() => ({ allowed: true }))
+const perms = vi.hoisted(() => ({ allowed: true, role: 'operator' }))
 vi.mock('./OutcomeCorrection', () => ({ default: () => null }))
-vi.mock('../../permissions', () => ({ canDo: () => perms.allowed, getCurrentUser: () => ({ id: 3, role: 'operator' }) }))
+vi.mock('../../permissions', () => ({ canDo: () => perms.allowed, getCurrentUser: () => ({ id: 3, role: perms.role }) }))
 
 const job = (over: any = {}) => ({ id: 4, item_name: 'Bracket', status: 'scheduled', printer_id: 9, printer: { name: 'P1S-A' }, priority: 3, quantity: 1, hold: false, is_locked: false, ...over })
 const wrap = (node: React.ReactNode) => render(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>)
@@ -23,7 +23,7 @@ const line = () => screen.getByTestId('job-waiting-reason')
 // A fixed local time, so the expected clock text does not depend on the machine's zone.
 const at = (hours: number, minutes: number) => { const d = new Date(); d.setHours(hours, minutes, 0, 0); return d.toISOString() }
 
-beforeEach(() => { perms.allowed = true })
+beforeEach(() => { perms.allowed = true; perms.role = 'operator' })
 afterEach(() => cleanup())
 
 const CASES: [string, any, any, string][] = [
@@ -43,6 +43,17 @@ const CASES: [string, any, any, string][] = [
 ]
 
 describe.each([['table row', row], ['phone card', card]] as const)('waiting reason on the %s', (_name, mount) => {
+  it('links admins to recovery when the printer has an unresolved start', () => {
+    perms.role = 'admin'
+    mount(job({ printer_has_dispatch_claim: true }))
+    expect(screen.getByRole('link', { name: 'Dispatch recovery panel' })).toHaveAttribute('href', '/printers/9#dispatch-recovery')
+  })
+
+  it('hides recovery guidance from operators', () => {
+    mount(job({ printer_has_dispatch_claim: true }))
+    expect(screen.queryByText(/unresolved start/)).toBeNull()
+  })
+
   it.each(CASES)('%s %j %j reads "%s"', (code, over, extra, text) => {
     mount(job({ ...over, waiting_reason: { code, ...extra } }))
     expect(within(line()).getByRole('status')).toHaveTextContent(new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))

@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A stuck start can now be released from Dispatch recovery after filament was moved or reloaded. Before, changing a slot's filament after a failed start blocked the release for good.
+
 ## [2.3.1] - 2026-11-17
 
 

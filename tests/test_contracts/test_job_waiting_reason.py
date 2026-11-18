@@ -450,3 +450,21 @@ def test_quiet_hours_end_follows_the_saved_time_zone(review_db):  # noqa: F811
     assert quiet_hours_end(review_db, datetime(2026, 1, 16, 4, 0)) == datetime(2026, 1, 16, 10, 30)
     # July: 05:30 local is 09:30 UTC (daylight time).
     assert quiet_hours_end(review_db, datetime(2026, 7, 16, 4, 0)) == datetime(2026, 7, 16, 9, 30)
+
+
+def test_job_on_claimed_printer_points_only_authorized_admin_to_recovery(db):
+    from core.dispatch_claims import acquire
+    from modules.jobs.routes.jobs_crud import get_job
+    add_job(db, 991, 'scheduled', printer_id=9)
+    add_job(db, 992, 'pending', printer_id=9, hold=True)
+    assert acquire(db.get_bind(), 9, 991, 'a'*64, 'b'*64, 'c'*64, 1).status == 'acquired'
+    admin = {**OPERATOR, 'role':'admin'}
+    def hint(actor):
+        return get_job(992, current_user=actor, _agent_scope={}, db=db).get('printer_has_dispatch_claim')
+    assert hint(admin)
+    assert not hint(OPERATOR)
+    assert not hint({**admin, '_token_scopes':['agent:write','write:printers']})
+    run(db, 'UPDATE printer_dispatch_claims SET owner_org_id=2 WHERE printer_id=9')
+    assert not hint(admin)
+    run(db, 'DELETE FROM printer_dispatch_claims WHERE printer_id=9')
+    assert not hint(admin)

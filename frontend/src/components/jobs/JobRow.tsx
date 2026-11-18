@@ -102,6 +102,9 @@ function JobItemDetails({ job, onAction, nameClassName = 'font-medium text-sm' }
     <>
       <div className={nameClassName}>{displayName(job)}</div>
       <div className="text-xs font-mono text-[var(--brand-text-muted)]">{`Job ${job.id}`}</div>
+      {job.printer_has_dispatch_claim && getCurrentUser()?.role === 'admin' && (
+        <p className="text-xs text-[var(--brand-text-secondary)]">This printer has an unresolved start. An administrator can release it from the printer’s <a className="underline" href={`/printers/${job.printer_id}#dispatch-recovery`}>Dispatch recovery panel</a>.</p>
+      )}
       <JobWaitingReason job={job} onAction={onAction} />
       {(job.quantity == null || job.hold == null || job.is_locked == null) && (
         <div className="text-xs text-[var(--brand-text-muted)]">

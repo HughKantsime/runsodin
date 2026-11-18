@@ -16,7 +16,7 @@ class ClaimAcquisition:
     token: str = field(default=None,repr=False)
 
 
-def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id=None, *, token=None):
+def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id=None, *, token=None, recovery_creds=None):
     if (type(printer_id) is not int or printer_id<=0 or type(job_id) is not int or job_id<=0
             or owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id<=0)
             or any(not isinstance(key,str) or not re.fullmatch('[0-9a-f]{64}',key) for key in (physical_key,configuration_key,payload_sha256))):
@@ -39,6 +39,10 @@ def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha2
                 return ClaimAcquisition('refused')
             conn.execute(insert(TABLE).values(printer_id=printer_id,job_id=job_id,physical_key=physical_key,
                 configuration_key=configuration_key,payload_sha256=payload_sha256,owner_org_id=owner_org_id,state='preparing',token=token))
+            if recovery_creds is not None:
+                from core.auth import SECRET_KEY
+                from core.dispatch_recovery_identity import store
+                store(conn, printer_id, token, configuration_key, recovery_creds, SECRET_KEY.encode())
         return ClaimAcquisition('acquired',token)
     except IntegrityError:
         return ClaimAcquisition('conflict')
