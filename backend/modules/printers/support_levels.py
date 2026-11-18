@@ -41,6 +41,8 @@ EXPERIMENTAL_MESSAGE = (
     "administrator turns them on for this printer. Monitoring still works."
 )
 EXPERIMENTAL_REFUSAL = f'{EXPERIMENTAL_NOT_ENABLED}: {EXPERIMENTAL_MESSAGE}'
+AMS_HT_MESSAGE = ("Sending prints to AMS HT trays is off. A platform administrator can turn on "
+                  "Send prints to AMS HT trays (Experimental) under Experimental features on this printer’s page.")
 SKIP_OBJECTS_MESSAGE = (
     "Skipping objects is Experimental on Bambu printers and is off for this printer. "
     "A platform administrator can turn it on in this printer's Experimental features."
@@ -124,14 +126,18 @@ def _read_store(db) -> dict:
     return {} if raw is None else _coerce(raw)
 
 
-def experimental_enabled(db, printer_id, api_type) -> bool:
+def _entry_key(printer_id, ams_ht):
+    return f'ams_ht:{printer_id}' if ams_ht else str(printer_id)
+
+
+def experimental_enabled(db, printer_id, api_type, *, ams_ht=False) -> bool:
     """True only for a well-formed entry, enabled, recorded for this printer's current type AND
     name. The name binds the entry to this printer: a recycled id (bulk delete, raw SQL, cascade)
     for a different printer never inherits an opt-in."""
-    if is_monitor_only(api_type):
+    if is_monitor_only(api_type) or (ams_ht and normalize(api_type) != "bambu"):
         return False  # nothing to opt in to yet: a hand-written store entry enables nothing
     try:
-        entry = _read_store(db).get(str(printer_id))
+        entry = _read_store(db).get(_entry_key(printer_id, ams_ht))
         if not (isinstance(entry, dict) and entry.get('enabled') is True and entry.get('api_type') == normalize(api_type)):
             return False
         name = db.execute(text('SELECT name FROM printers WHERE id=:id'), {'id': printer_id}).scalar_one_or_none()
@@ -204,21 +210,25 @@ def command_refusal(printer, action=None) -> Optional[str]:
         gated = gated_capabilities(api_type)
         if not gated or (action is not None and ACTION_CAPABILITY.get(action) not in gated):
             return None
+    enabled = printer_opt_in(printer)
+    capability = DISPATCH if action is None and DISPATCH in gated_capabilities(api_type) else ACTION_CAPABILITY.get(action)
+    message = experimental_capability_message(api_type, capability)
+    return None if enabled else f'{EXPERIMENTAL_NOT_ENABLED}: {message}'
+
+
+def printer_opt_in(printer, *, ams_ht=False):
+    api_type = getattr(printer, "api_type", None)
     printer_id = getattr(printer, 'id', None)
     try:
         from sqlalchemy.orm import object_session
         session = object_session(printer)
         if session is not None:
-            enabled = experimental_enabled(session, printer_id, api_type)
-        else:
-            from core.db import engine
-            with engine.connect() as conn:
-                enabled = experimental_enabled(conn, printer_id, api_type)
+            return experimental_enabled(session, printer_id, api_type, ams_ht=ams_ht)
+        from core.db import engine
+        with engine.connect() as conn:
+            return experimental_enabled(conn, printer_id, api_type, ams_ht=ams_ht)
     except Exception:
-        enabled = False
-    capability = DISPATCH if action is None and DISPATCH in gated_capabilities(api_type) else ACTION_CAPABILITY.get(action)
-    message = experimental_capability_message(api_type, capability)
-    return None if enabled else f'{EXPERIMENTAL_NOT_ENABLED}: {message}'
+        return False
 
 
 def enabled_for_printer(printer) -> bool:
@@ -226,7 +236,7 @@ def enabled_for_printer(printer) -> bool:
     return opt_in_applies(getattr(printer, 'api_type', None)) and command_refusal(printer) is None
 
 
-def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:
+def set_experimental_enabled(db, printer, enabled: bool, user_id, *, ams_ht=False) -> dict:
     """Stage the opt-in on ``db`` (a Session); the caller audits and commits.
 
     Returns {'changed': bool, 'enabled': bool}. Enabling an already-enabled printer
@@ -238,7 +248,7 @@ def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:
         store = dict(_coerce(row.value)) if row is not None else {}
     except ValueError:
         store = {}
-    key = str(printer.id)
+    key = _entry_key(printer.id, ams_ht)
     api_type = normalize(printer.api_type)
     current = store.get(key)
     was_enabled = (isinstance(current, dict) and current.get('enabled') is True and current.get('api_type') == api_type
@@ -275,4 +285,5 @@ def forget_printer(connection, printer_id) -> None:
     except ValueError:
         store = {}
     store.pop(str(printer_id), None)
+    store.pop(_entry_key(printer_id, True), None)
     connection.execute(update(table).where(table.c.key == CONFIG_KEY).values(value=store))

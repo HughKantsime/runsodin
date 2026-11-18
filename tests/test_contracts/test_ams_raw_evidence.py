@@ -62,9 +62,10 @@ def h2d_packet():
     ]}}
 
 
-def test_h2d_packet_with_ams_ht_yields_four_tray_facts_only():
+def test_h2d_packet_with_ams_ht_yields_its_physical_tray():
     facts = parse_raw_ams_facts(h2d_packet())
-    assert [f.slot_number for f in facts] == list(range(1, 9))
+    assert [f.slot_number for f in facts] == [*range(1, 9), 17]
+    assert (facts[-1].unit_id, facts[-1].tray_id) == (128, 0)
     assert (facts[0].slot_number, facts[0].material, facts[0].material_state) == (1, 'PLA', 'reported')
 
 

@@ -344,3 +344,18 @@ def test_bambu_only_skip_capability_is_gated(graph):
         assert support_levels.dispatch_refusal(graph,9,family) is None
     opt_in(graph)
     assert support_levels.control_refusal(graph,9,'bambu','skip-objects') is None
+
+
+def test_ht_switch_requires_superadmin_and_is_independent_from_existing_bambu_opt_in(experimental_app, review_db):
+    client, headers, _ = experimental_app
+    path = '/printers/9/experimental-actions'
+    ht = {'capability': 'ams_ht', 'enabled': True}
+    assert client.put(path, headers=headers, json=ht).status_code == 403
+    make_superadmin(review_db)
+    assert client.put(path, headers=headers, json={'enabled': True}).status_code == 200
+    assert client.get('/printers/9', headers=headers).json()['ams_ht_enabled'] is False
+    assert client.put(path, headers=headers, json=ht).json()['ams_ht_enabled'] is True
+    assert client.put(path, headers=headers, json={'enabled': False}).status_code == 200
+    view = client.get('/printers/9', headers=headers).json()
+    assert view['ams_ht_enabled'] is True and view['experimental_actions_enabled'] is False
+    assert client.put(path, headers=headers, json={**ht, 'enabled': False}).json()['ams_ht_enabled'] is False

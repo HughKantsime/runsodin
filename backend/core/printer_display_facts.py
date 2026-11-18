@@ -73,8 +73,11 @@ def observe(monitor, packet, *, retained=False):
         if 'ams' in ams:
             from modules.printers.telemetry.bambu.ams_evidence import parse_raw_ams_facts
             try:
-                put('slot_extruders', {str(t.slot_number): t.extruder for t in parse_raw_ams_facts({'ams': ams}) if t.extruder is not None})
+                trays = parse_raw_ams_facts({'ams': ams})
+                put('ht_trays', {str(t.slot_number): t.material for t in trays if t.slot_number >= 17})
+                put('slot_extruders', {str(t.slot_number): t.extruder for t in trays if t.extruder is not None})
             except (ValueError, TypeError, KeyError):
+                put('ht_trays', {})
                 put('slot_extruders', {})
     chamber = packet.get('chamber_temper')
     device = packet.get('device')
@@ -98,6 +101,24 @@ def persist(conn, monitor):
         value = json.dumps({'printer_created_at': str(row[0]), 'facts': facts})
         conn.execute('INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                      (cache_key(monitor.printer_id), value))
+
+
+def reported_ht_slots(db, printer_id):
+    """Last reported HT slots and exact material labels for planning. Starting still needs a fresh owned read."""
+    row = db.execute(text("SELECT p.created_at,c.value FROM printers p JOIN system_config c ON c.key=:key "
+                          "WHERE p.id=:id AND p.api_type='bambu'"),
+                     {'key': cache_key(printer_id), 'id': printer_id}).first()
+    if not row:
+        return {}
+    try:
+        entry = json.loads(row.value) if isinstance(row.value, str) else row.value
+        slots = entry['facts']['ht_trays']['value']
+        if str(row.created_at) == entry['printer_created_at'] and isinstance(slots, dict):
+            from core.material_identity import canonical_reported_material
+            return {n: canonical_reported_material(slots[str(n)]) for n in range(17, 25) if str(n) in slots}
+    except (ValueError, TypeError, KeyError):
+        pass
+    return {}
 
 
 def read_facts(db, printers):

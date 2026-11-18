@@ -3,6 +3,7 @@
 ``experimental_controls_guard`` is attached to the whole controls router in routes.py,
 so a control route added there later is refused for an unopted Experimental printer by default.
 """
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, StrictBool
 from sqlalchemy import event, text
@@ -24,6 +25,7 @@ _SAFE_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS'})
 
 class ExperimentalActions(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    capability: Literal['ams_ht'] | None = None
     enabled: StrictBool  # "yes" or 1 is refused (422), never read as true
 
 
@@ -51,13 +53,18 @@ def set_experimental_actions(
         printer = db.get(Printer, printer_id)
         if printer is None:
             raise HTTPException(404, 'Printer not found')
-        result = support_levels.set_experimental_enabled(db, printer, body.enabled, current_user.get('id'))
+        ht = body.capability == 'ams_ht'
+        if ht and printer.api_type != 'bambu':
+            raise HTTPException(409, 'AMS HT trays require a Bambu printer.')
+        result = support_levels.set_experimental_enabled(db, printer, body.enabled, current_user.get('id'), ams_ht=ht)
         if result['changed']:
             log_audit(db, 'printer.experimental_actions_enabled' if body.enabled else 'printer.experimental_actions_disabled',
                       'printer', printer_id,
                       {'api_type': support_levels.normalize(printer.api_type), 'support_level': level,
-                       'actor_token_id': current_user.get('_token_id')})
+                       **({'capability': body.capability} if ht else {}), 'actor_token_id': current_user.get('_token_id')})
         db.commit()
+        if ht:
+            return {'printer_id': printer_id, 'support_level': level, 'ams_ht_enabled': result['enabled']}
         return {'printer_id': printer_id, 'support_level': level,
                 'experimental_actions_enabled': result['enabled'] and support_levels.opt_in_applies(printer.api_type)}
     except Exception:

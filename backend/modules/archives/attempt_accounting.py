@@ -214,9 +214,9 @@ def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, so
     slots = execute(connection,
         'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id,fs.tray_observation '
         'FROM filament_slots fs LEFT JOIN spools s ON s.id=fs.assigned_spool_id '
-        'WHERE fs.printer_id=? ORDER BY fs.slot_number,fs.id' + (' LIMIT 17' if prospective else ''), (printer_id,)).fetchall()
+        'WHERE fs.printer_id=? ORDER BY fs.slot_number,fs.id' + (' LIMIT 25' if prospective else ''), (printer_id,)).fetchall()
     located = execute(connection,
-        "SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id" + (' LIMIT 17' if prospective else ''),
+        "SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id" + (' LIMIT 25' if prospective else ''),
         (printer_id,)).fetchall()
     from .ownership import capture_content_owner
     scheduled = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()[0]
@@ -251,7 +251,7 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     def unresolved(reason):
         plan.update(state='unresolved', reason=reason, allocations=[])
         return plan
-    if bounded and (len(slots) > 16 or len(located) > 16):
+    if bounded and (len(slots) > 24 or len(located) > 24):
         return unresolved('material_source_bound_exceeded')
     attempt = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()
     job_id = attempt[0] if attempt else None
@@ -311,7 +311,7 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     if identities and located_ids and not located_ids <= identities:
         return unresolved('contradictory_start_identity')
     if mapping is not None:
-        if not isinstance(mapping, list) or not 1 <= len(mapping) <= 16 or any(type(x) is not int or not -1 <= x < 16 for x in mapping):
+        if not isinstance(mapping, list) or not 1 <= len(mapping) <= 16 or any(type(x) is not int or not -1 <= x < 24 for x in mapping):
             return unresolved('invalid_mapping')
         from core.filament_sources import indexed_materials
         by_source = indexed_materials(materials)

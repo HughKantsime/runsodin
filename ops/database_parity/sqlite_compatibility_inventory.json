@@ -946,7 +946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 96,
+      "line": 99,
       "path": "backend/core/printer_display_facts.py",
       "pattern": "qmark-parameter",
       "reason": "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters.",
@@ -954,7 +954,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 99,
+      "line": 102,
       "path": "backend/core/printer_display_facts.py",
       "pattern": "qmark-parameter",
       "reason": "Display-only JSON cache uses portable UPSERT through the shared monitor qmark adapter; API reads use bound SQLAlchemy parameters.",
@@ -1558,7 +1558,7 @@
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "\"SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id\" + (' LIMIT 17' if prospective else ''),"
+      "source": "\"SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id\" + (' LIMIT 25' if prospective else ''),"
     },
     {
       "classification": "dialect-neutral",

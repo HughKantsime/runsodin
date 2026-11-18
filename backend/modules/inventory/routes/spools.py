@@ -441,7 +441,8 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
         raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filament_management(request.printer_id)
 
-    if request.slot_number < 1 or request.slot_number > printer.slot_count:
+    from core.printer_display_facts import reported_ht_slots
+    if not 1 <= request.slot_number <= (printer.slot_count or 4) and request.slot_number not in reported_ht_slots(db, printer.id):
         raise HTTPException(status_code=400, detail=f"Invalid slot number (1-{printer.slot_count})")
 
     lock_slot_graph(db)

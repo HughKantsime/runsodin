@@ -186,7 +186,8 @@ def scan_assign_spool(
     ensure_local_filament_management(data.printer_id)
 
     # Validate slot number
-    if data.slot < 1 or data.slot > (printer.slot_count or 4):
+    from core.printer_display_facts import reported_ht_slots
+    if not 1 <= data.slot <= (printer.slot_count or 4) and data.slot not in reported_ht_slots(db, printer.id):
         return ScanAssignResponse(
             success=False,
             message=f"Invalid slot {data.slot} for {printer.name} (has {printer.slot_count or 4} slots)",

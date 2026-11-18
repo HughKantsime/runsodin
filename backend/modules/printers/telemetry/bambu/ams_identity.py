@@ -5,10 +5,8 @@ AMS HT units 128-135 (captured H2D: unit "128", module n3s/128). Slots 1-16
 are the four-tray units; AMS HT unit 128+n is slot 17+n, matching the bit
 position Bambu uses for it in ``tray_exist_bits`` (captured H2D: 0x100ff).
 
-Dispatch AMS mapping stays capped to slots 1-16 (Bambu tray index 0-15):
-ams_evidence rejects AMS HT units, so no mapping target can reach an HT
-slot. AMS HT is inventory/display only until HT acquisition evidence is
-accepted; mapping it would need Bambu's HT tray id (the unit id, 128+).
+Job selections use physical slot minus one. Only the print command converts
+an HT selection to its experimental wire representation.
 """
 import re
 
@@ -31,6 +29,33 @@ def ams_slot_number(unit_id, tray_id):
     if AMS_HT_FIRST_UNIT <= unit < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT and tray == 0:
         return AMS_HT_FIRST_SLOT + unit - AMS_HT_FIRST_UNIT
     return None
+
+
+def unit_and_tray(slot):
+    """Inverse of ams_slot_number for a validated physical slot."""
+    if 1 <= slot < AMS_HT_FIRST_SLOT:
+        return divmod(slot - 1, 4)
+    if AMS_HT_FIRST_SLOT <= slot < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT:
+        return AMS_HT_FIRST_UNIT + slot - AMS_HT_FIRST_SLOT, 0
+    raise ValueError('Unknown AMS slot')
+
+
+def print_mapping_fields(mapping):
+    """Both senders share this experimental translation at the wire boundary."""
+    if not any(16 <= index < 24 for index in mapping):
+        return {'ams_mapping': mapping}
+    flat = []
+    pairs = []
+    for index in mapping:
+        if index == -1:
+            flat.append(-1)
+            continue
+        unit, tray = unit_and_tray(index + 1)
+        flat.append(unit if unit >= AMS_HT_FIRST_UNIT else index)
+        pairs.append({'ams_id': unit, 'slot_id': tray})
+    # The captured Studio command has dense pairs. For sparse files only the
+    # flat -1 convention is evidenced; never shift pairs across file sources.
+    return {'ams_mapping': flat, **({'ams_mapping2': pairs} if len(pairs) == len(flat) else {})}
 
 
 def is_rfid_tag(tag_uid):

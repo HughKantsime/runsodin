@@ -175,5 +175,6 @@ def planned_loads(job, facts):
         elif material is None:
             loads.append(f"verify source material for filament {source['slot']}")
         elif material != canonical_reported_material(available[target]):
-            loads.append(f"load {material} in AMS {(target - 1) // 4 + 1} slot {(target - 1) % 4 + 1}")
+            label = f"AMS HT {target - 16}" if 17 <= target <= 24 else f"AMS {(target - 1) // 4 + 1} slot {(target - 1) % 4 + 1}"
+            loads.append(f"load {material} in {label}")
     return list(dict.fromkeys(loads))

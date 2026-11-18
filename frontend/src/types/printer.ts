@@ -84,6 +84,7 @@ export interface Printer {
   // Reported by GET /api/printers; null for a manual printer (no api_type).
   support_level?: 'supported' | 'experimental' | 'unsupported' | null;
   experimental_actions_enabled?: boolean;
+  ams_ht_enabled?: boolean;
   current_print_display_name?: string | null;
   maintenance?: import('../api/printerMaintenance').MaintenanceState;
   id: number;

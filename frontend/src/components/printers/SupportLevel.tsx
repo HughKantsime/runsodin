@@ -4,7 +4,7 @@ import { getCurrentUser } from '../../permissions'
 import { printerSupport } from '../../api/printerSupport'
 import { experimentalWarning, isMonitorOnlyType, optInApplies, CAPABILITY_COPY, GATED_CAPABILITIES, supportLevelOfPrinter } from '../../utils/supportLevels'
 
-type PrinterSupportFields = { id: number; api_type?: string | null; support_level?: unknown; experimental_actions_enabled?: boolean }
+type PrinterSupportFields = { id: number; api_type?: string | null; support_level?: unknown; experimental_actions_enabled?: boolean; ams_ht_enabled?: boolean; filament_slots?: { slot_number: number }[] }
 
 /** "Experimental" badge; nothing for a Supported printer. */
 export function SupportLevelBadge({ printer }: { printer: PrinterSupportFields }) {
@@ -19,13 +19,20 @@ function OptInPanel({ printer, capability }: { printer: PrinterSupportFields; ca
   const client = useQueryClient()
   const principal = getCurrentUser()
   const isSuperadmin = principal?.role === 'admin' && !principal?.group_id
-  const enabled = printer.experimental_actions_enabled === true
+  const ht = capability === 'ams_ht'
+  const enabled = (ht ? printer.ams_ht_enabled : printer.experimental_actions_enabled) === true
   const copy = capability ? CAPABILITY_COPY[capability] : null
   const checkboxId = `experimental-${printer.id}-${capability || 'type'}`
   const save = useMutation({
-    mutationFn: (next: boolean) => printerSupport.setExperimentalActions(printer.id, next),
+    mutationFn: async (next: boolean) => {
+      if (ht) await printerSupport.setAmsHt(printer.id, next)
+      else await printerSupport.setExperimentalActions(printer.id, next)
+    },
     retry: false,
     onSuccess: () => {
+      if (ht) {
+        for (const key of ['job', 'schedule-ams', 'archive-ams-preview']) client.invalidateQueries({ queryKey: [key] })
+      }
       client.invalidateQueries({ queryKey: ['printers'] })
       client.invalidateQueries({ queryKey: ['printer', String(printer.id)] })
     },
@@ -56,7 +63,9 @@ export function ExperimentalOptIn({ printer, capabilities = false }: { printer: 
   if (capabilities) {
     if (supportLevelOfPrinter(printer) !== 'supported' || !optInApplies(printer.api_type)) return null
     return <>{GATED_CAPABILITIES[(printer.api_type ?? '').trim().toLowerCase()]?.map(capability =>
-      <OptInPanel key={capability} printer={printer} capability={capability} />)}</>
+      <OptInPanel key={capability} printer={printer} capability={capability} />)}
+      {printer.api_type === 'bambu' && (printer.ams_ht_enabled || printer.filament_slots?.some(s => s.slot_number >= 17 && s.slot_number <= 24)) &&
+        <OptInPanel printer={printer} capability="ams_ht" />}</>
   }
   if (supportLevelOfPrinter(printer) !== 'experimental') return null
   if (isMonitorOnlyType(printer.api_type)) {

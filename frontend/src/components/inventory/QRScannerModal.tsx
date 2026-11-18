@@ -1,4 +1,4 @@
-import { materialLabel } from '../../utils/shared'
+import { materialLabel, spoolSlotNumbers } from '../../utils/shared'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
 import jsQR from 'jsqr';
@@ -321,17 +321,17 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
                 <div className="grid grid-cols-4 gap-2">
                   {foundry ? (selectedPrinterData.filament_slots || []).map(slot => <button type="button" key={slot.slot_number} className="f-slot-button" aria-pressed={selectedSlot === slot.slot_number} onClick={() => setSelectedSlot(slot.slot_number)}>
                     <SlotTile expandable={false} slot={slot} apiType={selectedPrinterData.api_type} />
-                  </button>) : (Array.from({ length: selectedPrinterData.slot_count || 4 }, (_, i) => (
+                  </button>) : (spoolSlotNumbers(selectedPrinterData, 4).map(n => (
                     <button
-                      key={i}
-                      onClick={() => setSelectedSlot(i + 1)}
+                      key={n}
+                      onClick={() => setSelectedSlot(n)}
                       className={`p-3 rounded-md border text-sm font-medium transition-colors ${
-                        selectedSlot === i + 1
+                        selectedSlot === n
                           ? 'bg-[var(--brand-primary)] border-[var(--brand-primary)] text-white'
                           : 'bg-[var(--brand-input-bg)] border-[var(--brand-card-border)] hover:border-[var(--brand-text-muted)]'
                       }`}
                     >
-                      {i + 1}
+                      {n}
                     </button>
                   )))}
                 </div>

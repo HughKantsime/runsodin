@@ -26,8 +26,6 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
     if mapping is None:
         return None
     printer = accessible_printer(db, printer_id, actor)
-    slots = dict(db.execute(text('SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id'),
-                            {'id': printer_id}).all())
     from modules.printers.dispatch_support import is_kobra_s1
     protocol = 'bambu' if is_kobra_s1(printer._mapping) else printer.api_type
     if is_kobra_s1(printer._mapping):
@@ -40,7 +38,13 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
                 mapping = [{'source_slot': i + 1, 'target_slot': slot + 1} for i, slot in enumerate(mapping)]
         except S1Refusal as refusal:
             raise HTTPException(400, str(refusal)) from None
-    result = validate_mapping(mapping, filaments_json, slots, protocol, check_material=check_material)
+    slots = mapping_materials(db, printer_id, printer.api_type)
+    from modules.printers.support_levels import experimental_enabled
+    ht_enabled = None
+    if printer.api_type == 'bambu' and any(n >= 17 for n in slots):
+        ht_enabled = experimental_enabled(db, printer_id, 'bambu', ams_ht=True)
+    result = validate_mapping(mapping, filaments_json, slots, protocol, check_material=check_material,
+                              ht_enabled=ht_enabled)
     from modules.printers.slot_feed_policy import flagged_mapping_reason
     reason = flagged_mapping_reason(db, printer_id, result)
     if reason:
@@ -52,6 +56,34 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
         if len(set(used)) != len(used):
             raise HTTPException(400, 'S1 mapping needs a separate ACE slot for each file filament')
     return result
+
+
+def _ht_material(stored, reported):
+    """The exact reported label is usable only while it agrees with the inventory slot."""
+    from core.base import slot_filament_value
+    return reported if reported and slot_filament_value(reported) == stored else None
+
+
+def mapping_materials(db, printer_id, api_type):
+    slots = dict(db.execute(text('SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id'),
+                            {'id': printer_id}).all())
+    if api_type == 'bambu' and any(n >= 17 for n in slots):
+        from core.printer_display_facts import reported_ht_slots
+        # The inventory enum collapses some nylon and support materials.
+        # Compare the exact reported label for HT targets, including unknowns.
+        reported = reported_ht_slots(db, printer_id)
+        slots = {n: material if n < 17 else _ht_material(material, reported[n]) for n, material in slots.items() if n < 17 or n in reported}
+    return slots
+
+
+def selectable_slots(db, printer_id, api_type, available):
+    if api_type != 'bambu' or not any(s['slot'] >= 17 for s in available):
+        return available
+    from modules.printers.support_levels import experimental_enabled
+    from core.printer_display_facts import reported_ht_slots
+    ht = reported_ht_slots(db, printer_id) if experimental_enabled(db, printer_id, api_type, ams_ht=True) else {}
+    return [s if s['slot'] < 17 else {**s, 'material': _ht_material(s['material'], ht[s['slot']]) or ''}
+            for s in available if s['slot'] < 17 or s['slot'] in ht]
 
 
 def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
@@ -78,7 +110,7 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
             return {'required': [], 'available': available, 'suggested_mapping': [], 'file_note': refusal.detail}
         # Real S1 headers carry the slicer's default green, so a material match says nothing about the slot.
         return {**preview_for_slots(filaments_json, available), 'confirm_suggestions': True}
-    return preview_for_slots(filaments_json, available)
+    return preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))
 
 
 def preview_for_slots(filaments_json, available):

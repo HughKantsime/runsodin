@@ -35,7 +35,7 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     from modules.printers.dispatch_options import _ams_plate_index
     plate_index = _ams_plate_index(job)
     if (type(mapping) is not list or not 1 <= len(mapping) <= 16
-            or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
+            or any(type(slot) is not int or not -1 <= slot < 24 for slot in mapping)
             or plate_index != 0):
         raise ValueError('Explicit AMS dispatch requires supported source and plate')
     stored_mapping = job.get('ams_mapping')
@@ -94,7 +94,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     slots = tuple(sorted({mapping[source['source_index']] + 1 for source in sources}))
     from modules.printers.printer_models import bambu_nozzle_count
     dual = bambu_nozzle_count(captured['creds'].get('machine_type') or captured['creds'].get('model')) == 2
-    check_bindings = dual and len(sources) > 1
+    check_bindings = dual and (len(sources) > 1 or any(slot >= 17 for slot in slots))
     runtime = read_runtime_identity()
     with engine.connect() as conn:
         configuration = load_ams_configuration(conn, job['printer_id'])
