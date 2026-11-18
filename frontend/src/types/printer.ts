@@ -330,6 +330,7 @@ export interface AmsEnvironmentData {
     time: string;
     temperature: number | null;
     humidity: number | null;
+    humidity_percent?: number | null;
   }>>;
 }
 
@@ -338,6 +339,7 @@ export interface AmsCurrentData {
     unit: number;
     temperature: number | null;
     humidity: number | null;
+    humidity_percent?: number | null;
   }>;
 }
 

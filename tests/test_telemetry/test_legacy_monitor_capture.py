@@ -18,7 +18,7 @@ def capture_store(tmp_path, monkeypatch):
           created_at TEXT DEFAULT(datetime('now')));
         INSERT INTO printers(id) VALUES(1);
         CREATE TABLE ams_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,ams_unit INTEGER,
-          humidity INTEGER,temperature REAL,recorded_at TEXT DEFAULT(datetime('now')));
+          humidity INTEGER,temperature REAL,recorded_at TEXT DEFAULT(datetime('now')),humidity_percent REAL);
         CREATE TABLE printer_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,
           bed_temp REAL,nozzle_temp REAL,bed_target REAL,nozzle_target REAL,fan_speed REAL,
           recorded_at TEXT DEFAULT(datetime('now')));
@@ -47,7 +47,7 @@ def capture_store(tmp_path, monkeypatch):
         monitor._current_job_id = 99 if state == 'RUNNING' else None
         packet = {
             'gcode_state':state, 'bed_temper':60, 'nozzle_temper':210,
-            'ams':{'ams':[{'humidity':'3','temp':'22.5'}, {'humidity':'4','temp':'26'}]},
+            'ams':{'ams':[{'humidity':'3','temp':'22.5','humidity_raw':'37.8'}, {'humidity':'4','temp':'26'}]},
         }
         if filename is not None:
             packet['subtask_name'] = filename
@@ -67,6 +67,7 @@ def test_ams_capture_five_minute_boundary_and_multiple_units(capture_store):
     path, clock, send = capture_store
     send()
     assert [(r[2],r[3],r[4]) for r in rows(path,'ams_telemetry')] == [(0,3,22.5),(1,4,26.0)]
+    assert [r[6] for r in rows(path,'ams_telemetry')] == [37.8, None]
     clock[0] = 1290
     send()
     assert len(rows(path,'ams_telemetry')) == 2

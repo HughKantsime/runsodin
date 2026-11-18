@@ -443,8 +443,8 @@ def handle_status(self, status, generation, runtime):
                             ams_raw_env = self._state.get('ams', {})
                             for entry in runtime.parse_ams_env(ams_raw_env):
                                 conn.execute(
-                                    "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
-                                    (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'])
+                                    "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature, humidity_percent) VALUES (?, ?, ?, ?, ?)",
+                                    (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'], entry['humidity_percent'])
                                 )
                             conn.execute(  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
                                 f"DELETE FROM ams_telemetry WHERE recorded_at < {runtime.sql.now_offset('-90 days')}"

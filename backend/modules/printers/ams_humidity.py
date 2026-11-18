@@ -9,3 +9,8 @@ def humidity_scale(humidity, temperature):
         return None, None, None, None
     index = 6 - level if level is not None else None
     return level, index, "ABCDE"[index - 1] if index else None, temperature
+
+
+def reported_percent(value):
+    """Return a whole percentage when the sample has a valid measurement."""
+    return round(value) if isinstance(value, (int, float)) and 0 <= value <= 100 else None

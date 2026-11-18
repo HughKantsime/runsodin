@@ -11,7 +11,7 @@ from pydantic import BaseModel as PydanticBaseModel, Field, field_validator, mod
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from modules.printers.ams_humidity import humidity_scale
+from modules.printers.ams_humidity import humidity_scale, reported_percent
 from core.db import get_db
 from core.db_compat import sql
 from core.rbac import require_role, check_org_access, require_action
@@ -45,7 +45,7 @@ async def get_ams_environment(
     printer = _ams_printer(printer_id, db, current_user)
     _cutoff = sql.now_offset(f"-{hours} hours")
     query = f"""
-        SELECT ams_unit, humidity, temperature, recorded_at
+        SELECT ams_unit, humidity, temperature, recorded_at, humidity_percent
         FROM ams_telemetry
         WHERE printer_id = :printer_id
         AND recorded_at >= {_cutoff}
@@ -65,7 +65,8 @@ async def get_ams_environment(
         u = row[0]
         if u not in units:
             units[u] = []
-        units[u].append({"humidity": row[1], "temperature": row[2], "time": row[3]})
+        units[u].append({"humidity": row.humidity, "humidity_percent": reported_percent(row.humidity_percent),
+                         "temperature": row.temperature, "time": row.recorded_at})
 
     return {"printer_id": printer_id, "hours": hours, "units": units,
             "humidity_unit": "level" if printer.api_type == "bambu" else "unknown"}
@@ -84,9 +85,9 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
     """
     _ams_printer(printer_id, db, current_user)
     rows = db.execute(text("""
-        SELECT ams_unit, humidity, temperature, recorded_at
+        SELECT ams_unit, humidity, temperature, recorded_at, humidity_percent
         FROM (
-            SELECT ams_unit, humidity, temperature, recorded_at,
+            SELECT ams_unit, humidity, temperature, recorded_at, humidity_percent,
                    ROW_NUMBER() OVER (
                        PARTITION BY ams_unit ORDER BY recorded_at DESC, id DESC
                    ) AS reading_rank
@@ -105,6 +106,7 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
         hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(index, "N/A" if missing else "Unknown")
         units.append({
             "unit": row[0], "humidity": hum, "humidity_label": hum_label,
+            "humidity_percent": reported_percent(row.humidity_percent),
             "humidity_index": index, "grade": grade,
             "temperature": row[2], "recorded_at": row[3],
         })

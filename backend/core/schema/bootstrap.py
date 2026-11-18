@@ -182,7 +182,7 @@ RAW_REQUIRED_COLUMNS = {
     "timelapse_retirement_container_receipts": frozenset("operation_id object_index role phase completed_at".split()),
     "timelapse_retirement_moves": frozenset("operation_id object_index kind digest_sha256 phase verified_ctime_ns".split()),
     "active_sessions": frozenset("id user_id token_jti ip_address user_agent created_at last_seen_at".split()),
-    "ams_telemetry": frozenset("id printer_id ams_unit humidity temperature recorded_at".split()),
+    "ams_telemetry": frozenset("id printer_id ams_unit humidity temperature recorded_at humidity_percent".split()),
     "api_tokens": frozenset("id user_id name token_hash token_prefix scopes expires_at last_used_at created_at".split()),
     "groups": frozenset("id name description owner_id created_at updated_at is_org branding_json settings_json".split()),
     "hms_error_history": frozenset("id printer_id code message severity source occurred_at".split()),
@@ -382,6 +382,7 @@ POST027_MIGRATIONS = (
     ("python:059-six-materials", "core.schema.migrations.059_six_materials"),
     ("python:060-print-files-stored-path-index", "core.schema.migrations.060_print_files_stored_path_index"),
     ("python:061-print-filament-evidence", "core.schema.migrations.061_print_filament_evidence"),
+    ("python:062-ams-humidity-percent", "core.schema.migrations.062_ams_humidity_percent"),
 )
 
 
@@ -648,7 +649,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence", "python:062-ams-humidity-percent"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -687,7 +688,7 @@ def _bootstrap_database_contract(
             applied.append("python:052-traceability")
         # Keep the release tail ordered after Education rebuilds and identity guards.
         for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
-            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence"} and apply_python_migration(connection, module_name):
+            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence", "python:062-ams-humidity-percent"} and apply_python_migration(connection, module_name):
                 applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")

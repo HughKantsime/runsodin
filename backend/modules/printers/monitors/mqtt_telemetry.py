@@ -64,7 +64,7 @@ def parse_lights(lights_report: list) -> Optional[bool]:
 def parse_ams_env(ams_raw: dict) -> list:
     """
     Extract AMS unit humidity and temperature from raw AMS payload.
-    Returns list of {unit_idx, humidity, temperature} dicts.
+    Returns list of {unit_idx, humidity, humidity_percent, temperature} dicts.
     Only includes units that have at least one non-None value.
     """
     results = []
@@ -101,16 +101,18 @@ def parse_ams_env(ams_raw: dict) -> list:
         # Only a live temperature shows a sensor: a real AMS can report a raw reading of 0 with
         # one (captured X1C unit: level 5, raw 0, 23.7 C), and then its level is a reading.
         # With a raw 0 and a temperature that is 0, absent or unreadable, the level stays unknown.
+        raw = unit.get('humidity_raw')
         try:
-            no_sensor = (unit.get('humidity_raw') is not None and float(unit.get('humidity_raw')) == 0
-                         and not temperature)
-        except (ValueError, TypeError):
-            no_sensor = False
-        if no_sensor:
-            humidity = None
-            temperature = None
-        if humidity is not None or temperature is not None:
-            results.append({'unit_idx': unit_idx, 'humidity': humidity, 'temperature': temperature})
+            percent = float(raw)
+        except (ValueError, TypeError, OverflowError):
+            percent = None
+        if percent == 0 and not temperature:
+            continue
+        humidity_percent = (percent if percent is not None and not isinstance(raw, bool)
+                            and 0 <= percent <= 100 else None)
+        if humidity is not None or humidity_percent is not None or temperature is not None:
+            results.append({'unit_idx': unit_idx, 'humidity': humidity, 'temperature': temperature,
+                            'humidity_percent': humidity_percent})
     return results
 
 

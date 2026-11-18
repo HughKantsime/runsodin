@@ -14,6 +14,7 @@ interface FormattedDataPoint {
   time: string
   temp: number | null
   humidity: number | null
+  humidityPercent: number | null
   timestamp: number
 }
 
@@ -59,9 +60,11 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
       timestamp: date.getTime(),
       time: date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       temp: d.temperature != null && Number.isFinite(d.temperature) ? Number(d.temperature.toFixed(1)) : null,
+      humidityPercent: d.humidity_percent ?? null,
       humidity: d.humidity != null && Number.isFinite(d.humidity) ? Number(d.humidity.toFixed(1)) : null,
     }
   }).filter(d => Number.isFinite(d.timestamp)).sort((a,b) => a.timestamp-b.timestamp), [units, selectedUnit])
+  const latest = data[data.length - 1]
   const humidityLabel = humidityUnit === 'level' ? 'Humidity level (1–5)' : 'Humidity (reported value)'
 
   return (
@@ -91,6 +94,11 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
           </select>
         </label>
       )}
+      {!loading && !error && latest?.humidityPercent != null && (
+        <p className="text-xs text-[var(--brand-text-secondary)]">
+          {latest.humidity == null ? 'Humidity' : `Humidity level ${latest.humidity}`} · {latest.humidityPercent}%
+        </p>
+      )}
       {loading ? (
         <PageState kind="loading" className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</PageState>
       ) : error ? (
@@ -105,6 +113,8 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
             <YAxis yAxisId="temp" tick={{ fill: '#F59E0B', fontSize: 11 }} domain={['auto', 'auto']} label={{ value: '°C', position: 'insideLeft', fill: '#F59E0B', fontSize: 11 }} />
             <YAxis yAxisId="humidity" orientation="right" tick={{ fill: '#3B82F6', fontSize: 11 }} domain={humidityUnit === 'level' ? [1, 5] : ['auto', 'auto']} label={{ value: humidityUnit === 'level' ? 'Level' : 'Value', position: 'insideRight', fill: '#3B82F6', fontSize: 11 }} />
             <Tooltip
+              formatter={(value, name, item) => item.dataKey === 'humidity' && item.payload.humidityPercent != null
+                ? [`${value} (${item.payload.humidityPercent}%)`, name] : [value, name]}
               contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', boxShadow: 'var(--chart-tooltip-shadow)', borderRadius: '6px', fontSize: '12px' }}
               labelStyle={{ color: 'var(--chart-axis)' }}
             />
