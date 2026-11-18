@@ -15,6 +15,8 @@ def engine(tmp_path):
     engine=create_engine('sqlite:///'+str(tmp_path/'claims.db'),connect_args={'timeout':.1})
     with engine.begin() as conn:
         migration.apply(conn)
+        from core.models import SystemConfig
+        SystemConfig.__table__.create(conn)
         conn.exec_driver_sql('CREATE TABLE jobs(id INTEGER PRIMARY KEY,status TEXT,printer_id INTEGER)')
         conn.exec_driver_sql("INSERT INTO jobs VALUES(1,'scheduled',1),(2,'scheduled',2)")
     yield engine

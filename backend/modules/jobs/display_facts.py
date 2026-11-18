@@ -8,7 +8,6 @@ from core.printer_display_facts import read_facts, may_read
 
 def _recovery_printers(db, printers, actor):
     """Only point an admin to a retained claim within their recovery authority."""
-    from fastapi import HTTPException
     from core.controlled_parts import allowed
     from core.dispatch_claim_schema import PrinterDispatchClaim
     from core.dispatch_recovery import capture, authorized
@@ -19,20 +18,27 @@ def _recovery_printers(db, printers, actor):
     if is_scoped_token(actor) and not all(token_scope_granted(actor.get('_token_scopes', []), scope)
                                           for scope in ('read:printers', 'write:printers')):
         return set()
-    if actor.get('group_id') is not None and 'admin' not in action_roles(db, 'printers.dispatch_recovery'):
+    # A failed hint query must leave the caller's transaction usable on PostgreSQL.
+    try:
+        with db.begin_nested():
+            if actor.get('group_id') is not None and 'admin' not in action_roles(db, 'printers.dispatch_recovery'):
+                return set()
+            claimed = db.query(PrinterDispatchClaim.printer_id).filter(PrinterDispatchClaim.printer_id.in_(printers)).all()
+    except Exception:
         return set()
-    claimed = db.query(PrinterDispatchClaim.printer_id).filter(PrinterDispatchClaim.printer_id.in_(printers))
     result = set()
     for (printer_id,) in claimed:
         try:
-            evidence = capture(db, printer_id, actor, authority_only=True)
-            if evidence and evidence['claim']:
+            with db.begin_nested():
+                evidence = capture(db, printer_id, actor, authority_only=True)
+                if not evidence or not evidence['claim'] or not evidence['job']:
+                    continue
                 authorized(db, evidence, actor)
-                if allowed(db, 'job', evidence['job']['id'], actor):
-                    result.add(printer_id)
-        except HTTPException as error:
-            if error.status_code != 404:
-                raise
+                permitted = allowed(db, 'job', evidence['job']['id'], actor)
+            if permitted:
+                result.add(printer_id)
+        except Exception:
+            continue
     return result
 
 

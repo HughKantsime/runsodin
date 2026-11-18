@@ -260,7 +260,8 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
             table = PrinterDispatchClaim.__table__
             values = {k:claim[k] for k in (*IDENTITY,'state')}
             predicate = [table.c[k].is_(None) if v is None else table.c[k]==v for k,v in values.items()]
-            if db.execute(delete(table).where(*predicate)).rowcount != 1: refuse('attempt_changed')
+            from core.dispatch_claims import delete_claim
+            if not delete_claim(db, delete(table).where(*predicate)): refuse('attempt_changed')
         else:
             db.execute(text('UPDATE jobs SET hold=true WHERE id=:id'),{'id':job['id']})
             if action=='reconcile-retain' and request.education_action=='request_unbound_cancellation':

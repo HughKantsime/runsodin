@@ -49,7 +49,12 @@ def test_normal_terminal_allows_next_dispatch_without_erasing_receipt(observed,m
     # case models one physical print; a separate case preserves that blocker.
     with engine.begin() as c:c.execute(text('DELETE FROM print_jobs WHERE id=71'))
     assert bind_generic_observation(engine,printer_id=59,print_job_id=70,key=key)=='matched'
+    keys = text("SELECT 1 FROM system_config WHERE key='dispatch_recovery_keys:59'")
+    with engine.connect() as conn:
+        assert conn.execute(keys).first()
     finish(engine,monkeypatch,terminal)
+    with engine.connect() as conn:
+        assert conn.execute(keys).first() is None
     with engine.connect() as c:original=c.execute(text('SELECT claim_token FROM dispatch_attempt_receipts WHERE job_id=53')).scalar_one()
     ok,reason=dispatch.dispatch_job(59,54)
     assert ok,reason
