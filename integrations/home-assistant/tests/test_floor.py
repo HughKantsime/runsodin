@@ -207,7 +207,7 @@ async def test_ams_humidity_is_the_wettest_unit_and_unknown_without_a_sensor(has
     await _setup(hass)
     wet = hass.states.get("sensor.x1c_ams_humidity")
     assert wet.state == "4" and wet.attributes["grade"] == "D" and wet.attributes["wettest_unit"] == 0
-    assert [u["unit"] for u in wet.attributes["units"]] == [0, 1]
+    assert [(u["unit"], u["humidity_percent"]) for u in wet.attributes["units"]] == [(0, 38), (1, None)]
     none = hass.states.get("sensor.kobra_s1_ams_humidity")
     assert none.state == "unknown" and none.attributes["grade"] is None    # no sensor: unknown, never 0
 

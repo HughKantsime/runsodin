@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import bindparam, text
 
-from modules.printers.ams_humidity import humidity_scale
+from modules.printers.ams_humidity import humidity_scale, reported_percent
 from core.print_outcomes import PRINT_DID_NOT_COMPLETE_SQL, print_outcome
 from core.physical_print import pause_identity
 from core.display_names import display_names
@@ -165,19 +165,18 @@ def ams_environment(db, printer_ids, now):
 
     Bambu reports a level from 5 (driest) to 1 (wettest); `humidity_index` turns it round
     (1 = dry ... 5 = wet) to match the A-E scale on the printer's screen, and `grade` is that
-    letter. Percent humidity and drying state are not stored yet, so they are null rather
-    than guessed. A unit with no sensor (AMS lite), or a reading older than a day, has no
-    humidity (null, never 0).
+    letter. Humidity percentage comes from the same reading when reported. Drying state
+    is unknown. Readings older than a day are excluded.
     """
     if not printer_ids:
         return {}
     rows = db.execute(text(
-        "SELECT t.printer_id, t.ams_unit, t.humidity, t.temperature, t.recorded_at FROM ams_telemetry t "
+        "SELECT t.printer_id, t.ams_unit, t.humidity, t.temperature, t.recorded_at, t.humidity_percent FROM ams_telemetry t "
         "JOIN (SELECT printer_id, ams_unit, MAX(id) AS latest FROM ams_telemetry WHERE printer_id IN :pids "
         "GROUP BY printer_id, ams_unit) m ON m.latest = t.id ORDER BY t.printer_id, t.ams_unit"
     ).bindparams(bindparam("pids", expanding=True)), {"pids": list(printer_ids)}).all()
     result = {}
-    for printer_id, unit, humidity, temperature, recorded_at in rows:
+    for printer_id, unit, humidity, temperature, recorded_at, humidity_percent in rows:
         at = to_utc(recorded_at)
         if at is None or now - at > AMS_READING_MAX_AGE:
             continue
@@ -187,7 +186,7 @@ def ams_environment(db, printer_ids, now):
             "humidity_index": index,
             "grade": grade,
             "bambu_level": level,
-            "humidity_percent": None,
+            "humidity_percent": reported_percent(humidity_percent),
             "temperature_c": round(float(temperature), 1) if isinstance(temperature, (int, float)) else None,
             "drying": None,
             "recorded_at": iso(at),

@@ -84,3 +84,18 @@ it('ignores a late response from the previous time window', async () => {
  await act(async()=>finish({printer_id:1,hours:24,units:{'0':[{time:'2026-10-11T12:00:00Z',temperature:20,humidity:3}]}}))
  expect(screen.queryByTestId('chart-values')).toBeNull()
 })
+
+it('shows the latest reported percentage with its unit’s level, including zero', async () => {
+ vi.mocked(getAmsEnvironment).mockResolvedValue({printer_id:1,hours:24,humidity_unit:'level',units:{
+  '0':[{time:'2026-10-11T12:00:00Z',temperature:24,humidity:2,humidity_percent:38}],
+  '1':[{time:'2026-10-11T12:00:00Z',temperature:21,humidity:5,humidity_percent:0}],
+  '2':[{time:'2026-10-11T12:00:00Z',temperature:22,humidity:3,humidity_percent:null}],
+ }})
+ render(<AmsEnvironmentChart printerId={1} />)
+ expect(await screen.findByText('Humidity level 2 · 38%')).toBeTruthy()
+ const select = screen.getByRole('combobox', {name:'AMS unit'})
+ fireEvent.change(select, {target:{value:'1'}})
+ expect(screen.getByText('Humidity level 5 · 0%')).toBeTruthy()
+ fireEvent.change(select, {target:{value:'2'}})
+ expect(screen.queryByText(/%/)).toBeNull()
+})

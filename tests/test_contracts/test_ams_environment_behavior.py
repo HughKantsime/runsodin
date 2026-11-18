@@ -16,9 +16,8 @@ def ams_client(token_client, review_db, monkeypatch):
     monkeypatch.setattr(ams_configuration, 'load_ams_configuration', lambda *args: SimpleNamespace(transport=None))
     monkeypatch.setattr(tray_setting, 'set_tray', lambda config, *args: (calls.append(('set_ams_filament', *args)) or {'result':'success', 'reason':None}))
     monkeypatch.setattr(route_utils, '_bambu_command_direct', lambda *args: (calls.append(args[1:]) or True))
-    review_db.execute(text("CREATE TABLE IF NOT EXISTS ams_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,ams_unit INTEGER,humidity REAL,temperature REAL,recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP)"))
     review_db.execute(text("INSERT INTO printers(id,name,api_type,org_id,shared) VALUES(199,'Synthetic foreign AMS','bambu',2,0)"))
-    review_db.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,temperature) VALUES(199,0,3,24)"))
+    review_db.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,temperature,humidity_percent) VALUES(199,0,3,24,38)"))
     review_db.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,filament_type,color) VALUES(199,199,1,'PLA','#000000')"))
     review_db.commit()
     return client, issue, calls
@@ -69,14 +68,17 @@ def test_shared_foreign_ams_still_cannot_be_commanded(ams_client, review_db, act
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
 @pytest.mark.parametrize('endpoint', ['environment', 'current'])
-def test_owned_ams_read_preserves_actual_measurements(ams_client, review_db, endpoint):
+@pytest.mark.parametrize('percent,expected', [(37.75, 38), (None, None)])
+def test_owned_ams_read_preserves_actual_measurements(ams_client, review_db, endpoint, percent, expected):
     client, issue, _ = ams_client
-    review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199')); review_db.commit()
+    review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199'))
+    review_db.execute(text('UPDATE ams_telemetry SET humidity_percent=:percent WHERE printer_id=199'), {'percent': percent})
+    review_db.commit()
     response = client.get(f'/printers/199/ams/{endpoint}', headers=issue(['read:printers']))
     assert response.status_code == 200
     payload = response.json()
     record = payload['units']['0'][0] if endpoint == 'environment' else payload['units'][0]
-    assert record['humidity'] == 3 and record['temperature'] == 24
+    assert record['humidity'] == 3 and record['temperature'] == 24 and record['humidity_percent'] == expected
 
 @pytest.mark.parametrize('action', ['refresh', 'configure'])
 @pytest.mark.parametrize('role,scope', [('viewer','write:printers'),('operator','write:jobs')])
@@ -97,6 +99,7 @@ def test_current_ams_has_one_latest_reading_per_unit_on_timestamp_tie(ams_client
     assert result.status_code == 200
     assert len(result.json()['units']) == 1
     assert result.json()['units'][0]['temperature'] == 26
+    assert result.json()['units'][0]['humidity_percent'] is None
 
 def test_configure_ams_command_failure_is_not_success(ams_client, review_db, monkeypatch):
     from modules.printers import route_utils
@@ -288,7 +291,7 @@ def test_current_humidity_scale_matches_feed(ams_client, review_db, level, tempe
     client, issue, _ = ams_client
     now = datetime.now(timezone.utc).replace(microsecond=0)
     review_db.execute(text('UPDATE printers SET org_id=1 WHERE id=199'))
-    review_db.execute(text('UPDATE ams_telemetry SET humidity=:level,temperature=:temperature,recorded_at=:at WHERE printer_id=199'),
+    review_db.execute(text('UPDATE ams_telemetry SET humidity=:level,temperature=:temperature,humidity_percent=NULL,recorded_at=:at WHERE printer_id=199'),
                       {'level':level, 'temperature':temperature, 'at':now.isoformat()})
     review_db.commit()
     response = client.get('/printers/199/ams/current', headers=issue(['read:printers']))

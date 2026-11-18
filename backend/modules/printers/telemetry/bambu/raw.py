@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from pydantic import BeforeValidator, Field, StrictInt
+from pydantic import BeforeValidator, Field, JsonValue, StrictInt
 
 from modules.printers.telemetry.base import _StrictBase
 from modules.printers.telemetry.bambu.enums import BambuGcodeState
@@ -118,7 +118,7 @@ class BambuAMSUnit(_StrictBase):
 
     # environmental sensors (h2d/x1c AMS 2, a1, p1s all emit these)
     humidity: Optional[str] = None                  # stringified number
-    humidity_raw: Optional[str] = None
+    humidity_raw: JsonValue = None                  # parse_ams_env validates this optional reading
     temp: Optional[str] = None                      # chamber temp of the AMS itself
     dry_time: Optional[int] = None
 

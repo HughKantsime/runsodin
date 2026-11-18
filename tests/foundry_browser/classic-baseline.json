@@ -26,7 +26,7 @@
     "frontend/src/components/jobs/TimelineJobDetail.tsx": "ec45782633fd1a1ee81c6bea7ff2a0da7199ecb687715617986033764268e767",
     "frontend/src/components/notifications/AlertBell.tsx": "d09620904bf0164acfdcb44dfabe6a774e9b89a40ca3a709c4083adc02f3218e",
     "frontend/src/components/orders/OrderTable.tsx": "8382832e1f24ef962ffe0978df4946ec3c78b5a9c3c20a0be0377a9682627564",
-    "frontend/src/components/printers/AmsEnvironmentChart.tsx": "8a7fc754cedbe5685eff6e0ce968b82cae3f97080fb31e79d7b36825903f012a",
+    "frontend/src/components/printers/AmsEnvironmentChart.tsx": "097952344ef95a19437f2322f71b3504b2841c433d8a1c169b17fb1beddf2141",
     "frontend/src/components/printers/CameraModal.tsx": "35ee3d40eaebcf87f9e2d148e863d2adaf33cc9c0c9b2b73dade5055895a82c8",
     "frontend/src/components/printers/EmergencyStop.tsx": "6cb8b068eac11dd8df4d8415e70a0b7bfa40e4bb27685783655d487923fc75ef",
     "frontend/src/components/printers/FilamentSlotEditor.tsx": "8a7324ecd4026b3c7ae2d6109016d2b611fcd71dd5311b9877c7c6c3e1dbd611",
