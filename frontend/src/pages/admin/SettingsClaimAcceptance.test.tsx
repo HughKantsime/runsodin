@@ -13,7 +13,7 @@ vi.mock('../../api', () => ({
 }))
 // License fixture: a Pro license carries the Pro tier features; Community carries none.
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: api.pro, hasFeature: (f: string) => api.pro && ['permissions', 'sso', 'branding', 'webhooks'].includes(f) }) }))
-vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 1 }) }))
+vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 1, role: 'admin' }) }))
 vi.mock('./Admin', () => ({ default: () => <div>Users boundary</div> }))
 vi.mock('./Permissions', () => ({ default: () => <div>Permissions boundary</div> }))
 vi.mock('./Branding', () => ({ default: () => <div>Branding boundary</div> }))
@@ -79,11 +79,12 @@ test('F20-20.1-04 Community opens Access: free security sections mount, Pro sect
  api.pro = false; mount()
  fireEvent.click(screen.getByRole('button',{name:'Access'}))
  expect(screen.getByText('Users boundary')).toBeInTheDocument()
- for (const [section, boundary] of [['Authentication (OIDC & MFA)','MFA boundary'],['Tokens & Sessions','Tokens boundary'],['Quotas & Restrictions','Allowlist boundary'],['Organizations','Organizations boundary']] as const) {
+ for (const [section, boundary] of [['Sessions','Sessions boundary'],['Quotas & Restrictions','Allowlist boundary'],['Organizations','Organizations boundary']] as const) {
   fireEvent.click(screen.getByRole('button',{name:section}))
   expect(screen.getByText(boundary)).toBeInTheDocument()
  }
- expect(screen.getByText('Sessions boundary')).toBeInTheDocument()
+ expect(screen.queryByText('Tokens boundary')).not.toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Single sign-on'}))
  expect(screen.queryByText('OIDC boundary')).not.toBeInTheDocument()
  expect(screen.getByText(/Single sign-on \(OIDC\) requires an O\.D\.I\.N\./)).toBeInTheDocument()
  fireEvent.click(screen.getByRole('button',{name:'Permissions'}))
@@ -93,9 +94,9 @@ test('F20-20.1-04 Community opens Access: free security sections mount, Pro sect
 test('F20-20.1-04 Pro license mounts the Pro Access sections', async () => {
  mount()
  fireEvent.click(screen.getByRole('button',{name:'Access'}))
- fireEvent.click(screen.getByRole('button',{name:'Authentication (OIDC & MFA)'}))
+ fireEvent.click(screen.getByRole('button',{name:'Single sign-on'}))
  expect(screen.getByText('OIDC boundary')).toBeInTheDocument()
- expect(screen.getByText('MFA boundary')).toBeInTheDocument()
+ expect(screen.queryByText('MFA boundary')).not.toBeInTheDocument()
 })
 test.each(['advanced', 'simple'])('F16-16.7-01 %s exposes the tabs documented in FEATURES.md §16.7', async mode => {
  api.mode = mode

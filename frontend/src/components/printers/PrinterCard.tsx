@@ -105,7 +105,7 @@ function LedgerFilamentSlot({ slot }: { slot: any }) {
 /**
  * Copy the OBS overlay URL. The overlay page is public; its camera stream is
  * not, so for a printer with a camera the URL carries a new read:cameras API
- * token (revocable in Settings > API Tokens).
+ * token (revocable in Account > API Tokens).
  */
 async function copyOverlayUrl(printer: { id: number; name: string; nickname?: string | null }, withCamera: boolean) {
   const base = `${window.location.origin}/overlay/${printer.id}`
@@ -120,7 +120,7 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
     const day = new Date().toISOString().slice(0, 10)
     const created = await apiTokens.create({ name: `OBS overlay: ${printer.nickname || printer.name} (#${printer.id}) ${day}`, scopes: ['read:cameras'], expires_days: 365 })
     await navigator.clipboard.writeText(`${base}?token=${encodeURIComponent(created.token)}`)
-    toast.success('Overlay URL copied. It includes a camera token; revoke it in Settings > API Tokens.')
+    toast.success('Overlay URL copied. It includes a camera token; revoke it in Account > API Tokens.')
   } catch {
     await navigator.clipboard.writeText(base)
     toast.error('Overlay URL copied without the camera: a camera token could not be created')

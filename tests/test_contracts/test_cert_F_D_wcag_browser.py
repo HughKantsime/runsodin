@@ -25,7 +25,7 @@ RECEIPT = ROOT / "artifacts/application-certification/cert-F/D-wcag-browser-cens
 ROUTES = ["/", "/printers/1", "/jobs", "/timeline", "/printers", "/models", "/profiles", "/projects", "/spools", "/consumables",
           "/orders", "/products", "/calculator", "/analytics", "/utilization", "/print-log", "/archives",
           "/timelapses", "/cameras", "/maintenance", "/detections", "/alerts", "/audit", "/admin", "/permissions",
-          "/branding", "/settings", "/upload", "/education", "/education-reports"]
+          "/branding", "/settings", "/account", "/upload", "/education", "/education-reports"]
 
 CENSUS_JS = r"""
 () => {
@@ -185,7 +185,7 @@ def census(tmp_path_factory, build_dir):
                 page.wait_for_timeout(700)
                 results[f"/settings#{label}"] = page.evaluate(CENSUS_JS)
                 if label == "Access":
-                    for acc in ("Permissions", "Authentication (OIDC & MFA)", "Tokens & Sessions",
+                    for acc in ("Permissions", "Single sign-on", "Sessions",
                                 "Quotas & Restrictions", "Organizations"):
                         state(f"/settings#Access/{acc}",
                               lambda acc=acc: page.locator("main").get_by_role("button", name=acc).first.click(timeout=3000))

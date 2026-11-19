@@ -5,6 +5,7 @@
 import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import * as permissions from '../../permissions'
 import APITokenManager from './APITokenManager'
 
 // WIRE-BEGIN
@@ -68,6 +69,7 @@ it('F11-11.6-01 lists the wire token with its odin_ prefix and scopes, never the
 })
 
 it('F11-11.6-02 offers the granular resource scopes read:printers and write:jobs', async () => {
+  vi.spyOn(permissions, 'getCurrentUser').mockReturnValue({ username: 'Admin', role: 'admin' })
   render(<APITokenManager />); fireEvent.click(await screen.findByText('New Token'))
   for (const label of ['Read Printers', 'Write Printers', 'Read Jobs', 'Write Jobs', 'Read Spools', 'Write Spools', 'Read Models', 'Write Models', 'Read Analytics', 'Full Admin']) {
     expect(screen.getByRole('button', { name: label })).toBeInTheDocument()

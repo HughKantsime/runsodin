@@ -125,6 +125,11 @@
     "finalPath": "/projects"
   },
   {
+    "route": "/account",
+    "url": "/account",
+    "finalPath": "/account"
+  },
+  {
     "route": "/settings",
     "url": "/settings",
     "finalPath": "/settings"

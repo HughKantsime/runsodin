@@ -49,6 +49,7 @@ it('reports a failed revoke and keeps the token visible',async()=>{
 })
 
 it('offers explicit production inspection and Square-send delegation',async()=>{
+  vi.mocked(getCurrentUser).mockReturnValue({ username: 'Operator', role: 'operator' })
   vi.mocked(apiTokens.create).mockResolvedValue({ token: 'synthetic-ui-production-value' } as any)
   render(<APITokenManager/>);fireEvent.click(await screen.findByText('New Token'))
   fireEvent.change(screen.getByLabelText('Token name'),{target:{value:'Production operator'}})
@@ -108,4 +109,13 @@ it('keeps the original scopes and reports a failed grant', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Grant Square setup for Inventory setup' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Unable to change Square setup permission.')
   expect(screen.queryByText('write:square_setup')).not.toBeInTheDocument()
+})
+
+it('offers a viewer personal tokens within the role limits', async () => {
+  vi.mocked(getCurrentUser).mockReturnValue({username: 'Student', role: 'viewer'})
+  render(<APITokenManager />)
+  fireEvent.click(await screen.findByRole('button', {name: 'New Token'}))
+  expect(screen.getByRole('button', {name: 'Read Education'})).toBeEnabled()
+  expect(screen.queryByRole('button', {name: 'Full Admin'})).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', {name: /Record production inspections/})).not.toBeInTheDocument()
 })

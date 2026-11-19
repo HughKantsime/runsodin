@@ -80,7 +80,7 @@ def test_community_gates_and_access_tab_behavior(role_page_factory):
     page.get_by_role("button", name="Access", exact=True).click()
     expect(page.get_by_role("button", name="Users & Groups", exact=True)).to_be_visible()
     expect(page.get_by_role("heading", name="Community Edition", exact=True)).to_have_count(0)
-    page.get_by_role("button", name="Authentication (OIDC & MFA)", exact=True).click()
+    page.get_by_role("button", name="Single sign-on", exact=True).click()
     expect(page.get_by_text("Single sign-on (OIDC) requires an O.D.I.N. Pro license.", exact=True)).to_be_visible()
     page.get_by_role("button", name="Permissions", exact=True).click()
     expect(page.get_by_text("Custom role permissions requires an O.D.I.N. Pro license.", exact=True)).to_be_visible()
@@ -119,6 +119,19 @@ def test_mobile_navigation_and_horizontal_layout(role_page_factory):
         "() => ({scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth})"
     )
     assert dimensions["scroll"] <= dimensions["client"] + 1, dimensions
+
+
+@pytest.mark.parametrize("family", ["classic", "fjord"])
+def test_viewer_account_in_phone_menu(role_page_factory, family):
+    page = role_page_factory("viewer", mobile=True)
+    page.evaluate("(family) => localStorage.setItem('odin-theme-family', family)", family)
+    page.reload()
+    expect(page.locator("html")).to_have_attribute("data-theme-family", family)
+    page.get_by_role("button", name="Open menu", exact=True).click()
+    page.get_by_role("link", name="Account", exact=True).press("Enter")
+    for heading in ("Account", "Two-Factor Authentication", "API Tokens", "Active Sessions"):
+        expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1")
 
 
 def test_theme_persists_and_keyboard_skip_link_works(role_page_factory):
@@ -198,9 +211,7 @@ def test_compiled_token_permission_selection_and_real_revoke(role_page_factory):
     page.route('**/api/license',lambda route:route.fulfill(json={
         'tier':'pro','features':[],'max_users':100,'max_printers':100,
         'licensee':'Synthetic UI presentation only'}))
-    _goto(page,'/settings')
-    page.get_by_role('button',name='Access',exact=True).click()
-    page.get_by_role('button',name='Tokens & Sessions',exact=True).click()
+    _goto(page,'/account')
     expect(page.get_by_role('heading',name='API Tokens',exact=True)).to_be_visible()
     page.get_by_role('button',name='New Token',exact=True).click()
     page.get_by_label('Token name',exact=True).fill('Synthetic browser token')
@@ -875,9 +886,7 @@ def test_compiled_mfa_status_unknown_and_retry(role_page_factory,admin,mobile):
     page.route('**/api/license',license_ui)
     page.route('**/api/auth/mfa/status',status)
     page.on('request',lambda request:state.update(mutations=state['mutations']+1) if '/api/auth/mfa' in request.url and request.method in ('POST','DELETE') else None)
-    _goto(page,'/settings')
-    page.get_by_role('button',name='Access',exact=True).click()
-    page.get_by_role('button',name='Authentication (OIDC & MFA)',exact=True).click()
+    _goto(page,'/account')
     message=page.get_by_text('Unable to load MFA status. Retry before making changes.',exact=True)
     expect(message).to_be_visible()
     expect(page.get_by_role('button',name='Set Up Two-Factor Authentication',exact=True)).to_have_count(0)
@@ -918,6 +927,7 @@ def test_compiled_required_mfa_password_enrollment_real_account(page,admin,mobil
         assert valid_secret
         page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
         page.get_by_role('button',name='Verify and sign in',exact=True).click()
+        page.get_by_role('button',name='I saved these',exact=True).click()
         expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
         user=page.request.get(BASE_URL+'/api/auth/me').json()
         correct_user=user.get('username')==username
@@ -967,6 +977,7 @@ def test_compiled_sso_continuation_real_restricted_authorities(page,admin,mobile
         assert valid_secret
         page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
         page.get_by_role('button',name='Verify and sign in',exact=True).click()
+        page.get_by_role('button',name='I saved these',exact=True).click()
         expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
         page.context.clear_cookies()
         with requests.Session() as client:

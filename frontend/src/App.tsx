@@ -34,6 +34,7 @@ import Models from './pages/models/Models'
 import CalculatorPage from './pages/orders/Calculator'
 import Analytics from './pages/analytics/Analytics'
 import Utilization from './pages/analytics/Utilization'
+import Account from './pages/auth/Account'
 import SettingsPage from './pages/admin/Settings'
 import Spools from './pages/inventory/Spools'
 import Consumables from './pages/inventory/Consumables'
@@ -170,6 +171,7 @@ export default function App() {
             <Route path="/upload" element={<FoundryPage name="/upload"><RoleGate page="upload"><Upload /></RoleGate></FoundryPage>} />
             <Route path="/spools" element={<FoundryPage name="/spools"><RoleGate page="spools"><Spools /></RoleGate></FoundryPage>} />
             <Route path="/consumables" element={<FoundryPage name="/consumables"><RoleGate page="products"><ProGate feature="products"><Consumables /></ProGate></RoleGate></FoundryPage>} />
+            <Route path="/account" element={<FoundryPage name="/account"><Account /></FoundryPage>} />
             <Route path="/settings" element={<FoundryPage name="/settings"><RoleGate page="settings"><SettingsPage /></RoleGate></FoundryPage>} />
             <Route path="/admin" element={<FoundryPage name="/admin"><RoleGate page="admin"><Navigate to="/settings" replace /></RoleGate></FoundryPage>} />
             <Route path="/permissions" element={<FoundryPage name="/permissions"><RoleGate page="admin"><ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate></RoleGate></FoundryPage>} />

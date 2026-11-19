@@ -106,14 +106,14 @@ it('F11-11.2-02 MFA challenge accepts only six digits and posts the pending toke
   expect(storageValues()).not.toContain(pending); expect(storageValues()).not.toContain(full)
 })
 
-it('F11-11.2-02 a code rejected by the backend (401 Invalid MFA code) never signs in and requires restart', async () => {
+it('F11-11.2-02 a code rejected by the backend (401 Invalid MFA code) stays on the challenge and shows the server message', async () => {
   routes = { 'GET /api/auth/capabilities': () => [200, WIRE.capabilitiesDisabled],
     'POST /api/auth/login': () => [200, { ...WIRE.loginMfaRequired, access_token: pendingToken() }],
     'POST /api/auth/mfa/verify': () => [401, { detail: 'Invalid MFA code' }] }
   mount(); await signIn()
   fireEvent.change(await screen.findByLabelText('Authentication code'), { target: { value: '000000' } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in could not be confirmed. Restart sign-in.')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid MFA code')
   expect(screen.queryByText('Signed-in home')).not.toBeInTheDocument()
 })
 

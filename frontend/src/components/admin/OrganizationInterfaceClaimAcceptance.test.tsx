@@ -29,6 +29,7 @@ beforeEach(() => {
     if (path === '/api/orgs/17/members' && method === 'POST' && boundary.failMember) return response({ detail: 'Fixture membership denied' },false)
     if (method !== 'GET') return response({ status: 'ok' })
     if (path === '/api/orgs/17/member-candidates') return response(boundary.invalidCandidates ? {} : [{ id: 4, username: 'Unassigned user' }])
+    if (path === '/api/permissions') return response({ page_access: {settings: ['admin', 'operator']}, action_access: {} })
     if (path === '/api/users') return response(users)
     if (path === '/api/printers') return response(printers)
     if (path === '/api/orgs' || path === '/api/groups') return response([org])
@@ -101,7 +102,7 @@ it('F11-11.3-05 admin general settings saves exact scheduler configuration throu
   await waitFor(() => expect(calls('/api/config','PUT')).toHaveLength(1)); expect(JSON.parse(calls('/api/config','PUT')[0][1].body)).toEqual({ spoolman_url: 'http://localhost:7912', blackout_start: '22:30', blackout_end: '05:30' })
 })
 it('F11-11.3-05 admin opens SSO configuration controls in actual Access surface', async () => {
-  await settingsAccess(); fireEvent.click(screen.getByRole('button', { name: 'Authentication (OIDC & MFA)', exact: true })); expect(await screen.findByRole('heading', { name: 'Single sign-on', exact: true })).toBeInTheDocument()
+  await settingsAccess(); fireEvent.click(screen.getByRole('button', { name: 'Single sign-on', exact: true })); expect(await screen.findByRole('heading', { name: 'Single sign-on', exact: true })).toBeInTheDocument()
   expect(screen.getByRole('checkbox', { name: /Enable single sign-on/ })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Save configuration' })).toBeInTheDocument()
 })
 it('F11-11.3-05 admin navigates real webhook, branding, license and backup control panels', async () => {
@@ -130,4 +131,15 @@ it('keeps the organization card usable when the candidate list has the wrong sha
   const picker = screen.getByRole('combobox', { name: `Add member to ${org.name}` })
   expect(within(picker).getAllByRole('option')).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Organization settings' })).toBeEnabled()
+})
+
+it('prevents new Settings grants and lets the administrator remove an existing grant', async () => {
+  await settingsAccess()
+  fireEvent.click(screen.getByRole('button', { name: 'Permissions' }))
+  const operator = await screen.findByRole('switch', { name: 'operator: settings' })
+  expect(screen.getByRole('switch', { name: 'viewer: settings' })).toBeDisabled()
+  expect(operator).toBeChecked()
+  fireEvent.click(operator)
+  expect(operator).not.toBeChecked()
+  expect(operator).toBeDisabled()
 })

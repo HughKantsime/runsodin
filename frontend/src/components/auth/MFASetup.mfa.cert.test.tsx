@@ -30,10 +30,11 @@ beforeEach(() => {
     const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
     calls.push({ url, method, body, credentials: init.credentials })
     if (method === 'GET' && url === '/api/auth/mfa/status') return json(200, enabled ? WIRE.statusEnabled : WIRE.statusDisabled)
+    if (method === 'GET' && url === '/api/auth/mfa/recovery-codes') return json(200, { remaining: 3, generated_at: null })
     if (method === 'POST' && url === '/api/auth/mfa/setup') return json(200, WIRE.setup)
     if (method === 'POST' && url === '/api/auth/mfa/confirm') {
       if ((body as { code?: string })?.code !== '246810') return json(400, { detail: 'Invalid code. Scan the QR code and try again.' })
-      enabled = true; return json(200, WIRE.confirm)
+      enabled = true; return json(200, { ...WIRE.confirm, recovery_codes: ['example-code'] })
     }
     return json(404, { detail: 'unexpected' })
   }))
@@ -61,6 +62,9 @@ it('F11-11.2-01 MFASetup renders the server QR code and secret, then confirms wi
   fireEvent.change(input, { target: { value: '246810' } }); fireEvent.click(confirm)
   expect(await screen.findByText('MFA enabled successfully')).toBeVisible()
   expect(screen.queryByAltText('MFA QR Code')).not.toBeInTheDocument()
+  expect(await screen.findByText('example-code')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'I saved these' }))
+  expect(screen.queryByText('example-code')).not.toBeInTheDocument()
   expect(screen.getByText('Enabled')).toBeVisible()
   expect(calls.filter(c => c.url === '/api/auth/mfa/confirm').map(c => c.body)).toEqual([{ code: '135791' }, { code: '246810' }])
 })
@@ -71,4 +75,42 @@ it('F11-11.2-01 an already-enrolled account is not offered setup', async () => {
   expect(await screen.findByText('Your account is protected with two-factor authentication.')).toBeVisible()
   expect(screen.queryByRole('button', { name: 'Set Up Two-Factor Authentication' })).not.toBeInTheDocument()
   expect(calls.some(c => c.url === '/api/auth/mfa/setup')).toBe(false)
+})
+
+it('replaces a low set, shows server errors, and disables with an unused recovery code', async () => {
+  enabled = true
+  const request = vi.mocked(fetch)
+  render(<MFASetup />)
+  expect(await screen.findByText('3 recovery codes remaining.')).toBeVisible()
+  expect(screen.getByText(/running low/)).toBeVisible()
+  fireEvent.click(screen.getByRole('button', {name: 'Regenerate recovery codes'}))
+  const lock = 'Too many wrong codes. Try again in 4 minutes.'
+  for (const [status, detail] of [[400, 'Enter an authenticator or recovery code.'], [401, 'Invalid MFA code'], [429, lock]] as const) {
+    request.mockResolvedValueOnce(json(status, {detail}))
+    fireEvent.change(screen.getByLabelText(/generate a new set/), {target: {value: 'example-code'}})
+    fireEvent.click(screen.getByText('Generate new codes'))
+    await screen.findByText(detail)
+  }
+  const codes = Array.from({length: 10}, (_, i) => 'example-' + i)
+  request.mockResolvedValueOnce(json(200, {recovery_codes: codes}))
+  fireEvent.change(screen.getByLabelText(/generate a new set/), {target: {value: 'example-code'}})
+  fireEvent.click(screen.getByText('Generate new codes'))
+  await screen.findByRole('dialog')
+  expect(request).toHaveBeenLastCalledWith('/api/auth/mfa/recovery-codes', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({code: 'example-code'}), cache: 'no-store',
+  }))
+  fireEvent.click(screen.getByText('I saved these'))
+  expect(screen.queryByText(codes[0])).not.toBeInTheDocument()
+  expect(screen.getByText('10 recovery codes remaining.')).toBeVisible()
+  expect(screen.queryByText(/running low/)).not.toBeInTheDocument()
+  request.mockResolvedValueOnce(json(429, {detail: lock})).mockResolvedValueOnce(json(200, {status: 'ok'}))
+  for (let i = 0; i < 2; i++) {
+    fireEvent.change(screen.getByLabelText(/disable MFA/), {target: {value: codes[0]}})
+    fireEvent.click(screen.getByRole('button', {name: 'Disable MFA'}))
+    if (i === 0) await screen.findByText(lock)
+  }
+  await screen.findByText('MFA disabled')
+  expect(request).toHaveBeenLastCalledWith('/api/auth/mfa', expect.objectContaining({
+    method: 'DELETE', body: JSON.stringify({recovery_code: codes[0]}),
+  }))
 })

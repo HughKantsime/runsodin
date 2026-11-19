@@ -10,9 +10,7 @@ import OIDCSettings from '../../components/admin/OIDCSettings'
 import RosterSettings from '../../components/admin/RosterSettings'
 import WebhookSettings from '../../components/admin/WebhookSettings'
 import GroupManager from '../../components/admin/GroupManager'
-import MFASetup from '../../components/auth/MFASetup'
 import { getCurrentUser } from '../../permissions'
-import APITokenManager from '../../components/auth/APITokenManager'
 import SessionManager from '../../components/auth/SessionManager'
 import QuotaManager from '../../components/admin/QuotaManager'
 import IPAllowlistSettings from '../../components/admin/IPAllowlistSettings'
@@ -37,6 +35,7 @@ function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }: {
   return (
     <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden">
       <button
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-2 px-4 py-3 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-input-bg)]/70 transition-colors text-left"
       >
@@ -65,9 +64,7 @@ export default function Settings() {
   })
   const uiMode = pricingData?.ui_mode || 'advanced'
 
-  // Access stays open on every tier: MFA, API tokens, sessions and IP allowlist are
-  // free; organizations need Education or Enterprise (user_groups), and the other
-  // gated sections are checked individually below.
+  // Access stays open on every tier. Individual sections apply their own license checks.
   const PRO_TABS = ['integrations', 'branding']
   const ALL_TABS = [
     { id: 'general', label: 'General', icon: SettingsIcon },
@@ -123,18 +120,12 @@ export default function Settings() {
         <AccessAccordion title="Permissions" icon={Shield}>
           {lic.hasFeature('permissions') ? <Permissions /> : <RequiresLicense what="Custom role permissions" />}
         </AccessAccordion>
-        <AccessAccordion title="Authentication (OIDC & MFA)" icon={Key}>
+        <AccessAccordion title="Single sign-on" icon={Key}>
           {lic.hasFeature('sso') ? <OIDCSettings /> : <RequiresLicense what="Single sign-on (OIDC)" />}
-          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
-            <MFASetup key={getCurrentUser()?.id} principalKey={getCurrentUser()?.id} />
-          </div>
         </AccessAccordion>
-        <AccessAccordion title="Tokens & Sessions" icon={Key}>
-          <APITokenManager />
-          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
-            <SessionManager />
-          </div>
-        </AccessAccordion>
+        {getCurrentUser()?.role === 'admin' && <AccessAccordion title="Sessions" icon={Users}>
+          <SessionManager admin />
+        </AccessAccordion>}
         <AccessAccordion title="Quotas & Restrictions" icon={Shield}>
           {lic.hasFeature('print_quotas') && <QuotaManager />}
           <div className={`${lic.hasFeature('print_quotas') ? 'border-t pt-6 mt-6 ' : ''}border-[var(--brand-card-border)]`}>

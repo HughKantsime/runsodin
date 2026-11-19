@@ -249,11 +249,11 @@ describe('sidebar grouping (2.2.0): Print, Farm, Materials, History, Insights', 
     show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
     expect(screen.getByRole('link', { name: 'Jobs' })).toBeInTheDocument()
   })
-  it('opening every group offers exactly the same pages as before the regroup, minus the audit log', () => {
+  it('opening every group offers the available pages and the Account link', () => {
     show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Main navigation' })
     for (const group of ['HISTORY', 'INSIGHTS']) fireEvent.click(within(nav).getByRole('button', { name: group }))
-    expect([...new Set(hrefs(nav))].sort()).toEqual(['/', '/alerts', '/analytics', '/archives', '/calculator', '/cameras', '/consumables', '/detections',
+    expect([...new Set(hrefs(nav))].sort()).toEqual(['/', '/account', '/alerts', '/analytics', '/archives', '/calculator', '/cameras', '/consumables', '/detections',
       '/education-reports', '/jobs', '/maintenance', '/models', '/orders', '/print-log', '/printers', '/products', '/profiles', '/projects', '/settings',
       '/spools', '/timelapses', '/timeline', '/upload', '/utilization'].sort())
   })

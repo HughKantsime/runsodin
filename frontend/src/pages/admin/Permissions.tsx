@@ -158,7 +158,7 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }: { title:
                             <Toggle
                               checked={isChecked}
                               locked={isLocked}
-                              disabled={saving}
+                              disabled={saving || (item === 'settings' && role !== 'admin' && !isChecked)}
                               label={`${role}: ${item}`}
                               onChange={() => onToggle(type, item, role, !isChecked)}
                             />

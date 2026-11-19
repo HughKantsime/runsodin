@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Open Account to manage two-factor authentication, recovery codes, personal API tokens and signed-in devices. You can use a recovery code at sign-in. Administrators can end sessions from Settings > Access > Sessions.
+
 - After five wrong authenticator or recovery codes within 15 minutes, your account pauses code checks for 15 minutes. This applies when signing in, turning off MFA, or replacing recovery codes.
 
 - The MFA API now gives you ten single-use recovery codes when you set up an authenticator. You can use a saved code to sign in or remove a lost authenticator. If you already use MFA, you can generate a set with your authenticator.

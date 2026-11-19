@@ -17,6 +17,7 @@ import {
   Calculator,
   Upload as UploadIcon,
   LogOut,
+  UserRound,
   ChevronLeft,
   ChevronRight,
   X,
@@ -355,16 +356,17 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Who is signed in, and the way out */}
         <div className="shrink-0 px-3 py-2.5 flex items-center gap-2.5" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))' }}>
-          {!c && principal?.username && (
-            <>
+          <NavLink to="/account" onClick={handleNavClick} aria-label="Account" title="Account"
+            className="flex min-w-0 items-center gap-2 rounded py-1" style={{ color: 'var(--brand-sidebar-text)' }}>
+            {c ? <UserRound size={18} /> : <>
               <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-semibold uppercase"
-                style={{ backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-text-primary)' }}>{principal.username.slice(0, 1)}</span>
+                style={{ backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-text-primary)' }}>{principal?.username?.slice(0, 1) || <UserRound size={16} />}</span>
               <span className="min-w-0 leading-tight">
-                <span className="block truncate text-sm" style={{ color: 'var(--brand-text-primary)' }}>{principal.username}</span>
-                {principal.role && <span className="block text-[11px] capitalize" style={{ color: 'var(--brand-text-muted)' }}>{principal.role}</span>}
+                <span className="block truncate text-sm" style={{ color: 'var(--brand-text-primary)' }}>Account</span>
+                <span className="block truncate text-[11px]" style={{ color: 'var(--brand-text-muted)' }}>{[principal?.username, principal?.role].filter(Boolean).join(' · ')}</span>
               </span>
-            </>
-          )}
+            </>}
+          </NavLink>
           <button
             onClick={() => setShowLogoutConfirm(true)}
             className={clsx("flex items-center gap-1.5 hover:text-red-400 text-xs transition-colors", c ? "mx-auto" : "ml-auto")}

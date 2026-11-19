@@ -1,8 +1,8 @@
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,expect,test,vi} from 'vitest'
 import MFASetup from './MFASetup'
-const api=vi.hoisted(()=>({status:vi.fn(),setup:vi.fn(),confirm:vi.fn(),disable:vi.fn()}))
-vi.mock('../../api',()=>({auth:{mfaStatus:api.status,mfaSetup:api.setup,mfaConfirm:api.confirm,mfaDisable:api.disable}}))
+const api=vi.hoisted(()=>({status:vi.fn(),remaining:vi.fn().mockResolvedValue({remaining:10}),setup:vi.fn(),confirm:vi.fn(),disable:vi.fn()}))
+vi.mock('../../api',()=>({auth:{mfaStatus:api.status,recoveryStatus:()=>api.remaining(),mfaSetup:api.setup,mfaConfirm:api.confirm,mfaDisable:api.disable}}))
 afterEach(()=>{cleanup();vi.clearAllMocks()})
 test('unknown MFA status does not present the account as unenrolled',async()=>{
   api.status.mockRejectedValue(new Error('Synthetic status unavailable'))
@@ -23,7 +23,7 @@ test('confirmed enabled status presents the protected account',async()=>{
 test('confirmed unenrolled status allows explicit setup with QR then confirmation',async()=>{
   api.status.mockResolvedValue({mfa_enabled:false})
   api.setup.mockResolvedValue({secret:'synthetic-not-a-real-mfa-secret',qr_code:'data:image/png;base64,c3ludGhldGlj'})
-  api.confirm.mockResolvedValue({})
+  api.confirm.mockResolvedValue({recovery_codes:['example-code']})
   render(<MFASetup />)
   fireEvent.click(await screen.findByRole('button',{name:'Set Up Two-Factor Authentication'}))
   expect(await screen.findByAltText('MFA QR Code')).toBeVisible()
@@ -77,4 +77,13 @@ test('unmounted pending status does not affect a new mount',async()=>{
   await screen.findByText('Your account is protected with two-factor authentication.')
   await act(async()=>{old({mfa_enabled:false})})
   expect(screen.getByText('Your account is protected with two-factor authentication.')).toBeVisible()
+})
+
+test.each([0, 1, 3, 4])('shows the recovery warning at three or fewer codes (%i remaining)', async remaining => {
+  api.status.mockResolvedValue({mfa_enabled: true})
+  api.remaining.mockResolvedValueOnce({remaining})
+  render(<MFASetup />)
+  expect(await screen.findByText(`${remaining} recovery ${remaining === 1 ? 'code' : 'codes'} remaining.`)).toBeVisible()
+  expect(screen.queryByText(/Generate a new set while you still have access/)!== null).toBe(remaining <= 3)
+  expect(screen.getByRole('button', {name:'Regenerate recovery codes'})).toBeEnabled()
 })
