@@ -8,7 +8,7 @@ import { printerSupport } from '../../api/printerSupport'
 
 const state = vi.hoisted(() => ({ user: { id: 1, username: 'owner', role: 'admin', group_id: null as number | null } }))
 vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: () => state.user }))
-vi.mock('../../api/printerSupport', () => ({ printerSupport: { setExperimentalActions: vi.fn(), setAmsHt: vi.fn() } }))
+vi.mock('../../api/printerSupport', () => ({ printerSupport: { setExperimentalActions: vi.fn() } }))
 
 const WARNING = "Built from OctoPrint's public API and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong."
 const octo = { id: 7, api_type: 'octoprint', support_level: 'experimental', experimental_actions_enabled: false }
@@ -107,12 +107,11 @@ it.each([['bambu', 'classic'], ['elegoo', 'classic'], ['bambu', 'foundry'], ['el
   expect(screen.getByRole('note')).not.toHaveClass('text-amber-400')
 })
 
-it('keeps HT sending off when skipping objects is enabled and saves the HT switch separately', async () => {
+it('shows only the skip-objects switch on a Bambu printer reporting an HT tray', async () => {
   mount({ ...bambu, experimental_actions_enabled: true, filament_slots: [{ slot_number: 17 }] }, true)
-  const ht = screen.getByRole('checkbox', { name: 'Send prints to AMS HT trays (Experimental)' })
-  expect(ht).not.toBeChecked()
-  expect(screen.getByRole('checkbox', { name: 'Allow skipping objects (Experimental)' })).toBeChecked()
-  fireEvent.click(ht)
-  await waitFor(() => expect(printerSupport.setAmsHt).toHaveBeenCalledWith(8, true))
-  expect(printerSupport.setExperimentalActions).not.toHaveBeenCalled()
+  const skip = screen.getByRole('checkbox', { name: 'Allow skipping objects (Experimental)' })
+  expect(screen.getAllByRole('checkbox')).toEqual([skip])
+  expect(skip).toBeChecked()
+  fireEvent.click(skip)
+  await waitFor(() => expect(printerSupport.setExperimentalActions).toHaveBeenCalledWith(8, false))
 })

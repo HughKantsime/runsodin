@@ -90,7 +90,7 @@ def material_match(source, target):
     return source_material == target_material
 
 
-def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material=True, ht_enabled=None):
+def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material=True):
     """Map one-based file IDs to a protocol vector indexed by ID minus one.
 
     Only held-job planning callers may defer the material check. Structural
@@ -122,10 +122,7 @@ def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material
     for item in mapping:
         source = item['source_slot'] + (1 if legacy else 0)
         target = item['target_slot']
-        if 17 <= target <= 24 and target in slots and ht_enabled is False:
-            from modules.printers.support_levels import AMS_HT_MESSAGE
-            raise HTTPException(400, AMS_HT_MESSAGE)
-        if target not in slots or not 1 <= target <= (24 if ht_enabled else 16) or result[source - 1] != -1:
+        if target not in slots or not 1 <= target <= 24 or result[source - 1] != -1:
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
         if check_material and material_match(by_id[source].get('type'), slots[target]) is not True:
             raise MappingMaterialMismatch(target)

@@ -17,11 +17,6 @@ const GENERIC_WARNING = 'Built from public documentation and not yet verified on
 export const SKIP_OBJECTS_WARNING = "Skip objects (Experimental): built from how Bambu's own software sends this command, and not yet verified on a real printer."
 
 export const CAPABILITY_COPY: Record<string, { note: string; state: (enabled: boolean) => string; label: string }> = {
-  ams_ht: {
-    note: 'Sending prints to AMS HT trays has not yet been verified on a real printer.',
-    state: enabled => `Sending prints to AMS HT trays is ${enabled ? 'on' : 'off'} for this printer.`,
-    label: 'Send prints to AMS HT trays (Experimental)',
-  },
   skip_objects: {
     note: SKIP_OBJECTS_WARNING,
     state: enabled => `Skipping objects is ${enabled ? 'on' : 'off'} for this printer.`,

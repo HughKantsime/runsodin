@@ -20,11 +20,8 @@ def flagged_mapping_reason(conn, printer_id, mapping):
     ht = {n for n in targets if 17 <= n <= 24}
     if ht:
         from core.printer_display_facts import reported_ht_slots
-        from modules.printers.support_levels import AMS_HT_MESSAGE, experimental_enabled
         if not ht <= reported_ht_slots(conn, printer_id).keys():
             return 'Invalid or duplicate AMS slot'
-        if not experimental_enabled(conn, printer_id, 'bambu', ams_ht=True):
-            return AMS_HT_MESSAGE
     rows = conn.execute(text('SELECT slot_number,do_not_feed_note FROM filament_slots '
                              'WHERE printer_id=:id AND do_not_feed IS TRUE ORDER BY slot_number'),
                         {'id': printer_id}).all()

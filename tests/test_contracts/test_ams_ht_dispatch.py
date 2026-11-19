@@ -1,4 +1,4 @@
-"""Experimental HT selection through scheduling, acquisition and both command builders."""
+"""AMS HT selection through scheduling, acquisition and both command builders."""
 import hashlib
 import json
 import time
@@ -42,11 +42,6 @@ def report_topology(db, printer_id, ams):
     db.commit()
 
 
-def switch(db, printer_id, enabled):
-    support_levels.set_experimental_enabled(db, db.get(Printer, printer_id), enabled, 3, ams_ht=True)
-    db.commit()
-
-
 def test_new_report_without_ht_invalidates_prior_fresh_ht_read(captured_ams):
     collector = RawAMSAcquisitionCollector(topic='device/synthetic/report', configuration_key='a'*64,
         owner_org_id=1, selected_slots=[17], subscribe_mid=1)
@@ -75,22 +70,20 @@ def test_new_report_without_ht_invalidates_prior_fresh_ht_read(captured_ams):
     assert monitor._display_facts['ht_trays']['value'] == {}
 
 
-def test_schedule_and_editor_accept_reported_ht_and_refuse_switch_off_unknown_and_unplugged(mapping_client, review_db, captured_ams):
+@pytest.mark.parametrize('skip_objects', [False, True])
+def test_schedule_and_editor_accept_reported_ht_and_refuse_unknown_and_unplugged(
+        mapping_client, review_db, captured_ams, skip_objects):
     client, auth = mapping_client
     next(u for u in captured_ams['ams'] if u['id'] == '128')['tray'][0]['tray_type'] = 'PETG'
     report_topology(review_db, 9, captured_ams)
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,'PETG'),(9,18,'PETG')"))
     printer = review_db.get(Printer, 9)
-    support_levels.set_experimental_enabled(review_db, printer, True, 3)  # existing skip-objects opt-in
+    support_levels.set_experimental_enabled(review_db, printer, skip_objects, 3)
     review_db.commit()
     mapping = [{'source_slot': 1, 'target_slot': 17}]
     def available():
         preview = client.get('/api/print-files/501?printer_id=9', headers=auth()).json()['ams_preview']
         return {s['slot'] for s in preview['available']}
-    assert 17 not in available()
-    refused = schedule(mapping_client, mapping=mapping)
-    assert refused.status_code == 400 and 'Experimental features' in refused.json()['detail']
-    switch(review_db, 9, True)
     assert 17 in available() and 18 not in available()
     created = schedule(mapping_client, mapping=mapping)
     assert created.status_code == 200, created.text
@@ -104,13 +97,29 @@ def test_schedule_and_editor_accept_reported_ht_and_refuse_switch_off_unknown_an
     assert patch([16]).json()['detail'] == 'Invalid or duplicate AMS slot'
 
 
+def test_schedule_refuses_slot_17_on_four_tray_only_printer(mapping_client, review_db, captured_ams):
+    captured_ams['ams'] = [u for u in captured_ams['ams'] if u['id'] != '128']
+    report_topology(review_db, 9, captured_ams)
+    response = schedule(mapping_client, mapping=[{'source_slot': 1, 'target_slot': 17}])
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'Invalid or duplicate AMS slot'
+
+
+def test_kobra_s1_refuses_ht_slot_even_with_a_stale_inventory_row(mapping_client, review_db):
+    review_db.execute(text("UPDATE printers SET api_type='moonraker',model='Kobra S1' WHERE id=9"))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,'PLA')"))
+    review_db.commit()
+    response = schedule(mapping_client, mapping=[{'source_slot': 1, 'target_slot': 17}])
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'Invalid or duplicate AMS slot'
+
+
 @pytest.fixture
 def ht_editor_job(mapping_client, review_db, captured_ams):
     client, auth = mapping_client
     next(u for u in captured_ams['ams'] if u['id'] == '128')['tray'][0]['tray_type'] = 'PETG'
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,'PETG')"))
     report_topology(review_db, 9, captured_ams)
-    switch(review_db, 9, True)
     job = schedule(mapping_client, mapping=[{'source_slot': 1, 'target_slot': 17}]).json()['job_id']
     return client, auth, job
 
@@ -150,9 +159,7 @@ def test_editor_round_trips_sparse_ht_and_refuses_unused_marker_on_used_source(h
     assert response.status_code == 200, response.text
     assert response.json()['ams_mapping'] == vector
     assert client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping'] == vector
-    switch(review_db, 9, False)
-    assert patch(vector).json()['detail'] == support_levels.AMS_HT_MESSAGE
-    switch(review_db, 9, True)
+    assert patch([-1, 17]).json()['detail'] == 'Invalid or duplicate AMS slot'
     set_sources([1, 2])
     response = patch(vector)
     assert response.status_code == 400
@@ -164,9 +171,9 @@ def test_ht_validation_uses_exact_material(material):
     from core.print_payload import MappingMaterialMismatch, validate_mapping
     mapping = [{'source_slot': 1, 'target_slot': 24}]
     file = json.dumps([{'slot': 1, 'type': material}])
-    assert validate_mapping(mapping, file, {24: material}, 'bambu', ht_enabled=True) == [23]
+    assert validate_mapping(mapping, file, {24: material}, 'bambu') == [23]
     with pytest.raises(MappingMaterialMismatch):
-        validate_mapping(mapping, file, {24: 'PLA'}, 'bambu', ht_enabled=True)
+        validate_mapping(mapping, file, {24: 'PLA'}, 'bambu')
 
 
 def mock_ht_read(monkeypatch, report, captured_ams, events, expected_slots):
@@ -199,9 +206,9 @@ def mock_ht_read(monkeypatch, report, captured_ams, events, expected_slots):
     ('single_trailing_padding', 'Stored AMS mapping differs from file sources'),
     ('fresh', None), ('missing_unit', 'ams_read_failed'), ('missing_tray', 'ams_read_failed'),
     ('empty_with_preset', 'tray_material_unreported'), ('wrong_material', 'material_mismatch'), ('wrong_nozzle', 'ams_binding_mismatch'),
-    ('off', 'Experimental features'), ('disabled_after_upload', 'Experimental features'),
+    ('inventory_only', 'Invalid or duplicate AMS slot'), ('unplugged_after_upload', 'Invalid or duplicate AMS slot'),
 ])
-def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
+def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle(
         review_db, tmp_path, monkeypatch, captured_ams, case, reason, protocol, extra_gap):
     single = case.startswith('single_')
     ids, mapping, extruders = (0, 1), [4, 16], [0, 1]
@@ -229,12 +236,12 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,17,:material)"),
                       {'material': slot_filament_value(ht['tray'][0]['tray_type'])})
     report_topology(review_db, 59, captured_ams)
-    if case != 'off':
-        switch(review_db, 59, True)
+    if case == 'inventory_only':
+        report_topology(review_db, 59, {'ams': []})
     events = []
     def after_upload():
-        if case == 'disabled_after_upload':
-            switch(review_db, 59, False)
+        if case == 'unplugged_after_upload':
+            report_topology(review_db, 59, {'ams': []})
     sent = transport(monkeypatch, path, protocol, events, after_upload=after_upload)
     if case == 'missing_unit':
         captured_ams['ams'].remove(ht)
@@ -253,7 +260,7 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
     assert ok is (reason is None), message
     if reason:
         assert reason in message and not sent
-        assert events == ([] if case in ('off', 'single_trailing_padding') else ['upload'] if case == 'disabled_after_upload' else ['upload', 'fresh_read'])
+        assert events == ([] if case in ('inventory_only', 'single_trailing_padding') else ['upload'] if case == 'unplugged_after_upload' else ['upload', 'fresh_read'])
     else:
         assert events == ['upload', 'fresh_read', 'start']
         assert sent[0]['ams_mapping'] == [128 if n == 16 else n for n in mapping]
@@ -285,13 +292,12 @@ def test_exact_print_command_payload_for_ht_and_unchanged_four_tray(protocol, ma
     sent = []
     sender._publish = lambda payload: sent.append(json.dumps(payload)) or True
     monkeypatch.setattr(time, 'time', lambda: 123456)
-    options = {'ams_ht_enabled': True} if mapping and any(16 <= n < 24 for n in mapping) else {}
     if fields is None:
         from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
         echo = json.loads((Path(__file__).parents[1] / 'fixtures/h2d_studio_ht_project_file_echo.json').read_text())
-        assert print_mapping_fields(mapping, **options) == {key: echo[key] for key in ('ams_mapping', 'ams_mapping2')}
+        assert print_mapping_fields(mapping) == {key: echo[key] for key in ('ams_mapping', 'ams_mapping2')}
         fields = {key: echo[key] for key in ('use_ams', 'ams_mapping', 'ams_mapping2')}
-    assert sender.start_print('part.3mf', plate_num=2, ams_mapping=mapping, **options)
+    assert sender.start_print('part.3mf', plate_num=2, ams_mapping=mapping)
     assert sent == [json.dumps({'print': {
         'sequence_id': '23456', 'command': 'project_file', 'param': 'Metadata/plate_2.gcode',
         'subtask_name': 'part', 'url': 'ftp:///part.3mf', 'bed_type': 'auto', 'timelapse': False,
@@ -322,36 +328,40 @@ def test_ht_duplicate_source_is_refused_even_for_held_jobs():
     with pytest.raises(HTTPException) as exc:
         validate_mapping([{'source_slot': 1, 'target_slot': 17}] * 2,
                          json.dumps([{'slot': 1, 'type': 'PC'}, {'slot': 2, 'type': 'PC'}]),
-                         {17: 'PC'}, 'bambu', ht_enabled=True, check_material=False)
+                         {17: 'PC'}, 'bambu', check_material=False)
     assert exc.value.detail == 'Invalid or duplicate AMS slot'
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('mapping', [[16], [23], [128], [-1, 16]])
-def test_direct_start_requires_explicit_ht_permission(protocol, mapping):
+@pytest.mark.parametrize('mapping,wire', [([16], [128]), ([23], [135]), ([128], None), ([-1, 16], [-1, 128])])
+def test_direct_start_encodes_physical_ht_slots_and_refuses_wire_ids(protocol, mapping, wire):
     from modules.printers.adapters.bambu import BambuPrinter
     from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
     sender = object.__new__(BambuPrinter if protocol == 'legacy' else BambuCommandAdapter)
     sender._connected = True
     sent = []
-    sender._publish = sent.append
-    with pytest.raises(ValueError, match='AMS HT'):
-        sender.start_print('part.3mf', ams_mapping=mapping)
-    assert sent == []
+    sender._publish = lambda msg: sent.append(msg) or True
+    if wire is None:
+        with pytest.raises(ValueError, match='Select an AMS HT tray by its physical slot'):
+            sender.start_print('part.3mf', ams_mapping=mapping)
+        assert sent == []
+    else:
+        assert sender.start_print('part.3mf', ams_mapping=mapping)
+        assert [msg['print']['ams_mapping'] for msg in sent] == [wire]
 
 
 @pytest.mark.parametrize('invalid', [-2, -1.0])
 def test_ht_encoder_refuses_invalid_unused_positions(invalid):
     from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
     with pytest.raises(ValueError):
-        print_mapping_fields([16, invalid], ams_ht_enabled=True)
+        print_mapping_fields([16, invalid])
 
 
 @pytest.mark.parametrize('path', ['archive', 'repeat', 'release', 'bulk_release'])
-@pytest.mark.parametrize('enabled', [False, True], ids=['switch-off', 'sparse-switch-on'])
-def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, path, enabled):
+@pytest.mark.parametrize('reported', [False, True], ids=['unplugged', 'sparse-reported'])
+def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, path, reported):
     client, _, source = reprint_client
-    source_slot = 2 if enabled else 1
+    source_slot = 2 if reported else 1
     events = []
     sent = transport(monkeypatch, source, 'legacy', events)
     review_db.execute(text("UPDATE print_files SET filaments_json=:f WHERE id=101"),
@@ -359,14 +369,15 @@ def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, pa
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,:material)"),
                       {'material': slot_filament_value('PLA-S')})
     report_topology(review_db, 9, captured_ams)
-    switch(review_db, 9, True)
     body = {'printer_id': 9, 'ams_mapping': [{'source_slot': source_slot, 'target_slot': 17}]}
     created = client.post('/archives/101/reprint', json=body)
     assert created.status_code == 200, created.text
     job = created.json()['job_id']
     if path in ('release', 'bulk_release'):
         review_db.execute(text('UPDATE jobs SET hold=TRUE WHERE id=:id'), {'id': job})
-    switch(review_db, 9, enabled)
+    if not reported:
+        report_topology(review_db, 9, {'ams': []})
+    review_db.commit()
     count = review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one()
     if path == 'archive':
         response = client.post('/archives/101/reprint', json=body)
@@ -376,7 +387,7 @@ def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, pa
         response = client.patch(f'/jobs/{job}', json={'hold': False})
     else:
         response = client.post('/jobs/bulk-update', json={'job_ids': [job], 'action': 'unhold'})
-    if enabled:
+    if reported:
         assert response.status_code == 200, response.text
         if path in ('archive', 'repeat'):
             job = response.json()['job_id' if path == 'archive' else 'new_job_id']
@@ -385,7 +396,7 @@ def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, pa
         assert not sent and not events
         return
     assert response.status_code == 400, response.text
-    assert response.json()['detail'] == support_levels.AMS_HT_MESSAGE
+    assert response.json()['detail'] == 'Invalid or duplicate AMS slot'
     assert review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one() == count
     if path in ('release', 'bulk_release'):
         assert review_db.execute(text('SELECT hold FROM jobs WHERE id=:id'), {'id': job}).scalar_one()
@@ -393,26 +404,27 @@ def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, pa
 
 
 @pytest.mark.parametrize('path', ['start_next', 'reset_reprint', 'direct'])
-@pytest.mark.parametrize('enabled', [False, True], ids=['switch-off', 'sparse-switch-on'])
-def test_ht_dispatch_entry_points(review_db, tmp_path, monkeypatch, captured_ams, path, enabled):
+@pytest.mark.parametrize('reported', [False, True], ids=['unplugged', 'sparse-reported'])
+def test_ht_dispatch_entry_points(review_db, tmp_path, monkeypatch, captured_ams, path, reported):
     from modules.printers import start_next
     from modules.jobs.routes.jobs_lifecycle import reset_job
     from tests.test_contracts.test_completion_summary import request
-    sparse = enabled or path == 'direct'
+    sparse = reported or path == 'direct'
     ids, mapping, extruders = ((1,), [-1, 16], [0, 1]) if sparse else ((0,), [16], [1])
     _, source, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D',
         ids=ids, mapping=mapping, materials=('PLA-S',), extruders=extruders)
-    if enabled:
+    if reported:
         source.write_bytes(payload(ids=ids, materials=('PLA-S',), extruders=extruders))
         review_db.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'),
                           {'sha': hashlib.sha256(source.read_bytes()).hexdigest()})
-        switch(review_db, 59, True)
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,17,:material)"),
                       {'material': slot_filament_value('PLA-S')})
     report_topology(review_db, 59, captured_ams)
     events = []
     sent = transport(monkeypatch, source, 'legacy', events)
-    if enabled:
+    if not reported:
+        report_topology(review_db, 59, {'ams': []})
+    else:
         mock_ht_read(monkeypatch, report, captured_ams, events, (17,))
     if path == 'start_next':
         from modules.jobs import completion_summary
@@ -431,13 +443,13 @@ def test_ht_dispatch_entry_points(review_db, tmp_path, monkeypatch, captured_ams
             review_db.execute(text("UPDATE jobs SET printer_id=59,status='scheduled' WHERE id=53"))
             review_db.commit()
         ok, message = dispatch.dispatch_job(59, 53)
-    if enabled:
+    if reported:
         assert ok, message
         assert events == ['upload', 'fresh_read', 'start']
         assert sent[0]['ams_mapping'] == [-1, 128]
         return
     assert not ok
-    assert support_levels.AMS_HT_MESSAGE in message, message
+    assert 'Invalid or duplicate AMS slot' in message, message
     assert not sent and not events
 
 
@@ -506,13 +518,14 @@ def test_unknown_slot_on_four_tray_printer_keeps_its_original_message(graph, wri
 
 
 @pytest.mark.parametrize('path', ['wait', 'background', 'automatic', 'automatic_fallback', 'manual_status'])
-def test_ht_switch_off_at_job_start_paths(review_db, tmp_path, monkeypatch, captured_ams, path):
+def test_unreported_ht_at_job_start_paths(review_db, tmp_path, monkeypatch, captured_ams, path):
     from fastapi import HTTPException
     from modules.jobs.routes.jobs_lifecycle import dispatch_job_to_printer, start_job
     from modules.printers import dispatch_background
     _, source, _ = setup_multi(review_db, tmp_path, monkeypatch, mapping=[16], ids=(0,), materials=('PLA-S',))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,17,:material)"),
                       {'material': slot_filament_value('PLA-S')})
+    captured_ams['ams'] = [u for u in captured_ams['ams'] if u['id'] != '128']
     report_topology(review_db, 59, captured_ams)
     events = []
     sent = transport(monkeypatch, source, 'legacy', events)
@@ -521,7 +534,7 @@ def test_ht_switch_off_at_job_start_paths(review_db, tmp_path, monkeypatch, capt
     elif path == 'wait':
         with pytest.raises(HTTPException) as exc:
             dispatch_job_to_printer(53, USER, review_db, wait=True)
-        assert exc.value.status_code == 400 and support_levels.AMS_HT_MESSAGE in exc.value.detail
+        assert exc.value.status_code == 400 and 'Invalid or duplicate AMS slot' in exc.value.detail
     elif path == 'background':
         handle = dispatch_job_to_printer(53, USER, review_db)
         try:
@@ -529,7 +542,7 @@ def test_ht_switch_off_at_job_start_paths(review_db, tmp_path, monkeypatch, capt
         finally:
             dispatch_background.startup()
         result = dispatch.read_dispatch_progress(review_db, handle['attempt_id'], 53)
-        assert result['phase'] == 'refused' and support_levels.AMS_HT_MESSAGE in result['message']
+        assert result['phase'] == 'refused' and 'Invalid or duplicate AMS slot' in result['message']
     else:
         monkeypatch.setenv('AUTO_DISPATCH', 'true')
         select = dispatch._get_next_scheduled_job
@@ -548,5 +561,5 @@ def test_ht_switch_off_at_job_start_paths(review_db, tmp_path, monkeypatch, capt
         dispatch.attempt_dispatch(59)
         assert [job for job, _ in outcomes] == ([999, 53] if path == 'automatic_fallback' else [53])
         ok, message = outcomes[-1][1]
-        assert not ok and support_levels.AMS_HT_MESSAGE in message
+        assert not ok and 'Invalid or duplicate AMS slot' in message
     assert not sent and not events

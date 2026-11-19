@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
-- Bambu H2D with AMS HT (Experimental, off by default): a print can be mapped to an AMS HT tray and sent from ODIN, with the same checks as other AMS trays.
+- Bambu printers with AMS HT: a print can be mapped to an AMS HT tray and sent from ODIN, alone or together with other AMS trays, with the same checks as other trays. Verified on an H2D.
 
 - AMS humidity now also shows as a percentage (Bambu AMS units that report it), in the web app, the API and the Home Assistant integration.
 

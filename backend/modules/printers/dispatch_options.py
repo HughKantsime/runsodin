@@ -85,15 +85,6 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 error = _mapping_error(job, mapping)
                 if error:
                     return None, _missing_mapping(job) if derived else error
-                from modules.printers.telemetry.bambu.ams_identity import has_ht_target
-                if has_ht_target(mapping):
-                    from core.db import engine
-                    from modules.printers.support_levels import AMS_HT_MESSAGE, experimental_enabled
-                    with engine.connect() as conn:
-                        enabled = experimental_enabled(conn, printer_id, api_type, ams_ht=True)
-                    if not enabled:
-                        return None, AMS_HT_MESSAGE
-                    print_options['ams_ht_enabled'] = enabled
                 # No transaction remains open during inspection. Derived mappings
                 # already inspected these exact bytes; validate their facts once.
                 from modules.printers.dispatch_ams_gate import preflight_ams_source
@@ -131,7 +122,7 @@ def _mapping_error(job, mapping):
     try:
         validated = validate_mapping([{"source_slot": i + 1, "target_slot": slot + 1}
                           for i, slot in enumerate(mapping) if slot != -1],
-                         job.get("filaments_json"), slots, 'bambu', ht_enabled=True)
+                         job.get("filaments_json"), slots, 'bambu')
         if validated != mapping:
             return "Stored AMS mapping differs from file sources; no command was sent"
     except HTTPException as exc:

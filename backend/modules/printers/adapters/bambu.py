@@ -480,7 +480,6 @@ class BambuPrinter:
         bed_leveling: bool = True,
         timelapse: bool = False,
         ams_mapping: Optional[list[int]] = None,
-        *, ams_ht_enabled: bool = False,
     ) -> bool:
         """Send MQTT command to start printing an uploaded .3mf file.
 
@@ -523,7 +522,7 @@ class BambuPrinter:
         }
         if ams_mapping is not None:
             from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
-            payload["print"].update(print_mapping_fields(ams_mapping, ams_ht_enabled=ams_ht_enabled))
+            payload["print"].update(print_mapping_fields(ams_mapping))
         return self._publish(payload)
 
     # ============== Private Methods ==============

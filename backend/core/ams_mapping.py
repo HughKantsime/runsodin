@@ -39,12 +39,7 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
         except S1Refusal as refusal:
             raise HTTPException(400, str(refusal)) from None
     slots = mapping_materials(db, printer_id, printer.api_type)
-    from modules.printers.support_levels import experimental_enabled
-    ht_enabled = None
-    if printer.api_type == 'bambu' and any(n >= 17 for n in slots):
-        ht_enabled = experimental_enabled(db, printer_id, 'bambu', ams_ht=True)
-    result = validate_mapping(mapping, filaments_json, slots, protocol, check_material=check_material,
-                              ht_enabled=ht_enabled)
+    result = validate_mapping(mapping, filaments_json, slots, protocol, check_material=check_material)
     from modules.printers.slot_feed_policy import flagged_mapping_reason
     reason = flagged_mapping_reason(db, printer_id, result)
     if reason:
@@ -67,11 +62,11 @@ def _ht_material(stored, reported):
 def mapping_materials(db, printer_id, api_type):
     slots = dict(db.execute(text('SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id'),
                             {'id': printer_id}).all())
-    if api_type == 'bambu' and any(n >= 17 for n in slots):
+    if any(n >= 17 for n in slots):
         from core.printer_display_facts import reported_ht_slots
         # The inventory enum collapses some nylon and support materials.
         # Compare the exact reported label for HT targets, including unknowns.
-        reported = reported_ht_slots(db, printer_id)
+        reported = reported_ht_slots(db, printer_id) if api_type == 'bambu' else {}
         slots = {n: material if n < 17 else _ht_material(material, reported[n]) for n, material in slots.items() if n < 17 or n in reported}
     return slots
 
@@ -79,9 +74,8 @@ def mapping_materials(db, printer_id, api_type):
 def selectable_slots(db, printer_id, api_type, available):
     if api_type != 'bambu' or not any(s['slot'] >= 17 for s in available):
         return available
-    from modules.printers.support_levels import experimental_enabled
     from core.printer_display_facts import reported_ht_slots
-    ht = reported_ht_slots(db, printer_id) if experimental_enabled(db, printer_id, api_type, ams_ht=True) else {}
+    ht = reported_ht_slots(db, printer_id)
     return [s if s['slot'] < 17 else {**s, 'material': _ht_material(s['material'], ht[s['slot']]) or ''}
             for s in available if s['slot'] < 17 or s['slot'] in ht]
 

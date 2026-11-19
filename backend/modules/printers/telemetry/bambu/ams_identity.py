@@ -6,7 +6,7 @@ are the four-tray units; AMS HT unit 128+n is slot 17+n, matching the bit
 position Bambu uses for it in ``tray_exist_bits`` (captured H2D: 0x100ff).
 
 Job selections use physical slot minus one. Only the print command converts
-an HT selection to its experimental wire representation.
+an HT selection to its wire representation.
 """
 import re
 
@@ -44,15 +44,12 @@ def has_ht_target(mapping):
     return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
 
 
-def print_mapping_fields(mapping, *, ams_ht_enabled=False):
-    """Both senders share this experimental translation at the wire boundary."""
+def print_mapping_fields(mapping):
+    """Both senders share this translation at the wire boundary."""
     if any(AMS_HT_FIRST_UNIT <= index < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT for index in mapping):
         raise ValueError('Select an AMS HT tray by its physical slot')
     if not has_ht_target(mapping):
         return {'ams_mapping': mapping}
-    if ams_ht_enabled is not True:
-        from modules.printers.support_levels import AMS_HT_MESSAGE
-        raise ValueError(AMS_HT_MESSAGE)
     flat = []
     pairs = []
     for index in mapping:

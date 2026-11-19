@@ -266,7 +266,6 @@ class PrinterResponse(PrinterBase):
     camera_source: Optional[str] = None  # 'configured' | 'auto' | None
     # Job sending and controls on an Experimental printer type are off until a superadmin opts the printer in.
     experimental_actions_enabled: bool = False
-    ams_ht_enabled: bool = False
 
     @computed_field
     @property

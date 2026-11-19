@@ -346,28 +346,32 @@ def test_bambu_only_skip_capability_is_gated(graph):
     assert support_levels.control_refusal(graph,9,'bambu','skip-objects') is None
 
 
-def test_ht_switch_requires_superadmin_and_is_independent_from_existing_bambu_opt_in(experimental_app, review_db):
+def test_retired_ht_switch_is_unknown_and_does_not_toggle_existing_opt_in(experimental_app, review_db):
     client, headers, _ = experimental_app
     path = '/printers/9/experimental-actions'
     ht = {'capability': 'ams_ht', 'enabled': True}
     assert client.put(path, headers=headers, json=ht).status_code == 403
     make_superadmin(review_db)
     assert client.put(path, headers=headers, json={'enabled': True}).status_code == 200
-    assert client.get('/printers/9', headers=headers).json()['ams_ht_enabled'] is False
-    assert client.put(path, headers=headers, json=ht).json()['ams_ht_enabled'] is True
-    assert client.put(path, headers=headers, json={'enabled': False}).status_code == 200
+    for enabled in (True, False):
+        for capability in ('unknown', 'ams_ht'):
+            response = client.put(path, headers=headers, json={'enabled': enabled, 'capability': capability})
+            assert response.status_code == 422
     view = client.get('/printers/9', headers=headers).json()
-    assert view['ams_ht_enabled'] is True and view['experimental_actions_enabled'] is False
-    assert client.put(path, headers=headers, json={**ht, 'enabled': False}).json()['ams_ht_enabled'] is False
+    assert 'ams_ht_enabled' not in view and view['experimental_actions_enabled'] is True
+    assert client.put(path, headers=headers, json={'enabled': False}).json()['experimental_actions_enabled'] is False
 
 
-def test_list_reads_both_opt_ins_once_and_surfaces_store_errors(graph, monkeypatch):
+def test_list_reads_opt_ins_once_ignores_legacy_ht_entry_and_surfaces_store_errors(graph, monkeypatch):
     from modules.printers.routes_crud import list_printers
     from modules.printers.schemas import PrinterResponse
     from unittest.mock import Mock
     graph.execute(text("UPDATE printers SET api_type='bambu',org_id=1,shared=FALSE,tags='[]',timelapse_enabled=FALSE WHERE id IN (9,10)"))
     opt_in(graph, 9)
-    support_levels.set_experimental_enabled(graph, graph.get(Printer, 10), True, 3, ams_ht=True)
+    from core.models import SystemConfig
+    config = graph.get(SystemConfig, support_levels.CONFIG_KEY)
+    legacy = {**config.value['9'], 'name': graph.get(Printer, 10).name}
+    config.value = {**config.value, 'ams_ht:10': legacy}
     graph.commit()
     read = Mock(wraps=support_levels._read_store)
     monkeypatch.setattr(support_levels, '_read_store', read)
@@ -375,9 +379,15 @@ def test_list_reads_both_opt_ins_once_and_surfaces_store_errors(graph, monkeypat
     def views():
         return {row.id: PrinterResponse.model_validate(row) for row in list_printers(current_user=USER, db=graph)}
     rows = views()
-    assert rows[9].experimental_actions_enabled and not rows[9].ams_ht_enabled
-    assert rows[10].ams_ht_enabled and not rows[10].experimental_actions_enabled
+    assert rows[9].experimental_actions_enabled
+    assert 'ams_ht_enabled' not in rows[9].model_dump()
+    assert not rows[10].experimental_actions_enabled
+    assert 'ams_ht_enabled' not in rows[10].model_dump()
     assert read.call_count == 1
     read.side_effect = RuntimeError('store unavailable')
     with pytest.raises(RuntimeError, match='store unavailable'):
         views()
+    support_levels.forget_printer(graph.connection(), 10)
+    opt_in(graph, enabled=False)
+    graph.refresh(config)
+    assert config.value == {'ams_ht:10': legacy}

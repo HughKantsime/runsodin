@@ -7,10 +7,6 @@ export interface ExperimentalActionsResult {
 }
 
 export const printerSupport = {
-  setAmsHt: (id: number, enabled: boolean) =>
-    fetchAPI<{ ams_ht_enabled: boolean }>(`/printers/${id}/experimental-actions`, {
-      method: 'PUT', body: JSON.stringify({ capability: 'ams_ht', enabled }),
-    }),
   setExperimentalActions: (id: number, enabled: boolean) =>
     fetchAPI<ExperimentalActionsResult>(`/printers/${id}/experimental-actions`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
 }
