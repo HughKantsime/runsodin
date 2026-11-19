@@ -71,8 +71,8 @@ def current_session_jti(request):
     import jwt as _jwt
     from core import auth as _auth
     cookie = request.cookies.get('session')
-    header = request.headers.get('authorization', '')
-    raw = cookie or (header.split(' ', 1)[1] if header.startswith('Bearer ') else None)
+    from core.auth_headers import bearer_token, jwt_bearer
+    raw = cookie or jwt_bearer(request, bearer_token(request))
     if not raw:
         return None
     try:

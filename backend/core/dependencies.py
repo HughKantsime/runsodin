@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import core.auth as auth_module
+from core.auth_headers import jwt_bearer, scoped_token
 from core.auth import decode_token, verify_password
 from core.api_token_policy import parse_token_scopes
 from core.audit import log_audit
@@ -279,7 +280,7 @@ def validate_perimeter_access_token(token: str, db: Session, request=None) -> Op
 def resolve_user_api_token(api_key: str, db: Session, request=None) -> Optional[dict]:
     """Principal for a per-user scoped API token (odin_xxx), or None.
 
-    Shared by the X-API-Key header path and carriers that cannot send
+    Shared by both API token headers and carriers that cannot send
     headers (e.g. an <img> stream URL); the caller binds the actor.
     """
     if not isinstance(api_key, str) or not api_key.startswith("odin_"):
@@ -394,12 +395,9 @@ def resolve_current_user_sync(
     db: Session = Depends(get_db),
     *, side_effects=True,
 ):
-    """Resolve the current user from session cookie, JWT Bearer token, or API key.
-
-    Auth priority:
-      0. httpOnly session cookie (browser-based SPA auth)
-      1. Authorization: Bearer <JWT> header (API clients, fallback)
-      2. X-API-Key header — global key (perimeter auth) or per-user scoped token
+    """A valid session cookie wins over both headers. When both headers carry
+    tokens, X-API-Key wins and the Bearer token is ignored. A legacy perimeter
+    key can accompany a session JWT without replacing its user identity.
     """
     from core.audit_actor import clear_actor, bind_verified_actor
     if side_effects:
@@ -407,7 +405,7 @@ def resolve_current_user_sync(
     # Try 0/1: cookie first, then bearer. Only malformed JWTs may fall through;
     # failed mandatory database checks must never grant access or imply logout.
     for candidate, auth_kind in ((request.cookies.get("session"), "session_jwt"),
-                                 (token, "bearer_jwt")):
+                                 (jwt_bearer(request, token), "bearer_jwt")):
         if not candidate:
             continue
         token_data = decode_token(candidate)
@@ -463,7 +461,7 @@ def resolve_current_user_sync(
                 bind_verified_actor(db, principal)
             return principal
 
-    # Try 2: X-API-Key header — check global key first, then scoped user tokens
+    # The legacy key is accepted only in X-API-Key.
     api_key = request.headers.get("X-API-Key")
     if api_key and api_key != "undefined":
         # 2a: Global API key (legacy, constant-time comparison)
@@ -475,8 +473,9 @@ def resolve_current_user_sync(
                 mark_noninteractive_principal()
             return principal
 
-        # 2b: Per-user scoped tokens (odin_xxx format)
-        principal = resolve_user_api_token(api_key, db, request)
+    api_token = scoped_token(request, token)
+    if api_token:
+        principal = resolve_user_api_token(api_token, db, request)
         from core.api_token_policy import is_camera_only
         if principal and is_camera_only(principal.get("_token_scopes")):
             # Overlay camera tokens authenticate only /overlay/{id}/camera, which

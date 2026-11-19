@@ -4,6 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- API clients can now send a personal API token in the `Authorization: Bearer` header. The token keeps the same permissions and expiry as when sent in `X-API-Key`.
 - Organization administrators can view only their own group and choose its owner from the group’s active operators and administrators. Group members see the owner’s identity only when the owner belongs to their group.
 - The Add member picker shows people you can add to each organization.
 - Organization administrators now see only their own members in the user, session and print quota lists.

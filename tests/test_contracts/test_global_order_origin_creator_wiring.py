@@ -82,11 +82,14 @@ def test_origin_receipt_fault_rolls_back_fresh_source_and_registry(creators, rev
     review_db.expire_all(); assert _counts(review_db) == before
 
 
+@pytest.mark.parametrize('bearer', [False, True])
 @pytest.mark.parametrize('scope, status', [('write', 200), ('read', 403)])
-def test_actual_scoped_key_origin_requires_current_write_scope(creators, review_db, scope, status):
+def test_actual_scoped_key_origin_requires_current_write_scope(creators, review_db, scope, status, bearer):
     from modules.orders.routes.orders_crud import router
     client, _, token, _ = creators; client.app.include_router(router, prefix='/api')
     headers = token([scope])
+    if bearer:
+        headers = {'Authorization': 'Bearer ' + headers['X-API-Key']}
     review_db.execute(text('UPDATE api_tokens SET user_id=71 WHERE id=(SELECT max(id) FROM api_tokens)')); review_db.commit()
     response = client.post('/api/orders', headers=headers, json={'order_number':'OWNED-KEY-ORIGIN'})
     assert response.status_code == status, response.text

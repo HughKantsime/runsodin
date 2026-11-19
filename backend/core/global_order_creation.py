@@ -1,4 +1,5 @@
 """Private prospective company-order creator; caller owns the transaction."""
+from core.auth_headers import scoped_token
 from datetime import datetime, timezone
 from uuid import uuid4
 import jwt
@@ -51,7 +52,7 @@ def _locked_actor(db, request, actor):
         _refuse()
     if kind == 'user_api_token':
         from core.auth import verify_password
-        raw = request.headers.get('X-API-Key')
+        raw = scoped_token(request)
         token_id = actor.get('_token_id')
         if not isinstance(raw, str) or not raw.startswith('odin_') or type(token_id) is not int:
             _refuse()

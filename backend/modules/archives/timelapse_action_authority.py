@@ -5,7 +5,7 @@ No route activation. Evidence is never serializable or accepted from a principal
 from dataclasses import dataclass,field
 from datetime import datetime,timezone
 import hashlib,time,os,hmac
-from fastapi.security.utils import get_authorization_scheme_param
+from core.auth_headers import bearer_token
 from sqlalchemy import text
 from sqlalchemy.engine import Engine,Connection
 from core.dependencies import validate_access_token,_principal
@@ -67,9 +67,10 @@ def capture_action_credential(request,db,credential,*,kind,carrier,purpose="reti
     """
     scope=request.scope.get(_SCOPE) if request is not None else None
     if type(scope) is not RequestAuditScope or not scope.live:_refuse('unknown_authority')
-    actual={'cookie':request.cookies.get('session'),'bearer':get_authorization_scheme_param(request.headers.get('authorization'))[1] if get_authorization_scheme_param(request.headers.get('authorization'))[0].lower()=='bearer' else '','query':request.query_params.get('token'),'api_key':request.headers.get('x-api-key')}.get(carrier)
-    allowed={'session_jwt':{'cookie'},'bearer_jwt':{'bearer','query'},'user_api_token':{'api_key'},'legacy_global_api_key':{'api_key'}}
+    actual={'cookie':request.cookies.get('session'),'bearer':bearer_token(request),'query':request.query_params.get('token'),'api_key':request.headers.get('x-api-key')}.get(carrier)
+    allowed={'session_jwt':{'cookie'},'bearer_jwt':{'bearer','query'},'user_api_token':{'api_key','bearer'},'legacy_global_api_key':{'api_key'}}
     if carrier not in allowed.get(kind,set()) or type(credential) is not str or not credential or actual!=credential:_refuse('unknown_authority')
+    if kind=='user_api_token' and carrier=='bearer' and request.headers.get('x-api-key'):_refuse('unknown_authority')
     if purpose not in ('read','retire','edit'):_refuse('unknown_authority')
     if kind=='legacy_global_api_key':
         configured=os.getenv('API_KEY','')

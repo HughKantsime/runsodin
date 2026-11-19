@@ -216,10 +216,10 @@ def test_validation_exception_fails_closed_and_closes_session(sentinel, monkeypa
     assert events[0][1] == events[1][1]
 
 
-def test_scoped_opaque_api_token_is_not_a_bearer_access_token(sentinel):
+def test_scoped_bearer_defers_to_route_without_jwt_validation(sentinel):
     client, _, _, events = sentinel
-    assert _sentinel_get(client, 'odin_' + secrets.token_hex(24)).status_code == 401
-    assert [name for name, _ in events] == ['create', 'close']
+    assert _sentinel_get(client, 'odin_' + secrets.token_hex(24)).status_code == 200
+    assert [name for name, _ in events] == ['route']
 
 
 @pytest.mark.parametrize('stage', ['create', 'close'])

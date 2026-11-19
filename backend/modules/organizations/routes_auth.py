@@ -143,11 +143,10 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
     if session_token:
         _blacklist_token(session_token)
 
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        bearer_token = auth_header[7:]
-        if bearer_token != session_token:
-            _blacklist_token(bearer_token)
+    from core.auth_headers import bearer_token, jwt_bearer
+    bearer = jwt_bearer(request, bearer_token(request))
+    if bearer and bearer != session_token:
+        _blacklist_token(bearer)
 
     if current_user:
         log_audit(db, "auth.logout", "user", current_user.get("id"),

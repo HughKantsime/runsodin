@@ -214,3 +214,19 @@ def test_configured_global_key_bearer_reaches_media_owner_boundary(media_app,man
     owner=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':username,'role':role})})
     assert owner.status_code==200
     assert owner.content==b'owned synthetic MP4 publication evidence'
+
+
+def test_personal_bearer_can_download_its_organizations_timelapse(media_app, managed_plain_media, review_db):
+    import secrets
+    from sqlalchemy import text
+    from core.auth import hash_password
+
+    client, _, _, _ = media_app
+    raw = 'odin_' + secrets.token_urlsafe(32)
+    review_db.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) "
+                           """VALUES(5,'media reader',:hash,:prefix,'["read:printers"]')"""),
+                      {'hash': hash_password(raw), 'prefix': raw[:10]})
+    review_db.commit()
+    response = client.get(f'/timelapses/{managed_plain_media}/download', headers={'Authorization': 'Bearer ' + raw})
+    assert response.status_code == 200
+    assert response.content == b'owned synthetic MP4 publication evidence'

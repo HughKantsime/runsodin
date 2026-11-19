@@ -47,10 +47,8 @@ Not enforced:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
@@ -133,7 +131,7 @@ def _compute_auth_fingerprint(user: Optional[dict]) -> str:
       - _token_scopes: JSON array of token scopes (sorted for
         stability); empty for JWT/cookie sessions, populated for
         per-user API tokens.
-      - is_active: always 1 here because `_resolve_user_id` rejects
+      - is_active: always 1 here because credential resolution rejects
         inactive users — but included so an explicit `deactivate +
         reactivate within 24h` still shows a different fingerprint
         when combined with other changes.
@@ -155,206 +153,12 @@ def _compute_auth_fingerprint(user: Optional[dict]) -> str:
     return f"role={role}|gid={gid_s}|sc={scopes_s}|act={active}"
 
 
-def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
-    """Full-auth user-id resolution for idempotency key scoping.
-
-    Codex pass 5 (2026-04-14) flagged that the middleware's own
-    auth check was lighter than `get_current_user` — missing the
-    token blacklist, MFA-pending / ws-only purpose claims, and
-    session-cookie path. Combined with the fact that the perimeter
-    `authenticate_request` middleware does NOT validate Authorization
-    Bearer tokens at all (it only checks X-API-Key + cookie), a
-    revoked Bearer could still serve a cached 2xx.
-
-    This function now replicates every check `get_current_user`
-    performs before returning a user_id:
-      - JWT decode + blacklist (`token_blacklist.jti`)
-      - Reject `ws`, `mfa_pending`, `mfa_setup_required` tokens
-      - Active session must still exist for the jti
-      - User `is_active`
-      - For `odin_` API tokens: token_hash match, not-past expires_at,
-        owning user active
-      - For the global API_KEY env: constant-time compare
-      - For session cookie: same JWT decode + blacklist + purpose
-        checks as Bearer
-
-    Returns None for invalid credentials; unexpected errors propagate so
-    the middleware can refuse an unprotected write. For invalid credentials
-    the middleware passes through
-    without touching the cache — `authenticate_request` rejects
-    downstream OR the route's own Depends(get_current_user) rejects,
-    depending on deployment.
-    """
-
-    def _check_jwt(token: str) -> Optional[int]:
-        """JWT → user_id, running every validation get_current_user does."""
-        from core.auth import decode_token, SECRET_KEY, ALGORITHM
-        import jwt as _jwt
-        try:
-            token_data = decode_token(token)
-            if not token_data:
-                return None
-            payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            # Purpose claims: any of these means the token is not valid
-            # for normal routes (matches get_current_user behavior).
-            if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
-                return None
-            # Blacklist check — revoked sessions.
-            #
-            # Codex pass 7 (2026-04-15): do NOT require `active_sessions`
-            # presence. `get_current_user` in core/dependencies.py does
-            # NOT require it either (it only tries to update
-            # last_seen_at best-effort and tolerates missing rows).
-            # Requiring the row here created a split-brain where valid
-            # authenticated callers whose session row had been cleaned
-            # up would bypass the idempotency cache entirely, opening
-            # a duplicate-execution window. Keep the blacklist check
-            # (revocation is real auth); skip the active_sessions
-            # gate so our auth matches the route's.
-            jti = payload.get("jti")
-            if jti:
-                bl = db.execute(
-                    text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
-                    {"jti": jti},
-                ).fetchone()
-                if bl:
-                    return None
-            username = token_data.username
-            if not username:
-                return None
-            row = db.execute(
-                text("SELECT id, is_active, created_at FROM users WHERE username = :u"),
-                {"u": username},
-            ).fetchone()
-            from core.dependencies import token_predates_account
-            if not row or not row.is_active or token_predates_account(payload, row):
-                return None
-            return int(row.id)
-        except _jwt.PyJWTError:
-            return None
-
-    # Authorization: Bearer
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return _check_jwt(auth[7:])
-
-    # Session cookie — mirrors authenticate_request's cookie path.
-    cookies = getattr(request, "cookies", None) or {}
-    session_cookie = cookies.get("session")
-    if session_cookie:
-        uid = _check_jwt(session_cookie)
-        if uid is not None:
-            return uid
-
-    # X-API-Key — per-user scoped token
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key.startswith("odin_"):
-        from core.auth import verify_password
-        prefix = api_key[:10]
-        candidates = db.execute(
-            text(
-                "SELECT id, user_id, token_hash, expires_at "
-                "FROM api_tokens WHERE token_prefix = :p"
-            ),
-            {"p": prefix},
-        ).fetchall()
-        for row in candidates:
-            if not verify_password(api_key, row.token_hash):
-                continue
-            if row.expires_at:
-                try:
-                    exp = (
-                        datetime.fromisoformat(row.expires_at)
-                        if isinstance(row.expires_at, str)
-                        else row.expires_at
-                    )
-                    if exp.tzinfo is None:
-                        exp = exp.replace(tzinfo=timezone.utc)
-                    if exp <= datetime.now(timezone.utc):
-                        return None
-                except (ValueError, TypeError, AttributeError):
-                    return None
-            user_row = db.execute(
-                text("SELECT is_active FROM users WHERE id = :id"),
-                {"id": row.user_id},
-            ).fetchone()
-            if not user_row or not user_row.is_active:
-                return None
-            return int(row.user_id)
-
-    # X-API-Key — global legacy key maps to "first admin"
-    if api_key and api_key != "undefined":
-        configured = os.getenv("API_KEY", "")
-        if configured and hmac.compare_digest(api_key, configured):
-            row = db.execute(
-                text(
-                    "SELECT id FROM users WHERE role = 'admin' "
-                    "AND is_active IS TRUE ORDER BY id LIMIT 1"
-                )
-            ).fetchone()
-            if row:
-                return int(row[0])
-
-    return None
-
-
 def _resolve_user_context(request: Any, db: Session) -> Optional[dict]:
-    """Full user context including role + scopes for fingerprinting.
+    """Bind retry ownership and the scope fingerprint to the same caller as the route."""
+    from core.auth_headers import bearer_token
+    from core.dependencies import resolve_current_user_sync
 
-    Returns a dict with at least `id`, `role`, `group_id`, `is_active`,
-    `_token_scopes`. None if unresolved or fails any of the checks in
-    `_resolve_user_id` — this helper is a superset.
-
-    Callers who only need the ID can use `_resolve_user_id`; callers
-    who need the authz fingerprint for cache consistency use this.
-    """
-    uid = _resolve_user_id(request, db)
-    if uid is None:
-        return None
-
-    row = db.execute(
-        text(
-            "SELECT id, username, role, group_id, is_active "
-            "FROM users WHERE id = :id"
-        ),
-        {"id": uid},
-    ).fetchone()
-    if not row or not row.is_active:
-        return None
-
-    ctx: dict = {
-        "id": int(row.id),
-        "username": row.username,
-        "role": row.role,
-        "group_id": row.group_id,
-        "is_active": bool(row.is_active),
-        "_token_scopes": [],
-    }
-
-    # If the request used a per-user token, attach its scopes so the
-    # fingerprint captures scope revocation.
-    api_key_header = request.headers.get("X-API-Key", "")
-    if api_key_header.startswith("odin_"):
-        from core.auth import verify_password
-        prefix = api_key_header[:10]
-        candidates = db.execute(
-            text(
-                "SELECT token_hash, scopes FROM api_tokens "
-                "WHERE token_prefix = :p AND user_id = :u"
-            ),
-            {"p": prefix, "u": uid},
-        ).fetchall()
-        for candidate in candidates:
-            if verify_password(api_key_header, candidate.token_hash):
-                try:
-                    ctx["_token_scopes"] = (
-                        json.loads(candidate.scopes) if candidate.scopes else []
-                    )
-                except (ValueError, TypeError):
-                    ctx["_token_scopes"] = []
-                break
-
-    return ctx
+    return resolve_current_user_sync(request, bearer_token(request), db, side_effects=False)
 
 
 def _canonicalize_query_string(query: str) -> str:
@@ -1086,10 +890,14 @@ async def idempotency_middleware(request: Any, call_next: Callable):
     request._receive = _receive  # type: ignore[assignment]
 
     from core.db import SessionLocal
+    from core.license_lock import LicenseLockError
     db = SessionLocal()
     try:
         try:
             user_ctx = _resolve_user_context(request, db)
+        except LicenseLockError as exc:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
         except Exception as exc:
             # Exception messages can contain credentials or bound SQL values.
             log.error("Idempotency caller resolution failed (%s)", type(exc).__name__)

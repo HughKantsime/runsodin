@@ -52,8 +52,9 @@ def no_dateutil(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", restricted)
 
 
+@pytest.mark.parametrize("carrier", ["X-API-Key", "Bearer"])
 @pytest.mark.parametrize("shape", ["sqlite_naive", "sqlite_aware", "datetime_naive", "datetime_aware"])
-def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkeypatch, shape):
+def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkeypatch, shape, carrier):
     import core.db as db_mod
 
     client, issue, calls = retry_client
@@ -61,13 +62,15 @@ def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkey
     if shape.endswith("naive"):
         expiry = expiry.replace(tzinfo=None)
     headers = {**issue(["agent:write"], expiry.isoformat(sep=" ")), "Idempotency-Key": "expiry-retry"}
+    if carrier == "Bearer":
+        headers["Authorization"] = "Bearer " + headers.pop("X-API-Key")
     if shape.startswith("datetime"):
         # PostgreSQL returns native datetimes for expires_at; keep the actual
         # SQLite queries and credentials, adapting only the returned value.
         class DatetimeSession(Session):
             def execute(self, statement, *args, **kwargs):
                 result = super().execute(statement, *args, **kwargs)
-                if "FROM api_tokens WHERE token_prefix" in str(statement) and "expires_at" in str(statement):
+                if "FROM api_tokens WHERE token_prefix" in str(statement) and "SELECT *" in str(statement):
                     rows = [SimpleNamespace(**{**row._mapping, "expires_at": expiry}) for row in result.fetchall()]
                     return SimpleNamespace(fetchall=lambda: rows)
                 return result
@@ -83,6 +86,16 @@ def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkey
         assert db.execute(text("SELECT COUNT(*) FROM idempotency_keys")).scalar_one() == 1
 
 
+def test_inactive_owner_cannot_replay(retry_client, review_db):
+    client, issue, calls = retry_client
+    headers = {**issue(["agent:write"]), "Idempotency-Key": "inactive-owner"}
+    assert client.patch("/api/v1/retry-test", headers=headers).status_code == 200
+    review_db.execute(text("UPDATE users SET is_active=0 WHERE id=3"))
+    review_db.commit()
+    assert client.patch("/api/v1/retry-test", headers=headers).status_code == 401
+    assert calls == [3]
+
+
 @pytest.mark.parametrize("expiry", ["2000-01-01 00:00:00", "not-a-date"])
 def test_invalid_expiry_passes_to_route_auth(retry_client, review_db, expiry):
     client, issue, calls = retry_client
@@ -94,9 +107,9 @@ def test_invalid_expiry_passes_to_route_auth(retry_client, review_db, expiry):
         assert db.execute(text("SELECT COUNT(*) FROM idempotency_keys")).scalar_one() == 0
 
 
-@pytest.mark.parametrize("failure", ["token_lookup", "scope_lookup", "user_context", "jwt_lookup", "jwt_decode", "scope_decode", "resolver"])
+@pytest.mark.parametrize("failure", ["token_lookup", "user_context", "jwt_lookup", "jwt_decode", "scope_decode", "resolver"])
 def test_internal_resolution_failure_refuses_write(retry_client, review_db, monkeypatch, caplog, failure):
-    import core.auth as auth
+    import core.dependencies as auth
     import core.db as db_mod
     import core.middleware.idempotency as idem
 
@@ -108,8 +121,8 @@ def test_internal_resolution_failure_refuses_write(retry_client, review_db, monk
     def broken(*args, **kwargs):
         raise RuntimeError(marker)
 
-    needles = {"token_lookup": "SELECT id, user_id, token_hash", "scope_lookup": "SELECT token_hash, scopes",
-               "user_context": "SELECT id, username, role", "jwt_lookup": "FROM token_blacklist"}
+    needles = {"token_lookup": "SELECT * FROM api_tokens",
+               "user_context": "SELECT * FROM users", "jwt_lookup": "FROM token_blacklist"}
     if failure in needles:
         class BrokenSession(Session):
             def execute(self, statement, *args, **kwargs):
@@ -134,7 +147,7 @@ def test_internal_resolution_failure_refuses_write(retry_client, review_db, monk
     assert response.json()["error"]["code"] == "idempotency_unavailable"
     assert response.json()["error"]["retriable"] is True
     assert calls == []
-    assert "RuntimeError" in caplog.text
+    assert ("HTTPException" if failure == "jwt_lookup" else "RuntimeError") in caplog.text
     assert marker not in caplog.text + response.text
     assert all(value not in caplog.text + response.text for key, value in headers.items() if key != "Idempotency-Key")
 

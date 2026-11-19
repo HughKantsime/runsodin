@@ -1,4 +1,5 @@
 """Current request-bound financial reader; no commit or provider fallback."""
+from core.auth_headers import scoped_token
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import jwt
@@ -47,7 +48,7 @@ def verify_financial_reader(db, request, actor, *, read_only=False):
         _refuse()
     if kind == 'user_api_token':
         from core.auth import verify_password
-        raw = request.headers.get('X-API-Key')
+        raw = scoped_token(request)
         token_id = actor.get('_token_id')
         if not isinstance(raw, str) or not raw.startswith('odin_') or type(token_id) is not int:
             _refuse()

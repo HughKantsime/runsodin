@@ -25,19 +25,16 @@ class LicensePrincipalMiddleware:
                   or api_path == '/branding' and request.method == 'GET')
         # Defer only when credentials are exclusively route-specific carriers.
         # An added query token/API key must never bypass a session/bearer lock.
-        authorization = request.headers.get('authorization', '')
-        scheme, _, bearer = authorization.partition(' ')
-        understood = (request.cookies.get('session') or
-                      scheme.lower() == 'bearer' and bearer.strip())
-        if understood and not public:
+        from core.auth_headers import bearer_token
+        bearer = bearer_token(request)
+        has_session = request.cookies.get('session') or (bearer and not bearer.startswith('odin_'))
+        if not public and has_session:
             from core.dependencies import resolve_current_user_sync
             from core.db import SessionLocal
             from starlette.concurrency import run_in_threadpool
-            authorization = request.headers.get('authorization', '')
-            scheme, _, bearer = authorization.partition(' ')
             def resolve():
                 with SessionLocal() as policy_db:
-                    return resolve_current_user_sync(request, bearer if scheme.lower() == 'bearer' else None,
+                    return resolve_current_user_sync(request, bearer,
                                                      policy_db, side_effects=False)
             try:
                 request.state.resolved_license_principal = await run_in_threadpool(resolve)

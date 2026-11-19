@@ -219,9 +219,11 @@ def _register_http_middleware(app: FastAPI, *, response_middleware=()) -> None:
 
         # Native clients deliberately do not retain browser cookies. Admit a
         # full access JWT, then let the route enforce its own auth and RBAC.
-        authorization = request.headers.get("Authorization", "")
-        scheme, _, bearer = authorization.partition(" ")
-        if scheme.lower() == "bearer" and bearer.strip():
+        from core.auth_headers import bearer_token
+        bearer = bearer_token(request)
+        if bearer and bearer.startswith("odin_"):
+            return await call_next(request)  # Scoped token validation belongs to the route.
+        if bearer and bearer.strip():
             from core.dependencies import validate_perimeter_access_token
             from starlette.concurrency import run_in_threadpool
 

@@ -33,7 +33,7 @@ def _commit(db):
 
 def _authority(request,db):
     header=request.headers.get('authorization','')
-    if not header.startswith('Bearer '):
+    if not header.startswith('Bearer ') or header[7:].startswith('odin_'):
         raise HTTPException(status_code=401,detail='Enrollment authority required')
     try:
         payload=jwt.decode(header[7:],auth.SECRET_KEY,algorithms=[auth.ALGORITHM],

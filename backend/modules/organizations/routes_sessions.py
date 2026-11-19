@@ -3,7 +3,6 @@
 from core.rbac import require_scope, handler_enforces_token_scope, require_interactive_session
 
 import json
-import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,14 +16,13 @@ from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.rbac import require_role
 from core.auth import hash_password
-import core.auth as auth_module
+from modules.organizations.password_reset import current_session_jti
 from core.quota import _get_quota_usage
 from core.rate_limit import limiter
 from license_manager import require_feature
 
 from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
 
-log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
@@ -38,17 +36,7 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
         "FROM active_sessions s WHERE s.user_id = :uid ORDER BY s.last_seen_at DESC"),
         {"uid": current_user["id"]}).fetchall()
 
-    current_jti = None
-    session_cookie = request.cookies.get("session")
-    auth_header = request.headers.get("authorization", "")
-    raw_token = session_cookie or (auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else None)
-    if raw_token:
-        try:
-            import jwt as _jwt
-            payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-            current_jti = payload.get("jti")
-        except Exception as e:
-            log.debug(f"Failed to decode session token for current-session check: {e}")
+    current_jti = current_session_jti(request)
 
     return [{
         "id": r.id,
@@ -87,17 +75,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
     """Revoke all sessions except the current one."""
     from core.mfa_login import cancel_pending_enrollments
     cancel_pending_enrollments(db, current_user["id"])
-    current_jti = None
-    session_cookie = request.cookies.get("session")
-    auth_header = request.headers.get("authorization", "")
-    raw_token = session_cookie or (auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else None)
-    if raw_token:
-        try:
-            import jwt as _jwt
-            payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-            current_jti = payload.get("jti")
-        except Exception as e:
-            log.debug(f"Failed to decode session token: {e}")
+    current_jti = current_session_jti(request)
 
     rows = db.execute(text("SELECT token_jti, created_at FROM active_sessions WHERE user_id = :uid"),
                       {"uid": current_user["id"]}).fetchall()
