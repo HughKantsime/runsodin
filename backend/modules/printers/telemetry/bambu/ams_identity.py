@@ -44,13 +44,6 @@ def has_ht_target(mapping):
     return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
 
 
-def with_ht_padding(mapping, width):
-    """Restore unused positions after the last file source in a Studio HT vector."""
-    if len(mapping) < width <= 16 and has_ht_target(mapping):
-        return mapping + [-1] * (width - len(mapping))
-    return mapping
-
-
 def print_mapping_fields(mapping, *, ams_ht_enabled=False):
     """Both senders share this experimental translation at the wire boundary."""
     if any(AMS_HT_FIRST_UNIT <= index < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT for index in mapping):

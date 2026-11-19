@@ -115,7 +115,6 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
 
 def _mapping_error(job, mapping):
     from core.print_payload import MappingMaterialMismatch, validate_mapping
-    from modules.printers.telemetry.bambu.ams_identity import with_ht_padding
     from fastapi import HTTPException
     # Stored targets are physical slot minus one; -1 is an unused file source.
     if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
@@ -133,7 +132,7 @@ def _mapping_error(job, mapping):
         validated = validate_mapping([{"source_slot": i + 1, "target_slot": slot + 1}
                           for i, slot in enumerate(mapping) if slot != -1],
                          job.get("filaments_json"), slots, 'bambu', ht_enabled=True)
-        if with_ht_padding(validated, len(mapping)) != mapping:
+        if validated != mapping:
             return "Stored AMS mapping differs from file sources; no command was sent"
     except HTTPException as exc:
         if isinstance(exc, MappingMaterialMismatch):

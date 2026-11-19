@@ -104,28 +104,59 @@ def test_schedule_and_editor_accept_reported_ht_and_refuse_switch_off_unknown_an
     assert patch([16]).json()['detail'] == 'Invalid or duplicate AMS slot'
 
 
-def test_editor_round_trips_studio_ht_padding(mapping_client, review_db, captured_ams):
+@pytest.fixture
+def ht_editor_job(mapping_client, review_db, captured_ams):
     client, auth = mapping_client
     next(u for u in captured_ams['ams'] if u['id'] == '128')['tray'][0]['tray_type'] = 'PETG'
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,'PETG')"))
     report_topology(review_db, 9, captured_ams)
     switch(review_db, 9, True)
     job = schedule(mapping_client, mapping=[{'source_slot': 1, 'target_slot': 17}]).json()['job_id']
+    return client, auth, job
+
+
+@pytest.mark.parametrize('vector', [[16, -1, -1, -1], [0, -1, -1, -1], [16] + [-1] * 15,
+                                    [16, -1, 0], [16] + [-1] * 16])
+def test_editor_rejects_vectors_longer_than_file(ht_editor_job, vector):
+    client, auth, job = ht_editor_job
+    response = client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': vector})
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'AMS mapping must cover every source filament'
+    assert client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping'] == [16]
+
+
+def test_repeat_rebuilds_preexisting_padded_ht_mapping(ht_editor_job, review_db):
+    client, auth, job = ht_editor_job
+    review_db.execute(text('UPDATE jobs SET ams_mapping=:mapping WHERE id=:id'),
+                      {'mapping': json.dumps([16, -1, -1, -1]), 'id': job})
+    review_db.commit()
+    repeat = client.post(f'/api/jobs/{job}/repeat', headers=auth())
+    assert repeat.status_code == 200, repeat.text
+    repeated = repeat.json()['new_job_id']
+    assert client.get(f'/api/jobs/{repeated}', headers=auth()).json()['ams_mapping'] == [16]
+
+
+def test_editor_round_trips_sparse_ht_and_refuses_unused_marker_on_used_source(ht_editor_job, review_db):
+    client, auth, job = ht_editor_job
     def patch(vector):
         return client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': vector})
-    vector = [16, -1, -1, -1]
+    def set_sources(slots):
+        review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=501'),
+                          {'f': json.dumps([{'slot': slot, 'type': 'PETG'} for slot in slots])})
+        review_db.commit()
+    set_sources([2])
+    vector = [-1, 16]
     response = patch(vector)
     assert response.status_code == 200, response.text
     assert response.json()['ams_mapping'] == vector
     assert client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping'] == vector
-    assert patch([16, -1, 0]).status_code == 400
-    assert patch([16] + [-1] * 16).status_code == 400
-    repeat = client.post(f'/api/jobs/{job}/repeat', headers=auth())
-    assert repeat.status_code == 200, repeat.text
-    repeated = repeat.json()['new_job_id']
-    assert client.get(f'/api/jobs/{repeated}', headers=auth()).json()['ams_mapping'] == vector
     switch(review_db, 9, False)
     assert patch(vector).json()['detail'] == support_levels.AMS_HT_MESSAGE
+    switch(review_db, 9, True)
+    set_sources([1, 2])
+    response = patch(vector)
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'Invalid or duplicate AMS slot'
 
 
 @pytest.mark.parametrize('material', SIX)
@@ -138,24 +169,51 @@ def test_ht_validation_uses_exact_material(material):
         validate_mapping(mapping, file, {24: 'PLA'}, 'bambu', ht_enabled=True)
 
 
+def mock_ht_read(monkeypatch, report, captured_ams, events, expected_slots):
+    monkeypatch.setattr(gate, 'read_runtime_identity', lambda: RUNTIME)
+    monkeypatch.setattr(gate, 'revalidate_runtime_identity', lambda runtime: None)
+    def acquire(config, *, configuration_key, owner_org_id, selected_slots, operation_id, nozzle_dual, timeout):
+        events.append('fresh_read')
+        assert selected_slots == expected_slots
+        started = time.monotonic()
+        collector = RawAMSAcquisitionCollector(topic=config.topic_report, configuration_key=configuration_key,
+            owner_org_id=owner_org_id, selected_slots=selected_slots, subscribe_mid=1, incarnation=operation_id,
+            allow_unreported=True, nozzle_dual=nozzle_dual)
+        assert collector.acknowledge_subscription(operation_id, 1, [0])
+        ok = collector.observe(incarnation=operation_id, topic=config.topic_report, retained=False,
+                               packet={**report, 'ams': captured_ams})
+        snapshot = collector.snapshot(configuration_key=configuration_key, owner_org_id=owner_org_id)
+        if ok:
+            assert _valid_snapshot(snapshot, key=configuration_key, owner=owner_org_id, slots=selected_slots,
+                                   incarnation=operation_id, started=started, deadline=started+timeout,
+                                   now=time.monotonic(), allow_unreported=True)
+        return RuntimeBoundAMSResult(ok, snapshot, RUNTIME.incarnation, RUNTIME.clock_domain, True, None)
+    monkeypatch.setattr(gate, 'read_current_selected_ams', acquire)
+
+
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('padded', [False, True], ids=['as-selected', 'studio-padding'])
+@pytest.mark.parametrize('extra_gap', [False, True], ids=['as-selected', 'unused-before-ht'])
 @pytest.mark.parametrize('case,reason', [
     ('single_pa6_gf', None), ('single_wrong_nozzle', 'ams_binding_mismatch'),
     ('single_leading_gap', None), ('duplicate_tray', 'ams_read_failed'),
+    ('single_trailing_padding', 'Stored AMS mapping differs from file sources'),
     ('fresh', None), ('missing_unit', 'ams_read_failed'), ('missing_tray', 'ams_read_failed'),
     ('empty_with_preset', 'tray_material_unreported'), ('wrong_material', 'material_mismatch'), ('wrong_nozzle', 'ams_binding_mismatch'),
     ('off', 'Experimental features'), ('disabled_after_upload', 'Experimental features'),
 ])
 def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
-        review_db, tmp_path, monkeypatch, captured_ams, case, reason, protocol, padded):
+        review_db, tmp_path, monkeypatch, captured_ams, case, reason, protocol, extra_gap):
     single = case.startswith('single_')
     ids, mapping, extruders = (0, 1), [4, 16], [0, 1]
     if case == 'single_leading_gap':
         ids, mapping = (1,), [-1, 16]
     elif single:
         ids, mapping, extruders = (0,), [16], [1]
-    if padded:
+    if extra_gap:
+        ids = (*ids[:-1], ids[-1] + 1)
+        mapping.insert(-1, -1)
+        extruders.insert(-1, 0)
+    if case == 'single_trailing_padding':
         mapping.extend([-1] * (4 - len(mapping)))
     ht = next(u for u in captured_ams['ams'] if u['id'] == '128')
     if single:
@@ -190,30 +248,12 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
         ht['tray'][0]['tray_type'] = 'PLA'
     if case in ('wrong_nozzle', 'single_wrong_nozzle'):
         ht['info'] = '10002004'
-    monkeypatch.setattr(gate, 'read_runtime_identity', lambda: RUNTIME)
-    monkeypatch.setattr(gate, 'revalidate_runtime_identity', lambda runtime: None)
-    def acquire(config, *, configuration_key, owner_org_id, selected_slots, operation_id, nozzle_dual, timeout):
-        events.append('fresh_read')
-        assert selected_slots == ((17,) if single else (5, 17))
-        started = time.monotonic()
-        collector = RawAMSAcquisitionCollector(topic=config.topic_report, configuration_key=configuration_key,
-            owner_org_id=owner_org_id, selected_slots=selected_slots, subscribe_mid=1, incarnation=operation_id,
-            allow_unreported=True, nozzle_dual=nozzle_dual)
-        assert collector.acknowledge_subscription(operation_id, 1, [0])
-        ok = collector.observe(incarnation=operation_id, topic=config.topic_report, retained=False,
-                               packet={**report, 'ams': captured_ams})
-        snapshot = collector.snapshot(configuration_key=configuration_key, owner_org_id=owner_org_id)
-        if ok:
-            assert _valid_snapshot(snapshot, key=configuration_key, owner=owner_org_id, slots=selected_slots,
-                                   incarnation=operation_id, started=started, deadline=started+timeout,
-                                   now=time.monotonic(), allow_unreported=True)
-        return RuntimeBoundAMSResult(ok, snapshot, RUNTIME.incarnation, RUNTIME.clock_domain, True, None)
-    monkeypatch.setattr(gate, 'read_current_selected_ams', acquire)
+    mock_ht_read(monkeypatch, report, captured_ams, events, (17,) if single else (5, 17))
     ok, message = dispatch.dispatch_job(59, 53)
     assert ok is (reason is None), message
     if reason:
         assert reason in message and not sent
-        assert events == ([] if case == 'off' else ['upload'] if case == 'disabled_after_upload' else ['upload', 'fresh_read'])
+        assert events == ([] if case in ('off', 'single_trailing_padding') else ['upload'] if case == 'disabled_after_upload' else ['upload', 'fresh_read'])
     else:
         assert events == ['upload', 'fresh_read', 'start']
         assert sent[0]['ams_mapping'] == [128 if n == 16 else n for n in mapping]
@@ -228,12 +268,16 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
     ([16, 23], {'ams_mapping': [128, 135], 'ams_mapping2': [{'ams_id': 128, 'slot_id': 0}, {'ams_id': 135, 'slot_id': 0}]}),
     pytest.param([-1, 16], {'ams_mapping': [-1, 128], 'ams_mapping2': [
         {'ams_id': 255, 'slot_id': 255}, {'ams_id': 128, 'slot_id': 0}]}, id='leading-unused-ht'),
+    pytest.param([0, -1, 16], {'ams_mapping': [0, -1, 128], 'ams_mapping2': [
+        {'ams_id': 0, 'slot_id': 0}, {'ams_id': 255, 'slot_id': 255}, {'ams_id': 128, 'slot_id': 0}]},
+        id='mixed-ht-inner-unused'),
     pytest.param([0, 16, -1], {'ams_mapping': [0, 128, -1], 'ams_mapping2': [
         {'ams_id': 0, 'slot_id': 0}, {'ams_id': 128, 'slot_id': 0}, {'ams_id': 255, 'slot_id': 255}]},
         id='mixed-ht-trailing-unused'),
     pytest.param([16, -1, -1, -1], None, id='studio-project-file-echo'),
 ])
 def test_exact_print_command_payload_for_ht_and_unchanged_four_tray(protocol, mapping, fields, monkeypatch):
+    """ODIN never stores trailing padding. The encoder also accepts Studio's captured vector."""
     from modules.printers.adapters.bambu import BambuPrinter
     from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
     sender = object.__new__(BambuPrinter if protocol == 'legacy' else BambuCommandAdapter)
@@ -243,7 +287,9 @@ def test_exact_print_command_payload_for_ht_and_unchanged_four_tray(protocol, ma
     monkeypatch.setattr(time, 'time', lambda: 123456)
     options = {'ams_ht_enabled': True} if mapping and any(16 <= n < 24 for n in mapping) else {}
     if fields is None:
+        from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
         echo = json.loads((Path(__file__).parents[1] / 'fixtures/h2d_studio_ht_project_file_echo.json').read_text())
+        assert print_mapping_fields(mapping, **options) == {key: echo[key] for key in ('ams_mapping', 'ams_mapping2')}
         fields = {key: echo[key] for key in ('use_ams', 'ams_mapping', 'ams_mapping2')}
     assert sender.start_print('part.3mf', plate_num=2, ams_mapping=mapping, **options)
     assert sent == [json.dumps({'print': {
@@ -302,23 +348,25 @@ def test_ht_encoder_refuses_invalid_unused_positions(invalid):
 
 
 @pytest.mark.parametrize('path', ['archive', 'repeat', 'release', 'bulk_release'])
-def test_switched_off_ht_blocks_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, path):
+@pytest.mark.parametrize('enabled', [False, True], ids=['switch-off', 'sparse-switch-on'])
+def test_ht_queue_paths(reprint_client, review_db, captured_ams, monkeypatch, path, enabled):
     client, _, source = reprint_client
+    source_slot = 2 if enabled else 1
     events = []
     sent = transport(monkeypatch, source, 'legacy', events)
     review_db.execute(text("UPDATE print_files SET filaments_json=:f WHERE id=101"),
-                      {'f': json.dumps([{'slot': 1, 'type': 'PLA-S'}])})
+                      {'f': json.dumps([{'slot': source_slot, 'type': 'PLA-S'}])})
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,:material)"),
                       {'material': slot_filament_value('PLA-S')})
     report_topology(review_db, 9, captured_ams)
     switch(review_db, 9, True)
-    body = {'printer_id': 9, 'ams_mapping': [{'source_slot': 1, 'target_slot': 17}]}
+    body = {'printer_id': 9, 'ams_mapping': [{'source_slot': source_slot, 'target_slot': 17}]}
     created = client.post('/archives/101/reprint', json=body)
     assert created.status_code == 200, created.text
     job = created.json()['job_id']
     if path in ('release', 'bulk_release'):
         review_db.execute(text('UPDATE jobs SET hold=TRUE WHERE id=:id'), {'id': job})
-    switch(review_db, 9, False)
+    switch(review_db, 9, enabled)
     count = review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one()
     if path == 'archive':
         response = client.post('/archives/101/reprint', json=body)
@@ -328,6 +376,14 @@ def test_switched_off_ht_blocks_queue_paths(reprint_client, review_db, captured_
         response = client.patch(f'/jobs/{job}', json={'hold': False})
     else:
         response = client.post('/jobs/bulk-update', json={'job_ids': [job], 'action': 'unhold'})
+    if enabled:
+        assert response.status_code == 200, response.text
+        if path in ('archive', 'repeat'):
+            job = response.json()['job_id' if path == 'archive' else 'new_job_id']
+        row = review_db.execute(text('SELECT ams_mapping,hold FROM jobs WHERE id=:id'), {'id': job}).one()
+        assert json.loads(row.ams_mapping) == [-1, 16] and not row.hold
+        assert not sent and not events
+        return
     assert response.status_code == 400, response.text
     assert response.json()['detail'] == support_levels.AMS_HT_MESSAGE
     assert review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one() == count
@@ -336,20 +392,28 @@ def test_switched_off_ht_blocks_queue_paths(reprint_client, review_db, captured_
     assert not sent and not events
 
 
-@pytest.mark.parametrize('path', ['start_next', 'reset_reprint', 'sparse'])
-def test_ht_dispatch_entry_points_refuse_before_upload(review_db, tmp_path, monkeypatch, captured_ams, path):
+@pytest.mark.parametrize('path', ['start_next', 'reset_reprint', 'direct'])
+@pytest.mark.parametrize('enabled', [False, True], ids=['switch-off', 'sparse-switch-on'])
+def test_ht_dispatch_entry_points(review_db, tmp_path, monkeypatch, captured_ams, path, enabled):
     from modules.printers import start_next
     from modules.jobs.routes.jobs_lifecycle import reset_job
     from tests.test_contracts.test_completion_summary import request
-    sparse = path == 'sparse'
-    _, source, _ = setup_multi(review_db, tmp_path, monkeypatch, model='H2D',
-        ids=(1,) if sparse else (0,), mapping=[-1, 16] if sparse else [16],
-        materials=('PLA-S',), extruders=[0, 1] if sparse else [1])
+    sparse = enabled or path == 'direct'
+    ids, mapping, extruders = ((1,), [-1, 16], [0, 1]) if sparse else ((0,), [16], [1])
+    _, source, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D',
+        ids=ids, mapping=mapping, materials=('PLA-S',), extruders=extruders)
+    if enabled:
+        source.write_bytes(payload(ids=ids, materials=('PLA-S',), extruders=extruders))
+        review_db.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'),
+                          {'sha': hashlib.sha256(source.read_bytes()).hexdigest()})
+        switch(review_db, 59, True)
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,17,:material)"),
                       {'material': slot_filament_value('PLA-S')})
     report_topology(review_db, 59, captured_ams)
     events = []
     sent = transport(monkeypatch, source, 'legacy', events)
+    if enabled:
+        mock_ht_read(monkeypatch, report, captured_ams, events, (17,))
     if path == 'start_next':
         from modules.jobs import completion_summary
         monkeypatch.setattr(completion_summary, 'finished_attempt', lambda *_: {'economic_uid': 'previous-attempt', 'ended_at': '2026-01-01T00:00:00Z'})
@@ -363,10 +427,15 @@ def test_ht_dispatch_entry_points_refuse_before_upload(review_db, tmp_path, monk
     else:
         if path == 'reset_reprint':
             review_db.execute(text("UPDATE jobs SET status='completed' WHERE id=53"))
-            assert reset_job(53, USER, review_db).ams_mapping == [16]
+            assert reset_job(53, USER, review_db).ams_mapping == mapping
             review_db.execute(text("UPDATE jobs SET printer_id=59,status='scheduled' WHERE id=53"))
             review_db.commit()
         ok, message = dispatch.dispatch_job(59, 53)
+    if enabled:
+        assert ok, message
+        assert events == ['upload', 'fresh_read', 'start']
+        assert sent[0]['ams_mapping'] == [-1, 128]
+        return
     assert not ok
     assert support_levels.AMS_HT_MESSAGE in message, message
     assert not sent and not events
