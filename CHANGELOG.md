@@ -4,28 +4,31 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-18
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: Reminders for paused prints, Plate cleared on printer cards, filament deductions that stay with the physical print, the Fjord theme, a per-job Timeline, AMS humidity as a percentage. -->
+
 ### Added
 
 - AMS humidity now also shows as a percentage (Bambu AMS units that report it), in the web app, the API and the Home Assistant integration.
-
 - ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
 - Printer cards and details now offer “Plate cleared” with a confirmation that says whether a waiting job will be released. A waiting job exists only where the installation's queue uses the `waiting_plate_clear` state; the standard PostgreSQL job enum does not include it. Home Assistant gains a Plate cleared button and a Plate needs clearing sensor, with the same state available on its Status entity.
-- Square stock replies now correctly report whether sending stock changes is enabled.
-- AMS humidity labels now run from dry to wet correctly and show N/A when there is no sensor reading. API readers of `humidity_label` will see different, now correct, words.
 - The print history API supports date range filters, paging, and a total count. Utilization now requests prints that ended within the selected period.
+- Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
+- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
+- Prints started at the printer now appear in job history on every printer type, not only Bambu.
+- Skip objects (Experimental, Bambu Lab printers): while a print that ODIN started is running, choose objects on the plate to stop printing, from a numbered plate picture and a list on the printer page, on desktop and phone. It is off by default: a platform administrator turns it on per printer under Experimental features on the printer page. Built from how Bambu's own software sends this command and not yet verified on a real printer. API: `GET /api/printers/{id}/print-objects` lists the objects; `POST /api/printers/{id}/skip-objects` now requires `print_job_id` and is audited.
+- Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
+- Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
 
 ### Changed
 
 - ODIN does slightly less work on every request and during alert delivery. Nothing behaves differently.
-- Foundry Timeline now draws every scheduled job as its own bar, with a choice of 12 hours to 7 days, instead of one block per printer.
 - Unknown status filters for spools, orders and job exports, and unknown alert type or severity filters, now return 422 with the allowed values on both PostgreSQL and SQLite. Previously PostgreSQL returned a server error and SQLite returned an empty list. Notification settings switches now announce the channel and alert name to screen readers, with setup requirements as descriptions.
 - ODIN now stops at start-up on PostgreSQL 18 or newer with a clear message before changing the database, and asks you to use the PostgreSQL 16 server it ships with.
-- Skip objects (Experimental, Bambu Lab printers): while a print that ODIN started is running, choose objects on the plate to stop printing, from a numbered plate picture and a list on the printer page, on desktop and phone. It is off by default: a platform administrator turns it on per printer under Experimental features on the printer page. Built from how Bambu's own software sends this command and not yet verified on a real printer. API: `GET /api/printers/{id}/print-objects` lists the objects; `POST /api/printers/{id}/skip-objects` now requires `print_job_id` and is audited.
 - Elegoo: when job sending is switched off, the refusal now explains that sending jobs is Experimental and that monitoring, pause, resume, speed and stop still work.
-- Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
-- Recover past filament deductions recorded while an older version was running on an upgraded database, so those prints cannot be deducted again after upgrading.
-- Keep filament deductions with the physical print, so deleting jobs, spools or archives cannot deduct the same print again. Check past usage before startup and preserve manual use for settlement review.
-- Settle filament for an unresolved print by recording its spools and grams, reviewing manual use, or keeping an existing deduction. Archive records now explain why filament needs attention, with a filter and a dashboard link. Later weighing or measurement is checked before another deduction.
 
 ### Fixed
 
@@ -33,20 +36,22 @@ All notable changes to O.D.I.N. are documented here.
 - Moonraker commands now preserve spaces, special characters and multiple lines when sent to a printer.
 - Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
 - Weighing a spool without an empty-spool weight now explains how to enter it instead of failing; editing an unknown empty-spool weight no longer assumes 250 g.
+- Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
+- PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
+- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
+- A stuck start can now be released from Dispatch recovery after filament was moved or reloaded. Before, changing a slot's filament after a failed start blocked the release for good.
+- Square stock replies now correctly report whether sending stock changes is enabled.
+- AMS humidity labels now run from dry to wet correctly and show N/A when there is no sensor reading. API readers of `humidity_label` will see different, now correct, words.
+- Elegoo: the switch that allows job sending (Experimental) was missing from the web app and could only be set through the API. It is now under Experimental features on the printer page.
+- Recover past filament deductions recorded while an older version was running on an upgraded database, so those prints cannot be deducted again after upgrading.
+- Keep filament deductions with the physical print, so deleting jobs, spools or archives cannot deduct the same print again. Check past usage before startup and preserve manual use for settlement review.
 
 ### Security
 
 - Square setup delegation remains off by default. Tokens can now only add a mapping or first stock baseline; repeating the same mapping changes nothing. Baselines must match a live Square count and use a time within 15 minutes in the past or 60 seconds in the future. Permission is checked again before saving. Approval notes are stored exactly or refused if they resemble credentials, and setup audits record mappings and permission changes. Signed-in administrator workflows are unchanged.
 - Square setup permission is off by default: no token receives it on upgrade. A signed-in administrator can grant or revoke `write:square_setup` for one personal API token to map products and record stock baselines in ODIN. Each delegated call records an approval note and the token's identity; the note is a record, not a verification. Neither operation writes to Square. Connection changes, activation, unmapping and addition review still require a signed-in administrator.
-- Clearing a printer's plate now records the current confirmation for prints started at the printer, even when they have no queued job. The printer card and Home Assistant show that confirmation until another print starts.
-- Timelapse cards show the print's name alongside its job number when you have access to the name. The timelapse list and detail API responses include `print_name`.
-- PostgreSQL backups made by ODIN 2.0.16 to 2.0.44 now receive a clear refusal naming their release range and recovery steps, both when uploaded and when staged from the backup list. These older backups still require recovery on the release that made them before upgrading; the backup guide now explains how to cancel one left pending across an upgrade. SQLite is unaffected.
-- Failed and cancelled Bambu prints now deduct the filament the AMS measured on installations without organizations; completed prints use the measured amount when there is one.
-- Prints started at the printer now appear in job history on every printer type, not only Bambu.
 - Prints started at the printer now belong to the printer's organization, so other organizations cannot see their jobs.
-- Fjord theme with light and dark appearances, softer surfaces, and a preview in theme settings. High contrast keeps the Classic appearance. Theme family stays saved on this device.
 - Only a signed-in platform administrator can change Education mode; each change records the previous and new values.
-- A stuck start can now be released from Dispatch recovery after filament was moved or reloaded. Before, changing a slot's filament after a failed start blocked the release for good.
 
 ## [2.3.1] - 2026-11-17
 
