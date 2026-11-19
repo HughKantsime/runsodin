@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Thermometer, Save, CheckCircle, AlertTriangle } from 'lucide-react'
 import { printers, temperatureAlerts } from '../../api'
 import type { TemperatureAlertSettings } from '../../api'
+import { useFjord } from '../../hooks/themePreferences'
 import { Button, Card } from '../ui'
 
 type NumericKey = 'under_c' | 'over_c' | 'sustain_minutes' | 'warmup_minutes' | 'idle_hot_nozzle_c' | 'idle_hot_bed_c'
@@ -20,6 +21,7 @@ const isSettings = (value: unknown): value is TemperatureAlertSettings =>
   !!value && typeof value === 'object' && typeof (value as TemperatureAlertSettings).enabled === 'boolean'
 
 export default function TemperatureAlertsCard() {
+  const fjord = useFjord()
   const [settings, setSettings] = useState<TemperatureAlertSettings | null>(null)
   const [printerList, setPrinterList] = useState<PrinterRow[]>([])
   const [text, setText] = useState<Partial<Record<NumericKey, string>>>({})
@@ -92,7 +94,7 @@ export default function TemperatureAlertsCard() {
         It only alerts: it never pauses or stops a print. Recipients and quiet hours follow the printer error alert settings.
       </p>
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${!settings.enabled ? 'opacity-50' : ''}`}>
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${!settings.enabled && !fjord ? 'opacity-50' : ''}`}>
         {FIELDS.map(field => (
           <label key={field.key} className="block bg-[var(--brand-card-bg)] rounded-md p-3">
             <span className="text-sm font-medium">{field.label}</span>

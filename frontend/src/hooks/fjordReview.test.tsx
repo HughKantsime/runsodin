@@ -20,6 +20,8 @@ import { SupportLevelBadge } from '../components/printers/SupportLevel'
 import AlertBell from '../components/notifications/AlertBell'
 import { NavCount } from '../components/layout/Sidebar'
 import GeneralTab from '../components/admin/GeneralTab'
+import TemperatureAlertsCard from '../components/admin/TemperatureAlertsCard'
+import { printers, temperatureAlerts } from '../api'
 import HmsHistoryPanel from '../components/printers/HmsHistoryPanel'
 import { contrastRatio } from '../utils/contrast'
 
@@ -288,6 +290,35 @@ function composite(fg: string, bg: string, opacity = 1): string {
   return '#' + channels.map((n, i) => Math.round(n * alpha + parseInt(bg.slice(1 + i * 2, 3 + i * 2), 16) * (1 - alpha)).toString(16).padStart(2, '0')).join('')
 }
 for (const mode of ['light', 'dark'] as const) {
+  it('keeps all editable temperature thresholds legible with alerts off in Fjord ' + mode, async () => {
+    vi.spyOn(temperatureAlerts, 'get').mockResolvedValueOnce({
+      enabled: false, under_c: 15, over_c: 15, sustain_minutes: 5, warmup_minutes: 8,
+      idle_hot_nozzle_c: 60, idle_hot_bed_c: 45, disabled_printer_ids: [],
+    })
+    vi.spyOn(printers, 'list').mockResolvedValueOnce([])
+    theme(mode)
+    render(<TemperatureAlertsCard />)
+    const inputs = await screen.findAllByRole('spinbutton')
+    expect(inputs).toHaveLength(6)
+    for (const input of inputs) {
+      const card = input.closest('label')!
+      const grid = card.parentElement!
+      const backdrop = color(grid.parentElement!, 'background-color')
+      const opacity = Number(color(grid, 'opacity'))
+      const cardFill = color(card, 'background-color')
+      const samples = [
+        [card.firstElementChild!, cardFill],
+        [input, color(input, 'background-color')],
+        [input.nextElementSibling!, cardFill],
+        [card.lastElementChild!, cardFill],
+      ] as const
+      for (const [element, fill] of samples) {
+        const text = composite(color(element), backdrop, opacity)
+        const background = composite(fill, backdrop, opacity)
+        expect.soft(contrastRatio(text, background), `${input.getAttribute('aria-label')} / ${element.textContent || 'input'}`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
   it.each(['simple', 'advanced'])('Interface Mode labels and descriptions meet 4.5:1 with %s selected in Fjord ' + mode, async selected => {
     localStorage.setItem('odin-theme', mode); localStorage.setItem('odin-theme-family', 'fjord')
     theme(mode); mount(<GeneralTab />)
