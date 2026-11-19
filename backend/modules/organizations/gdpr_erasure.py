@@ -84,6 +84,7 @@ def erase_user_data_sync(user_id, current_user, db):
         except Exception:pass
         raise HTTPException(status_code=503, detail="Erasure could not be confirmed. Try again or contact your administrator.") from None
 
+    db.execute(text("DELETE FROM mfa_code_attempts WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM mfa_recovery_codes WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM mfa_enrollments WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})

@@ -281,17 +281,13 @@ def test_mfa_challenge_is_single_use_under_simultaneous_verification(mfa_client,
     routes_auth.limiter._storage.reset()
     secret=enroll(mfa_client);token=challenge();code=pyotp.TOTP(secret).now()
     barrier=Barrier(2)
-    original=Session.execute
-    def synchronized(self,statement,*args,**kwargs):
-        result=original(self,statement,*args,**kwargs)
-        if str(statement).startswith('SELECT 1 FROM token_blacklist WHERE jti'):
-            rows=result.fetchall()
-            class Buffered:
-                def fetchone(self):return rows[0] if rows else None
-            barrier.wait(timeout=10)
-            return Buffered()
-        return result
-    monkeypatch.setattr(Session,'execute',synchronized)
+    # Both requests have resolved the same challenge owner. Race them at
+    # the user lock: replay and code checks now run inside that lock.
+    lock_user=routes_auth.lock_for_code_check
+    def synchronized(db,user_id):
+        barrier.wait(timeout=10)
+        return lock_user(db,user_id)
+    monkeypatch.setattr(routes_auth,'lock_for_code_check',synchronized)
     def verify(_):
         with TestClient(mfa_client.app,raise_server_exceptions=False) as independent:
             return independent.post('/auth/mfa/verify',json={'mfa_token':token,'code':code})

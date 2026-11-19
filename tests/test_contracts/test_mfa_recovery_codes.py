@@ -240,10 +240,14 @@ def test_wrong_code_shares_totp_throttle(client, route):
             response = client.post('/auth/mfa/verify', json={'mfa_token': token, field: bad})
         else:
             response = client.post(CODES, headers=headers(), json={'code': bad})
-        assert response.status_code == 401
+        assert response.status_code == (401 if i < 4 else 429)
+        if i >= 4:
+            assert response.json()['detail'].startswith('Too many wrong codes.')
     response = (verify(client, codes[0], token) if route == 'verify'
                 else client.post(CODES, headers=headers(), json={'code': codes[0]}))
     assert response.status_code == 429
+    assert response.json()['detail'] == 'Too many wrong codes. Try again in 15 minutes.'
+    assert int(response.headers['retry-after']) > 60
     assert client.get(CODES, headers=headers()).json()['remaining'] == 10
 
 

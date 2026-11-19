@@ -124,6 +124,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.061_print_filament_evidence",
         "core.schema.migrations.062_ams_humidity_percent",
         "core.schema.migrations.063_mfa_recovery_codes",
+        "core.schema.migrations.064_mfa_code_attempts",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

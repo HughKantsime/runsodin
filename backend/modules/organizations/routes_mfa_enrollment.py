@@ -15,6 +15,7 @@ from core.db_compat import sql
 from core.dependencies import log_audit
 from core.session_tracking import record_session
 from core.rate_limit import limiter
+from modules.organizations.mfa_attempts import MFA_ADDRESS_LIMIT, clear_failures
 from modules.organizations.mfa_recovery import issue_codes
 
 router=APIRouter()
@@ -112,7 +113,7 @@ def setup(request:Request,db:Session=Depends(get_db)):
 
 
 @router.post('/auth/mfa/enrollment/confirm',tags=['Auth'])
-@limiter.limit('10/minute')
+@limiter.limit(MFA_ADDRESS_LIMIT)
 def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
     try:
         payload,user,row=_authority(request,db)
@@ -125,12 +126,13 @@ def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
         now=time.time()
         claimed=db.execute(text("UPDATE mfa_enrollments SET state='consumed',encrypted_pending_secret=NULL,consumed_at=:now WHERE jti=:jti AND user_id=:uid AND state='pending' AND expires_at=:exp AND expires_at>:now AND encrypted_pending_secret=:secret"),
                            {'now':now,'jti':payload['jti'],'uid':user.id,'exp':payload['exp'],'secret':row.encrypted_pending_secret})
-        changed=db.execute(text('UPDATE users SET mfa_enabled=TRUE,mfa_secret=:secret WHERE id=:id AND username=:sub AND is_active=TRUE AND mfa_enabled=FALSE'),
+        changed=db.execute(text('UPDATE users SET mfa_enabled=TRUE,mfa_secret=:secret WHERE id=:id AND username=:sub AND is_active=TRUE AND mfa_enabled IS NOT TRUE'),
                            {'secret':row.encrypted_pending_secret,'id':user.id,'sub':payload['sub']})
         used=db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist(jti,expires_at) VALUES(:jti,:exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                         {'jti':payload['jti'],'exp':datetime.fromtimestamp(payload['exp'],tz=timezone.utc).isoformat()})
         if claimed.rowcount!=1 or changed.rowcount!=1 or used.rowcount!=1:
             raise HTTPException(status_code=409,detail='Enrollment changed. Restart sign-in.')
+        clear_failures(db,user.id)
         codes=issue_codes(db,user.id)
         log_audit(db,'mfa.enrollment_completed','user',user.id,ip=request.client.host if request.client else None)
         db.commit()

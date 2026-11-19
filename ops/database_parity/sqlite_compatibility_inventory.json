@@ -1242,7 +1242,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 275,
+      "line": 276,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1250,7 +1250,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 547,
+      "line": 548,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1258,7 +1258,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 573,
+      "line": 574,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1266,7 +1266,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 575,
+      "line": 576,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1274,7 +1274,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 585,
+      "line": 586,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1282,7 +1282,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 600,
+      "line": 601,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1290,7 +1290,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 602,
+      "line": 603,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",

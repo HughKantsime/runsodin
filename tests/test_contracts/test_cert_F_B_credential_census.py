@@ -28,7 +28,7 @@ MODULES = sorted(p for p in BACKEND.glob("modules/**/*.py") if "@router" in p.re
 # Guarded write targets: authentication / account-recovery / credential material.
 WRITE_TABLES = {
     "api_tokens", "biometric_tokens", "push_subscriptions", "push_devices",
-    "active_sessions", "oidc_config", "password_reset_tokens", "mfa_recovery_codes",
+    "active_sessions", "oidc_config", "password_reset_tokens", "mfa_recovery_codes", "mfa_code_attempts",
 }
 # users is guarded only for credential/recovery columns, not role/is_active/group_id/theme.
 USERS_CREDENTIAL_COLS = {"email", "username", "password_hash", "mfa_enabled", "mfa_secret",
@@ -38,7 +38,7 @@ CONFIG_KEYS = {"smtp_config", "base_url", "setup_complete", "setup_admin_claimed
 # Helpers that encapsulate a guarded write; a route that calls one is guarded.
 GUARDED_HELPERS = {
     "hash_password", "create_biometric_token", "invalidate_recovery_credentials",
-    "issue_codes", "consume_code", "cancel_pending_enrollments", "_resolve_oidc_user", "record_session", "stage_session",
+    "issue_codes", "require_code", "consume_code", "cancel_pending_enrollments", "_resolve_oidc_user", "record_session", "stage_session",
 }
 # Bulk credential reads (hashes/secrets/tokens leave the process).
 WRITE_MODELS = {"BiometricToken", "ApiToken", "OIDCConfig", "PasswordResetToken"}

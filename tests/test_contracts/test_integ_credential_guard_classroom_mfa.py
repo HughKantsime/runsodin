@@ -11,6 +11,8 @@ from fastapi import HTTPException
     "INSERT INTO classroom_oauth_states (state, org_id, admin_id, code_verifier, expires_at) VALUES (:s, :o, :a, :v, :e)",
     "INSERT INTO mfa_enrollments(jti,user_id,expires_at,state,created_at) VALUES(:jti,:uid,:exp,'pending',:now)",
     "UPDATE mfa_enrollments SET state='consumed', encrypted_pending_secret=NULL WHERE jti=:jti",
+    "INSERT INTO mfa_code_attempts(user_id,failure_times) VALUES(:uid,:times)",
+    "UPDATE mfa_code_attempts SET failure_times=:times WHERE user_id=:uid",
     "INSERT INTO mfa_recovery_codes(user_id,code_salt,code_hash,created_at) VALUES(:uid,:salt,:hash,:now)",
     "UPDATE mfa_recovery_codes SET used_at=:now WHERE id=:id",
 ])

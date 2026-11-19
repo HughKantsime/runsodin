@@ -211,7 +211,7 @@ engine.dispose()
             'python:056-dispatch-recovery-global', 'python:057-slot-feed-policy',
             'python:058-filament-catalogue', 'python:059-six-materials',
             'python:060-print-files-stored-path-index', 'python:061-print-filament-evidence',
-            'python:062-ams-humidity-percent', 'python:063-mfa-recovery-codes']
+            'python:062-ams-humidity-percent', 'python:063-mfa-recovery-codes', 'python:064-mfa-code-attempts']
         assert bootstrap_database(engine)['applied'] == []
         with engine.connect() as c:
             PARTS.validate(c)

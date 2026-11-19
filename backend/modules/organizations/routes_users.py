@@ -376,6 +376,7 @@ _USER_HISTORY_REFERENCES = (
 # Credentials and per-user state removed with the account (caller owns the transaction).
 _USER_CREDENTIAL_TABLES = (
     ("api_tokens", "user_id"), ("mfa_enrollments", "user_id"), ("mfa_recovery_codes", "user_id"),
+    ("mfa_code_attempts", "user_id"),
     ("password_reset_tokens", "user_id"), ("push_subscriptions", "user_id"),
     ("push_devices", "user_id"), ("biometric_tokens", "user_id"),
     ("alert_preferences", "user_id"), ("alerts", "user_id"),

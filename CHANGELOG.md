@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- After five wrong authenticator or recovery codes within 15 minutes, your account pauses code checks for 15 minutes. This applies when signing in, turning off MFA, or replacing recovery codes.
+
 - The MFA API now gives you ten single-use recovery codes when you set up an authenticator. You can use a saved code to sign in or remove a lost authenticator. If you already use MFA, you can generate a set with your authenticator.
 
 - API clients can now send a personal API token in the `Authorization: Bearer` header. The token keeps the same permissions and expiry as when sent in `X-API-Key`.

@@ -120,6 +120,9 @@ POST027_RAW_TABLES = {
     "python:061-print-filament-evidence": {
         "print_filament_evidence": frozenset("id print_job_id print_birth_nonce kind claim source usage_id spool_id grams used_at reason recorded_at".split()),
     },
+    "python:064-mfa-code-attempts": {
+        "mfa_code_attempts": frozenset("user_id failure_times".split()),
+    },
     "python:063-mfa-recovery-codes": {
         "mfa_recovery_codes": frozenset("id user_id code_salt code_hash created_at used_at".split()),
     },

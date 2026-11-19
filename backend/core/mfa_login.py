@@ -1,5 +1,5 @@
 """Local MFA policy shared by password and SSO exchange."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import jwt
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -8,6 +8,26 @@ from core import auth
 
 class RevokedLoginCredentials(HTTPException):
     """The user or password changed after the initial credential check."""
+
+
+def decode_login_challenge(token):
+    import math
+    try:
+        payload = jwt.decode(token, auth.SECRET_KEY,
+                             algorithms=[auth.ALGORITHM],
+                             options={"require": ["exp", "sub", "jti"]})
+        expiry = payload["exp"]
+        if (not isinstance(payload["sub"], str) or not payload["sub"]
+                or not isinstance(payload["jti"], str) or not payload["jti"]
+                or payload.get("mfa_pending") is not True
+                or ("role" in payload and not isinstance(payload["role"], str))
+                or "mfa_setup_required" in payload
+                or type(expiry) not in (int, float) or not math.isfinite(expiry)):
+            raise ValueError("Invalid challenge")
+        expiry_datetime = datetime.fromtimestamp(expiry, tz=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA token") from None
+    return payload, expiry_datetime
 
 
 def _locked_user(db,user_id):
