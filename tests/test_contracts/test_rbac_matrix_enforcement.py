@@ -331,6 +331,23 @@ def matrix(tmp_path_factory):
                      {"ODIN_BRANDING_DIRECTORY": str(branding), "PRINT_FILE_STORAGE_ROOT": str(root / "print_files")})
 
 
+def test_probe_database_allows_target_lock_under_group_umask(tmp_path):
+    import os
+    previous = os.umask(0o002)
+    try:
+        result = run_probe("target-lock", """
+from core.db import engine
+from core.dispatch_target_lock import acquire_target_lock
+result = acquire_target_lock(engine, "a" * 64)
+OUT["status"] = result.status
+if result.handle:
+    result.handle.close()
+""", tmp_path)
+    finally:
+        os.umask(previous)
+    assert result["status"] == "acquired"
+
+
 def _ok(r):
     return r is not None and 200 <= r["status"] < 300
 

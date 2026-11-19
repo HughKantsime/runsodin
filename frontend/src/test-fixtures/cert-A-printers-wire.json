@@ -52,6 +52,12 @@
       "feeding_slot": 3,
       "chamber_temp": 5.0,
       "plate_clear_confirmed_at": null,
+      "plate_clear": {
+        "needed": false,
+        "has_waiting_job": false,
+        "releases_job": null,
+        "last_print_ended_at": null
+      },
       "current_print_display_name": "Unifi_G3_Instant_Camera_LCD_Mount_for_BL_P1S_P1P",
       "maintenance": {
         "state": "ok",
@@ -326,6 +332,12 @@
       "feeding_slot": null,
       "chamber_temp": null,
       "plate_clear_confirmed_at": null,
+      "plate_clear": {
+        "needed": false,
+        "has_waiting_job": false,
+        "releases_job": null,
+        "last_print_ended_at": null
+      },
       "current_print_display_name": "benchy",
       "maintenance": {
         "state": "ok",
@@ -389,6 +401,12 @@
       "feeding_slot": null,
       "chamber_temp": null,
       "plate_clear_confirmed_at": null,
+      "plate_clear": {
+        "needed": false,
+        "has_waiting_job": false,
+        "releases_job": null,
+        "last_print_ended_at": null
+      },
       "current_print_display_name": "Unknown",
       "maintenance": {
         "state": "ok",
@@ -452,6 +470,12 @@
       "feeding_slot": null,
       "chamber_temp": null,
       "plate_clear_confirmed_at": null,
+      "plate_clear": {
+        "needed": false,
+        "has_waiting_job": false,
+        "releases_job": null,
+        "last_print_ended_at": null
+      },
       "current_print_display_name": "cube",
       "maintenance": {
         "state": "ok",
@@ -742,6 +766,7 @@
       "0": [
         {
           "humidity": 5.0,
+          "humidity_percent": 0,
           "temperature": 23.7,
           "time": "2026-10-14T11:08:00"
         }
@@ -749,6 +774,7 @@
       "1": [
         {
           "humidity": 3.0,
+          "humidity_percent": 32,
           "temperature": 24.0,
           "time": "2026-10-14T11:09:00"
         }

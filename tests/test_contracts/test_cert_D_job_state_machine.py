@@ -173,6 +173,11 @@ def test_census_scanner_ignores_lock_noops_reads_and_other_tables():
     assert [w.kind for w in job_census.scan({'backend/modules/p.py': "q = 'UPDATE jobs SET status={}'.format(s)"})[0]] == ['sql update']
 
 
+def test_census_distinguishes_read_in_index_from_attribute_assignment():
+    source = "def count(job, totals):\n    totals[outcome(job.status)] += 1\n    job.status = 'failed'"
+    assert _violations(source) == [('orm attribute', 3)]
+
+
 def test_census_reports_each_call_site_not_each_file():
     source = ("def a(cur):\n    cur.execute(\"UPDATE jobs SET status='x' WHERE id=1\")\n"
               "def b(cur):\n    cur.execute(\"UPDATE jobs SET status='y' WHERE id=1\")\n")

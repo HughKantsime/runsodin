@@ -153,7 +153,8 @@ os._exit(0)  # daemon threads (e.g. an open SSE stream) must not block exit
 
 def run_probe(name: str, code: str, tmp_root: Path, extra_env: dict | None = None, timeout: int = 600) -> dict:
     work = Path(tmp_root) / name
-    work.mkdir(parents=True, exist_ok=True)
+    # The SQLite target lock requires an owner-controlled database directory.
+    work.mkdir(mode=0o700, parents=True, exist_ok=True)
     (work / "license").mkdir(exist_ok=True)
     from cryptography.fernet import Fernet
     env = dict(os.environ)

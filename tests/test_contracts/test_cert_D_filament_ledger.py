@@ -1325,14 +1325,23 @@ def test_tray_confirmation_reaccount_respects_delegated_printer(archive_case, mo
 
 
 @pytest.mark.parametrize('delegated', [[], [10, 9]])
-def test_startup_logs_effective_external_printer_ids(monkeypatch, caplog, delegated):
+@pytest.mark.parametrize('uvicorn_propagates', [True, False], ids=['root-handler', 'uvicorn-handler'])
+def test_startup_logs_effective_external_printer_ids(monkeypatch, caplog, delegated, uvicorn_propagates):
     import logging
     from core.config import settings
     from core.interfaces.filament_ownership import log_external_filament_accounting
     monkeypatch.setattr(settings, 'external_filament_accounting_printers', delegated)
+    # Uvicorn normally writes to stderr through its own handler. Capture at the
+    # same boundary when propagation to pytest's root handler is disabled.
+    uvicorn = logging.getLogger('uvicorn')
+    monkeypatch.setattr(uvicorn, 'propagate', uvicorn_propagates)
+    if not uvicorn_propagates:
+        monkeypatch.setattr(uvicorn, 'handlers', [caplog.handler])
     for process in ('uvicorn.error', 'moonraker_monitor', 'mqtt_monitor', 'prusalink_monitor', 'elegoo_monitor', 'anycubic_lan_monitor'):
+        logger = logging.getLogger(process)
         with caplog.at_level('INFO', logger=process):
-            log_external_filament_accounting(logging.getLogger(process))
+            log_external_filament_accounting(logger)
+        assert caplog.records[-1].name == process
     assert len(caplog.records) == 6
     assert all(str(sorted(delegated)) in record.message for record in caplog.records)
 

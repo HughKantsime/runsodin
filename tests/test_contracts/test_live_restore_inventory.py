@@ -38,7 +38,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (35, 51)
+    assert (len(functions), len(triggers)) == (36, 53)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -117,6 +117,10 @@ POST027_RAW_TABLES = {
     "python:058-filament-catalogue": {},
     "python:059-six-materials": {},
     "python:060-print-files-stored-path-index": {},
+    "python:061-print-filament-evidence": {
+        "print_filament_evidence": frozenset("id print_job_id print_birth_nonce kind claim source usage_id spool_id grams used_at reason recorded_at".split()),
+    },
+    "python:062-ams-humidity-percent": {},  # Adds a column to existing ams_telemetry.
     "python:040-job-foundation": {
         "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
         "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
@@ -165,6 +169,7 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     live_columns = {table: sorted(columns) for table, columns in RAW_REQUIRED_COLUMNS.items()}
     expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
     expected_columns["audit_logs"] = sorted(set(expected_columns["audit_logs"]) | {"prev_hash", "row_hash", "chain_seq", "hash_salt"})
+    expected_columns["ams_telemetry"] = sorted([*expected_columns["ams_telemetry"], "humidity_percent"])
     assert live_columns == expected_columns
     # Registered migrations add exactly their source-owned functions and triggers.
     import importlib
@@ -188,6 +193,11 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     classes=importlib.import_module('core.schema.migrations.049_education_classes')
     added_functions.update(classes.pg_functions())
     added_triggers.update(classes.pg_triggers())
+    evidence = importlib.import_module('core.schema.migrations.061_print_filament_evidence')
+    added_functions.update(evidence.pg_functions())
+    added_triggers.update(evidence.pg_triggers())
+    for key, ddl in evidence.pg_triggers().items():
+        assert triggers[key] == (ddl, 'odin_print_filament_evidence_immutable', 'public', 'O')
     assert set(functions)-set(accepted['functions']) == set(added_functions)
     assert json.loads(json.dumps({k:v for k,v in functions.items() if k not in added_functions})) == accepted["functions"]
     assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(triggers.items()) if k not in added_triggers])) == accepted["triggers"]

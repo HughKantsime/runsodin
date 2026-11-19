@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_cert_F_00_live import LiveOdin, strong_password
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +88,14 @@ def _embedded(path: Path) -> dict:
     m = re.search(r"/\*WIRE-BEGIN\*/(.*?)/\*WIRE-END\*/", text, re.S)
     assert m, path
     return json.loads(m.group(1))
+
+
+@pytest.mark.parametrize("name", ["rolegate", "rolegate_pages", "rolegate_timeline"])
+def test_role_gate_permissions_match_current_route(name, review_db):
+    from modules.organizations.routes_permissions import get_permissions
+    permissions = get_permissions(review_db)
+    for role in _embedded(UI[name])["roles"].values():
+        assert role["permissions"] == permissions
 
 
 @pytest.mark.parametrize("name", sorted(UI))

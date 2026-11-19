@@ -203,10 +203,17 @@ def test_external_owner_refuses(settlement_case, monkeypatch):
     assert response.status_code == 409
 
 
-def test_audit_failure_rolls_back_everything(settlement_case, monkeypatch):
+@pytest.mark.parametrize('after_insert', [False, True], ids=['before-audit', 'after-audit'])
+def test_audit_failure_rolls_back_everything(settlement_case, monkeypatch, after_insert):
     from modules.archives import filament_settlement
     case = settlement_case
-    def fail(*args, **kwargs): raise RuntimeError('audit unavailable')
+    audit = filament_settlement.log_audit
+
+    def fail(db, *args, **kwargs):
+        if after_insert:
+            audit(db, *args, **kwargs)
+            db.flush()
+        raise RuntimeError('audit unavailable')
     monkeypatch.setattr(filament_settlement, 'log_audit', fail)
     with pytest.raises(RuntimeError, match='audit unavailable'):
         post(case, entries=[dict(spool_id=7099, grams=40)])
@@ -214,6 +221,7 @@ def test_audit_failure_rolls_back_everything(settlement_case, monkeypatch):
     assert not query(case, 'SELECT * FROM spool_usage')
     assert not query(case, "SELECT key FROM system_config WHERE key LIKE 'quota_attempt:filament:%'")
     assert query(case, 'SELECT accounting_state FROM print_archives')[0][0] == 'unresolved'
+    assert not query(case, "SELECT id FROM audit_logs WHERE action='archive.filament_settled'")
 
 
 @pytest.mark.parametrize('body', [dict(entries=[]), dict(entries=[dict(spool_id=7099, grams=-1)]), dict(entries=[dict(spool_id=7099, grams=10001)]), dict(entries=[dict(spool_id=7099, grams=1)] * 2), dict(extra=True), dict(no_deduction='invalid'), dict(no_deduction='nothing_extruded', entries=[dict(spool_id=7099, grams=1)])])

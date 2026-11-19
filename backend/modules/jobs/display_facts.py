@@ -58,7 +58,6 @@ def enrich_job_facts(db, jobs, actor):
     wanted = or_(Printer.id.in_(ids), Printer.is_active.is_(True)) if fleet else Printer.id.in_(ids)
     loaded = db.query(Printer).options(selectinload(Printer.filament_slots)).filter(wanted).all() if ids or fleet else []
     printers = [p for p in loaded if p.id in ids]
-    preload_pin_printer_states(db, ids, printers)
     by_id = {p.id: p for p in printers}
     # JobResponse also expands the assigned printer. Seed that relationship
     # without marking it dirty or issuing another lazy read during serialization.
@@ -69,6 +68,9 @@ def enrich_job_facts(db, jobs, actor):
     facts = read_facts(db, printers)
     visible = {p.id: p for p in printers}
     recovery = _recovery_printers(db, list(visible), actor)
+    # The recovery savepoints invalidate the session pin cache. Seed it from the
+    # unfiltered batch after those reads, before waiting reasons and serialization.
+    preload_pin_printer_states(db, ids, by_id.values())
     for job in jobs:
         job.printer_has_dispatch_claim = job.printer_id in recovery
         job.ams_slot_nozzles = []

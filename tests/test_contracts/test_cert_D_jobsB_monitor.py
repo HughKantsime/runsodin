@@ -18,7 +18,7 @@ from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db
 
 ROOT = Path(__file__).resolve().parents[2]
-NOW = datetime.now(timezone.utc).replace(microsecond=0)
+NOW = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
 
 MATCHED_DEFECT = (
     "DEFECT: backend/modules/printers/monitors/mqtt_job_lifecycle.py:242-251 links a name/window-matched "
@@ -41,6 +41,10 @@ def lifecycle(review_db, monkeypatch):
     from modules.printers.monitors import mqtt_job_lifecycle
     monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
     monkeypatch.setattr(mqtt_job_lifecycle, 'datetime', FixedClock)
+    # The stale sweep uses SQLite's clock; matching uses the Python clock.
+    now_offset = mqtt_job_lifecycle.sql.now_offset
+    monkeypatch.setattr(mqtt_job_lifecycle.sql, 'now_offset',
+                        lambda offset: now_offset(offset).replace("'now'", f"'{NOW.isoformat()}'"))
     engine = review_db.get_bind()
 
     @contextmanager
@@ -81,8 +85,8 @@ def status(db, ids):
 
 # ---------------- F04-4.2-03 time-window matching ----------------
 
-@pytest.mark.parametrize('offset', [timedelta(minutes=90), timedelta(minutes=-90), timedelta(seconds=7200)],
-                         ids=['plus90m', 'minus90m', 'plus2h_boundary'])
+@pytest.mark.parametrize('offset', [timedelta(minutes=90), timedelta(minutes=-90), timedelta(seconds=7200), timedelta(seconds=-7200)],
+                         ids=['plus90m', 'minus90m', 'plus2h_boundary', 'minus2h_boundary'])
 def test_sole_scheduled_job_inside_two_hour_window_is_linked(lifecycle, offset):
     db, start, alerts, reschedules = lifecycle
     scheduled(db, 801, 9, NOW + offset)

@@ -61,3 +61,4 @@ def test_embedded_printer_wire_matches_current_route_without_capture_dependency(
         assert sorted(printer) == sorted(live)
         assert printer['installed_nozzles'] == live['installed_nozzles']
         assert printer['maintenance'] == live['maintenance']
+        assert printer['plate_clear'] == live['plate_clear']

@@ -453,6 +453,10 @@
     "operator",
     "viewer"
    ],
+   "archives.settle_filament": [
+    "admin",
+    "operator"
+   ],
    "education.classes_assess": [
     "admin",
     "operator",

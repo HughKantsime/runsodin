@@ -442,13 +442,19 @@ def test_moving_a_job_with_a_deleted_pin_repins_it_to_the_chosen_printer(fleet, 
     assert _pin(fleet, 915) == 11
 
 
-def test_job_list_reads_printers_once_for_pin_issues(fleet, signed_license, monkeypatch):
+@pytest.mark.parametrize('fail_hint', [False, True], ids=['hint-read', 'hint-rollback'])
+def test_job_list_reads_printers_once_for_pin_issues(fleet, signed_license, monkeypatch, fail_hint):
     from sqlalchemy import event
     client = _pin_client(fleet, signed_license, monkeypatch)
     for n in range(5):
         client.post('/api/v1/jobs', json={'item_name': f'Synthetic pinned {n}', 'duration_hours': 1, 'printer_id': 9 + (n % 3)})
     seen = []
+    hint_reads = []
     def count(conn, cursor, statement, *args):
+        if 'FROM printer_dispatch_claims' in statement:
+            hint_reads.append(statement)
+            if fail_hint:
+                raise RuntimeError('Recovery hint unavailable')
         if 'FROM printers' in statement and 'is_active' in statement:
             seen.append(statement)
     engine = fleet.get_bind()
@@ -457,6 +463,7 @@ def test_job_list_reads_printers_once_for_pin_issues(fleet, signed_license, monk
         assert client.get('/api/v1/jobs').status_code == 200
     finally:
         event.remove(engine, 'before_cursor_execute', count)
+    assert hint_reads
     assert len(seen) == 1, seen
 
 

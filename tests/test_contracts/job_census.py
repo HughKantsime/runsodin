@@ -288,7 +288,7 @@ class _Scanner(ast.NodeVisitor):
     def _targets(self, targets, node):
         for target in targets:
             for leaf in ast.walk(target):
-                if isinstance(leaf, ast.Attribute) and leaf.attr in self.t.columns and (
+                if isinstance(leaf, ast.Attribute) and isinstance(leaf.ctx, ast.Store) and leaf.attr in self.t.columns and (
                         self.t.any_owner or self._is_instance(leaf.value)):
                     self._write("orm attribute", node)
 

@@ -3,6 +3,12 @@ import ast
 
 ORG = 'modules/organizations/'
 PROTOCOLS = {
+    ('modules/archives/filament_settlement.py', 'settle'): {
+        'modules/archives/routes/filament_settlement.py': ('settle', {'settle_filament'}),
+    },
+    ('modules/printers/plate_clear.py', 'record_plate_clear'): {
+        'modules/printers/routes_controls.py': ('record_plate_clear', {'plate_cleared'}),
+    },
     ('modules/jobs/print_failure.py', 'change'): {
         'modules/jobs/routes/print_failure.py': ('change', {'_apply'}),
     },
@@ -96,6 +102,8 @@ def caller_owned_audit_is_atomic(key, sources):
                                 committed = True
                                 break
                             if isinstance(following, (ast.Return, ast.Raise, ast.Break, ast.Continue)) or unsafe_rollback(following):
+                                if not committed:
+                                    return False
                                 break
                 node = parent
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

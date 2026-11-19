@@ -42,6 +42,9 @@ def test_spool_tracks_material_color_brand_batch_weights_cost_and_statuses(inven
     assert used.status_code == 200, used.text
     assert inventory_client.get(f'/api/spools/{sid}').json()['status'] == 'empty'
     assert inventory_client.patch(f'/api/spools/{sid}', json={'status': 'active', 'remaining_weight_g': 10}).status_code == 200
+    row = inventory_client.get(f'/api/spools/{sid}').json()
+    assert (row['remaining_weight_g'], row['status']) == (10, 'empty')
+    assert inventory_client.patch(f'/api/spools/{sid}', json={'status': 'active', 'remaining_weight_g': 11}).status_code == 200
     assert inventory_client.get(f'/api/spools/{sid}').json()['status'] == 'active'
     assert inventory_client.delete(f'/api/spools/{sid}').status_code == 200
     assert inventory_client.get(f'/api/spools/{sid}').json()['status'] == 'archived'

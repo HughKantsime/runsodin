@@ -48,6 +48,29 @@ def test_matching_selection_succeeds(plate_client, job_id):
     assert response.json()['message'] == ('Plate clear recorded' if job_id is None else 'Job 803 released for dispatch')
 
 
+@pytest.mark.parametrize('has_waiting_job', [False, True])
+def test_failure_after_plate_clear_audit_rolls_back(plate_client, monkeypatch, has_waiting_job):
+    from modules.printers import plate_clear
+    client, issue, db = plate_client
+    print_record(db)
+    if has_waiting_job:
+        waiting(db)
+    headers = issue(['read', 'write:printers'])
+    before = writes(db)
+    audit = plate_clear.log_audit
+
+    def fail(session, *args):
+        audit(session, *args)
+        session.flush()
+        raise RuntimeError('after plate clear audit')
+
+    monkeypatch.setattr(plate_clear, 'log_audit', fail)
+    with pytest.raises(RuntimeError, match='after plate clear audit'):
+        client.post('/printers/199/plate-cleared', headers=headers)
+    db.rollback()
+    assert writes(db) == before
+
+
 @pytest.mark.parametrize('body', [None, {}])
 def test_omitted_precondition_keeps_legacy_release(plate_client, body):
     client, issue, db = plate_client

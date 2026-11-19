@@ -426,6 +426,23 @@ def test_print_failure_caller_owned_audit_protocol(helper, mutation):
     assert caller_owned_audit_is_atomic((service, helper), sources) is expected
 
 
+@pytest.mark.parametrize("service,helper,route,commit", [
+    ("modules/archives/filament_settlement.py", "settle", "modules/archives/routes/filament_settlement.py",
+     "        db.commit()\n        return result"),
+    ("modules/printers/plate_clear.py", "record_plate_clear", "modules/printers/routes_controls.py",
+     '        db.commit()\n        return {"success": True, "message": "Plate clear recorded"'),
+    ("modules/printers/plate_clear.py", "record_plate_clear", "modules/printers/routes_controls.py",
+     "    db.commit()\n    if changed is None:"),
+], ids=["settlement", "plate-without-queue", "plate-with-queue"])
+def test_caller_owned_audit_needs_each_route_commit(service, helper, route, commit):
+    from tests.test_contracts.release_audit_contract import caller_owned_audit_is_atomic
+    sources = {path: (BACKEND_DIR / path).read_text() for path in (service, route)}
+    assert caller_owned_audit_is_atomic((service, helper), sources)
+    assert sources[route].count(commit) == 1
+    sources[route] = sources[route].replace(commit, commit.replace("db.commit()", "pass"))
+    assert not caller_owned_audit_is_atomic((service, helper), sources)
+
+
 class TestEveryCallSiteCommitsAfter:
     """Every log_audit() call must be followed by db.commit() in the same function."""
 

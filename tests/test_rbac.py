@@ -193,8 +193,9 @@ CREDENTIAL_OPERATIONS = {
     ("POST", "/api/timelapses/recheck-facts"),                                         # interactive superadmin only
 }
 
-# Retention requires an interactive school administrator but does not mutate credentials.
+# These administrative actions require a signed-in session.
 INTERACTIVE_ADMIN_OPERATIONS = {
+    ("PUT", "/api/settings/education-mode"),
     ("GET", "/api/education/term-retention"),
     ("POST", "/api/education/term-retention"),
     ("GET", "/api/education/term-retention/{term_id}/dry-run"),
@@ -409,6 +410,14 @@ def _expectations(method, path, expected):
             if status is not None and (role != "no_headers" or (method, path) in PUBLIC_LICENSE_GATED):
                 expected[role] = 403  # public SSO flows also reach the gate without headers
     return expected
+
+
+@pytest.mark.parametrize("tier", ["pro", "education", "enterprise"])
+def test_education_mode_matrix_requires_a_session(monkeypatch, tier):
+    monkeypatch.setitem(globals(), "LICENSE_TIER", tier)
+    method, path, roles, _, _ = next(row for row in ENDPOINT_MATRIX if row[:2] == ("PUT", "/api/settings/education-mode"))
+    expected = _expectations(method, path, roles)
+    assert (expected["api_key_only"], expected["admin"]) == (403, 200)
 
 
 def _generate_params():
