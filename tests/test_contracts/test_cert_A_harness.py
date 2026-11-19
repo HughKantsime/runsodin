@@ -258,7 +258,7 @@ def wire_monitor(review_db, broker_socket, fernet_env, monkeypatch):  # noqa: F8
     review_db.execute(text(
         "INSERT INTO printers(id,name,model,machine_type,is_active,api_type,api_host,org_id,shared,"
         "gcode_state,slot_count,tags,timelapse_enabled,nozzle_diameter) VALUES "
-        "(301,'Cert Bambu',NULL,NULL,1,'bambu','192.0.2.31',1,0,'IDLE',4,'[]',0,0.4)"))
+        "(301,'Cert Bambu',NULL,NULL,TRUE,'bambu','192.0.2.31',1,FALSE,'IDLE',4,'[]',FALSE,0.4)"))
     review_db.commit()
     clock = [1_000_000.0]
     events = []

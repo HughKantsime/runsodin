@@ -103,8 +103,9 @@ export default function Setup() {
   const [accessCode, setAccessCode] = useState('')
   const [printerApiKey, setPrinterApiKey] = useState('')
   const [reportedSlots, setReportedSlots] = useState<{ host: string, serial: string, count: number } | null>(null)
+  const [modelSlotCount, setModelSlotCount] = useState(4)
   const slotCount = printerType === 'bambu' && reportedSlots?.host === printerIp.trim() && reportedSlots.serial === serial.trim()
-    ? reportedSlots.count : defaultSlotCount(printerType, printerModel)
+    ? reportedSlots.count : modelSlotCount
   const [testResult, setTestResult] = useState(null)
   const [testLoading, setTestLoading] = useState(false)
   const [printerAdded, setPrinterAdded] = useState(false)
@@ -147,7 +148,10 @@ export default function Setup() {
   useEffect(() => {
     const models = PRINTER_MODELS[printerType] || []
     const found = models.find(m => m.value === printerModel)
-    if (found && !printerName) setPrinterName(found.label)
+    if (found) {
+      setModelSlotCount(found.slots)
+      if (!printerName) setPrinterName(found.label)
+    }
   }, [printerModel, printerType])
 
   // Reset printer fields when type changes
@@ -160,6 +164,7 @@ export default function Setup() {
     setTestResult(null)
     setPrinterAdded(false)
     setReportedSlots(null)
+    setModelSlotCount(defaultSlotCount(printerType, ''))
   }, [printerType])
 
   // Session cookie is sent automatically (credentials: 'include').

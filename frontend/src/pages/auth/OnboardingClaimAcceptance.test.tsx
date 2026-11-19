@@ -234,12 +234,14 @@ test.each([
  expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument()
 })
 
-test.each([['', 1], ['XL', 5]])('wizard keeps the Prusa slot default for model "%s" after a probe', async (model, slots) => {
+test.each([
+ { models: [''], slots: 1 }, { models: ['XL'], slots: 5 }, { models: ['XL', ''], slots: 5 },
+])('wizard keeps the Prusa slot default after selecting $models and probing', async ({ models, slots }) => {
  mount(); await admin()
  fireEvent.click(screen.getByText('Community (free)'))
  fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
  fireEvent.click(screen.getByRole('button',{name:'Prusa',exact:true}))
- fireEvent.change(screen.getByRole('combobox'), { target: { value: model } })
+ for (const model of models) fireEvent.change(screen.getByRole('combobox'), { target: { value: model } })
  fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'), { target: { value: 'Fixture Prusa' } })
  fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '192.0.2.45' } })
  const original = vi.mocked(fetch).getMockImplementation()!

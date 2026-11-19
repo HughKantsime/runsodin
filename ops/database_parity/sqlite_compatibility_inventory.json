@@ -2210,7 +2210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 69,
+      "line": 70,
       "path": "backend/modules/printers/bambu_slots.py",
       "pattern": "delete-json-extraction",
       "reason": "Slot deletion reads audit_logs.details (JSON) with ->> on both providers and compares the extracted values as text.",
@@ -2714,7 +2714,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 624,
+      "line": 626,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",

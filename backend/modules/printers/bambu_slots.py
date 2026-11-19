@@ -8,6 +8,7 @@ from modules.printers.telemetry.bambu.ams_identity import ams_slot_number, ams_t
 
 
 VALID_BAMBU_COUNTS = (1, 4, 8, 12, 16)
+_repair_warning_claims = {}
 
 
 def full_ams_slots(packet):
@@ -130,6 +131,8 @@ def repair_phantom_slots(run, printer_id, numbers):
             run('ROLLBACK TO SAVEPOINT phantom_slot_repair', {})
     except Exception:
         run('ROLLBACK TO SAVEPOINT phantom_slot_repair', {})
-        logging.getLogger(__name__).warning("Could not repair extra AMS slots on printer %s", printer_id)
+        claim = object()
+        if _repair_warning_claims.setdefault(printer_id, claim) is claim:
+            logging.getLogger(__name__).warning("Could not repair extra AMS slots on printer %s", printer_id)
     finally:
         run('RELEASE SAVEPOINT phantom_slot_repair', {})

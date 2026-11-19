@@ -621,21 +621,21 @@ def observe_bambu_bed(conn, printer_id, model, dims):
         before = None
     elif model in ('H2D', 'H2D Pro') and tuple(old) == (320, 320):
         before = [320, 320]
-        edits = conn.execute("SELECT details FROM audit_logs WHERE entity_type='printer' AND entity_id=? "
-                             "AND action='printer.updated'", (printer_id,))
-        from core.display_json import display_object
-        for (details,) in edits:
-            audit = display_object(details)
-            if audit is None:
-                return
-            fields = audit.get('fields')
-            if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
-                return
-            if audit.get('fields_mean') == 'changed' and (
-                    'bed_x_mm' in fields or 'bed_y_mm' in fields):
-                return
     else:
         return
+    edits = conn.execute("SELECT details FROM audit_logs WHERE entity_type='printer' AND entity_id=? "
+                         "AND action='printer.updated'", (printer_id,))
+    from core.display_json import display_object
+    for (details,) in edits:
+        audit = display_object(details)
+        if audit is None:
+            return
+        fields = audit.get('fields')
+        if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
+            return
+        if audit.get('fields_mean') == 'changed' and (
+                'bed_x_mm' in fields or 'bed_y_mm' in fields):
+            return
     # Machine-type observation already holds the printer write lock in this transaction.
     conn.execute('UPDATE printers SET bed_x_mm=?,bed_y_mm=? WHERE id=?', (*dims, printer_id))
     conn.execute("INSERT INTO audit_logs(action,entity_type,entity_id,details) "

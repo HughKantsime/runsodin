@@ -115,6 +115,8 @@ class PrinterStatus:
     mqtt_retained: Optional[bool] = None
     printer_type: str = ""  # e.g. "X1C", "BL-P001" — raw value from MQTT printer_type field
     mqtt_received_at: Optional[float] = None
+    # Unit capacity survives intervening status deltas, including units with no tray details.
+    ams_counts: dict = field(default_factory=lambda: {"ams_slots": 0, "ams_ht_slots": 0})
 
 
 class BambuPrinter:
@@ -639,7 +641,9 @@ class BambuPrinter:
         self._status.ams_slots = []
         
         ams_units = ams_data.get("ams", [])
-        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag, reported_color
+        from modules.printers.telemetry.bambu.ams_identity import (
+            ams_connection_counts, ams_trays_by_slot, is_rfid_tag, reported_color, tray_exists,
+        )
         
         from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -669,6 +673,8 @@ class BambuPrinter:
                 sub_brand=tray.get("tray_sub_brands", "")
             )
             self._status.ams_slots.append(slot)
+        self._status.ams_counts = ams_connection_counts(
+            ams_units, (slot.slot_number for slot in self._status.ams_slots))
 
     def _send_gcode(self, gcode: str) -> bool:
         """Send G-code command to printer."""

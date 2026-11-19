@@ -453,7 +453,14 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
         <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-2">Printer Connection (Optional)</label>
-          <select value={formData.api_type} onChange={(e) => setFormData(prev => ({ ...prev, api_type: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+          <select value={formData.api_type} onChange={(e) => {
+            const api_type = e.target.value
+            setFormData(prev => ({
+              ...prev, api_type,
+              slot_count: !isEditing && api_type === 'bambu' && ![1, 4, 8, 12, 16].includes(prev.slot_count)
+                ? 4 : prev.slot_count,
+            }))
+          }} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
             <option value="">Manual (no connection)</option>
             {PRINTER_TYPE_OPTIONS.map(option => (
               <option key={option.value} value={option.value} disabled={option.disabled}>{printerTypeLabel(option)}</option>

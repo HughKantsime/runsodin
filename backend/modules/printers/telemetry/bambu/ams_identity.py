@@ -98,6 +98,15 @@ def ams_trays_by_slot(units, *, strict=False):
     return [(number, tray) for number, tray in entries if number not in duplicate]
 
 
+def ams_connection_counts(units, slot_numbers):
+    # A listed standard AMS has four slots even when its tray list is incomplete.
+    if not isinstance(units, list):
+        units = []
+    first_slots = {ams_slot_number(unit.get('id'), 0) for unit in units if isinstance(unit, dict)}
+    return {"ams_slots": 4 * sum(n is not None and n <= 16 for n in first_slots),
+            "ams_ht_slots": sum(17 <= n <= 24 for n in slot_numbers)}
+
+
 _HEX_COLOR = re.compile(r'#?([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?')
 
 

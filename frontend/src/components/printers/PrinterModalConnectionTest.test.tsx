@@ -156,3 +156,16 @@ it('creates a Prusa MK4 with its suggested 250 by 210 mm bed', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
   expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'prusalink', model: 'Prusa MK4', bed_x_mm: 250, bed_y_mm: 210 })
 })
+
+it.each([[5, 4], [9, 4], [8, 8]])('switching to Bambu with %i slots submits %i', (initial, expected) => {
+  const submit = fillNewBambu()
+  const type = screen.getByRole('option', { name: /PrusaLink/ }).closest('select')!
+  fireEvent.change(type, { target: { value: 'prusalink' } })
+  const slots = screen.getByRole('option', { name: '8 slots (2x AMS)' }).closest('select')!
+  fireEvent.change(slots, { target: { value: String(initial) } })
+  fireEvent.change(type, { target: { value: 'bambu' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save anyway' }))
+  expect(submit.mock.calls[0][0].slot_count).toBe(expected)
+  expect(slots).toHaveValue(String(expected))
+})

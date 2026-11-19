@@ -251,14 +251,10 @@ def configured_recipe_key(printer_id, connection):
 
 
 def bambu_tray_counts(report):
-    from modules.printers.telemetry.bambu.ams_identity import ams_slot_number, ams_trays_by_slot
+    from modules.printers.telemetry.bambu.ams_identity import ams_connection_counts, ams_trays_by_slot
     root = report.get('ams')
     units = root.get('ams') if isinstance(root, dict) else None
-    if not isinstance(units, list):
-        units = []
-    first_slots = {ams_slot_number(unit.get('id'), 0) for unit in units if isinstance(unit, dict)}
-    return {"ams_slots": 4 * sum(n is not None and n <= 16 for n in first_slots),
-            "ams_ht_slots": sum(n >= 17 for n, _ in ams_trays_by_slot(units))}
+    return ams_connection_counts(units, (n for n, _ in ams_trays_by_slot(units)))
 
 
 def validate_bambu_slot_count(count):

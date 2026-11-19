@@ -543,7 +543,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": bambu_status.state.value,
                 "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-                **bambu_tray_counts(bambu_status.raw_data.get('print', {})), "model": detected_model,
+                **bambu_status.ams_counts, "model": detected_model,
             }
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")
