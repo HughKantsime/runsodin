@@ -419,6 +419,7 @@ def test_sqlite_compatibility_inventory_is_complete_and_current() -> None:
     assert committed == serialized_inventory()
     payload = json.loads(committed)
     assert set(payload["patterns"]) == {
+        "delete-json-extraction",
         "sqlite3",
         "PRAGMA",
         "check_same_thread",
@@ -426,6 +427,9 @@ def test_sqlite_compatibility_inventory_is_complete_and_current() -> None:
         "last_insert_rowid",
         "lastrowid",
     }
+    assert any(item["path"] == "backend/modules/printers/bambu_slots.py"
+               and item["pattern"] == "delete-json-extraction"
+               and "_DELETE_UNUSED_SLOT" in item["source"] for item in payload["entries"])
     assert payload["entries"]
     assert {item["classification"] for item in payload["entries"]} <= {
         "sqlite-provider-only",

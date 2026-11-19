@@ -220,8 +220,14 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     return () => { cancelled = true }
   }, [printer?.id, isOpen])
 
-  // Show the model dimensions as hints. Only owner-entered values belong in the request.
-  const modelBed = printer ? null : lookupBedSize(formData.model)
+  useEffect(() => {
+    if (printer) return
+    setFormData(prev => {
+      if (prev.bed_x_mm !== '' || prev.bed_y_mm !== '') return prev
+      const dims = lookupBedSize(prev.model)
+      return dims ? { ...prev, bed_x_mm: String(dims[0]), bed_y_mm: String(dims[1]) } : prev
+    })
+  }, [printer, formData.model])
 
   const handleTestConnection = async () => {
     if (!formData.api_host) {
@@ -437,9 +443,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         <div>
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Bed Size (optional)</label>
           <div className="flex gap-2 items-center">
-            <input type="number" min="1" step="1" value={formData.bed_x_mm} onChange={(e) => setFormData(prev => ({ ...prev, bed_x_mm: e.target.value }))} className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder={modelBed ? `X mm (model ${modelBed[0]})` : 'X mm'} />
+            <input type="number" min="1" step="1" value={formData.bed_x_mm} onChange={(e) => setFormData(prev => ({ ...prev, bed_x_mm: e.target.value }))} className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="X mm" />
             <span className="text-[var(--brand-text-muted)] text-sm">x</span>
-            <input type="number" min="1" step="1" value={formData.bed_y_mm} onChange={(e) => setFormData(prev => ({ ...prev, bed_y_mm: e.target.value }))} className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder={modelBed ? `Y mm (model ${modelBed[1]})` : 'Y mm'} />
+            <input type="number" min="1" step="1" value={formData.bed_y_mm} onChange={(e) => setFormData(prev => ({ ...prev, bed_y_mm: e.target.value }))} className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="Y mm" />
             <span className="text-[var(--brand-text-muted)] text-xs whitespace-nowrap">mm</span>
           </div>
           <p className="text-xs text-[var(--brand-text-muted)] mt-1">Used to verify file compatibility before dispatch</p>

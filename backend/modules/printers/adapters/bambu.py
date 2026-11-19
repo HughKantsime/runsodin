@@ -114,6 +114,7 @@ class PrinterStatus:
     raw_data: Dict = field(default_factory=dict)
     mqtt_retained: Optional[bool] = None
     printer_type: str = ""  # e.g. "X1C", "BL-P001" — raw value from MQTT printer_type field
+    mqtt_received_at: Optional[float] = None
 
 
 class BambuPrinter:
@@ -556,18 +557,20 @@ class BambuPrinter:
     def _on_message(self, client, userdata, msg):
         """MQTT message callback - parse printer status updates."""
         try:
+            received_at = time.time()
             payload = json.loads(msg.payload.decode())
             retained = getattr(msg, "retain", None)
-            self._parse_status(payload, mqtt_retained=retained if type(retained) is bool else None)
+            self._parse_status(payload, received_at=received_at, mqtt_retained=retained if type(retained) is bool else None)
         except json.JSONDecodeError:
             pass
         except Exception as e:
             print(f"Error parsing message: {e}")
     
-    def _parse_status(self, payload: Dict, *, mqtt_retained=None):
+    def _parse_status(self, payload: Dict, *, mqtt_retained=None, received_at=None):
         """Parse printer status from MQTT payload."""
         with self._lock:
             self._status.raw_data = payload
+            self._status.mqtt_received_at = received_at
             self._status.mqtt_retained = mqtt_retained if type(mqtt_retained) is bool else None
             
             # Model identity: real printers report it only in the get_version

@@ -493,7 +493,6 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
             from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
             from modules.printers.telemetry.bambu.session import read_status_once
-            from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
 
             endpoint = resolve_bambu_broker_config(request.api_host, printer_id="crud-test")
             config = BambuAdapterConfig(
@@ -512,7 +511,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             if not result.success:
                 return failed(result.reason or UNKNOWN, result.error or "Failed to connect.")
             view = result.view
-            ams_slots = ams_slots_from_section(result.section) if result.section else []
+            section = result.section
             try:
                 from modules.printers.printer_models import normalize_model_name
                 detected_model = normalize_model_name("bambu", view.printer_type)
@@ -521,7 +520,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": view.state,
                 "bed_temp": view.bed_temp, "nozzle_temp": view.nozzle_temp,
-                **bambu_tray_counts(ams_slots), "model": detected_model,
+                **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}), "model": detected_model,
             }
 
         # Legacy path
@@ -544,7 +543,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": bambu_status.state.value,
                 "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-                **bambu_tray_counts(bambu_status.ams_slots), "model": detected_model,
+                **bambu_tray_counts(bambu_status.raw_data.get('print', {})), "model": detected_model,
             }
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")

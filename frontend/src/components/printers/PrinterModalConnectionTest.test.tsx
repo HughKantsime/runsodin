@@ -142,3 +142,17 @@ it('retesting a saved printer leaves its slot count for Sync AMS to repair safel
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   expect(submit.mock.calls[0][0]).not.toHaveProperty('slot_count')
 })
+
+it('creates a Prusa MK4 with its suggested 250 by 210 mm bed', async () => {
+  const submit = vi.fn()
+  api.testConnection.mockResolvedValue({ success: true })
+  render(<PrinterModal isOpen onClose={vi.fn()} onSubmit={submit} />)
+  fireEvent.change(screen.getByRole('option', { name: /PrusaLink/ }).closest('select')!, { target: { value: 'prusalink' } })
+  fireEvent.change(screen.getByPlaceholderText('e.g., p1s-01, x1c-floor2'), { target: { value: 'workshop-mk4' } })
+  fireEvent.change(screen.getByPlaceholderText('e.g., Prusa MK4, Ender 3'), { target: { value: 'Prusa MK4' } })
+  fireEvent.change(screen.getByPlaceholderText('e.g., 192.168.1.100'), { target: { value: HOST } })
+  test()
+  await screen.findByText(/^Connected!/)
+  fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
+  expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'prusalink', model: 'Prusa MK4', bed_x_mm: 250, bed_y_mm: 210 })
+})

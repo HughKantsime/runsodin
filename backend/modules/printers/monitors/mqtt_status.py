@@ -100,11 +100,12 @@ def handle_status(self, status, generation, runtime):
             # Bind repair evidence to this exact inventory batch, including across a throttled heartbeat.
             from modules.printers.bambu_slots import full_ams_slots
             self._phantom_slot_evidence = None
-            age = getattr(status, 'report_age_seconds', None)
-            if getattr(status, 'mqtt_retained', None) is False and fresh_report(False, age):
+            received_at = getattr(status, 'mqtt_received_at', None)
+            if (getattr(status, 'mqtt_retained', None) is False and received_at is not None
+                    and fresh_report(False, runtime.time.time() - received_at)):
                 numbers = full_ams_slots(raw)
                 if numbers:
-                    self._phantom_slot_evidence = (report, numbers, runtime.time.time() - (age or 0))
+                    self._phantom_slot_evidence = (report, numbers, received_at)
 
         elif isinstance(incoming_ams_report, dict) and 'ams_exist_bits' in incoming_ams_report:
             self._phantom_slot_evidence = None  # A newer mask without the matching list.
@@ -413,14 +414,15 @@ def handle_status(self, status, generation, runtime):
                             observe_printer_identity(conn, self.printer_id, 'machine_type', detected_type)
                             from modules.printers.printer_models import BAMBU_BEDS
                             if detected_type in BAMBU_BEDS:
-                                conn.execute('SAVEPOINT observed_bed')
                                 try:
+                                    conn.execute('SAVEPOINT observed_bed')
                                     observe_bambu_bed(conn, self.printer_id, detected_type, BAMBU_BEDS[detected_type])
-                                except Exception:
-                                    conn.execute('ROLLBACK TO SAVEPOINT observed_bed')
-                                    runtime.log.warning("Could not update bed size for printer %s", self.printer_id)
-                                finally:
                                     conn.execute('RELEASE SAVEPOINT observed_bed')
+                                except Exception:
+                                    # A failed SAVEPOINT can itself abort a PostgreSQL transaction.
+                                    conn.rollback()
+                                    observe_printer_identity(conn, self.printer_id, 'machine_type', detected_type)
+                                    runtime.log.warning("Could not update bed size for printer %s", self.printer_id)
                             conn.commit()
                         except Exception as e:
                             runtime.log.debug(f"[{self.name}] machine_type detect failed: {e}")

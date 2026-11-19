@@ -59,6 +59,11 @@ const PRINTER_MODELS = {
 }
 
 
+export function defaultSlotCount(printerType: string, printerModel: string): number {
+  const model = PRINTER_MODELS[printerType]?.find(m => m.value === printerModel)
+  return model?.slots ?? (['moonraker', 'prusalink', 'elegoo'].includes(printerType) ? 1 : 4)
+}
+
 /** Text for an error that may arrive as a string or as the API's {code, detail} object.
  *  Rendering the object itself throws and blanks the page. */
 export function errorText(value: unknown): string {
@@ -98,9 +103,8 @@ export default function Setup() {
   const [accessCode, setAccessCode] = useState('')
   const [printerApiKey, setPrinterApiKey] = useState('')
   const [reportedSlots, setReportedSlots] = useState<{ host: string, serial: string, count: number } | null>(null)
-  const modelSlots = PRINTER_MODELS[printerType]?.find(m => m.value === printerModel)?.slots
   const slotCount = printerType === 'bambu' && reportedSlots?.host === printerIp.trim() && reportedSlots.serial === serial.trim()
-    ? reportedSlots.count : modelSlots ?? (printerType === 'bambu' ? 4 : 1)
+    ? reportedSlots.count : defaultSlotCount(printerType, printerModel)
   const [testResult, setTestResult] = useState(null)
   const [testLoading, setTestLoading] = useState(false)
   const [printerAdded, setPrinterAdded] = useState(false)

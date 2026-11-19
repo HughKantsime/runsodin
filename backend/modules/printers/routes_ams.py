@@ -351,7 +351,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     from core.monitor_observations import fresh_report
     from modules.printers.bambu_slots import full_ams_slots, repair_phantom_slots
     repair_numbers = None
-    received_at = time.time()  # Lower bound on arrival during this one-shot connection.
+    received_at = None
     if is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
         from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
@@ -415,8 +415,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             finally:
                 # An exception mid-poll must not leave an MQTT session holding a printer slot.
                 bambu.disconnect()
-            if getattr(bambu_status, 'mqtt_retained', None) is False:
-                repair_numbers = full_ams_slots(bambu_status.raw_data.get('print', {}))
             if not bambu_status or not bambu_status.ams_slots:
                 return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                         "slots_synced": 0, "slots": [], "mismatches": [],

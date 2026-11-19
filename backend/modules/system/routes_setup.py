@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel as PydanticBaseModel, field_validator
+from pydantic import BaseModel as PydanticBaseModel, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
@@ -19,7 +19,7 @@ from core.dependencies import get_current_user
 from core.rbac import require_role, require_superadmin, require_interactive_session, require_action
 from core.auth_helpers import _validate_password
 from core.base import FilamentType
-from modules.printers.services import bambu_tray_counts
+from modules.printers.services import bambu_tray_counts, check_bambu_create_count
 from modules.printers.models import Printer, FilamentSlot
 from core.models import SystemConfig
 from core.auth import hash_password, create_access_token
@@ -108,6 +108,8 @@ class SetupAdminRequest(PydanticBaseModel):
 
 
 class SetupPrinterRequest(PydanticBaseModel):
+    _check_bambu_count = model_validator(mode='before')(check_bambu_create_count)
+
     name: str
     model: Optional[str] = None
     api_type: Optional[str] = None
@@ -264,7 +266,7 @@ def _test_bambu_legacy(request) -> dict:
         return {
             "success": True, "state": bambu_status.state.value,
             "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-            **bambu_tray_counts(bambu_status.ams_slots), "model": detected_model,
+            **bambu_tray_counts(bambu_status.raw_data.get('print', {})), "model": detected_model,
         }
     except ImportError:
         raise HTTPException(status_code=500, detail="bambu_adapter not installed")
@@ -277,7 +279,6 @@ def _test_bambu_v2(request) -> dict:
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
     from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
     from modules.printers.telemetry.bambu.session import read_status_once
-    from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
 
     endpoint = resolve_bambu_broker_config(request.api_host, printer_id="setup-test")
     config = BambuAdapterConfig(
@@ -299,7 +300,6 @@ def _test_bambu_v2(request) -> dict:
 
     view = result.view
     section = result.section
-    ams_slots = ams_slots_from_section(section) if section else []
     # Model detection: V2 exposes printer_type via info events; may be empty here.
     try:
         from modules.printers.printer_models import normalize_model_name
@@ -311,7 +311,7 @@ def _test_bambu_v2(request) -> dict:
         "state": view.state,                     # legacy-shaped enum string
         "bed_temp": view.bed_temp,
         "nozzle_temp": view.nozzle_temp,
-        **bambu_tray_counts(ams_slots),
+        **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}),
         "model": detected_model,
     }
 

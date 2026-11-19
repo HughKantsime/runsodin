@@ -165,7 +165,8 @@ class PrinterMonitor:
 
         class _LegacyStatusShim:
             """Minimal legacy-PrinterStatus shape. Only raw_data is read."""
-            def __init__(self, section_dict, mqtt_retained):
+            def __init__(self, section_dict, mqtt_retained, received_at):
+                self.mqtt_received_at = received_at
                 self.raw_data = {"print": section_dict}
                 self.mqtt_retained = mqtt_retained
 
@@ -175,7 +176,7 @@ class PrinterMonitor:
             if isinstance(item, BambuReportEvent):
                 # model_dump() preserves the same keys legacy saw
                 section_dict = item.section.model_dump(exclude_unset=True)
-                on_status(_LegacyStatusShim(section_dict, item.mqtt_retained), generation)
+                on_status(_LegacyStatusShim(section_dict, item.mqtt_retained, item.ts), generation)
             elif isinstance(item, BambuInfoEvent):
                 # Model identity (ota product_name); persisted on the next heartbeat.
                 product = ota_product_name(item.section.model_dump())

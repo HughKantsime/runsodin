@@ -250,16 +250,29 @@ def configured_recipe_key(printer_id, connection):
     return stable_configuration_key(_get_printer_info(printer_id, connection=connection), SECRET_KEY.encode())
 
 
-def bambu_tray_counts(slots):
-    return {"ams_slots": sum(1 <= slot.slot_number <= 16 for slot in slots),
-            "ams_ht_slots": sum(17 <= slot.slot_number <= 24 for slot in slots)}
+def bambu_tray_counts(report):
+    from modules.printers.telemetry.bambu.ams_identity import ams_slot_number, ams_trays_by_slot
+    root = report.get('ams')
+    units = root.get('ams') if isinstance(root, dict) else None
+    if not isinstance(units, list):
+        units = []
+    first_slots = {ams_slot_number(unit.get('id'), 0) for unit in units if isinstance(unit, dict)}
+    return {"ams_slots": 4 * sum(n is not None and n <= 16 for n in first_slots),
+            "ams_ht_slots": sum(n >= 17 for n, _ in ams_trays_by_slot(units))}
 
 
 def validate_bambu_slot_count(count):
-    if count > 16 or (count > 1 and count % 4):
+    from modules.printers.bambu_slots import VALID_BAMBU_COUNTS
+    if type(count) is not int or count not in VALID_BAMBU_COUNTS:
         from fastapi import HTTPException
         raise HTTPException(400, 'Choose 1 for an external spool or 4 slots per AMS, up to 16. '
                                  'The printer reports AMS HT trays separately.')
+
+
+def check_bambu_create_count(values):
+    if isinstance(values, dict) and str(values.get('api_type')).lower() == 'bambu':
+        validate_bambu_slot_count(values.get('slot_count', 4))
+    return values
 
 
 def create_printer_record(db, **fields):

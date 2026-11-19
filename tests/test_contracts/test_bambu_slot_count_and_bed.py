@@ -5,14 +5,36 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.orm import Session
 
-from core.print_attempts import sqlalchemy_runner
+from core.print_attempts import qmark_runner, sqlalchemy_runner
+from tests.test_contracts.test_cert_E_notif_postgres import pg_engine
 from modules.printers.bambu_slots import full_ams_slots, repair_phantom_slots
 from tests.test_contracts.test_ams_sync_acceptance import ams_client, own_ams_operator, sync_client, token_client
 from tests.test_contracts.test_cert_A_harness import (
-    broker_socket, cert_app, cert_client, fernet_env, load_frames, review_db, wire_monitor,
+    broker_socket, cert_app, cert_client, fernet_env, load_frames, review_db, wire_monitor as connected_monitor,
 )
+
+
+@pytest.fixture
+def wire_monitor(connected_monitor, monkeypatch):
+    # The socket's arrival stamp and the monitor's heartbeat use the same test clock.
+    from modules.printers.adapters import bambu
+    from modules.printers.monitors import mqtt_printer
+    monkeypatch.setattr(bambu, 'time', mqtt_printer.time)
+    return connected_monitor
+
+
+@pytest.fixture(params=['sqlite', pytest.param('postgresql', marks=pytest.mark.postgresql)])
+def slot_db(request):
+    if request.param == 'sqlite':
+        yield request.getfixturevalue('review_db')
+    else:
+        with request.getfixturevalue('pg_engine').connect() as conn, conn.begin():
+            with Session(conn, join_transaction_mode='create_savepoint') as db:
+                yield db
+            conn.rollback()
 
 
 def h2d_packet():
@@ -44,10 +66,29 @@ def seed_extra(db, pid, number):
 def count_changes(db, pid):
     rows = db.execute(text("SELECT details FROM audit_logs WHERE entity_id=:pid AND entity_type='printer' "
                            "AND action='printer.observed_config_changed'"), {'pid': pid})
-    return [d for raw, in rows if (d := json.loads(raw)).get('field') == 'slot_count']
+    return [d for raw, in rows if (d := json.loads(raw) if isinstance(raw, str) else raw).get('field') == 'slot_count']
 
 
-@pytest.mark.parametrize('standard,packet', [(4, single_ams_and_ht), (8, h2d_packet)])
+def partial_ams():
+    packet = single_ams_and_ht()
+    packet['print']['ams']['ams'][0]['tray'] = [{'id': '0'}, {'id': '1'}]
+    return packet
+
+
+def unit_without_trays():
+    packet = h2d_packet()
+    packet['print']['ams']['ams'][1]['tray'] = []
+    return packet
+
+
+def no_units():
+    packet = h2d_packet()
+    del packet['print']['ams']['ams']
+    return packet
+
+
+@pytest.mark.parametrize('standard,packet', [(4, single_ams_and_ht), (8, h2d_packet), (4, partial_ams),
+                                             (8, unit_without_trays), (0, no_units)])
 @pytest.mark.parametrize('v2', [False, True], ids=['legacy', 'v2'])
 def test_connection_routes_count_standard_and_ht(monkeypatch, v2, standard, packet):
     from modules.printers import routes_crud
@@ -73,7 +114,7 @@ def test_connection_routes_count_standard_and_ht(monkeypatch, v2, standard, pack
         setup_probe = routes_setup._test_bambu_legacy
     for response in (routes_crud.test_printer_connection(request, {}), setup_probe(request)):
         assert response['success']
-        assert (response['ams_slots'], response['ams_ht_slots']) == (standard, 1)
+        assert (response['ams_slots'], response['ams_ht_slots']) == (standard, 1 if standard else 0)
 
 
 @pytest.mark.parametrize('setup', [False, True], ids=['api', 'setup'])
@@ -143,9 +184,10 @@ def test_report_cannot_authorize_repair(wire_monitor, review_db, case):
     assert not count_changes(review_db, 301)
 
 
-@pytest.mark.parametrize('v2', [False, True], ids=['legacy', 'v2'])
-@pytest.mark.parametrize('retained', [False, True])
-def test_manual_sync_uses_same_report_and_retained_flag(sync_client, review_db, monkeypatch, v2, retained):
+@pytest.mark.parametrize('v2,case', [(False, 'full'), (False, 'retained')] + [
+    (True, case) for case in ('full', 'retained', 'delta', 'mask-disagrees', 'no-mask', 'partial', 'unknown-age', 'stale')
+])
+def test_manual_sync_requires_fresh_full_v2_section(sync_client, review_db, monkeypatch, v2, case):
     from modules.printers.adapters import bambu
     from modules.printers.telemetry import feature_flag
     from modules.printers.telemetry.bambu import session
@@ -154,9 +196,20 @@ def test_manual_sync_uses_same_report_and_retained_flag(sync_client, review_db, 
     seed_extra(review_db, 199, 9)
     packet = h2d_packet()
     monkeypatch.setattr(feature_flag, 'is_v2_enabled', lambda: v2)
+    root = packet['print']['ams']
+    retained = case == 'retained'
+    if case == 'delta':
+        packet['print']['msg'] = 1
+    elif case == 'mask-disagrees':
+        root['ams_exist_bits'] = '11'
+    elif case == 'no-mask':
+        del root['ams_exist_bits']
+    elif case == 'partial':
+        root['ams'][1]['tray'].pop()
+    received = None if case == 'unknown-age' else time.time() - (120 if case == 'stale' else 0)
     if v2:
         response = session.StatusReadResult(True, section=BambuPrintSection.model_validate(packet['print']),
-                                            mqtt_retained=retained, received_at=time.time())
+                                            mqtt_retained=retained, received_at=received)
         monkeypatch.setattr(session, 'read_status_once', lambda *a, **kw: response)
     else:
         printer = bambu.BambuPrinter(ip='192.0.2.1', serial='test', access_code='test')
@@ -166,8 +219,9 @@ def test_manual_sync_uses_same_report_and_retained_flag(sync_client, review_db, 
         monkeypatch.setattr(time, 'sleep', lambda _: None)
     result = client.post('/printers/199/sync-ams', headers=headers)
     assert result.status_code == 200, result.text
-    assert 17 in slots(review_db, 199) and (9 in slots(review_db, 199)) == retained
-    assert count_changes(review_db, 199) == ([] if retained else [{'field': 'slot_count', 'old': 9, 'new': 8}])
+    repaired = v2 and case == 'full'
+    assert 17 in slots(review_db, 199) and (9 not in slots(review_db, 199)) == repaired
+    assert count_changes(review_db, 199) == ([{'field': 'slot_count', 'old': 9, 'new': 8}] if repaired else [])
 
 
 def test_removed_stored_mapping_names_slot_before_upload(review_db, tmp_path, monkeypatch):
@@ -259,7 +313,7 @@ def test_printer_update_service_distinguishes_rotated_and_reencrypted_values(fer
 
 @pytest.mark.parametrize('history', [
     'material', 'color', 'color-hex', 'assigned', 'spoolman', 'confirmed', 'feed-flag', 'feed-note',
-    'later-load', 'observation', 'location', 'confirmation', 'reported', 'slot-audit', 'spool-audit', 'repair-history',
+    'later-load', 'observation', 'location', 'confirmation', 'reported', 'reported-missing', 'slot-audit', 'spool-audit', 'repair-history',
 ])
 def test_any_used_row_protects_whole_range(cert_app, review_db, history):
     # Slot 5 is eligible on its own. Finding history on 6 must also preserve 5.
@@ -282,7 +336,9 @@ def test_any_used_row_protects_whole_range(cert_app, review_db, history):
     elif history == 'confirmation':
         db.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) "
                         "VALUES(:state,:slot,'keep',980)"), {'state': 'a' * 32, 'slot': slot})
-    elif history == 'reported':
+    elif history in ('reported', 'reported-missing'):
+        if history == 'reported-missing':
+            db.execute(text('DELETE FROM filament_slots WHERE id=:id'), {'id': slot})
         db.execute(text("INSERT INTO ams_read_generations(generation_id,printer_id,configuration_key,runtime_incarnation,started_at,state) "
                         "VALUES(:gen,301,:key,:runtime,CURRENT_TIMESTAMP,'acquiring')"),
                    {'gen': '1' * 32, 'key': '2' * 64, 'runtime': '3' * 32})
@@ -302,7 +358,7 @@ def test_any_used_row_protects_whole_range(cert_app, review_db, history):
                         "VALUES('old-repair',980,'stale-location.clear','[301, 6]','[null, null]')"))
     repair_phantom_slots(sqlalchemy_runner(db), 301, {1, 2, 3, 4, 17, 18})
     db.commit()
-    assert slots(db, 301) == [5, 6]
+    assert slots(db, 301) == ([5] if history == 'reported-missing' else [5, 6])
     assert db.execute(text('SELECT slot_count FROM printers WHERE id=301')).scalar_one() == 6
     assert not count_changes(db, 301)
 
@@ -372,3 +428,164 @@ def test_repair_audit_failure_preserves_slots_and_regular_sync(wire_monitor, rev
     assert slots(review_db, 301) == [1, 2, 3, 4, 5, 17]
     assert review_db.execute(text('SELECT slot_count FROM printers WHERE id=301')).scalar_one() == 5
     assert not count_changes(review_db, 301)
+
+
+@pytest.mark.parametrize('uri', ['/setup/printer', '/printers'])
+@pytest.mark.parametrize('invalid', [None, 'four', '4', 0, -4])
+def test_invalid_bambu_count_is_a_plain_http_error(cert_app, uri, invalid):
+    from core.dependencies import get_current_user
+    from modules.system.routes_setup import router
+    cert_app.app.include_router(router)
+    cert_app.app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'admin', 'group_id': None}
+    response = cert_app.post(uri, json={'name': 'Fixture', 'api_type': 'bambu', 'slot_count': invalid},
+                             headers=cert_app.roles['admin'])
+    assert response.status_code == 400
+    assert '4 slots per AMS' in response.json()['detail']
+
+
+def test_valid_eight_survives_four_ht_units(cert_app, review_db):
+    for number in range(5, 9):
+        seed_extra(review_db, 301, number)
+    repair_phantom_slots(sqlalchemy_runner(review_db), 301, {1, 2, 3, 4, 17, 18, 19, 20})
+    assert slots(review_db, 301) == [5, 6, 7, 8]
+    assert review_db.execute(text('SELECT slot_count FROM printers WHERE id=301')).scalar_one() == 8
+    assert not count_changes(review_db, 301)
+
+
+@pytest.mark.parametrize('action,before,after', [
+    ('admin.resolve', '{}', '{}'),
+    ('stale-location.clear', '{', '[null,null]'),
+    ('telemetry.relocate', '{"printer_id":301,"slot":6}', '{'),
+])
+def test_unreadable_inventory_repair_keeps_count_quietly(cert_app, review_db, caplog, action, before, after):
+    seed_extra(review_db, 301, 5)
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(980,'Test','Fixture')"))
+    review_db.execute(text("INSERT INTO spools(id,filament_id) VALUES(980,980)"))
+    review_db.execute(text("INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) "
+                           "VALUES('old',980,:action,:before,:after)"), dict(action=action, before=before, after=after))
+    for _ in range(2):
+        repair_phantom_slots(sqlalchemy_runner(review_db), 301, {1, 2, 3, 4, 17})
+    assert slots(review_db, 301) == [5]
+    assert review_db.execute(text('SELECT slot_count FROM printers WHERE id=301')).scalar_one() == 5
+    assert not count_changes(review_db, 301)
+    assert 'Could not repair' not in caplog.text
+
+
+@pytest.mark.parametrize('reset', ['reconnect', 'new-connection', 'unknown-age'])
+def test_monitor_drops_unusable_repair_evidence(wire_monitor, review_db, reset):
+    monitor, sock, clock, _ = wire_monitor
+    seed_extra(review_db, 301, 5)
+    sock.deliver({'print': {'gcode_state': 'IDLE'}})
+    clock[0] += 1
+    if reset == 'unknown-age':
+        monitor._bambu._parse_status(single_ams_and_ht(), mqtt_retained=False)
+    else:
+        sock.deliver(single_ams_and_ht())
+        assert monitor._phantom_slot_evidence is not None
+        if reset == 'reconnect':
+            sock.on_connect(sock, None, {}, 0)
+        else:
+            monitor._begin_connection()
+    assert monitor._phantom_slot_evidence is None
+    clock[0] += 12
+    sock.deliver({'print': {'gcode_state': 'IDLE'}})
+    assert 5 in slots(review_db, 301)
+    assert not count_changes(review_db, 301)
+
+
+def test_machine_type_survives_bed_savepoint_failure(wire_monitor, review_db, monkeypatch):
+    from core.db_utils import _ConnectionAdapter
+    execute = _ConnectionAdapter.execute
+    failed = []
+
+    def refuse_savepoint(conn, sql, parameters=None):
+        if sql == 'SAVEPOINT observed_bed':
+            failed.append(sql)
+            raise RuntimeError('Fixture savepoint failure')
+        return execute(conn, sql, parameters)
+
+    monkeypatch.setattr(_ConnectionAdapter, 'execute', refuse_savepoint)
+    _, sock, _, _ = wire_monitor
+    sock.deliver({'print': {'printer_type': 'O1E', 'gcode_state': 'IDLE'}})
+    assert failed == ['SAVEPOINT observed_bed']
+    assert review_db.execute(text('SELECT machine_type,bed_x_mm,bed_y_mm FROM printers WHERE id=301')).one() == (
+        'H2D Pro', None, None)
+
+
+@pytest.mark.parametrize('spool_audit', [False, True])
+def test_created_slot_repair_respects_database_stamps_and_spool_audit(slot_db, spool_audit):
+    from core.db_compat import as_utc_datetime
+    from core.db_utils import _ConnectionAdapter
+    from modules.system.routes_setup import setup_create_printer, SetupPrinterRequest
+
+    db = slot_db
+    engine = db.get_bind()
+    sqlite = engine.dialect.name == 'sqlite'
+
+    def cross_second(conn, cursor, statement, params, context, many):
+        if statement.startswith('INSERT INTO filament_slots') and not getattr(context, 'delayed', False):
+            context.delayed = True
+            time.sleep(1.05)
+
+    if sqlite:
+        event.listen(engine, 'before_cursor_execute', cross_second)
+    try:
+        # An unconfigured five-slot printer uses the real creation defaults. Identify it
+        # as Bambu afterwards to reproduce the state predating Bambu count validation.
+        printer = setup_create_printer(SetupPrinterRequest(name='Fixture', slot_count=5), {'role': 'admin'}, db)
+    finally:
+        if sqlite:
+            event.remove(engine, 'before_cursor_execute', cross_second)
+    pid = printer['id']
+    stamps = db.execute(text('SELECT p.created_at,s.loaded_at FROM printers p JOIN filament_slots s '
+                             'ON p.id=s.printer_id WHERE p.id=:p AND s.slot_number=5'), {'p': pid}).one()
+    age = (as_utc_datetime(stamps[1]) - as_utc_datetime(stamps[0])).total_seconds()
+    assert (1 if sqlite else 0) <= age <= 5
+    db.execute(text("UPDATE printers SET api_type='bambu' WHERE id=:p"), {'p': pid})
+    db.execute(text("INSERT INTO audit_logs(action,entity_type,entity_id,details) VALUES('scan_assign','spool',1,:d)"),
+               {'d': json.dumps({'printer_id': pid, 'slot': 5 if spool_audit else 4})})
+    conn = _ConnectionAdapter(db.connection().connection, not sqlite)
+    repair_phantom_slots(qmark_runner(conn), pid, {1, 2, 3, 4, 17})
+    assert slots(db, pid) == list(range(1, 6 if spool_audit else 5))
+    assert count_changes(db, pid) == ([] if spool_audit else [{'field': 'slot_count', 'old': 5, 'new': 4}])
+
+
+@pytest.mark.parametrize('fields', [['name'], ['bed_x_mm']])
+def test_h2d_bed_respects_changed_fields_on_both_databases(slot_db, fields):
+    from core.db_utils import _ConnectionAdapter
+    from modules.printers.monitors.mqtt_status import observe_bambu_bed
+    db = slot_db
+    db.execute(text("INSERT INTO printers(id,name,bed_x_mm,bed_y_mm) VALUES(9000,'Fixture',320,320)"))
+    db.execute(text("INSERT INTO audit_logs(action,entity_type,entity_id,details) "
+                    "VALUES('printer.updated','printer',9000,:d)"),
+               {'d': json.dumps({'fields_mean': 'changed', 'fields': fields})})
+    conn = _ConnectionAdapter(db.connection().connection, db.get_bind().dialect.name == 'postgresql')
+    observe_bambu_bed(conn, 9000, 'H2D', (350, 320))
+    changed = fields == ['name']
+    assert db.execute(text('SELECT bed_x_mm,bed_y_mm FROM printers WHERE id=9000')).one() == (
+        350 if changed else 320, 320)
+    assert db.execute(text("SELECT count(*) FROM audit_logs WHERE entity_id=9000 "
+                           "AND action='printer.observed_config_changed'")).scalar_one() == int(changed)
+
+
+@pytest.mark.parametrize('stamp,repaired', [
+    (None, True), ('2026-11-19 12:00:05.250000', True),
+    ('2026-11-19 12:00:05.250001', False), ('2026-11-19 12:00:00.249999', False),
+])
+def test_creation_stamp_window(slot_db, stamp, repaired):
+    slot_db.execute(text("INSERT INTO printers(id,name,api_type,slot_count,created_at) "
+                         "VALUES(9000,'Fixture','bambu',5,'2026-11-19 12:00:00.250000')"))
+    slot_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,loaded_at) "
+                         "VALUES(9000,5,'empty',:stamp)"), {'stamp': stamp})
+    repair_phantom_slots(sqlalchemy_runner(slot_db), 9000, {1, 2, 3, 4, 17})
+    assert (slots(slot_db, 9000) == []) == repaired
+    assert slot_db.execute(text('SELECT slot_count FROM printers WHERE id=9000')).scalar_one() == (4 if repaired else 5)
+
+
+def test_api_stores_suggested_prusa_bed(cert_app, review_db):
+    response = cert_app.post('/printers', headers=cert_app.roles['admin'], json={
+        'name': 'workshop-mk4', 'api_type': 'prusalink', 'model': 'Prusa MK4', 'bed_x_mm': 250, 'bed_y_mm': 210,
+    })
+    assert response.status_code == 201, response.text
+    assert review_db.execute(text('SELECT bed_x_mm,bed_y_mm FROM printers WHERE id=:id'),
+                             {'id': response.json()['id']}).one() == (250, 210)

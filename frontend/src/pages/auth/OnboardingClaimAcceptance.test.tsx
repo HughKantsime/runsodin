@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import Setup from './Setup'
+import Setup, { defaultSlotCount } from './Setup'
 import Settings from '../admin/Settings'
 const api=vi.hoisted(()=>({refresh:vi.fn(),completeOK:true,branding:true}))
 vi.mock('../../permissions',()=>({refreshPermissions:api.refresh,getCurrentUser:()=>({id:1})}))
@@ -232,4 +232,27 @@ test.each([
  expect(message).toHaveTextContent(sentence)
  expect(message.textContent).not.toMatch(/192\.0\.2\.45|FIXTURE-SERIAL|fixture-code|Failed to connect/)
  expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument()
+})
+
+test.each([['', 1], ['XL', 5]])('wizard keeps the Prusa slot default for model "%s" after a probe', async (model, slots) => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.click(screen.getByRole('button',{name:'Prusa',exact:true}))
+ fireEvent.change(screen.getByRole('combobox'), { target: { value: model } })
+ fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'), { target: { value: 'Fixture Prusa' } })
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '192.0.2.45' } })
+ const original = vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async (url, opts) => url === '/api/printers/test-connection'
+   ? { ok: true, json: async () => ({ success: true, ams_slots: 8 }) } as Response : original(url, opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ await screen.findByText(/^Connected!/)
+ fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
+ await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/setup/printer', expect.anything()))
+ const created = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/setup/printer')!
+ expect(JSON.parse(String(created[1]?.body)).slot_count).toBe(slots)
+})
+
+test('a printer type without a setup model list defaults to four slots', () => {
+ expect(defaultSlotCount('octoprint', '')).toBe(4)
 })
