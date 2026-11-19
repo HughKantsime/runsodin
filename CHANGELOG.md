@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- ODIN can send prints from a Mac bind mount when it confirms the shared data folder can lock printers safely.
+- ODIN can send prints when the Mac shares its data folder into Docker’s VM over virtiofs and the printer lock check passes.
 - When other users can write to the ODIN data folder, blocked commands and the System server check now show the folder mode and how to fix it.
 
 ## [2.4.0] - 2026-11-18

@@ -135,12 +135,7 @@ def _explicit_power(printer_id, purpose, authority):
                 'manual_toggle': power_toggle}[purpose](printer_id)
     from modules.printers.power_fence import run
     import sys
-    from core.dispatch_target_lock import TargetLockResult
-    result = run(sys.modules[__name__], printer_id, purpose, authority=authority)
-    if isinstance(result, TargetLockResult):
-        from fastapi import HTTPException
-        raise HTTPException(409, {'storage_reason': result.reason, 'message': result.message})
-    return result
+    return run(sys.modules[__name__], printer_id, purpose, authority=authority)
 
 
 def power_on(printer_id: int, expected_config=None, *, authority=None) -> Optional[Union[bool, MqttPowerReceipt]]:

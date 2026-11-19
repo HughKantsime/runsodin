@@ -2,6 +2,8 @@
 import fcntl
 import logging
 import os
+import subprocess
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +13,7 @@ from sqlalchemy import text
 
 from core import dispatch_target_lock as locks
 from core.dispatch_identity import build_identity
-from core.errors import OdinError
+from core.errors import ErrorCode, OdinError
 from tests.test_contracts.test_dispatch_target_lock import engine
 from tests.test_contracts.test_dispatch_target_entrypoints import inputs, no_devices, setup, review_db
 from tests.test_contracts.test_power_fence_runtime import runtime, token_client
@@ -23,10 +25,56 @@ from tests.test_contracts.test_dispatch_observation_binding_behavior import obse
 KEY = 'a' * 64
 
 
+def mountinfo(monkeypatch, rows):
+    original = Path.read_bytes
+    def read(path):
+        if path != Path('/proc/self/mountinfo'):
+            return original(path)
+        if rows is None:
+            raise FileNotFoundError
+        return os.fsencode(''.join(f'1 0 {device} / {point} rw - {kind} none rw\n'
+                                   for device, point, kind in rows))
+    monkeypatch.setattr(Path, 'read_bytes', read)
+
+
+def device_of(folder):
+    dev = folder.stat().st_dev
+    return f'{os.major(dev)}:{os.minor(dev)}'
+
+
+@pytest.mark.parametrize('kind', ['virtiofs', 'fuse.sshfs', 'fuse.rclone', 'fuse', 'fuse.virtiofs',
+                                  'unreadable', 'no_match'])
+@pytest.mark.parametrize('magic', [0x65735546, 0x6a656a63])
+def test_shared_mount_requires_exact_virtiofs_mountinfo(engine, monkeypatch, kind, magic):
+    folder = Path(engine.url.database).parent / 'shared folder'
+    folder.mkdir()
+    db = folder / 'probe.db'
+    db.touch()
+    target = SimpleNamespace(url=engine.url.set(database=str(db)), dialect=engine.dialect)
+    device = device_of(folder)
+    point = str(folder).replace(' ', r'\040')
+    rows = [(device, '/', 'fuse' if kind == 'virtiofs' else 'virtiofs'),
+            (device, point, kind), (device, point[:-1], 'virtiofs'),
+            ('999:999', point, 'virtiofs')]
+    if kind == 'no_match':
+        rows = [rows[-2], rows[-1]]
+    mountinfo(monkeypatch, None if kind == 'unreadable' else rows)
+    monkeypatch.setattr(locks, '_filesystem_type', lambda fd: magic)
+    if kind != 'virtiofs':
+        monkeypatch.setattr(locks, '_prove_exclusion', lambda fd: pytest.fail('Probed unverified mount'))
+    result = locks.acquire_target_lock(target, KEY)
+    if kind == 'virtiofs':
+        assert result.status == 'acquired' and result.handle.close().released
+    else:
+        assert (result.status, result.reason) == ('unsupported', 'filesystem')
+        assert (kind if kind not in ('unreadable', 'no_match') else 'unrecognized') in result.message
+
+
 @pytest.mark.parametrize('magic', [0x65735546, 0x6a656a63], ids=['FUSE', 'virtiofs'])
 @pytest.mark.parametrize('behavior', ['working', 'no_exclusion', 'still_blocked', 'error'])
 def test_shared_mount_requires_contention_and_release(engine, monkeypatch, magic, behavior):
     monkeypatch.setattr(locks, '_filesystem_type', lambda fd: magic)
+    mountinfo(monkeypatch, [(device_of(Path(engine.url.database).parent), '/', 'virtiofs')])
     real = fcntl.flock
     calls = []
     def flock(fd, operation):
@@ -50,7 +98,7 @@ def test_shared_mount_requires_contention_and_release(engine, monkeypatch, magic
         assert result.handle.close().released
     else:
         assert (result.status, result.reason) == ('unsupported', 'filesystem')
-        assert ('FUSE' if magic == 0x65735546 else 'virtiofs') in result.message
+        assert 'virtiofs' in result.message
 
 
 @pytest.mark.parametrize('magic,label', [(0x6969, 'NFS'), (0xff534d42, 'CIFS'), (0xfe534d42, 'SMB'),
@@ -111,7 +159,8 @@ def test_dispatch_refusal_identifies_storage_or_conflict(setup, monkeypatch, mod
 
 
 @pytest.mark.parametrize('mode', [0o775, 0o777, None])
-def test_power_refusal_identifies_storage_or_conflict(runtime, token_client, review_db, mode):
+@pytest.mark.parametrize('action', ['on', 'off', 'toggle'])
+def test_power_refusal_identifies_storage_or_conflict(runtime, token_client, review_db, mode, action):
     from modules.printers import routes_smart_plug
     _, engine, calls, _ = runtime
     client, issue = token_client
@@ -121,10 +170,12 @@ def test_power_refusal_identifies_storage_or_conflict(runtime, token_client, rev
     review_db.rollback()
     conflict = 'Power command was refused or its outcome is uncertain; reconcile before retrying.'
     with refuse_lock(engine, key, mode, conflict) as sentence:
-        response = client.post('/printers/599/plug/on', headers=headers)
+        response = client.post(f'/printers/599/plug/{action}', headers=headers)
         assert response.status_code == 409
         detail = response.json()['detail']
         assert (detail['message'] if mode else detail) == sentence
+        if mode:
+            assert detail['storage_reason'] == 'folder_permissions'
     assert calls == []
 
 
@@ -164,7 +215,8 @@ def test_recovery_refusal_identifies_storage_or_conflict(actions, review_db, mod
 
 
 @pytest.mark.parametrize('mode', [0o775, None])
-def test_retirement_keeps_claim_and_reports_storage_cause(observed, caplog, mode):
+def test_retirement_keeps_claim_and_reports_storage_cause(observed, caplog, mode, monkeypatch):
+    monkeypatch.setattr(locks, '_warned_storage_causes', {})
     from core.dispatch_claims import retire_observed_terminal
     from core.dispatch_observations import bind_generic_observation
     engine, key = observed
@@ -173,6 +225,8 @@ def test_retirement_keeps_claim_and_reports_storage_cause(observed, caplog, mode
     with refuse_lock(engine, physical, mode, 'Another sender is using this printer. ODIN kept the print reservation.') as sentence:
         with caplog.at_level(logging.INFO, logger='core.dispatch_claims'):
             assert retire_observed_terminal(engine, printer_id=59, print_job_id=70) == 'retained'
+            if mode:
+                assert retire_observed_terminal(engine, printer_id=59, print_job_id=70) == 'retained'
         messages = [r.getMessage() for r in caplog.records if r.name == 'core.dispatch_claims']
         assert messages == [sentence]
     with engine.connect() as conn:
@@ -194,6 +248,7 @@ def test_system_check_clears_when_folder_is_fixed(review_db, monkeypatch, tmp_pa
 @pytest.mark.parametrize('unsafe', ['data_folder', 'lock_folder', 'lock_file'])
 def test_shared_mount_checks_permissions_before_probing(engine, monkeypatch, unsafe):
     monkeypatch.setattr(locks, '_filesystem_type', lambda fd: 0x65735546)
+    mountinfo(monkeypatch, [(device_of(Path(engine.url.database).parent), '/', 'virtiofs')])
     monkeypatch.setattr(locks, '_prove_exclusion', lambda fd: pytest.fail('Probed unsafe storage'))
     folder = Path(engine.url.database + '.odin-sender-locks')
     folder.mkdir(mode=0o700)
@@ -260,12 +315,15 @@ def test_startup_logs_storage_warning_once_and_continues(engine, monkeypatch, ca
 
 
 @pytest.mark.parametrize('mode', [0o775, None])
-def test_automatic_power_logs_refusal_without_sending(runtime, review_db, caplog, mode):
+def test_automatic_power_logs_refusal_without_sending(runtime, review_db, caplog, mode, monkeypatch):
+    monkeypatch.setattr(locks, '_warned_storage_causes', {})
     module, engine, calls, _ = runtime
     with refuse_lock(engine, target_key(review_db, 599), mode, 'Another sender is using this printer. No power command was sent.') as sentence:
         with caplog.at_level(logging.INFO, logger=module.log.name):
             module.on_print_start(599, print_job_id=599)
-        assert sentence in [record.getMessage() for record in caplog.records]
+            if mode:
+                module.on_print_start(599, print_job_id=599)
+        assert [record.getMessage() for record in caplog.records].count(sentence) == 1
     assert calls == []
 
 
@@ -289,3 +347,123 @@ def test_parent_filesystem_cannot_vouch_for_separately_mounted_locks(engine, mon
     result = locks.acquire_target_lock(engine, KEY)
     assert (result.status, result.reason) == ('unsupported', 'filesystem')
     assert 'same local disk or Docker volume' in result.message
+
+
+@pytest.mark.parametrize('entry', ['fence', 'smart_plug'])
+def test_manual_power_storage_refusal_is_a_domain_exception(runtime, monkeypatch, entry):
+    from modules.printers import power_fence
+    from modules.printers.power_authority import ManualPowerAuthority
+    module, engine, calls, _ = runtime
+    authority = object.__new__(ManualPowerAuthority)
+    monkeypatch.setattr(ManualPowerAuthority, 'facts', lambda self, facts: facts)
+    with folder_mode(engine, 0o775) as sentence, pytest.raises(power_fence.PowerStorageRefusal) as exc:
+        if entry == 'fence':
+            power_fence.run(module, 599, 'manual_on', authority=authority)
+        else:
+            module.power_on(599, authority=authority)
+    assert exc.value.reason == 'folder_permissions' and str(exc.value) == sentence
+    assert calls == []
+
+
+def test_reorder_storage_refusal_is_nonretriable_resource_conflict(queued):
+    with folder_mode(queued.get_bind(), 0o775) as sentence, pytest.raises(OdinError) as exc:
+        order(queued, [42, 41, 13])
+    assert exc.value.code == ErrorCode.resource_conflict and not exc.value.retriable
+    assert exc.value.detail == sentence and exc.value.extra == {'storage_reason': 'folder_permissions'}
+
+
+def test_owner_denied_write_open_gets_mode_600_instruction(engine, monkeypatch):
+    folder = Path(engine.url.database + '.odin-sender-locks')
+    folder.mkdir(mode=0o700)
+    path = folder / (KEY + '.lock')
+    path.touch(mode=0o400)
+    if os.access(path, os.W_OK):  # Root can still open a 0400 file in CI.
+        original = os.open
+        def denied(name, flags, *args, **kwargs):
+            if name == path.name and flags & os.O_RDWR:
+                raise PermissionError
+            return original(name, flags, *args, **kwargs)
+        monkeypatch.setattr(os, 'open', denied)
+    result = locks.acquire_target_lock(engine, KEY)
+    assert (result.status, result.reason) == ('uncertain', 'lock_permissions')
+    assert 'mode 600' in result.message
+
+
+def test_changelog_scopes_mac_data_folder_to_virtiofs_vm():
+    changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
+    fixed = changelog.split('## [Unreleased]', 1)[1].split('## [', 1)[0]
+    assert any(all(term in line for term in ('Mac', 'Docker', 'VM', 'virtiofs', 'lock'))
+               for line in fixed.splitlines())
+
+
+def test_poll_warnings_are_shared_per_cause_and_process(caplog, monkeypatch):
+    monkeypatch.setattr(locks, '_warned_storage_causes', {})
+    retirement = logging.getLogger('core.dispatch_claims')
+    power = logging.getLogger('power')
+    folder = locks.TargetLockResult('uncertain', reason='folder_permissions', message='folder mode')
+    owner = locks.TargetLockResult('uncertain', reason='file_owner', message='file owner')
+    for pid in (101, 102):
+        monkeypatch.setattr(os, 'getpid', lambda: pid)
+        locks.warn_storage_once(retirement, folder)
+        locks.warn_storage_once(power, folder)
+        locks.warn_storage_once(power, owner)
+    assert [record.getMessage() for record in caplog.records] == ['folder mode', 'file owner'] * 2
+
+
+@pytest.mark.parametrize('ineffective', [False, True], ids=['conflict', 'unexpected_acquisition'])
+def test_ops_probe_requires_a_second_container_conflict_and_cleans_home_folder(tmp_path, ineffective):
+    # Replace the Docker CLI. Each simulated run executes the script's own guest Python
+    # in an independent local process, with a fixture directory standing in for /data.
+    root = Path(__file__).resolve().parents[2]
+    fake_docker = r'''
+docker() (
+    case "$1 $2" in
+        "volume create") mkdir "$VOLUME" && echo "$VOLUME" ;;
+        "volume rm") rm -rf -- "$3" ;;
+        "rm -f") : ;;
+        "run --rm")
+            while [[ $# -gt 0 && "$1" != --mount ]]; do shift; done
+            src=${2#*,src=}
+            if [[ "$2" == type=bind,* && "$src" != "$HOME/"* ]]; then exit 1; fi
+            cd -- "${src%,dst=/data}" || exit 1
+            "$PYTHON" -c "$GUEST" "${@: -2}"
+            ;;
+        *) exit 2 ;;
+    esac
+)
+export -f docker
+exec bash "$1"
+'''
+    guest = """
+import os, sys
+from unittest.mock import patch
+import dispatch_target_lock as locks
+from dataclasses import replace
+
+original = locks.acquire_target_lock
+def acquire(*args):
+    lock = original(*args)
+    if os.environ['INEFFECTIVE'] and lock.status == 'conflict':
+        return replace(lock, status='acquired')
+    return lock
+
+with (patch.object(locks, 'acquire_target_lock', acquire),
+      patch.object(locks, '_mountinfo_type', return_value='fixturefs'),
+      patch.multiple(os, **dict.fromkeys(('chown', 'setuid', 'setgid', 'setgroups'), lambda *args: None))):
+    exec(sys.stdin.read().replace("Path('/data')", "Path.cwd()"))
+"""
+    home = tmp_path / 'home'
+    home.mkdir()
+    run = subprocess.run(['bash', '-c', fake_docker, 'test', str(root / 'ops/check-data-folder-lock.sh')],
+                         env={'PATH': os.environ['PATH'], 'HOME': str(home), 'VOLUME': str(tmp_path / 'volume'),
+                              'GUEST': guest, 'PYTHON': sys.executable, 'PYTHONPATH': str(root / 'backend/core'),
+                              'PYTHONDONTWRITEBYTECODE': '1', 'INEFFECTIVE': 'yes' if ineffective else ''},
+                         capture_output=True, text=True, timeout=45)
+    assert run.returncode == int(ineffective), (run.stdout, run.stderr)
+    status = 'acquired' if ineffective else 'conflict'
+    for mount in ('bind', 'volume'):
+        assert f'{mount} holder: acquired' in run.stdout
+        assert f'{mount} contender: {status}' in run.stdout
+        for role in ('holder', 'contender'):
+            assert f'{mount} {role}: /data mountinfo type fixturefs' in run.stderr
+    assert list(home.iterdir()) == [] and not (tmp_path / 'volume').exists()

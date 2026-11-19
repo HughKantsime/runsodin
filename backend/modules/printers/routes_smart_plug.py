@@ -219,6 +219,15 @@ def _power_receipt(result, *, fenced=True):
     return {"power_state": result}
 
 
+def _manual_power(command, printer_id, authority):
+    from modules.printers.power_fence import PowerStorageRefusal
+    try:
+        result = command(printer_id, authority=authority)
+    except PowerStorageRefusal as exc:
+        raise HTTPException(409, {'storage_reason': exc.reason, 'message': str(exc)}) from exc
+    return _power_receipt(result)
+
+
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
 def plug_power_on(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
@@ -234,8 +243,7 @@ def plug_power_on(printer_id: int, request: Request, current_user: dict = Depend
         authority = capture(db.get_bind(), request, current_user, printer_id, 'manual_on')
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    result = smart_plug.power_on(printer_id, authority=authority)
-    return _power_receipt(result)
+    return _manual_power(smart_plug.power_on, printer_id, authority)
 
 
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
@@ -253,8 +261,7 @@ def plug_power_off(printer_id: int, request: Request, current_user: dict = Depen
         authority = capture(db.get_bind(), request, current_user, printer_id, 'manual_off')
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    result = smart_plug.power_off(printer_id, authority=authority)
-    return _power_receipt(result)
+    return _manual_power(smart_plug.power_off, printer_id, authority)
 
 
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
@@ -272,8 +279,7 @@ def plug_power_toggle(printer_id: int, request: Request, current_user: dict = De
         authority = capture(db.get_bind(), request, current_user, printer_id, 'manual_toggle')
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    result = smart_plug.power_toggle(printer_id, authority=authority)
-    return _power_receipt(result)
+    return _manual_power(smart_plug.power_toggle, printer_id, authority)
 
 
 @router.get("/printers/{printer_id}/plug/energy", tags=["Smart Plug"])

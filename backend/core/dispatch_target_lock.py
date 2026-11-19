@@ -57,7 +57,7 @@ def _filesystem_type(fd):
 
 
 _LOCAL_TYPES = ('local', 0xef53, 0x794c7630, 0x01021994, 0x58465342, 0x9123683e, 0x2fc12fc1)
-_SHARED_TYPES = {0x65735546: 'FUSE', 0x6a656a63: 'virtiofs'}
+_SHARED_TYPES = (0x65735546, 0x6a656a63)
 _NETWORK_TYPES = {0x6969: 'NFS', 0xff534d42: 'CIFS', 0xfe534d42: 'SMB', 0x01021997: '9p'}
 
 
@@ -67,6 +67,40 @@ _SEPARATE_MOUNT = TargetLockResult('unsupported', reason='filesystem', message=(
 
 def _local_filesystem(fd):
     return _filesystem_type(fd) in _LOCAL_TYPES
+
+
+def _mountinfo_type(folder, device):
+    """Find the innermost mount containing this directory on the opened device."""
+    dev = f'{os.major(device)}:{os.minor(device)}'
+    depth, kind = 0, None
+    try:
+        lines = os.fsdecode(Path('/proc/self/mountinfo').read_bytes()).split('\n')
+        for line in filter(None, lines):
+            mount, filesystem = line.split(' - ', 1)
+            fields = mount.split(' ')
+            if fields[2] != dev:
+                continue
+            point = Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[4]))
+            if not folder.is_relative_to(point):
+                continue
+            name = filesystem.split(' ', 1)[0]
+            if len(point.parts) > depth:
+                depth, kind = len(point.parts), name
+            elif len(point.parts) == depth and kind != name:
+                kind = None  # Ambiguous stacked mounts.
+    except (OSError, ValueError, IndexError):
+        return None
+    return kind
+
+
+_warned_storage_causes = {}
+
+
+def warn_storage_once(logger, refusal):
+    # setdefault elects one caller even when different pollers run concurrently.
+    first = object()
+    if _warned_storage_causes.setdefault((os.getpid(), refusal.reason), first) is first:
+        logger.warning('%s', refusal.message)
 
 
 def _storage_refusal(storage, folder='the data folder'):
@@ -83,11 +117,17 @@ def _owner_refusal(item, *, folder=False, allow_root=False):
                             message=f'{item} must be owned by {owner}. No command was sent.')
 
 
+_LOCK_FILE_PERMISSIONS = TargetLockResult('uncertain', reason='lock_permissions', message=(
+    'Set the printer lock file inside the ODIN data folder to mode 600. No command was sent.'))
+
+
 def _inaccessible_owner(path, parent_fd, label, *, folder=False, allow_root=False):
     """An owner-only directory or file may deny open before we can fstat it."""
-    owner = os.stat(path, dir_fd=parent_fd, follow_symlinks=False).st_uid
-    if owner != os.geteuid() and not (allow_root and owner == 0):
+    info = os.stat(path, dir_fd=parent_fd, follow_symlinks=False)
+    if info.st_uid != os.geteuid() and not (allow_root and info.st_uid == 0):
         return _owner_refusal(label, folder=folder, allow_root=allow_root)
+    if not folder and _private_file(info) and stat.S_IMODE(info.st_mode) != 0o600:
+        return _LOCK_FILE_PERMISSIONS
     raise PermissionError
 
 
@@ -219,8 +259,11 @@ def _sqlite(engine,key):
         shared = None
         if not _local_filesystem(parent_fd):
             kind = _filesystem_type(parent_fd)
-            shared = _SHARED_TYPES.get(kind)
-            if shared is None:
+            if kind in _SHARED_TYPES:
+                shared = _mountinfo_type(parent, parent_stat.st_dev)
+                if shared != 'virtiofs':
+                    return _storage_refusal(shared or 'unrecognized storage', ascii(parent.name or '/'))
+            else:
                 label = _NETWORK_TYPES.get(kind, kind)
                 if isinstance(label, int):
                     label = f'storage type 0x{label:x}'
@@ -260,8 +303,7 @@ def _sqlite(engine,key):
         if lock_stat.st_uid!=os.geteuid():return _owner_refusal('The printer lock file inside the ODIN data folder')
         if not _private_file(lock_stat,0o600):
             if _private_file(lock_stat):
-                return TargetLockResult('uncertain', reason='lock_permissions', message=(
-                    'Set the printer lock file inside the ODIN data folder to mode 600. No command was sent.'))
+                return _LOCK_FILE_PERMISSIONS
             raise RuntimeError('Unsafe lock file')
         if shared and not _prove_exclusion(directory_fd):
             return _storage_refusal(shared, ascii(parent.name or '/'))
