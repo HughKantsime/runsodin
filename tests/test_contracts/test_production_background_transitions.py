@@ -98,22 +98,17 @@ def test_plate_clear_preserves_completion_after_waiting_selection(linked_job, mo
     client.app.include_router(routes_controls.router)
     with engine.begin() as connection:
         connection.execute(text("UPDATE jobs SET status='waiting_plate_clear' WHERE id=:id"), {'id':identifier})
-    original = Session.execute
+    from modules.printers import plate_clear
+    original = plate_clear.select_plate_clear
     raced = []
     selections = []
-    def selected_then_completed(session, statement, *args, **kwargs):
-        result = original(session, statement, *args, **kwargs)
-        waiting_selection = 'SELECT id FROM jobs' in str(statement) and "'waiting_plate_clear'" in str(statement)
-        if waiting_selection:
-            selections.append(str(statement))
-        if race and not raced and waiting_selection:
+    def selected_then_completed(session, printer_ids):
+        result = original(session, printer_ids)
+        waiting, _, _ = result
+        if waiting:
+            selections.append(waiting)
+        if race and waiting:
             raced.append(True)
-            selected = result.fetchone()
-            result.close()  # Release SQLite cursor before the other transaction commits.
-            class BufferedSelection:
-                def fetchone(self):
-                    return selected
-            result = BufferedSelection()
             # This legacy waiting state is not in the JobStatus ORM enum.
             # Exercise the actual daemon-style terminal transaction, not an
             # unsupported HTTP completion fixture that fails before the race.
@@ -123,12 +118,11 @@ def test_plate_clear_preserves_completion_after_waiting_selection(linked_job, mo
                 connection.execute(text("UPDATE jobs SET status='completed' WHERE id=:id"), {'id':identifier})
                 reconcile_job_write(connection, parents)
         return result
-    monkeypatch.setattr(Session, 'execute', selected_then_completed)
+    monkeypatch.setattr(plate_clear, 'select_plate_clear', selected_then_completed)
     response = client.post('/printers/9/plate-cleared')
     assert response.status_code == 200, response.text
-    # The route selects a waiting job exactly once, so the hooked statement is that
-    # selection and not an earlier look-alike that would let the race go untested.
-    assert len(selections) == 1, selections
+    # The later confirmation read sees no waiting job after either terminal write.
+    assert selections == [{9: identifier}]
     if race:
         assert raced == [True]
         assert_completed(engine, order_id, identifier)

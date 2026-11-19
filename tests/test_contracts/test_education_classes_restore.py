@@ -1,11 +1,11 @@
-"""D2's preserved archive refusals remain client errors, without PostgreSQL I/O."""
+"""Eras 045 and 046 on PostgreSQL are refused in plain words before any stage work (2.4.0, B17)."""
 import importlib
 from unittest.mock import MagicMock
 import pytest
 
 
 @pytest.mark.parametrize('era', ['045', '046'])
-def test_preserved_ledger_difference_is_archive_refused(tmp_path, monkeypatch, era):
+def test_unrestorable_era_is_refused_before_the_frozen_stage_runs(tmp_path, monkeypatch, era):
     from modules.system import pre026_restore_stage as stage
     from modules.system import postgres_backup_service as backup, restore_artifacts
     from core import database_config
@@ -21,13 +21,15 @@ def test_preserved_ledger_difference_is_archive_refused(tmp_path, monkeypatch, e
     monkeypatch.setattr(database_config, 'create_database_engine', lambda *args, **kwargs: engine)
     for name in ('sweep_stale', 'record', 'drop_database', 'forget'):
         monkeypatch.setattr(restore_artifacts, name, lambda *args, **kwargs: None)
-    def refuse(*args, **kwargs):
-        raise getattr(preserved, 'Preserved' + era + 'Error')('Preserved' + era + ' stage ledger differs: fixture')
-    monkeypatch.setattr(preserved, 'restore_into_stage', refuse)
-    with pytest.raises(backup.ArchiveRefused, match='stage ledger differs'):
+    # specs/train-240-postgres-refusals.md item 1 (commit ca8cdb87): the plain refusal comes first,
+    # so the frozen restore for these eras must never start.
+    staged = []
+    monkeypatch.setattr(preserved, 'restore_into_stage', lambda *args, **kwargs: staged.append(args))
+    with pytest.raises(backup.UnsupportedHistoricalArchive, match='This ODIN version cannot read it'):
         with stage.prepared_archive(archive, 'postgresql://fixture@localhost/target',
                 'postgresql://fixture@localhost/postgres', None, None, tmp_path):
             pytest.fail('An invalid archive must not be yielded')
+    assert staged == []
 
 
 @pytest.mark.parametrize('tamper', [None, 'missing', 'changed'])

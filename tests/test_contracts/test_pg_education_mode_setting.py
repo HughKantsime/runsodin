@@ -60,6 +60,28 @@ def test_switch_reads_back_what_was_set(mode_client, mode_db):
     assert education_notification_scope(mode_db) is True
 
 
+def test_square_delegation_and_settings_audit_use_the_shared_switch(mode_client, mode_db, monkeypatch):
+    from unittest.mock import Mock
+    from fastapi import HTTPException
+    from core import education_mode
+    from core.api_token_policy import require_square_setup_available
+    from modules.system import routes_settings
+    import license_manager
+
+    # The fixture has no stored row. Only callers using the shared reader see True.
+    reader = Mock(return_value=True)
+    monkeypatch.setattr(education_mode, 'education_mode_enabled', reader)
+    monkeypatch.setattr(license_manager, 'require_feature', lambda name: None)
+    with pytest.raises(HTTPException, match='unavailable in Education mode') as refused:
+        require_square_setup_available(mode_db)
+    assert refused.value.status_code == 403
+    audit = Mock()
+    monkeypatch.setattr(routes_settings, 'log_audit', audit)
+    assert mode_client.put(URL, json={'enabled': False}).json() == {'enabled': False}
+    audit.assert_called_once_with(mode_db, 'education_mode_toggled', details={'before': True, 'after': False})
+    assert reader.call_count == 2
+
+
 @pytest.mark.parametrize('stored,expected', [
     ('true', True), ('"true"', True), (True, True), ('TRUE', True),
     ('false', False), ('"false"', False), (False, False), (None, False), ('', False), (1, False), ('yes', False),

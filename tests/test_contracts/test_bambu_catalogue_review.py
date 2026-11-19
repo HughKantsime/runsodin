@@ -193,7 +193,8 @@ def test_combined_name_is_bounded_by_inputs_and_column_is_unbounded(inventory_cl
 def test_release_note_is_under_added():
     from pathlib import Path
     changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
-    start = changelog.index('## [Unreleased]')
-    added = changelog.index('### Added', start)
-    note = changelog.index('- Import your Bambu filament catalogue', start)
-    assert added < note < changelog.index('### Changed', added)
+    note = changelog.index('- Import your Bambu filament catalogue')
+    release = changelog.rindex('\n## [', 0, note)
+    assert changelog.startswith('\n## [2.3.0]', release)
+    section = changelog.rindex('\n### ', release, note)
+    assert changelog.startswith('\n### Added\n', section)

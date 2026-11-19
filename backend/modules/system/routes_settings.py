@@ -217,13 +217,10 @@ async def set_education_mode(request: Request, current_user: dict = Depends(requ
     data = await request.json()
     enabled = bool(data.get("enabled", False))
     str_val = "true" if enabled else "false"
-    existing = db.execute(text("SELECT value FROM system_config WHERE key = 'education_mode'")).fetchone()
-    # JSON column: SQLite returns the text, PostgreSQL the boolean (see 2.3.1, core/education_mode.py on main).
-    before = str(existing[0]).strip('"').lower() == 'true' if existing else False
-    if existing:
-        db.execute(text("UPDATE system_config SET value = :v WHERE key = 'education_mode'"), {"v": str_val})
-    else:
-        db.execute(text("INSERT INTO system_config (key, value) VALUES ('education_mode', :v)"), {"v": str_val})
+    from core.education_mode import education_mode_enabled
+    before = education_mode_enabled(db)
+    db.execute(text("INSERT INTO system_config (key, value) VALUES ('education_mode', :v) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value"), {"v": str_val})
     log_audit(db, "education_mode_toggled", details={"before": before, "after": enabled})
     db.commit()
     return {"enabled": enabled}

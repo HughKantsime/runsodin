@@ -49,12 +49,10 @@ def token_scope_granted(scopes, required):
 def require_square_setup_available(db):
     """Keep the existing products entitlement; delegation is off in Education mode."""
     from fastapi import HTTPException
-    from sqlalchemy import text
+    from core.education_mode import education_mode_enabled
     from license_manager import require_feature
     require_feature("products")
-    # JSON may arrive as a boolean (PostgreSQL) or encoded text (SQLite).
-    mode = db.execute(text("SELECT value FROM system_config WHERE key='education_mode'")).scalar()
-    if str(mode).strip('"').lower() == 'true':
+    if education_mode_enabled(db):
         raise HTTPException(403, "Square setup permission is unavailable in Education mode")
 
 

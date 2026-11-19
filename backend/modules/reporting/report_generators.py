@@ -132,6 +132,7 @@ def generate_failure_analysis(session, filters):
         GROUP BY detection_type ORDER BY cnt DESC
     """)).fetchall()
 
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — JOB_FAILED_SQL, JOB_STOPPED_SQL and JOB_DID_NOT_COMPLETE_SQL use an empty prefix and the dialect offset is fixed at -30 days.
     totals = session.execute(text(f"""
         SELECT SUM(CASE WHEN {JOB_FAILED_SQL.format(prefix='')} THEN 1 ELSE 0 END),
                SUM(CASE WHEN {JOB_STOPPED_SQL.format(prefix='')} THEN 1 ELSE 0 END)

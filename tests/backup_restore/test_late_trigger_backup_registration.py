@@ -19,7 +19,7 @@ def _columns(path):
 def test_current_union_and_every_missing_guard_refused(review_db, tmp_path):
     path = Path(review_db.get_bind().url.database)
     allowed = service._canonical_sqlite_triggers()
-    assert len(allowed) == 100  # Current packaged union, including E3's four job-identity guards and 056's two.
+    assert len(allowed) == 102  # Includes the two immutable print filament evidence guards from 061.
     with sqlite3.connect(path) as db:
         actual = {name: (table, service._normalized_schema_sql(sql)) for name, table, sql in db.execute(
             "SELECT name,tbl_name,sql FROM sqlite_master WHERE type='trigger'")}
@@ -97,7 +97,7 @@ def test_late_packaged_integrity_failure_closed(review_db,monkeypatch,suffix):
     module = importlib.import_module('core.schema.migrations.'+suffix)
     def unavailable():
         raise RuntimeError('synthetic source mismatch')
-    monkeypatch.setattr(module,'job_id_triggers' if suffix.startswith('055_') else 'sqlite_triggers' if suffix.startswith(('037_', '038_', '039_', '040_', '049_', '056_')) else '_source',unavailable)
+    monkeypatch.setattr(module,'job_id_triggers' if suffix.startswith('055_') else 'sqlite_triggers' if suffix.startswith(('037_', '038_', '039_', '040_', '049_', '056_', '061_')) else '_source',unavailable)
     with pytest.raises(service.BackupValidationError, match='Packaged backup trigger contract is unavailable'):
         service.validate_database(Path(review_db.get_bind().url.database))
 

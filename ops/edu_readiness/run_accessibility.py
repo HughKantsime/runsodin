@@ -5,14 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
 
 try:
+    from .artifact_scan import scan_text
     from .common import utc_now, write_result
     from .preview_server import PreviewError, local_address, owned_preview
 except ImportError:
+    from artifact_scan import scan_text
     from common import utc_now, write_result
     from preview_server import PreviewError, local_address, owned_preview
 
@@ -39,7 +42,7 @@ def main() -> int:
                 process = subprocess.run(
                     ["node", "tests/accessibility/accessibility_audit.mjs"],
                     env=env,
-                    check=False,
+                    check=False, stderr=subprocess.PIPE, text=True,
                 )
         except PreviewError as exc:
             preview_finding = f"preview: {exc}"
@@ -49,7 +52,9 @@ def main() -> int:
     keyboard = [item for item in data["results"] if item.get("id", "").startswith("K")]
     expected_keyboard = {f"K{index:02d}" for index in range(1, 7)}
     observed_keyboard = {item.get("id") for item in keyboard}
-    complete = len(matrix) == 93 and observed_keyboard == expected_keyboard
+    # 93 Classic cases plus 126 Fjord cases across both appearances.
+    expected_matrix = 219
+    complete = len(matrix) == expected_matrix and observed_keyboard == expected_keyboard
     impact_counts = {impact: 0 for impact in ("critical", "serious", "moderate", "minor", "unknown")}
     nonblocking_rules: dict[str, set[str]] = {"moderate": set(), "minor": set(), "unknown": set()}
     for item in matrix:
@@ -66,6 +71,19 @@ def main() -> int:
             f"{item['id']} {item['persona']} {item['theme']} {item['viewport']}: "
             f"{summary or 'assertion, request, or console failure'}"
         )
+    if process.returncode:
+        step = 'frontend build' if process is build else 'Node accessibility audit'
+        reason = f"{step} exited with status {process.returncode}"
+        # Keep the exception message without copying source lines or the full process trace.
+        for line in (process.stderr or '').splitlines():
+            if re.match(r'^(?:[A-Za-z]*Error)(?: \[\w+\])?: ', line):
+                if not scan_text(line, "audit stderr"):
+                    reason += f": {line[:500]}"
+                break
+        findings.append(reason)
+    if not complete:
+        findings.append(f"Recorded {len(matrix)} of {expected_matrix} matrix cases and "
+                        f"{len(observed_keyboard & expected_keyboard)} of {len(expected_keyboard)} keyboard cases")
     if preview_finding:
         findings.append(preview_finding)
     result = {
@@ -92,7 +110,7 @@ def main() -> int:
             },
         },
         "findings": findings,
-        "artifacts": [str(raw.relative_to(args.run_dir))],
+        "artifacts": [str(raw.relative_to(args.run_dir))] if raw.is_file() else [],
     }
     write_result(args.run_dir, result)
     return 0 if result["status"] == "pass" else 1

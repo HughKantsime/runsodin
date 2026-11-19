@@ -226,16 +226,18 @@ def test_elegoo_print_ending_from_paused_reaches_terminal_state(scenarios):
 
 def test_bambu_unlinked_completion_auto_creates_and_links_job(scenarios):
     s = scenarios['bambu_unlinked_completion']
-    assert s['jobs'] == [[1, 'claim-bambu', 'completed']]
-    assert s['print_jobs'] == [[501, 'completed', 'claim-bambu', 1]]
-    assert s['returned_linked_job_id'] == 1
+    job_id = s['returned_linked_job_id']
+    assert type(job_id) is int and job_id > 0
+    assert s['jobs'] == [[job_id, 'claim-bambu', 'completed']]
+    assert s['print_jobs'] == [[501, 'completed', 'claim-bambu', job_id]]
 
 
-# Documented limitation (FEATURES.md 4.2: "Auto-create jobs on Bambu print completion"): the
-# generic job_events.job_completed path (PrusaLink/Elegoo) records the print but creates no
-# jobs row for an unlinked print; only Bambu's mqtt_job_lifecycle does.
+# Since 2.4.0 (specs/hand-started-job-rows.md, commit bf9dca65) the generic job_events end path
+# (PrusaLink/Elegoo) creates and links a jobs row for an unlinked print, as Bambu's
+# mqtt_job_lifecycle always did. Before 2.4.0 it recorded the print and created no job.
 @pytest.mark.parametrize('scenario', ['prusalink_unlinked_completion', 'elegoo_printing_finished'])
-def test_non_bambu_unlinked_completion_records_the_print_but_creates_no_job(scenarios, scenario):
+def test_non_bambu_unlinked_completion_records_the_print_and_creates_one_linked_job(scenarios, scenario):
     s = scenarios[scenario]
     assert [r[1] for r in s['print_jobs']] == ['completed']
-    assert s['jobs'] == []
+    assert len(s['jobs']) == 1 and s['jobs'][0][2] == 'completed'
+    assert s['print_jobs'][0][3] == s['jobs'][0][0]

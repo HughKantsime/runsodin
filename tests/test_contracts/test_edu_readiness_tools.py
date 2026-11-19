@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_contracts.test_education_review_workflow import review_db
 from ops.edu_readiness.aggregate import aggregate
 from ops.edu_readiness.artifact_scan import scan_tree
 from ops.edu_readiness.common import ResultValidationError, validate_result, write_result
@@ -216,6 +217,50 @@ def test_legal_source_manifest_fails_stale_or_future_attestations():
     assert "future" in validate_source_manifest(
         manifest, today=date(2026, 4, 2)
     )[0]
+
+
+def test_accessibility_audit_failure_records_node_error(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from ops.edu_readiness import run_accessibility as runner
+
+    error = "TypeError: Cannot read properties of null (reading '$status')"
+    monkeypatch.setattr(sys, 'argv', ['audit', '--run-dir', str(tmp_path),
+                                     '--run-id', '20260911T120000Z-f6e10cc'])
+    monkeypatch.setattr(runner, 'owned_preview', lambda _: nullcontext())
+    def run(cmd, **kwargs):
+        if cmd[0] == 'node':
+            return subprocess.CompletedProcess(cmd, 1, stderr=error + '\n    at fixture (audit.mjs:63)')
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(runner.subprocess, 'run', run)
+    assert runner.main() == 1
+    evidence = json.loads((tmp_path / 'accessibility.json').read_text())
+    assert evidence['executed_count'] == 0
+    assert any(error in finding for finding in evidence['findings'])
+    assert 'Recorded 0 of 219 matrix cases and 0 of 6 keyboard cases' in evidence['findings']
+
+
+def test_accessibility_declared_null_is_a_response_and_absent_key_is_refused():
+    subprocess.run(['node', '--input-type=module', '-e', """
+        import assert from 'node:assert/strict'
+        import {fixtureResponse} from './tests/accessibility/fixture_response.mjs'
+        const values = {plain: null, wrapped: {$status: 202, $body: null}}
+        assert.deepEqual(fixtureResponse(values, 'plain'), {declared: true, status: 200, body: null})
+        assert.deepEqual(fixtureResponse(values, 'wrapped'), {declared: true, status: 202, body: null})
+        assert.equal(fixtureResponse(values, 'absent').status, 599)
+    """], cwd=ROOT, check=True)
+
+
+def test_fjord_empty_responses_match_the_handlers(review_db):
+    import asyncio
+    from modules.reporting.routes.analytics import get_failure_analytics, get_time_accuracy
+    from modules.vision.routes.detections import get_vision_monitor_status
+
+    fixtures = json.loads((ROOT / 'tests/accessibility/fixtures/fjord.json').read_text())
+    actor = {'id': 3, 'role': 'admin', 'group_id': None}
+    assert fixtures['GET /api/analytics/time-accuracy'] == get_time_accuracy(30, review_db, actor)
+    assert fixtures['GET /api/analytics/failures'] == get_failure_analytics(30, review_db, actor)
+    assert fixtures['GET /api/vision/monitor-status'] == asyncio.run(get_vision_monitor_status(actor, review_db))
 
 
 def test_accessibility_matrix_uses_named_method_scoped_fixtures():

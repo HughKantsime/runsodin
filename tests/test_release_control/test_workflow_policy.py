@@ -16,6 +16,21 @@ def test_WF01_only_manual_dispatch_is_subscribed():
     assert workflow_events(workflow_text()) == {"workflow_dispatch"}
 
 
+def test_trusted_validation_timeout_covers_scheduled_gates():
+    from ops.release_control.structured_targets import CONTRACT_TIMEOUT_SECONDS
+
+    inventory = load_inventory()
+    limits = {c['id']: c['timeout_seconds'] for c in inventory['components']}
+    assert CONTRACT_TIMEOUT_SECONDS == 7200
+    assert limits['CV02'] == CONTRACT_TIMEOUT_SECONDS + 300
+    scheduled_seconds = sum(
+        max(sum(limits[gate] for gate in group) for group in phase)
+        for phase in inventory['execution_phases']
+    )
+    job = yaml.safe_load(workflow_text())['jobs']['validate']
+    assert job['timeout-minutes'] * 60 > scheduled_seconds
+
+
 def test_WF02_pull_request_event_is_absent():
     assert "pull_request:" not in workflow_text()
 

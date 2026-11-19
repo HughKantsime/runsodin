@@ -7,7 +7,7 @@ from core.rbac import should_filter_org, require_action
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import bindparam, func, literal_column, select, text
 from typing import Optional, List
 from datetime import datetime as dt, timezone
 import logging
@@ -141,46 +141,45 @@ def _print_jobs(db, current_user, *, printer_id=None, status=None, limit=50,
                 job_id=None, org_id=None, dates=None, offset=0):
     """Shared list/detail read with ordinary Python defaults."""
     org = _get_org_filter(current_user, org_id)
-    # Build query dynamically
-    sql = """
-        SELECT pj.*, p.name as printer_name,
+    query = select(text("""
+        pj.*, p.name as printer_name,
                rp.value as restart_record, rq.value as restart_question,
                (SELECT pa.energy_kwh FROM print_archives pa WHERE pa.print_job_id = pj.id
                 AND pa.energy_kwh IS NOT NULL ORDER BY pa.id LIMIT 1) AS energy_kwh,
                (SELECT pa.energy_cost FROM print_archives pa WHERE pa.print_job_id = pj.id
                 AND pa.energy_kwh IS NOT NULL ORDER BY pa.id LIMIT 1) AS energy_cost
-        FROM print_jobs pj
+    """)).select_from(text("""
+        print_jobs pj
         JOIN printers p ON p.id = pj.printer_id
         LEFT JOIN system_config rp ON rp.key = 'restart_print:' || CAST(pj.id AS TEXT)
         LEFT JOIN system_config rq ON rq.key = 'restart_question:' || CAST(pj.printer_id AS TEXT)
-        WHERE 1=1
-    """
+    """))
     params = {}
 
     if should_filter_org(current_user, org):
-        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+        query = query.where(text("(p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"))
         params["org"] = org
     if printer_id is not None:
-        sql += " AND pj.printer_id = :printer_id"
+        query = query.where(text("pj.printer_id = :printer_id"))
         params["printer_id"] = printer_id
     if job_id is not None:
-        sql += " AND pj.id = :job_id"
+        query = query.where(text("pj.id = :job_id"))
         params["job_id"] = job_id
     if status == "did_not_complete":
-        sql += " AND " + PRINT_DID_NOT_COMPLETE_SQL.format(prefix="pj.")
+        query = query.where(text(PRINT_DID_NOT_COMPLETE_SQL.format(prefix="pj.")))
     elif status is not None:
-        sql += " AND pj.status = :status"
+        query = query.where(text("pj.status = :status"))
         params["status"] = status
 
     sqlite = db.get_bind().dialect.name == 'sqlite'
     for name, value in (dates or {}).items():
         if value is None:
             continue
-        column = 'pj.started_at' if name.startswith('started_') else 'pj.ended_at'
-        operator = '>=' if name.endswith('_after') else '<'
-        expression = f'datetime({column})' if sqlite else column
-        bound = f'datetime(:{name})' if sqlite else f':{name}'
-        sql += f" AND {expression} {operator} {bound}"
+        column = literal_column('pj.started_at' if name.startswith('started_') else 'pj.ended_at')
+        bound = bindparam(name)
+        if sqlite:
+            column, bound = func.datetime(column), func.datetime(bound)
+        query = query.where(column >= bound if name.endswith('_after') else column < bound)
         # PostgreSQL stores these columns as timestamp with time zone: an aware bound is exact in any session time zone.
         params[name] = value.isoformat() if sqlite else value
 
@@ -194,13 +193,11 @@ def _print_jobs(db, current_user, *, printer_id=None, status=None, limit=50,
         # Item policy also honors retained orphan marks from older databases.
         direct, _ = _audience(current_user, 'SELECT audience_id FROM controlled_jobs cp '
                              'WHERE cp.job_id=pj.scheduled_job_id')
-        sql += " AND (" + visible + ") AND (" + direct + ")"
+        query = query.where(text(visible), text(direct))
         params.update(bindings)
-    total = db.execute(text("SELECT COUNT(*) FROM (" + sql + ") AS matching"), params).scalar_one()
-
-    sql += f" ORDER BY {order} DESC, pj.id DESC LIMIT :limit OFFSET :offset"
-    params.update(limit=limit, offset=offset)
-    result = db.execute(text(sql), params).fetchall()
+    total = db.execute(query.with_only_columns(func.count()), params).scalar_one()
+    page = query.order_by(literal_column(order).desc(), literal_column('pj.id').desc()).limit(limit).offset(offset)
+    result = db.execute(page, params).fetchall()
 
     jobs = []
     for row in result:
@@ -290,10 +287,10 @@ def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db
     params = {}
 
     if should_filter_org(current_user, org):
-        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+        query = query.where(text("(p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"))
         params["org"] = org
     if printer_id:
-        sql += " AND pj.printer_id = :printer_id"
+        query = query.where(text("pj.printer_id = :printer_id"))
         params["printer_id"] = printer_id
 
     sql += " ORDER BY pj.started_at DESC LIMIT 20"

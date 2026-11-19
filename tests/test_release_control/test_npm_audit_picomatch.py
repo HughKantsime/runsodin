@@ -34,6 +34,32 @@ def approved(monkeypatch):
 
 
 @pytest.fixture
+def reviewed_root(tmp_path, approved):
+    frontend = tmp_path / 'frontend'
+    frontend.mkdir()
+    for name in ('Dockerfile', 'frontend/package.json'):
+        (tmp_path / name).write_bytes((policy.ROOT / name).read_bytes())
+    lock_name = 'frontend/package-lock.json'
+    current = (policy.ROOT / 'VERSION').read_text().strip()
+    lock = (policy.ROOT / lock_name).read_bytes()
+    for indent in ('  ', '      '):
+        prefix = f'\n{indent}"name": "odin-ui",\n{indent}"version": '
+        previous = f'{prefix}"{current}"'.encode()
+        assert lock.count(previous) == 1
+        lock = lock.replace(previous, f'{prefix}"2.3.1"'.encode())
+    assert policy.digest(lock) == approved['file_hashes'][lock_name]
+    (tmp_path / lock_name).write_bytes(lock)
+    return tmp_path
+
+
+def test_current_release_lock_is_refused(approved):
+    lock = json.loads((policy.ROOT / 'frontend/package-lock.json').read_bytes())
+    assert lock['version'] == lock['packages']['']['version'] == (policy.ROOT / 'VERSION').read_text().strip()
+    with pytest.raises(policy.AuditError, match='Reviewed build input changed: frontend/package-lock.json'):
+        policy.check_context(policy.ROOT, approved)
+
+
+@pytest.fixture
 def unapproved(monkeypatch):
     """The record as it was before the owner approved: both fields empty (a copy, never the file)."""
     records = copy.deepcopy(policy.ACCEPTANCES)
@@ -80,8 +106,8 @@ def test_owner_lock_either_empty_field_fails(npm_reports, approved, monkeypatch,
         assess(npm_reports)
 
 
-def test_owner_lock_both_filled_passes(npm_reports, approved):
-    assert assess(npm_reports) == 'pass_with_exception'
+def test_owner_lock_both_filled_passes(npm_reports, reviewed_root):
+    assert assess(npm_reports, root=reviewed_root) == 'pass_with_exception'
 
 
 def test_expiry_is_pinned(approved):
@@ -89,13 +115,13 @@ def test_expiry_is_pinned(approved):
 
 
 @pytest.mark.parametrize('when', ['2026-12-16T23:59:59+00:00', '2026-12-17T00:00:00+00:00', '2026-12-18T00:00:00+00:00'])
-def test_expiry_boundary(npm_reports, approved, when):
+def test_expiry_boundary(npm_reports, reviewed_root, when):
     now = datetime.fromisoformat(when)
     if now.day == 16:
-        assert assess(npm_reports, now=now) == 'pass_with_exception'
+        assert assess(npm_reports, now=now, root=reviewed_root) == 'pass_with_exception'
     else:
         with pytest.raises(policy.AuditError, match='Build-only acceptance expired'):
-            assess(npm_reports, now=now)
+            assess(npm_reports, now=now, root=reviewed_root)
 
 
 @pytest.mark.parametrize('field,value', [('url', 'https://github.com/advisories/OTHER'),
@@ -108,7 +134,7 @@ def test_advisory_identity_is_exact(npm_reports, approved, field, value):
 
 
 @pytest.mark.parametrize('change', ['second_advisory', 'extra_package', 'missing_package', 'edge', 'node', 'direct', 'critical', 'coverage'])
-def test_unapproved_graph_and_exposure_fail(npm_reports, approved, change):
+def test_unapproved_graph_and_exposure_fail(npm_reports, reviewed_root, change):
     full = npm_reports[0]
     vulns = full['vulnerabilities']
     if change == 'second_advisory': vulns['picomatch']['via'].append(copy.deepcopy(vulns['picomatch']['via'][0]))
@@ -125,18 +151,14 @@ def test_unapproved_graph_and_exposure_fail(npm_reports, approved, change):
         vulns['picomatch']['severity'] = 'critical'
         full['metadata']['vulnerabilities'].update(high=6, critical=1)
     else: full['metadata']['dependencies']['total'] += 1
-    with pytest.raises(policy.AuditError): assess(npm_reports)
+    with pytest.raises(policy.AuditError): assess(npm_reports, root=reviewed_root)
 
 
 @pytest.mark.parametrize('filename', ['frontend/package-lock.json', 'Dockerfile'])
-def test_current_build_input_hash_is_pinned(npm_reports, approved, tmp_path, filename):
-    for name in approved['file_hashes']:
-        target = tmp_path / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((policy.ROOT / name).read_bytes())
-    with (tmp_path / filename).open('ab') as stream: stream.write(b'\n')
+def test_current_build_input_hash_is_pinned(npm_reports, reviewed_root, filename):
+    with (reviewed_root / filename).open('ab') as stream: stream.write(b'\n')
     with pytest.raises(policy.AuditError, match='Reviewed build input changed: ' + filename):
-        assess(npm_reports, root=tmp_path)
+        assess(npm_reports, root=reviewed_root)
 
 
 @pytest.mark.parametrize('path', [
@@ -146,27 +168,23 @@ def test_current_build_input_hash_is_pinned(npm_reports, approved, tmp_path, fil
     'node_modules/vite', 'node_modules/vite/node_modules/picomatch',
     'node_modules/vitest', 'node_modules/vitest/node_modules/picomatch'])
 @pytest.mark.parametrize('change', ['production', 'version'])
-def test_every_affected_node_is_exact_and_dev_only(approved, monkeypatch, tmp_path, path, change):
-    for name in approved['file_hashes']:
-        target = tmp_path / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((policy.ROOT / name).read_bytes())
-    lock_path = tmp_path / 'frontend/package-lock.json'
+def test_every_affected_node_is_exact_and_dev_only(approved, monkeypatch, reviewed_root, path, change):
+    lock_path = reviewed_root / 'frontend/package-lock.json'
     lock = json.loads(lock_path.read_bytes())
     lock['packages'][path]['dev' if change == 'production' else 'version'] = False if change == 'production' else '0.0.0'
     lock_path.write_text(json.dumps(lock))
     monkeypatch.setitem(approved['file_hashes'], 'frontend/package-lock.json', policy.digest(lock_path.read_bytes()))
     with pytest.raises(policy.AuditError, match='approved development-only version'):
-        policy.check_context(tmp_path, approved)
+        policy.check_context(reviewed_root, approved)
 
 
-def test_missing_production_proof_fails(npm_reports, approved):
+def test_missing_production_proof_fails(npm_reports, reviewed_root):
     with pytest.raises(policy.AuditError, match='Missing production-only audit proof'):
-        policy.assess(npm_reports[0], 1, now=NOW)
+        policy.assess(npm_reports[0], 1, now=NOW, root=reviewed_root)
 
 
 @pytest.mark.parametrize('change', ['high', 'critical', 'moderate', 'counts', 'coverage', 'version', 'error', 'status'])
-def test_invalid_or_vulnerable_production_proof_fails(npm_reports, approved, change):
+def test_invalid_or_vulnerable_production_proof_fails(npm_reports, reviewed_root, change):
     production = npm_reports[1]
     status = 0
     if change in ('high', 'critical', 'moderate'):
@@ -179,10 +197,10 @@ def test_invalid_or_vulnerable_production_proof_fails(npm_reports, approved, cha
     elif change == 'error': production['error'] = {}
     else: status = 2
     with pytest.raises(policy.AuditError):
-        policy.assess(npm_reports[0], 1, now=NOW, production_report=production, production_exit_code=status)
+        policy.assess(npm_reports[0], 1, now=NOW, root=reviewed_root, production_report=production, production_exit_code=status)
 
 
-def mock_audits(monkeypatch, reports, second_failure=None):
+def mock_audits(monkeypatch, reports, second_failure=None, root=policy.ROOT):
     calls = []
     def run(command, **kwargs):
         calls.append((command, kwargs))
@@ -192,7 +210,7 @@ def mock_audits(monkeypatch, reports, second_failure=None):
         assert '--userconfig=' + str(kwargs['cwd'] / 'user.npmrc') in command
         assert '--globalconfig=' + str(kwargs['cwd'] / 'global.npmrc') in command
         for name in ('package.json', 'package-lock.json'):
-            assert (kwargs['cwd'] / name).read_bytes() == (policy.ROOT / 'frontend' / name).read_bytes()
+            assert (kwargs['cwd'] / name).read_bytes() == (root / 'frontend' / name).read_bytes()
         if len(calls) == 1:
             assert '--include=dev' in command and '--omit=dev' not in command
             return SimpleNamespace(stdout=json.dumps(reports[0]).encode(), returncode=1)
@@ -210,10 +228,10 @@ def mock_audits(monkeypatch, reports, second_failure=None):
     return calls
 
 
-def test_two_isolated_runs_and_decision_evidence(npm_reports, approved, monkeypatch, tmp_path):
-    calls = mock_audits(monkeypatch, npm_reports)
+def test_two_isolated_runs_and_decision_evidence(npm_reports, reviewed_root, monkeypatch, tmp_path):
+    calls = mock_audits(monkeypatch, npm_reports, root=reviewed_root)
     output, decision = tmp_path / 'audit.json', tmp_path / 'decision.json'
-    assert policy.audit(output, decision) == 0
+    assert policy.audit(output, decision, root=reviewed_root) == 0
     assert len(calls) == 2
     saved = json.loads(decision.read_bytes())
     assert saved['status'] == 'pass_with_exception'
@@ -226,11 +244,11 @@ def test_two_isolated_runs_and_decision_evidence(npm_reports, approved, monkeypa
 
 
 @pytest.mark.parametrize('failure', ['timeout', 'error', 'json'])
-def test_second_audit_failure_discards_success(npm_reports, approved, monkeypatch, tmp_path, failure):
-    calls = mock_audits(monkeypatch, npm_reports, second_failure=failure)
+def test_second_audit_failure_discards_success(npm_reports, reviewed_root, monkeypatch, tmp_path, failure):
+    calls = mock_audits(monkeypatch, npm_reports, second_failure=failure, root=reviewed_root)
     output, decision = tmp_path / 'audit.json', tmp_path / 'decision.json'
     decision.write_text('{"status":"pass"}')
-    assert policy.audit(output, decision) == 1
+    assert policy.audit(output, decision, root=reviewed_root) == 1
     assert len(calls) == 2
     assert json.loads(decision.read_bytes())['status'] == 'fail'
     assert output.read_text().strip() == '{}'

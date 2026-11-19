@@ -16,7 +16,7 @@ from pathlib import Path
 LOCK_PATH = Path('/tmp/odin-trusted-validation.lock')
 LOCK_FD_ENV = 'ODIN_VALIDATION_LOCK_FD'
 LOCK_WAIT_ENV = 'ODIN_VALIDATION_LOCK_WAIT_SECONDS'
-# A precheck runs one aggregate (~2 h); Trusted Validation's job timeout is 360 min.
+# A precheck runs one aggregate (~2 h).
 DEFAULT_LOCK_WAIT_SECONDS = 3 * 3600
 LOCK_POLL_SECONDS = 10
 

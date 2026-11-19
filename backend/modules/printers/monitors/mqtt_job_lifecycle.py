@@ -53,7 +53,7 @@ def capture_mqtt_start_weights(conn,print_job_id,printer_id,state):
     weights={}
     owner=snapshot.get('printer_org_id')
     valid_owner=(type(owner) is int and owner>0) or (
-        owner is None and conn.execute('SELECT '+NO_ORGANIZATIONS_SQL).fetchone()[0])
+        owner is None and conn.execute('SELECT '+NO_ORGANIZATIONS_SQL).fetchone()[0])  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — only the fixed NO_ORGANIZATIONS_SQL predicate is appended.
     for captured in snapshot.get('slots',[]):
         slot=captured.get('slot_number');identifier=captured.get('spool_id')
         if (not valid_owner or type(slot) is not int or slot<0

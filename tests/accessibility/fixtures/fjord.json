@@ -113,8 +113,27 @@
       }
     }
   },
-  "GET /api/analytics/time-accuracy": null,
-  "GET /api/analytics/failures": null,
+  "GET /api/analytics/time-accuracy": {
+    "total_jobs": 0,
+    "avg_accuracy_pct": 0,
+    "by_printer": [],
+    "by_model": [],
+    "recent": [],
+    "jobs_with_unknown_estimate": 0,
+    "estimate_basis": "retained_schedule_interval"
+  },
+  "GET /api/analytics/failures": {
+    "total_completed": 0,
+    "total_failed": 0,
+    "total_stopped": 0,
+    "total_did_not_complete": 0,
+    "overall_success_rate": 0,
+    "by_printer": [],
+    "by_model": [],
+    "by_filament": [],
+    "top_failure_reasons": [],
+    "hms_errors": []
+  },
   "GET /api/settings/energy-rate": {
     "energy_cost_per_kwh": 0.1
   },
@@ -123,7 +142,14 @@
     "enabled": true,
     "retention_days": 30
   },
-  "GET /api/vision/monitor-status": null,
+  "GET /api/vision/monitor-status": {
+    "max_threads": 16,
+    "reported": false,
+    "active_threads": null,
+    "capped": false,
+    "capped_count": 0,
+    "capped_printer_ids": []
+  },
   "GET /api/vision/models": [],
   "GET /api/vision/printers": [
     {

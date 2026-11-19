@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { fixtureResponse } from './fixture_response.mjs'
 import { scanMainRegion } from './scroll_main.mjs'
 
 const requireFromFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url))
@@ -48,19 +49,7 @@ function fixture(name, method, path, persona) {
   const role = persona === 'anonymous' ? 'viewer' : persona
   const values = fixtureDocument(name)
   const key = `${method} ${path}`
-  if (!Object.hasOwn(values, key)) {
-    return { declared: false, status: 599, body: { error: 'undeclared accessibility fixture endpoint' } }
-  }
-  const declared = JSON.parse(JSON.stringify(values[key]), (_key, value) => value === '$now' ? new Date().toISOString() : value)
-  if (declared?.$dynamic === 'current_user') {
-    return { declared: true, status: 200, body: { id: 1, username: `${role}@school.test`, email: `${role}@school.test`, role, group_id: 1 } }
-  }
-  if (declared?.$dynamic === 'permissions') {
-    // The server's default matrix (core/rbac_policy.py); 2.0 pages enforce every page key,
-    // so a partial matrix would redirect personas away from the pages under audit.
-    return { declared: true, status: 200, body: defaultPermissions }
-  }
-  return { declared: true, status: declared.$status ?? 200, body: declared.$body ?? declared }
+  return fixtureResponse(values, key, role, defaultPermissions)
 }
 
 async function handleApiRoute(route, fixtureName, persona, unexpected, requests) {

@@ -96,6 +96,15 @@ def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_
             routed = refused
         if ids == current:
             assert routed is None, version
+        elif future and ids == [migration_id for migration_id, _ in POST027_MIGRATIONS]:
+            # The newest recorded ledger is the real registry: a bundle is frozen from the
+            # release commit itself (ops.database_parity.freeze_preserved_bundle), so it cannot
+            # exist before that release is cut. A later build must refuse this archive by name
+            # until the bundle lands; the future=False run demands the bundle as soon as a real
+            # migration follows. (Removed by mistake in a2f2b0a2; restored for 2.4.0, whose
+            # first candidate failed validation here.)
+            from modules.system.backup_service import BackupValidationError
+            assert isinstance(routed, BackupValidationError), version
         else:
             assert (routed is PRESERVED029 and ids == []) or (routed is PRESERVED034 and ids == current[:3]) or (routed is PRESERVED035 and ids == current[:4]) or (routed is PRESERVED036 and ids == current[:5]) or (routed is PRESERVED037 and ids == current[:6]) or (routed is PRESERVED038 and ids == current[:7]) or (routed is PRESERVED039 and ids == current[:8]) or (routed is PRESERVED040 and ids == current[:9]) or (routed is PRESERVED043 and ids == current[:12]) or (routed is PRESERVED044 and ids == current[:13]) or (routed is PRESERVED045 and ids == current[:14]) or (routed is PRESERVED046 and ids == current[:15]) or (routed is PRESERVED053 and ids == current[:22]) or (routed is PRESERVED055 and ids == current[:24]) or (routed is PRESERVED056 and ids == current[:25]) or (routed is PRESERVED057 and ids == current[:26]) or (routed is PRESERVED060 and ids == current[:29]), (version, "needs a preservedNNN bundle before this source ships")
 

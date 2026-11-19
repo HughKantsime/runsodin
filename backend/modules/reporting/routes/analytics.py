@@ -129,6 +129,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
         # Also count MQTT-tracked jobs. ended_at is stored in mixed text formats
         # by different monitors, so compare parsed UTC values, not strings.
         mqtt_terminal = db.execute(
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — PRINT_DID_NOT_COMPLETE_SQL uses a fixed empty prefix and printer id is bound.
             text("SELECT status, started_at, ended_at, scheduled_job_id FROM print_jobs "
                  "WHERE printer_id = :pid AND (status = 'completed' OR " + PRINT_DID_NOT_COMPLETE_SQL.format(prefix="") + ")"),
             {"pid": p.id}
