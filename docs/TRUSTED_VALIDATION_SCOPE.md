@@ -259,6 +259,15 @@ repetition time, on top of the slowdown that has already happened.
 | write p95 | 755 ms | 853 ms | 742 ms | 781 ms |
 | repetition time | 17 s | 19 s | 15.96 s | 17.54 s |
 
+## api_load judging for 2.4
+
+The gate compares the median read p95 and median write p95 across untraced repetitions with
+the existing host limits, taking the upper middle value for an even count. Each repetition
+also has a hard cap of 1.15 times its host's read or write limit. On `odin-ci`, the observed
+write p95 values of 750.7, 735.7 and 863.6 ms pass both checks (median 750.7 ms against
+853 ms, worst 863.6 ms against 980.95 ms). All other checks retain their existing limits and
+judging rules. The gate comparison and idle measurements are recorded in `judging_2_4`.
+
 ## Gaps
 
 No stage in this gate proves the following. Read the results with these gaps in

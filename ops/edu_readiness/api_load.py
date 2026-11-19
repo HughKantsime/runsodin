@@ -19,7 +19,9 @@ import time
 import tracemalloc
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
+from statistics import median_high
 from typing import Any
 
 import httpx
@@ -668,6 +670,9 @@ def _memory_pass_summary(outcome: dict[str, Any], findings: list[str]) -> dict[s
 async def run(run_id: str, output: Path) -> int:
     thresholds_bytes = THRESHOLDS_PATH.read_bytes()
     thresholds = json.loads(thresholds_bytes)
+    factor = thresholds.get("single_repetition_latency_factor")
+    if type(factor) not in (int, float) or not 1 <= factor < float("inf"):
+        raise ValueError("single_repetition_latency_factor must be a finite number of at least 1.0")
     started_at = utc_now()
     started = time.perf_counter()
     try:
@@ -705,8 +710,18 @@ async def run(run_id: str, output: Path) -> int:
     latency_traced = any(metric["traced"] for metric in all_metrics)
     if latency_traced:
         findings.append("latency was measured under a tracer")
+    medians = {}
+    repetition_limits = limits.copy()
+    for kind in ("read", "write"):
+        key = f"{kind}_p95_ms"
+        median = median_high(metric[key] for metric in all_metrics)
+        medians[f"median_{key}"] = median
+        if median > limits[key]:
+            findings.append(f"median {kind} p95")
+        # Use the decimal policy values so an observation exactly at the cap passes.
+        repetition_limits[key] = float(Decimal(str(limits[key])) * Decimal(str(factor)))
     for metric in all_metrics:
-        checks = {**_repetition_checks(metric, thresholds), **_timing_checks(metric, thresholds, limits)}
+        checks = {**_repetition_checks(metric, thresholds), **_timing_checks(metric, thresholds, repetition_limits)}
         findings.extend(
             f"repetition {metric['repetition']}: {name}"
             for name, passed in checks.items() if not passed
@@ -737,6 +752,7 @@ async def run(run_id: str, output: Path) -> int:
         "xfailed_count": 0,
         "metrics": {
             "host_class": host_class, "latency_limits": limits, "host_identity": host_identity,
+            **medians, "single_repetition_latency_factor": factor,
             "repetitions": all_metrics, "integrity_check": integrity, "memory_delta_bytes": memory_delta, "fd_delta": fd_delta,
             "latency_traced": latency_traced,
             "memory_delta_source": "memory_pass",

@@ -152,6 +152,58 @@ def test_a_slow_timed_pass_still_fails_on_its_own_latency(monkeypatch, tmp_path,
     assert 'repetition 1: read p95' in result['findings'] and 'repetition 3: global p99' in result['findings']
 
 
+@pytest.mark.parametrize('kind,values,median,findings', [
+    ('write', [750.7, 735.7, 863.6], 750.7, []),
+    ('write', [860, 860, 700], 860, ['median write p95']),
+    ('write', [700, 700, 990], 700, ['repetition 3: write p95']),
+    ('read', [660, 650, 760], 660, []),
+    ('read', [760, 760, 650], 760, ['median read p95']),
+    ('read', [650, 650, 863], 650, ['repetition 3: read p95']),
+    ('write', [980.95, 700], 980.95, ['median write p95']),
+    ('read', [650, 650, 862.5], 650, []),
+])
+def test_timed_p95_judging(monkeypatch, tmp_path, timed_pass, kind, values, median, findings):
+    thresholds = _thresholds()
+    thresholds['repetitions'] = len(values)
+    path = tmp_path / 'thresholds.json'
+    path.write_text(json.dumps(thresholds))
+    monkeypatch.setattr(api_load, 'THRESHOLDS_PATH', path)
+    monkeypatch.setattr(api_load, 'host_facts', lambda: thresholds['host_classes']['odin-ci']['identity'])
+    samples = iter([100, *values])  # warmup, then timed repetitions
+    measured_classes = CLASSES[:4] if kind == 'read' else CLASSES[4:]
+
+    async def execute(app, tokens, operations, concurrency):
+        timings = _timings()
+        sample = next(samples)
+        for name in measured_classes:
+            timings[name] = [sample] * len(timings[name])
+        return timings, [], 0, 1.0
+
+    monkeypatch.setattr(api_load, '_execute_repetition', execute)
+    _memory_pass_returns(monkeypatch, timed_pass, _report())
+    code, result = _gate(tmp_path)
+    assert result['findings'] == findings
+    assert code == int(bool(findings))
+    assert result['metrics'][f'median_{kind}_p95_ms'] == median
+    assert result['metrics']['single_repetition_latency_factor'] == 1.15
+
+
+@pytest.mark.parametrize('factor', [None, 0.99], ids=['missing', 'below-one'])
+def test_invalid_single_repetition_latency_factor_is_refused(monkeypatch, tmp_path, timed_pass, factor):
+    thresholds = _thresholds()
+    if factor is None:
+        thresholds.pop('single_repetition_latency_factor', None)
+    else:
+        thresholds['single_repetition_latency_factor'] = factor
+    _memory_pass_returns(monkeypatch, timed_pass, _report())
+    path = tmp_path / 'thresholds.json'
+    path.write_text(json.dumps(thresholds))
+    monkeypatch.setattr(api_load, 'THRESHOLDS_PATH', path)
+    with pytest.raises(ValueError, match='single_repetition_latency_factor'):
+        _gate(tmp_path)
+    assert not timed_pass['tracing'] and not timed_pass['memory_runs']
+
+
 def test_file_descriptor_growth_in_the_timed_pass_still_fails(monkeypatch, tmp_path, timed_pass):
     counts = iter([10, 10 + _thresholds()['maximum_fd_delta'] + 1])
     monkeypatch.setattr(api_load, '_fd_count', lambda: next(counts))
