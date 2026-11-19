@@ -1,7 +1,7 @@
 {
   "commit": "3d372ba2",
   "files": {
-    "frontend/src/App.tsx": "5c579a3b688f97f59a2548c31dcc3cf5fb2121a80010d77c6df017852a283ac4",
+    "frontend/src/App.tsx": "29e8db248a8ecf07f40511d4a325c8991407820537e8be570183a8907847d9a7",
     "frontend/src/components/admin/BackupRestore.tsx": "ed09fb186c7f131236386008c8b12d47615d50149085fe6028d1731bbbf7365f",
     "frontend/src/components/admin/ChargebackReport.tsx": "aff63089ae19c1ce1d60eaa7cc7d06aad25084fe3a1bd13d0eb517c35efa76d8",
     "frontend/src/components/admin/DataRetentionSettings.tsx": "7b3b98016aa8b0db4eeb292fb6150e6005ee741b82e50cd94e8ddf914047321c",
@@ -54,7 +54,7 @@
     "frontend/src/pages/admin/Admin.tsx": "1656dadf84ba097aa3174067bbd59f3f628797a9fbe91806622cf0229e295022",
     "frontend/src/pages/admin/AuditLogs.tsx": "d293e7cee94aefe609daa9e2773facd69abaa40d0d0f3396637256d515abb309",
     "frontend/src/pages/admin/Branding.tsx": "1fd65fc3c86ac8f3332938ee3bd966302aa354501cc664e7c57c1ce793a2f58a",
-    "frontend/src/pages/admin/Permissions.tsx": "4847377b3cb21f443a66d3f28e7786fd87cd0564cd008fe74e3aaac847da3c1f",
+    "frontend/src/pages/admin/Permissions.tsx": "56ea0301dc81d26bc0d9e712c84be1d3519180d323376edf13c0793fb8d7606e",
     "frontend/src/pages/analytics/Analytics.tsx": "fedad22347ea6a02563d445bd881f3fc86944907aee2ec33ecabb716e1961cf3",
     "frontend/src/pages/analytics/EducationReports.tsx": "23b558ec9f0bc7553b6b8449b81e0ba8d227d6296e67435955e0540f19b51711",
     "frontend/src/pages/analytics/PrintLog.tsx": "d6509dd40b7a0e653b618a512f10db14d0f4f65dd477d0b911a40341e6ad5dcf",

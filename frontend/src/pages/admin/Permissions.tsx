@@ -102,10 +102,11 @@ function Toggle({ checked, onChange, disabled, locked, label }: { checked: boole
   )
 }
 
-function MatrixTable({ title, groups, access, type, onToggle, saving }: { title: string; groups: any[]; access: Record<string, string[]>; type: string; onToggle: (type: string, item: string, role: string, enabled: boolean) => void; saving: boolean }) {
+function MatrixTable({ title, groups, access, type, onToggle, saving, settingsGrants = [] }: { settingsGrants?: string[]; title: string; groups: any[]; access: Record<string, string[]>; type: string; onToggle: (type: string, item: string, role: string, enabled: boolean) => void; saving: boolean }) {
   return (
     <div>
       <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] uppercase tracking-wider mb-3">{title}</h3>
+      {type === 'page' && <p className="mb-3 text-sm">Settings is admin-only. Personal security is on the Account page.</p>}
       <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
         <Table className="w-full text-sm min-w-[400px]">
           <thead>
@@ -158,7 +159,7 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }: { title:
                             <Toggle
                               checked={isChecked}
                               locked={isLocked}
-                              disabled={saving || (item === 'settings' && role !== 'admin' && !isChecked)}
+                              disabled={saving || (item === 'settings' && role !== 'admin' && !settingsGrants.includes(role))}
                               label={`${role}: ${item}`}
                               onChange={() => onToggle(type, item, role, !isChecked)}
                             />
@@ -201,6 +202,7 @@ export default function Permissions() {
   const saveMutation = useMutation({
     mutationFn: savePerms,
     onSuccess: async (result) => {
+      queryClient.setQueryData(['permissions'], result)
       queryClient.invalidateQueries({ queryKey: ['permissions'] })
       await refreshPermissions()
       setSaveMsg('Saved')
@@ -308,6 +310,7 @@ export default function Permissions() {
       <div className="overflow-x-auto">
         <MatrixTable
           title="Page Access"
+          settingsGrants={data?.page_access.settings}
           groups={PAGE_GROUPS}
           access={localPageAccess}
           type="page"

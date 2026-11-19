@@ -133,3 +133,14 @@ it('explains license refusal on the login page with a local login recovery link'
   expect(request).not.toHaveBeenCalled()
   expect(oidcNavigation.finish).not.toHaveBeenCalled()
 })
+
+it.each([0, 'enrolled'] as const)('hands MFA feedback %s to the signed-in document', result => {
+  vi.mocked(oidcNavigation.finish).mockRestore()
+  const reload = vi.fn()
+  vi.stubGlobal('location', {reload})
+  history.replaceState(null, '', '/login')
+  oidcNavigation.finish(result)
+  expect(history.state).toEqual({mfaCompletion: result})
+  expect(document.URL).toMatch(/\/$/)
+  expect(reload).toHaveBeenCalledOnce()
+})

@@ -39,3 +39,24 @@ it('only exports when asked and releases the text download after use', async () 
   fireEvent.click(screen.getByRole('button', {name: 'I saved these'}))
   expect(saved).toHaveBeenCalledOnce()
 })
+
+it('keeps the codes visible through repeated cancel and a native close', () => {
+  const saved = vi.fn()
+  render(<RecoveryCodes codes={['example-code']} onSaved={saved} />)
+  const dialog = screen.getByRole('dialog') as HTMLDialogElement
+  const showModal = vi.fn(() => { dialog.open = true })
+  Object.defineProperty(dialog, 'showModal', {value: showModal})
+  for (let i = 0; i < 2; i++) {
+    expect(fireEvent(dialog, new Event('cancel', {cancelable: true}))).toBe(false)
+  }
+  // The browser removes open before notifying React about a close.
+  dialog.removeAttribute('open')
+  fireEvent(dialog, new Event('close'))
+  expect(showModal).toHaveBeenCalledOnce()
+  expect(screen.getByRole('dialog')).toBeVisible()
+  expect(screen.getByText('example-code')).toBeVisible()
+  const acknowledge = screen.getByRole('button', {name: 'I saved these'})
+  expect(acknowledge).toBeVisible()
+  expect(acknowledge).toHaveClass('min-h-11')
+  expect(saved).not.toHaveBeenCalled()
+})

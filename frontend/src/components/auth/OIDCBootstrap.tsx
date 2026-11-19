@@ -1,9 +1,16 @@
 import PageState from '../ui/PageState'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import LoginContinuation, { readLoginAuthority, verifyLoginSession, type LoginAuthority } from './LoginContinuation'
+import LoginContinuation, { readLoginAuthority, verifyLoginSession, type LoginAuthority, type MfaCompletion } from './LoginContinuation'
 import { Loader2 } from 'lucide-react'
 
-export const oidcNavigation = { finish: () => window.location.replace('/') }
+export const oidcNavigation = {
+  finish(mfaCompletion?: MfaCompletion) {
+    if (mfaCompletion === undefined) return window.location.replace('/')
+    // The router mounts after the callback's full-document navigation.
+    window.history.replaceState({mfaCompletion}, '', '/')
+    window.location.reload()
+  },
+}
 
 // The one-time code arrives in the URL fragment (never sent to a server, so it
 // can't reach access logs); provider errors arrive in the query string.
@@ -66,7 +73,7 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
       <div className="text-center max-w-md">
         <h1 className="mb-4" style={{ color: 'var(--brand-accent)' }}>O.D.I.N.</h1>
         {authority ? <LoginContinuation authority={authority}
-          onComplete={() => oidcNavigation.finish()} onRestart={() => window.location.replace('/login')} /> : failed ? <PageState kind="error" role="alert">
+          onComplete={oidcNavigation.finish} onRestart={() => window.location.replace('/login')} /> : failed ? <PageState kind="error" role="alert">
           <p>{callback.licenseRequired ? 'SSO needs an active license; use the local admin login.' : callback.pendingRoster ? 'Your class roster has not been imported. Ask your school administrator to import it, then launch again.' : 'SSO sign-in could not be completed. Please try again or contact your administrator.'}</p>
           <a href="/login" className="inline-block mt-4 underline"
             style={{ color: 'var(--brand-accent)' }}>Return to sign in</a>

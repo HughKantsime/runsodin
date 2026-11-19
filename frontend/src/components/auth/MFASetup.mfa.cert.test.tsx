@@ -66,6 +66,7 @@ it('F11-11.2-01 MFASetup renders the server QR code and secret, then confirms wi
   fireEvent.click(screen.getByRole('button', { name: 'I saved these' }))
   expect(screen.queryByText('example-code')).not.toBeInTheDocument()
   expect(screen.getByText('Enabled')).toBeVisible()
+  expect(screen.getByRole('button', {name: 'Regenerate recovery codes'})).toHaveFocus()
   expect(calls.filter(c => c.url === '/api/auth/mfa/confirm').map(c => c.body)).toEqual([{ code: '135791' }, { code: '246810' }])
 })
 
@@ -113,4 +114,15 @@ it('replaces a low set, shows server errors, and disables with an unused recover
   expect(request).toHaveBeenLastCalledWith('/api/auth/mfa', expect.objectContaining({
     method: 'DELETE', body: JSON.stringify({recovery_code: codes[0]}),
   }))
+})
+
+it.each(['disable', 'regenerate'])('submits a spaced authenticator code to %s as six digits', async action => {
+  enabled = true
+  render(<MFASetup />)
+  await screen.findByText('3 recovery codes remaining.')
+  if (action === 'regenerate') fireEvent.click(screen.getByText('Regenerate recovery codes'))
+  fireEvent.change(screen.getByLabelText(/Enter an authenticator/), {target: {value: ' 123 456 '}})
+  fireEvent.click(screen.getByRole('button', {name: action === 'disable' ? 'Disable MFA' : 'Generate new codes'}))
+  expect(calls.at(-1)?.body).toEqual({code: '123456'})
+  await screen.findByRole('alert')
 })

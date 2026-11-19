@@ -353,3 +353,12 @@ def test_address_ceiling_discloses_lock_only_for_a_current_challenge(client, mon
         assert response.status_code == 429
         assert 'Too many wrong codes' not in response.json()['detail']
     assert_locked(submit(client, VERIFY, totp.now()))
+
+
+@pytest.mark.parametrize('route', [VERIFY, DISABLE, CODES])
+def test_spaced_authenticator_code_is_accepted(client, review_db, route):
+    totp, _ = issue(client)
+    code = totp.now()
+    response = submit(client, route, code[:3] + ' \t' + code[3:])
+    assert response.status_code == 200
+    assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0

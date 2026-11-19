@@ -355,9 +355,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         </nav>
 
         {/* Who is signed in, and the way out */}
-        <div className="shrink-0 px-3 py-2.5 flex items-center gap-2.5" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))' }}>
+        <div className={clsx("shrink-0 py-2.5 flex items-center gap-2.5", c ? "flex-col" : "px-3")} style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))' }}>
           <NavLink to="/account" onClick={handleNavClick} aria-label="Account" title="Account"
-            className="flex min-w-0 items-center gap-2 rounded py-1" style={{ color: 'var(--brand-sidebar-text)' }}>
+            className={clsx("flex min-h-11 min-w-11 items-center gap-2 rounded py-1", c && "justify-center")} style={{ color: 'var(--brand-sidebar-text)' }}>
             {c ? <UserRound size={18} /> : <>
               <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-semibold uppercase"
                 style={{ backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-text-primary)' }}>{principal?.username?.slice(0, 1) || <UserRound size={16} />}</span>

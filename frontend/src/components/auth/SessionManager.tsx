@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Monitor, Smartphone, Globe, Trash2, LogOut, Loader2 } from 'lucide-react'
 import type { Session, AdminSession } from '../../types'
+import { clearSensitiveBrowserState } from '../../permissions'
 import { sessions } from '../../api'
 import { parseServerDate } from '../../utils/shared'
 
@@ -16,7 +17,7 @@ function parseUA(ua: string | null): { device: string; browser: string } {
 }
 
 export default function SessionManager({ admin = false }: { admin?: boolean } = {}) {
-  const [sessionList, setSessionList] = useState<(Session | AdminSession)[]>([])
+  const [sessionList, setSessionList] = useState<(Session | (AdminSession & {is_current: boolean}))[]>([])
   const [loading, setLoading] = useState(true)
   const [revoking, setRevoking] = useState<number | 'all' | null>(null)
   const [error, setError] = useState('')
@@ -25,21 +26,30 @@ export default function SessionManager({ admin = false }: { admin?: boolean } = 
     setError('')
     setLoading(true)
     try {
-      const data = admin ? await sessions.adminList() : await sessions.list()
-      setSessionList(data)
+      if (admin) {
+        const [rows, own] = await Promise.all([sessions.adminList(), sessions.list()])
+        const currentId = own.find(session => session.is_current)?.id
+        setSessionList(rows.map(row => ({...row, is_current: row.id === currentId})))
+      } else {
+        setSessionList(await sessions.list())
+      }
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load sessions.') }
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
-  const handleRevoke = async (id: number) => {
-    if (admin && !confirm('End this session? The user will need to sign in again.')) return
+  const handleRevoke = async (id: number, current = false) => {
+    if (admin && !confirm(current ? 'Ending this session signs you out. Continue?' : 'End this session? The user will need to sign in again.')) return
     setError('')
     setRevoking(id)
     try {
       if (admin) await sessions.adminRevoke(id)
       else await sessions.revoke(id)
+      if (current) {
+        try { await clearSensitiveBrowserState() } finally { window.location.href = '/login' }
+        return
+      }
       setSessionList(prev => prev.filter(s => s.id !== id))
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to end the session.') }
     setRevoking(null)
@@ -92,7 +102,7 @@ export default function SessionManager({ admin = false }: { admin?: boolean } = 
                     {'username' in s && <p className="font-semibold">{s.username}</p>}
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{browser} on {device}</span>
-                      {'is_current' in s && s.is_current && (
+                      {s.is_current && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-900/40 text-green-400 border border-green-700">
                           This device
                         </span>
@@ -104,7 +114,7 @@ export default function SessionManager({ admin = false }: { admin?: boolean } = 
                   </div>
                 </div>
                 {'username' in s ? (
-                  <button aria-label={`End session for ${s.username}`} onClick={() => handleRevoke(s.id)}
+                  <button aria-label={`End session for ${s.username}`} onClick={() => handleRevoke(s.id, s.is_current)}
                     disabled={revoking !== null} className="min-h-11 p-2 underline">
                     {revoking === s.id ? 'Ending session...' : 'End session'}
                   </button>

@@ -34,6 +34,7 @@ import Models from './pages/models/Models'
 import CalculatorPage from './pages/orders/Calculator'
 import Analytics from './pages/analytics/Analytics'
 import Utilization from './pages/analytics/Utilization'
+import MfaSignInNotice from './components/auth/MfaSignInNotice'
 import Account from './pages/auth/Account'
 import SettingsPage from './pages/admin/Settings'
 import Spools from './pages/inventory/Spools'
@@ -158,7 +159,7 @@ export default function App() {
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" id="sr-status" />
           <ErrorBoundary>
           <Routes>
-            <Route path="/" element={<FoundryPage name="/"><RoleGate page="dashboard"><Dashboard /></RoleGate></FoundryPage>} />
+            <Route path="/" element={<FoundryPage name="/"><MfaSignInNotice /><RoleGate page="dashboard"><Dashboard /></RoleGate></FoundryPage>} />
             <Route path="/timeline" element={<FoundryPage name="/timeline"><RoleGate page="timeline"><Timeline /></RoleGate></FoundryPage>} />
             <Route path="/jobs" element={<FoundryPage name="/jobs"><RoleGate page="jobs"><Jobs /></RoleGate></FoundryPage>} />
             <Route path="/printers" element={<FoundryPage name="/printers"><RoleGate page="printers"><Printers /></RoleGate></FoundryPage>} />

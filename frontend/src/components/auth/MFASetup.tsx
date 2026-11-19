@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ShieldCheck, Loader2, Copy, CheckCircle, AlertTriangle } from 'lucide-react'
+import { flushSync } from 'react-dom'
 import RecoveryCodes from './RecoveryCodes'
 import { auth } from '../../api'
 
@@ -17,6 +18,7 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
   const [secretCopied, setSecretCopied] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
+  const regenerateButton = useRef<HTMLButtonElement>(null)
   const mounted = useRef(false)
   const statusGeneration = useRef(0)
   const statusInFlight = useRef(false)
@@ -112,12 +114,12 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setActionLoading(true)
     try {
       if (replacing) {
-        const issued = await auth.regenerateCodes(accountCode.trim())
+        const issued = await auth.regenerateCodes(accountCode.replace(/\s/g, ''))
         setCodes(issued.recovery_codes)
         setRemaining(issued.recovery_codes.length)
         setReplacing(false)
       } else {
-        await auth.mfaDisable(accountCode.trim())
+        await auth.mfaDisable(accountCode)
         setMfaEnabled(false)
         setRemaining(null)
         setSuccess('MFA disabled')
@@ -172,14 +174,17 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
         </div>
       )}
 
-      {codes ? <RecoveryCodes codes={codes} onSaved={() => setCodes(null)} /> : mfaEnabled && !setupData ? (
+      {codes ? <RecoveryCodes codes={codes} onSaved={() => {
+        flushSync(() => setCodes(null))
+        regenerateButton.current?.focus()
+      }} /> : mfaEnabled && !setupData ? (
         <div className="space-y-3">
           <p className="text-sm text-[var(--brand-text-secondary)]">Your account is protected with two-factor authentication.</p>
           {remaining !== null ? <>
             <p>{remaining} recovery {remaining === 1 ? 'code' : 'codes'} remaining.</p>
             {remaining <= 3 && <p role="status">{remaining === 0 ? 'You have no recovery codes left.' : 'Your recovery codes are running low.'} Generate a new set while you still have access.</p>}
           </> : <button type="button" className="underline" onClick={loadStatus}>Retry recovery code count</button>}
-          {!replacing && <button type="button" className="underline min-h-11" disabled={actionLoading}
+          {!replacing && <button ref={regenerateButton} type="button" className="underline min-h-11" disabled={actionLoading}
             onClick={() => { setReplacing(true); setAccountCode(''); setError(''); setSuccess('') }}>Regenerate recovery codes</button>}
           {replacing && <p>Generating a new set will invalidate all your old recovery codes.</p>}
           <form onSubmit={handleAccountCode} className="space-y-2">

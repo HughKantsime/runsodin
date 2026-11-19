@@ -1,6 +1,7 @@
 import RecoveryCodes from './RecoveryCodes'
 import { useEffect, useRef, useState } from 'react'
 
+export type MfaCompletion = 'enrolled' | number
 export type LoginAuthority = { kind: 'challenge' | 'enrollment'; token: string }
 export function readLoginAuthority(data: unknown): LoginAuthority | null {
   const value = data as Record<string, unknown> | null
@@ -45,7 +46,7 @@ async function mfaError(response: Response) {
 
 type Setup = { qr_code: string; secret: string; expires_at: number }
 export default function LoginContinuation({ authority, onComplete, onRestart }: {
-  authority: LoginAuthority; onComplete: () => Promise<void> | void; onRestart: () => void
+  authority: LoginAuthority; onComplete: (result?: MfaCompletion) => Promise<void> | void; onRestart: () => void
 }) {
   const [setup, setSetup] = useState<Setup | null>(null)
   const [code, setCode] = useState('')
@@ -126,7 +127,9 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
         setSetup(null)
         setCodes(data.recovery_codes)
       } else {
-        await onComplete()
+        const remaining = data.recovery_codes_remaining
+        const low = recovery && Number.isInteger(remaining) && remaining >= 0 && remaining <= 3
+        await onComplete(low ? remaining : undefined)
       }
     } catch {
       if (live.current) { setSetup(null); setCode(''); setRestart(true); setError('Sign-in could not be confirmed. Restart sign-in.') }
@@ -151,7 +154,7 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
     setCodes(null)
     setBusy(true)
     try {
-      await onComplete()
+      await onComplete('enrolled')
     } catch {
       setRestart(true)
       setError('Sign-in could not be confirmed. Restart sign-in.')

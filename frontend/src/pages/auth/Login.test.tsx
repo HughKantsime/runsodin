@@ -24,7 +24,7 @@ it.each(['mfa_required','mfa_setup_required'])('holds password sign-in for %s un
  expect(request.mock.calls.some(([url])=>url==='/api/auth/me')).toBe(false)
  fireEvent.change(screen.getByLabelText('Authentication code'),{target:{value:'123456'}});fireEvent.click(screen.getByText('Verify and sign in'))
  if(flag === 'mfa_setup_required') fireEvent.click(await screen.findByRole('button',{name:'I saved these'}))
- await waitFor(()=>expect(mocks.navigate).toHaveBeenCalledWith('/'))
+ await waitFor(()=>expect(mocks.navigate).toHaveBeenCalledWith('/', {state: {mfaCompletion: flag === 'mfa_setup_required' ? 'enrolled' : undefined}}))
  expect(mocks.refresh).toHaveBeenCalledTimes(1)
  expect(localStorage.getItem('access_token')).toBeNull();expect(sessionStorage.getItem('mfa_token')).toBeNull()
 })

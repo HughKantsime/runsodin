@@ -105,10 +105,11 @@ def require_code(db, request, user, value, *, recovery=False, regenerate=False):
     # Regeneration accepts either kind in its single code field, and requires
     # working encryption even for an account with a legacy plaintext TOTP secret.
     key = None
+    totp = ''.join(value.split()) if isinstance(value, str) and not recovery else value
     if regenerate:
         key = recovery_key()
-        recovery = not (isinstance(value, str) and len(value) == 6 and value.isascii() and value.isdigit())
-    accepted = consume_code(db, user.id, value) if recovery else valid_totp(user, value)
+        recovery = not (isinstance(totp, str) and len(totp) == 6 and totp.isascii() and totp.isdigit())
+    accepted = consume_code(db, user.id, value) if recovery else valid_totp(user, totp)
     if accepted:
         clear_failures(db, user.id)
         return key

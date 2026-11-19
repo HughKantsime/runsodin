@@ -29,8 +29,7 @@ import type {
 
 const API_BASE = '/api'
 
-// A wrong MFA code returns 401 even when the session is valid.
-const mfaRequest = { quiet: true, showUnauthorized: true, cache: 'no-store' } as const
+const mfaRequest = { quiet: true, cache: 'no-store' } as const
 type IssuedCodes = { recovery_codes: string[] }
 
 // Auth
@@ -79,11 +78,15 @@ export const auth = {
   recoveryStatus: (): Promise<{ remaining: number; generated_at: string | null }> =>
     fetchAPI('/auth/mfa/recovery-codes', { ...mfaRequest, method: 'GET' }),
   regenerateCodes: (code: string): Promise<IssuedCodes> => fetchAPI('/auth/mfa/recovery-codes', {
-    ...mfaRequest, method: 'POST', body: JSON.stringify({ code }),
+    ...mfaRequest, showUnauthorized: true, method: 'POST', body: JSON.stringify({ code }),
   }),
-  mfaDisable: (code: string): Promise<void> => fetchAPI('/auth/mfa', {
-    ...mfaRequest, method: 'DELETE', body: JSON.stringify(/^\d{6}$/.test(code) ? { code } : { recovery_code: code }),
-  }),
+  mfaDisable: (value: string): Promise<void> => {
+    const code = value.replace(/\s/g, '')
+    return fetchAPI('/auth/mfa', {
+      ...mfaRequest, showUnauthorized: true, method: 'DELETE',
+      body: JSON.stringify(/^\d{6}$/.test(code) ? { code } : { recovery_code: code }),
+    })
+  },
   mfaStatus: (): Promise<MfaStatus> => fetchAPI('/auth/mfa/status', { ...mfaRequest, method: 'GET' }),
   adminDisableMfa: (userId: number): Promise<void> => fetchAPI(`/admin/users/${userId}/mfa`, { method: 'DELETE' }),
   oidcExchange: (code: string): Promise<LoginResponse> => fetchAPI('/auth/oidc/exchange', {
@@ -103,11 +106,11 @@ export const auth = {
 
 // Session management
 export const sessions = {
-  list: (): Promise<Session[]> => fetchAPI('/sessions', { showUnauthorized: true }),
-  revoke: (id: number): Promise<void> => fetchAPI(`/sessions/${id}`, { method: 'DELETE', showUnauthorized: true }),
-  adminList: (): Promise<AdminSession[]> => fetchAPI('/admin/sessions', { showUnauthorized: true }),
-  adminRevoke: (id: number): Promise<void> => fetchAPI(`/admin/sessions/${id}`, { method: 'DELETE', showUnauthorized: true }),
-  revokeAll: (): Promise<void> => fetchAPI('/sessions', { method: 'DELETE', showUnauthorized: true }),
+  list: (): Promise<Session[]> => fetchAPI('/sessions'),
+  revoke: (id: number): Promise<void> => fetchAPI(`/sessions/${id}`, { method: 'DELETE' }),
+  adminList: (): Promise<AdminSession[]> => fetchAPI('/admin/sessions'),
+  adminRevoke: (id: number): Promise<void> => fetchAPI(`/admin/sessions/${id}`, { method: 'DELETE' }),
+  revokeAll: (): Promise<void> => fetchAPI('/sessions', { method: 'DELETE' }),
 }
 
 // Scoped API tokens

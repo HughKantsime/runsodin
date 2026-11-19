@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import OrgManager from './OrgManager'
 import Settings from '../../pages/admin/Settings'
 const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, invalidCandidates: false, fetch: vi.fn() }))
-vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
+vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', refreshPermissions: vi.fn(), getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: (name: string) => ['user_groups', 'sso', 'permissions'].includes(name), atUserLimit: () => false, maxUsers: 0 }) }))
 vi.mock('../../BrandingContext', async importOriginal => ({
   ...await importOriginal<typeof import('../../BrandingContext')>(),
@@ -24,12 +24,16 @@ async function settingsAccess() { show(<Settings />); fireEvent.click(screen.get
 function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, headers: new Headers(), json: async () => data, text: async () => JSON.stringify(data) } }
 beforeEach(() => {
   vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false; boundary.invalidCandidates = false
+  let permissions = { page_access: {settings: ['admin', 'operator']}, action_access: {} }
   boundary.fetch.mockImplementation(async (url: unknown, options: any = {}) => {
     const path = String(url); const method = options.method || 'GET'
     if (path === '/api/orgs/17/members' && method === 'POST' && boundary.failMember) return response({ detail: 'Fixture membership denied' },false)
+    if (path === '/api/permissions') {
+      if (method === 'PUT') permissions = JSON.parse(options.body)
+      return response(permissions)
+    }
     if (method !== 'GET') return response({ status: 'ok' })
     if (path === '/api/orgs/17/member-candidates') return response(boundary.invalidCandidates ? {} : [{ id: 4, username: 'Unassigned user' }])
-    if (path === '/api/permissions') return response({ page_access: {settings: ['admin', 'operator']}, action_access: {} })
     if (path === '/api/users') return response(users)
     if (path === '/api/printers') return response(printers)
     if (path === '/api/orgs' || path === '/api/groups') return response([org])
@@ -141,5 +145,13 @@ it('prevents new Settings grants and lets the administrator remove an existing g
   expect(operator).toBeChecked()
   fireEvent.click(operator)
   expect(operator).not.toBeChecked()
+  expect(operator).toBeEnabled()
+  fireEvent.click(operator)
+  expect(operator).toBeChecked()
+  fireEvent.click(operator)
+  fireEvent.click(screen.getByRole('button', {name: 'Save Changes'}))
+  await screen.findByText('Saved', {exact: true})
   expect(operator).toBeDisabled()
+  expect(operator).not.toBeChecked()
+  expect(screen.getByText(/Settings is admin-only.*Account/)).toBeVisible()
 })

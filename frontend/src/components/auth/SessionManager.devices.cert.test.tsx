@@ -87,6 +87,7 @@ it('F11-11.7-03 signs out everywhere else through DELETE /api/sessions and keeps
 it('lists and ends an administrator-visible session through the admin endpoints', async () => {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
   state.fetch.mockResolvedValueOnce(respond([{...WIRE.sessions_list[1], username: 'Morgan', user_id: 2}]))
+    .mockResolvedValueOnce(respond(state.sessions))
     .mockResolvedValueOnce(respond({detail: 'Session not found'}, 404))
     .mockResolvedValueOnce(respond({status: 'ok'}))
   render(<SessionManager admin />)
@@ -100,5 +101,29 @@ it('lists and ends an administrator-visible session through the admin endpoints'
   expect(await screen.findByText('No active sessions.')).toBeVisible()
   expect(calls('/api/admin/sessions', 'GET')).toHaveLength(1)
   expect(calls('/api/admin/sessions/4', 'DELETE')).toHaveLength(2)
-  expect(calls('/api/sessions', 'GET')).toHaveLength(0)
+  expect(calls('/api/sessions', 'GET')).toHaveLength(1)
+  expect(calls('/api/sessions/4', 'DELETE')).toHaveLength(0)
+})
+
+it('identifies the current admin session by id and signs out only after confirmed revocation', async () => {
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
+  const location = {pathname: '/settings', href: '/settings'}
+  vi.stubGlobal('location', location)
+  const {is_current, ...row} = WIRE.sessions_list[0]
+  state.fetch.mockResolvedValueOnce(respond([{...row, username: 'Admin'}, {...row, id: 17, username: 'Other'}]))
+    .mockResolvedValueOnce(respond(state.sessions))
+    .mockResolvedValueOnce(respond({detail: 'Session not found'}, 404))
+    .mockResolvedValueOnce(respond({status: 'ok'}))
+  render(<SessionManager admin />)
+  const end = await screen.findByRole('button', {name: 'End session for Admin'})
+  expect(screen.getAllByText('This device')).toHaveLength(1)
+  expect(end.parentElement).toHaveTextContent('This device')
+  fireEvent.click(end)
+  expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/signs? you out/i))
+  expect(calls('/api/admin/sessions/3', 'DELETE')).toHaveLength(0)
+  fireEvent.click(end)
+  await screen.findByRole('alert')
+  expect(location.href).toBe('/settings')
+  fireEvent.click(end)
+  await waitFor(() => expect(location.href).toBe('/login'))
 })
