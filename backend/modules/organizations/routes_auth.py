@@ -28,7 +28,7 @@ from core.auth import hash_password, create_access_token, verify_password, decod
 from core.models import SystemConfig
 from core.mfa_login import RevokedLoginCredentials, decode_login_challenge
 from modules.organizations.mfa_attempts import (
-    MFA_ADDRESS_LIMIT, clear_failures, limit_code_checks, lock_for_code_check, require_code, valid_totp,
+    MFA_ADDRESS_LIMIT, clear_failures, limit_code_checks, lock_for_code_check, normalize_totp, require_code, valid_totp,
 )
 from modules.organizations.mfa_recovery import (
     MFA_ENCRYPTION_UNAVAILABLE, code_status, delete_codes, issue_codes, recovery_key,
@@ -290,7 +290,7 @@ async def mfa_confirm(request: Request, body: dict, current_user: dict = Depends
         raise HTTPException(status_code=400, detail="MFA is already enabled")
 
     key = recovery_key()
-    if not valid_totp(user, code):
+    if not valid_totp(user, normalize_totp(code)):
         raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
 
     from core.license_lock import authorize_user

@@ -15,7 +15,7 @@ from core.db_compat import sql
 from core.dependencies import log_audit
 from core.session_tracking import record_session
 from core.rate_limit import limiter
-from modules.organizations.mfa_attempts import MFA_ADDRESS_LIMIT, clear_failures
+from modules.organizations.mfa_attempts import MFA_ADDRESS_LIMIT, clear_failures, normalize_totp
 from modules.organizations.mfa_recovery import issue_codes
 
 router=APIRouter()
@@ -117,7 +117,7 @@ def setup(request:Request,db:Session=Depends(get_db)):
 def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
     try:
         payload,user,row=_authority(request,db)
-        code=body.get('code','')
+        code=normalize_totp(body.get('code',''))
         if not isinstance(code,str) or not re.fullmatch('[0-9]{6}',code) or not row.encrypted_pending_secret:
             raise HTTPException(status_code=400,detail='Set up an authenticator and enter its six-digit code')
         secret=_secret(row.encrypted_pending_secret)

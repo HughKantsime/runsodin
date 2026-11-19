@@ -1,4 +1,5 @@
 import React, { StrictMode } from 'react'
+import userEvent from '@testing-library/user-event'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import LoginContinuation, { readLoginAuthority } from './LoginContinuation'
@@ -32,6 +33,17 @@ it('accepts challenge flow without setup',async()=>{
  fireEvent.change(screen.getByLabelText('Authentication code'),{target:{value:'123456'}});fireEvent.click(screen.getByText('Verify and sign in'))
  await waitFor(()=>expect(complete).toHaveBeenCalledTimes(1))
  expect(request).toHaveBeenNthCalledWith(1,'/api/auth/mfa/verify',expect.objectContaining({body:JSON.stringify({mfa_token:'synthetic-authority',code:'123456'})}))
+})
+it('submits all six digits of a pasted authenticator code with whitespace', async () => {
+  const user = userEvent.setup()
+  request.mockResolvedValueOnce(full()).mockResolvedValueOnce(response({username: 'teacher', role: 'viewer'}))
+  start('challenge')
+  await user.click(screen.getByLabelText('Authentication code'))
+  await user.paste(' 012\t345 ')
+  await user.click(screen.getByRole('button', {name: 'Verify and sign in'}))
+  expect(request).toHaveBeenCalledWith('/api/auth/mfa/verify', expect.objectContaining({
+    body: JSON.stringify({mfa_token: 'synthetic-authority', code: '012345'}),
+  }))
 })
 it('rejects ambiguous purposes and missing credentials',()=>{
  expect(()=>readLoginAuthority({mfa_required:true,mfa_setup_required:true,access_token:'synthetic'})).toThrow()

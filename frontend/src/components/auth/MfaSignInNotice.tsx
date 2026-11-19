@@ -10,8 +10,8 @@ export default function MfaSignInNotice() {
     const result = state?.mfaCompletion ?? window.history.state?.mfaCompletion
     if (result === 'enrolled') {
       document.querySelector<HTMLAnchorElement>('a[href="#main-content"]')?.focus()
-    } else if (Number.isInteger(result) && result >= 0 && result <= 3) {
-      setRemaining(result)
+    } else if (Number.isInteger(result) && result >= 0) {
+      setRemaining(result <= 3 ? result : null)
     } else return
     navigate({pathname, search, hash}, {replace: true})
   }, [state, pathname, search, hash, navigate])

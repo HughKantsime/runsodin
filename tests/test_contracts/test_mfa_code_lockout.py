@@ -286,7 +286,8 @@ def test_address_limit_even_without_an_enrolled_factor(client, review_db, route)
 
 
 @pytest.mark.parametrize('mandatory', [False, True])
-def test_enrollment_ignores_failures_then_clears_them(client, review_db, mandatory):
+@pytest.mark.parametrize('with_whitespace', [False, True])
+def test_enrollment_ignores_failures_then_clears_them(client, review_db, mandatory, with_whitespace):
     import pyotp
     from core.mfa_login import login_mfa_response
     from modules.organizations import routes_mfa_enrollment
@@ -313,7 +314,11 @@ def test_enrollment_ignores_failures_then_clears_them(client, review_db, mandato
     for _ in range(5):
         assert client.post(path + '/confirm', headers=who, json={'code': wrong_totp(totp)}).status_code == 400
     assert review_db.execute(text('SELECT failure_times FROM mfa_code_attempts')).scalar_one() == stored
-    assert client.post(path + '/confirm', headers=who, json={'code': totp.now()}).status_code == 200
+    code = totp.now()
+    if with_whitespace:
+        code = f' {code[:3]}\t{code[3:]}\n'
+    confirmation = client.post(path + '/confirm', headers=who, json={'code': code})
+    assert confirmation.status_code == 200
     assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0
 
 

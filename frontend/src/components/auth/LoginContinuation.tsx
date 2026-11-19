@@ -174,9 +174,9 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
       </> : <p role="status">Preparing authenticator setup...</p>)}
       <form onSubmit={submit} className="space-y-4">
         <label htmlFor="continuation-code">{recovery ? 'Recovery code' : 'Authentication code'}</label>
-        <input id="continuation-code" autoFocus inputMode={recovery ? 'text' : 'numeric'} autoComplete={recovery ? 'off' : 'one-time-code'} spellCheck={false} maxLength={recovery ? undefined : 6}
+        <input id="continuation-code" autoFocus inputMode={recovery ? 'text' : 'numeric'} autoComplete={recovery ? 'off' : 'one-time-code'} spellCheck={false}
           value={code} disabled={busy || (authority.kind === 'enrollment' && !setup)}
-          onChange={event => setCode(recovery ? event.target.value : event.target.value.replace(/\D/g, ''))} className="w-full rounded-md p-3 text-black" />
+          onChange={event => setCode(recovery ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 6))} className="w-full rounded-md p-3 text-black" />
         <button type="submit" disabled={busy || !validCode || (authority.kind === 'enrollment' && !setup)}
           className="w-full rounded-md p-3" style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)' }}>
           {busy ? 'Verifying...' : 'Verify and sign in'}

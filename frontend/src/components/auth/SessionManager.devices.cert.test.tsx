@@ -5,6 +5,7 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import SessionManager from './SessionManager'
+import ErrorBoundary from '../shared/ErrorBoundary'
 
 // WIRE-BEGIN
 const WIRE: any = {
@@ -54,6 +55,17 @@ beforeEach(() => {
   vi.stubGlobal('fetch', state.fetch)
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+it.each([
+  {admin: false, expired: '/api/sessions'},
+  {admin: true, expired: '/api/sessions'},
+  {admin: true, expired: '/api/admin/sessions'},
+])('renders nothing during the login redirect from $expired (admin=$admin)', async ({admin, expired}) => {
+  state.fetch.mockImplementation(async url => String(url) === expired ? respond({}, 401) : respond([]))
+  const {container} = render(<ErrorBoundary><SessionManager admin={admin} /></ErrorBoundary>)
+  await waitFor(() => expect(container).toBeEmptyDOMElement())
+  expect(calls(expired, 'GET')).toHaveLength(1)
+})
 
 it('F11-11.7-02 lists each active session with device, browser, IP and the current-device badge', async () => {
   render(<SessionManager />)

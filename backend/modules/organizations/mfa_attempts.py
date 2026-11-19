@@ -92,6 +92,10 @@ def limit_code_checks(handler):
     return wrapped
 
 
+def normalize_totp(code):
+    return ''.join(code.split()) if isinstance(code, str) else code
+
+
 def valid_totp(user, code):
     return pyotp.TOTP(decrypt(user.mfa_secret)).verify(code, valid_window=1)
 
@@ -105,7 +109,7 @@ def require_code(db, request, user, value, *, recovery=False, regenerate=False):
     # Regeneration accepts either kind in its single code field, and requires
     # working encryption even for an account with a legacy plaintext TOTP secret.
     key = None
-    totp = ''.join(value.split()) if isinstance(value, str) and not recovery else value
+    totp = normalize_totp(value) if not recovery else value
     if regenerate:
         key = recovery_key()
         recovery = not (isinstance(totp, str) and len(totp) == 6 and totp.isascii() and totp.isdigit())

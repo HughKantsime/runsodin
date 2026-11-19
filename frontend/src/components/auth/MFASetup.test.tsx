@@ -87,3 +87,25 @@ test.each([0, 1, 3, 4])('shows the recovery warning at three or fewer codes (%i 
   expect(screen.queryByText(/Generate a new set while you still have access/)!== null).toBe(remaining <= 3)
   expect(screen.getByRole('button', {name:'Regenerate recovery codes'})).toBeEnabled()
 })
+
+test.each(['status', 'remaining', 'setup', 'confirm'] as const)(
+  'renders nothing during the login redirect from %s', async operation => {
+    api.status.mockResolvedValueOnce(operation === 'status' ? undefined : {mfa_enabled: operation === 'remaining'})
+    if (operation === 'remaining') api.remaining.mockResolvedValueOnce(undefined)
+    if (operation === 'setup') api.setup.mockResolvedValueOnce(undefined)
+    if (operation === 'confirm') {
+      api.setup.mockResolvedValueOnce({qr_code: 'data:image/png;base64,c3ludGhldGlj'})
+      api.confirm.mockResolvedValueOnce(undefined)
+    }
+    const {container} = render(<MFASetup />)
+    if (operation === 'setup' || operation === 'confirm') {
+      fireEvent.click(await screen.findByRole('button', {name: 'Set Up Two-Factor Authentication'}))
+    }
+    if (operation === 'confirm') {
+      fireEvent.change(await screen.findByLabelText('Verification code'), {target: {value: '123456'}})
+      fireEvent.click(screen.getByRole('button', {name: 'Confirm'}))
+    }
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
+    expect(api[operation]).toHaveBeenCalledOnce()
+  }
+)

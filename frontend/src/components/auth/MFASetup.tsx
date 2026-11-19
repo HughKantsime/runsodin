@@ -7,6 +7,7 @@ import { auth } from '../../api'
 export default function MFASetup({ principalKey }: { principalKey?: string | number } = {}) {
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
+  const [redirecting, setRedirecting] = useState(false)
   const [setupData, setSetupData] = useState(null)
   const [confirmCode, setConfirmCode] = useState('')
   const [codes, setCodes] = useState<string[] | null>(null)
@@ -31,13 +32,22 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setError('')
     try {
       const data = await auth.mfaStatus()
-      if (typeof data?.mfa_enabled !== 'boolean') throw new Error('Invalid MFA status')
       if (!mounted.current || generation !== statusGeneration.current) return
+      if (data === undefined) {
+        setRedirecting(true)
+        return
+      }
+      if (typeof data?.mfa_enabled !== 'boolean') throw new Error('Invalid MFA status')
       setMfaEnabled(data.mfa_enabled)
       if (data.mfa_enabled) {
         try {
           const status = await auth.recoveryStatus()
-          if (mounted.current && generation === statusGeneration.current) setRemaining(status.remaining)
+          if (!mounted.current || generation !== statusGeneration.current) return
+          if (status === undefined) {
+            setRedirecting(true)
+            return
+          }
+          setRemaining(status.remaining)
         } catch (err) {
           if (mounted.current && generation === statusGeneration.current) {
             setError(err instanceof Error ? err.message : 'Unable to load the number of recovery codes.')
@@ -59,6 +69,7 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
 
   useEffect(() => {
     mounted.current = true
+    setRedirecting(false)
     setSetupData(null)
     setCodes(null)
     setRemaining(null)
@@ -80,6 +91,10 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setActionLoading(true)
     try {
       const data = await auth.mfaSetup()
+      if (data === undefined) {
+        setRedirecting(true)
+        return
+      }
       setSetupData(data)
     } catch (err: any) {
       setError(err.message || 'Failed to start MFA setup')
@@ -94,6 +109,10 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setActionLoading(true)
     try {
       const issued = await auth.mfaConfirm(confirmCode)
+      if (issued === undefined) {
+        setRedirecting(true)
+        return
+      }
       setCodes(issued.recovery_codes)
       setRemaining(issued.recovery_codes.length)
       setMfaEnabled(true)
@@ -140,6 +159,7 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     }
   }
 
+  if (redirecting) return null
   if (loading) return <p role="status">Loading MFA status...</p>
   if (mfaEnabled === null) return (
     <div>

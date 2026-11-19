@@ -19,6 +19,7 @@ function parseUA(ua: string | null): { device: string; browser: string } {
 export default function SessionManager({ admin = false }: { admin?: boolean } = {}) {
   const [sessionList, setSessionList] = useState<(Session | (AdminSession & {is_current: boolean}))[]>([])
   const [loading, setLoading] = useState(true)
+  const [redirecting, setRedirecting] = useState(false)
   const [revoking, setRevoking] = useState<number | 'all' | null>(null)
   const [error, setError] = useState('')
 
@@ -28,10 +29,19 @@ export default function SessionManager({ admin = false }: { admin?: boolean } = 
     try {
       if (admin) {
         const [rows, own] = await Promise.all([sessions.adminList(), sessions.list()])
+        if (rows === undefined || own === undefined) {
+          setRedirecting(true)
+          return
+        }
         const currentId = own.find(session => session.is_current)?.id
         setSessionList(rows.map(row => ({...row, is_current: row.id === currentId})))
       } else {
-        setSessionList(await sessions.list())
+        const rows = await sessions.list()
+        if (rows === undefined) {
+          setRedirecting(true)
+          return
+        }
+        setSessionList(rows)
       }
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load sessions.') }
     setLoading(false)
@@ -65,6 +75,7 @@ export default function SessionManager({ admin = false }: { admin?: boolean } = 
     setRevoking(null)
   }
 
+  if (redirecting) return null
   if (loading) return <p role="status">Loading sessions...</p>
 
   return (
