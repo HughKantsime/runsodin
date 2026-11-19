@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from core import printer_display_facts
+from core.ams_mapping import mapping_materials
 from core.base import slot_filament_value
 from modules.printers import dispatch, dispatch_ams_gate as gate, support_levels
 from modules.printers.models import Printer
@@ -97,12 +98,29 @@ def test_schedule_and_editor_accept_reported_ht_and_refuse_unknown_and_unplugged
     assert patch([16]).json()['detail'] == 'Invalid or duplicate AMS slot'
 
 
-def test_schedule_refuses_slot_17_on_four_tray_only_printer(mapping_client, review_db, captured_ams):
+@pytest.mark.parametrize('has_inventory_row', [False, True], ids=['no-row', 'stale-row'])
+def test_schedule_refuses_slot_17_on_four_tray_only_printer(mapping_client, review_db, captured_ams, has_inventory_row):
     captured_ams['ams'] = [u for u in captured_ams['ams'] if u['id'] != '128']
+    if has_inventory_row:
+        review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,'PETG')"))
     report_topology(review_db, 9, captured_ams)
+    # The later feed-policy check can return the same HTTP error.
+    assert 17 not in mapping_materials(review_db, 9, 'bambu')
     response = schedule(mapping_client, mapping=[{'source_slot': 1, 'target_slot': 17}])
     assert response.status_code == 400
     assert response.json()['detail'] == 'Invalid or duplicate AMS slot'
+
+
+def test_preview_uses_reported_ht_material_and_omits_unreported_slot_17(mapping_client, review_db):
+    client, auth = mapping_client
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) "
+                           "VALUES(9,17,'PLA_SUPPORT'),(9,18,'PLA_SUPPORT')"))
+    report_topology(review_db, 9, {'ams': [{'id': '129', 'tray': [{'id': '0', 'tray_type': 'PLA-S'}]}]})
+
+    response = client.get('/api/print-files/501?printer_id=9', headers=auth())
+    assert response.status_code == 200
+    available = response.json()['ams_preview']['available']
+    assert {s['slot']: s['material'] for s in available if s['slot'] >= 17} == {18: 'PLA-S'}
 
 
 def test_kobra_s1_refuses_ht_slot_even_with_a_stale_inventory_row(mapping_client, review_db):
