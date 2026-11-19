@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fixtureResponse } from './fixture_response.mjs'
 import { scanMainRegion } from './scroll_main.mjs'
+import { fjordSettingsTab } from './settings_tab.mjs'
 
 const requireFromFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url))
 const AxeBuilder = requireFromFrontend('@axe-core/playwright').default
@@ -169,8 +170,14 @@ for (const row of runs) {
             finding.assertions.push({ name: 'skip link focuses main content', pass: await page.evaluate(() => document.activeElement?.id === 'main-content') })
           }
           if (row.tab) {
-            const tab = page.getByRole('button', { name: row.tab, exact: true })
-            if (family === 'fjord' || await tab.count()) await tab.first().click()
+            if (family === 'fjord') {
+              const tab = fjordSettingsTab(page, row.tab)
+              await tab.click()
+              finding.assertions.push({ name: 'requested Settings tab is active', pass: await tab.getAttribute('data-scrolltab-active') === 'true' })
+            } else {
+              const tab = page.getByRole('button', { name: row.tab, exact: true })
+              if (await tab.count()) await tab.first().click()
+            }
             await page.waitForTimeout(100)
           }
           if (row.id === 'A06') {

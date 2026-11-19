@@ -3,6 +3,7 @@ import { render, screen, cleanup, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ArchivesPage from './Archives'
+import fjord from '../../../../tests/accessibility/fixtures/fjord.json'
 
 vi.mock('../../api/client', () => ({ fetchAPI: vi.fn() }))
 vi.mock('../../permissions', () => ({ canDo: () => true }))
@@ -18,6 +19,13 @@ function viewport(phone: boolean) {
 }
 beforeEach(() => { state.data = { items: [item], total: 1 } })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+test.each([true, false])('the Fjord audit archive is visible (phone %s)', phone => {
+  viewport(phone)
+  state.data = fjord['GET /api/archives']
+  render(<MemoryRouter><ArchivesPage /></MemoryRouter>)
+  expect(screen.getByText('Fjord archive')).toBeVisible()
+})
 
 test('phone: one card per archive, no table, filament zero stays visible', () => {
   viewport(true)

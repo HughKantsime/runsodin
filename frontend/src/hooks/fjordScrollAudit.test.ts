@@ -1,5 +1,18 @@
 import { expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { within } from '@testing-library/react'
+import { fjordSettingsTab } from '../../../tests/accessibility/settings_tab.mjs'
+
+it('selects the Settings tab when the header bell has the same accessible name', () => {
+  const shell = document.createElement('div')
+  shell.innerHTML = '<header><button aria-label="Notifications"></button></header>' +
+    '<main><div data-scrolltabs><button>Notifications</button></div></main>'
+  const page = {
+    ...within(shell),
+    locator: (selector: string) => within(shell.querySelector<HTMLElement>(selector)!),
+  }
+  expect(fjordSettingsTab(page, 'Notifications')).toBe(shell.querySelector('main button'))
+})
 
 it('scans overlapping viewports of main through the bottom, retaining offscreen failures and restoring scroll', async () => {
   const { scanMainRegion } = await import('../../../tests/accessibility/scroll_main.mjs')

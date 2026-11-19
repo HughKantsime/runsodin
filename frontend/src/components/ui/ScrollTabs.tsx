@@ -69,11 +69,17 @@ export default function ScrollTabs({
     if (active && active !== lastActive.current && isPhoneWidth()) {
       const firstTime = lastActive.current === null
       lastActive.current = active
-      active.scrollIntoView?.({
-        inline: 'nearest',
-        block: 'nearest',
-        behavior: firstTime || prefersReducedMotion() ? 'auto' : 'smooth',
-      })
+      if (firstTime && document.documentElement.dataset.themeFamily === 'fjord') {
+        // scrollIntoView sets Chromium's sequential focus starting point to the tab.
+        // On mount only the strip should move, so the shell skip link stays first.
+        keepActiveVisible()
+      } else {
+        active.scrollIntoView?.({
+          inline: 'nearest',
+          block: 'nearest',
+          behavior: firstTime || prefersReducedMotion() ? 'auto' : 'smooth',
+        })
+      }
     }
     measure()
   })

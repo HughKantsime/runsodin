@@ -39,6 +39,7 @@ it.each(['light', 'dark'].flatMap(mode => ['stock', 'operator', 'user'].map(kind
   expect(contrastRatio(v('--brand-primary'), v('--brand-card-bg'))).toBeGreaterThanOrEqual(3)
   expect(screen.getByLabelText(`Fjord ${mode} primary`)).toHaveStyle({ background: v('--brand-primary'), color: v('--brand-on-primary') })
   expect(screen.getByLabelText(`Fjord ${mode} accent`)).toHaveStyle({ background: v('--brand-accent') })
+  expect(screen.getByRole('img', { name: `Fjord ${mode} accent` })).toBeVisible()
 })
 it.each(['light', 'dark'] as const)('personal accent wins over operator branding and clears back to Fjord in %s', async mode => {
   localStorage.setItem('odin-theme-family', 'fjord'); localStorage.setItem('odin-theme', mode)

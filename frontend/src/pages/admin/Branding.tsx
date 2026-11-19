@@ -3,7 +3,8 @@ import { brandingContrastWarnings } from "../../utils/contrast"
 import { DEFAULT_SURFACE_COLORS } from "../../utils/brandingPalette"
 import { useState, useEffect, useRef } from "react"
 import { Palette, Upload, RotateCcw, Eye, Save, Image, Type, Paintbrush, Monitor, PanelLeft } from "lucide-react"
-import { applyBrandingCSS, applyBrandingFavicon, useBrandingUpdate } from '../../BrandingContext'
+import { applyBrandingCSS, applyBrandingFavicon, onBrandFill, useBrandingUpdate } from '../../BrandingContext'
+import { useFjord } from '../../hooks/themePreferences'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { Button, Input, Card, Select } from '../../components/ui'
 
@@ -109,6 +110,7 @@ function getAuthHeaders(contentType = 'application/json') {
 }
 
 export default function Branding() {
+  const fjord = useFjord()
   const updateConfirmedBranding = useBrandingUpdate()
   const [branding, setBranding] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -246,6 +248,8 @@ export default function Branding() {
   const hasChanges = JSON.stringify(draft) !== JSON.stringify(branding)
 
   const contrastWarnings = brandingContrastWarnings(draft)
+  const previewInk = fjord && draft.primary_color ? { '--brand-on-primary': onBrandFill(draft.primary_color) } : {}
+  const previewText = fjord ? 'text-[var(--brand-on-primary)]' : 'text-white'
 
   const tabs = [
     { id: "identity", label: "Identity", icon: Paintbrush },
@@ -312,6 +316,7 @@ export default function Branding() {
             {tabs.map(tab => (
               <button
                 key={tab.id}
+                aria-label={fjord ? tab.label : undefined}
                 onClick={() => setActiveTab(tab.id)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium transition-colors"
                 style={
@@ -550,7 +555,7 @@ export default function Branding() {
                   </p>
                   <p className="text-[10px] mt-0.5" style={{ color: draft.text_secondary }}>3 of 5 online</p>
                   <div className="flex gap-2 mt-2">
-                    <div className="flex-1 h-6 rounded-md text-[10px] flex items-center justify-center font-medium text-white" style={{ backgroundColor: draft.primary_color }}>
+                    <div className={`flex-1 h-6 rounded-md text-[10px] flex items-center justify-center font-medium ${previewText}`} style={{ backgroundColor: draft.primary_color, ...previewInk }}>
                       Start Job
                     </div>
                     <div className="flex-1 h-6 rounded-md text-[10px] flex items-center justify-center" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_secondary }}>
@@ -581,7 +586,7 @@ export default function Branding() {
                 <div className="space-y-2">
                   <div className="h-7 rounded-md" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
                   <div className="h-7 rounded-md" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
-                  <div className="h-7 rounded-md text-[10px] text-white font-medium flex items-center justify-center" style={{ backgroundColor: draft.primary_color }}>
+                  <div className={`h-7 rounded-md text-[10px] ${previewText} font-medium flex items-center justify-center`} style={{ backgroundColor: draft.primary_color, ...previewInk }}>
                     Sign In
                   </div>
                 </div>

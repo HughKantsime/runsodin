@@ -186,7 +186,7 @@ function ensureContrast(hex, minRatio = 4.5) {
 }
 
 // Mid-tone custom fills can miss AA against both white and the Fjord near-black.
-function onBrandFill(fill: string) {
+export function onBrandFill(fill: string) {
   const hex = fill.replace(/^#([a-f\d])([a-f\d])([a-f\d])$/i, '#$1$1$2$2$3$3')
   const text = contrastRatio(hex, '#ffffff') >= contrastRatio(hex, '#1d1d1f') ? '#ffffff' : '#1d1d1f'
   return contrastRatio(hex, text) >= 4.5 ? text : '#000000'

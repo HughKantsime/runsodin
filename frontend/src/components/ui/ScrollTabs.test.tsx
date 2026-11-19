@@ -34,6 +34,21 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('ScrollTabs active tab', () => {
+  it('reveals the initial Fjord phone tab by scrolling only the strip', () => {
+    document.documentElement.dataset.themeFamily = 'fjord'
+    const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return { left: 0, right: this.textContent === 'B' ? 350 : 200 } as DOMRect
+    })
+    try {
+      const { getByTestId } = render(strip('b'))
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(getByTestId('strip').scrollLeft).toBe(150)
+    } finally {
+      bounds.mockRestore()
+      delete document.documentElement.dataset.themeFamily
+    }
+  })
+
   it('scrolls the active tab into view on mount, nearest inline, no vertical jump', () => {
     const { getByText } = render(strip('b'))
     expect(scrollIntoView).toHaveBeenCalledTimes(1)

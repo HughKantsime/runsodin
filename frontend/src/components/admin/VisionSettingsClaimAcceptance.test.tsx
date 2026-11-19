@@ -11,9 +11,16 @@ beforeEach(()=>{
  api.list.mockResolvedValue([{id:9,name:'Synthetic camera printer',camera_url:'/synthetic-frame'},{id:10,name:'Synthetic no-camera printer',camera_url:null}])
  api.printerGet.mockResolvedValue({enabled:1,spaghetti_enabled:1,spaghetti_threshold:.65,first_layer_enabled:1,first_layer_threshold:.60,detachment_enabled:1,detachment_threshold:.70,auto_pause:0,collect_training_data:0})
 })
-afterEach(()=>{cleanup();vi.clearAllMocks();vi.restoreAllMocks()})
+afterEach(()=>{cleanup();delete document.documentElement.dataset.themeFamily;vi.clearAllMocks();vi.restoreAllMocks()})
 async function mount(){const view=render(<VisionSettingsTab/>);await screen.findByText('Synthetic camera printer');await screen.findByText('45 days');return view}
 function printerCard(){return screen.getByText('Synthetic camera printer').parentElement!.parentElement!}
+test('Fjord gives both per-printer option checkboxes 24px targets', async () => {
+ document.documentElement.dataset.themeFamily = 'fjord'
+ await mount()
+ for (const name of ['Auto-pause', 'Collect data']) {
+  expect(screen.getByRole('checkbox', { name })).toHaveClass('size-6')
+ }
+})
 test('F03-3.3-03 global configuration loads and Save sends changed fields while preserving others',async()=>{
  await mount()
  expect(screen.getByRole('checkbox',{name:'Enable Vigil AI globally'})).not.toBeChecked()

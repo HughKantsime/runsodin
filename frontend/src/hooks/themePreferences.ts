@@ -44,3 +44,7 @@ export function useFoundry() {
     return root.dataset.themeFamily === 'foundry' && !root.classList.contains('light') && !root.classList.contains('high-contrast')
   }, () => false)
 }
+
+export function useFjord() {
+  return useSyncExternalStore(subscribe, () => document.documentElement.dataset.themeFamily === 'fjord', () => false)
+}

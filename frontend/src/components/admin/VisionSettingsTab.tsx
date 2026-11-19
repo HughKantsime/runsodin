@@ -4,8 +4,10 @@ import { vision, printers } from '../../api'
 import ModelUpload from './VisionModelUpload'
 import VisionTrainingCrop from './VisionTrainingCrop'
 import { getCurrentUser } from '../../permissions'
+import { useFjord } from '../../hooks/themePreferences'
 
 export default function VisionSettingsTab() {
+  const fjord = useFjord()
   const [globalSettings, setGlobalSettings] = useState<{ enabled: boolean; retention_days: number; max_threads?: number }>({ enabled: true, retention_days: 30 })
   const [monitorStatus, setMonitorStatus] = useState(null)
   const [printerSettings, setPrinterSettings] = useState([])
@@ -212,13 +214,13 @@ export default function VisionSettingsTab() {
                     {/* Options */}
                     <div className="space-y-1.5">
                       <label className="flex items-center gap-1.5">
-                        <input type="checkbox" checked={vs.auto_pause === 1}
+                        <input type="checkbox" className={fjord ? 'size-6' : undefined} checked={vs.auto_pause === 1}
                           onChange={e => savePrinterVision(p.id, { auto_pause: e.target.checked ? 1 : 0 })}
                         />
                         Auto-pause
                       </label>
                       <label className="flex items-center gap-1.5">
-                        <input type="checkbox" checked={vs.collect_training_data === 1}
+                        <input type="checkbox" className={fjord ? 'size-6' : undefined} checked={vs.collect_training_data === 1}
                           onChange={e => savePrinterVision(p.id, { collect_training_data: e.target.checked ? 1 : 0 })}
                         />
                         Collect data

@@ -32,7 +32,7 @@ export default function ThemePicker() {
           <span className="text-xs">{mode === 'light' ? 'Light' : 'Dark'}</span>
           <div className="mt-2 h-8 border" style={{ background: mode === 'light' ? '#ffffff' : '#18181c', borderColor: mode === 'light' ? '#e4e4e6' : '#2d2d30', borderRadius: 12 }} />
           <div aria-label={`Fjord ${mode} primary`} className="mt-2 px-2 py-1 text-xs rounded-full" style={{ background: colors['--brand-primary'] || (mode === 'light' ? '#9a5b00' : '#ffb340'), color: colors['--brand-on-primary'] || (mode === 'light' ? '#ffffff' : '#1d1d1f') }}>Primary</div>
-          <div aria-label={`Fjord ${mode} accent`} className="mt-2 h-2 w-8 rounded-full" style={{ background: colors['--brand-accent'] || (mode === 'light' ? '#f5a524' : '#ffb340') }} />
+          <div role="img" aria-label={`Fjord ${mode} accent`} className="mt-2 h-2 w-8 rounded-full" style={{ background: colors['--brand-accent'] || (mode === 'light' ? '#f5a524' : '#ffb340') }} />
         </div>})}
       </div>
       <label className="block text-sm">Density

@@ -55,6 +55,16 @@ export function classicSource(file, source) {
   s = s.replace(/^import CheckTarget from '[^']+'\n/gm, '')
     .replace(/<CheckTarget(?: className="(?:mb-2|absolute top-3 left-3 z-10)")?>/g, '').replace(/<\/CheckTarget>/g, '')
   if (file.endsWith('/Projects.tsx')) s = s.replace('aria-label={`Colour: ${c}`}', '').replace('aria-pressed={color === c}', '')
+  // Project only the exact Fjord preview guards back to their Classic values.
+  if (file.endsWith('/pages/admin/Branding.tsx')) s = s
+    .replace("import { useFjord } from '../../hooks/themePreferences'\n", '')
+    .replace('applyBrandingFavicon, onBrandFill, useBrandingUpdate', 'applyBrandingFavicon, useBrandingUpdate')
+    .replace('  const fjord = useFjord()\n', '')
+    .replace('aria-label={fjord ? tab.label : undefined}', '')
+    .replace("  const previewInk = fjord && draft.primary_color ? { '--brand-on-primary': onBrandFill(draft.primary_color) } : {}\n", '')
+    .replaceAll('backgroundColor: draft.primary_color, ...previewInk', 'backgroundColor: draft.primary_color')
+    .replace("  const previewText = fjord ? 'text-[var(--brand-on-primary)]' : 'text-white'\n", '')
+    .replace(/className=\{`([^`$]*)\$\{previewText\}([^`$]*)`\}/g, 'className="$1text-white$2"')
   if (file.endsWith('/Jobs.tsx')) s = s.replace("import { useFoundry } from '../../hooks/themePreferences'\n", '')
     .replace('  const foundry = useFoundry()\n', '').replace(" role={foundry ? 'region' : undefined}", '')
   // Part B fixes: these exact accessibility-only attributes and Foundry-only

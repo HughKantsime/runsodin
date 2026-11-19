@@ -49,6 +49,9 @@
     "truncated": false
   },
   "GET /api/filaments": [],
+  "GET /api/inventory/conflicts": {"duplicates": [], "contradictions": [], "slots": []},
+  "GET /api/spools/reorder": [],
+  "GET /api/spools/spoolman-link-conflicts": [],
   "GET /api/models-with-pricing": [],
   "GET /api/maintenance/tasks": [],
   "GET /api/maintenance/logs": [],
@@ -56,16 +59,17 @@
     "items": [
       {
         "id": 1,
-        "name": "Fjord archive",
-        "file_name": "Fjord archive",
+        "display_name": "Fjord archive",
+        "print_name": "Fjord archive",
         "status": "completed",
         "printer_id": 1,
         "printer_name": "EDU Printer",
+        "printer_display": "EDU Printer",
         "tags": [
           "review"
         ],
         "completed_at": "2026-11-16T12:00:00Z",
-        "duration_seconds": 3600,
+        "actual_duration_seconds": 3600,
         "filament_used_grams": 15
       }
     ],
