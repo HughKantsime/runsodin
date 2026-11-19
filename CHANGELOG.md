@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- You can change your password on the Account page. Your current device stays signed in and your other devices are signed out.
+
 - Open Account to manage two-factor authentication, recovery codes, personal API tokens and signed-in devices. You can use a recovery code at sign-in. Administrators can end sessions from Settings > Access > Sessions.
 
 - After five wrong authenticator or recovery codes within 15 minutes, your account pauses code checks for 15 minutes. This applies when signing in, turning off MFA, or replacing recovery codes.

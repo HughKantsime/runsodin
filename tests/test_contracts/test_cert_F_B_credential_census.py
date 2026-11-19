@@ -37,7 +37,7 @@ USERS_CREDENTIAL_COLS = {"email", "username", "password_hash", "mfa_enabled", "m
 CONFIG_KEYS = {"smtp_config", "base_url", "setup_complete", "setup_admin_claimed", "oidc"}
 # Helpers that encapsulate a guarded write; a route that calls one is guarded.
 GUARDED_HELPERS = {
-    "hash_password", "create_biometric_token", "invalidate_recovery_credentials",
+    "hash_password", "change_password", "create_biometric_token", "invalidate_recovery_credentials", "invalidate_reset_links",
     "issue_codes", "require_code", "consume_code", "cancel_pending_enrollments", "_resolve_oidc_user", "record_session", "stage_session",
 }
 # Bulk credential reads (hashes/secrets/tokens leave the process).
@@ -248,7 +248,7 @@ def test_the_census_actually_found_the_known_guarded_routes():
     # Guard against a silently empty census (e.g. a parse regression).
     guarded, enforced = _collect()
     for route in [("POST", "/auth/biometric-token"), ("PUT", "/smtp-config"),
-                  ("POST", "/tokens"), ("POST", "/auth/mfa/recovery-codes"), ("PATCH", "/users/{user_id}"),
+                  ("POST", "/tokens"), ("POST", "/auth/mfa/recovery-codes"), ("POST", "/auth/me/password"), ("PATCH", "/users/{user_id}"),
                   ("PUT", "/admin/oidc")]:
         # Each known credential route must be *detected* by the static signals (an
         # empty or broken census fails here) and enforced on the real app.

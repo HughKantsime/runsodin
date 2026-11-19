@@ -176,6 +176,7 @@ def _resolve_body(body, test_data):
 # them to the non-interactive legacy-API-key admin with 403 "API tokens cannot create or change
 # credentials; sign in with a password session". Asserted explicitly as 403 for api_key_only.
 CREDENTIAL_OPERATIONS = {
+    ("POST", "/api/auth/me/password"),
     ("POST", "/api/audit-logs/initialize-keyring"),
     ("POST", "/api/audit-logs/accept-restore-baseline"),
     ("PUT", "/api/settings/siem/{destination_id}"), ("DELETE", "/api/settings/siem/{destination_id}"),

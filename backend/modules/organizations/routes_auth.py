@@ -36,6 +36,7 @@ from modules.organizations.mfa_recovery import (
 from core.config import settings as _settings
 from core.rate_limit import limiter
 from modules.organizations.education_access import capability_snapshot_id
+from modules.organizations.account_password import change_password, password_account
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -49,8 +50,11 @@ from core.session_tracking import stage_session
 
 # ============== Login ==============
 
+password_address_limit = limiter.shared_limit("10/minute", scope="password-check")
+
+
 @router.post("/auth/login", tags=["Auth"])
-@limiter.limit("10/minute")
+@password_address_limit
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
     if _check_rate_limit(db, client_ip):
@@ -419,7 +423,21 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"id": current_user["id"], "username": current_user["username"], "email": current_user["email"],
-            "role": current_user["role"], "group_id": current_user.get("group_id")}
+            "role": current_user["role"], "group_id": current_user.get("group_id"),
+            "has_local_password": bool((current_user.get("password_hash") or "").strip())}
+
+
+class ChangePasswordRequest(PydanticBaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/auth/me/password", tags=["Auth"])
+@password_address_limit
+async def change_my_password(request: Request, body: ChangePasswordRequest,
+                             user=Depends(password_account), db: Session = Depends(get_db)):
+    change_password(db, user, request, body.current_password, body.new_password)
+    return {"status": "updated"}
 
 
 _DEFAULT_THEME = {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"}
@@ -637,10 +655,9 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
         ), {"h": password_hash, "uid": row.user_id}).rowcount
         if changed != 1:
             raise invalid()
-        db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE user_id = :uid AND used = 0"),
-                   {"uid": row.user_id})
         from core.mfa_login import cancel_pending_enrollments
-        from modules.organizations.password_reset import revoke_sessions_and_biometric
+        from modules.organizations.password_reset import invalidate_reset_links, revoke_sessions_and_biometric
+        invalidate_reset_links(db, row.user_id)
         cancel_pending_enrollments(db, row.user_id)
         # A reset revokes biometric tokens and every session (the user is not
         # authenticated here, so none is kept).

@@ -457,6 +457,7 @@ def resolve_current_user_sync(
         # LicenseLockError from _principal propagates (outside the lookup try).
         principal = _principal(user, auth_kind, db, request)
         if principal:
+            request.state.authenticated_session_jti = jti
             if side_effects:
                 bind_verified_actor(db, principal)
             return principal

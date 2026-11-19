@@ -12,6 +12,7 @@ export interface User {
   group_id?: number | null;
   org_id?: number | null;
   mfa_enabled?: boolean;
+  has_local_password?: boolean;
   [key: string]: unknown;
 }
 
