@@ -119,6 +119,16 @@ def _thresholds():
     return json.loads(api_load.THRESHOLDS_PATH.read_text(encoding="utf-8"))
 
 
+def test_shipped_single_repetition_latency_factor():
+    assert _thresholds()["single_repetition_latency_factor"] == 1.15
+
+
+def test_judging_evidence_records_steal_in_each_window():
+    evidence = _thresholds()["judging_2_4"]["evidence"]
+    assert "2.0% steal in the 09:10-09:20 UTC window" in evidence
+    assert "0.9% in the windows before and after" in evidence
+
+
 @pytest.mark.parametrize("facts,expected,limits", [
     (MAC, "mac-m4", {"read_p95_ms": 385, "write_p95_ms": 525, "global_p99_ms": 525}),
     (dict(MAC, hostname="renamed.local"), "mac-m4", {"read_p95_ms": 385, "write_p95_ms": 525, "global_p99_ms": 525}),

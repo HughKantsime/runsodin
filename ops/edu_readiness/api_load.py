@@ -671,8 +671,8 @@ async def run(run_id: str, output: Path) -> int:
     thresholds_bytes = THRESHOLDS_PATH.read_bytes()
     thresholds = json.loads(thresholds_bytes)
     factor = thresholds.get("single_repetition_latency_factor")
-    if type(factor) not in (int, float) or not 1 <= factor < float("inf"):
-        raise ValueError("single_repetition_latency_factor must be a finite number of at least 1.0")
+    if type(factor) not in (int, float) or not 1 <= factor <= 1.5:
+        raise ValueError("single_repetition_latency_factor must be a number between 1.0 and 1.5 inclusive")
     started_at = utc_now()
     started = time.perf_counter()
     try:

@@ -188,7 +188,8 @@ def test_timed_p95_judging(monkeypatch, tmp_path, timed_pass, kind, values, medi
     assert result['metrics']['single_repetition_latency_factor'] == 1.15
 
 
-@pytest.mark.parametrize('factor', [None, 0.99], ids=['missing', 'below-one'])
+@pytest.mark.parametrize('factor', [None, 0.99, float('nan'), float('inf'), '1.15', True, 1.51],
+                         ids=['missing', 'below-one', 'nan', 'infinity', 'string', 'true', 'above-cap'])
 def test_invalid_single_repetition_latency_factor_is_refused(monkeypatch, tmp_path, timed_pass, factor):
     thresholds = _thresholds()
     if factor is None:

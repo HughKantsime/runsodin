@@ -129,6 +129,6 @@
   "judging_2_4": {
     "author": "2026-11-19 ODIN Dev",
     "decision": "Judge the upper median of the untraced read and write p95 values against their respective host limits. Cap each repetition at 1.15 times those limits. No limit value changed.",
-    "evidence": "On 2026-11-19, gha-44473325241-1 at d52c819a recorded write p95 values of 750.7, 735.7 and 863.6 ms against 853 ms. On odin-ci, sar recorded 2.0% and 0.9% steal around the 09:10-09:20 UTC window. This was the second gate failure from one repetition on a contended host in three days, after gha-44036780307-1. In three alternating rounds on the idle test machine at 09:25-09:43 UTC (nine repetitions per version), 2.3.1 at 1a183019 averaged 681 ms write p95 with a worst of 701 ms and 15.44 s per repetition. The candidate at d52c819a averaged 657 ms with a worst of 683 ms and 15.56 s per repetition."
+    "evidence": "On 2026-11-19, gha-44473325241-1 at d52c819a recorded write p95 values of 750.7, 735.7 and 863.6 ms against 853 ms. On odin-ci, sar recorded 2.0% steal in the 09:10-09:20 UTC window and 0.9% in the windows before and after. This was the second gate failure from one repetition on a contended host in three days, after gha-44036780307-1. In three alternating rounds on the idle test machine at 09:25-09:43 UTC (nine repetitions per version), 2.3.1 at 1a183019 averaged 681 ms write p95 with a worst of 701 ms and 15.44 s per repetition. The candidate at d52c819a averaged 657 ms with a worst of 683 ms and 15.56 s per repetition."
   }
 }
