@@ -274,14 +274,16 @@ def test_gate_runtime_toggle_outage_and_non_http(monkeypatch):
     assert sent[2]['body'] == b'{"detail":"Service temporarily unavailable"}'
 
 
-def test_middleware_order_is_unchanged():
+def test_middleware_order_enforces_network_policy_before_principal_resolution():
     from core.app import create_app
     app = create_app()
     names = [m.kwargs['dispatch'].__name__ if 'dispatch' in m.kwargs else m.cls.__name__
              for m in app.user_middleware]
-    assert names[:8] == ['TrustedProxySchemeMiddleware', 'AuditActorMiddleware', 'ControlledResponseMiddleware',
-                         'security_headers', 'LicensePrincipalMiddleware', 'authenticate_request',
-                         'idempotency_middleware', 'dry_run_middleware']
+    assert names == [
+        'TrustedProxySchemeMiddleware', 'security_headers', 'CORSMiddleware', 'check_ip_allowlist',
+        'AuditActorMiddleware', 'ControlledResponseMiddleware', 'LicensePrincipalMiddleware',
+        'authenticate_request', 'idempotency_middleware', 'dry_run_middleware', 'TrustedHostMiddleware',
+    ]
     assert names.count('LicensePrincipalMiddleware') == 1
     assert 'license_principal_gate' not in names
 

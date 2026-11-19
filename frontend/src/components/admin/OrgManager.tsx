@@ -144,6 +144,7 @@ function OrgCard({ org, printerList, addMemberId, setAddMemberId,
   const { data: candidates } = useQuery({
     queryKey: ['org-member-candidates', org.id],
     queryFn: () => orgs.memberCandidates(org.id),
+    select: data => Array.isArray(data) ? data : [],
   })
 
   const { data: settings } = useQuery({

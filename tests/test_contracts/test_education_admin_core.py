@@ -682,6 +682,22 @@ def test_user_lifecycle_guard_includes_printer_entitlement_actors(
     assert hard_delete.value.status_code == 409
 
 
+def test_user_tenant_change_guard_keeps_history_after_user_removal(education_db):
+    from fastapi import HTTPException
+    from modules.organizations.education_policy import assert_user_tenant_change_allowed
+
+    assert education_db.execute(text("SELECT id FROM users WHERE id=99")).first() is None
+    education_db.execute(text(
+        "INSERT INTO education_audit_events "
+        "(event_id,org_id,actor_kind,actor_id,action,command_id,request_hash,resource_type,resource_id) "
+        "VALUES ('historic-event',1,'user','99','review','historic-command','hash','user','99')"
+    ))
+    with pytest.raises(HTTPException) as blocked:
+        assert_user_tenant_change_allowed(education_db, 99)
+    assert blocked.value.status_code == 409
+    assert_user_tenant_change_allowed(education_db, 98)
+
+
 @pytest.mark.parametrize("reference", ["outbox", "rate", "storage"])
 def test_user_tenant_change_guard_covers_composite_user_references(
     education_db: Session, reference: str,

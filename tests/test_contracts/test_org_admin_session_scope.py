@@ -145,3 +145,49 @@ def test_member_candidates_require_user_groups(member_client, review_db, tier_li
     response = member_client.get("/orgs/1/member-candidates", headers=headers)
     assert response.status_code == 403
     assert response.headers["X-ODIN-License-Feature"] == "user_groups"
+
+
+@pytest.fixture
+def group_client(member_client, review_db):
+    from modules.organizations.routes_users import router
+
+    member_client.app.include_router(router)
+    review_db.execute(text("UPDATE users SET role='operator',group_id=1 WHERE id IN (62,63)"))
+    review_db.commit()
+    return member_client
+
+
+@pytest.mark.parametrize("platform", [False, True])
+def test_group_reads_follow_organization_scope(group_client, review_db, education_license, platform):
+    uid, name = (60, "platform") if platform else (3, "admin")
+    headers, _ = _session(review_db, uid, name, "admin", "Browser")
+    listed = group_client.get("/groups", headers=headers)
+    assert listed.status_code == 200
+    assert {g["id"] for g in listed.json()} == ({1, 2} if platform else {1})
+    own = group_client.get("/groups/1", headers=headers)
+    assert own.status_code == 200
+    assert {u["id"] for u in own.json()["members"]} == {1, 2, 3, 4, 62, 63}
+    other = group_client.get("/groups/2", headers=headers)
+    if platform:
+        assert other.status_code == 200
+        assert [u["id"] for u in other.json()["members"]] == [5]
+    else:
+        assert other.status_code == 403
+        assert other.json()["detail"] == "Access denied"
+
+
+@pytest.mark.parametrize("resource", ["groups", "orgs"])
+def test_owner_selection_respects_admin_scope(group_client, review_db, education_license, resource):
+    org, _ = _session(review_db, 3, "admin", "admin", "Browser")
+    platform, _ = _session(review_db, 60, "platform", "admin", "Browser")
+    other = group_client.patch(f"/{resource}/2", headers=org, json={"owner_id": 5})
+    assert other.status_code == (403 if resource == "groups" else 404)
+    path = f"/{resource}/1"
+    for owner in (63, 3, None):
+        assert group_client.patch(path, headers=org, json={"owner_id": owner}).status_code == 200
+    for owner in (60, 5, 62, 1, 0):
+        refused = group_client.patch(path, headers=org, json={"owner_id": owner})
+        assert refused.status_code == 400
+        assert review_db.execute(text("SELECT owner_id FROM groups WHERE id=1")).scalar_one() is None
+    assert group_client.patch(path, headers=platform, json={"owner_id": 5}).status_code == 200
+    assert review_db.execute(text("SELECT owner_id FROM groups WHERE id=1")).scalar_one() == 5

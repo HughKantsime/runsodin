@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import OrgManager from './OrgManager'
 import Settings from '../../pages/admin/Settings'
-const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, fetch: vi.fn() }))
+const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, invalidCandidates: false, fetch: vi.fn() }))
 vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: (name: string) => ['user_groups', 'sso', 'permissions'].includes(name), atUserLimit: () => false, maxUsers: 0 }) }))
 vi.mock('../../BrandingContext', async importOriginal => ({
@@ -23,11 +23,12 @@ function selectFor(option: string) { return screen.getByRole('option', { name: o
 async function settingsAccess() { show(<Settings />); fireEvent.click(screen.getByRole('button', { name: 'Access', exact: true })); await screen.findByText('Existing member', { selector: 'p' }) }
 function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, headers: new Headers(), json: async () => data, text: async () => JSON.stringify(data) } }
 beforeEach(() => {
-  vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false
+  vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false; boundary.invalidCandidates = false
   boundary.fetch.mockImplementation(async (url: unknown, options: any = {}) => {
     const path = String(url); const method = options.method || 'GET'
     if (path === '/api/orgs/17/members' && method === 'POST' && boundary.failMember) return response({ detail: 'Fixture membership denied' },false)
     if (method !== 'GET') return response({ status: 'ok' })
+    if (path === '/api/orgs/17/member-candidates') return response(boundary.invalidCandidates ? {} : [{ id: 4, username: 'Unassigned user' }])
     if (path === '/api/users') return response(users)
     if (path === '/api/printers') return response(printers)
     if (path === '/api/orgs' || path === '/api/groups') return response([org])
@@ -119,4 +120,14 @@ it('saves the opt-in Perkins setting and school timezone through the real adapte
   fireEvent.click(screen.getByRole('button', {name:'Save Settings'}))
   await waitFor(() => expect(calls('/api/orgs/17/settings','PUT')).toHaveLength(1))
   expect(JSON.parse(calls('/api/orgs/17/settings','PUT')[0][1].body)).toEqual(expect.objectContaining({program_reports_perkins_enabled:true,timezone:'America/New_York'}))
+})
+
+it('keeps the organization card usable when the candidate list has the wrong shape', async () => {
+  boundary.invalidCandidates = true
+  show(<OrgManager />)
+  await screen.findByRole('option', { name: 'Fixture printer' })
+  await waitFor(() => expect(clients[0].getQueryData(['org-member-candidates', org.id])).toEqual({}))
+  const picker = screen.getByRole('combobox', { name: `Add member to ${org.name}` })
+  expect(within(picker).getAllByRole('option')).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'Organization settings' })).toBeEnabled()
 })

@@ -32,7 +32,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 // ---------------- Per-org quiet hours ----------------
 
 test('CertENotif: org settings show the stored quiet-hours window and save an edited window', async () => {
-  wire({ 'GET /orgs': orgFixture.orgs, 'GET /users': [], 'GET /printers': [], 'GET /orgs/1/settings': orgFixture.settings,
+  wire({ 'GET /orgs': orgFixture.orgs, 'GET /orgs/1/member-candidates': [], 'GET /orgs/2/member-candidates': [], 'GET /printers': [], 'GET /orgs/1/settings': orgFixture.settings,
          'PUT /orgs/1/settings': orgFixture.put_response })
   render(withQuery(<OrgManager />))
   const card = (await screen.findByText('school')).closest('.rounded-md.p-4') as HTMLElement
@@ -48,7 +48,7 @@ test('CertENotif: org settings show the stored quiet-hours window and save an ed
   expect(put.body).toMatchObject({ quiet_hours_enabled: true, quiet_hours_start: '21:30', quiet_hours_end: '07:15',
                                    webhook_url: 'https://hooks.cert-e.test/org-1', webhook_type: 'discord' })
   // The sibling org's settings were never touched.
-  expect(calls.some(c => c.path.startsWith('/orgs/2'))).toBe(false)
+  expect(calls.some(c => c.path === '/orgs/2/settings')).toBe(false)
 })
 
 // ---------------- Webhooks UI ----------------

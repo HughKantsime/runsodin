@@ -130,7 +130,7 @@ def assert_generic_job_mutation_allowed(db: Session, job_id: int) -> None:
         ))
 
 
-# Shared by the membership picker and the write guard. The outer row is users.
+# Both callers supply the outer users.id, including a bound id for a historical user.
 USER_HAS_EDUCATION_HISTORY = """EXISTS (
     SELECT 1 FROM education_cost_center_grants
         WHERE user_id=users.id OR granted_by=users.id OR revoked_by=users.id
@@ -147,7 +147,7 @@ USER_HAS_EDUCATION_HISTORY = """EXISTS (
 
 
 def assert_user_tenant_change_allowed(db: Session, user_id: int) -> None:
-    if _exists(db, "SELECT 1 FROM users WHERE id=:id AND " + USER_HAS_EDUCATION_HISTORY, {"id": user_id}):
+    if _exists(db, "SELECT 1 FROM (SELECT CAST(:id AS INTEGER) AS id) AS users WHERE " + USER_HAS_EDUCATION_HISTORY, {"id": user_id}):
         raise HTTPException(
             status_code=409,
             detail="User tenant cannot change while Education grants or history exist",

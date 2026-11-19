@@ -527,7 +527,7 @@ async def import_users_csv(
 @router.get("/groups", tags=["Groups"])
 async def list_groups(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
-    if current_user.get("role") == "admin":
+    if _is_superadmin(current_user):
         groups = db.execute(text("""
             SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
                    u.username AS owner_username,
@@ -580,7 +580,7 @@ async def create_group(body: dict, current_user: dict = Depends(require_superadm
 @router.get("/groups/{group_id}", tags=["Groups"])
 async def get_group(group_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
-    if current_user.get("role") != "admin" and current_user.get("group_id") != group_id:
+    if not _check_org_admin_access(current_user, group_id):
         raise HTTPException(status_code=403, detail="Access denied")
     group = db.execute(text("""
         SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
@@ -596,6 +596,24 @@ async def get_group(group_id: int, current_user: dict = Depends(require_role("op
     return result
 
 
+def write_group_fields(db, group_id, updates, current_user):
+    """Write the caller's allowlisted fields, checking owner eligibility in the same statement."""
+    fields = ("name", "description", "owner_id", "updated_at")
+    set_clause = ", ".join(f"{field} = :{field}" for field in fields if field in updates)
+    statement = f"UPDATE groups SET {set_clause} WHERE id = :id"
+    scoped_owner = updates.get("owner_id") is not None and not _is_superadmin(current_user)
+    if scoped_owner:
+        message = "Choose an active operator or administrator from this group as the owner."
+        owner_id = str(updates["owner_id"])
+        if not re.fullmatch(r"[0-9]{1,19}", owner_id) or int(owner_id) > 2**63 - 1:
+            raise HTTPException(status_code=400, detail=message)
+        statement += (" AND EXISTS (SELECT 1 FROM users WHERE id = :owner_id AND group_id = :id"
+                      " AND is_active IS TRUE AND role IN ('operator', 'admin'))")
+    result = db.execute(text(statement), {**updates, "id": group_id})
+    if scoped_owner and not result.rowcount:
+        raise HTTPException(status_code=400, detail=message)
+
+
 @router.patch("/groups/{group_id}", tags=["Groups"])
 async def update_group(group_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     require_feature("user_groups")
@@ -607,7 +625,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
     ALLOWED_GROUP_FIELDS = {"name", "description", "owner_id"}
     updates = {k: v for k, v in body.items() if k in ALLOWED_GROUP_FIELDS}
 
-    if "owner_id" in updates and updates["owner_id"]:
+    if _is_superadmin(current_user) and updates.get("owner_id"):
         owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active IS TRUE"), {"id": updates["owner_id"]}).fetchone()
         if not owner:
             raise HTTPException(status_code=400, detail="Owner not found")
@@ -616,9 +634,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
 
     if updates:
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-        set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
-        updates["id"] = group_id
-        db.execute(text(f"UPDATE groups SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+        write_group_fields(db, group_id, updates, current_user)
         db.commit()
     return {"status": "updated"}
 

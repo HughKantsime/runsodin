@@ -169,12 +169,17 @@ def test_policy_read_failure_refuses_web_page(allowlist_app, monkeypatch):
         response = client.get("/")
         assert response.status_code == 503
         assert response.json() == {"detail": "Service temporarily unavailable"}
+        assert response.headers["X-Frame-Options"] == "DENY"
 
 
 def test_internal_camera_relay_keeps_its_own_admission_check(allowlist_app, monkeypatch):
     from modules.printers import camera_relay
 
     allowlist_app.include_router(camera_relay.router)
+    @allowlist_app.get("/{path:path}", response_class=HTMLResponse)
+    def web_fallback(path: str):
+        return "<html>Farm dashboard</html>"
+
     # This peer is trusted by the relay but is outside the web allowlist.
     monkeypatch.setenv("ODIN_CAMERA_RELAY_PEERS", "198.51.100.9")
     checked = []
@@ -188,9 +193,39 @@ def test_internal_camera_relay_keeps_its_own_admission_check(allowlist_app, monk
             "enabled": True, "cidrs": ["203.0.113.0/24"],
         }).status_code == 200
     with TestClient(allowlist_app, client=("198.51.100.9", 50000)) as peer:
-        assert peer.get("/internal/camera-source/42/wrong-token").status_code == 404
+        relay = str(allowlist_app.url_path_for("camera_source", printer_id=42, token="wrong-token"))
+        assert peer.get(relay).status_code == 404
         assert checked == [42]
-        for path in ("/internal/other", "/internal/camera-source", "/internal/camera-source-extra/42/token"):
+        directory, printer, token = relay.rsplit("/", 2)
+        for path in ("/internal/other", directory, directory + "/x", relay + "/extra", relay + "/",
+                     f"{directory}/unknown/{token}", f"{directory}//{token}", f"{directory}/{printer}//{token}",
+                     relay.replace("/" + token, "%2F" + token), relay.replace("42", "%34%32")):
             response = peer.get(path, follow_redirects=False)
             assert response.status_code == 403
             assert response.json() == {"detail": "IP address not allowed"}
+
+
+def test_restored_address_is_checked_before_license_resolution(allowlist_app, monkeypatch):
+    from unittest.mock import Mock
+    from core.license_lock import LicenseLockError
+    from core.remote_access import TrustedProxySchemeMiddleware
+
+    allowlist_app.add_middleware(TrustedProxySchemeMiddleware, trusted="127.0.0.1")
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "1")
+    locked = Mock(side_effect=LicenseLockError("license_user_locked", revision=2, resource_id=3))
+    monkeypatch.setattr("core.dependencies.resolve_current_user_sync", locked)
+    monkeypatch.setattr("core.ip_allowlist_cache.policy", lambda _: {"enabled": True, "cidrs": ["203.0.113.0/24"]})
+    with TestClient(allowlist_app, client=("127.0.0.1", 50000)) as proxy:
+        headers = {"Authorization": "Bearer fixture", "X-Forwarded-For": "198.51.100.9",
+                   "Origin": "https://web.example.test"}
+        refused = proxy.get("/api/probe", headers=headers)
+        assert refused.status_code == 403
+        assert refused.json() == {"detail": "IP address not allowed"}
+        assert refused.headers["X-Frame-Options"] == "DENY"
+        assert "Strict-Transport-Security" in refused.headers
+        assert refused.headers["Access-Control-Allow-Origin"] == headers["Origin"]
+        locked.assert_not_called()
+        headers["X-Forwarded-For"] = "203.0.113.8"
+        admitted = proxy.get("/api/probe", headers=headers)
+        assert admitted.json()["detail"]["code"] == "license_user_locked"
+        locked.assert_called_once()

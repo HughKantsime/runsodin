@@ -109,9 +109,9 @@ def test_explicit_settings_permission_override_is_preserved(setup_client):
 
 
 @pytest.mark.parametrize("existing, update", [
-    (None, {"provider_type": "generic"}),
-    ({"provider_type": "google"}, {"provider_type": "generic"}),
-    ({"provider_type": "generic", "discovery_url": "https://idp.example.test/discovery"}, {"discovery_url": "  "}),
+    (None, {"provider_type": "generic", "is_enabled": True}),
+    ({"provider_type": "google", "is_enabled": True}, {"provider_type": "generic"}),
+    ({"provider_type": "generic", "is_enabled": True, "discovery_url": "https://idp.example.test/discovery"}, {"discovery_url": "  "}),
 ])
 def test_generic_provider_requires_a_discovery_address(setup_client, existing, update):
     client, _, _ = setup_client
@@ -124,7 +124,8 @@ def test_generic_provider_requires_a_discovery_address(setup_client, existing, u
     assert client.get("/admin/oidc").json() == before
 
 
-def test_legacy_generic_provider_refuses_login_before_discovery(setup_client, monkeypatch):
+@pytest.mark.parametrize("entry", ["login", "callback"])
+def test_legacy_generic_provider_refuses_login_before_discovery(setup_client, monkeypatch, entry):
     from unittest.mock import AsyncMock
     from modules.organizations import oidc_handler
 
@@ -133,7 +134,30 @@ def test_legacy_generic_provider_refuses_login_before_discovery(setup_client, mo
         db.execute(text("INSERT INTO oidc_config (id, provider_type, is_enabled) VALUES (1, 'generic', TRUE)"))
     request = AsyncMock()
     monkeypatch.setattr(oidc_handler, "pinned_async_request", request)
-    response = client.get("/auth/oidc/login", follow_redirects=False)
+    from modules.organizations.routes_oidc import OIDC_BINDING_COOKIE, oidc_state_binding
+    client.cookies.set(OIDC_BINDING_COOKIE, oidc_state_binding("test-state"))
+    response = client.get(f"/auth/oidc/{entry}", params={"code": "test-code", "state": "test-state"},
+                          follow_redirects=False)
     assert response.status_code == 400
     assert response.json() == {"detail": "OIDC not configured"}
     request.assert_not_called()
+
+
+def test_blank_generic_provider_can_be_saved_disabled(setup_client):
+    client, engine, _ = setup_client
+    with engine.begin() as db:
+        db.execute(text("INSERT INTO oidc_config (id, provider_type, is_enabled) VALUES (1, 'generic', TRUE)"))
+    assert client.put("/admin/oidc", json={"is_enabled": False}).status_code == 200
+    assert client.put("/admin/oidc", json={"display_name": "School login"}).status_code == 200
+    assert client.put("/admin/oidc", json={"is_enabled": True}).status_code == 422
+    assert not client.get("/admin/oidc").json()["is_enabled"]
+    assert client.get("/auth/oidc/login").status_code == 400
+
+
+def test_first_save_may_leave_generic_provider_disabled(setup_client):
+    client, _, _ = setup_client
+    assert client.put("/admin/oidc", json={"provider_type": "generic", "is_enabled": False}).status_code == 200
+    assert client.put("/admin/oidc", json={"is_enabled": True}).status_code == 422
+    assert client.put("/admin/oidc", json={
+        "is_enabled": True, "discovery_url": "https://idp.example.test/discovery",
+    }).status_code == 200

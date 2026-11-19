@@ -34,7 +34,7 @@ from core.app_maintenance import (
 # Middleware setup
 
 def _setup_middleware(app: FastAPI) -> None:
-    """Attach CORS, rate limiting, and security-headers middleware to the app."""
+    """Configure rate limits and host validation."""
     from core.config import settings
     from core.rate_limit import limiter
     from slowapi import _rate_limit_exceeded_handler
@@ -44,14 +44,18 @@ def _setup_middleware(app: FastAPI) -> None:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    from core.remote_access import trusted_hosts, cors_origins
+    from core.remote_access import trusted_hosts
     hosts = trusted_hosts(settings)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=hosts,
     )
 
-    # CORS
+
+def _register_cors(app: FastAPI) -> None:
+    from core.config import settings
+    from core.remote_access import cors_origins
+
     _cors_origins = cors_origins(settings)
     app.add_middleware(
         CORSMiddleware,
@@ -87,13 +91,15 @@ def _setup_middleware(app: FastAPI) -> None:
 from core.app_allowlist import _ip_allowlist_denial
 
 
-def _register_http_middleware(app: FastAPI) -> None:
+def _register_http_middleware(app: FastAPI, *, response_middleware=()) -> None:
     """Register @app.middleware("http") handlers for security headers and auth.
 
     ASGI middleware ordering note: `@app.middleware("http")` wraps
     earlier-registered middleware with later-registered ones. The net
     effect: the LAST registration in this function becomes the OUTERMOST
-    wrapper on the request path.
+    wrapper registered here. The factory wraps it with trusted-proxy restoration.
+    Security headers and CORS enclose the IP check, which precedes audit,
+    response filtering, licence checks, and authentication.
 
     Codex pass 1 (2026-04-14) flagged a critical auth-bypass risk in
     the prior ordering: the idempotency middleware was registered
@@ -116,6 +122,7 @@ def _register_http_middleware(app: FastAPI) -> None:
     short-circuit requests, so wrapping auth introduces no bypass.
     """
     from core.config import settings
+    from core.camera_relay_path import is_relay_request
     from core.middleware.dry_run import dry_run_middleware
     from core.middleware.idempotency import idempotency_middleware
 
@@ -163,7 +170,7 @@ def _register_http_middleware(app: FastAPI) -> None:
 
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
-        """Check IP allowlist and API key for all routes."""
+        """Check the configured API key or alternative credentials."""
         from core.db import SessionLocal
         from fastapi.responses import JSONResponse
 
@@ -173,15 +180,6 @@ def _register_http_middleware(app: FastAPI) -> None:
             _api_path = path[7:]
         elif path.startswith("/api/"):
             _api_path = path[4:]
-
-        # go2rtc can run in a separate container. The relay checks its peer and per-printer token.
-        if (request.method != "OPTIONS" and path not in ("/health", "/health/ready")
-                and not path.startswith("/internal/camera-source/")):
-            denial = _ip_allowlist_denial(SessionLocal, request.client.host if request.client else None)
-            if denial == 403:
-                return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})
-            if denial == 503:
-                return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
 
         # Routes exempt from the global API key (they authenticate otherwise
         # or are public by design).
@@ -270,6 +268,25 @@ def _register_http_middleware(app: FastAPI) -> None:
 
     from core.middleware.license_principal import LicensePrincipalMiddleware
     app.add_middleware(LicensePrincipalMiddleware, is_public_browser_request=_is_public_browser_request)
+
+    for middleware in response_middleware:
+        app.add_middleware(middleware)
+
+    @app.middleware("http")
+    async def check_ip_allowlist(request: Request, call_next):
+        from core.db import SessionLocal
+
+        # The internal camera relay authenticates the go2rtc peer and its per-printer token.
+        if (request.method != "OPTIONS" and request.scope["path"] not in ("/health", "/health/ready")
+                and not is_relay_request(request.scope)):
+            denial = _ip_allowlist_denial(SessionLocal, request.client.host if request.client else None)
+            if denial == 403:
+                return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})
+            if denial == 503:
+                return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
+        return await call_next(request)
+
+    _register_cors(app)
 
     # security_headers must be the OUTERMOST middleware so it runs on every
     # response — including 401/403/503 short-circuits from authenticate_request
@@ -550,11 +567,9 @@ def create_app() -> FastAPI:
 
     # Middleware (order matters: added in reverse call order for ASGI stack)
     _setup_middleware(app)
-    _register_http_middleware(app)
     from core.middleware.controlled_response import ControlledResponseMiddleware
-    app.add_middleware(ControlledResponseMiddleware)
     from core.middleware.audit_actor import AuditActorMiddleware
-    app.add_middleware(AuditActorMiddleware)
+    _register_http_middleware(app, response_middleware=(ControlledResponseMiddleware, AuditActorMiddleware))
     from core.remote_access import TrustedProxySchemeMiddleware
     app.add_middleware(TrustedProxySchemeMiddleware, trusted=settings.odin_trusted_proxies)
 

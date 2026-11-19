@@ -134,14 +134,10 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    sets = []
-    params = {"id": org_id}
-    for field in ["name", "description", "owner_id"]:
-        if field in body:
-            sets.append(f"{field} = :{field}")
-            params[field] = body[field]
-    if sets:
-        db.execute(text(f"UPDATE groups SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    updates = {key: body[key] for key in ("name", "description", "owner_id") if key in body}
+    if updates:
+        from modules.organizations.routes_users import write_group_fields
+        write_group_fields(db, org_id, updates, current_user)
         db.commit()
 
     return {"status": "ok"}

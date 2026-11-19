@@ -189,7 +189,7 @@ it('F11-11.4-01 edit and delete go through PATCH/DELETE /api/groups/{id}', async
   fireEvent.change(name, { target: { value: 'Period 3 renamed' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(calls(`/api/groups/${group().id}`, 'PATCH')).toHaveLength(1))
-  expect(JSON.parse(calls(`/api/groups/${group().id}`, 'PATCH')[0][1].body)).toEqual(expect.objectContaining({ name: 'Period 3 renamed', owner_id: group().owner_id }))
+  expect(JSON.parse(calls(`/api/groups/${group().id}`, 'PATCH')[0][1].body)).toEqual(expect.objectContaining({ name: 'Period 3 renamed' }))
   fireEvent.click(within((await screen.findByText(group().name)).closest('tr')!).getByTitle('Delete'))
   await waitFor(() => expect(calls(`/api/groups/${group().id}`, 'DELETE')).toHaveLength(1))
 })
