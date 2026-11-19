@@ -139,6 +139,30 @@ def test_member_candidates_require_admin_access_to_destination(member_client, re
     assert member_client.get("/orgs/999/member-candidates", headers=platform).status_code == 404
 
 
+def test_member_add_hides_ineligible_targets_before_checking_history(member_client, review_db, education_license):
+    # Give an out-of-org user history as well as the unassigned user in the fixture.
+    review_db.execute(text(
+        "INSERT INTO education_audit_events "
+        "(event_id,org_id,actor_kind,actor_id,action,command_id,request_hash,resource_type,resource_id) "
+        "VALUES ('foreign-event',2,'user','63','review','foreign-command','hash','user','63')"
+    ))
+    review_db.commit()
+    org, _ = _session(review_db, 3, "admin", "admin", "Browser")
+    platform, _ = _session(review_db, 60, "platform", "admin", "Browser")
+
+    def add(headers, uid):
+        return member_client.post("/orgs/1/members", headers=headers, json={"user_id": uid})
+
+    unknown = add(org, 999)
+    assert unknown.status_code == 404 and unknown.json() == {"detail": "User not found"}
+    for uid in (60, 5, 63):
+        refused = add(org, uid)
+        assert (refused.status_code, refused.content) == (unknown.status_code, unknown.content)
+    assert add(org, 64).status_code == 409  # Otherwise eligible.
+    assert add(platform, 63).status_code == 409
+    assert add(platform, 5).status_code == 200
+
+
 def test_member_candidates_require_user_groups(member_client, review_db, tier_license):
     tier_license(None)
     headers, _ = _session(review_db, 3, "admin", "admin", "Browser")

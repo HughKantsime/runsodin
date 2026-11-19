@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from core.db import get_db
 from core.dependencies import get_current_user
 from core.schema import bootstrap_database
-from modules.organizations import routes
+from modules.organizations import routes, routes_users
 from modules.organizations.education_policy import assert_user_tenant_change_allowed
 from modules.organizations.routes_users import write_group_fields
 from tests.test_contracts.test_education_classes_migration import pg_engine  # noqa: F401
@@ -67,6 +67,32 @@ def test_tenant_change_checks_history_even_without_a_user_row(db):
         with pytest.raises(HTTPException) as refused:
             assert_user_tenant_change_allowed(db, user_id)
         assert refused.value.status_code == 409
+
+
+@pytest.mark.parametrize("path,caller_id", [
+    (path, caller_id) for path in ("/groups", "/groups/1", "/orgs")
+    for caller_id in ((1, 2) if path == "/orgs" else (1, 2, 3))
+])
+def test_owner_visibility_follows_membership(db, monkeypatch, path, caller_id):
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.include_router(routes_users.router)
+    caller = db.execute(text("SELECT id,role,group_id FROM users WHERE id=:id"), {"id": caller_id}).mappings().one()
+    app.dependency_overrides[get_current_user] = lambda: caller
+    app.dependency_overrides[get_db] = lambda: db
+    monkeypatch.setattr(routes, "require_feature", lambda feature: None)
+    monkeypatch.setattr(routes_users, "require_feature", lambda feature: None)
+    with TestClient(app) as client:
+        for owner_id, username in [(3, "member"), (1, "platform"), (4, "outsider")]:
+            db.execute(text("UPDATE groups SET owner_id=:owner WHERE id=1"), {"owner": owner_id})
+            response = client.get(path)
+            assert response.status_code == 200
+            data = response.json()
+            group = data if path == "/groups/1" else next(g for g in data if g["id"] == 1)
+            visible = caller_id == 1 or owner_id == 3
+            assert group["owner_id"] == (owner_id if visible else None)
+            if path != "/orgs":
+                assert group["owner_username"] == (username if visible else None)
 
 
 def test_scoped_owner_update_checks_matched_rows(db):

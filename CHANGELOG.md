@@ -4,7 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-- Organization administrators can view only their own group and choose its owner from the group’s active operators and administrators.
+- Organization administrators can view only their own group and choose its owner from the group’s active operators and administrators. Group members see the owner’s identity only when the owner belongs to their group.
 - The Add member picker shows people you can add to each organization.
 - Organization administrators now see only their own members in the user, session and print quota lists.
 - Generic OpenID Connect sign-in now requires a discovery address. A missing address no longer sends users to Microsoft.

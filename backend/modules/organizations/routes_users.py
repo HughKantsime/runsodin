@@ -539,10 +539,10 @@ async def list_groups(current_user: dict = Depends(require_role("operator")), db
         if user_group_id is None:
             return []
         groups = db.execute(text("""
-            SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
+            SELECT g.id, g.name, g.description, u.id AS owner_id, g.created_at, g.updated_at,
                    u.username AS owner_username,
                    (SELECT COUNT(*) FROM users WHERE group_id = g.id) AS member_count
-            FROM groups g LEFT JOIN users u ON u.id = g.owner_id
+            FROM groups g LEFT JOIN users u ON u.id = g.owner_id AND u.group_id = g.id
             WHERE g.id = :gid ORDER BY g.name
         """), {"gid": user_group_id}).fetchall()
     return [dict(g._mapping) for g in groups]
@@ -583,10 +583,11 @@ async def get_group(group_id: int, current_user: dict = Depends(require_role("op
     if not _check_org_admin_access(current_user, group_id):
         raise HTTPException(status_code=403, detail="Access denied")
     group = db.execute(text("""
-        SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
-               u.username AS owner_username
-        FROM groups g LEFT JOIN users u ON u.id = g.owner_id WHERE g.id = :id
-    """), {"id": group_id}).fetchone()
+        SELECT g.id, g.name, g.description, CASE WHEN :platform THEN g.owner_id ELSE u.id END AS owner_id,
+               g.created_at, g.updated_at, u.username AS owner_username
+        FROM groups g LEFT JOIN users u ON u.id = g.owner_id AND (:platform OR u.group_id = g.id)
+        WHERE g.id = :id
+    """), {"id": group_id, "platform": _is_superadmin(current_user)}).fetchone()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 

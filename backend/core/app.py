@@ -276,9 +276,8 @@ def _register_http_middleware(app: FastAPI, *, response_middleware=()) -> None:
     async def check_ip_allowlist(request: Request, call_next):
         from core.db import SessionLocal
 
-        # The internal camera relay authenticates the go2rtc peer and its per-printer token.
-        if (request.method != "OPTIONS" and request.scope["path"] not in ("/health", "/health/ready")
-                and not is_relay_request(request.scope)):
+        # CORS handles preflights upstream. The camera relay authenticates its peer and token.
+        if request.scope["path"] not in ("/health", "/health/ready") and not is_relay_request(request.scope):
             denial = _ip_allowlist_denial(SessionLocal, request.client.host if request.client else None)
             if denial == 403:
                 return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})

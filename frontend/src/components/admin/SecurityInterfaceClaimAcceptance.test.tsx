@@ -90,3 +90,17 @@ test('a group can be renamed when its current owner is outside the available cho
  fireEvent.click(within(dialog).getByRole('button',{name:'Save Changes'}))
  await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(7,{name:'New class name',description:''}))
 })
+
+test.each([false, true])('editing a group with a hidden owner (replace owner: %s)',async replaceOwner=>{
+ api.groupList.mockResolvedValue([{id:7,name:'Synthetic class',owner_id:null,owner_username:null}])
+ mountGroup();await screen.findByText('Synthetic class')
+ fireEvent.click(screen.getByTitle('Edit'))
+ const dialog=within(screen.getByRole('dialog',{name:'Edit Group'}))
+ const owner=dialog.getByRole('combobox')
+ expect(owner).toHaveValue('')
+ fireEvent.change(dialog.getByLabelText('Name'),{target:{value:'Renamed'}})
+ if(replaceOwner) fireEvent.change(owner,{target:{value:'2'}})
+ fireEvent.click(dialog.getByRole('button',{name:'Save Changes'}))
+ const fields={name:'Renamed',description:''}
+ await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(7,replaceOwner?{...fields,owner_id:2}:fields))
+})

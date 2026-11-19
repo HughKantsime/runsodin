@@ -152,6 +152,10 @@ def test_allowlist_covers_web_pages_assets_and_api(allowlist_app):
             "Origin": "https://web.example.test", "Access-Control-Request-Method": "GET",
         })
         assert response.status_code == 200
+        assert response.headers["Access-Control-Allow-Origin"] == "https://web.example.test"
+        bare = outside.options("/")
+        assert bare.status_code == 403
+        assert bare.json() == {"detail": "IP address not allowed"}
         with TestClient(allowlist_app, client=("127.0.0.1", 50000)) as local:
             assert local.put("/api/config/ip-allowlist", json={
                 "enabled": False, "cidrs": ["203.0.113.0/24"],
@@ -196,6 +200,9 @@ def test_internal_camera_relay_keeps_its_own_admission_check(allowlist_app, monk
         relay = str(allowlist_app.url_path_for("camera_source", printer_id=42, token="wrong-token"))
         assert peer.get(relay).status_code == 404
         assert checked == [42]
+        refused = peer.post(relay)
+        assert refused.status_code == 403
+        assert refused.json() == {"detail": "IP address not allowed"}
         directory, printer, token = relay.rsplit("/", 2)
         for path in ("/internal/other", directory, directory + "/x", relay + "/extra", relay + "/",
                      f"{directory}/unknown/{token}", f"{directory}//{token}", f"{directory}/{printer}//{token}",
@@ -203,6 +210,13 @@ def test_internal_camera_relay_keeps_its_own_admission_check(allowlist_app, monk
             response = peer.get(path, follow_redirects=False)
             assert response.status_code == 403
             assert response.json() == {"detail": "IP address not allowed"}
+
+
+def test_relay_without_raw_path_has_no_allowlist_exception():
+    from core.camera_relay_path import RELAY_PATH, is_relay_request
+
+    path = RELAY_PATH.format(printer_id=42, token="fixture")
+    assert not is_relay_request({"method": "GET", "path": path})
 
 
 def test_restored_address_is_checked_before_license_resolution(allowlist_app, monkeypatch):

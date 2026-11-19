@@ -76,9 +76,10 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
     user_group = current_user.get("group_id")
     if user_group:
         rows = db.execute(text(
-            "SELECT g.*, g.settings_json, "
+            "SELECT g.id, g.name, g.description, g.settings_json, g.created_at, u.id AS owner_id, "
             "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
-            "FROM groups g WHERE g.is_org IS TRUE AND g.id = :gid ORDER BY g.name"),
+            "FROM groups g LEFT JOIN users u ON u.id = g.owner_id AND u.group_id = g.id "
+            "WHERE g.is_org IS TRUE AND g.id = :gid ORDER BY g.name"),
             {"gid": user_group}).fetchall()
         return [{
             "id": r.id, "name": r.name, "description": r.description,
@@ -248,21 +249,13 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
         text("SELECT id, role, group_id FROM users WHERE id = :uid"),
         {"uid": user_id},
     ).fetchone()
-    if not target:
+    if target is None or (not is_superadmin and (
+        (target.role == "admin" and target.group_id is None)
+        or (target.group_id is not None and target.group_id != org_id)
+    )):
         raise HTTPException(status_code=404, detail="User not found")
     if target.group_id != org_id:
         assert_user_tenant_change_allowed(db, user_id)
-
-    if not is_superadmin:
-        # Superadmin (admin with no group_id) must never be reassigned by
-        # an org-scoped admin — that would be a full platform takeover.
-        if target.role == "admin" and target.group_id is None:
-            raise HTTPException(status_code=403, detail="Cannot reassign a superadmin")
-
-        # Target must be either unassigned, or already in the caller's own
-        # org (the latter is effectively a no-op but is allowed).
-        if target.group_id is not None and target.group_id != org_id:
-            raise HTTPException(status_code=403, detail="Cannot move users from other organizations")
 
     db.execute(text("UPDATE users SET group_id = :org_id WHERE id = :uid"), {"org_id": org_id, "uid": user_id})
     log_audit(db, "org_member_added", "user", user_id,
