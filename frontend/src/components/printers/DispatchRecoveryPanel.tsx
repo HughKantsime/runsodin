@@ -1,3 +1,4 @@
+import { dataFolderLockMessage } from '../../api/client'
 import { useRef, useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { printers, type DispatchRecoveryAction, type DispatchRecoveryInspection } from '../../api'
@@ -56,8 +57,8 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
       setConfirmation(null) }
       await Promise.all([['dispatch-recovery', targetId], ['jobs'], ['printers'], ['printer', targetId]].map(queryKey => client.invalidateQueries({ queryKey })))
     },
-    onError: async (_error, { targetId }) => {
-      if (activePrinter.current === targetId) { setNotice('The decision could not be confirmed. Evidence is being refreshed. No action was retried; inspect the current fence before deciding again.')
+    onError: async (error, { targetId }) => {
+      if (activePrinter.current === targetId) { setNotice(dataFolderLockMessage(error) ?? 'The decision could not be confirmed. Evidence is being refreshed. No action was retried; inspect the current fence before deciding again.')
       setConfirmation(null) }
       // GET only after every error, including timeout/503/unknown commit. On
       // remount we also GET rather than replaying any prior POST.

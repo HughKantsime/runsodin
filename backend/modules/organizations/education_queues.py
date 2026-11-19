@@ -138,6 +138,8 @@ def reorder_queue(db, *, principal, printer_id, body):
         raise conflict('Printer configuration cannot be verified')
     acquired = acquire_target_lock(db.get_bind(), identity.target_key)
     if acquired.status != 'acquired':
+        if acquired.message:
+            raise OdinError(ErrorCode.revision_conflict, acquired.message, status=409, extra={'storage_reason': acquired.reason})
         raise conflict('Printer queue is busy or target locking is unavailable')
     handle = acquired.handle
     try:

@@ -177,6 +177,12 @@ def run(module, printer_id, purpose, *, physical_id=None, expected=None, timer=N
             return None
         target = acquire_target_lock(module.engine, facts.target_key)
         if target.status != 'acquired':
+            if target.message:
+                if authority is not None:
+                    return target
+                module.log.warning('%s', target.message)
+            elif target.status == 'conflict' and authority is None:
+                module.log.info('Another sender is using this printer. No power command was sent.')
             return None
         handle = target.handle
         if not handle.held():

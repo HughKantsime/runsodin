@@ -204,6 +204,9 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
             if claim is None: refuse('education_authority_unresolved')
             acquired = acquire_target_lock(db.get_bind(),claim['physical_key'])
             if acquired.status != 'acquired':
+                if acquired.message:
+                    raise HTTPException(409, {'code': 'unsupported_locking' if acquired.status == 'unsupported' else 'evidence_unavailable',
+                                              'storage_reason': acquired.reason, 'message': acquired.message, 'refresh_required': True})
                 refuse('target_busy' if acquired.status=='conflict' else 'unsupported_locking' if acquired.status=='unsupported' else 'evidence_unavailable')
             handle = acquired.handle
             if not handle.held(): refuse('evidence_unavailable')

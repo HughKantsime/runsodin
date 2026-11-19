@@ -85,3 +85,15 @@ it('shows investigation guidance without claiming redacted receipts are absent',
  expect(screen.queryByRole('button',{name:'Hold job'})).not.toBeInTheDocument()
  expect(screen.queryByText('No admission receipt is linked.')).not.toBeInTheDocument()
 })
+it('shows the storage refusal while refreshing recovery evidence', async () => {
+  const message = 'The ODIN data folder is writable by other users (mode 775). Set it to 755 (chmod go-w on the folder), then try again. No command was sent.'
+  vi.mocked(printers.recoverDispatch).mockRejectedValue(Object.assign(new Error(message), {
+    storageReason: 'folder_permissions',
+  }))
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Release fence' }))
+  for (const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox)
+  fireEvent.click(screen.getByRole('button', { name: /Confirm release/i }))
+  await screen.findByText(message)
+  await waitFor(() => expect(printers.dispatchRecovery).toHaveBeenCalledTimes(2))
+})

@@ -4,6 +4,7 @@ SQLite descriptors are private and must not be duplicated/unlocked externally.
 Inherited PostgreSQL handles must not touch DBAPI; fork children must exec or
 _exit without connection finalization. Both ownership scopes are PID pinned.
 """
+from contextlib import ExitStack
 from dataclasses import dataclass,field
 import ctypes
 import hashlib
@@ -14,12 +15,15 @@ import re
 import stat
 import sys
 import threading
+import uuid
 
 
 @dataclass(frozen=True)
 class TargetLockResult:
     status: str
     handle: object = field(default=None,repr=False)
+    reason: str | None = None
+    message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -28,28 +32,92 @@ class TargetLockClose:
     scope: str = 'configured-target lock only; no sender or transport cleanup proof'
 
 
-def _local_filesystem(fd):
-    if os.name!='posix':return False
+def _filesystem_type(fd):
+    if os.name!='posix':return None
     libc=ctypes.CDLL(None,use_errno=True)
     info=(ctypes.c_longlong*512)()
     if sys.platform=='darwin':
         # SDK sys/mount.h __DARWIN_STRUCT_STATFS64: uint32 f_flags offset64.
-        if platform.machine() not in ('arm64','x86_64') or ctypes.sizeof(ctypes.c_void_p)!=8:return False
+        if platform.machine() not in ('arm64','x86_64') or ctypes.sizeof(ctypes.c_void_p)!=8:return None
         call=getattr(libc,'fstatfs64',None)
-        if call is None:return False
+        if call is None:return None
     elif sys.platform.startswith('linux'):
-        if ctypes.sizeof(ctypes.c_long)!=8:return False
+        if ctypes.sizeof(ctypes.c_long)!=8:return None
         call=libc.fstatfs
-    else:return False
+    else:return None
     call.argtypes=(ctypes.c_int,ctypes.c_void_p);call.restype=ctypes.c_int
-    if call(fd,ctypes.byref(info))!=0:return False
+    if call(fd,ctypes.byref(info))!=0:return None
     if sys.platform=='darwin':
         flags=ctypes.c_uint32.from_buffer(info,64).value
         name=bytes(info)[72:88].split(b'\x00')[0]
-        return bool(flags&0x1000) and name in (b'apfs',b'hfs')
-    magic=ctypes.cast(ctypes.byref(info),ctypes.POINTER(ctypes.c_long))[0]&0xffffffff
-    # Local ext, overlay, tmpfs, XFS, Btrfs and ZFS. Network/unknown filesystems refuse.
-    return magic in (0xef53,0x794c7630,0x01021994,0x58465342,0x9123683e,0x2fc12fc1)
+        if flags&0x1000 and name in (b'apfs',b'hfs'):
+            return 'local'
+        return {b'nfs':'NFS', b'smbfs':'SMB'}.get(name)
+    return ctypes.cast(ctypes.byref(info),ctypes.POINTER(ctypes.c_long))[0]&0xffffffff
+
+
+_LOCAL_TYPES = ('local', 0xef53, 0x794c7630, 0x01021994, 0x58465342, 0x9123683e, 0x2fc12fc1)
+_SHARED_TYPES = {0x65735546: 'FUSE', 0x6a656a63: 'virtiofs'}
+_NETWORK_TYPES = {0x6969: 'NFS', 0xff534d42: 'CIFS', 0xfe534d42: 'SMB', 0x01021997: '9p'}
+
+
+_SEPARATE_MOUNT = TargetLockResult('unsupported', reason='filesystem', message=(
+    'Keep the ODIN database and its printer lock files together on the same local disk or Docker volume. No command was sent.'))
+
+
+def _local_filesystem(fd):
+    return _filesystem_type(fd) in _LOCAL_TYPES
+
+
+def _storage_refusal(storage, folder='the data folder'):
+    return TargetLockResult('unsupported', reason='filesystem', message=(
+        f'ODIN cannot safely lock printers on this kind of storage ({folder} is on {storage}). '
+        'Keep the data folder on a local disk or a Docker volume. No command was sent.'))
+
+
+def _owner_refusal(item, *, folder=False, allow_root=False):
+    owner = f'the ODIN user (UID {os.geteuid()})'
+    if allow_root:
+        owner += ' or root (UID 0)'
+    return TargetLockResult('uncertain', reason='folder_owner' if folder else 'file_owner',
+                            message=f'{item} must be owned by {owner}. No command was sent.')
+
+
+def _inaccessible_owner(path, parent_fd, label, *, folder=False, allow_root=False):
+    """An owner-only directory or file may deny open before we can fstat it."""
+    owner = os.stat(path, dir_fd=parent_fd, follow_symlinks=False).st_uid
+    if owner != os.geteuid() and not (allow_root and owner == 0):
+        return _owner_refusal(label, folder=folder, allow_root=allow_root)
+    raise PermissionError
+
+
+def _prove_exclusion(directory_fd):
+    """Two independent opens on a fresh private inode, even during concurrent probes."""
+    import fcntl
+    flags = os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC
+    exclusive = fcntl.LOCK_EX | fcntl.LOCK_NB
+    try:
+        name = '.flock-test-' + uuid.uuid4().hex
+        with ExitStack() as cleanup:
+            first = os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory_fd)
+            cleanup.callback(os.unlink, name, dir_fd=directory_fd)
+            cleanup.callback(os.close, first)
+            second = os.open(name, flags, dir_fd=directory_fd)
+            cleanup.callback(os.close, second)
+            first_stat = os.fstat(first)
+            if (not _private_file(first_stat, 0o600) or _identity(first_stat) != _identity(os.fstat(second))
+                    or first_stat.st_dev != os.fstat(directory_fd).st_dev):
+                return False
+            fcntl.flock(first, exclusive)
+            try:
+                fcntl.flock(second, exclusive)
+            except BlockingIOError:
+                fcntl.flock(first, fcntl.LOCK_UN)
+                fcntl.flock(second, exclusive)
+                return True
+            return False
+    except Exception:
+        return False
 
 
 def _identity(value):return (value.st_dev,value.st_ino)
@@ -125,34 +193,87 @@ class SQLiteTargetLock:
 
 def _sqlite(engine,key):
     database=engine.url.database
-    if not database or database==':memory:' or engine.url.query or not os.path.isabs(database):return TargetLockResult('unsupported')
-    if os.name!='posix' or not hasattr(os,'O_NOFOLLOW'):return TargetLockResult('unsupported')
+    if not database or database==':memory:' or engine.url.query or not os.path.isabs(database):
+        return TargetLockResult('unsupported', reason='filesystem', message=(
+            'ODIN needs a database file in a local data folder or Docker volume to lock printers. No command was sent.'))
+    if os.name!='posix' or not hasattr(os,'O_NOFOLLOW'):return _storage_refusal('unsupported storage')
     fds=[]
     try:
         import fcntl
         database=Path(database);parent=database.parent.resolve(strict=True);database=parent/database.name
-        parent_fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC);fds.append(parent_fd)
+        folder_label = f'The ODIN data folder ({ascii(parent.name or "/")})'
+        dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        try:
+            parent_fd = os.open(parent, dir_flags)
+        except PermissionError:
+            return _inaccessible_owner(parent, None, folder_label, folder=True, allow_root=True)
+        fds.append(parent_fd)
         identity=_database_stat(parent_fd,database.name)
+        if identity.st_uid != os.geteuid():
+            return _owner_refusal(f'The database file {ascii(database.name)} in the ODIN data folder')
         if not _private_file(identity):raise RuntimeError('Unsafe database identity')
         # The parent stands in for the file here: a database mounted separately from its directory can't be checked.
-        if identity.st_dev!=os.fstat(parent_fd).st_dev or not _local_filesystem(parent_fd):return TargetLockResult('unsupported')
-        if not _trusted_parent(os.fstat(parent_fd)):raise RuntimeError('Database parent is writable or foreign')
+        parent_stat = os.fstat(parent_fd)
+        if identity.st_dev != parent_stat.st_dev:
+            return _SEPARATE_MOUNT
+        shared = None
+        if not _local_filesystem(parent_fd):
+            kind = _filesystem_type(parent_fd)
+            shared = _SHARED_TYPES.get(kind)
+            if shared is None:
+                label = _NETWORK_TYPES.get(kind, kind)
+                if isinstance(label, int):
+                    label = f'storage type 0x{label:x}'
+                return _storage_refusal(label or 'unrecognized storage', ascii(parent.name or '/'))
+        if not _trusted_parent(parent_stat):
+            if parent_stat.st_uid not in (0, os.geteuid()):
+                return _owner_refusal(folder_label, folder=True, allow_root=True)
+            mode = stat.S_IMODE(parent_stat.st_mode)
+            return TargetLockResult('uncertain', reason='folder_permissions', message=(
+                f'The ODIN data folder is writable by other users (mode {mode:o}). '
+                'Set it to 755 (chmod go-w on the folder), then try again. No command was sent.'))
         directory_name=database.name+'.odin-sender-locks';directory=parent/directory_name
+        lock_folder_label = f'The lock folder {ascii(directory_name)} inside the ODIN data folder'
         try:os.mkdir(directory_name,mode=0o700,dir_fd=parent_fd)
         except FileExistsError:pass
-        directory_fd=os.open(directory_name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=parent_fd);fds.append(directory_fd)
+        try:
+            directory_fd = os.open(directory_name, dir_flags, dir_fd=parent_fd)
+        except PermissionError:
+            return _inaccessible_owner(directory_name, parent_fd, lock_folder_label, folder=True)
+        fds.append(directory_fd)
         metadata=os.fstat(directory_fd)
-        if metadata.st_uid!=os.geteuid() or stat.S_IMODE(metadata.st_mode)!=0o700:raise RuntimeError('Unsafe lock directory')
+        if metadata.st_dev != parent_stat.st_dev:
+            return _SEPARATE_MOUNT
+        if metadata.st_uid!=os.geteuid():return _owner_refusal(lock_folder_label, folder=True)
+        if stat.S_IMODE(metadata.st_mode)!=0o700:
+            return TargetLockResult('uncertain', reason='lock_permissions', message=(
+                'Set the printer lock folder inside the ODIN data folder to mode 700. No command was sent.'))
         filename=key+'.lock';lock_path=directory/filename
-        lock_fd=os.open(filename,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC,0o600,dir_fd=directory_fd);fds.append(lock_fd)
-        if not _private_file(os.fstat(lock_fd),0o600):raise RuntimeError('Unsafe lock file')
+        try:
+            lock_fd = os.open(filename, os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC, 0o600, dir_fd=directory_fd)
+        except PermissionError:
+            return _inaccessible_owner(filename, directory_fd, 'The printer lock file inside the ODIN data folder')
+        fds.append(lock_fd)
+        lock_stat = os.fstat(lock_fd)
+        if lock_stat.st_dev != metadata.st_dev:
+            return _SEPARATE_MOUNT
+        if lock_stat.st_uid!=os.geteuid():return _owner_refusal('The printer lock file inside the ODIN data folder')
+        if not _private_file(lock_stat,0o600):
+            if _private_file(lock_stat):
+                return TargetLockResult('uncertain', reason='lock_permissions', message=(
+                    'Set the printer lock file inside the ODIN data folder to mode 600. No command was sent.'))
+            raise RuntimeError('Unsafe lock file')
+        if shared and not _prove_exclusion(directory_fd):
+            return _storage_refusal(shared, ascii(parent.name or '/'))
         try:fcntl.flock(lock_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:return TargetLockResult('conflict')
         handle=SQLiteTargetLock(database,parent,directory,lock_path,list(fds),_identity(identity))
         if not handle.held():raise RuntimeError('Lock identity unconfirmed')
         fds=[]
         return TargetLockResult('acquired',handle)
-    except Exception:return TargetLockResult('uncertain')
+    except Exception:
+        return TargetLockResult('uncertain', reason='other', message=(
+            'ODIN could not verify its database and printer lock files. Check the files and permissions in the ODIN data folder. No command was sent.'))
     finally:
         for fd in fds:
             try:os.close(fd)
@@ -249,6 +370,20 @@ def _postgres(engine,key):
             except Exception:pass
             try:connection.close()
             except Exception:pass
+
+
+def data_folder_lock_warning(engine):
+    """Use one reserved key so repeated checks leave only one ordinary lock file."""
+    try:
+        if engine.dialect.name != 'sqlite':
+            return None
+        key = hashlib.sha256(b'ODIN data folder startup check').hexdigest()
+        result = acquire_target_lock(engine, key)
+        if result.handle is not None and not result.handle.close().released:
+            return 'ODIN could not confirm that the printer lock file was released. Check the ODIN data folder. No command was sent.'
+        return result.message
+    except Exception:
+        return 'ODIN could not check the printer lock files in its data folder. No command was sent.'
 
 
 def acquire_target_lock(engine,physical_key):
