@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import secrets
+import sqlite3
 from threading import Barrier
 
 import pyotp
@@ -12,7 +13,7 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from core import auth
@@ -146,6 +147,74 @@ def test_failed_audit_preserves_challenge_and_code(client, review_db, monkeypatc
     assert verify(client, codes[0], token).status_code == 200
 
 
+@pytest.mark.parametrize('failure', ['session_insert', 'user_lock'])
+def test_recovery_login_failure_rolls_back(client, review_db, failure):
+    _, codes = issue(client)
+    token = challenge()
+    engine = review_db.get_bind()
+
+    def refuse_write(conn, cursor, statement, params, context, many):
+        if ((failure == 'session_insert' and 'INSERT' in statement and 'active_sessions' in statement)
+                or (failure == 'user_lock' and statement == 'BEGIN IMMEDIATE')):
+            raise sqlite3.OperationalError('database is locked')
+
+    event.listen(engine, 'before_cursor_execute', refuse_write)
+    try:
+        with TestClient(client.app, raise_server_exceptions=False) as caller:
+            response = verify(caller, codes[0], token)
+    finally:
+        event.remove(engine, 'before_cursor_execute', refuse_write)
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Login temporarily unavailable. Try again later.'
+    assert 'set-cookie' not in response.headers
+    assert review_db.execute(text('SELECT count(used_at) FROM mfa_recovery_codes')).scalar_one() == 0
+    assert review_db.execute(text('SELECT count(*) FROM active_sessions')).scalar_one() == 0
+    assert review_db.execute(text('SELECT count(*) FROM token_blacklist')).scalar_one() == 0
+    assert review_db.execute(text("SELECT count(*) FROM audit_logs WHERE action IN "
+                                  "('mfa_recovery_code_used','auth.login')")).scalar_one() == 0
+    retry = verify(client, codes[0], token)
+    assert retry.status_code == 200
+
+
+def test_null_mfa_flag_can_enroll(client, review_db):
+    review_db.execute(text('UPDATE users SET mfa_enabled=NULL WHERE id=1'))
+    review_db.commit()
+    issue(client)
+    assert client.get('/auth/mfa/status', headers=headers()).json() == {'mfa_enabled': True}
+
+
+def test_recovery_code_bound_to_installation_key(client, review_db, monkeypatch):
+    from modules.organizations.mfa_recovery import consume_code
+
+    _, codes = issue(client)
+    with monkeypatch.context() as patch:
+        patch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+        accepted = consume_code(review_db, 1, codes[0])
+        assert not accepted
+    accepted = consume_code(review_db, 1, codes[0])
+    assert accepted
+
+
+@pytest.mark.parametrize('operation', ['confirm', 'regenerate'])
+def test_issuing_without_encryption_key_returns_setup_error(client, review_db, monkeypatch, operation):
+    who = headers()
+    if operation == 'regenerate':
+        totp, _ = issue(client, who)
+        path = CODES
+    else:
+        setup = client.post('/auth/mfa/setup', headers=who)
+        assert setup.status_code == 200
+        totp = pyotp.TOTP(setup.json()['secret'])
+        path = '/auth/mfa/confirm'
+    monkeypatch.delenv('ENCRYPTION_KEY')
+    with TestClient(client.app, raise_server_exceptions=False) as caller:
+        response = caller.post(path, headers=who, json={'code': totp.now()})
+    assert response.status_code == 503
+    assert 'ENCRYPTION_KEY' in response.json()['detail']
+    assert review_db.execute(text('SELECT count(*) FROM mfa_recovery_codes')).scalar_one() == (
+        10 if operation == 'regenerate' else 0)
+
+
 def test_existing_account_and_password_reset(client, review_db):
     totp, old = issue(client)
     review_db.execute(text('DELETE FROM mfa_recovery_codes'))
@@ -267,4 +336,6 @@ def test_migration_refuses_an_incomplete_recovery_index():
 @pytest.mark.postgresql
 def test_postgres_upgrade_and_concurrent_redemption(pg_engine, monkeypatch):
     check_upgrade(pg_engine)
+    with pg_engine.begin() as db:
+        db.execute(text('UPDATE users SET mfa_enabled=NULL WHERE id=1'))
     check_concurrent_use(make_app(pg_engine, monkeypatch), pg_engine)

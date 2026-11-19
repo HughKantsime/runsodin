@@ -1,24 +1,41 @@
 """Recovery code operations. The caller owns the user lock and transaction."""
-import hashlib
+import base64
+import hmac
+import os
 import secrets
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from core.db_compat import as_utc_datetime
 
 ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+MFA_ENCRYPTION_UNAVAILABLE = "Encryption is not configured on this server. MFA setup requires ENCRYPTION_KEY to be set."
 
 
-def _hash(salt, code):
-    return hashlib.sha256(bytes.fromhex(salt) + code.encode('ascii')).hexdigest()
+def recovery_key():
+    """Derive a recovery-only MAC key from the installation's Fernet key."""
+    try:
+        master = base64.urlsafe_b64decode(os.environ.get('ENCRYPTION_KEY', ''))
+        if len(master) != 32:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(status_code=503, detail=MFA_ENCRYPTION_UNAVAILABLE) from None
+    return hmac.digest(master, b'ODIN/mfa-recovery-codes/v1', 'sha256')
+
+
+def _hash(key, salt, code):
+    return hmac.digest(key, bytes.fromhex(salt) + code.encode('ascii'), 'sha256').hex()
 
 
 def delete_codes(db, user_id):
     db.execute(text('DELETE FROM mfa_recovery_codes WHERE user_id=:uid'), {'uid': user_id})
 
 
-def issue_codes(db, user_id):
+def issue_codes(db, user_id, *, key=None):
+    if key is None:
+        key = recovery_key()
     codes = []
     rows = []
     created = datetime.now(timezone.utc)
@@ -28,7 +45,7 @@ def issue_codes(db, user_id):
         if formatted in codes:
             continue
         salt = secrets.token_hex(16)
-        rows.append({'uid': user_id, 'salt': salt, 'digest': _hash(salt, code), 'created': created})
+        rows.append({'uid': user_id, 'salt': salt, 'digest': _hash(key, salt, code), 'created': created})
         codes.append(formatted)
     delete_codes(db, user_id)
     db.execute(text('INSERT INTO mfa_recovery_codes(user_id,code_salt,code_hash,created_at) '
@@ -57,11 +74,12 @@ def consume_code(db, user_id, value):
     code = ''.join(value.split()).replace('-', '').upper()
     if len(code) != 10 or any(char not in ALPHABET for char in code):
         return False
+    key = recovery_key()
     rows = db.execute(text('SELECT id,code_salt,code_hash FROM mfa_recovery_codes '
                            'WHERE user_id=:uid AND used_at IS NULL'), {'uid': user_id})
     match = None
     for row in rows:
-        if secrets.compare_digest(_hash(row.code_salt, code), row.code_hash):
+        if secrets.compare_digest(_hash(key, row.code_salt, code), row.code_hash):
             match = row.id
     if match is None:
         return False

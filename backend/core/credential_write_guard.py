@@ -39,7 +39,7 @@ GUARDED_TABLES = frozenset({
     "oidc_config", "oidc_auth_codes", "password_reset_tokens",
     # Google Classroom OAuth client secret / refresh and access tokens, pending OAuth
     # states, and MFA enrolment secrets.
-    "classroom_connections", "classroom_oauth_states", "mfa_enrollments",
+    "classroom_connections", "classroom_oauth_states", "mfa_enrollments", "mfa_recovery_codes",
     "education_roster_connections", "education_roster_identities", "education_roster_receipts",
     "education_roster_grant_links", "education_roster_tombstones",
 })

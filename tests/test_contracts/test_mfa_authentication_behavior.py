@@ -80,3 +80,24 @@ def test_mfa_disable_requires_valid_code(mfa_client,review_db):
     assert mfa_client.request('DELETE','/auth/mfa',json={'code':'not-a-code'}).status_code==401
     assert mfa_client.request('DELETE','/auth/mfa',json={'code':pyotp.TOTP(secret).now()}).status_code==200
     assert tuple(review_db.execute(text('SELECT mfa_enabled,mfa_secret FROM users WHERE id=1')).one())==(0,None)
+
+
+@pytest.mark.parametrize('leading_zero', [False, True])
+def test_numeric_totp_matches_legacy_text_conversion(mfa_client, monkeypatch, leading_zero):
+    setup = mfa_client.post('/auth/mfa/setup')
+    assert setup.status_code == 200
+    totp = pyotp.TOTP(setup.json()['secret'])
+    counter = next(i for i in range(1, 10000) if totp.generate_otp(i).startswith('0') == leading_zero
+                   and int(totp.generate_otp(i)) != 0)
+    monkeypatch.setattr(pyotp.TOTP, 'timecode', lambda self, when: counter)
+    code = totp.now()
+    for method, path, extra, invalid in [
+        ('POST', '/auth/mfa/confirm', {}, 400),
+        ('POST', '/auth/mfa/verify', {'mfa_token': challenge()}, 401),
+        ('DELETE', '/auth/mfa', {}, 401),
+    ]:
+        response = mfa_client.request(method, path, json={**extra, 'code': int(code)})
+        if leading_zero:
+            assert response.status_code == invalid
+            response = mfa_client.request(method, path, json={**extra, 'code': code})
+        assert response.status_code == 200
