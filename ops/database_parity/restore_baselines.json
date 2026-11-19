@@ -20,6 +20,11 @@
       "version": "2.3.0",
       "image_digest": "sha256:c5e730c46c932930ee33acd087cde4bfed2fe4bf1d177ee09b4436f0ac4017a4",
       "schema_era": 60
+    },
+    {
+      "version": "2.3.1",
+      "image_digest": "sha256:71c9d9cb68954bfb5ec2d25b562313a739f2d3c3cb63b43ccc17556dc6a23fb9",
+      "schema_era": 60
     }
   ]
 }
