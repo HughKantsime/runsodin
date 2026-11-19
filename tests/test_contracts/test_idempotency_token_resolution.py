@@ -96,6 +96,55 @@ def test_inactive_owner_cannot_replay(retry_client, review_db):
     assert calls == [3]
 
 
+@pytest.mark.parametrize("expired", [False, True])
+def test_mixed_credentials_replay_for_the_route_principal(retry_client, expired):
+    from core.auth import create_access_token
+
+    client, issue, calls = retry_client
+    lifetime = timedelta(minutes=-1) if expired else timedelta(hours=1)
+    token = create_access_token({"sub": "student", "role": "viewer"}, expires_delta=lifetime)
+    headers = {**issue(["agent:write"]), "Authorization": "Bearer " + token, "Idempotency-Key": "mixed"}
+    path = "/api/v1/retry-test"
+    assert client.patch(path, headers=headers).status_code == 200
+    replay = client.patch(path, headers=headers)
+    assert replay.status_code == 200 and replay.headers.get("X-Idempotent-Replay") == "true"
+    assert calls == [3 if expired else 1]
+
+
+@pytest.mark.parametrize("restricted_scope,expected", [("read:cameras", 401), ("agent:read", 409)])
+def test_retry_after_scope_reduction(retry_client, review_db, restricted_scope, expected):
+    client, issue, calls = retry_client
+    headers = {**issue(["agent:write"]), "Idempotency-Key": "scope-change"}
+    path = "/api/v1/retry-test"
+    assert client.patch(path, headers=headers).status_code == 200
+    review_db.execute(text("UPDATE api_tokens SET scopes=:s"), {"s": json.dumps([restricted_scope])})
+    review_db.commit()
+    retry = client.patch(path, headers=headers)
+    assert retry.status_code == expected
+    if expected == 409:
+        assert retry.json()["error"]["code"] == "idempotency_authz_changed"
+        fresh = client.patch(path, headers={**headers, "Idempotency-Key": "new-scope"})
+        assert fresh.status_code == 403
+    assert calls == [3]
+
+
+def test_license_lock_refuses_cached_write(retry_client, monkeypatch):
+    from core import license_lock
+
+    client, issue, calls = retry_client
+    headers = {**issue(["agent:write"]), "Idempotency-Key": "license-change"}
+    path = "/api/v1/retry-test"
+    assert client.patch(path, headers=headers).status_code == 200
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "1")
+    locked = SimpleNamespace(revision=2, enforcing=True, users=frozenset(), entitlement={})
+    monkeypatch.setattr(license_lock, "snapshot", lambda db, request: locked)
+    for body in (None, {"changed": True}):
+        retry = client.patch(path, headers=headers, json=body)
+        assert retry.status_code == 403
+        assert retry.headers["X-ODIN-License-Lock"] == "license_user_locked"
+    assert calls == [3]
+
+
 @pytest.mark.parametrize("expiry", ["2000-01-01 00:00:00", "not-a-date"])
 def test_invalid_expiry_passes_to_route_auth(retry_client, review_db, expiry):
     client, issue, calls = retry_client

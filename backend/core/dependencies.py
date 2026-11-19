@@ -395,9 +395,9 @@ def resolve_current_user_sync(
     db: Session = Depends(get_db),
     *, side_effects=True,
 ):
-    """A valid session cookie wins over both headers. When both headers carry
-    tokens, X-API-Key wins and the Bearer token is ignored. A legacy perimeter
-    key can accompany a session JWT without replacing its user identity.
+    """Try the session cookie, then a Bearer JWT, then the API key.
+
+    When both headers carry personal tokens, X-API-Key wins.
     """
     from core.audit_actor import clear_actor, bind_verified_actor
     if side_effects:
@@ -405,7 +405,7 @@ def resolve_current_user_sync(
     # Try 0/1: cookie first, then bearer. Only malformed JWTs may fall through;
     # failed mandatory database checks must never grant access or imply logout.
     for candidate, auth_kind in ((request.cookies.get("session"), "session_jwt"),
-                                 (jwt_bearer(request, token), "bearer_jwt")):
+                                 (jwt_bearer(token), "bearer_jwt")):
         if not candidate:
             continue
         token_data = decode_token(candidate)

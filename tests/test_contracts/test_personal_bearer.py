@@ -79,12 +79,62 @@ def test_precedence_and_legacy_key(api):
     read = issue(["read"])
     write = bearer(issue(["write"])["X-API-Key"])
     assert client.put("/api/v1/auth/me/theme", headers={**read, **write}, json={}).status_code == 403
-    assert client.get(path, headers={**read, **bearer(viewer)}).json()["username"] == "admin"
+    assert client.get(path, headers={**read, **bearer(viewer)}).json()["username"] == "student"
     assert client.get(path, headers={**read, **write, "Cookie": "session=" + viewer}).json()["username"] == "student"
     assert client.get(path, headers={"X-API-Key": key, **bearer(viewer)}).json()["username"] == "student"
     assert client.get(path, headers={"X-API-Key": key}).json()["username"] == "admin"
     assert client.get("/api/v1/sessions", headers=bearer(key)).status_code == 401
     assert client.get(path, headers={"X-API-Key": "odin_invalid", **write}).status_code == 401
+
+
+@pytest.mark.parametrize("perimeter", [False, True])
+@pytest.mark.parametrize("companion", ["absent", "undefined", "wrong", "personal", "perimeter"])
+def test_bearer_jwt_owns_session_with_companion_key(api, review_db, monkeypatch, perimeter, companion):
+    from core.auth import create_access_token
+    from core.config import settings
+    import jwt
+
+    client, issue, key = api
+    if not perimeter:
+        monkeypatch.delenv("API_KEY")
+        monkeypatch.setattr(settings, "api_key", "")
+    token = create_access_token({"sub": "student", "role": "viewer"})
+    jti = jwt.decode(token, options={"verify_signature": False})["jti"]
+    review_db.execute(text("INSERT INTO active_sessions(user_id,token_jti) VALUES (1,:jti)"), {"jti": jti})
+    review_db.commit()
+    headers = bearer(token)
+    if companion == "personal":
+        headers.update(issue(["read"]))  # Owned by the admin.
+    elif companion != "absent":
+        headers["X-API-Key"] = key if companion == "perimeter" else companion
+
+    # /auth/me exercises identity even on deployments where the perimeter
+    # rejects a bad companion key on non-exempt endpoints.
+    identity = client.get("/api/v1/auth/me", headers=headers)
+    assert identity.status_code == 200
+    assert identity.json()["username"] == "student"
+    sessions = client.get("/api/v1/sessions", headers=headers)
+    assert sessions.status_code == (401 if perimeter and companion in {"undefined", "wrong"} else 200)
+    if sessions.status_code == 200:
+        assert [s["is_current"] for s in sessions.json()] == [True]
+
+
+def test_mixed_headers_use_jwt_for_licensed_session_actions(api, monkeypatch):
+    from types import SimpleNamespace
+    from core import license_lock
+    from core.auth import create_access_token
+
+    client, issue, _ = api
+    session = bearer(create_access_token({"sub": "student", "role": "viewer"}))
+    headers = {**session, **issue(["read"])}
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "1")
+    policy = SimpleNamespace(revision=1, enforcing=True, users={1}, entitlement={})
+    monkeypatch.setattr(license_lock, "snapshot", lambda db, request: policy)
+
+    # The JWT user has a seat. The companion token's owner does not.
+    assert client.delete("/api/v1/sessions", headers=headers).status_code == 200
+    assert client.post("/api/v1/auth/logout", headers=headers).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=session).status_code == 401
 
 
 def test_expiring_bearer_replays_only_while_authorized(api, review_db):

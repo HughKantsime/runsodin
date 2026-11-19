@@ -144,7 +144,7 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
         _blacklist_token(session_token)
 
     from core.auth_headers import bearer_token, jwt_bearer
-    bearer = jwt_bearer(request, bearer_token(request))
+    bearer = jwt_bearer(bearer_token(request))
     if bearer and bearer != session_token:
         _blacklist_token(bearer)
 
