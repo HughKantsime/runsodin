@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from core.models import AuditLog, SystemConfig
 from modules.orders import square_store as store
 from modules.orders.square_client import SquareReader
+from ops.release_control.run_gate import SECRET_PATTERNS
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_square_readonly_workflow import shop, mapped, connect
 from tests.test_contracts.test_square_setup_delegation import authenticate, payload, path, setup_policy
@@ -21,6 +22,12 @@ def saved(shop):
     with Session(shop[3].get_bind()) as db:
         return (db.execute(select(SystemConfig.value).where(SystemConfig.key == store.key(1))).scalar_one(),
                 db.execute(select(AuditLog.id, AuditLog.details).order_by(AuditLog.id)).all())
+
+
+def test_square_ruling_ids_are_safe_for_gate_output(request):
+    for item in request.node.parent.collect():
+        for label, pattern in SECRET_PATTERNS:
+            assert not pattern.search(item.nodeid), f"test id matches {label}"
 
 
 @pytest.mark.parametrize('change', [{'variation_id': 'V2'}, {'location_id': 'L2'}])
@@ -198,7 +205,8 @@ def test_noop_grant_writes_no_audit_row(shop, enabled):
     ('\u200b\u200d\x01\t ', 422), ('\u0301', 422), ('approved\x00', 422),
     ('password=synthetic', 422), ('https://example.test/?code=synthetic', 422),
     ('odin_' + 'a' * 43, 422), ('Authorization: Bearer synthetic', 422),
-])
+], ids=['padded-note', 'check-mark', 'invisible-only', 'combining-only', 'nul',
+        'password-pair', 'code-url', 'odin-token-shape', 'bearer-header'])
 def test_approval_note_is_stored_verbatim_or_refused(shop, baseline, note, expected):
     status = mapped(shop) if baseline else connect(shop[0])[0]
     authenticate(shop)

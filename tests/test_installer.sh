@@ -260,7 +260,7 @@ fi
 # No hardcoded secrets
 for script in "$INSTALL_SH" "$UPDATE_SH"; do
     name=$(basename "$script")
-    if grep -iE '(password|secret|token)\s*=' "$script" | grep -vE '(JWT_SECRET_KEY|ENCRYPTION_KEY|API_KEY).*\$\{' | grep -v '^\s*#' | grep -q .; then
+    if matches=$(grep -iE '(password|secret|token)\s*=' "$script" | grep -vE '(JWT_SECRET_KEY|ENCRYPTION_KEY|API_KEY).*\$\{' | grep -vc '^\s*#') && (( matches > 0 )); then
         fail "$name no hardcoded secrets" "Found potential hardcoded credentials"
     else
         pass "$name no hardcoded secrets"
@@ -315,13 +315,13 @@ fi
 section "Function: draw_box"
 
 box_output=$(bash -c "source '$TMPDIR_TEST/functions.sh'; draw_box 'Test Title' 'Key|Value'" 2>&1)
-if echo "$box_output" | grep -q "Test Title" && echo "$box_output" | grep -q "Value"; then
+if [[ "$box_output" == *"Test Title"* && "$box_output" == *"Value"* ]]; then
     pass "draw_box renders title and content"
 else
     fail "draw_box rendering" "Missing title or content in output"
 fi
 
-if echo "$box_output" | grep -q '╔' && echo "$box_output" | grep -q '╚'; then
+if [[ "$box_output" == *'╔'* && "$box_output" == *'╚'* ]]; then
     pass "draw_box has box-drawing characters"
 else
     fail "draw_box characters" "Missing box-drawing characters"
@@ -536,7 +536,7 @@ if ! docker info &>/dev/null 2>&1; then
 else
 
 # Check if odin container already exists
-if docker ps -a --format '{{.Names}}' | grep -q '^odin$'; then
+if container_names=$(docker ps -a --format '{{.Names}}') && grep -qx 'odin' <<<"$container_names"; then
     skip "Container 'odin' already exists — skipping integration tests to avoid disruption"
 else
 
@@ -604,7 +604,7 @@ else
 fi
 
 # Check container is running
-if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
+if container_names=$(docker ps --format '{{.Names}}') && grep -qx 'odin' <<<"$container_names"; then
     pass "odin container is running"
 
     # Wait for healthy
@@ -626,7 +626,7 @@ if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
 
     # API readiness check
     readiness_json=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || true)
-    if printf '%s' "$readiness_json" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+    if grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' <<<"$readiness_json"; then
         pass "API /health/ready returns ready=true"
     else
         fail "API readiness" "curl to /health/ready did not return ready=true"
@@ -648,7 +648,7 @@ if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
     update_output=$(bash update.sh 2>&1) || update_exit=$?
     update_exit=${update_exit:-0}
 
-    if echo "$update_output" | grep -qi "up to date\|Already"; then
+    if grep -qi "up to date\|Already" <<<"$update_output"; then
         pass "update.sh detects already current"
     else
         # Might pull anyway if version detection differs
@@ -668,7 +668,7 @@ if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
         fail "update.sh --force exit code" "Exited with $force_exit"
     fi
 
-    if echo "$force_output" | grep -qi "Pulled\|updated\|Force"; then
+    if grep -qi "Pulled\|updated\|Force" <<<"$force_output"; then
         pass "update.sh --force pulled image"
     else
         fail "update.sh --force pull" "Expected pull output"
@@ -677,13 +677,13 @@ if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
     # Verify still ready after update
     sleep 5
     readiness_json=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || true)
-    if printf '%s' "$readiness_json" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+    if grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' <<<"$readiness_json"; then
         pass "API ready after update"
     else
         # Give it more time
         sleep 15
         readiness_json=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || true)
-        if printf '%s' "$readiness_json" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+        if grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' <<<"$readiness_json"; then
             pass "API ready after update (slow start)"
         else
             fail "API readiness after update" "Not ready after update"

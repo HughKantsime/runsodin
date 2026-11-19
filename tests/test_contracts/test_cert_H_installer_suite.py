@@ -24,6 +24,12 @@ def _integration_checks() -> set[str]:
     return {n.replace(" (slow start)", "").strip() for n in names}
 
 
+def test_installer_variable_checks_do_not_pipe_into_quiet_grep():
+    # Under pipefail, an early grep match can SIGPIPE the writer and fail the check.
+    unsafe = re.findall(r'\b(?:echo|printf)\s+[^|\n]*\$[^|\n]*\|\s*grep\s+-\w*q\w*', SUITE.read_text())
+    assert not unsafe, unsafe
+
+
 def test_installer_suite_unit_half_passes_and_counts():
     result = subprocess.run(["bash", str(SUITE), "--unit"], capture_output=True, text=True, timeout=300)
     out = ANSI.sub("", result.stdout)
