@@ -1,8 +1,11 @@
 """Owned actual configuration/middleware acceptance; no host firewall changes."""
 import ipaddress
+from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
@@ -20,10 +23,18 @@ def allowlist_app(review_db,monkeypatch):
     from core.db import get_db
     from core.dependencies import get_current_user
     from modules.system.routes_config import router
+    monkeypatch.setattr(settings,'cors_origins','https://web.example.test')
     monkeypatch.setattr(settings,'api_key',None)
     monkeypatch.setattr(settings,'trusted_hosts','*')
     monkeypatch.setattr('core.db.SessionLocal',lambda:Session(review_db.get_bind()))
     app=FastAPI();app.include_router(router,prefix='/api')
+    @app.get('/', response_class=HTMLResponse)
+    @app.get('/printers/42', response_class=HTMLResponse)
+    def page():
+        return '<html>Farm dashboard</html>'
+    app.mount('/static', StaticFiles(directory=Path(__file__).resolve().parents[2] / 'backend/static'))
+    @app.get('/health')
+    @app.get('/health/ready')
     @app.get('/api/probe')
     def probe():return {'status':'owned'}
     def database():
@@ -118,3 +129,43 @@ def test_disabled_or_empty_transition_does_not_require_enforceable_identity(allo
         response=client.put('/api/config/ip-allowlist',json={'enabled':enabled,'cidrs':cidrs})
         assert response.status_code==200
         assert response.json()['cidrs']==cidrs
+
+def test_allowlist_covers_web_pages_assets_and_api(allowlist_app):
+    paths = ["/", "/printers/42", "/static/branding/favicon.png", "/openapi.json", "/api/probe"]
+    with TestClient(allowlist_app, client=("198.51.100.9", 50000)) as outside:
+        for path in paths:
+            assert outside.get(path).status_code == 200
+        with TestClient(allowlist_app, client=("127.0.0.1", 50000)) as local:
+            assert local.put("/api/config/ip-allowlist", json={
+                "enabled": True, "cidrs": ["203.0.113.0/24"],
+            }).status_code == 200
+            assert local.get("/").text == "<html>Farm dashboard</html>"
+        with TestClient(allowlist_app, client=("203.0.113.8", 50000)) as inside:
+            assert inside.get("/").text == "<html>Farm dashboard</html>"
+        for path in [*paths, "/health/ready/", "/health/other"]:
+            response = outside.get(path, follow_redirects=False)
+            assert response.status_code == 403, path
+            assert response.json() == {"detail": "IP address not allowed"}
+        for path in ["/health", "/health/ready"]:
+            assert outside.get(path).status_code == 200
+        response = outside.options("/", headers={
+            "Origin": "https://web.example.test", "Access-Control-Request-Method": "GET",
+        })
+        assert response.status_code == 200
+        with TestClient(allowlist_app, client=("127.0.0.1", 50000)) as local:
+            assert local.put("/api/config/ip-allowlist", json={
+                "enabled": False, "cidrs": ["203.0.113.0/24"],
+            }).status_code == 200
+        for path in paths:
+            assert outside.get(path).status_code == 200, path
+
+
+def test_policy_read_failure_refuses_web_page(allowlist_app, monkeypatch):
+    def failed_read(_factory):
+        raise RuntimeError("Policy unavailable")
+
+    monkeypatch.setattr("core.ip_allowlist_cache.policy", failed_read)
+    with TestClient(allowlist_app, client=("198.51.100.9", 50000)) as client:
+        response = client.get("/")
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Service temporarily unavailable"}

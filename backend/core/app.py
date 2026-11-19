@@ -167,17 +167,15 @@ def _register_http_middleware(app: FastAPI) -> None:
         from core.db import SessionLocal
         from fastapi.responses import JSONResponse
 
-        path = request.scope.get("path") or request.url.path
+        path = request.scope["path"]
         _api_path = ""
         if path.startswith("/api/v1/"):
             _api_path = path[7:]
         elif path.startswith("/api/"):
             _api_path = path[4:]
 
-        # IP allowlist: every /api request from a non-allowlisted address is
-        # refused, authenticated or not (login, labels, setup and overlay
-        # included). Only CORS preflights pass; they carry no credentials.
-        if path.startswith("/api/") and request.method != "OPTIONS":
+        # The allowlist covers HTTP pages, assets and APIs except health probes and preflights.
+        if request.method != "OPTIONS" and path not in ("/health", "/health/ready"):
             denial = _ip_allowlist_denial(SessionLocal, request.client.host if request.client else None)
             if denial == 403:
                 return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})

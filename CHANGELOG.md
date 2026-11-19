@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Organization administrators now see only their own members in the user, session and print quota lists.
+- Generic OpenID Connect sign-in now requires a discovery address. A missing address no longer sends users to Microsoft.
+- The IP allowlist now protects web pages and static files as well as the API. Health checks and browser preflight requests remain available.
+
 ## [2.4.0] - 2026-11-18
 
 

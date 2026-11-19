@@ -35,14 +35,14 @@ router = APIRouter()
 
 def _is_superadmin(current_user: dict) -> bool:
     """Superadmin = role admin with no group_id."""
-    return current_user.get("role") == "admin" and not current_user.get("group_id")
+    return current_user.get("role") == "admin" and current_user.get("group_id") is None
 
 
 def _check_org_admin_access(current_user: dict, target_group_id, db=None) -> bool:
     """Check if an org-scoped admin can manage a user with the given group_id.
 
     Superadmins can manage anyone. Org-scoped admins can only manage users
-    in their own group (or unassigned users visible to all).
+    in their own group.
     """
     if _is_superadmin(current_user):
         return True
@@ -110,10 +110,9 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
     if _is_superadmin(current_user):
         users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id, mfa_enabled FROM users")).fetchall()
     else:
-        # Org-scoped admin: only users in their group (plus unassigned users)
         users = db.execute(text(
             "SELECT id, username, email, role, is_active, last_login, created_at, group_id, mfa_enabled FROM users "
-            "WHERE group_id = :gid OR group_id IS NULL"),
+            "WHERE group_id = :gid"),
             {"gid": current_user["group_id"]}).fetchall()
     return [{**dict(u._mapping), "mfa_enabled": bool(u.mfa_enabled)} for u in users]
 

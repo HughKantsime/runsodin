@@ -593,8 +593,12 @@ def collect_db_configured_urls() -> list[str]:
             for row in rows:
                 # The built-in Microsoft and Google presets store no discovery_url; the
                 # handler derives a public one at sign-in. Audit the address it would use.
-                from modules.organizations.oidc_handler import effective_discovery_url
-                url = effective_discovery_url(row[0], row[1], row[2])
+                from modules.organizations.oidc_handler import MissingDiscoveryAddress, effective_discovery_url
+                try:
+                    url = effective_discovery_url(row[0], row[1], row[2])
+                except MissingDiscoveryAddress as exc:
+                    log.warning("ITAR audit: oidc_config.discovery_url: %s", exc)
+                    continue
                 if url and not idp_discovery_url_allowed(str(url)):
                     urls.append(str(url))
         except Exception as exc:

@@ -3,6 +3,7 @@
 A user with no organization can be a platform admin; listing those sessions hands an
 organization admin the platform admin's username, IP address and browser.
 """
+import pytest
 from sqlalchemy import text
 
 from tests.test_contracts.test_api_token_delegation_behavior import token_client  # noqa: F401
@@ -69,3 +70,34 @@ def test_org_admin_cannot_revoke_a_platform_admin_session(token_client, review_d
 
     assert client.delete(f"/admin/sessions/{platform}", headers=org_admin).status_code == 403
     assert client.get("/sessions", headers=platform_admin).status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/users", "/admin/quotas"])
+def test_admin_user_lists_respect_organization_membership(token_client, review_db, education_license, path):
+    from modules.organizations.routes_users import router
+
+    client, _ = token_client
+    client.app.include_router(router)
+    _add_unassigned_users(review_db)
+    org_admin, _ = _session(review_db, 3, "admin", "admin", "Org browser")
+    platform_admin, _ = _session(review_db, 60, "platform", "admin", "Platform browser")
+    own = {"student", "manager", "admin", "outsider"}
+    everyone = own | {"foreign", "platform", "loose"}
+    for headers, expected in [(org_admin, own), (platform_admin, everyone)]:
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert {row["username"] for row in response.json()} == expected
+
+
+def test_admin_in_group_zero_is_scoped(token_client, review_db):
+    from modules.organizations.routes_users import router
+
+    client, _ = token_client
+    client.app.include_router(router)
+    review_db.execute(text("INSERT INTO groups (id, name, is_org) VALUES (0, 'zero', 1)"))
+    review_db.execute(text("UPDATE users SET group_id=0 WHERE id=5"))
+    review_db.commit()
+    headers, _ = _session(review_db, 5, "foreign", "admin", "Org browser")
+    response = client.get("/users", headers=headers)
+    assert response.status_code == 200
+    assert [row["username"] for row in response.json()] == ["foreign"]

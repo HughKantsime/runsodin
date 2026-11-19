@@ -133,7 +133,7 @@ async def admin_list_sessions(current_user: dict = Depends(require_role("admin")
         rows = db.execute(text(
             "SELECT s.id, s.user_id, u.username, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
             "FROM active_sessions s JOIN users u ON s.user_id = u.id "
-            "WHERE u.group_id = :gid OR u.group_id IS NULL "
+            "WHERE u.group_id = :gid "
             "ORDER BY s.last_seen_at DESC LIMIT 200"),
             {"gid": current_user["group_id"]}).fetchall()
     return [{
@@ -372,7 +372,7 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
     else:
         users = db.execute(text(
             "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users "
-            "WHERE is_active IS TRUE AND (group_id = :gid OR group_id IS NULL)"),
+            "WHERE is_active IS TRUE AND group_id = :gid"),
             {"gid": current_user["group_id"]}).fetchall()
     result = []
     for u in users:
