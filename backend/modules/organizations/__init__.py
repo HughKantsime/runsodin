@@ -37,6 +37,7 @@ TABLES = [
     "oidc_pending_states",
     "oidc_auth_codes",
     "mfa_enrollments",
+    "mfa_recovery_codes",
     "quota_usage",
     "education_term_policies",
     "education_term_cleanup",

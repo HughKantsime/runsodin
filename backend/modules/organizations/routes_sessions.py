@@ -478,6 +478,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         {"uid": user_id},
     ).fetchall()]
 
+    from modules.organizations.mfa_recovery import export_codes
     from modules.organizations.education_training_policy import export_training_data
     from modules.organizations.education_roster_privacy import export_roster
     from modules.organizations.education_classes_privacy import export_classes
@@ -508,6 +509,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "active_sessions": sessions_data,
         "alert_preferences": prefs,
         "api_tokens": api_tokens_data,
+        "mfa_recovery_codes": export_codes(db, user_id),
         "quota_usage": quota_data,
         "controlled_part_changes": _rows("SELECT 'file' AS resource_type,file_id AS resource_id,reason FROM controlled_files WHERE changed_by=:uid UNION ALL SELECT 'job' AS resource_type,job_id AS resource_id,reason FROM controlled_jobs WHERE changed_by=:uid"),
         "classroom_identity": classroom_identity,

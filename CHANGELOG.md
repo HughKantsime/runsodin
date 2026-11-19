@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- The MFA API now gives you ten single-use recovery codes when you set up an authenticator. You can use a saved code to sign in or remove a lost authenticator. If you already use MFA, you can generate a set with your authenticator.
+
 - API clients can now send a personal API token in the `Authorization: Bearer` header. The token keeps the same permissions and expiry as when sent in `X-API-Key`.
 - Organization administrators can view only their own group and choose its owner from the group’s active operators and administrators. Group members see the owner’s identity only when the owner belongs to their group.
 - The Add member picker shows people you can add to each organization.

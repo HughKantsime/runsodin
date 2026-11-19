@@ -42,6 +42,9 @@ def test_required_setup_token_can_reach_enrollment_but_not_normal_rest(review_db
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
     confirmation=client.post('/auth/mfa/enrollment/confirm',headers=headers,json={'code':pyotp.TOTP(secret).now()})
     assert confirmation.status_code==200
+    assert len(set(confirmation.json()['recovery_codes']))==10
+    metadata=client.get('/auth/mfa/recovery-codes').json()
+    assert set(metadata)=={'remaining','generated_at'} and metadata['remaining']==10
     assert client.get('/auth/me').status_code==200
     client.cookies.clear()
     assert client.post('/auth/mfa/enrollment/confirm',headers=headers,json={'code':pyotp.TOTP(secret).now()}).status_code==401

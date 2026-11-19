@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from core.remote_access import session_cookie_secure
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Literal, Optional
 
@@ -25,7 +26,8 @@ from core.auth_helpers import (
 import core.auth as auth_module
 from core.auth import hash_password, create_access_token, verify_password, decode_token
 from core.models import SystemConfig
-from core.mfa_login import RevokedLoginCredentials
+from core.mfa_login import RevokedLoginCredentials, _locked_user
+from modules.organizations.mfa_recovery import code_status, consume_code, delete_codes, issue_codes
 from core.config import settings as _settings
 from core.rate_limit import limiter
 from modules.organizations.education_access import capability_snapshot_id
@@ -107,7 +109,6 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
     _cleanup_login_attempts(db)
 
-    from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
     resp.set_cookie(
         key="session", value=access_token, httponly=True,
@@ -161,14 +162,14 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
 @router.post("/auth/mfa/verify", tags=["Auth"])
 @limiter.limit("10/minute")
 async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)):
-    """Verify TOTP code during login. Requires mfa_pending token."""
-    import pyotp
+    """Finish a sign-in challenge using an authenticator or recovery code."""
     import jwt as _jwt
 
     mfa_token = body.get("mfa_token", "")
     code = body.get("code", "")
-    if not mfa_token or not code:
-        raise HTTPException(status_code=400, detail="mfa_token and code are required")
+    recovery = body.get("recovery_code")
+    if not mfa_token or bool(code) == bool(recovery):
+        raise HTTPException(status_code=400, detail="Enter one authenticator or recovery code to finish signing in.")
 
     import math
     try:
@@ -202,32 +203,42 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     if not user.mfa_enabled or not user.mfa_secret:
         raise HTTPException(status_code=400, detail="MFA not configured for this user")
 
-    from core.crypto import decrypt
-    secret = decrypt(user.mfa_secret)
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
+    if recovery:
+        locked = _locked_user(db, user.id)
+        if not locked or not locked.is_active or not locked.mfa_enabled or locked.username != payload["sub"]:
+            raise HTTPException(status_code=401, detail="Invalid MFA challenge")
+    elif not _valid_totp(user, code):
         raise HTTPException(status_code=401, detail="Invalid MFA code")
 
     if datetime.now(timezone.utc) >= expiry_datetime:
         raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
+    remaining = None
+    client_ip = request.client.host if request.client else "unknown"
     try:
         consumption = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
             f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
             f"VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
             {"jti": payload["jti"], "exp": expiry_datetime.isoformat()})
-        claimed = consumption.rowcount == 1
+        if consumption.rowcount != 1:
+            raise HTTPException(status_code=401, detail="MFA token has already been used")
+        if recovery:
+            if not consume_code(db, user.id, recovery):
+                raise HTTPException(status_code=401, detail="Invalid MFA code")
+            remaining = code_status(db, user.id)["remaining"]
+            bind_verified_actor(db, dict(user._mapping), "mfa_login")
+            log_audit(db, "mfa_recovery_code_used", "user", user.id, {"remaining": remaining}, ip=client_ip)
         db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
-    if not claimed:
-        raise HTTPException(status_code=401, detail="MFA token has already been used")
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
-    client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
     if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
 
@@ -235,8 +246,10 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     log_audit(db, "auth.login", "user", user.id, ip=client_ip)
     db.commit()
 
-    from fastapi.responses import JSONResponse
-    resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+    result = {"access_token": access_token, "token_type": "bearer"}
+    if remaining is not None:
+        result["recovery_codes_remaining"] = remaining
+    resp = JSONResponse(result)
     resp.set_cookie(key="session", value=access_token, httponly=True,
                     secure=session_cookie_secure(request, _settings), samesite=_settings.cookie_samesite,
                     path="/", max_age=86400)
@@ -266,8 +279,10 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     encrypted_secret = encrypt(secret)
     from core.license_lock import authorize_user
     authorize_user(db, current_user["id"], issuance=True)
-    db.execute(text("UPDATE users SET mfa_secret = :secret WHERE id = :id"),
-               {"secret": encrypted_secret, "id": current_user["id"]})
+    changed = db.execute(text("UPDATE users SET mfa_secret = :secret WHERE id = :id AND mfa_enabled = FALSE"),
+                         {"secret": encrypted_secret, "id": current_user["id"]})
+    if changed.rowcount != 1:
+        raise HTTPException(status_code=409, detail="MFA is already enabled. Disable it first.")
     db.commit()
 
     return {"secret": secret, "provisioning_uri": provisioning_uri, "qr_code": f"data:image/png;base64,{qr_b64}"}
@@ -276,7 +291,6 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
 @router.post("/auth/mfa/confirm", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Confirm MFA setup by verifying a TOTP code. Enables MFA on the account."""
-    import pyotp
 
     code = body.get("code", "")
     if not code:
@@ -288,39 +302,67 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     if user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is already enabled")
 
-    from core.crypto import decrypt
-    secret = decrypt(user.mfa_secret)
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
+    if not _valid_totp(user, code):
         raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
 
     from core.license_lock import authorize_user
     authorize_user(db, current_user["id"], issuance=True)
-    db.execute(text("UPDATE users SET mfa_enabled = TRUE WHERE id = :id"), {"id": current_user["id"]})
+    changed = db.execute(text("UPDATE users SET mfa_enabled = TRUE WHERE id=:id AND mfa_enabled=FALSE AND mfa_secret=:secret"),
+                         {"id": user.id, "secret": user.mfa_secret})
+    if changed.rowcount != 1:
+        raise HTTPException(status_code=409, detail="MFA setup changed. Restart setup.")
+    codes = issue_codes(db, user.id)
     log_audit(db, "mfa_enabled", "user", current_user["id"], "MFA enabled")
     db.commit()
-    return {"status": "ok", "message": "MFA enabled successfully"}
+    return JSONResponse({"status": "ok", "message": "MFA enabled successfully", "recovery_codes": codes},
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.get("/auth/mfa/recovery-codes", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
+async def recovery_status(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    return code_status(db, current_user["id"])
+
+
+@router.post("/auth/mfa/recovery-codes", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
+@limiter.limit("10/minute")
+async def regenerate_codes(request: Request, body: dict, current_user: dict = Depends(require_role("viewer")),
+                           db: Session = Depends(get_db)):
+    user = _locked_user(db, current_user["id"])
+    if not user or not user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="Enable MFA before generating recovery codes.")
+    code = body.get("code")
+    if isinstance(code, str) and len(code) == 6 and code.isascii() and code.isdigit():
+        accepted = _valid_totp(user, code)
+    else:
+        accepted = consume_code(db, user.id, code)
+    if not accepted:
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+    codes = issue_codes(db, user.id)
+    log_audit(db, "mfa_recovery_codes_regenerated", "user", user.id)
+    db.commit()
+    return JSONResponse({"recovery_codes": codes}, headers={"Cache-Control": "no-store"})
+
+
+def _valid_totp(user, code):
+    import pyotp
+    from core.crypto import decrypt
+    return isinstance(code, str) and pyotp.TOTP(decrypt(user.mfa_secret)).verify(code, valid_window=1)
 
 
 @router.delete("/auth/mfa", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_disable(body: dict = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
-    """Disable MFA. Requires current TOTP code or admin role."""
-    import pyotp
-
-    user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": current_user["id"]}).fetchone()
+    """Remove the caller's authenticator after checking one of their codes."""
+    user = _locked_user(db, current_user["id"])
     if not user or not user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is not enabled")
 
-    code = (body or {}).get("code", "")
-    if code:
-        from core.crypto import decrypt
-        secret = decrypt(user.mfa_secret)
-        totp = pyotp.TOTP(secret)
-        if not totp.verify(code, valid_window=1):
-            raise HTTPException(status_code=401, detail="Invalid MFA code")
-    else:
-        raise HTTPException(status_code=400, detail="TOTP code is required to disable MFA")
-
+    code = (body or {}).get("code")
+    recovery = (body or {}).get("recovery_code")
+    if bool(code) == bool(recovery):
+        raise HTTPException(status_code=400, detail="Enter one authenticator or recovery code to disable MFA.")
+    if not (consume_code(db, user.id, recovery) if recovery else _valid_totp(user, code)):
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+    delete_codes(db, user.id)
     db.execute(text("UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id"), {"id": current_user["id"]})
     log_audit(db, "mfa_disabled", "user", current_user["id"], "MFA disabled")
     db.commit()
@@ -350,6 +392,7 @@ async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_r
             raise HTTPException(status_code=409, detail="User changed. Reload before retrying.")
         from core.mfa_login import cancel_pending_enrollments
         cancel_pending_enrollments(db, user_id)
+        delete_codes(db, user_id)
         log_audit(db, "mfa_disabled_admin", "user", user_id, f"Admin force-disabled MFA for user {user.username}")
         db.commit()
     except HTTPException:

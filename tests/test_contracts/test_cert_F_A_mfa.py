@@ -76,8 +76,11 @@ def test_mfa_setup_returns_qr_of_provisioning_uri_and_confirm_enables(odin):
     bad = odin.post("/api/auth/mfa/confirm", headers=odin.user_auth, json={"code": wrong})
     assert bad.status_code == 400
     ok = odin.post("/api/auth/mfa/confirm", headers=odin.user_auth, json={"code": fresh_code(totp)})
-    assert ok.status_code == 200 and ok.json() == {"status": "ok", "message": "MFA enabled successfully"}
-    capture("mfa_confirm_response", ok.json())
+    assert ok.status_code == 200
+    confirmed = ok.json()
+    assert len(confirmed.pop("recovery_codes")) == 10
+    assert confirmed == {"status": "ok", "message": "MFA enabled successfully"}
+    capture("mfa_confirm_response", confirmed)
     capture("mfa_status_enabled", odin.get("/api/auth/mfa/status", headers=odin.user_auth).json())
     assert odin.get("/api/auth/mfa/status", headers=odin.user_auth).json() == {"mfa_enabled": True}
     odin.totp = totp

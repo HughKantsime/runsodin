@@ -123,6 +123,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.060_print_files_stored_path_index",
         "core.schema.migrations.061_print_filament_evidence",
         "core.schema.migrations.062_ams_humidity_percent",
+        "core.schema.migrations.063_mfa_recovery_codes",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

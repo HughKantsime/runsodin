@@ -439,6 +439,9 @@ def main():
             c.execute(text("INSERT INTO groups(id,name,is_org) VALUES(1,'Roundtrip org',TRUE) ON CONFLICT(id) DO NOTHING"))
             c.execute(text("INSERT INTO users(id,username,password_hash,role,group_id,is_active) VALUES(3,'roundtrip-user','fixture','viewer',1,TRUE) ON CONFLICT(id) DO NOTHING"))
             c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
+            c.execute(text("INSERT INTO mfa_recovery_codes(id,user_id,code_salt,code_hash,created_at,used_at) "
+                           "VALUES(990063,3,:salt,:digest,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"),
+                      {"salt": "0" * 32, "digest": "0" * 64})
             c.execute(text("INSERT INTO ams_telemetry(id,printer_id,ams_unit,humidity,humidity_percent) VALUES(990062,5,0,2,38)"))
             c.execute(text("INSERT INTO print_filament_evidence(print_job_id,print_birth_nonce,kind,claim,source,spool_id,grams,used_at) VALUES(990061,'','usage',1,'backfill',990061,40,'2026-11-17 12:00:00')"))
             c.execute(text("INSERT INTO dispatch_recovery_global_history(audit_id,actor_id,actor_identity,printer_id,job_id,attempt_handle,snapshot_handle,decision,reason_category,facts) VALUES(990001,3,'roundtrip056',5,226,:attempt,:snapshot,'release','verified_terminal_reconciled',:facts)"),
@@ -531,6 +534,8 @@ def main():
             verify_roster(c)
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
         with engine.connect() as c:
+            assert c.execute(text("SELECT user_id,code_salt,code_hash,used_at IS NOT NULL FROM mfa_recovery_codes "
+                                  "WHERE id=990063")).one() == (3, "0" * 32, "0" * 64, True)
             assert c.execute(text("SELECT humidity_percent FROM ams_telemetry WHERE id=990062")).scalar_one() == 38
             assert c.execute(text("SELECT kind,claim,spool_id,grams FROM print_filament_evidence WHERE print_job_id=990061")).one() == ('usage',1,990061,40)
             assert c.execute(text("SELECT job_id,facts FROM dispatch_recovery_global_history WHERE actor_identity='roundtrip056'")).one() == (226, '{"owner_org_id":null}')

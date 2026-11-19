@@ -15,6 +15,7 @@ from core.db_compat import sql
 from core.dependencies import log_audit
 from core.session_tracking import record_session
 from core.rate_limit import limiter
+from modules.organizations.mfa_recovery import issue_codes
 
 router=APIRouter()
 
@@ -130,6 +131,7 @@ def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
                         {'jti':payload['jti'],'exp':datetime.fromtimestamp(payload['exp'],tz=timezone.utc).isoformat()})
         if claimed.rowcount!=1 or changed.rowcount!=1 or used.rowcount!=1:
             raise HTTPException(status_code=409,detail='Enrollment changed. Restart sign-in.')
+        codes=issue_codes(db,user.id)
         log_audit(db,'mfa.enrollment_completed','user',user.id,ip=request.client.host if request.client else None)
         db.commit()
     except HTTPException:
@@ -140,7 +142,8 @@ def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
     token=auth.create_access_token({'sub':user.username,'role':user.role})
     if record_session(db,user.id,token,request.client.host if request.client else 'unknown',request.headers.get('user-agent',''),payload['jti']) is not True:
         return JSONResponse(status_code=503,content={'detail':'MFA is enrolled, but sign-in could not be confirmed. Restart sign-in.','restart_sign_in':True})
-    response=JSONResponse({'access_token':token,'token_type':'bearer'})
+    response=JSONResponse({'access_token':token,'token_type':'bearer','recovery_codes':codes},
+                          headers={'Cache-Control':'no-store'})
     response.set_cookie('session',token,httponly=True,secure=session_cookie_secure(request, settings),samesite=settings.cookie_samesite,path='/',max_age=86400)
     return response
 
