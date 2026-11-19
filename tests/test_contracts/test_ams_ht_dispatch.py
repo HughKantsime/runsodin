@@ -2,6 +2,7 @@
 import hashlib
 import json
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -103,6 +104,30 @@ def test_schedule_and_editor_accept_reported_ht_and_refuse_switch_off_unknown_an
     assert patch([16]).json()['detail'] == 'Invalid or duplicate AMS slot'
 
 
+def test_editor_round_trips_studio_ht_padding(mapping_client, review_db, captured_ams):
+    client, auth = mapping_client
+    next(u for u in captured_ams['ams'] if u['id'] == '128')['tray'][0]['tray_type'] = 'PETG'
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,17,'PETG')"))
+    report_topology(review_db, 9, captured_ams)
+    switch(review_db, 9, True)
+    job = schedule(mapping_client, mapping=[{'source_slot': 1, 'target_slot': 17}]).json()['job_id']
+    def patch(vector):
+        return client.patch(f'/api/jobs/{job}', headers=auth(), json={'ams_mapping': vector})
+    vector = [16, -1, -1, -1]
+    response = patch(vector)
+    assert response.status_code == 200, response.text
+    assert response.json()['ams_mapping'] == vector
+    assert client.get(f'/api/jobs/{job}', headers=auth()).json()['ams_mapping'] == vector
+    assert patch([16, -1, 0]).status_code == 400
+    assert patch([16] + [-1] * 16).status_code == 400
+    repeat = client.post(f'/api/jobs/{job}/repeat', headers=auth())
+    assert repeat.status_code == 200, repeat.text
+    repeated = repeat.json()['new_job_id']
+    assert client.get(f'/api/jobs/{repeated}', headers=auth()).json()['ams_mapping'] == vector
+    switch(review_db, 9, False)
+    assert patch(vector).json()['detail'] == support_levels.AMS_HT_MESSAGE
+
+
 @pytest.mark.parametrize('material', SIX)
 def test_ht_validation_uses_exact_material(material):
     from core.print_payload import MappingMaterialMismatch, validate_mapping
@@ -114,24 +139,32 @@ def test_ht_validation_uses_exact_material(material):
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
+@pytest.mark.parametrize('padded', [False, True], ids=['as-selected', 'studio-padding'])
 @pytest.mark.parametrize('case,reason', [
     ('single_pa6_gf', None), ('single_wrong_nozzle', 'ams_binding_mismatch'),
+    ('single_leading_gap', None), ('duplicate_tray', 'ams_read_failed'),
     ('fresh', None), ('missing_unit', 'ams_read_failed'), ('missing_tray', 'ams_read_failed'),
     ('empty_with_preset', 'tray_material_unreported'), ('wrong_material', 'material_mismatch'), ('wrong_nozzle', 'ams_binding_mismatch'),
     ('off', 'Experimental features'), ('disabled_after_upload', 'Experimental features'),
 ])
 def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
-        review_db, tmp_path, monkeypatch, captured_ams, case, reason, protocol):
+        review_db, tmp_path, monkeypatch, captured_ams, case, reason, protocol, padded):
     single = case.startswith('single_')
+    ids, mapping, extruders = (0, 1), [4, 16], [0, 1]
+    if case == 'single_leading_gap':
+        ids, mapping = (1,), [-1, 16]
+    elif single:
+        ids, mapping, extruders = (0,), [16], [1]
+    if padded:
+        mapping.extend([-1] * (4 - len(mapping)))
     ht = next(u for u in captured_ams['ams'] if u['id'] == '128')
     if single:
         ht['tray'][0]['tray_type'] = 'PA6-GF'
     engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D',
-        ids=(0,) if single else (0, 1), mapping=[16] if single else [4, 16],
-        materials=('PA6-GF',) if single else ('PETG', 'PLA-S'), extruders=[1] if single else [0, 1])
+        ids=ids, mapping=mapping, materials=('PA6-GF',) if single else ('PETG', 'PLA-S'), extruders=extruders)
     if single:
         # The H2D multi-source fixture appends tool-change commands for two materials.
-        path.write_bytes(payload(ids=(0,), materials=('PA6-GF',), extruders=[1]))
+        path.write_bytes(payload(ids=ids, materials=('PA6-GF',), extruders=extruders))
         review_db.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'),
                           {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
     review_db.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=59 AND slot_number=5"))
@@ -149,6 +182,8 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
         captured_ams['ams'].remove(ht)
     if case == 'missing_tray':
         ht['tray'] = []
+    if case == 'duplicate_tray':
+        ht['tray'].append(ht['tray'][0].copy())
     if case == 'empty_with_preset':
         captured_ams['tray_exist_bits'] = 'ff'
     if case == 'wrong_material':
@@ -181,9 +216,9 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
         assert events == ([] if case == 'off' else ['upload'] if case == 'disabled_after_upload' else ['upload', 'fresh_read'])
     else:
         assert events == ['upload', 'fresh_read', 'start']
-        assert sent[0]['ams_mapping'] == ([128] if single else [4, 128])
-        pairs = [{'ams_id': 1, 'slot_id': 0}, {'ams_id': 128, 'slot_id': 0}]
-        assert sent[0]['ams_mapping2'] == (pairs[1:] if single else pairs)
+        assert sent[0]['ams_mapping'] == [128 if n == 16 else n for n in mapping]
+        pairs = {-1: (255, 255), 4: (1, 0), 16: (128, 0)}
+        assert sent[0]['ams_mapping2'] == [{'ams_id': pairs[n][0], 'slot_id': pairs[n][1]} for n in mapping]
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
@@ -191,7 +226,12 @@ def test_h2d_ht_dispatch_requires_fresh_tray_exact_material_nozzle_and_opt_in(
     (None, {}), ([-1, 15], {'ams_mapping': [-1, 15]}),
     ([2, 3, 0, 6], {'ams_mapping': [2, 3, 0, 6]}),
     ([16, 23], {'ams_mapping': [128, 135], 'ams_mapping2': [{'ams_id': 128, 'slot_id': 0}, {'ams_id': 135, 'slot_id': 0}]}),
-    ([-1, 16], None),
+    pytest.param([-1, 16], {'ams_mapping': [-1, 128], 'ams_mapping2': [
+        {'ams_id': 255, 'slot_id': 255}, {'ams_id': 128, 'slot_id': 0}]}, id='leading-unused-ht'),
+    pytest.param([0, 16, -1], {'ams_mapping': [0, 128, -1], 'ams_mapping2': [
+        {'ams_id': 0, 'slot_id': 0}, {'ams_id': 128, 'slot_id': 0}, {'ams_id': 255, 'slot_id': 255}]},
+        id='mixed-ht-trailing-unused'),
+    pytest.param([16, -1, -1, -1], None, id='studio-project-file-echo'),
 ])
 def test_exact_print_command_payload_for_ht_and_unchanged_four_tray(protocol, mapping, fields, monkeypatch):
     from modules.printers.adapters.bambu import BambuPrinter
@@ -203,10 +243,8 @@ def test_exact_print_command_payload_for_ht_and_unchanged_four_tray(protocol, ma
     monkeypatch.setattr(time, 'time', lambda: 123456)
     options = {'ams_ht_enabled': True} if mapping and any(16 <= n < 24 for n in mapping) else {}
     if fields is None:
-        with pytest.raises(ValueError, match='This file leaves a filament unused; sending it to an AMS HT tray is not supported yet'):
-            sender.start_print('part.3mf', plate_num=2, ams_mapping=mapping, **options)
-        assert sent == []
-        return
+        echo = json.loads((Path(__file__).parents[1] / 'fixtures/h2d_studio_ht_project_file_echo.json').read_text())
+        fields = {key: echo[key] for key in ('use_ams', 'ams_mapping', 'ams_mapping2')}
     assert sender.start_print('part.3mf', plate_num=2, ams_mapping=mapping, **options)
     assert sent == [json.dumps({'print': {
         'sequence_id': '23456', 'command': 'project_file', 'param': 'Metadata/plate_2.gcode',
@@ -243,7 +281,7 @@ def test_ht_duplicate_source_is_refused_even_for_held_jobs():
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('mapping', [[16], [23], [128]])
+@pytest.mark.parametrize('mapping', [[16], [23], [128], [-1, 16]])
 def test_direct_start_requires_explicit_ht_permission(protocol, mapping):
     from modules.printers.adapters.bambu import BambuPrinter
     from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
@@ -254,6 +292,13 @@ def test_direct_start_requires_explicit_ht_permission(protocol, mapping):
     with pytest.raises(ValueError, match='AMS HT'):
         sender.start_print('part.3mf', ams_mapping=mapping)
     assert sent == []
+
+
+@pytest.mark.parametrize('invalid', [-2, -1.0])
+def test_ht_encoder_refuses_invalid_unused_positions(invalid):
+    from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
+    with pytest.raises(ValueError):
+        print_mapping_fields([16, invalid], ams_ht_enabled=True)
 
 
 @pytest.mark.parametrize('path', ['archive', 'repeat', 'release', 'bulk_release'])
@@ -321,12 +366,9 @@ def test_ht_dispatch_entry_points_refuse_before_upload(review_db, tmp_path, monk
             assert reset_job(53, USER, review_db).ams_mapping == [16]
             review_db.execute(text("UPDATE jobs SET printer_id=59,status='scheduled' WHERE id=53"))
             review_db.commit()
-        else:
-            switch(review_db, 59, True)
         ok, message = dispatch.dispatch_job(59, 53)
     assert not ok
-    assert (('This file leaves a filament unused; sending it to an AMS HT tray is not supported yet'
-             if sparse else support_levels.AMS_HT_MESSAGE) in message), message
+    assert support_levels.AMS_HT_MESSAGE in message, message
     assert not sent and not events
 
 

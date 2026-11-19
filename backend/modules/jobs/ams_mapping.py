@@ -8,6 +8,7 @@ from core.print_payload import MappingMaterialMismatch
 from core.rbac import check_org_access
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.pinning import job_pin, pin_columns, pinned_printer_id
+from modules.printers.telemetry.bambu.ams_identity import with_ht_padding
 
 
 def lock_mapping_edit(db, job_id, updates):
@@ -54,9 +55,10 @@ def checked_changes(db, actor, job, changes):
             raise HTTPException(409, 'AMS mapping target must match the assigned printer')
         target = pin or target
         file = source_file(db, job, actor)
-        changes['ams_mapping'] = validate_for_printer(
+        validated = validate_for_printer(
             db, vector_entries(mapping, file.filaments_json), file.filaments_json, target, actor,
             stored_path=file.stored_path, check_material=changes.get('hold', job.hold) is not True)
+        changes['ams_mapping'] = with_ht_padding(validated, len(mapping))
         changes.update(pin_columns(target))
         changes['printer_id'] = target
     return changes
@@ -79,7 +81,8 @@ def vector_entries(mapping, filaments_json):
         return mapping
     if not ids:
         return mapping
-    if len(mapping) != max(ids):
+    width = max(ids)
+    if len(mapping) < width or mapping != with_ht_padding(mapping[:width], len(mapping)):
         raise HTTPException(400, 'AMS mapping must cover every source filament')
     if any((slot < 0) if index + 1 in ids else (slot != -1) for index, slot in enumerate(mapping)):
         raise HTTPException(400, 'Invalid or duplicate AMS slot')
@@ -150,6 +153,7 @@ def checked_repeat_mapping(db, actor, original):
     args = (db, mapping, file.filaments_json, job_pin(original) or original.printer_id, actor)
     # Check every slot first: an early material mismatch must not hide a later structural error.
     validated = validate_for_printer(*args, stored_path=file.stored_path, check_material=False)
+    validated = with_ht_padding(validated, len(original.ams_mapping))
     if original.hold:
         return validated, True
     try:

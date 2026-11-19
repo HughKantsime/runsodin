@@ -40,11 +40,15 @@ def unit_and_tray(slot):
     raise ValueError('Unknown AMS slot')
 
 
-SPARSE_HT_MESSAGE = 'This file leaves a filament unused; sending it to an AMS HT tray is not supported yet'
-
-
 def has_ht_target(mapping):
     return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
+
+
+def with_ht_padding(mapping, width):
+    """Restore unused positions after the last file source in a Studio HT vector."""
+    if len(mapping) < width <= 16 and has_ht_target(mapping):
+        return mapping + [-1] * (width - len(mapping))
+    return mapping
 
 
 def print_mapping_fields(mapping, *, ams_ht_enabled=False):
@@ -56,11 +60,13 @@ def print_mapping_fields(mapping, *, ams_ht_enabled=False):
     if ams_ht_enabled is not True:
         from modules.printers.support_levels import AMS_HT_MESSAGE
         raise ValueError(AMS_HT_MESSAGE)
-    if -1 in mapping:
-        raise ValueError(SPARSE_HT_MESSAGE)
     flat = []
     pairs = []
     for index in mapping:
+        if type(index) is int and index == -1:
+            flat.append(-1)
+            pairs.append({'ams_id': 255, 'slot_id': 255})
+            continue
         unit, tray = unit_and_tray(index + 1)
         flat.append(unit if unit >= AMS_HT_FIRST_UNIT else index)
         pairs.append({'ams_id': unit, 'slot_id': tray})
