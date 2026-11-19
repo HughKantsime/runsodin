@@ -68,9 +68,9 @@ export const auth = {
     return response.json()
   },
   wsToken: (): Promise<WsTokenResponse> => fetchAPI('/auth/ws-token', { method: 'POST' }),
-  changePassword: (current_password: string, new_password: string): Promise<{status: string}> =>
+  changePassword: (current_password: string, new_password: string): Promise<{status: string} | undefined> =>
     fetchAPI('/auth/me/password', {
-      method: 'POST', quiet: true, showUnauthorized: true, body: JSON.stringify({ current_password, new_password }),
+      method: 'POST', quiet: true, showUnauthorized: 'wrong_current_password', body: JSON.stringify({ current_password, new_password }),
     }),
   mfaVerify: (mfa_token: string, code: string): Promise<LoginResponse> => fetchAPI('/auth/mfa/verify', {
     method: 'POST', body: JSON.stringify({ mfa_token, code })

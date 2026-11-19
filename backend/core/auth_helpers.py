@@ -74,7 +74,7 @@ def _check_rate_limit(db: Session, ip: str) -> bool:
         return True  # fail closed: block login if we can't verify rate limit
 
 
-def _record_login_attempt(db: Session, ip: str, username: str, success: bool) -> bool:
+def _record_login_attempt(db: Session, ip: str, username: str, success: bool, *, via: str | None = None) -> bool:
     """Persist failures atomically; stage successes for the caller's audit commit.
 
     One audit row per outcome. A failure writes its row (auth.login_failed)
@@ -92,7 +92,10 @@ def _record_login_attempt(db: Session, ip: str, username: str, success: bool) ->
         if success:
             return True
         from core.audit import log_audit
-        log_audit(db, "auth.login_failed", "user", details={"username": username}, ip=ip)
+        details = {"username": username}
+        if via is not None:
+            details["via"] = via
+        log_audit(db, "auth.login_failed", "user", details=details, ip=ip)
         db.commit()
     except Exception:
         try:

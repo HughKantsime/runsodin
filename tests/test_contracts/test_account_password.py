@@ -1,14 +1,16 @@
 """Self-service password changes through real credential checks and owned databases."""
+import asyncio
 import json
+import threading
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from core.auth import hash_password
+from core.auth import create_access_token, hash_password
 from core.rate_limit import limiter
-from modules.organizations import routes_auth
+from modules.organizations import account_password, routes_auth
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_audit_actor_requests import client as audit_client
 from tests.test_contracts.test_education_classes_migration import native_engine, pg_engine
@@ -21,6 +23,28 @@ PATH = '/auth/me/password'
 
 def change(client, headers, current, replacement):
     return client.post(PATH, headers=headers, json={'current_password': current, 'new_password': replacement})
+
+
+def test_password_work_runs_on_the_lock_holding_worker(reset_client, monkeypatch):
+    client, sessions, current = reset_client
+    lock_user = account_password._locked_user
+    verify = account_password.verify_password
+    lock_thread = None
+
+    def capture_lock(db, user_id):
+        nonlocal lock_thread
+        lock_thread = threading.get_ident()
+        return lock_user(db, user_id)
+
+    def worker_verify(password, stored):
+        with pytest.raises(RuntimeError, match='no running event loop'):
+            asyncio.get_running_loop()
+        assert threading.get_ident() == lock_thread
+        return verify(password, stored)
+
+    monkeypatch.setattr(account_password, '_locked_user', capture_lock)
+    monkeypatch.setattr(account_password, 'verify_password', worker_verify)
+    assert change(client, sessions[0], current, new_password()).status_code == 200
 
 
 @pytest.mark.parametrize('role', ['admin', 'operator', 'viewer'])
@@ -68,6 +92,22 @@ def test_sign_in_and_change_share_minute_address_limit(reset_client):
     assert client.post('/auth/login', data={'username': 'student', 'password': current}).status_code == 429
 
 
+def test_wrong_password_has_inline_error_code(reset_client):
+    client, sessions, _ = reset_client
+    response = change(client, sessions[0], new_password(), new_password())
+    assert response.status_code == 401
+    assert response.json()['detail'] == {
+        'code': 'wrong_current_password', 'message': 'Check your current password and try again.',
+    }
+
+
+def test_failed_change_records_source_in_audit(reset_client, review_db):
+    client, sessions, _ = reset_client
+    assert change(client, sessions[0], new_password(), new_password()).status_code == 401
+    details = review_db.execute(text("SELECT details FROM audit_logs WHERE action='auth.login_failed'")).scalar_one()
+    assert json.loads(details) == {'username': 'student', 'via': 'password_change'}
+
+
 def test_rejects_same_or_weak_replacement_without_revocation(reset_client):
     client, sessions, current = reset_client
     for replacement in (current, 'weak'):
@@ -83,6 +123,42 @@ def test_noninteractive_tokens_cannot_change_password(token_client, scope):
     assert change(client, issue([scope]), new_password(), new_password()).status_code == 403
 
 
+@pytest.mark.parametrize('claim', ['ws', 'mfa_pending', 'mfa_setup_required'])
+def test_special_purpose_tokens_cannot_change_password(reset_client, claim):
+    client, _, current = reset_client
+    token = create_access_token({'sub': 'student', 'role': 'viewer', claim: True})
+    assert change(client, {'Authorization': 'Bearer ' + token}, current, new_password()).status_code == 401
+
+
+def test_inactive_user_cannot_change_password(reset_client, review_db):
+    client, sessions, current = reset_client
+    review_db.execute(text('UPDATE users SET is_active=FALSE WHERE id=1'))
+    review_db.commit()
+    assert change(client, sessions[0], current, new_password()).status_code == 401
+
+
+def test_revoked_while_waiting_for_user_lock_refuses_change(reset_client, review_db, monkeypatch):
+    client, sessions, current = reset_client
+    lock_user = account_password._locked_user
+
+    def revoke_before_lock(db, user_id):
+        # Authentication has succeeded. Commit a revocation before the real lock is taken.
+        review_db.execute(text("INSERT INTO token_blacklist (jti, expires_at) "
+                               "SELECT token_jti, '2099-01-01' FROM active_sessions WHERE user_id=:uid"),
+                          {'uid': user_id})
+        review_db.commit()
+        return lock_user(db, user_id)
+
+    monkeypatch.setattr(account_password, '_locked_user', revoke_before_lock)
+    stored = text('SELECT password_hash FROM users WHERE id=1')
+    before = review_db.execute(stored).scalar_one()
+    response = change(client, sessions[0], current, new_password())
+    assert response.status_code == 401
+    assert response.json()['detail'] == 'Sign in again to change your password.'
+    unchanged = review_db.execute(stored).scalar_one() == before
+    assert unchanged
+
+
 def test_sso_only_account_is_refused_before_checking_password(reset_client, review_db):
     client, sessions, current = reset_client
     review_db.execute(text("UPDATE users SET oidc_issuer='fixture',oidc_subject='subject' WHERE id=1"))
@@ -95,6 +171,20 @@ def test_sso_only_account_is_refused_before_checking_password(reset_client, revi
     assert review_db.execute(text("SELECT password_hash FROM users WHERE id=1")).scalar_one() == ''
     assert review_db.execute(text('SELECT count(*) FROM login_attempts')).scalar_one() == 0
     assert client.get('/auth/me', headers=sessions[1]).status_code == 200
+
+
+@both_databases
+def test_change_keeps_only_requesting_cookie_session(account_app, native_engine):
+    current = new_password()
+    with native_engine.begin() as db:
+        db.execute(text('UPDATE users SET password_hash=:h WHERE id=1'), {'h': hash_password(current)})
+    with TestClient(account_app) as first, TestClient(account_app) as other:
+        for client in (first, other):
+            assert client.post('/auth/login', data={'username': 'student', 'password': current}).status_code == 200
+            assert client.get('/auth/me').status_code == 200
+        assert change(first, {}, current, new_password()).status_code == 200
+        assert first.get('/auth/me').status_code == 200
+        assert other.get('/auth/me').status_code == 401
 
 
 @both_databases

@@ -32,7 +32,7 @@ function apiError(err: { detail?: unknown; message?: unknown }, fallback: string
   return error
 }
 
-export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit & { quiet?: boolean; showUnauthorized?: boolean; onResponse?: (response: Response) => void } = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
+export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit & { quiet?: boolean; showUnauthorized?: boolean | string; onResponse?: (response: Response) => void } = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
   const { quiet = false, showUnauthorized = false, onResponse, ...requestOptions } = options
   const headers = new Headers(options.headers)
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
@@ -53,7 +53,11 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   } catch (networkError) {
     throw new Error('Network error. Check your connection and try again.')
   }
-  if (response.status === 401 && !showUnauthorized) {
+  if (response.status === 401 && showUnauthorized !== true) {
+    if (typeof showUnauthorized === 'string') {
+      const err = await response.json().catch(() => null)
+      if (err?.detail?.code === showUnauthorized) throw apiError(err, 'Request failed. Please try again.', response.status)
+    }
     await clearSensitiveBrowserState()
     if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"

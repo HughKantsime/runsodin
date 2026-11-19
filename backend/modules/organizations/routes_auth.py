@@ -36,7 +36,7 @@ from modules.organizations.mfa_recovery import (
 from core.config import settings as _settings
 from core.rate_limit import limiter
 from modules.organizations.education_access import capability_snapshot_id
-from modules.organizations.account_password import change_password, password_account
+from modules.organizations.account_password import change_password
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -434,9 +434,14 @@ class ChangePasswordRequest(PydanticBaseModel):
 
 @router.post("/auth/me/password", tags=["Auth"])
 @password_address_limit
-async def change_my_password(request: Request, body: ChangePasswordRequest,
-                             user=Depends(password_account), db: Session = Depends(get_db)):
-    change_password(db, user, request, body.current_password, body.new_password)
+def change_my_password(request: Request, body: ChangePasswordRequest,
+                       principal: dict = Depends(require_interactive_session()), db: Session = Depends(get_db)):
+    try:
+        change_password(db, principal, request, body.current_password, body.new_password)
+    except Exception:
+        # Release the user lock in this worker even when validation refuses the change.
+        db.rollback()
+        raise
     return {"status": "updated"}
 
 

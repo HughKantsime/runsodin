@@ -25,8 +25,9 @@ export default function PasswordCard({ hasLocalPassword, onChanged }: {
     }
     setSaving(true)
     try {
-      await auth.changePassword(String(fields.get('current_password')), next)
+      const result = await auth.changePassword(String(fields.get('current_password')), next)
       form.reset()
+      if (!result) return
       setNotice('Password changed. Your other devices were signed out.')
       onChanged()
     } catch (err) {
