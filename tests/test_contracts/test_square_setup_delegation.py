@@ -356,6 +356,9 @@ def test_existing_limiter_is_keyed_by_token_not_client_address(shop):
     for _ in range(30):
         assert shop[0].put(path(), json=payload('stale')).status_code == 409
     assert shop[0].put(path(), json=payload(status['revision'])).status_code == 429
+    raw = shop[0].headers.pop('X-API-Key')
+    assert shop[0].put(path(), headers={'Authorization': 'Bearer ' + raw}, json=payload(status['revision'])).status_code == 429
+    shop[0].headers['X-API-Key'] = raw
     created = shop[0].post('/tokens', headers=interactive_headers(), json={'name': 'Second setup', 'scopes': ['read']})
     assert created.status_code == 200
     token = created.json()

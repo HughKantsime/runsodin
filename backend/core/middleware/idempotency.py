@@ -895,9 +895,9 @@ async def idempotency_middleware(request: Any, call_next: Callable):
     try:
         try:
             user_ctx = _resolve_user_context(request, db)
-        except LicenseLockError as exc:
-            from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+        except LicenseLockError:
+            db.rollback()
+            user_ctx = None
         except Exception as exc:
             # Exception messages can contain credentials or bound SQL values.
             log.error("Idempotency caller resolution failed (%s)", type(exc).__name__)
@@ -914,9 +914,8 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 media_type="application/json",
             )
         if user_ctx is None:
-            # Anonymous / unresolvable / expired — pass through; auth
-            # will reject downstream and we don't want to cache under
-            # a null key.
+            # The route applies its own authentication and license policy.
+            # Without a caller there is no cache entry to read or write.
             return await call_next(request)
 
         user_id = user_ctx["id"]

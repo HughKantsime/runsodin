@@ -1778,7 +1778,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 134,
+      "line": 141,
       "path": "backend/modules/archives/timelapse_action_authority.py",
       "pattern": "PRAGMA",
       "reason": "SQLite foreign-key enforcement and BEGIN IMMEDIATE are dialect guarded; PostgreSQL action authority uses its own caller transaction and source locks.",

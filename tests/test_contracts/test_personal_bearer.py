@@ -87,6 +87,66 @@ def test_precedence_and_legacy_key(api):
     assert client.get(path, headers={"X-API-Key": "odin_invalid", **write}).status_code == 401
 
 
+def test_nonprefixed_legacy_key_requires_x_api_key(api, monkeypatch):
+    from core.config import settings
+
+    client, _, _ = api
+    key = "legacy-" + secrets.token_hex(24)
+    monkeypatch.setenv("API_KEY", key)
+    monkeypatch.setattr(settings, "api_key", key)
+    for path in ("/api/v1/sessions", "/api/v1/auth/me"):
+        assert client.get(path, headers={"X-API-Key": key}).status_code == 200
+        assert client.get(path, headers=bearer(key)).status_code == 401
+
+
+@pytest.mark.parametrize("perimeter", [False, True])
+@pytest.mark.parametrize("companion", [None, "", "undefined", "garbage", "personal"])
+def test_personal_bearer_selects_token_owner(api, review_db, monkeypatch, perimeter, companion):
+    from core.config import settings
+
+    client, issue, _ = api
+    if not perimeter:
+        monkeypatch.delenv("API_KEY")
+        monkeypatch.setattr(settings, "api_key", "")
+    headers = bearer(issue(["read"])["X-API-Key"])
+    review_db.execute(text("UPDATE api_tokens SET user_id=1"))
+    review_db.execute(text("INSERT INTO active_sessions(user_id,token_jti,user_agent) VALUES "
+                           "(1,'student-session','student'),(3,'admin-session','admin')"))
+    review_db.commit()
+    if companion == "personal":
+        headers.update(issue(["read"]))
+    elif companion is not None:
+        headers["X-API-Key"] = companion
+    response = client.get("/api/v1/sessions", headers=headers)
+    if perimeter and companion in {"undefined", "garbage"}:
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or missing API key"
+    else:
+        assert response.status_code == 200
+        assert [s["user_agent"] for s in response.json()] == ["admin" if companion == "personal" else "student"]
+
+
+@pytest.mark.parametrize("carrier", ["cookie", "personal"])
+def test_login_with_locked_caller_reaches_handler_with_retry_key(api, review_db, monkeypatch, carrier):
+    from types import SimpleNamespace
+    from core import license_lock
+    from core.auth import create_access_token
+
+    client, issue, _ = api
+    headers = ({"Cookie": "session=" + create_access_token({"sub": "admin", "role": "admin"})}
+               if carrier == "cookie" else bearer(issue(["write"])["X-API-Key"]))
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "1")
+    locked = SimpleNamespace(revision=2, enforcing=True, users=set(), entitlement={})
+    monkeypatch.setattr(license_lock, "snapshot", lambda db, request: locked)
+    form = {"username": "missing-login-user", "password": "unused"}
+    for extra in ({}, {"Idempotency-Key": "locked-login"}):
+        response = client.post("/api/v1/auth/login", data=form, headers={**headers, **extra})
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid credentials"
+    assert review_db.scalar(text("SELECT COUNT(*) FROM login_attempts WHERE username='missing-login-user'")) == 2
+    assert review_db.scalar(text("SELECT COUNT(*) FROM idempotency_keys")) == 0
+
+
 @pytest.mark.parametrize("perimeter", [False, True])
 @pytest.mark.parametrize("companion", ["absent", "undefined", "wrong", "personal", "perimeter"])
 def test_bearer_jwt_owns_session_with_companion_key(api, review_db, monkeypatch, perimeter, companion):
@@ -159,16 +219,31 @@ def test_expiring_bearer_replays_only_while_authorized(api, review_db):
 
 
 def test_ws_ticket_rate_limit_and_login_attempts_are_shared_across_headers(api, review_db):
+    from unittest.mock import patch
+    from core import dependencies
+
     client, issue, _ = api
     path = "/api/v1/auth/ws-token"
     read = issue(["read"])
-    for header in ({"X-API-Key": "odin_unknown"}, bearer("odin_unknown")):
-        assert client.post(path, headers=header).status_code == 401
+    invalid = ({"X-API-Key": "odin_unknown"}, bearer("odin_unknown"))
+    with patch.object(dependencies, "resolve_user_api_token", wraps=dependencies.resolve_user_api_token) as lookup:
+        for header in invalid:
+            lookup.reset_mock()
+            assert client.post(path, headers=header).status_code == 401
+            assert lookup.call_count == 1
+            assert lookup.call_args.args[0] == "odin_unknown"
     assert review_db.execute(text("SELECT COUNT(*) FROM login_attempts")).scalar_one() == 0
     for header in (read, bearer(read["X-API-Key"])) * 5:
         assert client.post(path, headers=header).status_code == 200
     for header in (read, bearer(read["X-API-Key"])):
         assert client.post(path, headers=header).status_code == 429
+
+    form = {"username": "unknown-ws-user", "password": "unused"}
+    login = "/api/v1/auth/login"
+    for attempt in range(5):
+        assert client.post(login, data=form, headers=invalid[attempt % 2]).status_code == 401
+    for header in invalid:
+        assert client.post(login, data=form, headers=header).status_code == 423
 
 
 def test_cookie_owns_retry_even_when_both_headers_carry_personal_tokens(api, review_db):

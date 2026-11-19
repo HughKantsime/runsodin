@@ -5,7 +5,7 @@ No route activation. Evidence is never serializable or accepted from a principal
 from dataclasses import dataclass,field
 from datetime import datetime,timezone
 import hashlib,time,os,hmac
-from core.auth_headers import bearer_token
+from core.auth_headers import bearer_token, scoped_token_carrier
 from sqlalchemy import text
 from sqlalchemy.engine import Engine,Connection
 from core.dependencies import validate_access_token,_principal
@@ -70,7 +70,14 @@ def capture_action_credential(request,db,credential,*,kind,carrier,purpose="reti
     actual={'cookie':request.cookies.get('session'),'bearer':bearer_token(request),'query':request.query_params.get('token'),'api_key':request.headers.get('x-api-key')}.get(carrier)
     allowed={'session_jwt':{'cookie'},'bearer_jwt':{'bearer','query'},'user_api_token':{'api_key','bearer'},'legacy_global_api_key':{'api_key'}}
     if carrier not in allowed.get(kind,set()) or type(credential) is not str or not credential or actual!=credential:_refuse('unknown_authority')
-    if kind=='user_api_token' and carrier=='bearer' and request.headers.get('x-api-key'):_refuse('unknown_authority')
+    if kind == 'user_api_token' and carrier == 'bearer':
+        if scoped_token_carrier(request) == 'api_key':
+            _refuse('unknown_authority')
+        # The configured legacy key also takes precedence in X-API-Key.
+        companion = request.headers.get('x-api-key')
+        configured = os.getenv('API_KEY')
+        if configured and companion and companion != 'undefined' and hmac.compare_digest(companion, configured):
+            _refuse('unknown_authority')
     if purpose not in ('read','retire','edit'):_refuse('unknown_authority')
     if kind=='legacy_global_api_key':
         configured=os.getenv('API_KEY','')

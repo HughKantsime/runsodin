@@ -216,7 +216,8 @@ def test_configured_global_key_bearer_reaches_media_owner_boundary(media_app,man
     assert owner.content==b'owned synthetic MP4 publication evidence'
 
 
-def test_personal_bearer_can_download_its_organizations_timelapse(media_app, managed_plain_media, review_db):
+@pytest.mark.parametrize("companion_headers", [{}, {"X-API-Key": "undefined"}])
+def test_personal_bearer_can_download_its_organizations_timelapse(media_app, managed_plain_media, review_db, companion_headers):
     import secrets
     from sqlalchemy import text
     from core.auth import hash_password
@@ -227,6 +228,7 @@ def test_personal_bearer_can_download_its_organizations_timelapse(media_app, man
                            """VALUES(5,'media reader',:hash,:prefix,'["read:printers"]')"""),
                       {'hash': hash_password(raw), 'prefix': raw[:10]})
     review_db.commit()
-    response = client.get(f'/timelapses/{managed_plain_media}/download', headers={'Authorization': 'Bearer ' + raw})
+    response = client.get(f'/timelapses/{managed_plain_media}/download',
+                          headers={'Authorization': 'Bearer ' + raw, **companion_headers})
     assert response.status_code == 200
     assert response.content == b'owned synthetic MP4 publication evidence'

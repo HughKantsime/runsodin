@@ -130,8 +130,16 @@ def test_retry_after_scope_reduction(retry_client, review_db, restricted_scope, 
 
 def test_license_lock_refuses_cached_write(retry_client, monkeypatch):
     from core import license_lock
+    from fastapi.exception_handlers import http_exception_handler
 
     client, issue, calls = retry_client
+    route_refusals = []
+
+    @client.app.exception_handler(license_lock.LicenseLockError)
+    async def record_route_lock(request, exc):
+        route_refusals.append(request.url.path)
+        return await http_exception_handler(request, exc)
+
     headers = {**issue(["agent:write"]), "Idempotency-Key": "license-change"}
     path = "/api/v1/retry-test"
     assert client.patch(path, headers=headers).status_code == 200
@@ -142,6 +150,8 @@ def test_license_lock_refuses_cached_write(retry_client, monkeypatch):
         retry = client.patch(path, headers=headers, json=body)
         assert retry.status_code == 403
         assert retry.headers["X-ODIN-License-Lock"] == "license_user_locked"
+        assert "X-Idempotent-Replay" not in retry.headers
+    assert route_refusals == [path, path]
     assert calls == [3]
 
 

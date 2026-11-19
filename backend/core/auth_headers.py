@@ -7,9 +7,16 @@ def bearer_token(request) -> str | None:
     return value if scheme.lower() == "bearer" else None
 
 
+def scoped_token_carrier(request) -> str:
+    """Which header to inspect for a personal token before validating its value."""
+    return "api_key" if request.headers.get("X-API-Key", "").startswith("odin_") else "bearer"
+
+
 def scoped_token(request, bearer: str | None = None) -> str | None:
     """X-API-Key wins when both headers carry a personal token."""
-    value = request.headers.get("X-API-Key") or bearer or bearer_token(request)
+    if scoped_token_carrier(request) == "api_key":
+        return request.headers["X-API-Key"]
+    value = bearer or bearer_token(request)
     return value if value and value.startswith("odin_") else None
 
 
