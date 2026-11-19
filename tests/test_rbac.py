@@ -217,7 +217,7 @@ LICENSE_GATED = {
     **{route: "user_groups" for route in (
         ("GET", "/api/orgs"), ("POST", "/api/orgs"), ("PATCH", "/api/orgs/{org_id}"),
         ("DELETE", "/api/orgs/{org_id}"), ("POST", "/api/orgs/{org_id}/members"),
-        ("POST", "/api/orgs/{org_id}/printers"),
+        ("GET", "/api/orgs/{org_id}/member-candidates"), ("POST", "/api/orgs/{org_id}/printers"),
         ("GET", "/api/orgs/{org_id}/settings"), ("PUT", "/api/orgs/{org_id}/settings"))},
     ("PATCH", "/api/report-schedules/{schedule_id}"): "email_notifications",
     ("GET", "/api/audit-logs/verify"): "audit_integrity",

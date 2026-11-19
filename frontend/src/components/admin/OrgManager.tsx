@@ -23,14 +23,6 @@ export default function OrgManager() {
     queryFn: orgs.list,
   })
 
-  const { data: userList } = useQuery({
-    queryKey: ['users-for-orgs'],
-    queryFn: async () => {
-      const res = await fetch('/api/users', { credentials: 'include' })
-      return res.ok ? res.json() : []
-    },
-  })
-
   const { data: printerList } = useQuery({
     queryKey: ['printers-for-orgs'],
     queryFn: async () => {
@@ -58,7 +50,10 @@ export default function OrgManager() {
 
   const addMember = useMutation({
     mutationFn: ({ orgId, userId }) => orgs.addMember(orgId, userId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+      queryClient.invalidateQueries({ queryKey: ['org-member-candidates'] }),
+    ]),
     onError: mutErr('Add member failed'),
   })
 
@@ -124,7 +119,6 @@ export default function OrgManager() {
         <OrgCard
           key={org.id}
           org={org}
-          userList={userList}
           printerList={printerList}
           addMemberId={addMemberId}
           setAddMemberId={setAddMemberId}
@@ -143,9 +137,14 @@ export default function OrgManager() {
 }
 
 
-function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
+function OrgCard({ org, printerList, addMemberId, setAddMemberId,
   addPrinterId, setAddPrinterId, deleteOrg, addMember, assignPrinter,
   updateSettings, expanded, onToggleSettings }) {
+
+  const { data: candidates } = useQuery({
+    queryKey: ['org-member-candidates', org.id],
+    queryFn: () => orgs.memberCandidates(org.id),
+  })
 
   const { data: settings } = useQuery({
     queryKey: ['org-settings', org.id],
@@ -207,7 +206,7 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
             className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"
           >
             <option value="">Add member...</option>
-            {userList?.map(u => (
+            {candidates?.map(u => (
               <option key={u.id} value={u.id}>{u.username}</option>
             ))}
           </select>

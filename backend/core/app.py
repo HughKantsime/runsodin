@@ -174,8 +174,9 @@ def _register_http_middleware(app: FastAPI) -> None:
         elif path.startswith("/api/"):
             _api_path = path[4:]
 
-        # The allowlist covers HTTP pages, assets and APIs except health probes and preflights.
-        if request.method != "OPTIONS" and path not in ("/health", "/health/ready"):
+        # go2rtc can run in a separate container. The relay checks its peer and per-printer token.
+        if (request.method != "OPTIONS" and path not in ("/health", "/health/ready")
+                and not path.startswith("/internal/camera-source/")):
             denial = _ip_allowlist_denial(SessionLocal, request.client.host if request.client else None)
             if denial == 403:
                 return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})

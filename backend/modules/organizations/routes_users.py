@@ -35,7 +35,7 @@ router = APIRouter()
 
 def _is_superadmin(current_user: dict) -> bool:
     """Superadmin = role admin with no group_id."""
-    return current_user.get("role") == "admin" and current_user.get("group_id") is None
+    return current_user.get("role") == "admin" and not current_user.get("group_id")
 
 
 def _check_org_admin_access(current_user: dict, target_group_id, db=None) -> bool:

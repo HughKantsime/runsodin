@@ -169,3 +169,28 @@ def test_policy_read_failure_refuses_web_page(allowlist_app, monkeypatch):
         response = client.get("/")
         assert response.status_code == 503
         assert response.json() == {"detail": "Service temporarily unavailable"}
+
+
+def test_internal_camera_relay_keeps_its_own_admission_check(allowlist_app, monkeypatch):
+    from modules.printers import camera_relay
+
+    allowlist_app.include_router(camera_relay.router)
+    # This peer is trusted by the relay but is outside the web allowlist.
+    monkeypatch.setenv("ODIN_CAMERA_RELAY_PEERS", "198.51.100.9")
+    checked = []
+    def test_token(printer_id):
+        checked.append(printer_id)
+        return "fixture-token"
+
+    monkeypatch.setattr(camera_relay, "relay_token", test_token)
+    with TestClient(allowlist_app, client=("127.0.0.1", 50000)) as local:
+        assert local.put("/api/config/ip-allowlist", json={
+            "enabled": True, "cidrs": ["203.0.113.0/24"],
+        }).status_code == 200
+    with TestClient(allowlist_app, client=("198.51.100.9", 50000)) as peer:
+        assert peer.get("/internal/camera-source/42/wrong-token").status_code == 404
+        assert checked == [42]
+        for path in ("/internal/other", "/internal/camera-source", "/internal/camera-source-extra/42/token"):
+            response = peer.get(path, follow_redirects=False)
+            assert response.status_code == 403
+            assert response.json() == {"detail": "IP address not allowed"}

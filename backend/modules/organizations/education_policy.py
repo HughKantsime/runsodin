@@ -130,50 +130,24 @@ def assert_generic_job_mutation_allowed(db: Session, job_id: int) -> None:
         ))
 
 
+# Shared by the membership picker and the write guard. The outer row is users.
+USER_HAS_EDUCATION_HISTORY = """EXISTS (
+    SELECT 1 FROM education_cost_center_grants
+        WHERE user_id=users.id OR granted_by=users.id OR revoked_by=users.id
+    UNION ALL SELECT 1 FROM education_cost_center_printers WHERE granted_by=users.id OR revoked_by=users.id
+    UNION ALL SELECT 1 FROM education_cost_centers WHERE created_by=users.id
+    UNION ALL SELECT 1 FROM education_upload_operations WHERE user_id=users.id
+    UNION ALL SELECT 1 FROM education_submissions WHERE submitted_by=users.id OR approved_by=users.id
+    UNION ALL SELECT 1 FROM education_notification_outbox WHERE recipient_user_id=users.id
+    UNION ALL SELECT 1 FROM education_rate_counters WHERE user_id=users.id
+    UNION ALL SELECT 1 FROM education_storage_accounts WHERE user_id=users.id
+    UNION ALL SELECT 1 FROM education_commands WHERE actor_kind='user' AND actor_id=CAST(users.id AS TEXT)
+    UNION ALL SELECT 1 FROM education_audit_events WHERE actor_kind='user' AND actor_id=CAST(users.id AS TEXT)
+)"""
+
+
 def assert_user_tenant_change_allowed(db: Session, user_id: int) -> None:
-    if _exists(
-        db,
-        "SELECT 1 FROM education_cost_center_grants "
-        "WHERE user_id=:id OR granted_by=:id OR revoked_by=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_cost_center_printers "
-        "WHERE granted_by=:id OR revoked_by=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_cost_centers WHERE created_by=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_upload_operations WHERE user_id=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_submissions WHERE submitted_by=:id OR approved_by=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_notification_outbox WHERE recipient_user_id=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_rate_counters WHERE user_id=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_storage_accounts WHERE user_id=:id LIMIT 1",
-        {"id": user_id},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_commands WHERE actor_kind='user' AND actor_id=:actor_id LIMIT 1",
-        {"actor_id": str(user_id)},
-    ) or _exists(
-        db,
-        "SELECT 1 FROM education_audit_events WHERE actor_kind='user' AND actor_id=:actor_id LIMIT 1",
-        {"actor_id": str(user_id)},
-    ):
+    if _exists(db, "SELECT 1 FROM users WHERE id=:id AND " + USER_HAS_EDUCATION_HISTORY, {"id": user_id}):
         raise HTTPException(
             status_code=409,
             detail="User tenant cannot change while Education grants or history exist",

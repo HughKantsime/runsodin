@@ -89,15 +89,59 @@ def test_admin_user_lists_respect_organization_membership(token_client, review_d
         assert {row["username"] for row in response.json()} == expected
 
 
-def test_admin_in_group_zero_is_scoped(token_client, review_db):
-    from modules.organizations.routes_users import router
+@pytest.fixture
+def member_client(token_client, review_db):
+    from modules.organizations.routes import router
 
     client, _ = token_client
     client.app.include_router(router)
-    review_db.execute(text("INSERT INTO groups (id, name, is_org) VALUES (0, 'zero', 1)"))
-    review_db.execute(text("UPDATE users SET group_id=0 WHERE id=5"))
+    _add_unassigned_users(review_db)
+    review_db.execute(text(
+        "INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) VALUES "
+        "(62,'inactive','inactive@example.test','fixture','viewer',0,NULL),"
+        "(63,'operator','operator@example.test','fixture','operator',1,2),"
+        "(64,'recorded','recorded@example.test','fixture','viewer',1,NULL)"
+    ))
+    review_db.execute(text(
+        "INSERT INTO education_audit_events "
+        "(event_id,org_id,actor_kind,actor_id,action,command_id,request_hash,resource_type,resource_id) "
+        "VALUES ('member-event',1,'user','64','review','member-command','hash','user','64')"
+    ))
     review_db.commit()
-    headers, _ = _session(review_db, 5, "foreign", "admin", "Org browser")
-    response = client.get("/users", headers=headers)
+    return client
+
+
+@pytest.mark.parametrize(("admin_id", "username", "expected"), [
+    (3, "admin", [(61, "loose")]),
+    (60, "platform", [(5, "foreign"), (61, "loose"), (63, "operator")]),
+])
+def test_member_picker_only_lists_people_the_admin_can_add(
+    member_client, review_db, education_license, admin_id, username, expected,
+):
+    headers, _ = _session(review_db, admin_id, username, "admin", "Browser")
+    path = "/orgs/1/member-candidates"
+    response = member_client.get(path, headers=headers)
     assert response.status_code == 200
-    assert [row["username"] for row in response.json()] == ["foreign"]
+    assert response.json() == [{"id": uid, "username": name} for uid, name in expected]
+    assert member_client.post("/orgs/1/members", headers=headers, json={"user_id": 64}).status_code == 409
+    for person in response.json():
+        added = member_client.post("/orgs/1/members", headers=headers, json={"user_id": person["id"]})
+        assert added.status_code == 200
+    assert member_client.get(path, headers=headers).json() == []
+
+
+def test_member_candidates_require_admin_access_to_destination(member_client, review_db, education_license):
+    foreign, _ = _session(review_db, 5, "foreign", "admin", "Browser")
+    viewer, _ = _session(review_db, 1, "student", "viewer", "Browser")
+    platform, _ = _session(review_db, 60, "platform", "admin", "Browser")
+    for headers in (foreign, viewer):
+        assert member_client.get("/orgs/1/member-candidates", headers=headers).status_code == 403
+    assert member_client.get("/orgs/999/member-candidates", headers=platform).status_code == 404
+
+
+def test_member_candidates_require_user_groups(member_client, review_db, tier_license):
+    tier_license(None)
+    headers, _ = _session(review_db, 3, "admin", "admin", "Browser")
+    response = member_client.get("/orgs/1/member-candidates", headers=headers)
+    assert response.status_code == 403
+    assert response.headers["X-ODIN-License-Feature"] == "user_groups"
