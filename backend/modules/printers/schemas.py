@@ -163,6 +163,16 @@ class PrinterCreate(PrinterBase):
     initial_slots: Optional[List[FilamentSlotCreate]] = None
     shared: bool = False
 
+    @model_validator(mode='before')
+    @classmethod
+    def check_bambu_count(cls, values):
+        from pydantic import TypeAdapter
+        from modules.printers.services import validate_bambu_slot_count
+        if isinstance(values, dict) and str(values.get('api_type')).lower() == 'bambu' and 'slot_count' in values:
+            count = TypeAdapter(int).validate_python(values['slot_count'])
+            validate_bambu_slot_count(count)
+        return values
+
     @model_validator(mode='after')
     def default_bambu_bed(self):
         from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name

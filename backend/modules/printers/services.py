@@ -250,6 +250,18 @@ def configured_recipe_key(printer_id, connection):
     return stable_configuration_key(_get_printer_info(printer_id, connection=connection), SECRET_KEY.encode())
 
 
+def bambu_tray_counts(slots):
+    return {"ams_slots": sum(1 <= slot.slot_number <= 16 for slot in slots),
+            "ams_ht_slots": sum(17 <= slot.slot_number <= 24 for slot in slots)}
+
+
+def validate_bambu_slot_count(count):
+    if count > 16 or (count > 1 and count % 4):
+        from fastapi import HTTPException
+        raise HTTPException(400, 'Choose 1 for an external spool or 4 slots per AMS, up to 16. '
+                                 'The printer reports AMS HT trays separately.')
+
+
 def create_printer_record(db, **fields):
     """Capacity check and insertion in the caller's transaction, for API/setup."""
     from core.license_capacity import lock_capacity
@@ -257,10 +269,33 @@ def create_printer_record(db, **fields):
     from modules.printers.models import Printer
     lock_capacity(db, "printers")
     check_printer_limit(db.query(Printer).count())
+    if (fields.get('api_type') or '').lower() == 'bambu':
+        from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name
+        validate_bambu_slot_count(fields.get('slot_count', 4))
+        dims = BAMBU_BEDS.get(bambu_model_name(fields.get('model')))
+        if dims and fields.get('bed_x_mm') is None and fields.get('bed_y_mm') is None:
+            fields['bed_x_mm'], fields['bed_y_mm'] = dims
     printer = Printer(**fields)
     db.add(printer)
     db.flush()
     return printer
+
+
+def apply_printer_updates(printer, update_data):
+    """Apply prepared values and return the names of fields changed for the audit."""
+    from core import crypto
+    changed_fields = []
+    for field, value in update_data.items():
+        old_value = getattr(printer, field)
+        if field in ('api_key', 'camera_url') and old_value != value:
+            # Re-encrypting an unchanged credential produces different ciphertext.
+            changed = crypto.decrypt(old_value) != crypto.decrypt(value)
+        else:
+            changed = old_value != value
+        if changed:
+            changed_fields.append(field)
+        setattr(printer, field, value)
+    return changed_fields
 
 
 def experimental_refusal(db, printer_id, api_type):

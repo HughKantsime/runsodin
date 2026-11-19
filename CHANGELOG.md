@@ -31,6 +31,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Adding a Bambu printer counts AMS HT trays separately. Syncing removes extra empty slots when they have no recorded use.
+- H2D and H2D Pro printers now use the correct 350 × 320 mm bed size and keep bed dimensions you have changed.
+
 - Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
 - Moonraker commands now preserve spaces, special characters and multiple lines when sent to a printer.
 - Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.

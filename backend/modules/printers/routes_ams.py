@@ -348,6 +348,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
     from modules.printers.telemetry.feature_flag import is_v2_enabled
 
+    from core.monitor_observations import fresh_report
+    from modules.printers.bambu_slots import full_ams_slots, repair_phantom_slots
+    repair_numbers = None
+    received_at = time.time()  # Lower bound on arrival during this one-shot connection.
     if is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
         from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
@@ -376,6 +380,9 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             raise HTTPException(status_code=503, detail=result.error or "Failed to connect to printer")
 
         slots = ams_slots_from_section(result.section) if result.section else []
+        if result.section and getattr(result, 'mqtt_retained', None) is False:
+            repair_numbers = full_ams_slots(result.section.model_dump(exclude_unset=True))
+            received_at = result.received_at
         if not slots:
             return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                     "slots_synced": 0, "slots": [], "mismatches": [],
@@ -408,6 +415,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             finally:
                 # An exception mid-poll must not leave an MQTT session holding a printer slot.
                 bambu.disconnect()
+            if getattr(bambu_status, 'mqtt_retained', None) is False:
+                repair_numbers = full_ams_slots(bambu_status.raw_data.get('print', {}))
             if not bambu_status or not bambu_status.ams_slots:
                 return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                         "slots_synced": 0, "slots": [], "mismatches": [],
@@ -635,6 +644,9 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                     })
 
     log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "mismatches": len(mismatches)})
+    if repair_numbers and received_at is not None and fresh_report(False, time.time() - received_at):
+        db.flush()
+        repair_phantom_slots(sqlalchemy_runner(db), printer_id, repair_numbers)
     db.commit()
     return {
         "success": True, "printer_id": printer_id, "printer_name": printer.name,

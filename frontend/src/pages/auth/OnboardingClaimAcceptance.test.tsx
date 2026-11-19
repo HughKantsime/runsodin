@@ -157,6 +157,27 @@ test('wizard packs Bambu credentials for creation and keeps separate probe crede
  expect(JSON.parse(String(created[1]?.body))).toMatchObject({api_type:'bambu',api_host:'192.0.2.45',api_key:'FIXTURE-SERIAL|fixture-code',serial:'FIXTURE-SERIAL',access_code:'fixture-code'})
 })
 
+test.each([4, 8, 0])('wizard shows both tray counts and saves the standard count when it reports %i', async standard => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'),{target:{value:'Fixture Bambu'}})
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'),{target:{value:'192.0.2.45'}})
+ fireEvent.change(screen.getByPlaceholderText('From printer settings or Bambu app'),{target:{value:'FIXTURE-SERIAL'}})
+ fireEvent.change(screen.getByPlaceholderText('8-digit code from printer'),{target:{value:'fixture-code'}})
+ const previousFetch = vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async (url, opts) => url === '/api/printers/test-connection'
+   ? { ok: true, json: async () => ({ success: true, ams_slots: standard, ams_ht_slots: 1 }) } as Response
+   : previousFetch(url, opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ expect(await screen.findByText(/^Connected!/)).toHaveTextContent(`${standard} AMS slots, 1 AMS HT`)
+ fireEvent.change(screen.getByRole('option',{name:'H2D'}).closest('select')!,{target:{value:'H2D'}})
+ fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/printer',expect.objectContaining({body:expect.any(String)})))
+ const created=vi.mocked(fetch).mock.calls.find(([url])=>url==='/api/setup/printer')!
+ expect(JSON.parse(String(created[1]?.body)).slot_count).toBe(standard || 4)
+})
+
 test('a failed connection test shows its sentence and never renders the error object', async () => {
  mount(); await admin()
  fireEvent.click(screen.getByText('Community (free)'))

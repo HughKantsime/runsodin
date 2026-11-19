@@ -12,6 +12,12 @@ class MappingMaterialMismatch(HTTPException):
         self.target_slot = target_slot
 
 
+class MappingSlotUnavailable(HTTPException):
+    def __init__(self, target_slot):
+        super().__init__(400, 'Invalid or duplicate AMS slot')
+        self.target_slot = target_slot
+
+
 def bambu_plate_numbers(path: str) -> list:
     """The stored package's Metadata/plate_N.gcode numbers, from one bounded open.
 
@@ -122,7 +128,9 @@ def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material
     for item in mapping:
         source = item['source_slot'] + (1 if legacy else 0)
         target = item['target_slot']
-        if target not in slots or not 1 <= target <= 24 or result[source - 1] != -1:
+        if 1 <= target <= 24 and target not in slots:
+            raise MappingSlotUnavailable(target)
+        if not 1 <= target <= 24 or result[source - 1] != -1:
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
         if check_material and material_match(by_id[source].get('type'), slots[target]) is not True:
             raise MappingMaterialMismatch(target)

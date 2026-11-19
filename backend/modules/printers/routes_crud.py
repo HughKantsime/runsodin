@@ -31,6 +31,7 @@ from modules.printers.bambu_chamber_camera import drop_unchanged_marker
 from modules.printers.connection_reasons import (
     AUTH, NOT_THIS_TYPE, UNKNOWN, failed, reason_for_exception, reason_for_http_status,
 )
+from modules.printers.services import bambu_tray_counts, apply_printer_updates
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
@@ -312,11 +313,10 @@ def update_printer(
 
     from modules.organizations.services import printer_edit_warnings
     training_warnings = printer_edit_warnings(db, printer, update_data)
-    for field, value in update_data.items():
-        setattr(printer, field, value)
+    changed_fields = apply_printer_updates(printer, update_data)
 
     log_audit(db, "printer.updated", "printer", printer_id,
-              {"fields": list(update_data.keys())})
+              {"fields": changed_fields, "fields_mean": "changed"})
     db.commit()
     db.refresh(printer)
 
@@ -521,7 +521,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": view.state,
                 "bed_temp": view.bed_temp, "nozzle_temp": view.nozzle_temp,
-                "ams_slots": len(ams_slots), "model": detected_model,
+                **bambu_tray_counts(ams_slots), "model": detected_model,
             }
 
         # Legacy path
@@ -544,7 +544,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": bambu_status.state.value,
                 "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-                "ams_slots": len(bambu_status.ams_slots), "model": detected_model,
+                **bambu_tray_counts(bambu_status.ams_slots), "model": detected_model,
             }
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")

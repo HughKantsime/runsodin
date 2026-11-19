@@ -19,6 +19,7 @@ from core.dependencies import get_current_user
 from core.rbac import require_role, require_superadmin, require_interactive_session, require_action
 from core.auth_helpers import _validate_password
 from core.base import FilamentType
+from modules.printers.services import bambu_tray_counts
 from modules.printers.models import Printer, FilamentSlot
 from core.models import SystemConfig
 from core.auth import hash_password, create_access_token
@@ -263,7 +264,7 @@ def _test_bambu_legacy(request) -> dict:
         return {
             "success": True, "state": bambu_status.state.value,
             "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-            "ams_slots": len(bambu_status.ams_slots), "model": detected_model,
+            **bambu_tray_counts(bambu_status.ams_slots), "model": detected_model,
         }
     except ImportError:
         raise HTTPException(status_code=500, detail="bambu_adapter not installed")
@@ -310,7 +311,7 @@ def _test_bambu_v2(request) -> dict:
         "state": view.state,                     # legacy-shaped enum string
         "bed_temp": view.bed_temp,
         "nozzle_temp": view.nozzle_temp,
-        "ams_slots": len(ams_slots),
+        **bambu_tray_counts(ams_slots),
         "model": detected_model,
     }
 
