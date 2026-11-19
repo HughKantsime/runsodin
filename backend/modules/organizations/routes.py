@@ -207,7 +207,7 @@ async def list_member_candidates(org_id: int, current_user: dict = Depends(requi
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    rows = db.execute(text(
+    rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only the fixed Education history predicate is composed; platform and org_id are bound
         "SELECT id, username FROM users WHERE is_active IS TRUE "
         "AND ((group_id IS NULL AND role != 'admin') OR (:platform AND group_id != :org_id)) "
         "AND NOT " + USER_HAS_EDUCATION_HISTORY + " ORDER BY username, id"

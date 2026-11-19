@@ -609,7 +609,7 @@ def write_group_fields(db, group_id, updates, current_user):
             raise HTTPException(status_code=400, detail=message)
         statement += (" AND EXISTS (SELECT 1 FROM users WHERE id = :owner_id AND group_id = :id"
                       " AND is_active IS TRUE AND role IN ('operator', 'admin'))")
-    result = db.execute(text(statement), {**updates, "id": group_id})
+    result = db.execute(text(statement), {**updates, "id": group_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- columns come from the fixed fields tuple and the owner predicate is literal; values are bound
     if scoped_owner and not result.rowcount:
         raise HTTPException(status_code=400, detail=message)
 

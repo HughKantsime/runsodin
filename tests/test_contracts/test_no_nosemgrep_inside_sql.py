@@ -29,6 +29,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -45,6 +47,21 @@ def test_scheduler_selected_payload_sql_keeps_its_audit_triage():
     assert ('# nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text'
             in lines[call.lineno - 2])
     assert '# nosemgrep' not in ast.unparse(call.args[0])
+
+
+@pytest.mark.parametrize(("filename", "function"), [
+    ("routes.py", "list_member_candidates"),
+    ("routes_users.py", "write_group_fields"),
+])
+def test_composed_organization_sql_keeps_its_audit_triage(filename, function):
+    source = (REPO_ROOT / "backend/modules/organizations" / filename).read_text()
+    handler = next(node for node in ast.parse(source).body if getattr(node, "name", None) == function)
+    lines = source.splitlines()
+    directive = "# nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- "
+    for call in ast.walk(handler):
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id == "text" and not isinstance(call.args[0], ast.Constant)):
+            assert any(directive in line for line in lines[call.lineno - 2:call.lineno])
 
 
 def _string_value(node: ast.AST) -> str | None:
