@@ -6,12 +6,13 @@ from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from core import auth
+from core.models import AuditLog
 from core.schema import bootstrap_database
 from modules.organizations import mfa_attempts
-from tests.test_contracts.test_education_classes_migration import pg_engine
+from tests.test_contracts.test_education_classes_migration import native_engine, pg_engine
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_mfa_authentication_behavior import challenge
 from tests.test_contracts.test_mfa_recovery_codes import CODES, client, headers, issue, make_app
@@ -19,6 +20,21 @@ from tests.test_contracts.test_password_reset_behavior import new_password
 
 VERIFY = '/auth/mfa/verify'
 DISABLE = '/auth/mfa'
+POSTGRES = pytest.param('postgresql', marks=pytest.mark.postgresql)
+both_databases = pytest.mark.parametrize('native_engine', ['sqlite', POSTGRES], indirect=True)
+
+
+def seed_student(engine):
+    with engine.begin() as db:
+        db.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) "
+                        "VALUES(1,'student','fixture','viewer',TRUE)"))
+
+
+@pytest.fixture
+def account_app(native_engine, monkeypatch):
+    bootstrap_database(native_engine)
+    seed_student(native_engine)
+    return make_app(native_engine, monkeypatch)
 
 
 def submit(caller, route, value, *, recovery=False, token=None):
@@ -47,8 +63,91 @@ def assert_locked(response, seconds=900):
     assert response.json()['detail'] == f"Too many wrong codes. Try again in {minutes} {'minute' if minutes == 1 else 'minutes'}."
 
 
+def test_regeneration_requires_a_code_before_checking_it(client, review_db, monkeypatch):
+    issue(client)
+    from modules.organizations import routes_auth
+    monkeypatch.setattr(routes_auth, 'require_code', lambda *a, **kw: pytest.fail('Checked a blank code'))
+    for body in ({}, {'code': ''}, {'code': None}, {'code': ' \t'}, None):
+        response = client.post(CODES, headers={**headers(), 'Content-Type': 'application/json'},
+                               content=json.dumps(body))
+        assert response.status_code == 400
+        assert response.json()['detail'] == 'Enter an authenticator or recovery code.'
+    assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0
+
+
+def test_regeneration_counts_wrong_values_of_any_json_type(client):
+    issue(client)
+    for wrong in (False, 0, [], {}):
+        assert_refused(submit(client, CODES, wrong))
+    assert_locked(submit(client, CODES, 'wrong'))
+
+
+def seed_failures(db, stored):
+    db.execute(text('INSERT INTO mfa_code_attempts(user_id,failure_times) VALUES(1,:times)'), {'times': stored})
+    db.commit()
+
+
+def failure_times(db):
+    return json.loads(db.execute(text('SELECT failure_times FROM mfa_code_attempts WHERE user_id=1')).scalar_one())
+
+
+@pytest.mark.parametrize('stored', ['broken-json', '{"unexpected":1}', '[999,"invalid"]', '[true]', '[NaN]'])
+def test_malformed_history_is_replaced_on_next_wrong_code(client, review_db, monkeypatch, caplog, stored):
+    issue(client)
+    monkeypatch.setattr(mfa_attempts, 'time', lambda: 1000)
+    seed_failures(review_db, stored)
+    caplog.clear()
+    assert_refused(submit(client, VERIFY, 'wrong', recovery=True))
+    assert failure_times(review_db) == [1000]
+    warning, = [record for record in caplog.records if record.name == mfa_attempts.__name__]
+    assert warning.levelno == logging.WARNING and stored not in warning.getMessage()
+
+
+def test_clock_rollback_ignores_future_failures_and_bounds_retry(client, review_db, monkeypatch):
+    totp, _ = issue(client)
+    now = 1000
+    monkeypatch.setattr(mfa_attempts, 'time', lambda: now)
+    seed_failures(review_db, json.dumps([999] * 4 + [now + 10**12]))
+    assert_locked(submit(client, VERIFY, 'wrong', recovery=True), mfa_attempts.LOCKOUT_SECONDS)
+    assert failure_times(review_db) == [999] * 4 + [now]
+    now += mfa_attempts.LOCKOUT_SECONDS
+    assert submit(client, VERIFY, totp.now()).status_code == 200
+
+
+@pytest.mark.parametrize('stored', ['broken-json', '[1001,1001,1001,1001,1001]'])
+def test_correct_code_clears_unusable_history(client, review_db, monkeypatch, stored):
+    totp, _ = issue(client)
+    monkeypatch.setattr(mfa_attempts, 'time', lambda: 1000)
+    seed_failures(review_db, stored)
+    assert submit(client, VERIFY, totp.now()).status_code == 200
+    assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0
+
+
+def test_failed_lockout_audit_preserves_fifth_failure(client, review_db, monkeypatch, caplog):
+    totp, _ = issue(client)
+    monkeypatch.setattr(mfa_attempts, 'time', lambda: 1000)
+    for _ in range(4):
+        assert_refused(submit(client, VERIFY, 'wrong', recovery=True))
+
+    def refuse_insert(mapper, connection, target):
+        if target.action == 'mfa_code_lockout':
+            raise RuntimeError('private audit failure detail')
+
+    event.listen(AuditLog, 'before_insert', refuse_insert)
+    try:
+        assert_locked(submit(client, VERIFY, 'wrong', recovery=True))
+    finally:
+        event.remove(AuditLog, 'before_insert', refuse_insert)
+    assert failure_times(review_db) == [1000] * 5
+    assert_locked(submit(client, VERIFY, totp.now()))
+    assert any('audit' in r.getMessage().lower() for r in caplog.records if r.name == mfa_attempts.__name__)
+    assert 'private audit failure detail' not in caplog.text
+
+
+@both_databases
 @pytest.mark.parametrize('route', [VERIFY, DISABLE, CODES])
-def test_fifth_wrong_totp_locks_account_before_evaluating_correct_code(client, monkeypatch, route):
+def test_fifth_wrong_totp_locks_account_before_evaluating_correct_code(account_app, monkeypatch, route):
+    client = TestClient(account_app)
     monkeypatch.setattr(mfa_attempts, 'time', lambda: 1000)
     totp, codes = issue(client)
     wrong = wrong_totp(totp)
@@ -68,12 +167,14 @@ def test_fifth_wrong_totp_locks_account_before_evaluating_correct_code(client, m
     assert client.get(CODES, headers=headers()).json()['remaining'] == 10
 
 
-def test_rolling_window_and_expiry_across_routes_and_addresses(client, review_db, monkeypatch, caplog):
+@both_databases
+def test_rolling_window_and_expiry_across_routes_and_addresses(account_app, native_engine, monkeypatch, caplog):
+    client = TestClient(account_app)
     caplog.set_level(logging.INFO)
     totp, codes = issue(client)
     password = new_password()
-    review_db.execute(text('UPDATE users SET password_hash=:p WHERE id=1'), {'p': auth.hash_password(password)})
-    review_db.commit()
+    with native_engine.begin() as db:
+        db.execute(text('UPDATE users SET password_hash=:p WHERE id=1'), {'p': auth.hash_password(password)})
     t = 1000
     monkeypatch.setattr(mfa_attempts, 'time', lambda: t)
     wrong = wrong_totp(totp)
@@ -98,17 +199,21 @@ def test_rolling_window_and_expiry_across_routes_and_addresses(client, review_db
     t += 1
     assert submit(client, VERIFY, codes[0], recovery=True).status_code == 200
     assert_refused(submit(client, CODES, wrong))
-    audit = review_db.execute(text('SELECT * FROM audit_logs')).all()
+    with native_engine.connect() as db:
+        audit = db.execute(text('SELECT * FROM audit_logs')).all()
     lock, = [row for row in audit if row.action == 'mfa_code_lockout']
     assert lock.entity_id == 1 and lock.ip_address == '192.0.2.42'
-    assert json.loads(lock.details) == {'route': CODES}
+    details = json.loads(lock.details) if isinstance(lock.details, str) else lock.details
+    assert details == {'route': CODES}
     captured = caplog.text + str(audit)
     leaked = any(value in captured for value in [wrong, wrong_recovery, accepted_totp, *codes])
     assert not leaked
 
 
+@both_databases
 @pytest.mark.parametrize('use_recovery', [False, True])
-def test_success_after_four_resets_other_routes(client, use_recovery):
+def test_success_after_four_resets_other_routes(account_app, use_recovery):
+    client = TestClient(account_app)
     totp, codes = issue(client)
     wrong = wrong_totp(totp)
     for _ in range(4):
@@ -147,13 +252,11 @@ def test_sqlite_parallel_guesses(client, review_db, monkeypatch):
     parallel_guesses(client.app, review_db.get_bind(), monkeypatch)
 
 
-@pytest.mark.postgresql
-def test_postgresql_parallel_guesses_and_account_lock(pg_engine, monkeypatch):
-    check_upgrade_from_063(pg_engine)
-    with pg_engine.begin() as db:
-        db.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) "
-                        "VALUES(1,'student','fixture','viewer',TRUE)"))
-    parallel_guesses(make_app(pg_engine, monkeypatch), pg_engine, monkeypatch)
+@pytest.mark.parametrize('native_engine', [POSTGRES], indirect=True)
+def test_postgresql_parallel_guesses_and_account_lock(native_engine, monkeypatch):
+    check_upgrade_from_063(native_engine)
+    seed_student(native_engine)
+    parallel_guesses(make_app(native_engine, monkeypatch), native_engine, monkeypatch)
 
 
 @pytest.mark.parametrize('path', ['/admin/users/4/mfa', '/users/4', '/users/4/erase'])

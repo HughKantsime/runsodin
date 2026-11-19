@@ -310,12 +310,15 @@ async def recovery_status(current_user: dict = Depends(require_role("viewer")), 
 
 @router.post("/auth/mfa/recovery-codes", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 @limit_code_checks
-async def regenerate_codes(request: Request, body: dict, current_user: dict = Depends(require_role("viewer")),
+async def regenerate_codes(request: Request, body: dict = None, current_user: dict = Depends(require_role("viewer")),
                            db: Session = Depends(get_db)):
     user = lock_for_code_check(db, current_user["id"])
     if not user or not user.mfa_enabled:
         raise HTTPException(status_code=400, detail="Enable MFA before generating recovery codes.")
-    key = require_code(db, request, user, body.get("code"), regenerate=True)
+    code = (body or {}).get("code")
+    if code is None or (isinstance(code, str) and not code.strip()):
+        raise HTTPException(status_code=400, detail="Enter an authenticator or recovery code.")
+    key = require_code(db, request, user, code, regenerate=True)
     codes = issue_codes(db, user.id, key=key)
     log_audit(db, "mfa_recovery_codes_regenerated", "user", user.id)
     db.commit()

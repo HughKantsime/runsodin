@@ -1,5 +1,6 @@
 """Account-wide MFA failures. All checks serialize on the enrolled user's row."""
 import json
+import logging
 import math
 from functools import wraps
 from time import time
@@ -13,6 +14,8 @@ from core.crypto import decrypt
 from core.mfa_login import _locked_user, decode_login_challenge
 from core.rate_limit import limiter
 from modules.organizations.mfa_recovery import consume_code, recovery_key
+
+log = logging.getLogger(__name__)
 
 MFA_ADDRESS_LIMIT = "10/minute"
 MAX_FAILURES = 5
@@ -41,10 +44,21 @@ def _locked(seconds):
 def unlocked_failures(db, user_id):
     stored = db.execute(text("SELECT failure_times FROM mfa_code_attempts WHERE user_id=:uid"),
                         {"uid": user_id}).scalar_one_or_none()
-    failures = json.loads(stored) if stored is not None else []
+    if stored is None:
+        return []
+    try:
+        failures = json.loads(stored)
+        if not isinstance(failures, list) or not all(
+            type(t) is int or (isinstance(t, float) and math.isfinite(t)) for t in failures
+        ):
+            raise ValueError
+    except (ValueError, TypeError, RecursionError):
+        log.warning("Ignoring malformed MFA failure history")
+        return []
     now = time()
-    if len(failures) >= MAX_FAILURES and failures[-1] + LOCKOUT_SECONDS > now:
-        raise _locked(failures[-1] + LOCKOUT_SECONDS - now)
+    failures = [t for t in failures if t <= now]
+    if len(failures) >= MAX_FAILURES and failures[-1] > now - LOCKOUT_SECONDS:
+        raise _locked(LOCKOUT_SECONDS - (now - failures[-1]))
     return failures
 
 
@@ -96,8 +110,7 @@ def require_code(db, request, user, value, *, recovery=False, regenerate=False):
         recovery = not (isinstance(value, str) and len(value) == 6 and value.isascii() and value.isdigit())
     accepted = consume_code(db, user.id, value) if recovery else valid_totp(user, value)
     if accepted:
-        if failures:
-            clear_failures(db, user.id)
+        clear_failures(db, user.id)
         return key
 
     now = time()
@@ -106,10 +119,14 @@ def require_code(db, request, user, value, *, recovery=False, regenerate=False):
     db.execute(text("INSERT INTO mfa_code_attempts(user_id,failure_times) VALUES(:uid,:times) "
                     "ON CONFLICT(user_id) DO UPDATE SET failure_times=excluded.failure_times"),
                {"uid": user.id, "times": json.dumps(failures)})
+    db.commit()  # The lock must survive an audit failure.
     if len(failures) == MAX_FAILURES:
-        log_audit(db, "mfa_code_lockout", "user", user.id, {"route": request.scope["route"].path},
-                  ip=request.client.host if request.client else "unknown")
-    db.commit()  # A refused request must retain the attempt, including the lock transition.
-    if len(failures) == MAX_FAILURES:
+        try:
+            log_audit(db, "mfa_code_lockout", "user", user.id, {"route": request.scope["route"].path},
+                      ip=request.client.host if request.client else "unknown")
+            db.commit()
+        except Exception:
+            db.rollback()
+            log.warning("Could not audit MFA code lockout")
         raise _locked(LOCKOUT_SECONDS)
     raise HTTPException(401, "Invalid MFA code")
