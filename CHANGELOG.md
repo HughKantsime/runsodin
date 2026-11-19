@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.4.0] - 2026-11-18
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Reminders for paused prints, Plate cleared on printer cards, filament deductions that stay with the physical print, the Fjord theme, a per-job Timeline, AMS humidity as a percentage. -->
 
