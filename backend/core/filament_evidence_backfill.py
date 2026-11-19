@@ -103,11 +103,11 @@ def _cursor(connection):
 def _heal_ids(connection, direct):
     # Read only qualifying ids; the evidence anti-joins use the print id index.
     # Archives have no print-id index, so scan that source once, not per print.
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — only MISSING_EVIDENCE_SQL is appended; print ids are bound.
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — only the constant MISSING_EVIDENCE_SQL is appended; the statement takes no values.
     ids = set(connection.execute(text(
         'SELECT DISTINCT p.id FROM spool_usage u JOIN print_jobs p ON p.id=u.print_job_id '
         'WHERE u.print_job_id IS NOT NULL AND ' + MISSING_EVIDENCE_SQL)).scalars())
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — only MISSING_EVIDENCE_SQL is appended; print ids are bound.
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — only the constant MISSING_EVIDENCE_SQL is appended; the statement takes no values.
     ids.update(connection.execute(text(
         'SELECT DISTINCT p.id FROM print_archives a JOIN print_jobs p ON p.id=a.print_job_id '
         "WHERE a.accounting_state IN ('accounted','reconciliation_required') AND " + MISSING_EVIDENCE_SQL)).scalars())

@@ -19,7 +19,7 @@ from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel, Field, StrictInt
-from sqlalchemy import literal_column, select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
@@ -146,10 +146,8 @@ def list_archives(
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         conditions.append('a.completed_at>=:accounting_since AND a.completed_at<=:accounting_now')
         params.update(accounting_since=now - timedelta(days=30), accounting_now=now)
-        candidate_query = select(literal_column('a.*')).select_from(text('print_archives a')).where(
-            *(text(condition) for condition in conditions)
-        )
-        candidates = db.execute(candidate_query, params).mappings().all()
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — conditions are fixed predicates from _build_archive_query and archive_visibility; every value is a bound parameter.
+        candidates = db.execute(text('SELECT a.* FROM print_archives a WHERE ' + ' AND '.join(conditions)), params).mappings().all()
         statuses = archive_statuses(db, candidates)
         eligible = [identifier for identifier, status in statuses.items() if status['settleable']]
         conditions.append('a.id IN (' + ','.join(f':eligible{i}' for i in range(len(eligible))) + ')' if eligible else '1=0')

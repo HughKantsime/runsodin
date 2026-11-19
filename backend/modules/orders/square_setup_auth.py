@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request
 from pydantic import StringConstraints
 from slowapi.util import get_remote_address
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from core.api_token_policy import SQUARE_SETUP_SCOPE, parse_token_scopes, require_square_setup_available
 from core.audit import validate_setup_note
@@ -79,10 +79,13 @@ def fresh_setup_actor(db, user):
     """Caller holds the owner/product or connector lock after the Square read."""
     if user.get('_auth_kind') != 'user_api_token':
         return user
-    account_query = select(text('id,role,group_id,is_active')).select_from(text('users')).where(text('id=:id'))
-    token_query = select(text('user_id,name,scopes,expires_at')).select_from(text('api_tokens')).where(text('id=:id'))
-    account = db.execute(account_query.with_for_update(), {'id': user['id']}).first()
-    token = db.execute(token_query.with_for_update(), {'id': user['_token_id']}).first()
+    suffix = ' FOR UPDATE' if db.get_bind().dialect.name == 'postgresql' else ''
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — suffix is '' or the literal ' FOR UPDATE'; the id is bound.
+    account = db.execute(text('SELECT id,role,group_id,is_active FROM users WHERE id=:id' + suffix),
+                         {'id': user['id']}).first()
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — suffix is '' or the literal ' FOR UPDATE'; the id is bound.
+    token = db.execute(text('SELECT user_id,name,scopes,expires_at FROM api_tokens WHERE id=:id' + suffix),
+                       {'id': user['_token_id']}).first()
     if (not account or not account.is_active or account.role != 'admin'
             or account.group_id != user.get('group_id') or not token or token.user_id != account.id):
         raise HTTPException(403, 'Square setup permission is no longer available')
