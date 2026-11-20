@@ -1,5 +1,6 @@
 """Released 2.4.0 sources stay isolated and upgrade additively to the live schema."""
 import hashlib
+import importlib
 import json
 from pathlib import Path
 import shutil
@@ -41,6 +42,7 @@ def test_isolated_released_boot_then_live_keeps_filament_evidence_and_humidity(t
 
     path = tmp_path/'released.db'
     result = run_frozen(Path(preserved062.__file__).with_name('runner.py'), '''
+import importlib
 from sqlalchemy import create_engine,text
 from core.schema import bootstrap_database
 engine = create_engine('sqlite:///' + sys.argv[2])
@@ -50,6 +52,8 @@ with engine.begin() as c:
     assert set(c.execute(text('SELECT migration_id FROM odin_schema_migrations')).scalars()) == set(manifest['ledger_ids'])
     c.execute(text("INSERT INTO print_filament_evidence(print_job_id,print_birth_nonce,kind,claim,source,spool_id,grams) VALUES(481,:nonce,'usage',1,'backfill',51,12.75)"), {'nonce':'a'*32})
     c.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,humidity_percent) VALUES(5,0,2,37.75),(5,1,3,NULL)"))
+    for name in ('061_print_filament_evidence', '062_ams_humidity_percent'):
+        importlib.import_module('core.schema.migrations.' + name).validate(c)
 engine.dispose()
 ''', path)
     assert result.returncode == 0, result.stderr
@@ -63,8 +67,36 @@ engine.dispose()
         with engine.connect() as c:
             assert c.execute(text('SELECT print_birth_nonce,kind,claim,source,spool_id,grams FROM print_filament_evidence WHERE print_job_id=481')).one() == ('a'*32,'usage',1,'backfill',51,12.75)
             assert c.execute(text('SELECT ams_unit,humidity,humidity_percent FROM ams_telemetry WHERE printer_id=5 ORDER BY ams_unit')).all() == [(0,2,37.75),(1,3,None)]
+            for name in ('061_print_filament_evidence', '062_ams_humidity_percent'):
+                importlib.import_module('core.schema.migrations.' + name).validate(c)
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize('damage,expected_error', [
+    ('DROP TRIGGER print_filament_evidence_no_update', 'Print filament evidence triggers differ'),
+    ('ALTER TABLE ams_telemetry DROP COLUMN humidity_percent', 'AMS humidity percentage column shape differs'),
+])
+def test_released_archive_builder_rejects_schema_drift_before_emitting_ledger(tmp_path, damage, expected_error):
+    from ops.database_parity.post027_restore_native import RELEASED062_ARCHIVE_SOURCE
+    from tests.test_contracts.preserved_restore_helpers import run_frozen
+
+    # Exercise the builder on SQLite with the release's validators. Damage the
+    # schema after the last fixture insert, past bootstrap's own validation.
+    setup = '''
+from sqlalchemy import event, Engine
+os.environ['DATABASE_URL'] = 'sqlite:///' + sys.argv[2]
+sys.argv[1] = str(bundle)
+@event.listens_for(Engine, 'after_cursor_execute')
+def damage_fixture(conn, cursor, statement, parameters, context, executemany):
+    if statement.startswith('INSERT INTO ams_telemetry('):
+        cursor.execute(sys.argv[3])
+'''
+    result = run_frozen(Path(preserved062.__file__).with_name('runner.py'),
+                        setup + RELEASED062_ARCHIVE_SOURCE, tmp_path/'archive.db', damage)
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert 'python:062-ams-humidity-percent' not in result.stdout
 
 
 @pytest.mark.parametrize('changed', [

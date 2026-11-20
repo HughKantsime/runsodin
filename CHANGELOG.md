@@ -4,10 +4,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-### Changed
-
-- PostgreSQL backups made with ODIN 2.4.0 can be restored after a later update changes the database schema.
-
 ## [2.4.0] - 2026-11-18
 
 

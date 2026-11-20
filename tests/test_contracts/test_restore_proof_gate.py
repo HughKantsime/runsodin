@@ -49,6 +49,15 @@ def test_offline_root_imports_and_fact_contract():
     assert len(support.expected_facts('native')) == 34  # Includes the released 062 restore and previous-release backup.
 
 
+def test_native_062_routing_switch_matches_other_released_ledgers():
+    from inspect import getsource
+    from ops.database_parity import post027_restore_native
+
+    # This is an offline wiring check. The native proof exercises the selected route.
+    source = getsource(post027_restore_native.main)
+    assert 'if ledger062 >= set(post_ids) else nullcontext()' in source
+
+
 @pytest.mark.parametrize('candidate,expected', [('2.3.0','2.2.1'), ('2.2.1','2.2.0'), ('2.10.0','2.3.0')])
 def test_newest_strictly_below_candidate(tmp_path, candidate, expected):
     table(tmp_path)

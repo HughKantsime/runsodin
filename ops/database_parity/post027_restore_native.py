@@ -93,7 +93,7 @@ engine.dispose()
 
 
 RELEASED062_ARCHIVE_SOURCE = '''
-import json,os,sys
+import importlib,json,os,sys
 import core
 from sqlalchemy import text
 from core.database_config import create_database_engine
@@ -109,6 +109,8 @@ with engine.begin() as c:
     c.execute(text("INSERT INTO printers(id,name) VALUES(990620,'Released 062')"))
     c.execute(text("INSERT INTO print_filament_evidence(print_job_id,print_birth_nonce,kind,claim,source,spool_id,grams) VALUES(481,:nonce,'usage',1,'backfill',51,12.75)"), {'nonce':'a'*32})
     c.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,humidity_percent) VALUES(990620,0,2,37.75),(990620,1,3,NULL)"))
+    for name in ('061_print_filament_evidence', '062_ams_humidity_percent'):
+        importlib.import_module('core.schema.migrations.' + name).validate(c)
     print(json.dumps(sorted(row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations')))))
 engine.dispose()
 '''
@@ -337,7 +339,7 @@ def main():
         b._run_pg_tool(['pg_dump', '--format=custom', '--schema', 'public', '--no-owner', '--no-privileges',
                         '--no-comments', '--file', str(archive062), '--dbname', db062], maintenance, str(credential), root)
         sha062 = b._sha256(archive062)
-        routing = patch.object(stage, 'identify_contract', identify_future) if current_era == 62 else nullcontext()
+        routing = patch.object(stage, 'identify_contract', identify_future) if ledger062 >= set(post_ids) else nullcontext()
         with routing:
             assert stage.identify_contract(archive062, target, str(credential), root) is stage.PRESERVED062
             before = marker()
