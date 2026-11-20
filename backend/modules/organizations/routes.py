@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 from datetime import datetime
 import json
@@ -184,12 +185,20 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     delete_deferred_deliveries(db, org_id=org_id)
     db.execute(text("DELETE FROM stock_snapshots WHERE owner_scope='org' AND owner_key=:org"), {"org": org_id})
     forget_tenant(db, org_id)
-    from modules.jobs.services import delete_org_jobs
-    delete_org_jobs(db, org_id)
+    from modules.jobs.services import delete_org_jobs, job_delete_conflict
+    try:
+        removed_jobs = delete_org_jobs(db, org_id)
+    except IntegrityError as exc:
+        return job_delete_conflict(db, exc)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": org_id})
 
     log_audit(db, "org_deleted", "org", org_id, f"Organization '{org.name}' deleted")
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        if removed_jobs:
+            return job_delete_conflict(db, exc)
+        raise
     return {"status": "ok"}
 
 

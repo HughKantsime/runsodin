@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Jobs with alerts or recorded filament use can now be deleted on older installations. Deleting a job removes its alerts and keeps its filament usage history.
+
 ## [2.4.0] - 2026-11-18
 
 

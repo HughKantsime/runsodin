@@ -1,6 +1,7 @@
 """System config routes — Spoolman URL and blackout hours (/config, /spoolman/test), IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
 import asyncio
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import inspect
 import json
 import time
@@ -177,6 +178,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
             return f"julianday({column}) < julianday(:cutoff)" if sqlite else f"{column} < :cutoff"
 
         if config["completed_jobs_days"] > 0:
+            from modules.jobs.services import clear_job_links, job_delete_conflict
             cutoff = now - timedelta(days=config["completed_jobs_days"])
             if sqlite:
                 # Own SQLite's writer transaction before enumerating candidates.
@@ -222,7 +224,13 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 statement = text("DELETE FROM jobs " + predicate + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed predicate and dialect fragment, bound values
                 from core.controlled_deletion import controlled_job_ids, redact_job_history_ids
                 restricted = controlled_job_ids(db, candidates)
-                removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                try:
+                    clear_job_links(db, candidates)
+                    removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                except IntegrityError as exc:
+                    return job_delete_conflict(db, exc)
+                if len(removed_ids) != len(candidates):
+                    raise RuntimeError("Job eligibility changed during cleanup")
                 redact_job_history_ids(db, {jid: restricted[jid] for jid in removed_ids if jid in restricted})
                 # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
@@ -259,7 +267,12 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
         )
         deleted["classroom_oauth_states"] = expired_oauth.rowcount
 
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            if deleted.get("completed_jobs"):
+                return job_delete_conflict(db, exc)
+            raise
         return {"status": "partial" if refused else "ok", "deleted": deleted, "refused": refused}
     except Exception:
         try:
