@@ -402,21 +402,12 @@ class PrinterVisionThread(threading.Thread):
             'build_plate_empty': f"Plate Ready: {self.printer_name}",
         }
 
-        message = f"Confidence: {confidence:.0%}"
-        # Auto-pause if enabled
-        if (self.settings.get('auto_pause', 0)
-                and detection_type in ('spaghetti', 'first_layer', 'detachment')
-                and is_printing_state(self.gcode_state)):
-            note = self._auto_pause()
-            if note:
-                message += f". {note}."
-
         # Dispatch alert through existing pipeline
         printer_events.dispatch_alert(
             alert_type=alert_type,
             severity=severity_map[detection_type],
             title=title_map[detection_type],
-            message=message,
+            message=f"Confidence: {confidence:.0%}",
             printer_id=self.printer_id,
             metadata={
                 'detection_id': detection_id,
@@ -433,6 +424,12 @@ class PrinterVisionThread(threading.Thread):
             'detection_id': detection_id,
             'print_job_id': self.print_job_id,
         })
+
+        # Auto-pause if enabled
+        if (self.settings.get('auto_pause', 0)
+                and detection_type in ('spaghetti', 'first_layer', 'detachment')
+                and is_printing_state(self.gcode_state)):
+            self._auto_pause(detection_id)
 
     def _training_capture_allowed(self) -> bool:
         """No training frame is written for controlled work.
@@ -677,7 +674,7 @@ class PrinterVisionThread(threading.Thread):
             log.error(f"Failed to insert detection: {e}")
             return None
 
-    def _auto_pause(self):
+    def _auto_pause(self, detection_id=None):
         """Pause only with positive running telemetry, using the appropriate adapter."""
         minimum = self.settings.get('auto_pause_min_frames', AUTO_PAUSE_MIN_FRAMES)
         if type(minimum) is not int or minimum < AUTO_PAUSE_MIN_FRAMES:
@@ -702,11 +699,9 @@ class PrinterVisionThread(threading.Thread):
 
             if api_type == 'moonraker':
                 from modules.printers.services import automatic_moonraker_pause
-                outcome = automatic_moonraker_pause(engine, self.printer_id, self._live_printing)
-                if outcome == "pending":
-                    return "Automatic pause sent, not yet confirmed"
-                if outcome == "unavailable":
-                    return "ODIN could not pause this printer model"
+                outcome = automatic_moonraker_pause(engine, self.printer_id, self._live_printing, detection_id)
+                if outcome in ("pending", "skipped", "unavailable"):
+                    return
                 success = outcome == "confirmed"
 
             elif api_type == 'bambu':

@@ -7,7 +7,7 @@ import { fetchAPI } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { isOnline, isActivePrintState, isPausedState, isPrintingState } from '../../utils/shared'
 
-import { controlLabel, pendingMessage, unavailableMessage, unprovenHelp, type ControlReceipt } from '../../utils/printControl'
+import { activeControl, useControlDeadlines, controlLabel, pendingMessage, unavailableMessage, unprovenHelp, type ControlReceipt } from '../../utils/printControl'
 import type { PrintControlAction } from '../../types/printer'
 
 type ActivePrinter = Printer
@@ -52,6 +52,8 @@ export default function EmergencyStop() {
     const interval = setInterval(fetchPrinters, 5000)
     return () => { active = false; mounted.current = false; clearInterval(interval) }
   }, [])
+
+  useControlDeadlines(printers)
 
   const sendCommand = async (printerId: number, action: PrintControlAction) => {
     const target = printers.find(p => p.id === printerId)
@@ -131,7 +133,11 @@ export default function EmergencyStop() {
             {printers.map(printer => {
               const isPaused = isPausedState(printer.gcode_state)
               const isLoading = (action: PrintControlAction) => loading[printer.id + action]
-              const disabled = (action: PrintControlAction) => printer.pending_control?.action === action ||
+              const pending = activeControl(printer)
+              const repeatedStop = pending?.action === 'stop'
+                ? `Stop was already sent ${Math.max(0, Math.floor((Date.now() - Date.parse(pending.sent_at)) / 1000))} seconds ago. Send it again?`
+                : null
+              const disabled = (action: PrintControlAction) => (action !== 'stop' && pending?.action === action) ||
                 (printer.api_type === 'moonraker' ? isLoading(action) : busy.current.has(String(printer.id)))
               const unavailable = (action: PrintControlAction) => printer.unavailable_controls?.includes(action)
               const toggle = isPaused ? 'resume' : 'pause'
@@ -147,7 +153,7 @@ export default function EmergencyStop() {
                     </span>
                   </div>
 
-                  {pendingMessage(printer) && <p>{pendingMessage(printer)}</p>}
+                  {pending && <p>{pendingMessage(printer)}</p>}
                   {isOnline(printer) && isActivePrintState(printer.gcode_state) && <>
                   <div className="flex gap-2">
                     {unavailable(toggle) ? <p>{unavailableMessage(toggle)}</p> : isPaused ? (
@@ -177,7 +183,7 @@ export default function EmergencyStop() {
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white hover:bg-red-500 rounded-md text-sm transition-colors disabled:opacity-50 animate-pulse"
                       >
                         <StopCircle size={14} />
-                        {isLoading('stop') ? 'Stopping...' : 'Confirm ' + controlLabel(printer, 'stop')}
+                        {isLoading('stop') ? 'Stopping...' : repeatedStop || 'Confirm ' + controlLabel(printer, 'stop')}
                       </button>
                     ) : (
                       <button

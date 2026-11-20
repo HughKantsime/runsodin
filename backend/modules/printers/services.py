@@ -220,6 +220,11 @@ def validate_current_ams_selection(db,*,printer_id,expected_org_id,generation_id
         raise ValueError('AMS selection is unavailable or changed; refresh required') from None
 
 
+def resume_moonraker_detection(db, printer, print_job_id, actor):
+    from modules.printers.moonraker_controls import send_control
+    return send_control(db, printer, "resume", actor, expected_print_job_id=print_job_id)
+
+
 def request_observed_task_resume(printer, print_job_id: int) -> str:
     """Caller must hold the detection/printer/observation authority fence.
 
@@ -229,7 +234,7 @@ def request_observed_task_resume(printer, print_job_id: int) -> str:
     if (printer.api_type or '').lower() == 'bambu':
         from modules.printers.monitor_commands import request_command
         return request_command(printer.id, 'resume', print_job_id=print_job_id)
-    if printer.api_type not in ('moonraker', 'prusalink', 'octoprint', 'elegoo'):
+    if printer.api_type not in ('prusalink', 'octoprint', 'elegoo'):
         return 'refused'  # Never inherit the legacy helper's default Bambu fallback.
     from modules.printers.route_utils import _send_printer_command
     return 'accepted' if _send_printer_command(printer, 'resume_print') else 'unknown'
@@ -362,7 +367,7 @@ def paused_prints(db, now):
     from modules.printers.integration_floor import paused_prints as load
     return load(db, now)
 
-def automatic_moonraker_pause(engine, printer_id, live_check):
+def automatic_moonraker_pause(engine, printer_id, live_check, detection_id=None):
     from sqlalchemy.orm import Session
     from core.db import concrete_engine
     from modules.printers.models import Printer
@@ -371,4 +376,9 @@ def automatic_moonraker_pause(engine, printer_id, live_check):
         printer = db.get(Printer, printer_id)
         if printer is None or printer.api_type != "moonraker":
             return "skipped"
-        return send_control(db, printer, "pause", {}, live_check=live_check)["outcome"]
+        receipt = send_control(db, printer, "pause", {}, live_check=live_check, detection_id=detection_id)
+        if receipt.get("reason") == "pending_pause" and detection_id is not None:
+            from modules.notifications.services import note_skipped_pause
+            note_skipped_pause(db, printer_id, detection_id)
+            db.commit()
+        return receipt["outcome"]

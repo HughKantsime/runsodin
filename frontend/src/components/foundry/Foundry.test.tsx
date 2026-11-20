@@ -118,7 +118,7 @@ it('Resume uses existing endpoint and reports acceptance, not confirmation', asy
 })
 it('shows a pending control and disables only a matching Resume', async () => {
   mount(<NeedsYouBanner printers={[printer({ gcode_state: 'PAUSE', pending_control: {
-    action: 'resume', sent_at: new Date(now).toISOString(), deadline_at: new Date(now + 300000).toISOString(),
+    action: 'resume', sent_at: new Date().toISOString(), deadline_at: new Date(Date.now() + 300000).toISOString(),
   } })]} />)
   expect(screen.getByText('Resume sent, waiting for the printer')).toBeVisible()
   expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled()
@@ -415,4 +415,12 @@ it('slot stylesheet keeps compact materials at 92px and wraps full names on expa
   for (const [selector, declarations] of Object.entries(rules)) {
     if (selector.includes('.f-slot-label') && !selector.includes('compact')) expect(declarations['white-space']).not.toBe('nowrap')
   }
+})
+
+it('allows Resume after the pending command deadline', () => {
+  mount(<NeedsYouBanner printers={[printer({ gcode_state: 'PAUSE', pending_control: {
+    action: 'resume', sent_at: new Date(Date.now() - 300000).toISOString(), deadline_at: new Date(Date.now() - 1).toISOString(),
+  } })]} />)
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled()
+  expect(screen.queryByText('Resume sent, waiting for the printer')).toBeNull()
 })

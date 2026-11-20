@@ -47,7 +47,7 @@ test('restart question alert opens the printer recovery question', async () => {
 })
 
 test('vision alert shows the resume receipt and follows pending printer state', async () => {
- const printer = {id:9, pending_control:{action:'pause'}}
+ const printer = {id:9, pending_control:{action:'pause', sent_at:new Date().toISOString(), deadline_at:new Date(Date.now()+30000).toISOString()}}
  vi.mocked(printers.list).mockResolvedValue([printer] as any)
  vi.mocked(api.list).mockResolvedValue([{...row, alert_type:'spaghetti_detected', printer_id:9}] as any)
  vi.mocked(fetchAPI).mockImplementation(async path => {
@@ -63,4 +63,13 @@ test('vision alert shows the resume receipt and follows pending printer state', 
    await waitFor(() => expect(notify).toHaveBeenCalledWith('Resume sent. The printer is reheating.'))
    expect(await screen.findByText('Resume sent, waiting for the printer')).toBeInTheDocument()
  } finally { notify.mockRestore() }
+})
+
+test('allows a vision alert resume after its pending deadline', async () => {
+ vi.mocked(printers.list).mockResolvedValue([{id:9, pending_control:{action:'resume', deadline_at: new Date(0).toISOString()}}] as any)
+ vi.mocked(api.list).mockResolvedValue([{...row, alert_type:'spaghetti_detected', printer_id:9}] as any)
+ show()
+ await waitFor(() => expect(printers.list).toHaveBeenCalled())
+ expect(await screen.findByRole('button', {name:/false alarm.*resume/i})).toBeEnabled()
+ expect(screen.queryByText('Resume sent, waiting for the printer')).toBeNull()
 })

@@ -1,5 +1,6 @@
 """Track one outstanding print control per Moonraker printer in the reminder key/value store."""
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -10,6 +11,8 @@ from core.errors import ErrorCode, OdinError
 from core.system_config_values import config_text, write_config_text
 from modules.printers.adapters.moonraker import control_confirmed
 from modules.printers.support_levels import command_refusal, control_proof
+
+log = logging.getLogger(__name__)
 
 DEADLINES = {"pause": 30, "resume": 300, "stop": 300}
 CONFIRMED = {"pause": "Print paused.", "resume": "Print resumed.", "stop": "Print stopped."}
@@ -28,21 +31,59 @@ def public_record(record):
     return {k: record[k] for k in ("action", "sent_at", "deadline_at")}
 
 
+def _decode(db, key, value, *, cleanup=True, commit_cleanup=True):
+    suffix = key.removeprefix("pending_control:")
+    printer_id = int(suffix) if suffix.isascii() and suffix.isdigit() and len(suffix) <= 10 else None
+    try:
+        if printer_id is None or printer_id > 2147483647 or key != _key(printer_id):
+            printer_id = None
+            raise ValueError
+        record = json.loads(config_text(value))
+        if not isinstance(record, dict) or record["action"] not in DEADLINES:
+            raise ValueError
+        if not {"automatic", "job_id", "print_job_id", "print_attempt_uid",
+                "actor_user_id", "actor_token_id", "awaiting_reply"} <= record.keys():
+            raise ValueError
+        if not all(type(record[k]) is bool for k in ("automatic", "awaiting_reply")):
+            raise ValueError
+        if any(record.get(k) is not None and type(record[k]) is not int
+               for k in ("print_job_id", "job_id", "detection_id")):
+            raise ValueError
+        if any(datetime.fromisoformat(record[k]).tzinfo is None for k in ("sent_at", "deadline_at")):
+            raise ValueError
+        return record
+    except (KeyError, TypeError, ValueError, RecursionError):
+        if not cleanup:
+            return None
+        # Match the bytes we read so a concurrent replacement survives cleanup.
+        removed = db.execute(text("DELETE FROM system_config WHERE key=:k AND CAST(value AS TEXT) IS NOT DISTINCT FROM :v"),
+                             {"k": key, "v": value})
+        if removed.rowcount:
+            log_audit(db, "printer.invalid_pending_control", "printer", printer_id)
+        if commit_cleanup:
+            db.commit()
+        return None
+
+
+def _inside_deadline(record):
+    return datetime.now(timezone.utc) < datetime.fromisoformat(record["deadline_at"])
+
+
 def enrich_controls(db, printers):
     keys = {_key(p.id): p for p in printers if p.api_type == "moonraker"}
     for printer in keys.values():
         printer.pending_control = None
     if keys:
-        rows = db.execute(text("SELECT key, value FROM system_config WHERE key IN :keys")
+        rows = db.execute(text("SELECT key, CAST(value AS TEXT) FROM system_config WHERE key IN :keys")
                           .bindparams(bindparam("keys", expanding=True)), {"keys": list(keys)})
-        for key, value in rows:
-            record = json.loads(config_text(value))
-            if not record["awaiting_reply"]:
+        for key, value in rows.all():
+            record = _decode(db, key, value)
+            if record and not record["awaiting_reply"] and _inside_deadline(record):
                 keys[key].pending_control = public_record(record)
     return printers
 
 
-def _read(db, printer_id, *, lock=False):
+def _read(db, printer_id, *, lock=False, cleanup=True):
     key = _key(printer_id)
     if lock:
         # Serialize even the first insertion. Release before any device I/O.
@@ -50,38 +91,69 @@ def _read(db, printer_id, *, lock=False):
             db.execute(text("SELECT id FROM printers WHERE id=:id FOR UPDATE"), {"id": printer_id})
         else:
             db.execute(text("UPDATE system_config SET key=key WHERE key=:k"), {"k": key})
-    value = db.execute(text("SELECT value FROM system_config WHERE key=:k"), {"k": key}).scalar()
-    return json.loads(config_text(value)) if value is not None else None
+    row = db.execute(text("SELECT CAST(value AS TEXT) FROM system_config WHERE key=:k"), {"k": key}).first()
+    return _decode(db, key, row[0], cleanup=cleanup, commit_cleanup=not lock) if row else None
 
 
 def _active_print(db, printer_id):
     return db.execute(text("SELECT id, scheduled_job_id, economic_uid FROM print_jobs WHERE printer_id=:id "
-                           "AND status IN ('running','paused','printing') ORDER BY id DESC LIMIT 1"),
+                           "AND ended_at IS NULL AND status IN ('running','paused','printing') ORDER BY id DESC LIMIT 1"),
                       {"id": printer_id}).first()
 
 
-def _begin(db, printer, action, actor, proof, automatic):
-    previous = _read(db, printer.id, lock=True)
-    if automatic and previous and previous["action"] in ("pause", "stop"):
-        db.rollback()
-        return None
-    sent = datetime.now(timezone.utc)
-    attempt = _active_print(db, printer.id)
-    record = dict(action=action, sent_at=sent.isoformat(),
-                  deadline_at=(sent + timedelta(seconds=DEADLINES[action])).isoformat(),
-                  actor_user_id=actor.get("id"), actor_token_id=actor.get("_token_id"),
-                  automatic=automatic, job_id=attempt.scheduled_job_id if attempt else None,
-                  print_job_id=attempt.id if attempt else None,
-                  print_attempt_uid=attempt.economic_uid if attempt else None, awaiting_reply=True)
-    if proof == "unproven":
-        record["unproven"] = True
+def _matches_attempt(db, printer_id, record):
+    if record["print_job_id"] is None:
+        return True
+    active = _active_print(db, printer_id)
+    if active is None:
+        return record["action"] == "stop"
+    return (active.id == record["print_job_id"] and
+            (not record["print_attempt_uid"] or active.economic_uid == record["print_attempt_uid"]))
+
+
+def _begin(db, printer_id, record, outcome):
+    """Reconcile after device I/O, serializing only the bookkeeping."""
+    previous = _read(db, printer_id, lock=True)
+    # Resolve the attempt at send time, even if it ended during the short wait.
+    # SQLite stores both space- and T-separated timestamps.
+    sent = datetime.fromisoformat(record["sent_at"])
+    sqlite = db.get_bind().dialect.name == "sqlite"
+    started = "julianday(started_at) <= julianday(:sent)" if sqlite else "started_at <= :sent"
+    ended = "julianday(ended_at) >= julianday(:sent)" if sqlite else "ended_at >= :sent"
+    attempt = db.execute(text(
+        f"SELECT id, scheduled_job_id, economic_uid FROM print_jobs WHERE printer_id=:id AND {started} "
+        f"AND ((ended_at IS NULL AND status IN ('running','paused','printing')) OR {ended}) "
+        "ORDER BY id DESC LIMIT 1"), {"id": printer_id, "sent": sent}).first()
+    if attempt:
+        record.update(job_id=attempt.scheduled_job_id, print_job_id=attempt.id, print_attempt_uid=attempt.economic_uid)
+    if outcome == "confirmed" and not _matches_attempt(db, printer_id, record):
+        outcome = "pending"
+    # A newer command may already have finished and cleared its pending row.
+    latest = previous
+    if latest is None:
+        from core.models import AuditLog
+        latest = db.query(AuditLog.details).filter(
+            AuditLog.entity_type == "printer", AuditLog.entity_id == printer_id,
+            AuditLog.action.in_([f"printer.{action}_requested" for action in DEADLINES]),
+            AuditLog.details["sent_at"].as_string() > record["sent_at"],
+        ).order_by(AuditLog.id.desc()).limit(1).scalar()
+    action = record["action"]
+    if isinstance(latest, dict) and latest.get("sent_at", "") > record["sent_at"]:
+        log_audit(db, f"printer.{action}_requested", "printer", printer_id, record)
+        log_audit(db, f"printer.{action}_replaced", "printer", printer_id,
+                  {**record, "replaced_by": latest["action"]})
+        db.commit()
+        return previous, outcome
     if previous:
-        log_audit(db, f"printer.{previous['action']}_replaced", "printer", printer.id,
+        log_audit(db, f"printer.{previous['action']}_replaced", "printer", printer_id,
                   {**previous, "replaced_by": action})
-    write_config_text(db, _key(printer.id), json.dumps(record))
-    log_audit(db, f"printer.{action}_requested", "printer", printer.id, record)
+    log_audit(db, f"printer.{action}_requested", "printer", printer_id, record)
+    if outcome == "pending":
+        write_config_text(db, _key(printer_id), json.dumps(record))
+    else:
+        _finish(db, printer_id, record, outcome, datetime.now(timezone.utc))
     db.commit()
-    return record
+    return (record if outcome == "pending" else None), outcome
 
 
 def _finish(db, printer_id, record, outcome, now):
@@ -98,20 +170,23 @@ def observe_control(db, printer_id, name, status=None, *, observed_at=None, now=
         return
     now = now or datetime.now(timezone.utc)
     expired = now >= datetime.fromisoformat(record["deadline_at"])
-    if not expired and (record.get("awaiting_reply") or status is None
-                        or (observed_at or now) < datetime.fromisoformat(record["sent_at"])
-                        or not control_confirmed(record["action"], status)):
+    if (observed_at or now) < datetime.fromisoformat(record["sent_at"]):
+        return
+    confirmed = status is not None and control_confirmed(record["action"], status)
+    if not expired and (record["awaiting_reply"] or not confirmed):
         return
     if _read(db, printer_id, lock=True) != record:
         return
-    if not expired and record["print_job_id"]:
-        active = _active_print(db, printer_id)
-        if active and (active.id != record["print_job_id"] or
-                       (record["print_attempt_uid"] and record["print_attempt_uid"] != active.economic_uid)):
-            return
-    _finish(db, printer_id, record, "unconfirmed" if expired else "confirmed", now)
+    confirmed = confirmed and _matches_attempt(db, printer_id, record)
+    if not confirmed and not expired:
+        return
+    _finish(db, printer_id, record, "confirmed" if confirmed else "unconfirmed", now)
+    if confirmed and record["automatic"] and record.get("detection_id") is not None:
+        db.execute(text("UPDATE vision_detections SET status='auto_paused' WHERE id=:id AND printer_id=:pid "
+                        "AND print_job_id=:job AND status='pending'"),
+                   {"id": record["detection_id"], "pid": printer_id, "job": record["print_job_id"]})
     plan = None
-    if expired:
+    if not confirmed:
         from modules.notifications.services import stage_control_timeout
         action = record["action"]
         minutes = DEADLINES[action] / 60
@@ -131,12 +206,25 @@ def observe_control(db, printer_id, name, status=None, *, observed_at=None, now=
 
 def expired_printer_ids(db, now):
     """Include printers without a polling session, including after a daemon restart."""
-    rows = db.execute(text("SELECT key,value FROM system_config WHERE key LIKE 'pending_control:%'"))
-    return [int(key.split(":")[1]) for key, value in rows
-            if now >= datetime.fromisoformat(json.loads(config_text(value))["deadline_at"])]
+    rows = db.execute(text("SELECT c.key, CAST(c.value AS TEXT), p.id FROM system_config c "
+                           "LEFT JOIN printers p ON c.key='pending_control:' || CAST(p.id AS TEXT) "
+                           "WHERE c.key LIKE 'pending!_control:%' ESCAPE '!'")).all()
+    expired = []
+    for key, value, printer_id in rows:
+        record = _decode(db, key, value)
+        if record and (printer_id is None or now >= datetime.fromisoformat(record["deadline_at"])):
+            expired.append(int(key.split(":")[1]))
+    return expired
 
 
-def send_control(db, printer, action, actor, *, live_check=None):
+def _rollback_bookkeeping(db, printer_id):
+    try:
+        db.rollback()
+    except Exception as exc:
+        log.warning("Control bookkeeping rollback failed for printer %s (%s)", printer_id, type(exc).__name__)
+
+
+def send_control(db, printer, action, actor, *, live_check=None, detection_id=None, expected_print_job_id=None):
     from modules.printers.adapters.moonraker import MoonrakerPrinter
     from core.crypto import decrypt
     automatic = live_check is not None
@@ -153,9 +241,21 @@ def send_control(db, printer, action, actor, *, live_check=None):
     if automatic and not live_check():
         return {"outcome": "skipped"}
     printer_id = printer.id
-    record = _begin(db, printer, action, actor, proof, automatic)
-    if record is None:
-        return {"outcome": "skipped"}
+    if automatic:
+        try:
+            previous = _read(db, printer_id, cleanup=False)
+            if previous and previous["action"] == "pause" and _inside_deadline(previous):
+                return {"outcome": "skipped", "reason": "pending_pause"}
+        except Exception as exc:
+            log.warning("Could not check pending pause for printer %s (%s)", printer_id, type(exc).__name__)
+        finally:
+            _rollback_bookkeeping(db, printer_id)
+    if expected_print_job_id is not None:
+        attempt = _active_print(db, printer_id)
+        db.rollback()
+        if attempt is None or attempt.id != expected_print_job_id:
+            raise HTTPException(409, "Detection no longer matches the active print")
+    sent = datetime.now(timezone.utc)
     if automatic:
         success = adapter.pause_print()
     else:
@@ -163,16 +263,20 @@ def send_control(db, printer, action, actor, *, live_check=None):
     reply, confirmed = adapter.last_control
     failed = not success and reply.outcome != "no_reply"
     outcome = "confirmed" if confirmed else "pending"
-    current = _read(db, printer_id, lock=True)
-    if current == record:
-        now = datetime.now(timezone.utc)
-        if failed or confirmed:
-            _finish(db, printer_id, record, "failed" if failed else outcome, now)
-            current = None
-        else:
-            current = {**record, "awaiting_reply": False}
-            write_config_text(db, _key(printer_id), json.dumps(current))
-    db.commit()
+    record = dict(action=action, sent_at=sent.isoformat(),
+                  deadline_at=(sent + timedelta(seconds=DEADLINES[action])).isoformat(),
+                  actor_user_id=actor.get("id"), actor_token_id=actor.get("_token_id"),
+                  automatic=automatic, job_id=None, print_job_id=None, print_attempt_uid=None, awaiting_reply=False)
+    if detection_id is not None:
+        record["detection_id"] = detection_id
+    if proof == "unproven":
+        record["unproven"] = True
+    current = None
+    try:
+        current, outcome = _begin(db, printer_id, record, "failed" if failed else outcome)
+    except Exception as exc:
+        _rollback_bookkeeping(db, printer_id)
+        log.warning("Could not record %s for printer %s (%s)", action, printer_id, type(exc).__name__)
     if failed:
         message = ("The printer is unreachable." if reply.outcome == "unreachable" else
                    f"The printer rejected {action.title()} (HTTP {reply.status}). {reply.error}".strip())
@@ -182,9 +286,9 @@ def send_control(db, printer, action, actor, *, live_check=None):
             raise HTTPException(503, detail=message)
         raise OdinError(ErrorCode.upstream_unavailable, message, status=503,
                         retriable=reply.outcome == "unreachable", extra={"outcome": reply.outcome})
-    result = {"success": True, "outcome": outcome, "message": (CONFIRMED if confirmed else PENDING)[action]}
+    result = {"success": True, "outcome": outcome, "message": (CONFIRMED if outcome == "confirmed" else PENDING)[action]}
     if proof == "unproven":
         result["unproven"] = True
-    if current and not current["awaiting_reply"]:
+    if current and not current["awaiting_reply"] and _inside_deadline(current):
         result["pending_control"] = public_record(current)
     return result

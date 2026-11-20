@@ -110,7 +110,11 @@ def test_monitor_replay_from_attended_capture(farm, monkeypatch, action):
             objects = {"print_stats": {"state": sample["state"], "filename": sample.get("filename", "")},
                        "virtual_sdcard": {"is_active": sample.get("is_active")}}
             monkeypatch.setattr(monitor.printer, "_get", lambda _: {"result": {"status": objects}})
-            monitor._observe_control(monitor.printer.get_status(), observed_at=when)
+            monkeypatch.setattr(moonraker_monitor, "datetime", controls.datetime)
+            monkeypatch.setattr(monitor, "_process_status", lambda status: None)
+            monkeypatch.setattr(moonraker_monitor, "time", SimpleNamespace(sleep=lambda _: setattr(monitor, "_running", False)))
+            monitor._running = True
+            monitor._poll_loop()
         assert controls._read(db, 9) is None
         details = db.execute(text("SELECT details FROM audit_logs WHERE action=:a"), {"a":f"printer.{action}_confirmed"}).scalar_one()
         assert json.loads(details)["elapsed_seconds"] == pytest.approx(sequence[-1]["seconds"], abs=.006)
@@ -172,7 +176,7 @@ def test_automatic_no_reply(guarded_vision, review_db, monkeypatch, state):
     assert sends == ["pause"]
     record = controls._read(review_db, 9)
     if state == "printing":
-        assert "pause sent, not yet confirmed" in alerts[-1]["message"]
+        assert alerts[-1]["message"] == "Confidence: 99%"
         assert record["automatic"] and record["print_job_id"] == 23
         thread._auto_pause()
         assert sends == ["pause"]
@@ -223,3 +227,337 @@ def test_stop_uses_terminal_state_and_file_activity(state, active, filename, con
     status = moonraker.MoonrakerStatus(raw_print_state=state, filename=filename,
                                       raw_data={"virtual_sdcard": {"is_active": active}})
     assert moonraker.control_confirmed("stop", status) is confirmed
+
+@pytest.mark.parametrize("action,automatic", [("stop", False), ("pause", False), ("pause", True)])
+def test_bookkeeping_failure_never_prevents_send(farm, monkeypatch, action, automatic):
+    from sqlalchemy.exc import OperationalError
+    sends, _ = wire(monkeypatch, "no_reply", "unknown")
+    def busy(*args, **kwargs):
+        assert sends == [action]
+        raise OperationalError("synthetic busy", None, None)
+    monkeypatch.setattr(controls, "_begin", busy)
+    with farm.factory() as db:
+        install_printer(db)
+        result = controls.send_control(db, db.get(Printer, 9), action, {},
+                                       live_check=(lambda: True) if automatic else None)
+        assert sends == [action] and result["outcome"] == "pending"
+
+
+@pytest.mark.parametrize("reader", ["enrich", "read", "scan"])
+@pytest.mark.parametrize("bad", ["{", '{"action":"pause"}'])
+def test_bad_record_consumed_and_audited_once(farm, reader, bad):
+    from datetime import timezone
+    with farm.factory() as db:
+        install_printer(db)
+        controls.write_config_text(db, controls._key(9), bad)
+        db.commit()
+        for _ in range(2):
+            if reader == "enrich":
+                assert controls.enrich_controls(db, [db.get(Printer, 9)])[0].pending_control is None
+            elif reader == "read":
+                assert controls._read(db, 9) is None
+            else:
+                assert controls.expired_printer_ids(db, datetime.now(timezone.utc)) == []
+    with farm.factory() as db:
+        assert db.execute(text("SELECT count(*) FROM system_config WHERE key='pending_control:9'")).scalar_one() == 0
+        assert db.execute(text("SELECT count(*) FROM audit_logs WHERE action='printer.invalid_pending_control'")).scalar_one() == 1
+
+
+@pytest.mark.parametrize("previous,expired,count", [("stop", False, 1), ("pause", True, 1), ("pause", False, 0)])
+def test_auto_pause_only_suppressed_by_live_pause(farm, monkeypatch, previous, expired, count):
+    with farm.factory() as db:
+        install_printer(db)
+        sent = pending(db, monkeypatch, previous)
+        if expired:
+            now = sent + timedelta(seconds=controls.DEADLINES[previous])
+            monkeypatch.setattr(controls, "datetime", type("Clock", (datetime,), {"now": staticmethod(lambda tz: now)}))
+            assert controls.enrich_controls(db, [db.get(Printer, 9)])[0].pending_control is None
+        sends, _ = wire(monkeypatch, "no_reply", "paused")
+        result = controls.send_control(db, db.get(Printer, 9), "pause", {}, live_check=lambda: True)
+        assert sends == ["pause"] * count
+        assert result["outcome"] == ("confirmed" if count else "skipped")
+
+
+@pytest.mark.parametrize("awaiting", [True, False])
+def test_late_fresh_observation_confirms(farm, monkeypatch, awaiting):
+    with farm.factory() as db:
+        install_printer(db)
+        sent = pending(db, monkeypatch, "pause")
+        record = controls._read(db, 9)
+        controls.write_config_text(db, controls._key(9), json.dumps({**record, "awaiting_reply": awaiting}))
+        db.commit()
+        observe(db, "paused", sent + timedelta(minutes=2))
+        assert db.execute(text("SELECT action FROM audit_logs ORDER BY id DESC LIMIT 1")).scalar_one() == "printer.pause_confirmed"
+        assert not farm.delivered
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+def test_resume_requires_original_active_attempt(farm, monkeypatch, replacement):
+    from tests.test_contracts.test_temperature_alerts import add_print
+    with farm.factory() as db:
+        install_printer(db)
+        add_print(farm, 9, 41)
+        sent = pending(db, monkeypatch, "resume")
+        db.execute(text("UPDATE print_jobs SET status='completed' WHERE id=41"))
+        db.commit()
+        if replacement:
+            add_print(farm, 9, 42)
+        observe(db, "printing", sent + timedelta(seconds=5))
+        assert controls._read(db, 9)["print_job_id"] == 41
+        observe(db, "printing", sent + timedelta(minutes=5))
+        assert len(farm.delivered) == 1
+
+
+def test_overlapping_requests_keep_newer_completed_stop(farm, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    started, release = Event(), Event()
+    def run(adapter, action):
+        if action == "pause":
+            started.set()
+            assert release.wait(5)
+        adapter.last_control = (moonraker.ControlReply("accepted"), action == "stop")
+        return True
+    def send(action):
+        with farm.factory() as db:
+            return controls.send_control(db, db.get(Printer, 9), action, {})
+    monkeypatch.setattr(REAL_ADAPTER, "run_control", run)
+    with farm.factory() as db:
+        install_printer(db)
+    with ThreadPoolExecutor(2) as pool:
+        older = pool.submit(send, "pause")
+        try:
+            assert started.wait(5)
+            assert pool.submit(send, "stop").result(5)["outcome"] == "confirmed"
+        finally:
+            release.set()
+        assert older.result(5)["outcome"] == "pending"
+    with farm.factory() as db:
+        assert controls._read(db, 9) is None
+        actions = db.execute(text("SELECT action FROM audit_logs WHERE entity_id=9")).scalars().all()
+        assert sorted(actions) == sorted(["printer.pause_requested", "printer.stop_requested",
+                                          "printer.stop_confirmed", "printer.pause_replaced"])
+
+
+def test_confirmation_poll_rate(monkeypatch):
+    _, clock = wire(monkeypatch, "no_reply", "printing")
+    polls = []
+    monkeypatch.setattr(REAL_ADAPTER, "get_status", lambda self, **kw: polls.append(clock[0]) or moonraker.MoonrakerStatus(raw_print_state="printing"))
+    REAL_ADAPTER("fake.test").run_control("pause")
+    from modules.printers.monitors.moonraker_monitor import POLL_INTERVAL
+    assert len(polls) >= 2
+    assert all(b - a >= max(1, POLL_INTERVAL) for a, b in zip(polls, polls[1:]))
+
+
+def test_worker_owns_control_session(control_client, review_db, monkeypatch):
+    from sqlalchemy.orm import object_session
+    from modules.printers import routes_controls
+    client, issue, _ = control_client
+    review_db.execute(text("UPDATE printers SET api_type='moonraker' WHERE id=299"))
+    review_db.commit()
+    client.app.dependency_overrides[routes_controls.get_db] = lambda: review_db
+    seen = []
+    def inspect(db, printer, action, actor):
+        seen.append((db is not review_db, object_session(printer) is not review_db))
+        return {"outcome": "pending"}
+    monkeypatch.setattr(routes_controls, "send_control", inspect)
+    assert client.post('/printers/299/stop', headers=issue(["write:printers"])).status_code == 200
+    assert seen == [(True, True)]
+
+
+@pytest.mark.parametrize("reply,expected", [("no_reply", "pending"), ("accepted", "confirmed"), ("rejected", "failed")])
+def test_moonraker_dismissal_sends_without_open_transaction(review_db, monkeypatch, reply, expected):
+    from tests.test_contracts.test_monitor_command_channel import setup_resume
+    from modules.vision.routes.detections import dismiss_and_resume
+    from core.errors import OdinError
+    setup_resume(review_db, "PAUSE")
+    review_db.execute(text("UPDATE printers SET api_type='moonraker',api_host='fake.test',api_key='fixture' WHERE id=9"))
+    review_db.commit()
+    sends = []
+    def run(adapter, action):
+        sends.append((action, adapter.api_key, review_db.in_transaction()))
+        adapter.last_control = moonraker.ControlReply(reply, 409), expected == "confirmed"
+        return expected == "confirmed"
+    monkeypatch.setattr(REAL_ADAPTER, "run_control", run)
+    from core import crypto
+    monkeypatch.setattr(crypto, "decrypt", lambda _: "test-only")
+    args = dict(current_user={"id":3, "role":"admin", "group_id":None}, db=review_db)
+    if expected == "failed":
+        with pytest.raises(OdinError) as error:
+            dismiss_and_resume(701, **args)
+        assert error.value.status == 503
+    else:
+        result = dismiss_and_resume(701, **args)
+        assert result["outcome"] == expected and result["resume_requested"]
+        assert result["message"] == (controls.PENDING if expected == "pending" else controls.CONFIRMED)["resume"]
+    assert sends == [("resume", "test-only", False)]
+    assert review_db.execute(text("SELECT status FROM vision_detections WHERE id=701")).scalar_one() == (
+        "confirmed" if expected == "failed" else "dismissed")
+    assert bool(controls._read(review_db, 9)) == (expected == "pending")
+
+
+def test_detection_alert_and_push_precede_send(guarded_vision, monkeypatch):
+    from modules.vision import detection_thread
+    from modules.notifications import event_dispatcher
+    thread, _, _, _, _, _, _ = guarded_vision
+    calls = []
+    monkeypatch.setattr(event_dispatcher, "dispatch_alert", lambda **kw: calls.append(kw["message"]))
+    monkeypatch.setattr(detection_thread, "ws_push", lambda *args: calls.append("push"))
+    monkeypatch.setattr(thread, "_auto_pause", lambda *args: calls.append("pause"))
+    thread._on_detection("spaghetti", {"confidence": .99, "bbox": []}, None)
+    assert calls == ["Confidence: 99%", "push", "pause"]
+
+
+def test_confirmed_automatic_pause_marks_only_triggering_detection(guarded_vision, review_db, monkeypatch):
+    thread, _, clock, report, _, _, _ = guarded_vision
+    monkeypatch.setattr(moonraker, "MoonrakerPrinter", REAL_ADAPTER)
+    wire(monkeypatch, "no_reply", "printing")
+    thread._analyzed_frames = 3
+    thread._first_analysis_at = clock[0] - 60
+    from modules.vision.detection_thread import PrinterVisionThread
+    monkeypatch.setattr(thread, "_insert_detection", PrinterVisionThread._insert_detection.__get__(thread))
+    report()
+    thread._on_detection("spaghetti", {"confidence": .99, "bbox":[]}, None)
+    first = review_db.execute(text("SELECT max(id) FROM vision_detections WHERE printer_id=9")).scalar_one()
+    second = thread._insert_detection("spaghetti", .9, "another.jpg", [])
+    record = controls._read(review_db, 9)
+    observe(review_db, "paused", datetime.fromisoformat(record["sent_at"]) + timedelta(seconds=15))
+    assert review_db.execute(text("SELECT status FROM vision_detections WHERE id IN (:a,:b) ORDER BY id"),
+                             {"a":first, "b":second}).scalars().all() == ["auto_paused","pending"]
+
+
+@pytest.mark.parametrize("action", ["pause", "resume", "stop", "deleted"])
+def test_deadline_pass_rechecks_capture_state_or_cleans_deleted_printer(farm, monkeypatch, action):
+    from modules.printers.monitors import moonraker_monitor as monitor
+    replay = json.loads((Path(__file__).parents[1] / "fixtures/moonraker-control-replay.json").read_text())
+    with farm.factory() as db:
+        install_printer(db)
+        command = "pause" if action == "deleted" else action
+        sent = pending(db, monkeypatch, command)
+        when = sent + timedelta(seconds=1 if action == "deleted" else controls.DEADLINES[command])
+        sample = replay[command][-1]
+        if action == "deleted":
+            db.execute(text("DELETE FROM printers WHERE id=9"))
+            db.commit()
+        reads = []
+        def status(adapter, **kwargs):
+            reads.append(1)
+            return moonraker.MoonrakerStatus(raw_print_state=sample["state"], filename=sample.get("filename", ""),
+                                              raw_data={"virtual_sdcard":{"is_active": sample.get("is_active")}})
+        monkeypatch.setattr(REAL_ADAPTER, "get_status", status)
+        clock = type("Clock", (datetime,), {"now": staticmethod(lambda tz: when)})
+        monkeypatch.setattr(monitor, "datetime", clock)
+        monkeypatch.setattr(controls, "datetime", clock)
+        monkeypatch.setattr(monitor, "engine", farm.engine)
+        passes = iter([False, False, True])
+        monitor._check_control_deadlines(SimpleNamespace(wait=lambda _: next(passes)))
+        assert controls._read(db, 9) is None
+        assert reads == ([] if action == "deleted" else [1])
+        assert not farm.delivered
+
+
+def test_imported_monitor_launcher_starts_one_deadline_worker(monkeypatch):
+    from modules.printers.monitors import moonraker_monitor as monitor
+    calls = []
+    class Thread:
+        def __init__(self, target, **kw):
+            self.target = target
+        def start(self):
+            calls.append(self.target)
+        def is_alive(self):
+            return True
+    monkeypatch.setattr(monitor, "_rows", lambda: [])
+    monkeypatch.setattr(monitor, "_deadline_thread", None, raising=False)
+    monkeypatch.setattr(monitor.threading, "Thread", Thread)
+    monitor.start_moonraker_monitors()
+    monitor.start_moonraker_monitors()
+    assert calls == [monitor._check_control_deadlines]
+
+
+def test_existing_pause_explained_on_matching_detection_alert(farm, monkeypatch):
+    from core.base import AlertType, AlertSeverity
+    from modules.notifications.models import Alert
+    from modules.printers.services import automatic_moonraker_pause
+    with farm.factory() as db:
+        install_printer(db)
+        pending(db, monkeypatch, "pause")
+        for detection_id in (17, 18):
+            db.add(Alert(user_id=1, printer_id=9, alert_type=AlertType.SPAGHETTI_DETECTED,
+                         severity=AlertSeverity.CRITICAL, title="Detection", message="Confidence: 99%",
+                         metadata_json={"detection_id": detection_id}))
+        db.commit()
+        sends, _ = wire(monkeypatch, "no_reply", "printing")
+        automatic_moonraker_pause(farm.engine, 9, lambda: True, 18)
+        messages = db.query(Alert.message).order_by(Alert.id).all()
+        assert messages == [("Confidence: 99%",), ("Confidence: 99%. Automatic pause skipped: a pause is already pending.",)]
+        assert sends == []
+
+
+def test_stale_poll_cannot_expire_newer_record(farm, monkeypatch):
+    with farm.factory() as db:
+        install_printer(db)
+        sent = pending(db, monkeypatch, "pause")
+        status = moonraker.MoonrakerStatus(raw_print_state="printing")
+        controls.observe_control(db, 9, "Test printer", status, observed_at=sent-timedelta(seconds=1),
+                                 now=sent+timedelta(seconds=30))
+        assert controls._read(db, 9) and not farm.delivered
+
+
+@pytest.mark.parametrize("case", ["inactive", "no_status", "monitoring_locked"])
+def test_deadline_worker_alerts_when_fresh_status_unavailable(farm, monkeypatch, case):
+    from core import license_lock
+    from modules.printers.monitors import moonraker_monitor as monitor
+    with farm.factory() as db:
+        install_printer(db)
+        sent = pending(db, monkeypatch, "pause")
+        if case == "inactive":
+            db.execute(text("UPDATE printers SET is_active=0 WHERE id=9"))
+            db.commit()
+        if case == "monitoring_locked":
+            monkeypatch.setattr(license_lock, "enabled", lambda: True)
+            monkeypatch.setattr(license_lock, "snapshot", lambda db: object())
+            monkeypatch.setattr(license_lock, "printer_allowed", lambda *args: False)
+        reads = []
+        def offline(*args, **kwargs):
+            reads.append(1)
+            raise OSError("no status")
+        monkeypatch.setattr(REAL_ADAPTER, "get_status", offline)
+        clock = type("Clock", (datetime,), {"now": staticmethod(lambda tz: sent + timedelta(seconds=31))})
+        monkeypatch.setattr(monitor, "datetime", clock)
+        monkeypatch.setattr(controls, "datetime", clock)
+        monkeypatch.setattr(monitor, "engine", farm.engine)
+        passes = iter([False, False, True])
+        monitor._check_control_deadlines(SimpleNamespace(wait=lambda _: next(passes)))
+        assert reads == ([1] if case == "no_status" else [])
+        assert controls._read(db, 9) is None and len(farm.delivered) == 1
+
+
+def test_failed_rollback_cannot_mask_a_sent_stop(farm, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+    sends, _ = wire(monkeypatch, "no_reply", "unknown")
+    def disconnected(*args, **kwargs):
+        raise OperationalError("connection lost", None, None)
+    with farm.factory() as db:
+        install_printer(db)
+        monkeypatch.setattr(controls, "_begin", disconnected)
+        monkeypatch.setattr(db, "rollback", disconnected)
+        result = controls.send_control(db, db.get(Printer, 9), "stop", {})
+        assert result["outcome"] == "pending" and sends == ["stop"]
+
+
+def test_resume_short_window_cannot_confirm_after_original_print_ended(farm, monkeypatch):
+    from datetime import timezone
+    from tests.test_contracts.test_temperature_alerts import add_print
+    with farm.factory() as db:
+        install_printer(db)
+        add_print(farm, 9, 41)
+        def run(adapter, action):
+            with farm.engine.begin() as conn:
+                conn.execute(text("UPDATE print_jobs SET status='completed', ended_at=:ended WHERE id=41"),
+                             {"ended": datetime.now(timezone.utc)})
+            adapter.last_control = (moonraker.ControlReply("no_reply"), True)
+            return True
+        monkeypatch.setattr(REAL_ADAPTER, "run_control", run)
+        receipt = controls.send_control(db, db.get(Printer, 9), "resume", {})
+        assert receipt["outcome"] == "pending" and receipt["message"] == controls.PENDING["resume"]
+        assert controls._read(db, 9)["print_job_id"] == 41

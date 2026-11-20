@@ -60,3 +60,13 @@ def stage_control_timeout(db, printer_id, job_id, message):
 def deliver_staged_alert(db, plan):
     from modules.notifications.alert_dispatcher import deliver_staged_alert as deliver
     return deliver(db, plan)
+
+
+def note_skipped_pause(db, printer_id, detection_id):
+    from sqlalchemy import update
+    from modules.notifications.models import Alert
+    note = ". Automatic pause skipped: a pause is already pending."
+    db.execute(update(Alert).where(Alert.printer_id == printer_id,
+                                   Alert.metadata_json["detection_id"].as_integer() == detection_id,
+                                   ~Alert.message.endswith(note))
+               .values(message=Alert.message + note).execution_options(synchronize_session=False))

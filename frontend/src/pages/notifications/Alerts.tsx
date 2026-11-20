@@ -16,7 +16,7 @@ import AlertGroupRow from './AlertGroupRow'
 import AlertTitle from './AlertTitle'
 import { groupAlerts } from './alertGroups'
 
-import { controlLabel, pendingMessage, unavailableMessage, type ControlReceipt } from '../../utils/printControl'
+import { activeControl, useControlDeadlines, controlLabel, pendingMessage, unavailableMessage, type ControlReceipt } from '../../utils/printControl'
 
 const VISION_ALERT_TYPES = new Set([
   'spaghetti_detected', 'first_layer_issue', 'detachment_detected',
@@ -95,6 +95,7 @@ export default function Alerts() {
     queryKey: ['printers', 'alert-controls'], queryFn: () => printersApi.list(),
     enabled: alerts.some(a => VISION_ALERT_TYPES.has(a.alert_type) && a.printer_id), refetchInterval: 5000,
   })
+  useControlDeadlines(controlPrinters.data)
   const printerFor = (alert) => controlPrinters.data?.find(p => p.id === alert.printer_id)
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const listGeneration = useRef(0)
@@ -371,7 +372,7 @@ export default function Alerts() {
         printerFor(alert)?.unavailable_controls?.includes('resume') ? <span>{unavailableMessage('resume')}</span> :
         <button
           onClick={() => handleResumeFromAlert(alert)}
-          disabled={actionLoading === alert.id || printerFor(alert)?.pending_control?.action === 'resume'}
+          disabled={actionLoading === alert.id || activeControl(printerFor(alert))?.action === 'resume'}
           className="p-1.5 rounded-md transition-colors hover:bg-green-900/40 text-green-400"
           title={'False alarm — ' + controlLabel(printerFor(alert), 'resume') + ' print'}
         >

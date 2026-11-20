@@ -50,6 +50,7 @@ log = logging.getLogger("moonraker_adapter")
 
 # A socket timeout is per read. A slow status response or name lookup must
 # still let the command return pending at its wall-clock deadline.
+STATUS_POLL_INTERVAL = 3  # seconds between status queries
 _control_reads = ThreadPoolExecutor(max_workers=8, thread_name_prefix="moonraker-confirm")
 
 
@@ -491,10 +492,10 @@ class MoonrakerPrinter:
             return False
     
     def post_control(self, action: str) -> ControlReply:
-        """Send once. urllib wraps connect/send errors, but not response read timeouts."""
+        """Send once. Only a proven pre-send failure is safe to retry."""
         from core.itar import ItarOutboundBlocked, enforce_request_destination
-        from core.webhook_utils import DeviceDestinationBlocked
-        from http.client import HTTPException
+        from core.webhook_utils import DeviceConnectFailed, DeviceDestinationBlocked
+        from http.client import HTTPException, InvalidURL
         path = {"pause": "pause", "resume": "resume", "stop": "cancel"}[action]
         url = f"{self.base_url}/printer/print/{path}"
         try:
@@ -502,7 +503,7 @@ class MoonrakerPrinter:
             req = Request(url, data=b"", method="POST", headers={"Content-Type": "application/json"})
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=5) as response:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- policy-validated and pinned device opener
+            with urlopen(req, timeout=5, classify_connect=True) as response:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- policy-validated and pinned device opener
                 return ControlReply("accepted", response.status)
         except HTTPError as exc:
             with exc:
@@ -519,10 +520,12 @@ class MoonrakerPrinter:
                 if self.api_key:
                     error = error.replace(self.api_key, "[redacted]")
                 return ControlReply("rejected", exc.code, redact_text(error)[:256])
-        except TimeoutError:
-            return ControlReply("no_reply")
-        except (URLError, DeviceDestinationBlocked, ItarOutboundBlocked, OSError, HTTPException, ValueError):
+        except (DeviceConnectFailed, DeviceDestinationBlocked, ItarOutboundBlocked, InvalidURL):
             return ControlReply("unreachable")
+        except (OSError, HTTPException, ValueError):
+            # Includes URLError from writing headers and disconnects while
+            # reading the status line. The peer may already have acted.
+            return ControlReply("no_reply")
 
     def run_control(self, action):
         reply = self.post_control(action)
@@ -539,7 +542,7 @@ class MoonrakerPrinter:
                 if time.monotonic() <= deadline and control_confirmed(action, status):
                     confirmed = True
                     break
-                time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+                time.sleep(min(STATUS_POLL_INTERVAL, max(0, deadline - time.monotonic())))
         self.last_control = (reply, confirmed)
         return reply.outcome == "accepted" or confirmed
 

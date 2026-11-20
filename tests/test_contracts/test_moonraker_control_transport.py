@@ -19,6 +19,12 @@ def peer(monkeypatch):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             requests.append((self.path, self.headers.get("Content-Length"), self.headers.get("Content-Type")))
+            if server.code in ("close", "reset"):
+                if server.code == "reset":
+                    import struct
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+                self.close_connection = True
+                return
             if server.code is None:
                 release.wait(8)
                 return
@@ -42,6 +48,14 @@ def peer(monkeypatch):
         # five-second socket read timeout, using a connected local socket pair.
         httpd = None
         class LocalSocket(socket.socket):
+            def recv_into(self, *args):
+                size = super().recv_into(*args)
+                if not size and server.code == "reset":
+                    # AF_UNIX reports EOF even for an abortive peer close.
+                    # Supply the TCP errno at the same real response-read boundary.
+                    raise ConnectionResetError(errno.ECONNRESET, "peer reset")
+                return size
+
             def setsockopt(self, level, option, value):
                 if (level, option) != (socket.IPPROTO_TCP, socket.TCP_NODELAY):
                     super().setsockopt(level, option, value)
@@ -108,3 +122,11 @@ def test_local_tcp_port_refuses_control(monkeypatch):
         monkeypatch.setattr(webhook_utils, "device_destination_ips", lambda *_: ["127.0.0.1"])
         printer = moonraker.MoonrakerPrinter("moonraker.test", reserved.getsockname()[1])
         assert printer.post_control("pause").outcome == "unreachable"
+
+
+@pytest.mark.parametrize("close", ["close", "reset"])
+def test_peer_closes_after_reading_post(peer, close):
+    adapter, server, requests = peer
+    server.code = close
+    assert adapter.post_control("stop").outcome == "no_reply"
+    assert len(requests) == 1

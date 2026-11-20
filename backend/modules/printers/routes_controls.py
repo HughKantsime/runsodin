@@ -34,6 +34,21 @@ router = APIRouter()
 # Printer Commands (Stop / Pause / Resume)
 # ====================================================================
 
+async def _moonraker_control(db, printer, action, actor):
+    from contextlib import nullcontext
+    from core.audit_actor_handoff import capture_request_actor
+    bind = db.get_bind().engine
+    bind_actor = capture_request_actor(db)
+    db.expunge(printer)
+    db.rollback()
+
+    def send():
+        with Session(bind) as worker, bind_actor(worker) if bind_actor else nullcontext():
+            return send_control(worker, printer, action, actor)
+
+    return await asyncio.to_thread(send)
+
+
 @router.post("/printers/{printer_id}/stop", tags=["Printers"])
 async def stop_printer(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
@@ -46,7 +61,7 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_act
     from core.audit import log_audit
     audit_details = {"actor_token_id": current_user.get("_token_id")}
     if printer.api_type == "moonraker":
-        return await asyncio.to_thread(send_control, db, printer, "stop", current_user)
+        return await _moonraker_control(db, printer, "stop", current_user)
     if _send_printer_command(printer, "stop_print"):
         db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
         log_audit(db, "printer.stop_requested", "printer", printer_id, audit_details)
@@ -118,7 +133,7 @@ async def pause_printer(
     from core.audit import log_audit
     audit_details = {"actor_token_id": current_user.get("_token_id")}
     if printer.api_type == "moonraker":
-        receipt = await asyncio.to_thread(send_control, db, printer, "pause", current_user)
+        receipt = await _moonraker_control(db, printer, "pause", current_user)
         if receipt["outcome"] == "confirmed":
             receipt["state"] = "PAUSED"
     else:
@@ -222,7 +237,7 @@ async def resume_printer(
     # The audit row's actor columns name the user; only the token id is extra.
     audit_details = {"actor_token_id": current_user.get("_token_id")}
     if printer.api_type == "moonraker":
-        receipt = await asyncio.to_thread(send_control, db, printer, "resume", current_user)
+        receipt = await _moonraker_control(db, printer, "resume", current_user)
         if receipt["outcome"] == "confirmed":
             receipt["state"] = "RUNNING"
     else:

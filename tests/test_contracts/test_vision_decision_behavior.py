@@ -70,7 +70,7 @@ def test_detection_pause_only_for_active_failure(vision, monkeypatch, kind, stat
     monkeypatch.setattr(event_dispatcher, "dispatch_alert", lambda **kwargs: None)
     monkeypatch.setattr(module, "ws_push", lambda *args: None)
     pauses = []
-    monkeypatch.setattr(thread, "_auto_pause", lambda: pauses.append("pause"))
+    monkeypatch.setattr(thread, "_auto_pause", lambda detection_id: pauses.append("pause"))
     thread._on_detection(kind, {"confidence": 0.9, "bbox": []}, np.zeros((32,32,3)))
     assert pauses == expected
 
@@ -147,7 +147,7 @@ def test_state_change_during_inference_prevents_pause(vision, monkeypatch):
     monkeypatch.setattr(event_dispatcher, "dispatch_alert", lambda **kwargs: None)
     monkeypatch.setattr(module, "ws_push", lambda *args: None)
     pauses = []
-    monkeypatch.setattr(thread, "_auto_pause", lambda: pauses.append("pause"))
+    monkeypatch.setattr(thread, "_auto_pause", lambda detection_id: pauses.append("pause"))
     original = model.infer
     def infer(kind, frame):
         thread.update_layer(thread.current_layer, thread.print_job_id, "PAUSED")
@@ -189,7 +189,7 @@ def test_plate_ready_idle_records_and_notifies_without_pause(vision, monkeypatch
     monkeypatch.setattr(thread, "_insert_detection", insert)
     monkeypatch.setattr(event_dispatcher, "dispatch_alert", lambda **kwargs: alerts.append(kwargs))
     monkeypatch.setattr(module, "ws_push", lambda *args: events.append(args))
-    monkeypatch.setattr(thread, "_auto_pause", lambda: pauses.append("pause"))
+    monkeypatch.setattr(thread, "_auto_pause", lambda detection_id: pauses.append("pause"))
     for _ in range(3): thread._capture_and_analyze()
     assert records == ["build_plate_empty"]
     assert [a["alert_type"] for a in alerts] == ["bed_cooled"]

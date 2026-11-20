@@ -111,7 +111,7 @@ it('shows the Moonraker receipt and keeps Stop available while Pause awaits conf
  const printer = { id: 199, name: 'Test printer', api_type: 'moonraker', gcode_state: 'RUNNING', last_seen: new Date().toISOString(), unproven_controls: ['pause', 'stop'] }
  state.fetch.mockImplementation(async (path: string) => path === '/printers' ? [printer] : {
    success: true, message: 'Pause sent. Waiting for the printer to confirm.', outcome: 'pending',
-   pending_control: { action: 'pause', sent_at: printer.last_seen, deadline_at: printer.last_seen },
+   pending_control: { action: 'pause', sent_at: printer.last_seen, deadline_at: new Date(Date.now() + 30000).toISOString() },
  })
  render(<EmergencyStop />)
  fireEvent.click(await screen.findByRole('button', { name: 'Emergency controls, 1 active prints' }))
@@ -122,4 +122,21 @@ it('shows the Moonraker receipt and keeps Stop available while Pause awaits conf
  fireEvent.click(screen.getByRole('button', { name: 'Stop (unproven)' }))
  expect(screen.getByRole('button', { name: 'Confirm Stop (unproven)' })).toBeEnabled()
  expect(screen.getByText(/use its touchscreen/)).toBeInTheDocument()
+})
+
+it.each(['pause', 'resume', 'stop'] as const)('honors the deadline and repeat confirmation for %s', async action => {
+ const now = Date.now()
+ const printer = { id: 199, name: 'Moonraker', api_type: 'moonraker', gcode_state: action === 'resume' ? 'PAUSED' : 'RUNNING',
+   last_seen: new Date(now).toISOString(), pending_control: { action, sent_at: new Date(now - 10000).toISOString(),
+     deadline_at: new Date(now + (action === 'stop' ? 30000 : -1)).toISOString() } }
+ state.fetch.mockImplementation(async path => path === '/printers' ? [printer] : { success: true })
+ render(<EmergencyStop />)
+ fireEvent.click(await screen.findByRole('button', { name: /Emergency controls/ }))
+ const button = await screen.findByRole('button', { name: new RegExp('^' + action + '$', 'i') })
+ expect(button).toBeEnabled()
+ if (action === 'stop') {
+   fireEvent.click(button)
+   fireEvent.click(screen.getByRole('button', { name: /Stop was already sent 10 seconds ago. Send it again\?/ }))
+   expect(state.fetch).toHaveBeenCalledWith('/printers/199/stop', { method: 'POST' })
+ }
 })
