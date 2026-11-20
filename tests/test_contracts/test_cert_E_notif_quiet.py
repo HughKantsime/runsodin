@@ -135,6 +135,28 @@ def dispatch_printer(path, printer_id, db):
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize('path', ['orm', 'daemon'])
+def test_unconfirmed_window_in_app_alert_reaches_digest_email(org_api, notif_env, monkeypatch, path):
+    from unittest.mock import Mock
+    from modules.reporting import report_runner
+
+    base, start, end = window()
+    put_org(org_api, 1, quiet_hours_enabled=True, quiet_hours_start=start, quiet_hours_end=end)
+    prefs(notif_env, 1, 'print_failed', in_app=True, email=True)
+    dispatch_printer(path, 9, notif_env)
+
+    send = Mock(return_value=True)
+    monkeypatch.setattr(report_runner, 'get_smtp_config', lambda session: {'enabled': True})
+    monkeypatch.setattr(report_runner, 'send_report_email', send)
+    move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
+    run_digest(notif_env)
+    send.assert_called_once()
+    _, recipient, subject, body = send.call_args.args
+    assert recipient == 'student@example.test'
+    assert f'window ended {(base + timedelta(minutes=30)):%Y-%m-%d %H:%M UTC}' in subject
+    assert body.count('P1S-09: print failed') == 1
+
+
+@pytest.mark.parametrize('path', ['orm', 'daemon'])
 def test_window_end_digest_per_user_email_and_push_respect_preferences(
         org_api, admin_api, push_api, notif_env, receiver, smtp_peer, vapid, browser, monkeypatch, path):
     base, start, end = window()

@@ -169,9 +169,10 @@ def get_queued_alerts_for_digest() -> list:
         quiet_start, quiet_end = _last_ended_window(config, datetime.now(timezone.utc))
 
         with engine.connect() as conn:
+            predicate, bounds = _alert_window_filter(conn, quiet_start, quiet_end)
             query = ("SELECT alert_type, severity, title, message, created_at FROM alerts WHERE "
-                     + _alert_window_predicate(conn) + " ORDER BY created_at DESC")
-            result = conn.execute(text(query), {"start": quiet_start, "end": quiet_end})
+                     + predicate + " ORDER BY created_at DESC")
+            result = conn.execute(text(query), bounds)
             alerts = [dict(r._mapping) for r in result.fetchall()]
 
         return alerts
@@ -342,11 +343,12 @@ def compute_window_bounds(config: Dict[str, Any], window_end: datetime) -> Tuple
     return _last_ended_window(config, window_end)
 
 
-def _alert_window_predicate(conn):
-    # SQLite has both ORM space-separated UTC values and legacy ISO values.
+def _alert_window_filter(conn, start, end):
     if conn.dialect.name == "sqlite":
-        return "datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)"
-    return "created_at>=:start AND created_at<:end"
+        # SQLite accepts ISO timestamps for datetime(), including bounds from datetime subclasses.
+        return ("datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)",
+                {"start": start.isoformat(), "end": end.isoformat()})
+    return "created_at>=:start AND created_at<:end", {"start": start, "end": end}
 
 
 def get_suppressed_alerts_for_window(
@@ -366,8 +368,9 @@ def get_suppressed_alerts_for_window(
     from modules.notifications.recipient_policy import resolve_alert_scope
     try:
         with engine.connect() as conn:
-            query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + _alert_window_predicate(conn) + " ORDER BY created_at DESC"
-            rows = conn.execute(text(query), {"start": window_start, "end": window_end}).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from a closed pair of literal dialect comparisons; values are bound
+            predicate, bounds = _alert_window_filter(conn, window_start, window_end)
+            query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + predicate + " ORDER BY created_at DESC"
+            rows = conn.execute(text(query), bounds).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from a closed pair of literal dialect comparisons; values are bound
             result = []
             for row in rows:
                 try:
