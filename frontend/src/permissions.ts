@@ -8,6 +8,7 @@
  */
 
 interface CachedUser {
+  has_local_password?: boolean
   id?: number
   group_id?: number | null
   username: string
@@ -93,7 +94,8 @@ export async function refreshPermissions(): Promise<PermissionsConfig | null> {
     }
     const me = await meRes.json()
     const data = await permRes.json()
-    currentUser = { id: me.id, group_id: me.group_id ?? null, username: me.username, role: me.role }
+    currentUser = { id: me.id, group_id: me.group_id ?? null, username: me.username, role: me.role,
+      has_local_password: me.has_local_password }
     permissions = data
     return data
   } catch {

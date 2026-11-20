@@ -21,6 +21,7 @@ from core.dependencies import log_audit
 from core.webhook_utils import _validate_webhook_url
 from license_manager import require_feature
 from modules.organizations.education_policy import (
+    USER_HAS_EDUCATION_HISTORY,
     assert_org_hard_delete_allowed,
     assert_printer_tenant_change_or_delete_allowed,
     assert_user_tenant_change_allowed,
@@ -75,9 +76,10 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
     user_group = current_user.get("group_id")
     if user_group:
         rows = db.execute(text(
-            "SELECT g.*, g.settings_json, "
+            "SELECT g.id, g.name, g.description, g.settings_json, g.created_at, u.id AS owner_id, "
             "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
-            "FROM groups g WHERE g.is_org IS TRUE AND g.id = :gid ORDER BY g.name"),
+            "FROM groups g LEFT JOIN users u ON u.id = g.owner_id AND u.group_id = g.id "
+            "WHERE g.is_org IS TRUE AND g.id = :gid ORDER BY g.name"),
             {"gid": user_group}).fetchall()
         return [{
             "id": r.id, "name": r.name, "description": r.description,
@@ -133,14 +135,10 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    sets = []
-    params = {"id": org_id}
-    for field in ["name", "description", "owner_id"]:
-        if field in body:
-            sets.append(f"{field} = :{field}")
-            params[field] = body[field]
-    if sets:
-        db.execute(text(f"UPDATE groups SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    updates = {key: body[key] for key in ("name", "description", "owner_id") if key in body}
+    if updates:
+        from modules.organizations.routes_users import write_group_fields
+        write_group_fields(db, org_id, updates, current_user)
         db.commit()
 
     return {"status": "ok"}
@@ -196,6 +194,31 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     return {"status": "ok"}
 
 
+def _check_member_destination(current_user: dict, org_id: int) -> bool:
+    """Require access to this destination and return whether the caller can move other orgs' users."""
+    caller_org = current_user.get("group_id")
+    is_superadmin = current_user.get("role") == "admin" and caller_org is None
+    if not is_superadmin and caller_org != org_id:
+        raise HTTPException(status_code=403, detail="Cannot manage other organizations")
+    return is_superadmin
+
+
+@router.get("/orgs/{org_id}/member-candidates", tags=["Organizations"])
+async def list_member_candidates(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    require_feature("user_groups")
+    is_superadmin = _check_member_destination(current_user, org_id)
+    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only the fixed Education history predicate is composed; platform and org_id are bound
+        "SELECT id, username FROM users WHERE is_active IS TRUE "
+        "AND ((group_id IS NULL AND role != 'admin') OR (:platform AND group_id != :org_id)) "
+        "AND NOT " + USER_HAS_EDUCATION_HISTORY + " ORDER BY username, id"
+    ), {"platform": is_superadmin, "org_id": org_id})
+    return [dict(row) for row in rows.mappings()]
+
+
 @router.post("/orgs/{org_id}/members", tags=["Organizations"])
 async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Add a user to an organization.
@@ -215,14 +238,7 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     and strip superadmin of system-wide privilege.
     """
     require_feature("user_groups")
-    caller_org = current_user.get("group_id")
-    is_superadmin = (current_user.get("role") == "admin" and caller_org is None)
-
-    if not is_superadmin:
-        # Org-scoped admin — enforce "own org only" on the destination
-        if caller_org != org_id:
-            raise HTTPException(status_code=403, detail="Cannot manage other organizations")
-
+    is_superadmin = _check_member_destination(current_user, org_id)
     user_id = body.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
@@ -236,21 +252,13 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
         text("SELECT id, role, group_id FROM users WHERE id = :uid"),
         {"uid": user_id},
     ).fetchone()
-    if not target:
+    if target is None or (not is_superadmin and (
+        (target.role == "admin" and target.group_id is None)
+        or (target.group_id is not None and target.group_id != org_id)
+    )):
         raise HTTPException(status_code=404, detail="User not found")
     if target.group_id != org_id:
         assert_user_tenant_change_allowed(db, user_id)
-
-    if not is_superadmin:
-        # Superadmin (admin with no group_id) must never be reassigned by
-        # an org-scoped admin — that would be a full platform takeover.
-        if target.role == "admin" and target.group_id is None:
-            raise HTTPException(status_code=403, detail="Cannot reassign a superadmin")
-
-        # Target must be either unassigned, or already in the caller's own
-        # org (the latter is effectively a no-op but is allowed).
-        if target.group_id is not None and target.group_id != caller_org:
-            raise HTTPException(status_code=403, detail="Cannot move users from other organizations")
 
     db.execute(text("UPDATE users SET group_id = :org_id WHERE id = :uid"), {"org_id": org_id, "uid": user_id})
     log_audit(db, "org_member_added", "user", user_id,

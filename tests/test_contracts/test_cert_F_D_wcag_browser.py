@@ -25,7 +25,7 @@ RECEIPT = ROOT / "artifacts/application-certification/cert-F/D-wcag-browser-cens
 ROUTES = ["/", "/printers/1", "/jobs", "/timeline", "/printers", "/models", "/profiles", "/projects", "/spools", "/consumables",
           "/orders", "/products", "/calculator", "/analytics", "/utilization", "/print-log", "/archives",
           "/timelapses", "/cameras", "/maintenance", "/detections", "/alerts", "/audit", "/admin", "/permissions",
-          "/branding", "/settings", "/upload", "/education", "/education-reports"]
+          "/branding", "/settings", "/account", "/upload", "/education", "/education-reports"]
 
 CENSUS_JS = r"""
 () => {
@@ -74,6 +74,74 @@ def build_dir(tmp_path_factory):
     return out
 
 
+def serve_build(ctx, origin, build_dir):
+    def serve(route):
+        path = route.request.url.split(origin, 1)[1].split("?", 1)[0]
+        f = build_dir / path.lstrip("/")
+        if not path.startswith("/assets/") and not f.is_file():
+            f = build_dir / "index.html"
+        if not f.is_file():
+            return route.fulfill(status=404, body="")
+        route.fulfill(status=200, body=f.read_bytes(),
+                      headers={"content-type": mimetypes.guess_type(str(f))[0] or "text/html"})
+
+    ctx.route(lambda url: url.startswith(origin) and "/api/" not in url and "/health" not in url, serve)
+
+
+def test_recovery_dialog_survives_double_escape_in_account_and_enrollment(build_dir, tmp_path):
+    import pyotp
+    expect = pw_sync.expect
+
+    def acknowledge(page):
+        dialog = page.get_by_role("dialog", name="Save your recovery codes")
+        expect(dialog).to_be_visible()
+        page.keyboard.press("Escape")
+        page.keyboard.press("Escape")
+        expect(dialog.get_by_role("listitem")).to_have_count(10)
+        # Native close() also removes the dialog from the top layer.
+        dialog.evaluate("(element) => element.close()")
+        expect(dialog).to_be_visible()
+        button = dialog.get_by_role("button", name="I saved these")
+        bounds = button.bounding_box()
+        assert bounds["width"] >= 44 and bounds["height"] >= 44
+        button.click()
+
+    with LiveOdin(tmp_path) as odin, pw_sync.sync_playwright() as playwright:
+        username, password = odin.setup_admin()
+        learner, learner_password, _ = odin.create_user("enrollment_viewer", "viewer")
+        browser = playwright.chromium.launch()
+        ctx = browser.new_context(service_workers="block")
+        serve_build(ctx, odin.url, build_dir)
+        assert ctx.request.post(odin.url + "/api/auth/login", form={"username": username, "password": password}).ok
+        page = ctx.new_page()
+        page.goto(odin.url + "/account")
+        account = page.get_by_role("link", name="Account", exact=True)
+        for collapsed in (False, True):
+            if collapsed:
+                page.get_by_role("button", name="Collapse sidebar").click()
+            bounds = account.bounding_box()
+            assert bounds["width"] >= 44 and bounds["height"] >= 44
+        page.get_by_role("button", name="Set Up Two-Factor Authentication").click()
+        secret = page.get_by_alt_text("MFA QR Code").locator("..").locator("code").text_content()
+        page.get_by_label("Verification code").fill(pyotp.TOTP(secret).now())
+        page.get_by_role("button", name="Confirm", exact=True).click()
+        acknowledge(page)
+        expect(page.get_by_role("button", name="Regenerate recovery codes")).to_be_focused()
+
+        assert ctx.request.put(odin.url + "/api/config/require-mfa", data={"require_mfa": True}).ok
+        ctx.clear_cookies()
+        page.goto(odin.url + "/login")
+        page.get_by_label("Username").fill(learner)
+        page.get_by_label("Password", exact=True).fill(learner_password)
+        page.get_by_role("button", name="Sign In", exact=True).click()
+        setup_key = page.get_by_role("region", name="Complete sign-in").locator("code").text_content()
+        page.get_by_label("Authentication code").fill(pyotp.TOTP(setup_key).now())
+        page.get_by_role("button", name="Verify and sign in").click()
+        acknowledge(page)
+        expect(page.get_by_role("link", name="Skip to content")).to_be_focused()
+        browser.close()
+
+
 @pytest.fixture(scope="module")
 def census(tmp_path_factory, build_dir):
     o = LiveOdin(tmp_path_factory.mktemp("odinD_wcag")).start()
@@ -114,17 +182,7 @@ def census(tmp_path_factory, build_dir):
             login = ctx.request.post(o.url + "/api/auth/login", form={"username": o.admin[0], "password": o.admin[1]})
             assert login.ok, login.text()
 
-            def serve(route):
-                path = route.request.url.split(o.url, 1)[1].split("?", 1)[0]
-                f = build_dir / path.lstrip("/")
-                if not path.startswith("/assets/") and not f.is_file():
-                    f = build_dir / "index.html"
-                if not f.is_file():
-                    return route.fulfill(status=404, body="")
-                route.fulfill(status=200, body=f.read_bytes(),
-                              headers={"content-type": mimetypes.guess_type(str(f))[0] or "text/html"})
-
-            ctx.route(lambda url: url.startswith(o.url) and "/api/" not in url and "/health" not in url, serve)
+            serve_build(ctx, o.url, build_dir)
             page = ctx.new_page()
 
             def go(url):
@@ -185,7 +243,7 @@ def census(tmp_path_factory, build_dir):
                 page.wait_for_timeout(700)
                 results[f"/settings#{label}"] = page.evaluate(CENSUS_JS)
                 if label == "Access":
-                    for acc in ("Permissions", "Authentication (OIDC & MFA)", "Tokens & Sessions",
+                    for acc in ("Permissions", "Single sign-on", "Sessions",
                                 "Quotas & Restrictions", "Organizations"):
                         state(f"/settings#Access/{acc}",
                               lambda acc=acc: page.locator("main").get_by_role("button", name=acc).first.click(timeout=3000))

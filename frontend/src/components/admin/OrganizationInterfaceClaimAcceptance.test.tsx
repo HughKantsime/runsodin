@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import OrgManager from './OrgManager'
 import Settings from '../../pages/admin/Settings'
-const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, fetch: vi.fn() }))
-vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
+const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, invalidCandidates: false, fetch: vi.fn() }))
+vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', refreshPermissions: vi.fn(), getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: (name: string) => ['user_groups', 'sso', 'permissions'].includes(name), atUserLimit: () => false, maxUsers: 0 }) }))
 vi.mock('../../BrandingContext', async importOriginal => ({
   ...await importOriginal<typeof import('../../BrandingContext')>(),
@@ -23,11 +23,17 @@ function selectFor(option: string) { return screen.getByRole('option', { name: o
 async function settingsAccess() { show(<Settings />); fireEvent.click(screen.getByRole('button', { name: 'Access', exact: true })); await screen.findByText('Existing member', { selector: 'p' }) }
 function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, headers: new Headers(), json: async () => data, text: async () => JSON.stringify(data) } }
 beforeEach(() => {
-  vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false
+  vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false; boundary.invalidCandidates = false
+  let permissions = { page_access: {settings: ['admin', 'operator']}, action_access: {} }
   boundary.fetch.mockImplementation(async (url: unknown, options: any = {}) => {
     const path = String(url); const method = options.method || 'GET'
     if (path === '/api/orgs/17/members' && method === 'POST' && boundary.failMember) return response({ detail: 'Fixture membership denied' },false)
+    if (path === '/api/permissions') {
+      if (method === 'PUT') permissions = JSON.parse(options.body)
+      return response(permissions)
+    }
     if (method !== 'GET') return response({ status: 'ok' })
+    if (path === '/api/orgs/17/member-candidates') return response(boundary.invalidCandidates ? {} : [{ id: 4, username: 'Unassigned user' }])
     if (path === '/api/users') return response(users)
     if (path === '/api/printers') return response(printers)
     if (path === '/api/orgs' || path === '/api/groups') return response([org])
@@ -100,7 +106,7 @@ it('F11-11.3-05 admin general settings saves exact scheduler configuration throu
   await waitFor(() => expect(calls('/api/config','PUT')).toHaveLength(1)); expect(JSON.parse(calls('/api/config','PUT')[0][1].body)).toEqual({ spoolman_url: 'http://localhost:7912', blackout_start: '22:30', blackout_end: '05:30' })
 })
 it('F11-11.3-05 admin opens SSO configuration controls in actual Access surface', async () => {
-  await settingsAccess(); fireEvent.click(screen.getByRole('button', { name: 'Authentication (OIDC & MFA)', exact: true })); expect(await screen.findByRole('heading', { name: 'Single sign-on', exact: true })).toBeInTheDocument()
+  await settingsAccess(); fireEvent.click(screen.getByRole('button', { name: 'Single sign-on', exact: true })); expect(await screen.findByRole('heading', { name: 'Single sign-on', exact: true })).toBeInTheDocument()
   expect(screen.getByRole('checkbox', { name: /Enable single sign-on/ })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Save configuration' })).toBeInTheDocument()
 })
 it('F11-11.3-05 admin navigates real webhook, branding, license and backup control panels', async () => {
@@ -119,4 +125,33 @@ it('saves the opt-in Perkins setting and school timezone through the real adapte
   fireEvent.click(screen.getByRole('button', {name:'Save Settings'}))
   await waitFor(() => expect(calls('/api/orgs/17/settings','PUT')).toHaveLength(1))
   expect(JSON.parse(calls('/api/orgs/17/settings','PUT')[0][1].body)).toEqual(expect.objectContaining({program_reports_perkins_enabled:true,timezone:'America/New_York'}))
+})
+
+it('keeps the organization card usable when the candidate list has the wrong shape', async () => {
+  boundary.invalidCandidates = true
+  show(<OrgManager />)
+  await screen.findByRole('option', { name: 'Fixture printer' })
+  await waitFor(() => expect(clients[0].getQueryData(['org-member-candidates', org.id])).toEqual({}))
+  const picker = screen.getByRole('combobox', { name: `Add member to ${org.name}` })
+  expect(within(picker).getAllByRole('option')).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'Organization settings' })).toBeEnabled()
+})
+
+it('prevents new Settings grants and lets the administrator remove an existing grant', async () => {
+  await settingsAccess()
+  fireEvent.click(screen.getByRole('button', { name: 'Permissions' }))
+  const operator = await screen.findByRole('switch', { name: 'operator: settings' })
+  expect(screen.getByRole('switch', { name: 'viewer: settings' })).toBeDisabled()
+  expect(operator).toBeChecked()
+  fireEvent.click(operator)
+  expect(operator).not.toBeChecked()
+  expect(operator).toBeEnabled()
+  fireEvent.click(operator)
+  expect(operator).toBeChecked()
+  fireEvent.click(operator)
+  fireEvent.click(screen.getByRole('button', {name: 'Save Changes'}))
+  await screen.findByText('Saved', {exact: true})
+  expect(operator).toBeDisabled()
+  expect(operator).not.toBeChecked()
+  expect(screen.getByText(/Settings is admin-only.*Account/)).toBeVisible()
 })

@@ -5,6 +5,7 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import SessionManager from './SessionManager'
+import ErrorBoundary from '../shared/ErrorBoundary'
 
 // WIRE-BEGIN
 const WIRE: any = {
@@ -55,6 +56,17 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
+it.each([
+  {admin: false, expired: '/api/sessions'},
+  {admin: true, expired: '/api/sessions'},
+  {admin: true, expired: '/api/admin/sessions'},
+])('renders nothing during the login redirect from $expired (admin=$admin)', async ({admin, expired}) => {
+  state.fetch.mockImplementation(async url => String(url) === expired ? respond({}, 401) : respond([]))
+  const {container} = render(<ErrorBoundary><SessionManager admin={admin} /></ErrorBoundary>)
+  await waitFor(() => expect(container).toBeEmptyDOMElement())
+  expect(calls(expired, 'GET')).toHaveLength(1)
+})
+
 it('F11-11.7-02 lists each active session with device, browser, IP and the current-device badge', async () => {
   render(<SessionManager />)
   expect(await screen.findByText('Active Sessions')).toBeInTheDocument()
@@ -82,4 +94,48 @@ it('F11-11.7-03 signs out everywhere else through DELETE /api/sessions and keeps
   await waitFor(() => expect(screen.getAllByText(/on (Desktop|Mobile)/)).toHaveLength(1))
   expect(screen.getByText('This device')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Sign out everywhere else/ })).not.toBeInTheDocument()
+})
+
+it('lists and ends an administrator-visible session through the admin endpoints', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  state.fetch.mockResolvedValueOnce(respond([{...WIRE.sessions_list[1], username: 'Morgan', user_id: 2}]))
+    .mockResolvedValueOnce(respond(state.sessions))
+    .mockResolvedValueOnce(respond({detail: 'Session not found'}, 404))
+    .mockResolvedValueOnce(respond({status: 'ok'}))
+  render(<SessionManager admin />)
+  await screen.findByText('Morgan')
+  expect(screen.getByText('Safari on Mobile')).toBeVisible()
+  expect(screen.getByText(/10\.77\.0\.2.*Last seen/)).toBeVisible()
+  const end = screen.getByRole('button', {name: 'End session for Morgan'})
+  fireEvent.click(end)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Session not found')
+  fireEvent.click(end)
+  expect(await screen.findByText('No active sessions.')).toBeVisible()
+  expect(calls('/api/admin/sessions', 'GET')).toHaveLength(1)
+  expect(calls('/api/admin/sessions/4', 'DELETE')).toHaveLength(2)
+  expect(calls('/api/sessions', 'GET')).toHaveLength(1)
+  expect(calls('/api/sessions/4', 'DELETE')).toHaveLength(0)
+})
+
+it('identifies the current admin session by id and signs out only after confirmed revocation', async () => {
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
+  const location = {pathname: '/settings', href: '/settings'}
+  vi.stubGlobal('location', location)
+  const {is_current, ...row} = WIRE.sessions_list[0]
+  state.fetch.mockResolvedValueOnce(respond([{...row, username: 'Admin'}, {...row, id: 17, username: 'Other'}]))
+    .mockResolvedValueOnce(respond(state.sessions))
+    .mockResolvedValueOnce(respond({detail: 'Session not found'}, 404))
+    .mockResolvedValueOnce(respond({status: 'ok'}))
+  render(<SessionManager admin />)
+  const end = await screen.findByRole('button', {name: 'End session for Admin'})
+  expect(screen.getAllByText('This device')).toHaveLength(1)
+  expect(end.parentElement).toHaveTextContent('This device')
+  fireEvent.click(end)
+  expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/signs? you out/i))
+  expect(calls('/api/admin/sessions/3', 'DELETE')).toHaveLength(0)
+  fireEvent.click(end)
+  await screen.findByRole('alert')
+  expect(location.href).toBe('/settings')
+  fireEvent.click(end)
+  await waitFor(() => expect(location.href).toBe('/login'))
 })

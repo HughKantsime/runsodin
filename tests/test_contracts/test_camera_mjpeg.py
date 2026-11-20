@@ -317,8 +317,9 @@ for scope, expected in [('read:printers',200),('read:jobs',403),('read:cameras',
     raw = 'odin_' + secrets.token_urlsafe(32)
     sql('INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(:u,:n,:h,:p,:s)',
         u=uid,n=scope,h=hash_password(raw),p=raw[:10],s=json.dumps([scope]))
-    r = client().get('/api/cameras/501/mjpeg',headers={'X-API-Key':raw})
-    assert r.status_code == expected, (scope,r.status_code)
+    for headers in ({'X-API-Key':raw}, {'Authorization':'Bearer '+raw}):
+        r = client().get('/api/cameras/501/mjpeg',headers=headers)
+        assert r.status_code == expected, (scope,r.status_code)
 sql('UPDATE printers SET camera_enabled=0 WHERE id=501')
 assert viewer.get('/api/cameras/501/mjpeg').status_code == 404
 assert not mjpeg_relay.STREAMS

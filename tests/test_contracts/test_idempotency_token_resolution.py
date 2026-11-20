@@ -52,8 +52,9 @@ def no_dateutil(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", restricted)
 
 
+@pytest.mark.parametrize("carrier", ["X-API-Key", "Bearer"])
 @pytest.mark.parametrize("shape", ["sqlite_naive", "sqlite_aware", "datetime_naive", "datetime_aware"])
-def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkeypatch, shape):
+def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkeypatch, shape, carrier):
     import core.db as db_mod
 
     client, issue, calls = retry_client
@@ -61,13 +62,15 @@ def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkey
     if shape.endswith("naive"):
         expiry = expiry.replace(tzinfo=None)
     headers = {**issue(["agent:write"], expiry.isoformat(sep=" ")), "Idempotency-Key": "expiry-retry"}
+    if carrier == "Bearer":
+        headers["Authorization"] = "Bearer " + headers.pop("X-API-Key")
     if shape.startswith("datetime"):
         # PostgreSQL returns native datetimes for expires_at; keep the actual
         # SQLite queries and credentials, adapting only the returned value.
         class DatetimeSession(Session):
             def execute(self, statement, *args, **kwargs):
                 result = super().execute(statement, *args, **kwargs)
-                if "FROM api_tokens WHERE token_prefix" in str(statement) and "expires_at" in str(statement):
+                if "FROM api_tokens WHERE token_prefix" in str(statement) and "SELECT *" in str(statement):
                     rows = [SimpleNamespace(**{**row._mapping, "expires_at": expiry}) for row in result.fetchall()]
                     return SimpleNamespace(fetchall=lambda: rows)
                 return result
@@ -83,6 +86,75 @@ def test_expiring_token_replays_without_dateutil(retry_client, review_db, monkey
         assert db.execute(text("SELECT COUNT(*) FROM idempotency_keys")).scalar_one() == 1
 
 
+def test_inactive_owner_cannot_replay(retry_client, review_db):
+    client, issue, calls = retry_client
+    headers = {**issue(["agent:write"]), "Idempotency-Key": "inactive-owner"}
+    assert client.patch("/api/v1/retry-test", headers=headers).status_code == 200
+    review_db.execute(text("UPDATE users SET is_active=0 WHERE id=3"))
+    review_db.commit()
+    assert client.patch("/api/v1/retry-test", headers=headers).status_code == 401
+    assert calls == [3]
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_mixed_credentials_replay_for_the_route_principal(retry_client, expired):
+    from core.auth import create_access_token
+
+    client, issue, calls = retry_client
+    lifetime = timedelta(minutes=-1) if expired else timedelta(hours=1)
+    token = create_access_token({"sub": "student", "role": "viewer"}, expires_delta=lifetime)
+    headers = {**issue(["agent:write"]), "Authorization": "Bearer " + token, "Idempotency-Key": "mixed"}
+    path = "/api/v1/retry-test"
+    assert client.patch(path, headers=headers).status_code == 200
+    replay = client.patch(path, headers=headers)
+    assert replay.status_code == 200 and replay.headers.get("X-Idempotent-Replay") == "true"
+    assert calls == [3 if expired else 1]
+
+
+@pytest.mark.parametrize("restricted_scope,expected", [("read:cameras", 401), ("agent:read", 409)])
+def test_retry_after_scope_reduction(retry_client, review_db, restricted_scope, expected):
+    client, issue, calls = retry_client
+    headers = {**issue(["agent:write"]), "Idempotency-Key": "scope-change"}
+    path = "/api/v1/retry-test"
+    assert client.patch(path, headers=headers).status_code == 200
+    review_db.execute(text("UPDATE api_tokens SET scopes=:s"), {"s": json.dumps([restricted_scope])})
+    review_db.commit()
+    retry = client.patch(path, headers=headers)
+    assert retry.status_code == expected
+    if expected == 409:
+        assert retry.json()["error"]["code"] == "idempotency_authz_changed"
+        fresh = client.patch(path, headers={**headers, "Idempotency-Key": "new-scope"})
+        assert fresh.status_code == 403
+    assert calls == [3]
+
+
+def test_license_lock_refuses_cached_write(retry_client, monkeypatch):
+    from core import license_lock
+    from fastapi.exception_handlers import http_exception_handler
+
+    client, issue, calls = retry_client
+    route_refusals = []
+
+    @client.app.exception_handler(license_lock.LicenseLockError)
+    async def record_route_lock(request, exc):
+        route_refusals.append(request.url.path)
+        return await http_exception_handler(request, exc)
+
+    headers = {**issue(["agent:write"]), "Idempotency-Key": "license-change"}
+    path = "/api/v1/retry-test"
+    assert client.patch(path, headers=headers).status_code == 200
+    monkeypatch.setenv("ODIN_LICENSE_FLEET_LOCK_ENABLED", "1")
+    locked = SimpleNamespace(revision=2, enforcing=True, users=frozenset(), entitlement={})
+    monkeypatch.setattr(license_lock, "snapshot", lambda db, request: locked)
+    for body in (None, {"changed": True}):
+        retry = client.patch(path, headers=headers, json=body)
+        assert retry.status_code == 403
+        assert retry.headers["X-ODIN-License-Lock"] == "license_user_locked"
+        assert "X-Idempotent-Replay" not in retry.headers
+    assert route_refusals == [path, path]
+    assert calls == [3]
+
+
 @pytest.mark.parametrize("expiry", ["2000-01-01 00:00:00", "not-a-date"])
 def test_invalid_expiry_passes_to_route_auth(retry_client, review_db, expiry):
     client, issue, calls = retry_client
@@ -94,9 +166,9 @@ def test_invalid_expiry_passes_to_route_auth(retry_client, review_db, expiry):
         assert db.execute(text("SELECT COUNT(*) FROM idempotency_keys")).scalar_one() == 0
 
 
-@pytest.mark.parametrize("failure", ["token_lookup", "scope_lookup", "user_context", "jwt_lookup", "jwt_decode", "scope_decode", "resolver"])
+@pytest.mark.parametrize("failure", ["token_lookup", "user_context", "jwt_lookup", "jwt_decode", "scope_decode", "resolver"])
 def test_internal_resolution_failure_refuses_write(retry_client, review_db, monkeypatch, caplog, failure):
-    import core.auth as auth
+    import core.dependencies as auth
     import core.db as db_mod
     import core.middleware.idempotency as idem
 
@@ -108,8 +180,8 @@ def test_internal_resolution_failure_refuses_write(retry_client, review_db, monk
     def broken(*args, **kwargs):
         raise RuntimeError(marker)
 
-    needles = {"token_lookup": "SELECT id, user_id, token_hash", "scope_lookup": "SELECT token_hash, scopes",
-               "user_context": "SELECT id, username, role", "jwt_lookup": "FROM token_blacklist"}
+    needles = {"token_lookup": "SELECT * FROM api_tokens",
+               "user_context": "SELECT * FROM users", "jwt_lookup": "FROM token_blacklist"}
     if failure in needles:
         class BrokenSession(Session):
             def execute(self, statement, *args, **kwargs):
@@ -134,7 +206,7 @@ def test_internal_resolution_failure_refuses_write(retry_client, review_db, monk
     assert response.json()["error"]["code"] == "idempotency_unavailable"
     assert response.json()["error"]["retriable"] is True
     assert calls == []
-    assert "RuntimeError" in caplog.text
+    assert ("HTTPException" if failure == "jwt_lookup" else "RuntimeError") in caplog.text
     assert marker not in caplog.text + response.text
     assert all(value not in caplog.text + response.text for key, value in headers.items() if key != "Idempotency-Key")
 

@@ -3,7 +3,6 @@
 from core.rbac import require_scope, handler_enforces_token_scope, require_interactive_session
 
 import json
-import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,14 +16,13 @@ from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.rbac import require_role
 from core.auth import hash_password
-import core.auth as auth_module
+from modules.organizations.password_reset import current_session_jti
 from core.quota import _get_quota_usage
 from core.rate_limit import limiter
 from license_manager import require_feature
 
 from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
 
-log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
@@ -38,17 +36,7 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
         "FROM active_sessions s WHERE s.user_id = :uid ORDER BY s.last_seen_at DESC"),
         {"uid": current_user["id"]}).fetchall()
 
-    current_jti = None
-    session_cookie = request.cookies.get("session")
-    auth_header = request.headers.get("authorization", "")
-    raw_token = session_cookie or (auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else None)
-    if raw_token:
-        try:
-            import jwt as _jwt
-            payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-            current_jti = payload.get("jti")
-        except Exception as e:
-            log.debug(f"Failed to decode session token for current-session check: {e}")
+    current_jti = current_session_jti(request)
 
     return [{
         "id": r.id,
@@ -87,17 +75,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
     """Revoke all sessions except the current one."""
     from core.mfa_login import cancel_pending_enrollments
     cancel_pending_enrollments(db, current_user["id"])
-    current_jti = None
-    session_cookie = request.cookies.get("session")
-    auth_header = request.headers.get("authorization", "")
-    raw_token = session_cookie or (auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else None)
-    if raw_token:
-        try:
-            import jwt as _jwt
-            payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-            current_jti = payload.get("jti")
-        except Exception as e:
-            log.debug(f"Failed to decode session token: {e}")
+    current_jti = current_session_jti(request)
 
     rows = db.execute(text("SELECT token_jti, created_at FROM active_sessions WHERE user_id = :uid"),
                       {"uid": current_user["id"]}).fetchall()
@@ -133,7 +111,7 @@ async def admin_list_sessions(current_user: dict = Depends(require_role("admin")
         rows = db.execute(text(
             "SELECT s.id, s.user_id, u.username, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
             "FROM active_sessions s JOIN users u ON s.user_id = u.id "
-            "WHERE u.group_id = :gid OR u.group_id IS NULL "
+            "WHERE u.group_id = :gid "
             "ORDER BY s.last_seen_at DESC LIMIT 200"),
             {"gid": current_user["group_id"]}).fetchall()
     return [{
@@ -372,7 +350,7 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
     else:
         users = db.execute(text(
             "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users "
-            "WHERE is_active IS TRUE AND (group_id = :gid OR group_id IS NULL)"),
+            "WHERE is_active IS TRUE AND group_id = :gid"),
             {"gid": current_user["group_id"]}).fetchall()
     result = []
     for u in users:
@@ -436,6 +414,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     u = dict(user._mapping)
     u.pop("password_hash", None)
     u.pop("mfa_secret", None)
+    u.pop("mfa_last_totp_step", None)
 
     jobs = [dict(r._mapping) for r in db.execute(text("SELECT * FROM jobs WHERE submitted_by = :uid"), {"uid": user_id}).fetchall()]
     # Queue jobs created by operators need no approval and have no submitted_by.
@@ -500,6 +479,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         {"uid": user_id},
     ).fetchall()]
 
+    from modules.organizations.mfa_recovery import export_codes
     from modules.organizations.education_training_policy import export_training_data
     from modules.organizations.education_roster_privacy import export_roster
     from modules.organizations.education_classes_privacy import export_classes
@@ -530,6 +510,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "active_sessions": sessions_data,
         "alert_preferences": prefs,
         "api_tokens": api_tokens_data,
+        "mfa_recovery_codes": export_codes(db, user_id),
         "quota_usage": quota_data,
         "controlled_part_changes": _rows("SELECT 'file' AS resource_type,file_id AS resource_id,reason FROM controlled_files WHERE changed_by=:uid UNION ALL SELECT 'job' AS resource_type,job_id AS resource_id,reason FROM controlled_jobs WHERE changed_by=:uid"),
         "classroom_identity": classroom_identity,

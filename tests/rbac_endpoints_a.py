@@ -8,6 +8,8 @@ ENDPOINTS = [
     ("POST", "/api/auth/login", {"no_headers": 200, "api_key_only": None, "viewer": None, "operator": None, "admin": None},
      {"username": "x", "password": "x"}, "Login (will 401/422 but won't crash)"),
     ("GET",  "/api/auth/me/theme", _api_read(), None, "Get user theme"),
+    ("POST", "/api/auth/me/password", {"no_headers": 401, "api_key_only": 403, "viewer": 422, "operator": 422, "admin": 422},
+     {}, "Change own password (missing fields leave credentials unchanged)"),
     ("PUT",  "/api/auth/me/theme", _api_read(), {"accent_color": "#ff0000"}, "Set user theme"),
     ("GET",  "/api/auth/me", {"no_headers": 401, "api_key_only": 200, "viewer": 200, "operator": 200, "admin": 200},
      None, "Current user — api_key_only returns null user or 200"),

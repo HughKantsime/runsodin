@@ -105,13 +105,19 @@ def _state_db_cleanup():
         log.debug(f"Failed to clean expired OIDC states: {e}")
 
 
+class MissingDiscoveryAddress(ValueError):
+    """A generic provider has no built-in discovery address."""
+
+
 def effective_discovery_url(discovery_url, provider_type, tenant_id, environment="commercial"):
     """The discovery address a sign-in will contact: the stored one, else the provider preset's.
 
     Shared with the ITAR boot audit so both judge the same address.
     """
-    if discovery_url:
+    if discovery_url and discovery_url.strip():
         return discovery_url
+    if provider_type == "generic":
+        raise MissingDiscoveryAddress("A discovery address is required for a generic OpenID Connect provider")
     if provider_type == "google":
         return "https://accounts.google.com/.well-known/openid-configuration"
     template = OIDCHandler.DISCOVERY_URLS.get(environment, OIDCHandler.DISCOVERY_URLS["commercial"])

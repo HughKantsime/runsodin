@@ -94,3 +94,11 @@ test('browser back closes a reopened drawer', () => {
   act(() => { navigate(-1) })
   expect(drawer()).toHaveAttribute('data-drawer-open', 'false')
 })
+
+test('Account keeps a 44px target in the expanded and collapsed desktop sidebar', () => {
+  show(false)
+  const account = screen.getByRole('link', {name: 'Account'})
+  expect(account).toHaveClass('min-w-11', 'min-h-11')
+  fireEvent.click(screen.getByRole('button', {name: 'Collapse sidebar'}))
+  expect(screen.getByRole('link', {name: 'Account'})).toHaveClass('min-w-11', 'min-h-11')
+})

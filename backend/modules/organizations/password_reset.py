@@ -29,14 +29,18 @@ def reset_mail_base_url(db):
         raise HTTPException(status_code=503,detail='Password reset requires a valid application base URL.') from None
 
 
+def invalidate_reset_links(db, user_id):
+    db.execute(text('UPDATE password_reset_tokens SET used=1 WHERE user_id=:uid AND used=0'),
+               {'uid': user_id})
+
+
 def invalidate_recovery_credentials(db, user_id):
     """Void outstanding reset links and biometric refresh tokens for a user.
 
     Called when the recovery email changes, so a link or long-lived token
     issued against the old address can no longer be redeemed.
     """
-    db.execute(text('UPDATE password_reset_tokens SET used=1 WHERE user_id=:uid AND used=0'),
-               {'uid': user_id})
+    invalidate_reset_links(db, user_id)
     db.execute(text('DELETE FROM biometric_tokens WHERE user_id=:uid'), {'uid': user_id})
 
 
@@ -71,8 +75,8 @@ def current_session_jti(request):
     import jwt as _jwt
     from core import auth as _auth
     cookie = request.cookies.get('session')
-    header = request.headers.get('authorization', '')
-    raw = cookie or (header.split(' ', 1)[1] if header.startswith('Bearer ') else None)
+    from core.auth_headers import bearer_token, jwt_bearer
+    raw = cookie or jwt_bearer(bearer_token(request))
     if not raw:
         return None
     try:

@@ -17,10 +17,9 @@ export function GroupModal({ group, operatorAdmins, onClose, onSave }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSave({
-      ...formData,
-      owner_id: formData.owner_id ? parseInt(formData.owner_id) : null,
-    })
+    const owner = formData.owner_id ? Number(formData.owner_id) : null
+    const { name, description } = formData
+    onSave(group && owner === group.owner_id ? { name, description } : { name, description, owner_id: owner })
   }
 
   return (
@@ -44,6 +43,9 @@ export function GroupModal({ group, operatorAdmins, onClose, onSave }) {
             <label htmlFor={`${fieldId}-owner`} className="block text-sm text-[var(--brand-text-secondary)] mb-1">Owner (approver)</label>
             <select id={`${fieldId}-owner`} value={formData.owner_id} onChange={(e) => setFormData({ ...formData, owner_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)]">
               <option value="">No owner</option>
+              {group?.owner_id && !operatorAdmins?.some(u => u.id === group.owner_id) && (
+                <option value={group.owner_id} disabled>{group.owner_username || 'Current owner'}</option>
+              )}
               {operatorAdmins?.map(u => (
                 <option key={u.id} value={u.id}>{u.username} ({u.role})</option>
               ))}
@@ -78,7 +80,7 @@ export default function GroupManager() {
     enabled: hasUserGroups,
   })
 
-  const operatorAdmins = usersList?.filter(u => u.role === 'operator' || u.role === 'admin') || []
+  const operatorAdmins = usersList?.filter(u => u.is_active && (u.role === 'operator' || u.role === 'admin')) || []
 
   const mutErr = (label) => (err) => toast.error(`${label}: ${err?.message || 'Unknown error'}`)
 

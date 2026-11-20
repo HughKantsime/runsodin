@@ -1,6 +1,6 @@
 """In-process cache of the IP allowlist policy (system_config key ``ip_allowlist``).
 
-The allowlist check runs on every /api request. Reading the policy from the database
+The allowlist check covers both the web app and the API. Reading the policy from the database
 each time opened a connection per request; on SQLite each new connection re-parses the
 whole 2.0 schema. The policy is now cached per database for a short TTL
 (``ODIN_IP_ALLOWLIST_CACHE_SECONDS``, default 2 s, 0 disables the cache, at most 30 s).

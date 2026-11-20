@@ -120,8 +120,10 @@ def test_confirmation_uncertainty_never_returns_full_credentials(enrollment,revi
     assert response.status_code==503
     assert 'access_token' not in response.json()
     assert 'session' not in response.cookies
+    assert 'recovery_codes' not in response.json()
     committed=mode in ('ambiguous_commit','session')
     with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT COUNT(*) FROM mfa_recovery_codes')).scalar_one()==(10 if committed else 0)
         assert bool(fresh.execute(text('SELECT mfa_enabled FROM users WHERE id=1')).scalar_one()) is committed
         assert fresh.execute(text("SELECT COUNT(*) FROM mfa_enrollments WHERE state='consumed'")).scalar_one()==int(committed)
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0

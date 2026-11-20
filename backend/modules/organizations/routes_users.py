@@ -42,7 +42,7 @@ def _check_org_admin_access(current_user: dict, target_group_id, db=None) -> boo
     """Check if an org-scoped admin can manage a user with the given group_id.
 
     Superadmins can manage anyone. Org-scoped admins can only manage users
-    in their own group (or unassigned users visible to all).
+    in their own group.
     """
     if _is_superadmin(current_user):
         return True
@@ -110,10 +110,9 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
     if _is_superadmin(current_user):
         users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id, mfa_enabled FROM users")).fetchall()
     else:
-        # Org-scoped admin: only users in their group (plus unassigned users)
         users = db.execute(text(
             "SELECT id, username, email, role, is_active, last_login, created_at, group_id, mfa_enabled FROM users "
-            "WHERE group_id = :gid OR group_id IS NULL"),
+            "WHERE group_id = :gid"),
             {"gid": current_user["group_id"]}).fetchall()
     return [{**dict(u._mapping), "mfa_enabled": bool(u.mfa_enabled)} for u in users]
 
@@ -376,7 +375,8 @@ _USER_HISTORY_REFERENCES = (
 
 # Credentials and per-user state removed with the account (caller owns the transaction).
 _USER_CREDENTIAL_TABLES = (
-    ("api_tokens", "user_id"), ("mfa_enrollments", "user_id"),
+    ("api_tokens", "user_id"), ("mfa_enrollments", "user_id"), ("mfa_recovery_codes", "user_id"),
+    ("mfa_code_attempts", "user_id"),
     ("password_reset_tokens", "user_id"), ("push_subscriptions", "user_id"),
     ("push_devices", "user_id"), ("biometric_tokens", "user_id"),
     ("alert_preferences", "user_id"), ("alerts", "user_id"),
@@ -528,7 +528,7 @@ async def import_users_csv(
 @router.get("/groups", tags=["Groups"])
 async def list_groups(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
-    if current_user.get("role") == "admin":
+    if _is_superadmin(current_user):
         groups = db.execute(text("""
             SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
                    u.username AS owner_username,
@@ -540,10 +540,10 @@ async def list_groups(current_user: dict = Depends(require_role("operator")), db
         if user_group_id is None:
             return []
         groups = db.execute(text("""
-            SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
+            SELECT g.id, g.name, g.description, u.id AS owner_id, g.created_at, g.updated_at,
                    u.username AS owner_username,
                    (SELECT COUNT(*) FROM users WHERE group_id = g.id) AS member_count
-            FROM groups g LEFT JOIN users u ON u.id = g.owner_id
+            FROM groups g LEFT JOIN users u ON u.id = g.owner_id AND u.group_id = g.id
             WHERE g.id = :gid ORDER BY g.name
         """), {"gid": user_group_id}).fetchall()
     return [dict(g._mapping) for g in groups]
@@ -581,13 +581,14 @@ async def create_group(body: dict, current_user: dict = Depends(require_superadm
 @router.get("/groups/{group_id}", tags=["Groups"])
 async def get_group(group_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
-    if current_user.get("role") != "admin" and current_user.get("group_id") != group_id:
+    if not _check_org_admin_access(current_user, group_id):
         raise HTTPException(status_code=403, detail="Access denied")
     group = db.execute(text("""
-        SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
-               u.username AS owner_username
-        FROM groups g LEFT JOIN users u ON u.id = g.owner_id WHERE g.id = :id
-    """), {"id": group_id}).fetchone()
+        SELECT g.id, g.name, g.description, CASE WHEN :platform THEN g.owner_id ELSE u.id END AS owner_id,
+               g.created_at, g.updated_at, u.username AS owner_username
+        FROM groups g LEFT JOIN users u ON u.id = g.owner_id AND (:platform OR u.group_id = g.id)
+        WHERE g.id = :id
+    """), {"id": group_id, "platform": _is_superadmin(current_user)}).fetchone()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
@@ -595,6 +596,24 @@ async def get_group(group_id: int, current_user: dict = Depends(require_role("op
     result = dict(group._mapping)
     result["members"] = [dict(m._mapping) for m in members]
     return result
+
+
+def write_group_fields(db, group_id, updates, current_user):
+    """Write the caller's allowlisted fields, checking owner eligibility in the same statement."""
+    fields = ("name", "description", "owner_id", "updated_at")
+    set_clause = ", ".join(f"{field} = :{field}" for field in fields if field in updates)
+    statement = f"UPDATE groups SET {set_clause} WHERE id = :id"
+    scoped_owner = updates.get("owner_id") is not None and not _is_superadmin(current_user)
+    if scoped_owner:
+        message = "Choose an active operator or administrator from this group as the owner."
+        owner_id = str(updates["owner_id"])
+        if not re.fullmatch(r"[0-9]{1,19}", owner_id) or int(owner_id) > 2**63 - 1:
+            raise HTTPException(status_code=400, detail=message)
+        statement += (" AND EXISTS (SELECT 1 FROM users WHERE id = :owner_id AND group_id = :id"
+                      " AND is_active IS TRUE AND role IN ('operator', 'admin'))")
+    result = db.execute(text(statement), {**updates, "id": group_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- columns come from the fixed fields tuple and the owner predicate is literal; values are bound
+    if scoped_owner and not result.rowcount:
+        raise HTTPException(status_code=400, detail=message)
 
 
 @router.patch("/groups/{group_id}", tags=["Groups"])
@@ -608,7 +627,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
     ALLOWED_GROUP_FIELDS = {"name", "description", "owner_id"}
     updates = {k: v for k, v in body.items() if k in ALLOWED_GROUP_FIELDS}
 
-    if "owner_id" in updates and updates["owner_id"]:
+    if _is_superadmin(current_user) and updates.get("owner_id"):
         owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active IS TRUE"), {"id": updates["owner_id"]}).fetchone()
         if not owner:
             raise HTTPException(status_code=400, detail="Owner not found")
@@ -617,9 +636,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
 
     if updates:
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-        set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
-        updates["id"] = group_id
-        db.execute(text(f"UPDATE groups SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+        write_group_fields(db, group_id, updates, current_user)
         db.commit()
     return {"status": "updated"}
 

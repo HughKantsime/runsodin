@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from core.auth import verify_password
 from scripts.demo_seed_edu import Persona, personas_from_environment, upsert_personas
 
@@ -26,7 +28,8 @@ def _make_users_db(path):
             role TEXT DEFAULT 'viewer',
             is_active INTEGER DEFAULT 1,
             mfa_enabled INTEGER DEFAULT 0,
-            mfa_secret TEXT
+            mfa_secret TEXT,
+            mfa_last_totp_step INTEGER
         );
         CREATE TABLE printers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,6 +51,9 @@ def test_persona_seed_is_idempotent_and_updates_passwords(tmp_path, capsys):
     ]
     upsert_personas(str(db_path), first)
 
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE users SET mfa_last_totp_step=1000")
+
     second = [
         Persona(person.email, f"second-{person.role}", person.role, no_mfa=True)
         for person in first
@@ -61,7 +67,7 @@ def test_persona_seed_is_idempotent_and_updates_passwords(tmp_path, capsys):
 
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
-        "SELECT username, email, password_hash, role, is_active, mfa_enabled, mfa_secret "
+        "SELECT username, email, password_hash, role, is_active, mfa_enabled, mfa_secret, mfa_last_totp_step "
         "FROM users ORDER BY username"
     ).fetchall()
     conn.close()
@@ -76,7 +82,7 @@ def test_persona_seed_is_idempotent_and_updates_passwords(tmp_path, capsys):
     for email, role in expected_roles.items():
         row = by_email[email]
         assert row[1] == email
-        assert row[3:] == (role, 1, 0, None)
+        assert row[3:] == (role, 1, 0, None, None)
         assert verify_password(f"second-{role}", row[2])
 
 
@@ -93,6 +99,15 @@ def test_persona_seed_rejects_unknown_role_before_writing(tmp_path):
     conn = sqlite3.connect(db_path)
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
     conn.close()
+
+
+def test_persona_seed_requires_totp_step_column(tmp_path):
+    db_path = tmp_path / "odin.db"
+    _make_users_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE users DROP COLUMN mfa_last_totp_step")
+    with pytest.raises(RuntimeError, match="^users table missing required columns: mfa_last_totp_step$"):
+        upsert_personas(str(db_path), [Persona("viewer@school.test", "fixture", "viewer", no_mfa=True)])
 
 
 def test_personas_support_password_files_without_secret_environment(tmp_path, monkeypatch):

@@ -16,13 +16,14 @@ URL = 'https://odin.example.ts.net'
 
 def test_public_origin_host_and_cors(monkeypatch):
     from core import config
-    from core.app import _setup_middleware
+    from core.app import _register_cors, _setup_middleware
     settings = Settings(_env_file=None, trusted_hosts='localhost', cors_origins='http://localhost:3000', odin_public_url=URL+'/')
     assert trusted_hosts(settings) == ['localhost', 'odin.example.ts.net']
     assert cors_origins(settings) == ['http://localhost:3000', URL]
     monkeypatch.setattr(config, 'settings', settings)
     app = FastAPI()
     _setup_middleware(app)
+    _register_cors(app)
     @app.get('/probe')
     def probe():
         return {'ok': True}

@@ -1,4 +1,5 @@
 import React, { StrictMode } from 'react'
+import userEvent from '@testing-library/user-event'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import LoginContinuation, { readLoginAuthority } from './LoginContinuation'
@@ -8,13 +9,16 @@ function start(kind: 'challenge'|'enrollment'='enrollment') {
  vi.stubGlobal('fetch',request)
  render(<StrictMode><LoginContinuation authority={{kind,token:'synthetic-authority'}} onComplete={complete} onRestart={restart}/></StrictMode>)
 }
-const full=()=>response({token_type:'bearer',access_token:'synthetic.'+btoa(JSON.stringify({sub:'teacher',role:'viewer',exp:Date.now()/1000+60}))+'.signature'})
+const full=(extra = {})=>response({...extra,token_type:'bearer',access_token:'synthetic.'+btoa(JSON.stringify({sub:'teacher',role:'viewer',exp:Date.now()/1000+60}))+'.signature'})
 const setup=()=>response({secret:'A'.repeat(32),qr_code:'data:image/png;base64,synthetic',expires_at:Date.now()/1000+60})
 afterEach(()=>{vi.useRealTimers();cleanup();vi.unstubAllGlobals();request.mockReset();complete.mockReset();restart.mockReset()})
 it('sets up once and verifies session before completion',async()=>{
- request.mockResolvedValueOnce(setup()).mockResolvedValueOnce(full()).mockResolvedValueOnce(response({username:'teacher',role:'viewer'}))
+ request.mockResolvedValueOnce(setup()).mockResolvedValueOnce(full({recovery_codes:['example-code']})).mockResolvedValueOnce(response({username:'teacher',role:'viewer'}))
  start();await screen.findByRole('img');expect(request).toHaveBeenCalledTimes(1);expect(complete).not.toHaveBeenCalled()
  fireEvent.change(screen.getByLabelText('Authentication code'),{target:{value:'123456'}});fireEvent.click(screen.getByText('Verify and sign in'))
+ expect(await screen.findByText('example-code')).toBeVisible()
+ expect(complete).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'I saved these'}))
  await waitFor(()=>expect(complete).toHaveBeenCalledTimes(1))
  expect(request).toHaveBeenNthCalledWith(2,'/api/auth/mfa/enrollment/confirm',expect.objectContaining({credentials:'include',headers:expect.objectContaining({Authorization:'Bearer synthetic-authority'})}))
  expect(request).toHaveBeenNthCalledWith(3,'/api/auth/me',expect.anything())
@@ -29,6 +33,17 @@ it('accepts challenge flow without setup',async()=>{
  fireEvent.change(screen.getByLabelText('Authentication code'),{target:{value:'123456'}});fireEvent.click(screen.getByText('Verify and sign in'))
  await waitFor(()=>expect(complete).toHaveBeenCalledTimes(1))
  expect(request).toHaveBeenNthCalledWith(1,'/api/auth/mfa/verify',expect.objectContaining({body:JSON.stringify({mfa_token:'synthetic-authority',code:'123456'})}))
+})
+it('submits all six digits of a pasted authenticator code with whitespace', async () => {
+  const user = userEvent.setup()
+  request.mockResolvedValueOnce(full()).mockResolvedValueOnce(response({username: 'teacher', role: 'viewer'}))
+  start('challenge')
+  await user.click(screen.getByLabelText('Authentication code'))
+  await user.paste(' 012\t345 ')
+  await user.click(screen.getByRole('button', {name: 'Verify and sign in'}))
+  expect(request).toHaveBeenCalledWith('/api/auth/mfa/verify', expect.objectContaining({
+    body: JSON.stringify({mfa_token: 'synthetic-authority', code: '012345'}),
+  }))
 })
 it('rejects ambiguous purposes and missing credentials',()=>{
  expect(()=>readLoginAuthority({mfa_required:true,mfa_setup_required:true,access_token:'synthetic'})).toThrow()
@@ -73,4 +88,26 @@ it('refuses malformed setup without exposing backend detail',async()=>{
  request.mockResolvedValueOnce(response({secret:'sensitive backend detail'}));start()
  expect(await screen.findByRole('alert')).toHaveTextContent('Restart sign-in');expect(screen.queryByRole('img')).not.toBeInTheDocument()
  expect(screen.getByRole('alert')).not.toHaveTextContent('sensitive')
+})
+
+it('retries a recovery-code challenge with the same authority and shows server refusals', async () => {
+  const lock = 'Too many wrong codes. Try again in 12 minutes.'
+  request.mockResolvedValueOnce(response({detail: 'Invalid MFA code'}, 401))
+    .mockResolvedValueOnce(response({detail: lock}, 429))
+    .mockResolvedValueOnce(full()).mockResolvedValueOnce(response({username: 'teacher', role: 'viewer'}))
+  start('challenge')
+  fireEvent.click(screen.getByRole('button', {name: 'Use a recovery code'}))
+  for (const detail of ['Invalid MFA code', lock, null]) {
+    fireEvent.change(screen.getByLabelText('Recovery code'), {target: {value: 'example-code'}})
+    fireEvent.click(screen.getByRole('button', {name: 'Verify and sign in'}))
+    if (detail) {
+      expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+      expect(screen.getByLabelText('Recovery code')).toHaveValue('')
+      expect(complete).not.toHaveBeenCalled()
+    }
+  }
+  await waitFor(() => expect(complete).toHaveBeenCalledOnce())
+  expect(request).toHaveBeenNthCalledWith(3, '/api/auth/mfa/verify', expect.objectContaining({
+    body: JSON.stringify({mfa_token: 'synthetic-authority', recovery_code: 'example-code'}),
+  }))
 })

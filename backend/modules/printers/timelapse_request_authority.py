@@ -1,4 +1,5 @@
 """Capture only the already authenticated request carrier."""
+from core.auth_headers import scoped_token, scoped_token_carrier
 from fastapi import HTTPException
 from fastapi.security.utils import get_authorization_scheme_param
 from core.dependencies import validate_access_token
@@ -15,7 +16,10 @@ def selected_evidence(request,db,principal,*,provider,purpose,query_allowed=Fals
     elif kind=='bearer_jwt':
         scheme,credential=get_authorization_scheme_param(request.headers.get('authorization'));carrier='bearer'
         if scheme.lower()!='bearer':raise HTTPException(401,'Not authenticated')
-    elif kind in ('user_api_token','legacy_global_api_key'):carrier='api_key';credential=request.headers.get('x-api-key')
+    elif kind=='user_api_token':
+        credential=scoped_token(request)
+        carrier=scoped_token_carrier(request)
+    elif kind=='legacy_global_api_key':carrier='api_key';credential=request.headers.get('x-api-key')
     else:raise HTTPException(401,'Unsupported authentication')
     if purpose=='read':
         from core.rbac import has_permission, token_scope_granted

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from '../App'
@@ -113,4 +113,17 @@ test('support bundle refuses duplicate requests while pending and reports a retr
  fireEvent.click(screen.getByRole('button',{name:'Download support bundle'}))
  await waitFor(()=>expect(state.download).toHaveBeenCalledTimes(2))
  await waitFor(()=>expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+})
+
+test('the enrolled user lands on the first shell control after a full-document handoff', () => {
+  const previous = window.history.state
+  window.history.replaceState({mfaCompletion: 'enrolled'}, '')
+  try {
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}})
+    render(<QueryClientProvider client={queryClient}><BrowserRouter><App /></BrowserRouter></QueryClientProvider>)
+    expect(screen.getByRole('link', {name: 'Skip to content'})).toHaveFocus()
+    expect(window.history.state?.mfaCompletion).toBeUndefined()
+  } finally {
+    window.history.replaceState(previous, '')
+  }
 })

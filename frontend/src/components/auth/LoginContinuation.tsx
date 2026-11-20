@@ -1,5 +1,7 @@
+import RecoveryCodes from './RecoveryCodes'
 import { useEffect, useRef, useState } from 'react'
 
+export type MfaCompletion = 'enrolled' | number
 export type LoginAuthority = { kind: 'challenge' | 'enrollment'; token: string }
 export function readLoginAuthority(data: unknown): LoginAuthority | null {
   const value = data as Record<string, unknown> | null
@@ -36,12 +38,20 @@ export async function verifyLoginSession(token?: string) {
       (expected && (user.username !== expected.sub || user.role !== expected.role))) throw new Error('Invalid session')
 }
 
+async function mfaError(response: Response) {
+  if (response.redirected || ![400, 401, 429].includes(response.status)) return null
+  const body = await response.json().catch(() => null)
+  return typeof body?.detail === 'string' ? body.detail : null
+}
+
 type Setup = { qr_code: string; secret: string; expires_at: number }
 export default function LoginContinuation({ authority, onComplete, onRestart }: {
-  authority: LoginAuthority; onComplete: () => Promise<void> | void; onRestart: () => void
+  authority: LoginAuthority; onComplete: (result?: MfaCompletion) => Promise<void> | void; onRestart: () => void
 }) {
   const [setup, setSetup] = useState<Setup | null>(null)
   const [code, setCode] = useState('')
+  const [recovery, setRecovery] = useState(false)
+  const [codes, setCodes] = useState<string[] | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [restart, setRestart] = useState(false)
@@ -59,17 +69,17 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
       method: 'POST', credentials: 'omit', cache: 'no-store', redirect: 'error',
       headers: { Authorization: `Bearer ${authority.token}` },
     }).then(async response => {
-      if (!response.ok || response.redirected) throw new Error('Setup unavailable')
+      if (!response.ok || response.redirected) throw new Error(await mfaError(response) || 'Authenticator setup could not be confirmed. Restart sign-in.')
       const data = await response.json()
       if (typeof data.qr_code !== 'string' || !data.qr_code.startsWith('data:image/png;base64,') ||
           typeof data.secret !== 'string' || !/^[A-Z2-7]{32}$/.test(data.secret) ||
           typeof data.expires_at !== 'number' || !Number.isFinite(data.expires_at) || data.expires_at * 1000 <= Date.now()) {
-        throw new Error('Setup unavailable')
+        throw new Error('Authenticator setup could not be confirmed. Restart sign-in.')
       }
       return data as Setup
     })
-    operation.current.then(data => { if (active) setSetup(data) }).catch(() => {
-      if (active) { setRestart(true); setError('Authenticator setup could not be confirmed. Restart sign-in.') }
+    operation.current.then(data => { if (active) setSetup(data) }).catch((err) => {
+      if (active) { setRestart(true); setError(err.message || 'Authenticator setup could not be confirmed. Restart sign-in.') }
     })
     return () => { active = false }
   }, [authority])
@@ -80,28 +90,47 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
     return () => window.clearTimeout(timer)
   }, [setup])
 
+  const validCode = recovery ? Boolean(code.trim()) : /^[0-9]{6}$/.test(code)
+
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (pending.current || restart || !/^[0-9]{6}$/.test(code) || (authority.kind === 'enrollment' && !setup)) return
+    if (pending.current || restart || !validCode || (authority.kind === 'enrollment' && !setup)) return
     pending.current = true; setBusy(true); setError('')
     try {
       const enrollment = authority.kind === 'enrollment'
       const response = await fetch(enrollment ? '/api/auth/mfa/enrollment/confirm' : '/api/auth/mfa/verify', {
         method: 'POST', credentials: 'include', cache: 'no-store', redirect: 'error',
         headers: { 'Content-Type': 'application/json', ...(enrollment ? { Authorization: `Bearer ${authority.token}` } : {}) },
-        body: JSON.stringify(enrollment ? { code } : { mfa_token: authority.token, code }),
+        body: JSON.stringify(enrollment ? { code } : { mfa_token: authority.token, ...(recovery ? { recovery_code: code.trim() } : { code }) }),
       })
       if (!live.current) return
       if (!response.ok || response.redirected) {
-        if (response.status === 400 && !response.redirected) {
-          setError('That code was not accepted. Check your authenticator and try again.'); setCode(''); return
+        const detail = await mfaError(response)
+        if (detail || response.status === 400) {
+          setError(detail || 'That code was not accepted. Try again.')
+          setCode('')
+          if (response.status === 401 && detail !== 'Invalid MFA code') {
+            setSetup(null)
+            setRestart(true)
+          }
+          return
         }
         throw new Error('Verification unconfirmed')
       }
       const data = await response.json()
       if (typeof data?.access_token !== 'string' || data.token_type !== 'bearer' || readLoginAuthority(data)) throw new Error('Invalid sign-in response')
       await verifyLoginSession(data.access_token)
-      if (live.current) await onComplete()
+      if (!live.current) return
+      setCode('')
+      if (enrollment) {
+        if (!Array.isArray(data.recovery_codes) || !data.recovery_codes.length) throw new Error('Recovery codes unavailable')
+        setSetup(null)
+        setCodes(data.recovery_codes)
+      } else {
+        const remaining = data.recovery_codes_remaining
+        const low = recovery && Number.isInteger(remaining) && remaining >= 0 && remaining <= 3
+        await onComplete(low ? remaining : undefined)
+      }
     } catch {
       if (live.current) { setSetup(null); setCode(''); setRestart(true); setError('Sign-in could not be confirmed. Restart sign-in.') }
     } finally {
@@ -121,6 +150,18 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
     }
     if (live.current) onRestart()
   }
+  if (codes) return <RecoveryCodes codes={codes} onSaved={async () => {
+    setCodes(null)
+    setBusy(true)
+    try {
+      await onComplete('enrolled')
+    } catch {
+      setRestart(true)
+      setError('Sign-in could not be confirmed. Restart sign-in.')
+    } finally {
+      setBusy(false)
+    }
+  }} />
   return <section aria-label="Complete sign-in" className="space-y-4">
     <h2>{authority.kind === 'enrollment' ? 'Set up two-factor authentication' : 'Two-factor authentication'}</h2>
     {error && <p role="alert">{error}</p>}
@@ -132,15 +173,19 @@ export default function LoginContinuation({ authority, onComplete, onRestart }: 
         <p>Setup expires at {new Date(setup.expires_at * 1000).toLocaleTimeString()}.</p>
       </> : <p role="status">Preparing authenticator setup...</p>)}
       <form onSubmit={submit} className="space-y-4">
-        <label htmlFor="continuation-code">Authentication code</label>
-        <input id="continuation-code" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+        <label htmlFor="continuation-code">{recovery ? 'Recovery code' : 'Authentication code'}</label>
+        <input id="continuation-code" autoFocus inputMode={recovery ? 'text' : 'numeric'} autoComplete={recovery ? 'off' : 'one-time-code'} spellCheck={false}
           value={code} disabled={busy || (authority.kind === 'enrollment' && !setup)}
-          onChange={event => setCode(event.target.value.replace(/\D/g, ''))} className="w-full rounded-md p-3 text-black" />
-        <button type="submit" disabled={busy || code.length !== 6 || (authority.kind === 'enrollment' && !setup)}
+          onChange={event => setCode(recovery ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 6))} className="w-full rounded-md p-3 text-black" />
+        <button type="submit" disabled={busy || !validCode || (authority.kind === 'enrollment' && !setup)}
           className="w-full rounded-md p-3" style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)' }}>
           {busy ? 'Verifying...' : 'Verify and sign in'}
         </button>
       </form>
+      {authority.kind === 'challenge' && <button type="button" className="block underline min-h-11" disabled={busy}
+        onClick={() => { setRecovery(!recovery); setCode(''); setError('') }}>
+        {recovery ? 'Use an authenticator code' : 'Use a recovery code'}
+      </button>}
     </>}
     <button type="button" disabled={busy} onClick={cancel} className="underline">{restart ? 'Restart sign-in' : 'Cancel and return to sign in'}</button>
   </section>

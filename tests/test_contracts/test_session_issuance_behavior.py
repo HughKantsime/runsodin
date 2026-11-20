@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.test_mfa_authentication_behavior import mfa_client, enroll, challenge
+from tests.test_contracts.test_mfa_authentication_behavior import mfa_client, enroll, challenge, next_code
 
 # The exchange needs the initiating browser's binding cookie; codes are stored
 # only as sha256(binding:code) (routes_oidc.oidc_code_key).
@@ -34,7 +34,7 @@ def test_mfa_storage_failure_does_not_release_full_session(mfa_client,review_db,
     secret=enroll(mfa_client)
     token=challenge()
     break_session_insert(monkeypatch)
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==503
     assert 'access_token' not in response.json()
     assert 'session' not in response.cookies
@@ -162,7 +162,7 @@ def test_mfa_commit_uncertainty_refuses_token_and_keeps_challenge_consumed(mfa_c
     import pyotp
     secret=enroll(mfa_client);token=challenge()
     break_session_commit(monkeypatch,committed)
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==503
     assert 'access_token' not in response.json()
     assert 'session' not in response.cookies
@@ -279,19 +279,15 @@ def test_mfa_challenge_is_single_use_under_simultaneous_verification(mfa_client,
     from threading import Barrier
     from modules.organizations import routes_auth
     routes_auth.limiter._storage.reset()
-    secret=enroll(mfa_client);token=challenge();code=pyotp.TOTP(secret).now()
+    secret=enroll(mfa_client);token=challenge();code=next_code(pyotp.TOTP(secret))
     barrier=Barrier(2)
-    original=Session.execute
-    def synchronized(self,statement,*args,**kwargs):
-        result=original(self,statement,*args,**kwargs)
-        if str(statement).startswith('SELECT 1 FROM token_blacklist WHERE jti'):
-            rows=result.fetchall()
-            class Buffered:
-                def fetchone(self):return rows[0] if rows else None
-            barrier.wait(timeout=10)
-            return Buffered()
-        return result
-    monkeypatch.setattr(Session,'execute',synchronized)
+    # Both requests have resolved the same challenge owner. Race them at
+    # the user lock: replay and code checks now run inside that lock.
+    lock_user=routes_auth.lock_for_code_check
+    def synchronized(db,user_id):
+        barrier.wait(timeout=10)
+        return lock_user(db,user_id)
+    monkeypatch.setattr(routes_auth,'lock_for_code_check',synchronized)
     def verify(_):
         with TestClient(mfa_client.app,raise_server_exceptions=False) as independent:
             return independent.post('/auth/mfa/verify',json={'mfa_token':token,'code':code})
@@ -315,7 +311,7 @@ def test_mfa_rejects_unbound_challenge(mfa_client,review_db,mode):
     elif mode=='pending_string':payload['mfa_pending']='true'
     elif mode=='setup':payload['mfa_setup_required']=True
     token=jwt.encode(payload,auth.SECRET_KEY,algorithm=auth.ALGORITHM)
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==401
     assert 'access_token' not in response.json()
     with Session(review_db.get_bind()) as fresh:
@@ -332,7 +328,7 @@ def test_mfa_consumption_commit_uncertainty_refuses_full_session(mfa_client,revi
         if committed:original(self)
         raise RuntimeError('synthetic challenge consume commit uncertainty')
     monkeypatch.setattr(Session,'commit',fault)
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==503
     assert 'access_token' not in response.json()
     assert 'session' not in response.cookies
@@ -346,21 +342,24 @@ def test_mfa_expiry_during_totp_verification_refuses_consumption(mfa_client,revi
     from modules.organizations import routes_auth
     from core.auth import create_access_token
     secret=enroll(mfa_client)
+    before=review_db.execute(text("SELECT mfa_last_totp_step FROM users WHERE id=1")).scalar_one()
     token=create_access_token({"sub":"student","role":"viewer","mfa_pending":True},expires_delta=timedelta(minutes=5))
-    original=pyotp.TOTP.verify
+    from modules.organizations import mfa_attempts
+    original=mfa_attempts.consume_totp
     class AfterExpiry(datetime):
         @classmethod
         def now(cls,tz=None):
             return datetime.now(timezone.utc)+timedelta(hours=1)
-    def verifies_then_expires(self,*args,**kwargs):
-        accepted=original(self,*args,**kwargs)
+    def verifies_then_expires(*args,**kwargs):
+        accepted=original(*args,**kwargs)
         monkeypatch.setattr(routes_auth,'datetime',AfterExpiry)
         return accepted
-    monkeypatch.setattr(pyotp.TOTP,'verify',verifies_then_expires)
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    monkeypatch.setattr(mfa_attempts,'consume_totp',verifies_then_expires)
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==401
     assert 'access_token' not in response.json()
     with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT mfa_last_totp_step FROM users WHERE id=1')).scalar_one()==before
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
         assert fresh.execute(text('SELECT COUNT(*) FROM token_blacklist')).scalar_one()==0
 
@@ -378,7 +377,7 @@ def test_mfa_malformed_signed_claims_are_cleanly_refused(mfa_client,review_db,mo
     elif mode=='invalid_subject':payload['sub']={'synthetic':'invalid'}
     token=jwt.encode(payload,auth.SECRET_KEY,algorithm=auth.ALGORITHM)
     with TestClient(mfa_client.app,raise_server_exceptions=False) as client:
-        response=client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+        response=client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==401
     assert 'access_token' not in response.json()
     assert 'session' not in response.cookies

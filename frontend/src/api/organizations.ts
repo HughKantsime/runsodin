@@ -15,6 +15,7 @@ export const orgs = {
   create: (data: OrgCreate): Promise<Organization> => fetchAPI('/orgs', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: OrgUpdate): Promise<Organization> => fetchAPI(`/orgs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI(`/orgs/${id}`, { method: 'DELETE' }),
+  memberCandidates: (orgId: number): Promise<{ id: number; username: string }[]> => fetchAPI(`/orgs/${orgId}/member-candidates`),
   addMember: (orgId: number, userId: number): Promise<unknown> => fetchAPI(`/orgs/${orgId}/members`, {
     method: 'POST', body: JSON.stringify({ user_id: userId })
   }),

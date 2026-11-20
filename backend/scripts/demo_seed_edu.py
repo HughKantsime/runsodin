@@ -68,7 +68,7 @@ def upsert_personas_connection(
         }
     required = {
         "username", "email", "password_hash", "role",
-        "is_active", "mfa_enabled", "mfa_secret",
+        "is_active", "mfa_enabled", "mfa_secret", "mfa_last_totp_step",
     }
     missing = sorted(required - columns)
     if missing:
@@ -88,7 +88,7 @@ def upsert_personas_connection(
                     role = excluded.role,
                     is_active = TRUE,
                     mfa_enabled = FALSE,
-                    mfa_secret = NULL
+                    mfa_secret = NULL, mfa_last_totp_step = NULL
                 """,
                 (persona.email, persona.email, password_hash, persona.role),
             )

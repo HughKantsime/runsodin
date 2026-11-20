@@ -25,7 +25,10 @@ const AVAILABLE_SCOPES = [
 
 export default function APITokenManager() {
   const license = useLicense()
-  const isAdmin = getCurrentUser()?.role === 'admin'
+  const role = getCurrentUser()?.role
+  const isAdmin = role === 'admin'
+  const availableScopes = AVAILABLE_SCOPES.filter(scope =>
+    (scope.value !== 'admin' || isAdmin) && (scope.value !== 'write:production' || isAdmin || role === 'operator'))
   const [educationMode, setEducationMode] = useState(true)
   const [tokens, setTokens] = useState([])
   const [loading, setLoading] = useState(true)
@@ -175,7 +178,7 @@ export default function APITokenManager() {
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Scopes</label>
             <div className="flex flex-wrap gap-2">
-              {AVAILABLE_SCOPES.map(s => (
+              {availableScopes.map(s => (
                 <button
                   key={s.value}
                   type="button"

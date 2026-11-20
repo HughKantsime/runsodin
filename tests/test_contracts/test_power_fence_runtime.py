@@ -368,17 +368,19 @@ def test_unconfirmed_worker_retains_owned_target(runtime, monkeypatch):
         power_fence._uncertain_handles.remove(handle)
 
 
-@pytest.mark.parametrize('carrier', ['bearer', 'session', 'global'])
+@pytest.mark.parametrize('carrier', ['bearer', 'session', 'global', 'personal_bearer'])
 def test_manual_current_selected_carriers(runtime, token_client, monkeypatch, carrier):
     from core.auth import create_access_token
     from modules.printers import routes_smart_plug
     module, engine, calls, workers = runtime
-    client, _ = token_client
+    client, issue = token_client
     client.app.include_router(routes_smart_plug.router)
     headers = {'X-Power-Request-Nonce': 'c' * 32}
     if carrier == 'global':
         monkeypatch.setenv('API_KEY', 'fixture-global-key-not-a-real-credential')
         headers['X-API-Key'] = 'fixture-global-key-not-a-real-credential'
+    elif carrier == 'personal_bearer':
+        headers['Authorization'] = 'Bearer ' + issue(['write:printers'])['X-API-Key']
     else:
         token = create_access_token({'sub': 'admin'})
         if carrier == 'session':
@@ -390,7 +392,7 @@ def test_manual_current_selected_carriers(runtime, token_client, monkeypatch, ca
     assert calls == ['ON']
     with engine.connect() as conn:
         kind = conn.execute(text('SELECT auth_kind FROM power_target_operations')).scalar_one()
-        assert kind == {'bearer':'bearer_jwt','session':'session_jwt','global':'legacy_global_api_key'}[carrier]
+        assert kind == {'bearer':'bearer_jwt','session':'session_jwt','global':'legacy_global_api_key','personal_bearer':'scoped_api_key'}[carrier]
 
 
 def test_revoked_selected_session_cannot_fall_back_to_valid_api_key(runtime, token_client, monkeypatch):

@@ -24,6 +24,7 @@ import core.auth as auth_module
 from core.auth import create_access_token
 from core.config import settings as _settings
 from core.rate_limit import limiter
+from modules.organizations.oidc_handler import MissingDiscoveryAddress, effective_discovery_url
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -348,7 +349,10 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=400, detail="OIDC not configured")
     config = dict(row._mapping)
-    handler = create_handler_from_config(config, _redirect_uri(request))
+    try:
+        handler = create_handler_from_config(config, _redirect_uri(request))
+    except MissingDiscoveryAddress:
+        raise HTTPException(status_code=400, detail="OIDC not configured") from None
     url, state = await handler.get_authorization_url()
     from fastapi.responses import RedirectResponse
     response = RedirectResponse(url=url, status_code=302)
@@ -580,6 +584,9 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
                         error: str = None, error_description: str = None, db: Session = Depends(get_db)):
     try:
         response = await _oidc_callback(request, code, state, error, error_description, db)
+    except MissingDiscoveryAddress:
+        _audit_oidc_failure(db, "oidc_not_configured", request)
+        raise HTTPException(400, "OIDC not configured") from None
     except Exception as exc:
         from core.license_lock import LicenseLockError
         if isinstance(exc, LicenseLockError):
@@ -606,7 +613,6 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     except Exception:
         _audit_oidc_failure(db, "auth_failed", request)
         raise HTTPException(503, "Login temporarily unavailable. Try again later.") from None
-
 
 # ============== Admin OIDC config ==============
 
@@ -657,28 +663,6 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
             {"id": data["default_group_id"]},
         ).fetchone():
             raise HTTPException(status_code=422, detail="OIDC default tenant is invalid")
-    current = db.execute(
-        text(
-            "SELECT auto_create_users, default_role, default_group_id "
-            "FROM oidc_config WHERE id=1"
-        )
-    ).fetchone()
-    effective_auto_create = data.get(
-        "auto_create_users", bool(current.auto_create_users) if current else False
-    )
-    effective_role = data.get(
-        "default_role", current.default_role if current else "viewer"
-    )
-    effective_group = data.get(
-        "default_group_id", current.default_group_id if current else None
-    )
-    if effective_auto_create and (
-        effective_role != "viewer" or effective_group is None
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail="OIDC auto-provisioning requires viewer role and a default tenant",
-        )
     updates = []
     params = {}
     for field in allowed_fields:
@@ -694,6 +678,22 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
         updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE oidc_config SET {', '.join(updates)} WHERE id = 1"
         db.execute(text(query), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+
+    # Validate the merged row before committing, including concurrent partial saves.
+    current = db.execute(text(
+        "SELECT is_enabled, provider_type, discovery_url, tenant_id, auto_create_users, default_role, default_group_id "
+        "FROM oidc_config WHERE id=1"
+    )).fetchone()
+    if current and current.is_enabled:
+        try:
+            effective_discovery_url(current.discovery_url, current.provider_type, current.tenant_id)
+        except MissingDiscoveryAddress as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    if current and current.auto_create_users and (current.default_role != "viewer" or current.default_group_id is None):
+        db.rollback()
+        raise HTTPException(status_code=422, detail="OIDC auto-provisioning requires viewer role and a default tenant")
+    if updates:
         log_audit(db, "oidc_config_updated", "system", details={"fields": list(params.keys())})
         db.commit()
     return {"success": True}

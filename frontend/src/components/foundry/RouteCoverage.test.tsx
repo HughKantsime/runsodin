@@ -16,7 +16,7 @@ it('covers every router entry, standalone route, redirect and catch-all in scree
     ...[...source.matchAll(/location.pathname === '([^']+)'/g)].map(m => m[1]),
   ])].sort()
   expect(routes.map(r => r.route).sort()).toEqual(declared)
-  expect(routes).toHaveLength(37)
+  expect(routes).toHaveLength(38)
   for (const { route } of routes) expect(source).toContain(`<FoundryPage name="${route}">`)
   expect(routes.filter(r => r.finalPath !== r.url).map(r => r.route)).toEqual(['/admin', '/permissions', '/branding'])
 })

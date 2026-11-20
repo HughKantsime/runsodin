@@ -176,6 +176,7 @@ def _resolve_body(body, test_data):
 # them to the non-interactive legacy-API-key admin with 403 "API tokens cannot create or change
 # credentials; sign in with a password session". Asserted explicitly as 403 for api_key_only.
 CREDENTIAL_OPERATIONS = {
+    ("POST", "/api/auth/me/password"),
     ("POST", "/api/audit-logs/initialize-keyring"),
     ("POST", "/api/audit-logs/accept-restore-baseline"),
     ("PUT", "/api/settings/siem/{destination_id}"), ("DELETE", "/api/settings/siem/{destination_id}"),
@@ -217,7 +218,7 @@ LICENSE_GATED = {
     **{route: "user_groups" for route in (
         ("GET", "/api/orgs"), ("POST", "/api/orgs"), ("PATCH", "/api/orgs/{org_id}"),
         ("DELETE", "/api/orgs/{org_id}"), ("POST", "/api/orgs/{org_id}/members"),
-        ("POST", "/api/orgs/{org_id}/printers"),
+        ("GET", "/api/orgs/{org_id}/member-candidates"), ("POST", "/api/orgs/{org_id}/printers"),
         ("GET", "/api/orgs/{org_id}/settings"), ("PUT", "/api/orgs/{org_id}/settings"))},
     ("PATCH", "/api/report-schedules/{schedule_id}"): "email_notifications",
     ("GET", "/api/audit-logs/verify"): "audit_integrity",

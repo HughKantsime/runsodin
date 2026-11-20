@@ -395,10 +395,10 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     **{(m, p): _SELF for m, p in [
         ("PUT", "/api/alert-preferences"),
         ("POST", "/api/auth/biometric-refresh"), ("POST", "/api/auth/biometric-token"), ("DELETE", "/api/auth/biometric-token"),
-        ("POST", "/api/auth/logout"), ("PUT", "/api/auth/me/theme"),
+        ("POST", "/api/auth/logout"), ("POST", "/api/auth/me/password"), ("PUT", "/api/auth/me/theme"),
         ("DELETE", "/api/auth/mfa"), ("POST", "/api/auth/mfa/confirm"), ("POST", "/api/auth/mfa/enrollment/cancel"),
         ("POST", "/api/auth/mfa/enrollment/confirm"), ("POST", "/api/auth/mfa/enrollment/setup"),
-        ("POST", "/api/auth/mfa/setup"), ("POST", "/api/auth/ws-token"),
+        ("POST", "/api/auth/mfa/recovery-codes"), ("POST", "/api/auth/mfa/setup"), ("POST", "/api/auth/ws-token"),
         ("POST", "/api/push/live-activity"), ("PUT", "/api/push/preferences"), ("POST", "/api/push/register"),
         ("DELETE", "/api/push/register/{device_id}"), ("POST", "/api/push/subscribe"), ("DELETE", "/api/push/subscribe"),
         ("DELETE", "/api/sessions"), ("DELETE", "/api/sessions/{session_id}"),

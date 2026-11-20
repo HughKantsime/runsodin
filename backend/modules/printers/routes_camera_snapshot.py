@@ -1,5 +1,6 @@
 """Authenticated same-origin JPEG fallback when WebRTC transport is unavailable."""
 import httpx
+from core.auth_headers import scoped_token
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from core.db import get_db
@@ -92,7 +93,9 @@ async def camera_mjpeg(printer_id: int, request: Request, db: Session = Depends(
         credential = request.cookies.get("session")
     elif auth_kind == "bearer_jwt":
         credential = token
-    elif auth_kind in ("user_api_token", "legacy_global_api_key"):
+    elif auth_kind == "user_api_token":
+        credential = scoped_token(request)
+    elif auth_kind == "legacy_global_api_key":
         credential = request.headers.get("X-API-Key")
     else:
         raise HTTPException(401, "Not authenticated")

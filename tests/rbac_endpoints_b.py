@@ -150,6 +150,7 @@ ENDPOINTS = [
     ("DELETE", "/api/orgs/{org_id}",              _admin_only(), None,                       "Delete org"),
     ("GET",    "/api/orgs/{org_id}/settings",     _admin_only(), None,                       "Get org settings"),
     ("PUT",    "/api/orgs/{org_id}/settings",     _admin_only(), {},                         "Update org settings"),
+    ("GET",    "/api/orgs/{org_id}/member-candidates", _admin_only(), None,                   "List eligible members"),
     ("POST",   "/api/orgs/{org_id}/members",      _admin_only(), {"user_id": 1},             "Add org member"),
     ("POST",   "/api/orgs/{org_id}/printers",     _admin_only(), {"printer_id": 1},          "Add org printer"),
 

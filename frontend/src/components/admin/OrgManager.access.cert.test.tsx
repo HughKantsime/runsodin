@@ -43,6 +43,8 @@ beforeEach(async () => {
     if (method === 'GET') {
       const map: Record<string, any> = { '/api/auth/me': WIRE.auth_me_admin, '/api/permissions': WIRE.permissions, '/api/license': WIRE.license,
         '/api/orgs': WIRE.orgs_list, '/api/users': WIRE.users_list_with_orgs, '/api/printers': WIRE.printers_list, '/api/groups': WIRE.groups_list_with_orgs }
+      if (path === '/api/orgs/3/member-candidates') return respond([{ id: 3, username: 'grp_other_operator' }])
+      if (path === '/api/orgs/4/member-candidates') return respond([{ id: 6, username: 'org_alpha_op' }])
       if (path in map) return respond(map[path])
       if (/settings$/.test(path) && path.startsWith('/api/orgs/')) return respond({})
       return respond(/s$|history|logs|backups|webhooks|schedules|sessions|tokens/.test(path) ? [] : {})
@@ -70,6 +72,15 @@ it('F11-11.5-01/03 creates an organization through POST /api/orgs', async () => 
   fireEvent.click(org.getByRole('button', { name: 'Create' }))
   await waitFor(() => expect(calls('/api/orgs', 'POST')).toHaveLength(1))
   expect(JSON.parse(calls('/api/orgs', 'POST')[0][1].body)).toEqual({ name: 'Org Gamma' })
+})
+
+it('shows the candidates returned for each organization in its own Add member picker', async () => {
+  const org = await organizations()
+  for (const [name, username] of [['Org Alpha', 'grp_other_operator'], ['Org Beta', 'org_alpha_op']]) {
+    const picker = within(org.getByRole('combobox', { name: `Add member to ${name}` }))
+    await picker.findByRole('option', { name: username })
+    expect(picker.getAllByRole('option').map(option => option.textContent)).toEqual(['Add member...', username])
+  }
 })
 
 it('F11-11.5-02 adds a member and assigns a printer through the org endpoints', async () => {

@@ -33,12 +33,12 @@ import threading
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from core.camera_relay_path import RELAY_PATH
 from core.itar import ItarOutboundBlocked, pinned_literal_url
 
 log = logging.getLogger("odin.camera_relay")
 router = APIRouter(include_in_schema=False)
 
-RELAY_PATH = "/internal/camera-source/{printer_id}/{token}"
 _LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
 # Any proxy/CDN marker means the request did not come straight from the relay consumer.
 _FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "via",
@@ -196,7 +196,7 @@ def relay_url(printer_id: int) -> str:
     """URL go2rtc/ffmpeg use for this printer's HTTP camera. The address is checked before
     the token is made: a refused address (RelayUrlRefused) yields no token."""
     base = relay_base_url()
-    return f"{base}/internal/camera-source/{int(printer_id)}/{relay_token(printer_id)}"
+    return base + RELAY_PATH.format(printer_id=int(printer_id), token=relay_token(printer_id))
 
 
 def _trusted_peers() -> set:

@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Login from './Login'
+import MfaSignInNotice from '../../components/auth/MfaSignInNotice'
 
 const WIRE = {
   capabilitiesDisabled: {"smtp_enabled":false},
@@ -52,7 +53,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); sessio
 function mount() {
   render(<MemoryRouter initialEntries={['/login']}><Routes>
     <Route path="/login" element={<Login />} />
-    <Route path="/" element={<p>Signed-in home</p>} />
+    <Route path="/" element={<><p>Signed-in home</p><MfaSignInNotice /></>} />
   </Routes></MemoryRouter>)
 }
 async function signIn() {
@@ -106,14 +107,14 @@ it('F11-11.2-02 MFA challenge accepts only six digits and posts the pending toke
   expect(storageValues()).not.toContain(pending); expect(storageValues()).not.toContain(full)
 })
 
-it('F11-11.2-02 a code rejected by the backend (401 Invalid MFA code) never signs in and requires restart', async () => {
+it('F11-11.2-02 a code rejected by the backend (401 Invalid MFA code) stays on the challenge and shows the server message', async () => {
   routes = { 'GET /api/auth/capabilities': () => [200, WIRE.capabilitiesDisabled],
     'POST /api/auth/login': () => [200, { ...WIRE.loginMfaRequired, access_token: pendingToken() }],
     'POST /api/auth/mfa/verify': () => [401, { detail: 'Invalid MFA code' }] }
   mount(); await signIn()
   fireEvent.change(await screen.findByLabelText('Authentication code'), { target: { value: '000000' } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in could not be confirmed. Restart sign-in.')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid MFA code')
   expect(screen.queryByText('Signed-in home')).not.toBeInTheDocument()
 })
 
@@ -151,4 +152,25 @@ it('F11-11.1-06 a refused reset request (503) is not reported as sent', async ()
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(screen.queryByText('If that email is registered, a reset link has been sent.')).not.toBeInTheDocument()
   expect(await screen.findByRole('alert')).toHaveTextContent(/No reset link was sent/)
+})
+
+it.each([0, 1, 2, 3, 4])('signs in with a recovery code and reports a low remaining count (%i)', async remaining => {
+  routes = {
+    'GET /api/auth/capabilities': () => [200, WIRE.capabilitiesDisabled],
+    'POST /api/auth/login': () => [200, {...WIRE.loginMfaRequired, access_token: pendingToken()}],
+    'POST /api/auth/mfa/verify': () => [200, {...WIRE.mfaVerify, access_token: fullToken(), recovery_codes_remaining: remaining}],
+  }
+  mount()
+  await signIn()
+  fireEvent.click(await screen.findByRole('button', {name: 'Use a recovery code'}))
+  fireEvent.change(screen.getByLabelText('Recovery code'), {target: {value: 'example-code'}})
+  fireEvent.click(screen.getByText('Verify and sign in'))
+  await screen.findByText('Signed-in home')
+  if (remaining === 4) {
+    expect(screen.queryByRole('status')).toBeNull()
+  } else {
+    expect(screen.getByRole('status')).toHaveTextContent(remaining === 0 ? 'no recovery codes remaining' :
+      `${remaining} recovery ${remaining === 1 ? 'code' : 'codes'} remaining`)
+    expect(screen.getByRole('link', {name: /Account/})).toHaveAttribute('href', '/account')
+  }
 })

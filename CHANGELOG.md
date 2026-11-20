@@ -15,6 +15,17 @@ All notable changes to O.D.I.N. are documented here.
 - Moonraker controls now show when a pause, resume, or stop takes effect and alert you if the printer takes too long to confirm. Kobra S1 controls show which actions still need verification.
 ### Fixed
 - Jobs with alerts or recorded filament use can now be deleted on older installations. Deleting a job removes its alerts and keeps its filament usage history.
+- Each authenticator code can be used once. If you just used a code to set up your authenticator or sign in, wait for the next code.
+- You can change your password on the Account page. Your current device stays signed in and your other devices are signed out.
+- Open Account to manage two-factor authentication, recovery codes, personal API tokens and signed-in devices. You can use a recovery code at sign-in. Administrators can end sessions from Settings > Access > Sessions.
+- After five wrong authenticator or recovery codes within 15 minutes, your account pauses code checks for 15 minutes. This applies when signing in, turning off MFA, or replacing recovery codes.
+- The MFA API now gives you ten single-use recovery codes when you set up an authenticator. You can use a saved code to sign in or remove a lost authenticator. If you already use MFA, you can generate a set with your authenticator.
+- API clients can now send a personal API token in the `Authorization: Bearer` header. The token keeps the same permissions and expiry as when sent in `X-API-Key`.
+- Organization administrators can view only their own group and choose its owner from the group’s active operators and administrators. Group members see the owner’s identity only when the owner belongs to their group.
+- The Add member picker shows people you can add to each organization.
+- Organization administrators now see only their own members in the user, session and print quota lists.
+- Generic OpenID Connect sign-in now requires a discovery address. A missing address no longer sends users to Microsoft.
+- The IP allowlist now protects web pages and static files as well as the API. Health checks and browser preflight requests remain available.
 
 ## [2.4.0] - 2026-11-18
 

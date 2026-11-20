@@ -9,7 +9,7 @@ vi.mock('../../LicenseContext',()=>({useLicense:()=>({hasFeature:()=>api.hasGrou
 beforeEach(()=>{
  api.hasGroups=true
  api.groupList.mockResolvedValue([{id:7,name:'Synthetic class',description:'Synthetic group',owner_id:2,owner_username:'Synthetic operator',member_count:3}])
- api.userList.mockResolvedValue([{id:2,username:'Synthetic operator',role:'operator'},{id:3,username:'Synthetic admin',role:'admin'},{id:4,username:'Synthetic viewer',role:'viewer'}])
+ api.userList.mockResolvedValue([{id:2,username:'Synthetic operator',role:'operator',is_active:true},{id:3,username:'Synthetic admin',role:'admin',is_active:true},{id:4,username:'Synthetic viewer',role:'viewer',is_active:true},{id:5,username:'Inactive operator',role:'operator',is_active:false}])
  api.create.mockResolvedValue({});api.update.mockResolvedValue({});api.remove.mockResolvedValue({})
  api.quotaList.mockResolvedValue([{user_id:9,username:'Synthetic student',quota_jobs:10,quota_grams:100,quota_hours:5,quota_period:'monthly',usage:{jobs_used:2,grams_used:20,hours_used:1}}])
  api.quotaSet.mockResolvedValue({})
@@ -24,7 +24,7 @@ test('F11-11.4-01 group table renders owner and membership count; edit saves fix
  const dialog=screen.getByRole('dialog',{name:'Edit Group'})
  fireEvent.change(within(dialog).getByPlaceholderText("e.g. Mrs. Smith's Class"),{target:{value:'Synthetic renamed'}})
  fireEvent.click(within(dialog).getByRole('button',{name:'Save Changes'}))
- await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(7,{name:'Synthetic renamed',description:'Synthetic group',owner_id:2}))
+ await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(7,{name:'Synthetic renamed',description:'Synthetic group'}))
  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })
 test('F11-11.4-02 owner options exclude viewer and creation serializes selected approver id',async()=>{
@@ -77,4 +77,30 @@ test('F12-12.7-05 group Name label is associated with its input',async()=>{
  mountGroup();await screen.findByText('Synthetic class')
  fireEvent.click(screen.getByRole('button',{name:'New Group'}))
  expect(within(screen.getByRole('dialog')).queryByRole('textbox',{name:'Name',exact:true})).toBeInTheDocument()
+})
+
+test('a group can be renamed when its current owner is outside the available choices',async()=>{
+ api.groupList.mockResolvedValue([{id:7,name:'Synthetic class',owner_id:8,owner_username:'Existing owner'}])
+ mountGroup();await screen.findByText('Synthetic class')
+ fireEvent.click(screen.getByTitle('Edit'))
+ const dialog=screen.getByRole('dialog',{name:'Edit Group'})
+ expect(within(dialog).getByRole('option',{name:'Existing owner'})).toBeDisabled()
+ expect(within(dialog).getByRole('combobox')).toHaveValue('8')
+ fireEvent.change(within(dialog).getByLabelText('Name'),{target:{value:'New class name'}})
+ fireEvent.click(within(dialog).getByRole('button',{name:'Save Changes'}))
+ await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(7,{name:'New class name',description:''}))
+})
+
+test.each([false, true])('editing a group with a hidden owner (replace owner: %s)',async replaceOwner=>{
+ api.groupList.mockResolvedValue([{id:7,name:'Synthetic class',owner_id:null,owner_username:null}])
+ mountGroup();await screen.findByText('Synthetic class')
+ fireEvent.click(screen.getByTitle('Edit'))
+ const dialog=within(screen.getByRole('dialog',{name:'Edit Group'}))
+ const owner=dialog.getByRole('combobox')
+ expect(owner).toHaveValue('')
+ fireEvent.change(dialog.getByLabelText('Name'),{target:{value:'Renamed'}})
+ if(replaceOwner) fireEvent.change(owner,{target:{value:'2'}})
+ fireEvent.click(dialog.getByRole('button',{name:'Save Changes'}))
+ const fields={name:'Renamed',description:''}
+ await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(7,replaceOwner?{...fields,owner_id:2}:fields))
 })

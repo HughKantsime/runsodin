@@ -114,3 +114,12 @@ def test_boot_audit_keeps_the_idp_allowance(monkeypatch):
     monkeypatch.setattr(itar, "allowed_idp_hosts", lambda: frozenset({"login.microsoftonline.us"}))
     stored = "https://login.microsoftonline.us/abc/v2.0/.well-known/openid-configuration"
     assert stored not in _collect(monkeypatch, _Db(oidc=[(stored, "microsoft", "abc")]))
+
+
+def test_boot_audit_warns_and_continues_for_generic_provider_without_discovery(monkeypatch, caplog):
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    rows = [(None, "generic", "unused"), ("https://127.0.0.1/discovery", "generic", None)]
+    urls = _collect(monkeypatch, _Db(oidc=rows))
+    assert urls == ["https://127.0.0.1/discovery"]
+    assert "oidc_config.discovery_url" in caplog.text
+    itar.enforce_boot_config(urls)

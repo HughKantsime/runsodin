@@ -39,13 +39,13 @@ GUARDED_TABLES = frozenset({
     "oidc_config", "oidc_auth_codes", "password_reset_tokens",
     # Google Classroom OAuth client secret / refresh and access tokens, pending OAuth
     # states, and MFA enrolment secrets.
-    "classroom_connections", "classroom_oauth_states", "mfa_enrollments",
+    "classroom_connections", "classroom_oauth_states", "mfa_enrollments", "mfa_recovery_codes", "mfa_code_attempts",
     "education_roster_connections", "education_roster_identities", "education_roster_receipts",
     "education_roster_grant_links", "education_roster_tombstones",
 })
 # users: only credential / account-recovery columns (role, is_active, group_id, theme stay writable).
 USERS_CREDENTIAL_COLUMNS = frozenset({
-    "email", "username", "password_hash", "mfa_enabled", "mfa_secret",
+    "email", "username", "password_hash", "mfa_enabled", "mfa_secret", "mfa_last_totp_step",
     "oidc_issuer", "oidc_subject", "oidc_provider",
 })
 # system_config keys that carry credential, transport or setup material.

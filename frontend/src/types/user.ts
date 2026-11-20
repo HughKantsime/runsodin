@@ -12,6 +12,7 @@ export interface User {
   group_id?: number | null;
   org_id?: number | null;
   mfa_enabled?: boolean;
+  has_local_password?: boolean;
   [key: string]: unknown;
 }
 
@@ -52,11 +53,12 @@ export interface LoginResponse {
 
 export interface MfaSetupResponse {
   secret: string;
-  qr_uri: string;
+  qr_code: string;
+  provisioning_uri: string;
 }
 
 export interface MfaStatus {
-  enabled: boolean;
+  mfa_enabled: boolean;
 }
 
 export interface WsTokenResponse {
@@ -75,12 +77,16 @@ export interface AuthCapabilities {
 
 export interface Session {
   id: number;
-  user_id: number;
   ip_address: string | null;
   user_agent: string | null;
   created_at: string;
-  last_active: string | null;
+  last_seen_at: string | null;
   is_current: boolean;
+}
+
+export interface AdminSession extends Omit<Session, 'is_current'> {
+  user_id: number;
+  username: string;
 }
 
 // ---- API Token ----

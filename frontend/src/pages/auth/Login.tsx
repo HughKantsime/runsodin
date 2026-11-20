@@ -100,7 +100,10 @@ const handleSubmit = async (e) => {
 
           {authority ? (
             <LoginContinuation authority={authority}
-              onComplete={async () => { await refreshPermissions(); navigate('/') }}
+              onComplete={async mfaCompletion => {
+                await refreshPermissions()
+                navigate('/', { state: { mfaCompletion } })
+              }}
               onRestart={() => { setAuthority(null); setError('') }} />
           ) : (
             /* Normal Login Form */

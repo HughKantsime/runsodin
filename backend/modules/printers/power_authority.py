@@ -1,4 +1,5 @@
 """Private selected-carrier authority for explicit plug requests; no fallback."""
+from core.auth_headers import scoped_token
 from dataclasses import dataclass, field, replace
 import hmac
 import os
@@ -87,7 +88,9 @@ def capture(engine, request, principal, printer_id, purpose):
     elif kind == 'bearer_jwt':
         parts = request.headers.get('Authorization', '').split()
         credential = parts[1] if len(parts) == 2 and parts[0].lower() == 'bearer' else ''
-    elif kind in ('scoped_api_key', 'legacy_global_api_key'):
+    elif kind == 'scoped_api_key':
+        credential = scoped_token(request)
+    elif kind == 'legacy_global_api_key':
         credential = request.headers.get('X-API-Key', '')
     else:
         raise ValueError('Selected power credential is required')

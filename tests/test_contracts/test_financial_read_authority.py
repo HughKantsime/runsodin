@@ -22,9 +22,12 @@ def read_route(creators):
 @pytest.mark.parametrize('scopes,status',[(['read'],200),(['read','read:spools'],200),(['admin'],200),(['read:spools'],403),(['read:jobs'],403),(['write'],403)])
 def test_actual_hashed_key_requires_both_current_read_permissions(read_route,scopes,status):
     client,_,token=read_route
-    result=client.get('/api/owned-financial-authority',headers=token(scopes))
-    assert result.status_code==status,result.text
-    if status==200:assert result.json()['kind']=='user_api_token'
+    key = token(scopes)
+    for headers in (key, {'Authorization': 'Bearer ' + key['X-API-Key']}):
+        result = client.get('/api/owned-financial-authority', headers=headers)
+        assert result.status_code == status
+        if status == 200:
+            assert result.json()['kind'] == 'user_api_token'
 
 
 def test_actual_jwt_uses_current_org_and_platform_identity(read_route):

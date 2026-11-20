@@ -1,18 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ShieldCheck, ShieldOff, Loader2, Copy, CheckCircle, AlertTriangle } from 'lucide-react'
+import { ShieldCheck, Loader2, Copy, CheckCircle, AlertTriangle } from 'lucide-react'
+import { flushSync } from 'react-dom'
+import RecoveryCodes from './RecoveryCodes'
 import { auth } from '../../api'
 
 export default function MFASetup({ principalKey }: { principalKey?: string | number } = {}) {
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
+  const [redirecting, setRedirecting] = useState(false)
   const [setupData, setSetupData] = useState(null)
   const [confirmCode, setConfirmCode] = useState('')
-  const [disableCode, setDisableCode] = useState('')
+  const [codes, setCodes] = useState<string[] | null>(null)
+  const [remaining, setRemaining] = useState<number | null>(null)
+  const [replacing, setReplacing] = useState(false)
+  const [accountCode, setAccountCode] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [secretCopied, setSecretCopied] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
+  const regenerateButton = useRef<HTMLButtonElement>(null)
   const mounted = useRef(false)
   const statusGeneration = useRef(0)
   const statusInFlight = useRef(false)
@@ -25,11 +32,32 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setError('')
     try {
       const data = await auth.mfaStatus()
+      if (!mounted.current || generation !== statusGeneration.current) return
+      if (data === undefined) {
+        setRedirecting(true)
+        return
+      }
       if (typeof data?.mfa_enabled !== 'boolean') throw new Error('Invalid MFA status')
-      if (mounted.current && generation === statusGeneration.current) setMfaEnabled(data.mfa_enabled)
-    } catch {
+      setMfaEnabled(data.mfa_enabled)
+      if (data.mfa_enabled) {
+        try {
+          const status = await auth.recoveryStatus()
+          if (!mounted.current || generation !== statusGeneration.current) return
+          if (status === undefined) {
+            setRedirecting(true)
+            return
+          }
+          setRemaining(status.remaining)
+        } catch (err) {
+          if (mounted.current && generation === statusGeneration.current) {
+            setError(err instanceof Error ? err.message : 'Unable to load the number of recovery codes.')
+          }
+        }
+      }
+    } catch (err) {
       if (mounted.current && generation === statusGeneration.current) {
-        setError('Unable to load MFA status. Retry before making changes.')
+        const serverRefusal = err instanceof Error && 'status' in err && [400, 401, 429].includes(Number(err.status))
+        setError(serverRefusal ? err.message : 'Unable to load MFA status. Retry before making changes.')
       }
     } finally {
       if (generation === statusGeneration.current) {
@@ -41,9 +69,13 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
 
   useEffect(() => {
     mounted.current = true
+    setRedirecting(false)
     setSetupData(null)
+    setCodes(null)
+    setRemaining(null)
+    setReplacing(false)
     setConfirmCode('')
-    setDisableCode('')
+    setAccountCode('')
     setSuccess('')
     loadStatus()
     return () => {
@@ -59,6 +91,10 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setActionLoading(true)
     try {
       const data = await auth.mfaSetup()
+      if (data === undefined) {
+        setRedirecting(true)
+        return
+      }
       setSetupData(data)
     } catch (err: any) {
       setError(err.message || 'Failed to start MFA setup')
@@ -72,7 +108,13 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     setError('')
     setActionLoading(true)
     try {
-      await auth.mfaConfirm(confirmCode)
+      const issued = await auth.mfaConfirm(confirmCode)
+      if (issued === undefined) {
+        setRedirecting(true)
+        return
+      }
+      setCodes(issued.recovery_codes)
+      setRemaining(issued.recovery_codes.length)
       setMfaEnabled(true)
       setSetupData(null)
       setConfirmCode('')
@@ -84,18 +126,27 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     }
   }
 
-  const handleDisable = async (e: React.FormEvent) => {
+  const handleAccountCode = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setSuccess('')
     setActionLoading(true)
     try {
-      await auth.mfaDisable(disableCode)
-      setMfaEnabled(false)
-      setDisableCode('')
-      setSuccess('MFA disabled')
+      if (replacing) {
+        const issued = await auth.regenerateCodes(accountCode.replace(/\s/g, ''))
+        setCodes(issued.recovery_codes)
+        setRemaining(issued.recovery_codes.length)
+        setReplacing(false)
+      } else {
+        await auth.mfaDisable(accountCode)
+        setMfaEnabled(false)
+        setRemaining(null)
+        setSuccess('MFA disabled')
+      }
     } catch (err: any) {
       setError(err.message || 'Invalid code')
     } finally {
+      setAccountCode('')
       setActionLoading(false)
     }
   }
@@ -108,6 +159,7 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
     }
   }
 
+  if (redirecting) return null
   if (loading) return <p role="status">Loading MFA status...</p>
   if (mfaEnabled === null) return (
     <div>
@@ -132,7 +184,7 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
+        <div role="alert" className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
@@ -142,33 +194,34 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
         </div>
       )}
 
-      {mfaEnabled && !setupData ? (
-        /* MFA is enabled — show disable form */
-        <div>
-          <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
-            Your account is protected with two-factor authentication.
-          </p>
-          <form onSubmit={handleDisable} className="flex items-end gap-3">
-            <div className="flex-1">
-              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Enter code to disable MFA</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                value={disableCode}
-                onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-2 text-sm font-mono tracking-widest"
-                placeholder="000000"
-              />
+      {codes ? <RecoveryCodes codes={codes} onSaved={() => {
+        flushSync(() => setCodes(null))
+        regenerateButton.current?.focus()
+      }} /> : mfaEnabled && !setupData ? (
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--brand-text-secondary)]">Your account is protected with two-factor authentication.</p>
+          {remaining !== null ? <>
+            <p>{remaining} recovery {remaining === 1 ? 'code' : 'codes'} remaining.</p>
+            {remaining <= 3 && <p role="status">{remaining === 0 ? 'You have no recovery codes left.' : 'Your recovery codes are running low.'} Generate a new set while you still have access.</p>}
+          </> : <button type="button" className="underline" onClick={loadStatus}>Retry recovery code count</button>}
+          {!replacing && <button ref={regenerateButton} type="button" className="underline min-h-11" disabled={actionLoading}
+            onClick={() => { setReplacing(true); setAccountCode(''); setError(''); setSuccess('') }}>Regenerate recovery codes</button>}
+          {replacing && <p>Generating a new set will invalidate all your old recovery codes.</p>}
+          <form onSubmit={handleAccountCode} className="space-y-2">
+            <label htmlFor="account-mfa-code" className="block text-sm">
+              Enter an authenticator or recovery code to {replacing ? 'generate a new set' : 'disable MFA'}
+            </label>
+            <input id="account-mfa-code" type="text" autoComplete="off" spellCheck={false}
+              value={accountCode} onChange={e => setAccountCode(e.target.value)}
+              className="w-full rounded border border-[var(--brand-card-border)] bg-[var(--brand-input-bg)] px-3 py-2 font-mono" />
+            <div className="flex flex-wrap gap-3">
+              <button type="submit" disabled={actionLoading || !accountCode.trim()}
+                className="rounded px-4 py-2 bg-[var(--brand-primary)] text-[var(--brand-on-primary)] disabled:opacity-50">
+                {replacing ? 'Generate new codes' : 'Disable MFA'}
+              </button>
+              {replacing && <button type="button" disabled={actionLoading} className="underline"
+                onClick={() => { setReplacing(false); setAccountCode(''); setError('') }}>Cancel</button>}
             </div>
-            <button
-              type="submit"
-              disabled={actionLoading || disableCode.length !== 6}
-              className="flex items-center gap-2 px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm disabled:opacity-50"
-            >
-              <ShieldOff size={16} />
-              {actionLoading ? 'Disabling...' : 'Disable MFA'}
-            </button>
           </form>
         </div>
       ) : setupData ? (
@@ -188,11 +241,12 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
               </button>
             </div>
           </div>
-          <form onSubmit={handleConfirm} className="flex items-end gap-3">
+          <form onSubmit={handleConfirm} className="flex flex-wrap items-end gap-3">
             <div className="flex-1">
-              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Verification code</label>
+              <label htmlFor="mfa-setup-code" className="block text-sm text-[var(--brand-text-secondary)] mb-1">Verification code</label>
               <input
                 type="text"
+                id="mfa-setup-code"
                 inputMode="numeric"
                 maxLength={6}
                 value={confirmCode}
