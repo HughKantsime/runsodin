@@ -429,7 +429,7 @@ class PrinterVisionThread(threading.Thread):
         if (self.settings.get('auto_pause', 0)
                 and detection_type in ('spaghetti', 'first_layer', 'detachment')
                 and is_printing_state(self.gcode_state)):
-            self._auto_pause()
+            self._auto_pause(detection_id)
 
     def _training_capture_allowed(self) -> bool:
         """No training frame is written for controlled work.
@@ -674,7 +674,7 @@ class PrinterVisionThread(threading.Thread):
             log.error(f"Failed to insert detection: {e}")
             return None
 
-    def _auto_pause(self):
+    def _auto_pause(self, detection_id=None):
         """Pause only with positive running telemetry, using the appropriate adapter."""
         minimum = self.settings.get('auto_pause_min_frames', AUTO_PAUSE_MIN_FRAMES)
         if type(minimum) is not int or minimum < AUTO_PAUSE_MIN_FRAMES:
@@ -698,10 +698,11 @@ class PrinterVisionThread(threading.Thread):
             success = False
 
             if api_type == 'moonraker':
-                from modules.printers.adapters.moonraker import MoonrakerPrinter
-                adapter = MoonrakerPrinter(api_host)
-                if self._live_printing():
-                    success = adapter.pause_print()
+                from modules.printers.services import automatic_moonraker_pause
+                outcome = automatic_moonraker_pause(engine, self.printer_id, self._live_printing, detection_id)
+                if outcome in ("pending", "skipped", "unavailable"):
+                    return
+                success = outcome == "confirmed"
 
             elif api_type == 'bambu':
                 from core.crypto import decrypt
@@ -770,10 +771,11 @@ class PrinterVisionThread(threading.Thread):
                 log.info(f"[{self.printer_name}] Auto-paused printer")
                 # Update gcode_state in DB
                 with engine.begin() as conn3:
-                    conn3.execute(
-                        text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :pid"),
-                        {"pid": self.printer_id}
-                    )
+                    if api_type != 'moonraker':
+                        conn3.execute(
+                            text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :pid"),
+                            {"pid": self.printer_id}
+                        )
                     # Update detection status
                     conn3.execute(
                         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragment is the constant NOT_PRINTER_SOURCE_SQL; the printer id is bound

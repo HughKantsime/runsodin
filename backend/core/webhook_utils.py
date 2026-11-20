@@ -808,10 +808,31 @@ class _NoRedirect(_urllib_request.HTTPRedirectHandler):
         return None
 
 
-def device_urlopen(request, timeout=None):
+class DeviceConnectFailed(Exception):
+    """The HTTP connection failed before the client could send request bytes."""
+
+
+class _ControlHTTPHandler(_urllib_request.HTTPHandler):
+    def http_open(self, request):
+        from http.client import HTTPConnection
+
+        class Connection(HTTPConnection):
+            def connect(self):
+                try:
+                    super().connect()
+                except OSError as exc:
+                    raise DeviceConnectFailed from exc
+
+        return self.do_open(Connection, request)
+
+
+def device_urlopen(request, timeout=None, *, classify_connect=False):
     """urllib open for a device URL: policy-validated, pinned, no redirect, no proxy."""
     url = request.full_url if isinstance(request, _urllib_request.Request) else request
-    opener = _urllib_request.build_opener(_urllib_request.ProxyHandler({}), _NoRedirect())
+    handlers = [_urllib_request.ProxyHandler({}), _NoRedirect()]
+    if classify_connect:
+        handlers.append(_ControlHTTPHandler())
+    opener = _urllib_request.build_opener(*handlers)
     with pinned_device_destination(url):
         return opener.open(request, timeout=timeout)
 

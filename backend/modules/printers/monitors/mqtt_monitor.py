@@ -13,6 +13,7 @@ sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 
 import time
 import signal
+import threading
 import logging
 from typing import Dict
 
@@ -25,7 +26,7 @@ from modules.printers.monitors.mqtt_printer import PrinterMonitor
 
 # Moonraker support (Klipper printers like Kobra S1 w/ Rinkhals)
 try:
-    from moonraker_monitor import MoonrakerMonitor
+    from moonraker_monitor import MoonrakerMonitor, start_control_deadlines
     MOONRAKER_AVAILABLE = True
 except ImportError:
     MOONRAKER_AVAILABLE = False
@@ -163,6 +164,9 @@ class MQTTMonitorDaemon:
             self._command_server = None
             log.warning("Monitor command channel unavailable (%s)", type(exc).__name__)
         self._running = True
+        if MOONRAKER_AVAILABLE:
+            self._deadline_stop = threading.Event()
+            start_control_deadlines(self._deadline_stop)
         from core import license_lock
         licensed = license_lock.enabled()
         if licensed:
@@ -470,6 +474,8 @@ class MQTTMonitorDaemon:
     def stop(self):
         """Stop all monitors."""
         self._running = False
+        if getattr(self, "_deadline_stop", None) is not None:
+            self._deadline_stop.set()
         server = getattr(self, "_command_server", None)
         if server is not None:
             server.close()

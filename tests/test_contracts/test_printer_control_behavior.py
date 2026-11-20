@@ -62,7 +62,7 @@ def test_foreign_control_has_no_transport_or_state_effect(control_client,review_
     assert review_db.execute(text('SELECT gcode_state FROM printers WHERE id=299')).scalar_one()=='RUNNING'
 
 
-@pytest.mark.parametrize('protocol,command', [('bambu','stop_print'),('moonraker','cancel_print'),('prusalink','stop_print'),('elegoo','stop_print')])
+@pytest.mark.parametrize('protocol,command', [('bambu','stop_print'),('prusalink','stop_print'),('elegoo','stop_print')])
 @pytest.mark.parametrize('accepted',[True,False])
 def test_stop_protocol_command_and_database_outcome(control_client,review_db,monkeypatch,protocol,command,accepted):
     from modules.printers import routes_controls

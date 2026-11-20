@@ -106,3 +106,65 @@ it('does not accept an empty command response as confirmed', async () => {
  fireEvent.click(screen.getByRole('button', { name: 'Confirm Stop', exact: true }))
  expect(await screen.findByRole('status')).toHaveTextContent('Command not confirmed')
 })
+
+it('shows the Moonraker receipt and keeps Stop available while Pause awaits confirmation', async () => {
+ const printer = { id: 199, name: 'Test printer', api_type: 'moonraker', gcode_state: 'RUNNING', last_seen: new Date().toISOString(), unproven_controls: ['pause', 'stop'] }
+ state.fetch.mockImplementation(async (path: string) => path === '/printers' ? [printer] : {
+   success: true, message: 'Pause sent. Waiting for the printer to confirm.', outcome: 'pending',
+   pending_control: { action: 'pause', sent_at: printer.last_seen, deadline_at: new Date(Date.now() + 30000).toISOString() },
+ })
+ render(<EmergencyStop />)
+ fireEvent.click(await screen.findByRole('button', { name: 'Emergency controls, 1 active prints' }))
+ fireEvent.click(screen.getByRole('button', { name: 'Pause (unproven)' }))
+ expect(await screen.findByRole('status')).toHaveTextContent('Pause sent. Waiting for the printer to confirm.')
+ expect(screen.getByText('Pause sent, waiting for the printer')).toBeInTheDocument()
+ expect(screen.getByRole('button', { name: 'Pause (unproven)' })).toBeDisabled()
+ fireEvent.click(screen.getByRole('button', { name: 'Stop (unproven)' }))
+ expect(screen.getByRole('button', { name: 'Confirm Stop (unproven)' })).toBeEnabled()
+ expect(screen.getByText(/use its touchscreen/)).toBeInTheDocument()
+})
+
+it.each(['pause', 'resume', 'stop'] as const)('honors the deadline and repeat confirmation for %s', async action => {
+ const now = Date.now()
+ const printer = { id: 199, name: 'Moonraker', api_type: 'moonraker', gcode_state: action === 'resume' ? 'PAUSED' : 'RUNNING',
+   last_seen: new Date(now).toISOString(), pending_control: { action, sent_at: new Date(now - 10000).toISOString(),
+     deadline_at: new Date(now + (action === 'stop' ? 30000 : -1)).toISOString() } }
+ state.fetch.mockImplementation(async path => path === '/printers' ? [printer] : { success: true })
+ render(<EmergencyStop />)
+ fireEvent.click(await screen.findByRole('button', { name: /Emergency controls/ }))
+ const button = await screen.findByRole('button', { name: new RegExp('^' + action + '$', 'i') })
+ expect(button).toBeEnabled()
+ if (action === 'stop') {
+   fireEvent.click(button)
+   fireEvent.click(screen.getByRole('button', { name: /Stop was already sent 10 seconds ago. Send it again\?/ }))
+   expect(state.fetch).toHaveBeenCalledWith('/printers/199/stop', { method: 'POST' })
+ }
+})
+
+it.each([1000, 3000])('allows a confirmed repeat Stop after %i ms', async delay => {
+ vi.useFakeTimers()
+ const printer = { id: 199, name: 'Test', api_type: 'moonraker', gcode_state: 'RUNNING', last_seen: new Date().toISOString() }
+ const replies: Array<(receipt: object) => void> = []
+ state.fetch.mockImplementation((path: string) => path === '/printers' ? Promise.resolve([printer])
+   : new Promise(resolve => replies.push(resolve)))
+ const receipt = { success: true, outcome: 'pending', pending_control: { action: 'stop', sent_at: printer.last_seen,
+   deadline_at: new Date(Date.now() + 300000).toISOString() } }
+ render(<EmergencyStop />)
+ await act(async () => {})
+ fireEvent.click(screen.getByRole('button', { name: /Emergency controls/ }))
+ fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+ fireEvent.click(screen.getByRole('button', { name: 'Confirm Stop' }))
+ await act(async () => { vi.advanceTimersByTime(delay - 1) })
+ expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+ await act(async () => {
+   vi.advanceTimersByTime(1)
+   if (delay < 3000) replies[0]({ success: true, outcome: 'confirmed' })
+ })
+ fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+ expect(replies).toHaveLength(1)
+ fireEvent.click(screen.getByRole('button', { name: /Send it again\?/ }))
+ expect(replies).toHaveLength(2)
+ if (delay === 3000) await act(async () => { replies[0](receipt) })
+ expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+ await act(async () => { replies[1](receipt) })
+})

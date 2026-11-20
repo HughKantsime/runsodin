@@ -122,6 +122,8 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, m
                     continue
             if isinstance(stored, dict) and stored.get("reason") == reason:
                 return True
+    if alert_type == AlertType.PRINTER_ERROR and (metadata or {}).get("kind") == "control_timeout":
+        return False  # The pending command is consumed in this same transaction.
     if alert_type in (AlertType.SPOOL_LOW, AlertType.PRINTER_ERROR):
         return active_resource_duplicate(db, user_id, alert_type, printer_id, spool_id, message)
 

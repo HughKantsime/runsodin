@@ -816,7 +816,8 @@ def test_vigil_auto_pause_never_claims_a_printer_source_detection(vision, review
     review_db.commit()
 
     class Adapter:
-        def __init__(self, host): pass
+        last_control = (moonraker.ControlReply("accepted"), True)
+        def __init__(self, host, **kwargs): pass
         def pause_print(self): return True
     monkeypatch.setattr(moonraker, 'MoonrakerPrinter', Adapter)
     thread._analyzed_frames = 3

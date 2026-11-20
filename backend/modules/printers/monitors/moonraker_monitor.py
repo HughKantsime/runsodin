@@ -31,7 +31,7 @@ from typing import Optional, Dict, Any
 
 from sqlalchemy import text
 
-from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
+from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState, STATUS_POLL_INTERVAL
 from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
 # Resolved at use time: never a stale engine bound at import.
@@ -52,7 +52,7 @@ except ImportError:
 
 log = logging.getLogger("moonraker_monitor")
 
-POLL_INTERVAL = 3          # seconds between status polls
+POLL_INTERVAL = STATUS_POLL_INTERVAL
 # A failed poll is a transient until this many fail in a row (same debounce as
 # PrusaLink); then the printer is persisted OFFLINE and reconnection starts.
 MAX_CONSECUTIVE_FAILURES = 5
@@ -149,13 +149,17 @@ class MoonrakerMonitor(MoonrakerJobTracking):
         """Main polling loop — runs in its own thread."""
         while self._running:
             try:
+                observed_at = datetime.now(timezone.utc)
                 status = self.printer.get_status()
                 if status.state == MoonrakerState.DISCONNECTED:
+                    self._observe_control(status, observed_at=observed_at)
                     # The adapter swallows transport errors and returns a default
                     # DISCONNECTED status; treat it as a lost connection so the
                     # printer goes OFFLINE without refreshing its heartbeat.
                     raise ConnectionError("Moonraker status poll failed")
                 self._process_status(status)
+                # A print start discovered by this poll counts against a pending Resume.
+                self._observe_control(status, observed_at=observed_at)
                 self._consecutive_failures = 0
             except Exception as e:
                 # A failed poll never refreshes the heartbeat; OFFLINE is
@@ -189,6 +193,16 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                 log.debug(f"Reconnect attempt failed: {e}")
             log.warning(f"[{self.name}] Reconnect failed, retrying...")
     
+    def _observe_control(self, status=None, *, observed_at=None):
+        from sqlalchemy.orm import Session
+        from core.db import concrete_engine
+        from modules.printers.moonraker_controls import observe_control
+        try:
+            with Session(concrete_engine(engine)) as db:
+                observe_control(db, self.printer_id, self.name, status, observed_at=observed_at)
+        except Exception:
+            log.exception("Could not check the pending command for printer %s", self.printer_id)
+
     def _persist_offline(self):
         with self._status_lock:
             if self._retired:
@@ -614,10 +628,69 @@ class _MoonrakerSession(threading.Thread):
 
 
 
+def _deadline_status(db, row, printer_id):
+    from core import license_lock
+    if not row.is_active or row.api_type != "moonraker" or not row.api_host:
+        return None
+    try:
+        if license_lock.enabled() and not license_lock.printer_allowed(license_lock.snapshot(db), printer_id, "M"):
+            return None
+        db.rollback()
+        host, port = _endpoint(row.api_host)
+        adapter = MoonrakerPrinter(host, port, api_key=_api_key(row.api_key),
+                                   model=row.model, machine_type=row.machine_type)
+        return adapter.get_status(timeout=POLL_INTERVAL)
+    except Exception as exc:
+        db.rollback()
+        log.warning("No deadline observation for printer %s (%s)", printer_id, type(exc).__name__)
+        return None
+
+
+def _check_control_deadlines(stop_event):
+    from sqlalchemy.orm import Session
+    from core.db import concrete_engine
+    from modules.printers.moonraker_controls import expired_printer_ids, observe_control
+    while not stop_event.wait(POLL_INTERVAL):
+        try:
+            with Session(concrete_engine(engine)) as db:
+                ids = expired_printer_ids(db, datetime.now(timezone.utc))
+            for printer_id in ids:
+                try:
+                    with Session(concrete_engine(engine)) as db:
+                        row = db.execute(text("SELECT name, is_active, api_type, api_host, api_key, model, machine_type "
+                                              "FROM printers WHERE id=:id"), {"id": printer_id}).first()
+                        if row is None:
+                            db.execute(text("DELETE FROM system_config WHERE key=:key AND NOT EXISTS "
+                                            "(SELECT 1 FROM printers WHERE id=:id)"),
+                                       {"key": f"pending_control:{printer_id}", "id": printer_id})
+                            db.commit()
+                            continue
+                        observed_at = datetime.now(timezone.utc)
+                        status = _deadline_status(db, row, printer_id)
+                        observe_control(db, printer_id, row.name, status, observed_at=observed_at)
+                except Exception:
+                    log.exception("Could not expire the command for printer %s", printer_id)
+        except Exception:
+            log.exception("Could not check printer command deadlines")
+
+
+_deadline_thread = None
+
+
+def start_control_deadlines(stop_event=None):
+    """The launcher may retry an empty inventory. Keep one worker per launcher process."""
+    global _deadline_thread
+    if _deadline_thread is None or not _deadline_thread.is_alive():
+        _deadline_thread = threading.Thread(target=_check_control_deadlines,
+                                           args=(stop_event or threading.Event(),), daemon=True)
+        _deadline_thread.start()
+
+
 def start_moonraker_monitors():
     """Load Moonraker printers from DB and start monitors (license fleet lock off; see __main__)."""
     from core.monitor_bootstrap import bootstrap_monitor_authority
     bootstrap_monitor_authority()
+    start_control_deadlines()
     monitors = []
     try:
         for row in _rows():
@@ -665,5 +738,8 @@ if __name__ == "__main__":
     # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
     # Otherwise the monitors start once (retried every 60 s while none exist), as before.
     from core.license_monitor import run_monitor_process
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
+    start_control_deadlines(shutdown)
     run_monitor_process(engine, _inventory, _MoonrakerSession, start_moonraker_monitors, 'Moonraker', shutdown, log)
     log.info("Moonraker monitor daemon stopped.")

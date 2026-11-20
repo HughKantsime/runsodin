@@ -32,8 +32,10 @@ import json
 import os
 import time
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from urllib.request import Request
 # Every Moonraker request is a device request: policy-validated, pinned,
@@ -45,6 +47,35 @@ from urllib.parse import urlencode
 from modules.printers.parsing.moonraker import parse_status as parse_moonraker_status
 
 log = logging.getLogger("moonraker_adapter")
+
+
+# A socket timeout is per read. A slow status response or name lookup must
+# still let the command return pending at its wall-clock deadline.
+STATUS_POLL_INTERVAL = 3  # seconds between status queries
+_control_reads = ThreadPoolExecutor(max_workers=8, thread_name_prefix="moonraker-confirm")
+
+
+@dataclass(frozen=True)
+class ControlReply:
+    outcome: Literal["accepted", "rejected", "unreachable", "no_reply"]
+    status: Optional[int] = None
+    error: str = ""
+
+
+def control_confirmed(action, status):
+    state = status.raw_print_state
+    if action == "pause":
+        return state == "paused"
+    if action == "resume":
+        return state == "printing"
+    if action != "stop" or state not in ("cancelled", "standby", "complete", "error"):
+        return False
+    # Moonraker retains the last filename after cancel. An active SD file is
+    # different from that historical name. An error alone need not end a file.
+    disk = status.raw_data.get("virtual_sdcard") or {}
+    if disk.get("is_active") is True:
+        return False
+    return state != "error" or disk.get("is_active") is False or not status.filename
 
 
 class MoonrakerState(str, Enum):
@@ -274,7 +305,7 @@ class MoonrakerPrinter:
 
     # ==================== Status ====================
     
-    def get_status(self) -> MoonrakerStatus:
+    def get_status(self, *, timeout=None) -> MoonrakerStatus:
         """Get complete printer status in one call."""
         status = MoonrakerStatus()
         status.device_type = self._device_type
@@ -300,7 +331,8 @@ class MoonrakerPrinter:
         from urllib.parse import quote
         query = "&".join(quote(obj, safe="") for obj in objects)
         try:
-            data = self._get(f"/printer/objects/query?{query}")
+            path = f"/printer/objects/query?{query}"
+            data = self._get(path) if timeout is None else self._get(path, timeout=timeout)
             if not data or "result" not in data:
                 return status
             result = data["result"]["status"]
@@ -460,33 +492,73 @@ class MoonrakerPrinter:
             log.error(f"Failed to start print: {e}")
             return False
     
+    def post_control(self, action: str) -> ControlReply:
+        """Send once. Only a proven pre-send failure is safe to retry."""
+        from core.itar import ItarOutboundBlocked, enforce_request_destination
+        from core.webhook_utils import DeviceConnectFailed, DeviceDestinationBlocked
+        from http.client import HTTPException, InvalidURL
+        path = {"pause": "pause", "resume": "resume", "stop": "cancel"}[action]
+        url = f"{self.base_url}/printer/print/{path}"
+        try:
+            enforce_request_destination(url)
+            req = Request(url, data=b"", method="POST", headers={"Content-Type": "application/json"})
+            if self.api_key:
+                req.add_header("X-Api-Key", self.api_key)
+            with urlopen(req, timeout=5, classify_connect=True) as response:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- policy-validated and pinned device opener
+                return ControlReply("accepted", response.status)
+        except HTTPError as exc:
+            with exc:
+                try:
+                    error = exc.read(1024).decode("utf-8", errors="replace")
+                    try:
+                        error = json.loads(error)["error"]["message"]
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                except (OSError, HTTPException):
+                    error = ""
+                from core.log_redaction import redact_text
+                error = str(error or exc.reason)
+                if self.api_key:
+                    error = error.replace(self.api_key, "[redacted]")
+                return ControlReply("rejected", exc.code, redact_text(error)[:256])
+        except (DeviceConnectFailed, DeviceDestinationBlocked, ItarOutboundBlocked, InvalidURL):
+            return ControlReply("unreachable")
+        except (OSError, HTTPException, ValueError):
+            # Includes URLError from writing headers and disconnects while
+            # reading the status line. The peer may already have acted.
+            return ControlReply("no_reply")
+
+    def run_control(self, action):
+        reply = self.post_control(action)
+        confirmed = False
+        self.resume_paused_at = None
+        if reply.outcome in ("accepted", "no_reply"):
+            deadline = time.monotonic() + (8 if action == "pause" else 3)
+            while (remaining := deadline - time.monotonic()) > 0:
+                read = _control_reads.submit(self.get_status, timeout=min(5, remaining))
+                try:
+                    status = read.result(timeout=remaining)
+                except TimeoutError:
+                    read.cancel()  # Only status reads go through the pool.
+                    break
+                if action == "resume" and status.raw_print_state == "paused":
+                    self.resume_paused_at = datetime.now(timezone.utc)
+                if time.monotonic() <= deadline and control_confirmed(action, status):
+                    confirmed = True
+                    break
+                time.sleep(min(STATUS_POLL_INTERVAL, max(0, deadline - time.monotonic())))
+        self.last_control = (reply, confirmed)
+        return reply.outcome == "accepted" or confirmed
+
     def pause_print(self) -> bool:
-        """Pause current print."""
-        try:
-            resp = self._post("/printer/print/pause")
-            return resp is not None
-        except Exception as e:
-            log.error(f"Failed to pause: {e}")
-            return False
-    
+        return self.run_control("pause")
+
     def resume_print(self) -> bool:
-        """Resume paused print."""
-        try:
-            resp = self._post("/printer/print/resume")
-            return resp is not None
-        except Exception as e:
-            log.error(f"Failed to resume: {e}")
-            return False
-    
+        return self.run_control("resume")
+
     def cancel_print(self) -> bool:
-        """Cancel current print."""
-        try:
-            resp = self._post("/printer/print/cancel")
-            return resp is not None
-        except Exception as e:
-            log.error(f"Failed to cancel: {e}")
-            return False
-    
+        return self.run_control("stop")
+
     # ==================== Webcam ====================
     
     def _discover_webcam(self):

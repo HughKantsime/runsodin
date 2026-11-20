@@ -216,6 +216,12 @@ class PlateClearState(BaseModel):
     last_print_ended_at: Optional[datetime] = None
 
 
+class PendingControl(BaseModel):
+    action: Literal["pause", "resume", "stop"]
+    sent_at: datetime
+    deadline_at: datetime
+
+
 class PrinterResponse(PrinterBase):
     training_warnings: list[str] = Field(default_factory=list)
     hms_model_prefix: str = Field(default='', exclude=True)
@@ -266,6 +272,20 @@ class PrinterResponse(PrinterBase):
     camera_source: Optional[str] = None  # 'configured' | 'auto' | None
     # Job sending and controls on an Experimental printer type are off until a superadmin opts the printer in.
     experimental_actions_enabled: bool = False
+
+    pending_control: Optional[PendingControl] = None
+
+    @computed_field
+    @property
+    def unproven_controls(self) -> List[str]:
+        from modules.printers.support_levels import control_proof
+        return [a for a in ("pause", "resume", "stop") if control_proof(self, a) == "unproven"]
+
+    @computed_field
+    @property
+    def unavailable_controls(self) -> List[str]:
+        from modules.printers.support_levels import control_proof
+        return [a for a in ("pause", "resume", "stop") if control_proof(self, a) == "not_working"]
 
     @computed_field
     @property

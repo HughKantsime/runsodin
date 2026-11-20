@@ -25,7 +25,8 @@ def guarded_vision(vision, review_db, monkeypatch):
     review_db.commit()
     pauses, records, alerts = [], [], []
     class Adapter:
-        def __init__(self, host): assert host == 'synthetic.invalid'
+        last_control = (moonraker.ControlReply("accepted"), True)
+        def __init__(self, host, **kwargs): assert host == 'synthetic.invalid'
         def pause_print(self):
             pauses.append('pause')
             return True
@@ -129,7 +130,7 @@ def test_state_is_reread_after_adapter_preparation(guarded_vision, monkeypatch):
     clock[0] += 61
     report()
     class Adapter:
-        def __init__(self, host):
+        def __init__(self, host, **kwargs):
             report('PAUSE')
         def pause_print(self):
             pauses.append('pause')

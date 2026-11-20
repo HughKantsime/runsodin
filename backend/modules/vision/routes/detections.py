@@ -203,7 +203,8 @@ def dismiss_and_resume(
     from modules.vision.training_service import maintenance
     if not maintenance(current_user):raise HTTPException(404,"Detection not found")
     from sqlalchemy import update
-    # Serialize source facts, including observation inserts, through transport.
+    from core.errors import OdinError
+    # Fence the eligibility check and capture the exact review row.
     try:
         if db.get_bind().dialect.name == "postgresql":
             db.execute(text("SET LOCAL lock_timeout = '4s'"))
@@ -231,6 +232,30 @@ def dismiss_and_resume(
             VisionDetection.status == det.status, VisionDetection.reviewed_by == det.reviewed_by,
             VisionDetection.reviewed_at == det.reviewed_at).values(
                 status='dismissed', reviewed_by=current_user['id'], reviewed_at=sa_func.now())
+        if printer.api_type == "moonraker" and state in ("PAUSE", "PAUSED"):
+            from modules.printers.services import resume_moonraker_detection
+            print_job_id = det.print_job_id
+            prior = dict(status=det.status, reviewed_by=det.reviewed_by, reviewed_at=det.reviewed_at)
+            claimed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            claim = statement.where(VisionDetection.status != "dismissed").values(reviewed_at=claimed_at)
+            if db.execute(claim.execution_options(synchronize_session=False)).rowcount != 1:
+                raise HTTPException(409, "Detection already dismissed or changed; refresh before reviewing")
+            db.expunge(printer)
+            db.commit()
+            try:
+                receipt = resume_moonraker_detection(db, printer, print_job_id, current_user, detection_id)
+            except (HTTPException, OdinError):
+                # A refusal or definitive send failure leaves the original review retryable.
+                db.rollback()
+                db.execute(update(VisionDetection).where(
+                    VisionDetection.id == detection_id, VisionDetection.print_job_id == print_job_id,
+                    VisionDetection.status == "dismissed", VisionDetection.reviewed_at == claimed_at,
+                    VisionDetection.reviewed_by == current_user["id"]).values(**prior)
+                    .execution_options(synchronize_session=False))
+                db.commit()
+                raise
+            return {**receipt, "id": detection_id, "detection_id": detection_id, "status": "dismissed",
+                    "actions": ["printer:resume_requested"], "resume_requested": True}
         if db.execute(statement.execution_options(synchronize_session=False)).rowcount != 1:
             raise HTTPException(409, "Detection changed; refresh before reviewing")
         outcome = 'not_needed'
@@ -252,7 +277,7 @@ def dismiss_and_resume(
         return {'id': detection_id, 'detection_id': detection_id, 'status': 'dismissed', 'outcome': outcome,
                 'actions': ['printer:resume_requested' if outcome == 'accepted' else 'printer:already_running'],
                 'resume_requested': outcome == 'accepted'}
-    except HTTPException:
+    except (HTTPException, OdinError):
         db.rollback()
         raise
     except Exception:

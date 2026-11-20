@@ -3,10 +3,10 @@ import {afterEach,beforeEach,expect,test,vi} from 'vitest'
 import {MemoryRouter} from 'react-router-dom'
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query'
 import Alerts from './Alerts'
-import {alerts as api} from '../../api'
+import {alerts as api, fetchAPI, printers} from '../../api'
 import {getCurrentUser} from '../../permissions'
 import toast from 'react-hot-toast'
-vi.mock('../../api',()=>({alerts:{list:vi.fn(),remove:vi.fn(),markRead:vi.fn(),markAllRead:vi.fn(),dismiss:vi.fn()},fetchAPI:vi.fn(async()=>({user_digest:null})),approveJob:vi.fn(),rejectJob:vi.fn(),printers:{}}))
+vi.mock('../../api',()=>({alerts:{list:vi.fn(),remove:vi.fn(),markRead:vi.fn(),markAllRead:vi.fn(),dismiss:vi.fn()},fetchAPI:vi.fn(async()=>({user_digest:null})),approveJob:vi.fn(),rejectJob:vi.fn(),printers:{list:vi.fn()}}))
 vi.mock('../../permissions',()=>({getCurrentUser:vi.fn()}))
 const row={id:701,title:'Synthetic retained alert',message:'Synthetic details',severity:'info',alert_type:'print_complete',is_read:false,created_at:'2026-10-11T12:00:00'}
 function show(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><Alerts/></MemoryRouter></QueryClientProvider>)}
@@ -44,4 +44,32 @@ test('restart question alert opens the printer recovery question', async () => {
  show()
  await screen.findByText(row.title)
  expect(screen.getByRole('link', {name:'Confirm print in Dispatch Recovery'})).toHaveAttribute('href','/printers/9#dispatch-recovery')
+})
+
+test('vision alert shows the resume receipt and follows pending printer state', async () => {
+ const printer = {id:9, pending_control:{action:'pause', sent_at:new Date().toISOString(), deadline_at:new Date(Date.now()+30000).toISOString()}}
+ vi.mocked(printers.list).mockResolvedValue([printer] as any)
+ vi.mocked(api.list).mockResolvedValue([{...row, alert_type:'spaghetti_detected', printer_id:9}] as any)
+ vi.mocked(fetchAPI).mockImplementation(async path => {
+   if (path !== '/printers/9/resume') return {}
+   printer.pending_control.action = 'resume'
+   return {success:true, outcome:'pending', message:'Resume sent. The printer is reheating.'}
+ })
+ const notify = vi.spyOn(toast,'success')
+ try {
+   show()
+   await screen.findByText('Pause sent, waiting for the printer')
+   fireEvent.click(screen.getByRole('button',{name:/false alarm.*resume/i}))
+   await waitFor(() => expect(notify).toHaveBeenCalledWith('Resume sent. The printer is reheating.'))
+   expect(await screen.findByText('Resume sent, waiting for the printer')).toBeInTheDocument()
+ } finally { notify.mockRestore() }
+})
+
+test('allows a vision alert resume after its pending deadline', async () => {
+ vi.mocked(printers.list).mockResolvedValue([{id:9, pending_control:{action:'resume', deadline_at: new Date(0).toISOString()}}] as any)
+ vi.mocked(api.list).mockResolvedValue([{...row, alert_type:'spaghetti_detected', printer_id:9}] as any)
+ show()
+ await waitFor(() => expect(printers.list).toHaveBeenCalled())
+ expect(await screen.findByRole('button', {name:/false alarm.*resume/i})).toBeEnabled()
+ expect(screen.queryByText('Resume sent, waiting for the printer')).toBeNull()
 })

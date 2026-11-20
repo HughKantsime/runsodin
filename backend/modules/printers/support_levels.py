@@ -64,6 +64,19 @@ MONITOR_ONLY_DETAIL = "Job sending and printer controls are not available for th
 MONITOR_ONLY_REFUSAL = f'{MONITOR_ONLY_NOT_AVAILABLE}: {MONITOR_ONLY_DETAIL}'
 
 
+CONTROL_PROOF = {
+    ("kobra_s1", "pause"): "unproven",
+    ("kobra_s1", "resume"): "proven",
+    ("kobra_s1", "stop"): "unproven",
+}
+
+
+def control_proof(printer, action):
+    from modules.printers.dispatch_support import is_kobra_s1
+    kind = "kobra_s1" if is_kobra_s1(printer) else None
+    return CONTROL_PROOF.get((kind, action), "proven")
+
+
 def normalize(api_type) -> str:
     return str(api_type or '').strip().lower()
 
