@@ -7,7 +7,7 @@ Job lifecycle and telemetry parsing helpers are in mqtt_job_lifecycle.py
 and mqtt_telemetry.py respectively.
 """
 
-from core.api_server import CONTAINER_API_PORT
+from core.ports import CONTAINER_API_PORT
 from core.base import AlertType, AlertSeverity
 
 import os

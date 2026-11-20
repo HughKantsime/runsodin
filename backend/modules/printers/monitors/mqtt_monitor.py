@@ -11,6 +11,12 @@ import os
 import sys
 sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 
+if __name__ == '__main__':
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 import time
 import signal
 import logging
@@ -30,11 +36,6 @@ try:
 except ImportError:
     MOONRAKER_AVAILABLE = False
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(name)s] %(levelname)s %(message)s',
-)
 log = logging.getLogger('mqtt_monitor')
 
 
@@ -497,8 +498,6 @@ def main():
 
 
 if __name__ == '__main__':
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     main()

@@ -16,6 +16,12 @@ Key difference from PrusaLink/Moonraker:
   We don't need to poll — just listen. Status arrives every few seconds.
 """
 
+if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 import os
 import sys
 import time
@@ -415,25 +421,22 @@ def start_elegoo_monitors():
     return threads
 
 if __name__ == "__main__":
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     from core.job_timeline import start
     start("elegoo_monitor")
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
     from core.interfaces.filament_ownership import log_external_filament_accounting
     log_external_filament_accounting(log)
 
     # Optional: run discovery first
     if "--discover" in sys.argv:
-        print("Discovering Elegoo printers on network...")
+        log.info("Discovering Elegoo printers on network...")
         printers = ElegooPrinter.discover()
         if printers:
             for p in printers:
-                print(f"  Found: {p['name']} ({p['machine_name']}) at {p['ip']} — FW {p['firmware']}")
+                log.info(f"  Found: {p['name']} ({p['machine_name']}) at {p['ip']} — FW {p['firmware']}")
         else:
-            print("  No printers found.")
+            log.info("  No printers found.")
         sys.exit(0)
 
     import signal

@@ -96,7 +96,7 @@ def _program(conf):
 @pytest.mark.parametrize('conf', ['supervisord.conf', 'supervisord.vision.conf'])
 def test_supervisord_program_launches_vision_monitor_module(conf):
     program = _program(conf)
-    assert program['command'] == 'python3 -m core.supervised_log python3 -m modules.vision.monitor'
+    assert program['command'] == 'python3 -m modules.vision.monitor'
     assert program['directory'] == '/app/backend'
     assert program['autostart'] == 'true' and program['autorestart'] == 'true'
     # The supervised module is the real daemon entrypoint; no vision_monitor.py exists.
@@ -113,7 +113,7 @@ def test_supervised_command_runs_daemon_until_sigterm(tmp_path):
     env = dict(os.environ, PYTHONUNBUFFERED='1', ODIN_DB_ROLE='vision', DATABASE_URL=f'sqlite:///{database}',
                BACKEND_PATH=str(REPO / 'backend'), JWT_SECRET_KEY='cert-c-only', PYTHONPATH=str(REPO / 'backend'))
     command = _program('supervisord.conf')['command'].split()
-    command[0] = command[3] = sys.executable
+    command[0] = sys.executable
     process = subprocess.Popen(command, cwd=REPO / 'backend', env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         time.sleep(4)

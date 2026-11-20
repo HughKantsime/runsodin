@@ -33,7 +33,7 @@ import threading
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from core.api_server import CONTAINER_API_PORT
+from core.ports import CONTAINER_API_PORT
 from core.itar import ItarOutboundBlocked, pinned_literal_url
 
 log = logging.getLogger("odin.camera_relay")

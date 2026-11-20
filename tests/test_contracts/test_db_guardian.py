@@ -405,7 +405,7 @@ def test_measured_interval_and_priority_are_pinned():
 
 def test_daemon_is_supervised_in_the_single_container_only():
     conf = (ROOT / "docker/supervisord.conf").read_text(encoding="utf-8")
-    assert "[program:db_guardian]\ncommand=python3 -m core.supervised_log python3 -m modules.system.db_guardian\n" in conf
+    assert "[program:db_guardian]\ncommand=python3 -m modules.system.db_guardian\n" in conf
     block = conf.split("[program:db_guardian]")[1]
     assert "autorestart=true" in block and 'ODIN_DB_ROLE="backup"' in block
     # Any startup crash backs off, instead of burning CPU on a host that is already in trouble.

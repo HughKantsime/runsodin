@@ -8,6 +8,12 @@ person has fixed the database.
 
 from __future__ import annotations
 
+if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 import logging
 import os
 import time
@@ -38,7 +44,6 @@ from modules.system.db_guardian_status import (
     write_status,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [db_guardian] %(levelname)s %(message)s")
 log = logging.getLogger("odin.db_guardian")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
@@ -225,8 +230,6 @@ def main_loop() -> None:
 
 
 if __name__ == "__main__":
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     main_loop()

@@ -44,7 +44,7 @@ import sys
 
 from sqlalchemy import text
 
-from core.api_server import CONTAINER_API_PORT
+from core.ports import CONTAINER_API_PORT
 
 
 def _outside_local_network(api_host) -> bool:

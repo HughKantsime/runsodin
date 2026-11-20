@@ -19,7 +19,7 @@ import urllib.parse
 
 from fastapi import HTTPException
 
-from core.api_server import CONTAINER_API_PORT
+from core.ports import CONTAINER_API_PORT
 
 
 class WebhookSSRFError(Exception):

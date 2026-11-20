@@ -18,6 +18,12 @@ Handles:
 - Reconnection on failure
 """
 
+if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 from core.base import AlertType, AlertSeverity
 from core.base import slot_filament_value
 
@@ -641,15 +647,12 @@ MoonrakerMonitor.stop = MoonrakerMonitor.disconnect
 
 
 if __name__ == "__main__":
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     from core.job_timeline import start
     start("moonraker_monitor")
     import signal
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
     from core.interfaces.filament_ownership import log_external_filament_accounting
     log_external_filament_accounting(log)
 

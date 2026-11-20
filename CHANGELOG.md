@@ -7,7 +7,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - The built-in HTTP camera relay now reaches ODIN on port 8000 even when `PORT` is set. ODIN also warns when an unused host, scheduler horizon, or MCP setting is present.
-- Service logs now date each line, including camera service output and error tracebacks.
+- Python service logs now include dates on monitor messages, error tracebacks and API access lines.
 - Alert quiet hours can follow the farm or organization time zone through daylight-saving changes. Existing hours stay in UTC until an administrator confirms local time.
 
 ## [2.4.0] - 2026-11-18
