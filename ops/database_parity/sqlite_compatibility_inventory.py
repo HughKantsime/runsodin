@@ -513,6 +513,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved056/overlay",
     BACKEND / "core/schema/preserved057/overlay",
     BACKEND / "core/schema/preserved060/overlay",
+    BACKEND / "core/schema/preserved062/overlay",
 )
 
 

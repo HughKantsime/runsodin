@@ -304,3 +304,21 @@ repeat bootstrap and cleanup. Before a later migration exists it uses a syntheti
 registry only for identification. This proof requires the test machine's Docker
 and PostgreSQL environment. The existing 039–046 import defects remain explicitly
 identified in the closure matrix and are not changed by this bundle.
+
+## Release 2.4.0 restore bundle (062)
+
+`preserved062` freezes the released 2.4.0 sources over preserved060. Its two
+additional ledger entries are `python:061-print-filament-evidence` and
+`python:062-ams-humidity-percent`. Pass the last entry to the generator.
+Run with `--write` to generate the bundle, then verify it with this command.
+
+```sh
+python3.11 -m ops.database_parity.freeze_preserved_bundle --commit 5e1f6e4103417a471e1eadfc3099e23ecc7db46f --release 2.4.0 --era 62 --base-era 60 --migration python:062-ams-humidity-percent --check
+```
+
+While 062 is current, the ordinary validator handles its backups. After the
+registry advances, the exact released ledger selects preserved062. The native
+PostgreSQL proof exports the 2.4.0 commit into `POST027_RELEASED062_SOURCE`
+and uses it to create an independent archive. It validates, stages and applies
+the archive, then checks its filament evidence and both recorded and missing
+AMS humidity percentages.
