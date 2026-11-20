@@ -19,7 +19,7 @@ from modules.jobs.education_order import education_order, waiting_rows, ordered_
 from modules.jobs.pinning import clear_pins_for_deleted_printer
 from modules.jobs.state_machine import Expr, TransitionError, transition_job, transition_result
 
-__all__ = ["clear_job_links", "deleting_job_links", "deferred_job_conflicts", "JobLinkConflict", "delete_org_jobs", "education_order", "waiting_rows", "ordered_waiting", "head_refusal", "Expr", "TransitionError", "clear_pins_for_deleted_printer", "transition_job", "transition_result"]
+__all__ = ["clear_job_links", "deleting_job_links", "rollback_on_integrity_error", "JobLinkConflict", "delete_org_jobs", "education_order", "waiting_rows", "ordered_waiting", "head_refusal", "Expr", "TransitionError", "clear_pins_for_deleted_printer", "transition_job", "transition_result"]
 
 
 def clear_job_links(db, job_ids):
@@ -58,18 +58,16 @@ def deleting_job_links(db, job_ids):
 
 
 @contextmanager
-def deferred_job_conflicts(db, job_ids):
-    db.flush()
+def rollback_on_integrity_error(db):
     try:
         yield
-    except IntegrityError as exc:
-        if job_ids and (getattr(exc.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_FOREIGNKEY"
-                        or getattr(exc.orig, "sqlstate", None) == "23503"):
-            raise JobLinkConflict(job_ids, exc) from exc
+    except IntegrityError:
+        # SQLite leaves the transaction open when a deferred constraint fails at commit.
+        db.rollback()
         raise
 
 
-def delete_org_jobs(db, org_id, *, deleted_sample=None):
+def delete_org_jobs(db, org_id):
     """Remove owned jobs and their cascading history. Return the number removed."""
     from modules.jobs.models import Job
     from core.print_attempts import clear_job_attempts, sqlalchemy_runner
@@ -89,8 +87,6 @@ def delete_org_jobs(db, org_id, *, deleted_sample=None):
         db.rollback()
         raise HTTPException(409, "The job list changed. Try again.")
     redact_job_history_ids(db, restricted)
-    if deleted_sample is not None:
-        deleted_sample.extend(job_ids[:20])
     return removed.rowcount
 
 

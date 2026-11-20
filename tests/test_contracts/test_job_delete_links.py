@@ -157,24 +157,17 @@ def test_bulk_rechecks_status_before_unlinking(review_db, monkeypatch):
 
 
 @pytest.mark.parametrize("path", ["single", "bulk", "retention", "orgs", "groups"])
-@pytest.mark.parametrize("deferred", [False, True], ids=["at-delete", "at-commit"])
-def test_unknown_constraint_rolls_back(review_db, monkeypatch, enterprise_license, caplog, path, deferred):
+def test_unknown_constraint_rolls_back(review_db, monkeypatch, enterprise_license, caplog, path):
     engine = review_db.get_bind()
     with client_for(engine, monkeypatch, legacy=True) as client:
         with engine.begin() as db:
-            if deferred:
-                db.exec_driver_sql("CREATE TABLE retained_job (job_id INTEGER REFERENCES jobs(id) "
-                                   "DEFERRABLE INITIALLY DEFERRED)")
-                db.exec_driver_sql("INSERT INTO retained_job VALUES (81)")
-            else:
-                db.exec_driver_sql("""CREATE TRIGGER hold_job BEFORE DELETE ON jobs WHEN OLD.id=81
-                    BEGIN SELECT RAISE(ABORT, 'test hold on job'); END""")
+            db.exec_driver_sql("""CREATE TRIGGER hold_job BEFORE DELETE ON jobs WHEN OLD.id=81
+                BEGIN SELECT RAISE(ABORT, 'test hold on job'); END""")
         response = delete_via(client, path)
         assert response.status_code == 409, response.text
         assert response.json() == {"code": "job_has_linked_records",
                                    "message": "This job has linked records and cannot be deleted."}
-        reason = "FOREIGN KEY constraint failed" if deferred else "test hold on job"
-        assert reason in caplog.text
+        assert "test hold on job" in caplog.text
         assert f"path={path} job_ids=[81]" in caplog.text
     assert_links(engine, deleted=False)
     with engine.connect() as db:
@@ -213,7 +206,8 @@ def test_unrelated_deferred_constraint_is_not_job_conflict(review_db, monkeypatc
     assert_links(engine, deleted=False)
 
 
-def test_deferred_account_binding_failure_rolls_back_job_delete(review_db, monkeypatch):
+@pytest.mark.parametrize("path", ["single", "bulk", "orgs", "groups", "retention"])
+def test_deferred_account_binding_failure_rolls_back_job_delete(review_db, monkeypatch, enterprise_license, path):
     from datetime import datetime, timezone
     from core import account_lifetime_schema
     from core.account_lifetime_creation import _account_creation_scope, _create_account
@@ -230,8 +224,12 @@ def test_deferred_account_binding_failure_rolls_back_job_delete(review_db, monke
             db.exec_driver_sql("""CREATE TRIGGER incomplete_retirement AFTER DELETE ON jobs
                 BEGIN UPDATE account_lifetimes SET current_user_id=NULL, state='retired',
                     retired_at='2026-01-02T00:00:00.000Z' WHERE current_user_id=81; END""")
-        with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
-            client.delete("/api/jobs/81")
+        if path == "retention":
+            response = delete_via(client, path)
+            assert response.status_code == 503, response.text
+        else:
+            with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+                delete_via(client, path)
     assert_links(engine, deleted=False)
     with engine.connect() as db:
         assert db.exec_driver_sql("SELECT state FROM account_lifetimes WHERE birth_user_id=81").scalar_one() == "active"

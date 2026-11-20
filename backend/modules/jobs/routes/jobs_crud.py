@@ -29,7 +29,7 @@ from core.responses import build_next_actions, next_action
 from core.quota import charge_job_quota
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
-from modules.jobs.services import deleting_job_links, deferred_job_conflicts, JobLinkConflict
+from modules.jobs.services import deleting_job_links, JobLinkConflict, rollback_on_integrity_error
 from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.schemas import (
@@ -280,22 +280,23 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
     production_orders = prepare_job_write(db, authorized_ids)
     db.expire_all()
 
-    deleted_sample = []
-    try:
-        if action == "delete":
-            from modules.jobs.bulk_deletion import delete_bulk_jobs
-            count = delete_bulk_jobs(db, current_user, job_ids, check=assert_generic_job_mutation_allowed,
-                                     deleted_sample=deleted_sample)
-        else:
-            from modules.jobs.bulk_actions import apply_bulk_action
-            count = apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority)
+    if action == "delete":
+        from modules.jobs.bulk_deletion import delete_bulk_jobs
+        try:
+            count = delete_bulk_jobs(db, current_user, job_ids, check=assert_generic_job_mutation_allowed)
+        except JobLinkConflict as exc:
+            return exc.response(db, "bulk")
+    else:
+        from modules.jobs.bulk_actions import apply_bulk_action
+        count = apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority)
 
-        log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
-        reconcile_job_write(db, production_orders)
-        with deferred_job_conflicts(db, deleted_sample):
+    log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
+    reconcile_job_write(db, production_orders)
+    if action == "delete":
+        with rollback_on_integrity_error(db):
             db.commit()
-    except JobLinkConflict as exc:
-        return exc.response(db, "bulk")
+    else:
+        db.commit()
     result = {"status": "ok", "affected": count}
     if action == 'reschedule':
         result['skipped'] = len(job_ids) - count
@@ -640,11 +641,11 @@ def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.de
         with deleting_job_links(db, [job_id]):
             db.delete(job)
             db.flush()
-        reconcile_job_write(db, production_orders)
-        with deferred_job_conflicts(db, [job_id]):
-            db.commit()
     except JobLinkConflict as exc:
         return exc.response(db, "single")
+    reconcile_job_write(db, production_orders)
+    with rollback_on_integrity_error(db):
+        db.commit()
 
 
 @router.post("/{job_id}/repeat", tags=["Jobs"])

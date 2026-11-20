@@ -1,7 +1,7 @@
 """System config routes — Spoolman URL and blackout hours (/config, /spoolman/test), IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
 import asyncio
-from modules.jobs.services import deleting_job_links, deferred_job_conflicts, JobLinkConflict
+from modules.jobs.services import deleting_job_links, JobLinkConflict
 from sqlalchemy import inspect
 import json
 import time
@@ -169,7 +169,6 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
         from core.audit_retention_policy import effective_retention
         config = effective_retention(config)
         deleted = {}
-        deleted_sample = []
         now = datetime.now(timezone.utc)
         sqlite = db.get_bind().dialect.name == "sqlite"
 
@@ -231,7 +230,6 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                     return JSONResponse(status_code=409, content={
                         "code": "retention_jobs_changed", "message": "Jobs changed during cleanup. Run it again.",
                     })
-                deleted_sample.extend(candidates[:20 - len(deleted_sample)])
                 redact_job_history_ids(db, {jid: restricted[jid] for jid in removed_ids if jid in restricted})
                 # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
@@ -268,8 +266,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
         )
         deleted["classroom_oauth_states"] = expired_oauth.rowcount
 
-        with deferred_job_conflicts(db, deleted_sample):
-            db.commit()
+        db.commit()
         return {"status": "partial" if refused else "ok", "deleted": deleted, "refused": refused}
     except JobLinkConflict as exc:
         return exc.response(db, "retention")

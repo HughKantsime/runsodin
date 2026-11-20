@@ -6,7 +6,7 @@ from modules.jobs.services import deleting_job_links
 from core.controlled_deletion import controlled_job_ids, redact_job_history_ids
 
 
-def delete_bulk_jobs(db, current_user, job_ids, *, check, deleted_sample):
+def delete_bulk_jobs(db, current_user, job_ids, *, check):
     restricted = controlled_job_ids(db, job_ids)
     count = 0
     removed = set()
@@ -31,8 +31,6 @@ def delete_bulk_jobs(db, current_user, job_ids, *, check, deleted_sample):
                    {"id": jid})
         if changed.rowcount:
             removed.add(jid)
-            if len(deleted_sample) < 20:
-                deleted_sample.append(jid)
             from core.print_attempts import clear_job_attempts, sqlalchemy_runner
             clear_job_attempts(sqlalchemy_runner(db), jid)
             # cert-fix-F's hook also drops the monitor print:<print_job_id> quota markers.
