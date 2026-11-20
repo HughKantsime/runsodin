@@ -57,3 +57,13 @@ def test_spoolman_refusal_reason_carries_no_credentials(monkeypatch):
 def test_webhook_path_credentials_are_removed_from_log_output(line):
     from core.log_redaction import redact_text
     assert "synthetic-value" not in redact_text(line)
+
+
+@pytest.mark.parametrize("prefix", [
+    "api.telegram.org/bot",
+    "https://api.telegram.org:443/bot",
+    "api.telegram.org/file/bot",
+])
+def test_telegram_bot_token_segment_is_redacted(prefix):
+    from core.log_redaction import redact_text
+    assert redact_text(f"{prefix}123:synthetic-value/document") == f"{prefix}[REDACTED]/document"

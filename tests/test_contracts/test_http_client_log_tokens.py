@@ -6,6 +6,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
@@ -67,15 +68,29 @@ for name in ("httpx", "httpcore"):
     assert "HTTP Request:" not in output
 
 
-@pytest.mark.parametrize("url", [
-    "https://api.telegram.org/bot123:synthetic-telegram/sendMessage",
-    DESTINATIONS["discord"],
+@pytest.mark.parametrize("method,url,expected_url", [
+    ("POST", "https://api.telegram.org/bot123:synthetic-telegram/sendMessage", "https://api.telegram.org/[REDACTED]"),
+    ("POST", DESTINATIONS["discord"], "https://discord.com/[REDACTED]"),
+    ("POST", "https://example.test/run?api-version=1&sv=1.0&sig=synthetic-value", "https://example.test/[REDACTED]"),
+    ("GET", "https://example.test?sig=synthetic-value", "https://example.test/[REDACTED]"),
+    ("PUT", "http://example.test:8443#synthetic-value", "http://example.test:8443/[REDACTED]"),
+    ("PATCH", "https://synthetic-user@example.test/path", "https://example.test/[REDACTED]"),
+    ("HEAD", "https://example.test:8443", "https://example.test:8443"),
 ])
-def test_sanitize_stored_request(url):
+def test_sanitize_stored_request(method, url, expected_url):
     from modules.system.sanitize import sanitize_log_lines
-    [line] = sanitize_log_lines([f'HTTP Request: POST {url} "HTTP/1.1 200 OK"'])
-    assert "synthetic" not in line
-    assert '[REDACTED] "HTTP/1.1 200 OK"' in line
+    [line] = sanitize_log_lines([f'HTTP Request: {method} {url} "HTTP/1.1 200 OK"'])
+    assert line == f'HTTP Request: {method} {expected_url} "HTTP/1.1 200 OK"'
+
+
+def test_redact_long_http_request_line():
+    from core.log_redaction import redact_text
+    path = "/hook" * ((1024 * 1024) // 5 + 1)
+    line = f'HTTP Request: GET https://example.test{path}?sig=synthetic-value "HTTP/1.1 200 OK"'
+    start = perf_counter()
+    clean = redact_text(line)
+    assert perf_counter() - start < 2
+    assert clean == 'HTTP Request: GET https://example.test/[REDACTED] "HTTP/1.1 200 OK"'
 
 
 def test_supervised_python_modules_install_redaction():
@@ -103,14 +118,16 @@ def _scrub(data):
 def test_scrub_current_and_rotated_logs_once(tmp_path):
     request = b'HTTP Request: POST https://example.test/custom/synthetic-value "HTTP/1.1 200 OK"'
     clean = request.replace(b"custom/synthetic-value", b"[REDACTED]")
+    query = b'HTTP Request: GET https://example.test:8443?auth=synthetic-value "HTTP/1.1 200 OK"'
+    clean_query = query.replace(b"?auth=synthetic-value", b"/[REDACTED]")
     ordinary = b"\xffordinary\r\nhttps://example.test/hooks/synthetic-ordinary\n"
     long_prefix = b" " * (1024 * 1024) + b"\xfe"
     for name in ("monitor.log", "monitor.log.12"):
         path = tmp_path / name
-        path.write_bytes(ordinary + request + b"\r\n" + long_prefix + request)
+        path.write_bytes(ordinary + request + b"\r\n" + long_prefix + query)
         path.chmod(0o640)
     unchanged = tmp_path / "backend.log"
-    unchanged.write_bytes(ordinary + b"HTTP Request: GET https://example.test/health\n")
+    unchanged.write_bytes(ordinary + b"HTTP Request: GET https://example.test\n")
     before = unchanged.stat()
     (tmp_path / "ignored.log.gz").write_bytes(request)
     (tmp_path / "x.log").symlink_to(tmp_path / "ignored.log.gz")
@@ -124,7 +141,7 @@ def test_scrub_current_and_rotated_logs_once(tmp_path):
     assert (tmp_path / MARKER).read_bytes() == b""
     for name in ("monitor.log", "monitor.log.12"):
         path = tmp_path / name
-        assert path.read_bytes() == ordinary + clean + b"\r\n" + long_prefix + clean
+        assert path.read_bytes() == ordinary + clean + b"\r\n" + long_prefix + clean_query
         assert stat.S_IMODE(path.stat().st_mode) == 0o640
     assert (tmp_path / "x.log").is_symlink()
     assert (tmp_path / "ignored.log.gz").read_bytes() == request
