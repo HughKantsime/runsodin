@@ -7,17 +7,19 @@ Education queue reads and ordering use this same boundary so scheduling and
 dispatch share the jobs-owned rank and head-of-queue policy.
 """
 import logging
+from contextlib import contextmanager
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import bindparam, text
+from sqlalchemy.exc import IntegrityError
 
 from core.log_redaction import redact_text
 from modules.jobs.education_order import education_order, waiting_rows, ordered_waiting, head_refusal
 from modules.jobs.pinning import clear_pins_for_deleted_printer
 from modules.jobs.state_machine import Expr, TransitionError, transition_job, transition_result
 
-__all__ = ["clear_job_links", "job_delete_conflict", "delete_org_jobs", "education_order", "waiting_rows", "ordered_waiting", "head_refusal", "Expr", "TransitionError", "clear_pins_for_deleted_printer", "transition_job", "transition_result"]
+__all__ = ["clear_job_links", "deleting_job_links", "deferred_job_conflicts", "JobLinkConflict", "delete_org_jobs", "education_order", "waiting_rows", "ordered_waiting", "head_refusal", "Expr", "TransitionError", "clear_pins_for_deleted_printer", "transition_job", "transition_result"]
 
 
 def clear_job_links(db, job_ids):
@@ -27,19 +29,47 @@ def clear_job_links(db, job_ids):
     db.execute(text("UPDATE spool_usage SET job_id=NULL WHERE job_id IN :ids").bindparams(ids), {"ids": job_ids})
 
 
-def job_delete_conflict(db, exc):
-    db.rollback()
-    # PostgreSQL's DETAIL can contain row data. Log only the primary constraint message.
-    diagnostic = getattr(exc.orig, "diag", None)
-    reason = getattr(diagnostic, "message_primary", None) or str(exc.orig).partition("\n")[0]
-    logging.getLogger("odin.api").warning("Job deletion blocked: %s", redact_text(reason))
-    return JSONResponse(status_code=409, content={
-        "code": "job_has_linked_records",
-        "message": "This job has linked records and cannot be deleted.",
-    })
+class JobLinkConflict(Exception):
+    def __init__(self, job_ids, cause):
+        self.job_ids = job_ids[:20]
+        self.cause = cause
+
+    def response(self, db, path):
+        db.rollback()
+        # PostgreSQL's DETAIL can contain row data. Log only the primary message.
+        diagnostic = getattr(self.cause.orig, "diag", None)
+        reason = getattr(diagnostic, "message_primary", None) or str(self.cause.orig).partition("\n")[0]
+        logging.getLogger("odin.api").warning("Job deletion blocked: path=%s job_ids=%s: %s",
+                                              path, self.job_ids, redact_text(reason))
+        return JSONResponse(status_code=409, content={
+            "code": "job_has_linked_records",
+            "message": "This job has linked records and cannot be deleted.",
+        })
 
 
-def delete_org_jobs(db, org_id):
+@contextmanager
+def deleting_job_links(db, job_ids):
+    try:
+        for start in range(0, len(job_ids), 500):
+            clear_job_links(db, job_ids[start:start + 500])
+        yield
+    except IntegrityError as exc:
+        raise JobLinkConflict(job_ids, exc) from exc
+
+
+@contextmanager
+def deferred_job_conflicts(db, job_ids):
+    db.flush()
+    try:
+        yield
+    except IntegrityError as exc:
+        if job_ids and (getattr(exc.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_FOREIGNKEY"
+                        or getattr(exc.orig, "sqlstate", None) == "23503"):
+            raise JobLinkConflict(job_ids, exc) from exc
+        raise
+
+
+def delete_org_jobs(db, org_id, *, deleted_sample=None):
     """Remove owned jobs and their cascading history. Return the number removed."""
     from modules.jobs.models import Job
     from core.print_attempts import clear_job_attempts, sqlalchemy_runner
@@ -53,13 +83,14 @@ def delete_org_jobs(db, org_id):
         from core.traceability_delivery import prepare_job_deletion
         prepare_job_deletion(db, job_id)
         clear_job_attempts(sqlalchemy_runner(db), job_id)
-    for start in range(0, len(job_ids), 500):
-        clear_job_links(db, job_ids[start:start + 500])
-    removed = db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})
+    with deleting_job_links(db, job_ids):
+        removed = db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})
     if removed.rowcount != len(job_ids):
         db.rollback()
         raise HTTPException(409, "The job list changed. Try again.")
     redact_job_history_ids(db, restricted)
+    if deleted_sample is not None:
+        deleted_sample.extend(job_ids[:20])
     return removed.rowcount
 
 

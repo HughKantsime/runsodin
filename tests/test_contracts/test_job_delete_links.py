@@ -1,10 +1,12 @@
 """Delete jobs through the API with current and pre-cascade foreign keys."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -37,7 +39,7 @@ def legacy_links(db):
 @contextmanager
 def client_for(engine, monkeypatch, *, legacy=False):
     monkeypatch.setitem(registry._providers, "EducationPolicyProvider", EducationPolicyService())
-    with engine.begin() as db:
+    with (nullcontext(engine) if isinstance(engine, Connection) else engine.begin()) as db:
         if engine.dialect.name == "sqlite":
             assert db.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
             if legacy:
@@ -58,7 +60,7 @@ def client_for(engine, monkeypatch, *, legacy=False):
                             "VALUES (:id,81,:id,15,'First layer')"), {"id": jid})
 
     def session():
-        with Session(engine) as db:
+        with Session(engine, join_transaction_mode="create_savepoint") as db:
             yield db
 
     app = FastAPI()
@@ -71,7 +73,7 @@ def client_for(engine, monkeypatch, *, legacy=False):
 
 
 def assert_links(engine, *, deleted):
-    with engine.connect() as db:
+    with (nullcontext(engine) if isinstance(engine, Connection) else engine.connect()) as db:
         ids = [82] if deleted else [81, 82]
         assert db.execute(text("SELECT id FROM jobs WHERE id IN (81,82) ORDER BY id")).scalars().all() == ids
         assert db.execute(text("SELECT job_id FROM alerts WHERE id IN (81,82) ORDER BY id")).scalars().all() == ids
@@ -173,7 +175,127 @@ def test_unknown_constraint_rolls_back(review_db, monkeypatch, enterprise_licens
                                    "message": "This job has linked records and cannot be deleted."}
         reason = "FOREIGN KEY constraint failed" if deferred else "test hold on job"
         assert reason in caplog.text
+        assert f"path={path} job_ids=[81]" in caplog.text
     assert_links(engine, deleted=False)
     with engine.connect() as db:
         assert db.execute(text("SELECT id FROM groups WHERE id=81")).scalar_one() == 81
         assert not db.execute(text("SELECT id FROM audit_logs WHERE action='job.deleted' AND entity_id=81")).first()
+
+
+@pytest.mark.parametrize("path", ["single", "bulk"])
+def test_unrelated_reconcile_error_propagates(review_db, monkeypatch, path):
+    def fail_reconciliation(db, _orders):
+        db.execute(text("INSERT INTO groups(id,name) VALUES (81,'Duplicate')"))
+
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch) as client:
+        monkeypatch.setattr(jobs_crud, "reconcile_job_write", fail_reconciliation)
+        with pytest.raises(IntegrityError, match="groups.id"):
+            delete_via(client, path)
+    assert_links(engine, deleted=False)
+
+
+@pytest.mark.parametrize("path", ["single", "bulk", "orgs", "groups", "retention"])
+def test_unrelated_deferred_constraint_is_not_job_conflict(review_db, monkeypatch, enterprise_license, path):
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch) as client:
+        with engine.begin() as db:
+            db.exec_driver_sql("CREATE TABLE audit_target (group_id INTEGER REFERENCES groups(id) "
+                               "DEFERRABLE INITIALLY DEFERRED)")
+            db.exec_driver_sql("""CREATE TRIGGER unrelated_write AFTER DELETE ON jobs
+                BEGIN INSERT INTO audit_target VALUES (-1); END""")
+        if path == "retention":
+            response = delete_via(client, path)
+            assert response.status_code == 503, response.text
+        else:
+            with pytest.raises(IntegrityError, match="FOREIGN KEY"):
+                delete_via(client, path)
+    assert_links(engine, deleted=False)
+
+
+def test_retention_job_count_changed(review_db, monkeypatch):
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch, legacy=True) as client:
+        with engine.begin() as db:
+            db.exec_driver_sql("""CREATE TRIGGER skip_job BEFORE DELETE ON jobs WHEN OLD.id=81
+                BEGIN SELECT RAISE(IGNORE); END""")
+        response = delete_via(client, "retention")
+        assert response.status_code == 409, response.text
+        assert response.json() == {"code": "retention_jobs_changed",
+                                   "message": "Jobs changed during cleanup. Run it again."}
+    assert_links(engine, deleted=False)
+
+
+def test_foreign_org_cannot_unlink_job(review_db, monkeypatch):
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch, legacy=True) as client:
+        client.app.dependency_overrides[get_current_user] = lambda: {"id": 5, "role": "admin", "group_id": 2}
+        assert client.delete("/api/jobs/81").status_code == 404
+        response = client.post("/api/jobs/bulk-update", json={"action": "delete", "job_ids": [81]})
+        assert response.status_code == 200, response.text
+        assert response.json()["affected"] == 0
+    assert_links(engine, deleted=False)
+
+
+def test_bulk_late_refusal_restores_earlier_job(review_db, monkeypatch):
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch, legacy=True) as client:
+        with engine.begin() as db:
+            db.execute(text("UPDATE jobs SET status='cancelled' WHERE id=82"))
+            db.execute(text("INSERT INTO traceability_records "
+                            "(job_id,attempt,snapshot,snapshot_sha256,captured_at,delivered_at) "
+                            "VALUES (82,1,'{}','digest','2000-01-01','2000-01-02')"))
+        deleted_ids = []
+
+        def observe_delete(_conn, cursor, statement, params, _context, _many):
+            if statement.startswith("DELETE FROM jobs WHERE id =") and cursor.rowcount == 1:
+                deleted_ids.append(params[0])
+
+        event.listen(engine, "after_cursor_execute", observe_delete)
+        try:
+            response = delete_via(client, "bulk")
+        finally:
+            event.remove(engine, "after_cursor_execute", observe_delete)
+        assert deleted_ids == [81]
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Delivered traceability records must be retained"
+    assert_links(engine, deleted=False)
+
+
+@pytest.mark.parametrize("size", [0, 501])
+def test_org_job_link_chunk_boundary(review_db, monkeypatch, enterprise_license, size):
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch, legacy=True) as client:
+        with engine.begin() as db:
+            db.execute(text("INSERT INTO groups(id,name,is_org) VALUES (99,'Test room',TRUE)"))
+            if size:
+                params = [{"id": 1000 + i} for i in range(size)]
+                db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id) "
+                                "VALUES (:id,'Chunk','cancelled',99)"), params)
+                db.execute(text("INSERT INTO alerts(id,user_id,alert_type,severity,title,job_id) "
+                                "VALUES (:id,3,'print_complete','info','Done',:id)"), params)
+                db.execute(text("INSERT INTO spool_usage(id,spool_id,job_id,weight_used_g) "
+                                "VALUES (:id,81,:id,15)"), params)
+        response = client.delete("/api/orgs/99")
+        assert response.status_code == 200, response.text
+    with engine.connect() as db:
+        assert db.execute(text("SELECT count(*) FROM groups WHERE id=99")).scalar_one() == 0
+        assert db.execute(text("SELECT count(*) FROM jobs WHERE charged_to_org_id=99")).scalar_one() == 0
+        assert db.execute(text("SELECT count(*) FROM alerts WHERE id>=1000")).scalar_one() == 0
+        assert db.execute(text("SELECT count(*) FROM spool_usage WHERE id>=1000 AND job_id IS NULL")).scalar_one() == size
+    assert_links(engine, deleted=False)
+
+
+def test_conflict_log_limits_job_ids(review_db, monkeypatch, enterprise_license, caplog):
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch, legacy=True) as client:
+        with engine.begin() as db:
+            db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id) "
+                            "VALUES (:id,'Print','cancelled',81)"), [{"id": i} for i in range(100, 121)])
+            db.exec_driver_sql("""CREATE TRIGGER hold_job BEFORE DELETE ON jobs WHEN OLD.id=120
+                BEGIN SELECT RAISE(ABORT, 'test hold on job'); END""")
+        response = delete_via(client, "orgs")
+        assert response.status_code == 409
+        sample = [81, *range(100, 119)]
+        assert f"path=orgs job_ids={sample}: test hold on job" in caplog.text
+    assert_links(engine, deleted=False)

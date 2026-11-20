@@ -640,18 +640,15 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
     delete_deferred_deliveries(db, org_id=group_id)
     db.execute(text("DELETE FROM stock_snapshots WHERE owner_scope='org' AND owner_key=:org"), {"org": group_id})
     forget_tenant(db, group_id)
-    from modules.jobs.services import delete_org_jobs, job_delete_conflict
+    from modules.jobs.services import delete_org_jobs, deferred_job_conflicts, JobLinkConflict
+    deleted_sample = []
     try:
-        removed_jobs = delete_org_jobs(db, group_id)
-    except IntegrityError as exc:
-        return job_delete_conflict(db, exc)
-    db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        if removed_jobs:
-            return job_delete_conflict(db, exc)
-        raise
+        delete_org_jobs(db, group_id, deleted_sample=deleted_sample)
+        db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
+        with deferred_job_conflicts(db, deleted_sample):
+            db.commit()
+    except JobLinkConflict as exc:
+        return exc.response(db, "groups")
     return {"status": "deleted"}
 
 
