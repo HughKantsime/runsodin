@@ -11,6 +11,7 @@ import io
 import re
 import threading
 import time
+from unittest.mock import Mock
 
 import jwt
 import pyotp
@@ -45,7 +46,26 @@ def fresh_code(odin, totp: pyotp.TOTP) -> str:
     now = time.time()
     if last is not None and int(now // totp.interval) <= last:
         time.sleep((last + 1) * totp.interval - now)
+    elif totp.interval - (now % totp.interval) < 2:
+        time.sleep(2.2)
     return totp.now()
+
+
+@pytest.mark.parametrize(('now', 'last', 'expected_step'), [
+    (58.0, None, 1), (59.0, None, 2), (59.0, 0, 2), (31.0, 2, 3),
+])
+def test_fresh_code_returns_unused_step_away_from_rollover(monkeypatch, now, last, expected_step):
+    def advance(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(time, 'time', lambda: now)
+    monkeypatch.setattr(time, 'sleep', advance)
+    odin = Mock()
+    odin.sql.return_value = [(last,)]
+    totp = Mock(interval=30)
+    totp.now.side_effect = lambda: int(now // totp.interval)
+    assert fresh_code(odin, totp) == expected_step
 
 
 # ---------------------------------------------------------------- F11-11.2-01 QR setup

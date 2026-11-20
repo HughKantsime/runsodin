@@ -2,6 +2,7 @@
 import importlib
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from unittest.mock import Mock
 
 import pyotp
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy import text
 from core.schema import bootstrap_database
 from core.schema.migrator import MigrationError, apply_python_migration
 from modules.organizations import routes_auth
+from modules.organizations.mfa_attempts import consume_totp
 from tests.test_contracts.test_education_classes_migration import native_engine, pg_engine
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_mfa_authentication_behavior import challenge
@@ -25,6 +27,37 @@ MIGRATION = importlib.import_module('core.schema.migrations.065_mfa_last_totp_st
 
 def stored_step(db):
     return db.execute(text('SELECT mfa_last_totp_step FROM users WHERE id=1')).scalar_one()
+
+
+@pytest.mark.parametrize('offset', [-1, 0], ids=['previous', 'current'])
+def test_accepts_unused_step(review_db, monkeypatch, offset):
+    monkeypatch.setattr(pyotp.TOTP, 'timecode', lambda self, when: 1000)
+    totp = pyotp.TOTP('JBSWY3DPEHPK3PXP')
+    step = 1000 + offset
+    assert stored_step(review_db) is None
+    assert consume_totp(review_db, 1, totp.secret, totp.generate_otp(step))
+    assert stored_step(review_db) == step
+
+
+def test_wrong_and_reused_codes_execute_same_claim(review_db, monkeypatch):
+    monkeypatch.setattr(pyotp.TOTP, 'timecode', lambda self, when: 1000)
+    totp = pyotp.TOTP('JBSWY3DPEHPK3PXP')
+    execute = Mock(wraps=review_db.execute)
+    monkeypatch.setattr(review_db, 'execute', execute)
+
+    def rejected_statements(code):
+        execute.reset_mock()
+        assert not consume_totp(review_db, 1, totp.secret, code)
+        return [str(call.args[0]) for call in execute.call_args_list]
+
+    wrong = rejected_statements('000000')
+    assert stored_step(review_db) is None
+    code = totp.generate_otp(1000)
+    assert consume_totp(review_db, 1, totp.secret, code)
+    reused = rejected_statements(code)
+    assert wrong == reused
+    assert len(reused) == 1 and reused[0].startswith('UPDATE users ')
+    assert stored_step(review_db) == 1000
 
 
 def test_reuse_counts_across_routes_and_older_unused_step_is_refused(client, review_db, monkeypatch):

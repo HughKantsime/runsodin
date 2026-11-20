@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from core.auth import verify_password
 from scripts.demo_seed_edu import Persona, personas_from_environment, upsert_personas
 
@@ -97,6 +99,15 @@ def test_persona_seed_rejects_unknown_role_before_writing(tmp_path):
     conn = sqlite3.connect(db_path)
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
     conn.close()
+
+
+def test_persona_seed_requires_totp_step_column(tmp_path):
+    db_path = tmp_path / "odin.db"
+    _make_users_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE users DROP COLUMN mfa_last_totp_step")
+    with pytest.raises(RuntimeError, match="^users table missing required columns: mfa_last_totp_step$"):
+        upsert_personas(str(db_path), [Persona("viewer@school.test", "fixture", "viewer", no_mfa=True)])
 
 
 def test_personas_support_password_files_without_secret_environment(tmp_path, monkeypatch):

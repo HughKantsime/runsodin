@@ -105,12 +105,11 @@ def consume_totp(db, user_id, secret, code):
     # reject the code if any of those steps was already used.
     matches = [step for step in range(current - 1, current + 2)
                if pyotp.utils.strings_equal(str(code), totp.generate_otp(step))]
-    if not matches:
-        return False
     claimed = db.execute(text(
-        "UPDATE users SET mfa_last_totp_step=:last WHERE id=:uid "
+        "UPDATE users SET mfa_last_totp_step=:last WHERE id=:uid AND :matched "
         "AND (mfa_last_totp_step IS NULL OR mfa_last_totp_step<:first)"
-    ), {"uid": user_id, "first": matches[0], "last": matches[-1]})
+    ), {"uid": user_id, "matched": bool(matches),
+        "first": min(matches, default=None), "last": max(matches, default=None)})
     return claimed.rowcount == 1
 
 

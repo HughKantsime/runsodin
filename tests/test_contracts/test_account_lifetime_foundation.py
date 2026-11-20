@@ -311,3 +311,13 @@ def test_pg_catalog_index_state_and_source_function_defaults():
  assert 'p.prosupport::oid' in code
  assert 'cost!=100' in code and 'result_rows!=0' in code and 'support!=0' in code
  assert 'default_count!=0' in code and 'defaults is not None' in code
+
+def test_pg_catalog_after_totp_migration_and_account_install():
+ from core.account_lifetime_validation import PG_CATALOG
+ users = PG_CATALOG['columns']['users']
+ assert users[-2] == {'column_name': 'mfa_last_totp_step', 'data_type': 'integer',
+                      'is_nullable': 'YES', 'column_default': None, 'collation_name': None}
+ assert users[-1]['column_name'] == 'account_nonce'
+ references = PG_CATALOG['oid_references']
+ assert references['users'][0]['conkey'] == [len(users)]
+ assert references['account_lifetimes'][0]['confkey'] == [1, len(users)]
