@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 
 from core.audit import log_audit
+from core.db_compat import as_utc_datetime
 from core.errors import ErrorCode, OdinError
 from core.system_config_values import config_text, write_config_text
 from modules.printers.adapters.moonraker import control_confirmed
@@ -50,6 +51,8 @@ def _decode(db, key, value, *, cleanup=True, commit_cleanup=True):
                for k in ("print_job_id", "job_id", "detection_id")):
             raise ValueError
         if any(datetime.fromisoformat(record[k]).tzinfo is None for k in ("sent_at", "deadline_at")):
+            raise ValueError
+        if "resume_paused_at" in record and datetime.fromisoformat(record["resume_paused_at"]).tzinfo is None:
             raise ValueError
         return record
     except (KeyError, TypeError, ValueError, RecursionError):
@@ -103,7 +106,17 @@ def _active_print(db, printer_id):
 
 def _matches_attempt(db, printer_id, record):
     if record["print_job_id"] is None:
-        return True
+        if record["action"] != "resume":
+            return True
+        if not record.get("resume_paused_at"):
+            return False
+        sent = datetime.fromisoformat(record["sent_at"])
+        # SQLite's julianday rounds to milliseconds. Resolve ties at stored precision.
+        newer = ("julianday(started_at) >= julianday(:sent)" if db.get_bind().dialect.name == "sqlite"
+                 else "started_at > :sent")
+        starts = db.execute(text(f"SELECT started_at FROM print_jobs WHERE printer_id=:id AND {newer}"),
+                            {"id": printer_id, "sent": record["sent_at"]}).scalars()
+        return not any(as_utc_datetime(start) > sent for start in starts)
     active = _active_print(db, printer_id)
     if active is None:
         return record["action"] == "stop"
@@ -113,7 +126,7 @@ def _matches_attempt(db, printer_id, record):
 
 def _begin(db, printer_id, record, outcome):
     """Reconcile after device I/O, serializing only the bookkeeping."""
-    previous = _read(db, printer_id, lock=True)
+    previous = _read(db, printer_id, lock=True) if outcome != "failed" else None
     # Resolve the attempt at send time, even if it ended during the short wait.
     # SQLite stores both space- and T-separated timestamps.
     sent = datetime.fromisoformat(record["sent_at"])
@@ -121,11 +134,15 @@ def _begin(db, printer_id, record, outcome):
     started = "julianday(started_at) <= julianday(:sent)" if sqlite else "started_at <= :sent"
     ended = "julianday(ended_at) >= julianday(:sent)" if sqlite else "ended_at >= :sent"
     attempt = db.execute(text(
-        f"SELECT id, scheduled_job_id, economic_uid FROM print_jobs WHERE printer_id=:id AND {started} "
+        f"SELECT id, scheduled_job_id, economic_uid, started_at FROM print_jobs WHERE printer_id=:id AND {started} "
         f"AND ((ended_at IS NULL AND status IN ('running','paused','printing')) OR {ended}) "
-        "ORDER BY id DESC LIMIT 1"), {"id": printer_id, "sent": sent}).first()
-    if attempt:
+        "ORDER BY id DESC LIMIT 1"), {"id": printer_id, "sent": record["sent_at"]}).first()
+    if attempt and as_utc_datetime(attempt.started_at) <= sent:
         record.update(job_id=attempt.scheduled_job_id, print_job_id=attempt.id, print_attempt_uid=attempt.economic_uid)
+    if outcome == "failed":
+        _finish(db, printer_id, record, outcome, datetime.now(timezone.utc))
+        db.commit()
+        return None, outcome
     if outcome == "confirmed" and not _matches_attempt(db, printer_id, record):
         outcome = "pending"
     # A newer command may already have finished and cleared its pending row.
@@ -157,7 +174,8 @@ def _begin(db, printer_id, record, outcome):
 
 
 def _finish(db, printer_id, record, outcome, now):
-    db.execute(text("DELETE FROM system_config WHERE key=:k"), {"k": _key(printer_id)})
+    if outcome != "failed":
+        db.execute(text("DELETE FROM system_config WHERE key=:k"), {"k": _key(printer_id)})
     elapsed = (now - datetime.fromisoformat(record["sent_at"])).total_seconds()
     log_audit(db, f"printer.{record['action']}_{outcome}", "printer", printer_id,
               {**record, "elapsed_seconds": round(elapsed, 2)})
@@ -170,12 +188,22 @@ def observe_control(db, printer_id, name, status=None, *, observed_at=None, now=
         return
     now = now or datetime.now(timezone.utc)
     expired = now >= datetime.fromisoformat(record["deadline_at"])
-    if (observed_at or now) < datetime.fromisoformat(record["sent_at"]):
+    observed_at = observed_at or now
+    if observed_at < datetime.fromisoformat(record["sent_at"]):
         return
+    unbound_resume = record["action"] == "resume" and record["print_job_id"] is None
+    saw_pause = unbound_resume and status and status.raw_print_state == "paused" and not record.get("resume_paused_at")
     confirmed = status is not None and control_confirmed(record["action"], status)
-    if not expired and (record["awaiting_reply"] or not confirmed):
+    if unbound_resume and record.get("resume_paused_at"):
+        confirmed = confirmed and observed_at > datetime.fromisoformat(record["resume_paused_at"])
+    if not expired and (record["awaiting_reply"] or not (confirmed or saw_pause)):
         return
     if _read(db, printer_id, lock=True) != record:
+        return
+    if saw_pause and not expired:
+        record["resume_paused_at"] = observed_at.isoformat()
+        write_config_text(db, _key(printer_id), json.dumps(record))
+        db.commit()
         return
     confirmed = confirmed and _matches_attempt(db, printer_id, record)
     if not confirmed and not expired:
@@ -224,7 +252,7 @@ def _rollback_bookkeeping(db, printer_id):
         log.warning("Control bookkeeping rollback failed for printer %s (%s)", printer_id, type(exc).__name__)
 
 
-def send_control(db, printer, action, actor, *, live_check=None, detection_id=None, expected_print_job_id=None):
+def send_control(db, printer, action, actor, *, live_check=None, detection_id=None, expected_print_job_id=None, via=None):
     from modules.printers.adapters.moonraker import MoonrakerPrinter
     from core.crypto import decrypt
     automatic = live_check is not None
@@ -267,16 +295,43 @@ def send_control(db, printer, action, actor, *, live_check=None, detection_id=No
                   deadline_at=(sent + timedelta(seconds=DEADLINES[action])).isoformat(),
                   actor_user_id=actor.get("id"), actor_token_id=actor.get("_token_id"),
                   automatic=automatic, job_id=None, print_job_id=None, print_attempt_uid=None, awaiting_reply=False)
+    if action == "resume" and (paused_at := getattr(adapter, "resume_paused_at", None)):
+        record["resume_paused_at"] = paused_at.isoformat()
     if detection_id is not None:
         record["detection_id"] = detection_id
+    if via is not None:
+        record["via"] = via
     if proof == "unproven":
         record["unproven"] = True
     current = None
-    try:
-        current, outcome = _begin(db, printer_id, record, "failed" if failed else outcome)
-    except Exception as exc:
-        _rollback_bookkeeping(db, printer_id)
-        log.warning("Could not record %s for printer %s (%s)", action, printer_id, type(exc).__name__)
+    attempts = 2 if action == "stop" and not failed else 1
+    for attempt in range(attempts):
+        try:
+            if attempt:
+                if db.in_transaction():  # The rollback itself failed.
+                    db.invalidate()
+                # A commit can succeed even when its acknowledgement is lost.
+                from core.models import AuditLog
+                recorded = db.query(AuditLog.id).filter(
+                    AuditLog.entity_type == "printer", AuditLog.entity_id == printer_id,
+                    AuditLog.action == "printer.stop_requested",
+                    AuditLog.details["sent_at"].as_string() == record["sent_at"]).first()
+                if recorded:
+                    current = _read(db, printer_id)
+                    if current and current["sent_at"] == record["sent_at"]:
+                        outcome = "pending"
+                    break
+            current, outcome = _begin(db, printer_id, record.copy(), "failed" if failed else outcome)
+            break
+        except Exception as exc:
+            _rollback_bookkeeping(db, printer_id)
+            if attempt + 1 == attempts:
+                if action == "resume" and not failed:
+                    outcome = "pending"  # The attempt could not be verified.
+                log.log(logging.ERROR if attempts == 2 else logging.WARNING,
+                        "Could not record %s for printer %s user_id=%s token_id=%s sent_at=%s (%s)",
+                        action, printer_id, record["actor_user_id"], record["actor_token_id"],
+                        record["sent_at"], type(exc).__name__)
     if failed:
         message = ("The printer is unreachable." if reply.outcome == "unreachable" else
                    f"The printer rejected {action.title()} (HTTP {reply.status}). {reply.error}".strip())

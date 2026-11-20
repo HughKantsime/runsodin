@@ -220,9 +220,10 @@ def validate_current_ams_selection(db,*,printer_id,expected_org_id,generation_id
         raise ValueError('AMS selection is unavailable or changed; refresh required') from None
 
 
-def resume_moonraker_detection(db, printer, print_job_id, actor):
+def resume_moonraker_detection(db, printer, print_job_id, actor, detection_id):
     from modules.printers.moonraker_controls import send_control
-    return send_control(db, printer, "resume", actor, expected_print_job_id=print_job_id)
+    return send_control(db, printer, "resume", actor, expected_print_job_id=print_job_id,
+                        detection_id=detection_id, via="vision_dismissal")
 
 
 def request_observed_task_resume(printer, print_job_id: int) -> str:

@@ -23,7 +23,8 @@ export default function EmergencyStop() {
   const [confirmStop, setConfirmStop] = useState<number | null>(null)
   const [listError, setListError] = useState(false)
   const [outcome, setOutcome] = useState('')
-  const busy = useRef(new Set<string>())
+  const busy = useRef(new Map<string, symbol>())
+  const lastStops = useRef(new Map<number, { sentAt: number; inFlight: boolean }>())
   const latest = useRef(new Map<number, symbol>())
   const mounted = useRef(false)
 
@@ -38,6 +39,9 @@ export default function EmergencyStop() {
         const data = await fetchAPI('/printers')
         if (!Array.isArray(data)) throw new Error('Invalid printer list')
         if (!active || request !== sequence) return
+        for (const [id, stop] of lastStops.current) {
+          if (!stop.inFlight) lastStops.current.delete(id)
+        }
         setListError(false)
         setPrinters(data.filter((p: ActivePrinter) => p.pending_control || (isOnline(p) && isActivePrintState(p.gcode_state))))
       } catch {
@@ -60,12 +64,24 @@ export default function EmergencyStop() {
     const key = target?.api_type === 'moonraker' ? printerId + action : String(printerId)
     const principal = getCurrentUser()
     if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit') || listError || busy.current.has(key)) return
-    busy.current.add(key)
     const request = Symbol()
+    busy.current.set(key, request)
     latest.current.set(printerId, request)
     const identity = JSON.stringify(principal)
     const stillCurrent = () => mounted.current && JSON.stringify(getCurrentUser()) === identity
     setLoading(prev => ({ ...prev, [printerId + action]: true }))
+    const release = () => {
+      if (busy.current.get(key) !== request) return
+      busy.current.delete(key)
+      if (stillCurrent()) setLoading(prev => ({ ...prev, [printerId + action]: false }))
+    }
+    const repeatableStop = action === 'stop' && target?.api_type === 'moonraker'
+    const stop = { sentAt: Date.now(), inFlight: true }
+    if (repeatableStop) {
+      lastStops.current.set(printerId, stop)
+      setConfirmStop(null)
+    }
+    const timer = repeatableStop ? setTimeout(release, 3000) : undefined
 
     try {
       const receipt = await fetchAPI<ControlReceipt>(`/printers/${printerId}/${action}`, { method: 'POST' })
@@ -82,11 +98,10 @@ export default function EmergencyStop() {
       setOutcome(target?.api_type === 'moonraker' && error instanceof Error ? error.message : 'Command not confirmed')
       toast.error('Printer command failed')
     } finally {
-      busy.current.delete(key)
-      if (stillCurrent()) {
-        setLoading(prev => ({ ...prev, [printerId + action]: false }))
-        if (action === 'stop') setConfirmStop(null)
-      }
+      clearTimeout(timer)
+      stop.inFlight = false
+      release()
+      if (action === 'stop' && !repeatableStop && stillCurrent()) setConfirmStop(null)
     }
   }
 
@@ -134,8 +149,9 @@ export default function EmergencyStop() {
               const isPaused = isPausedState(printer.gcode_state)
               const isLoading = (action: PrintControlAction) => loading[printer.id + action]
               const pending = activeControl(printer)
-              const repeatedStop = pending?.action === 'stop'
-                ? `Stop was already sent ${Math.max(0, Math.floor((Date.now() - Date.parse(pending.sent_at)) / 1000))} seconds ago. Send it again?`
+              const lastStop = lastStops.current.get(printer.id)?.sentAt ?? (pending?.action === 'stop' ? Date.parse(pending.sent_at) : undefined)
+              const repeatedStop = lastStop !== undefined
+                ? `Stop was already sent ${Math.max(0, Math.floor((Date.now() - lastStop) / 1000))} seconds ago. Send it again?`
                 : null
               const disabled = (action: PrintControlAction) => (action !== 'stop' && pending?.action === action) ||
                 (printer.api_type === 'moonraker' ? isLoading(action) : busy.current.has(String(printer.id)))
@@ -192,7 +208,7 @@ export default function EmergencyStop() {
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <StopCircle size={14} />
-                        {controlLabel(printer, 'stop')}
+                        {isLoading('stop') && printer.api_type === 'moonraker' ? 'Sending...' : controlLabel(printer, 'stop')}
                       </button>
                     )}
                   </div>

@@ -235,13 +235,25 @@ def dismiss_and_resume(
         if printer.api_type == "moonraker" and state in ("PAUSE", "PAUSED"):
             from modules.printers.services import resume_moonraker_detection
             print_job_id = det.print_job_id
+            prior = dict(status=det.status, reviewed_by=det.reviewed_by, reviewed_at=det.reviewed_at)
+            claimed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            claim = statement.where(VisionDetection.status != "dismissed").values(reviewed_at=claimed_at)
+            if db.execute(claim.execution_options(synchronize_session=False)).rowcount != 1:
+                raise HTTPException(409, "Detection already dismissed or changed; refresh before reviewing")
             db.expunge(printer)
-            db.rollback()
-            receipt = resume_moonraker_detection(db, printer, print_job_id, current_user)
-            if db.execute(statement.execution_options(synchronize_session=False)).rowcount != 1:
-                raise HTTPException(409, detail={**receipt, "message": receipt["message"] +
-                                                 " The detection changed. Refresh before reviewing it."})
             db.commit()
+            try:
+                receipt = resume_moonraker_detection(db, printer, print_job_id, current_user, detection_id)
+            except (HTTPException, OdinError):
+                # A refusal or definitive send failure leaves the original review retryable.
+                db.rollback()
+                db.execute(update(VisionDetection).where(
+                    VisionDetection.id == detection_id, VisionDetection.print_job_id == print_job_id,
+                    VisionDetection.status == "dismissed", VisionDetection.reviewed_at == claimed_at,
+                    VisionDetection.reviewed_by == current_user["id"]).values(**prior)
+                    .execution_options(synchronize_session=False))
+                db.commit()
+                raise
             return {**receipt, "id": detection_id, "detection_id": detection_id, "status": "dismissed",
                     "actions": ["printer:resume_requested"], "resume_requested": True}
         if db.execute(statement.execution_options(synchronize_session=False)).rowcount != 1:

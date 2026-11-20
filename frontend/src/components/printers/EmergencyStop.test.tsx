@@ -140,3 +140,31 @@ it.each(['pause', 'resume', 'stop'] as const)('honors the deadline and repeat co
    expect(state.fetch).toHaveBeenCalledWith('/printers/199/stop', { method: 'POST' })
  }
 })
+
+it.each([1000, 3000])('allows a confirmed repeat Stop after %i ms', async delay => {
+ vi.useFakeTimers()
+ const printer = { id: 199, name: 'Test', api_type: 'moonraker', gcode_state: 'RUNNING', last_seen: new Date().toISOString() }
+ const replies: Array<(receipt: object) => void> = []
+ state.fetch.mockImplementation((path: string) => path === '/printers' ? Promise.resolve([printer])
+   : new Promise(resolve => replies.push(resolve)))
+ const receipt = { success: true, outcome: 'pending', pending_control: { action: 'stop', sent_at: printer.last_seen,
+   deadline_at: new Date(Date.now() + 300000).toISOString() } }
+ render(<EmergencyStop />)
+ await act(async () => {})
+ fireEvent.click(screen.getByRole('button', { name: /Emergency controls/ }))
+ fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+ fireEvent.click(screen.getByRole('button', { name: 'Confirm Stop' }))
+ await act(async () => { vi.advanceTimersByTime(delay - 1) })
+ expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+ await act(async () => {
+   vi.advanceTimersByTime(1)
+   if (delay < 3000) replies[0]({ success: true, outcome: 'confirmed' })
+ })
+ fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+ expect(replies).toHaveLength(1)
+ fireEvent.click(screen.getByRole('button', { name: /Send it again\?/ }))
+ expect(replies).toHaveLength(2)
+ if (delay === 3000) await act(async () => { replies[0](receipt) })
+ expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+ await act(async () => { replies[1](receipt) })
+})

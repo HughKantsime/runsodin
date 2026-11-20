@@ -34,6 +34,7 @@ import time
 import logging
 from typing import Optional, Dict, Any, List, Literal
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from urllib.request import Request
@@ -530,6 +531,7 @@ class MoonrakerPrinter:
     def run_control(self, action):
         reply = self.post_control(action)
         confirmed = False
+        self.resume_paused_at = None
         if reply.outcome in ("accepted", "no_reply"):
             deadline = time.monotonic() + (8 if action == "pause" else 3)
             while (remaining := deadline - time.monotonic()) > 0:
@@ -539,6 +541,8 @@ class MoonrakerPrinter:
                 except TimeoutError:
                     read.cancel()  # Only status reads go through the pool.
                     break
+                if action == "resume" and status.raw_print_state == "paused":
+                    self.resume_paused_at = datetime.now(timezone.utc)
                 if time.monotonic() <= deadline and control_confirmed(action, status):
                     confirmed = True
                     break

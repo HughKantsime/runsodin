@@ -46,6 +46,8 @@ def test_route(control_client, review_db, monkeypatch, action, expected, transpo
     client, issue, _ = control_client
     review_db.execute(text("UPDATE printers SET api_type='moonraker',api_host='fake.test',model='Kobra S1',"
                            "gcode_state='PAUSE',print_stage='Original stage' WHERE id=299"))
+    if action == "resume" and outcome == "confirmed":
+        review_db.execute(text("INSERT INTO print_jobs(printer_id,status,started_at) VALUES(299,'running',CURRENT_TIMESTAMP)"))
     review_db.commit()
     posts, clock = wire(monkeypatch, transport, expected if outcome == "confirmed" else "unknown")
     response = client.post(f"/printers/299/{action}", headers=issue(["agent:write", "write:printers"]))
@@ -434,6 +436,10 @@ def test_deadline_pass_rechecks_capture_state_or_cleans_deleted_printer(farm, mo
         install_printer(db)
         command = "pause" if action == "deleted" else action
         sent = pending(db, monkeypatch, command)
+        if action == "resume":
+            paused = replay["resume"][-2]
+            observe(db, paused["state"], sent + timedelta(seconds=paused["seconds"]))
+            assert controls._read(db, 9)["action"] == "resume"
         when = sent + timedelta(seconds=1 if action == "deleted" else controls.DEADLINES[command])
         sample = replay[command][-1]
         if action == "deleted":
@@ -561,3 +567,214 @@ def test_resume_short_window_cannot_confirm_after_original_print_ended(farm, mon
         receipt = controls.send_control(db, db.get(Printer, 9), "resume", {})
         assert receipt["outcome"] == "pending" and receipt["message"] == controls.PENDING["resume"]
         assert controls._read(db, 9)["print_job_id"] == 41
+
+
+@pytest.mark.parametrize("transport", ["unreachable", "rejected"])
+def test_failed_pause_preserves_pending_stop(farm, monkeypatch, transport):
+    from core.errors import OdinError
+    with farm.factory() as db:
+        install_printer(db)
+        sent = pending(db, monkeypatch, "stop")
+        before = controls._read(db, 9)
+        wire(monkeypatch, transport, "unknown")
+        with pytest.raises(OdinError):
+            controls.send_control(db, db.get(Printer, 9), "pause", {"id": 2})
+        assert controls._read(db, 9) == before
+        observe(db, "cancelled", sent + timedelta(seconds=10))
+        assert db.execute(text("SELECT action FROM audit_logs ORDER BY id")).scalars().all() == [
+            "printer.stop_requested", "printer.pause_failed", "printer.stop_confirmed"]
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_sent_stop_retries_only_bookkeeping(farm, monkeypatch, caplog, persistent):
+    begin = controls._begin
+    transactions = []
+    def fail_write(db, printer_id, record, outcome):
+        transactions.append(db.connection().get_transaction())
+        if persistent or len(transactions) == 1:
+            raise RuntimeError("synthetic write failure")
+        return begin(db, printer_id, record, outcome)
+
+    monkeypatch.setattr(controls, "_begin", fail_write)
+    sends, _ = wire(monkeypatch, "accepted", "unknown")
+    with farm.factory() as db:
+        install_printer(db)
+        receipt = controls.send_control(db, db.get(Printer, 9), "stop", {"id": 2, "_token_id": 77})
+        assert receipt["outcome"] == "pending" and sends == ["stop"]
+        assert len(transactions) == 2 and transactions[0] is not transactions[1]
+        if persistent:
+            errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+            assert len(errors) == 1
+            assert all(field in errors[0] for field in ("stop", "printer 9", "user_id=2", "token_id=77", "sent_at="))
+            assert datetime.fromisoformat(errors[0].split("sent_at=")[1].split()[0]).tzinfo
+        else:
+            assert controls._read(db, 9)["actor_token_id"] == 77
+            assert db.execute(text("SELECT action FROM audit_logs")).scalars().all() == ["printer.stop_requested"]
+
+
+def test_concurrent_moonraker_dismissals_send_once(review_db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import nullcontext
+    from threading import Event
+    from fastapi import HTTPException
+    from modules.vision.routes.detections import dismiss_and_resume
+    from tests.test_contracts.test_monitor_command_channel import setup_resume
+
+    setup_resume(review_db, "PAUSE")
+    review_db.execute(text("UPDATE printers SET api_type='moonraker',api_host='fake.test' WHERE id=9"))
+    review_db.commit()
+    engine = review_db.get_bind()
+    entered, release = Event(), Event()
+    sends = []
+    def post(request, **kwargs):
+        sends.append((request.method, request.selector))
+        if len(sends) == 1:
+            entered.set()
+            assert release.wait(10)
+        return nullcontext(SimpleNamespace(status=200))
+    monkeypatch.setattr(moonraker, "urlopen", post)
+    monkeypatch.setattr(REAL_ADAPTER, "get_status", lambda *a, **kw: moonraker.MoonrakerStatus(raw_print_state="paused"))
+
+    def dismiss():
+        with Session(engine) as db:
+            return dismiss_and_resume(701, {"id": 3, "role": "admin"}, db)
+
+    with ThreadPoolExecutor(2) as pool:
+        first = pool.submit(dismiss)
+        try:
+            assert entered.wait(5)
+            with pytest.raises(HTTPException) as error:
+                pool.submit(dismiss).result(5)
+            assert error.value.status_code == 409
+        finally:
+            release.set()
+        assert first.result(5)["resume_requested"]
+    assert sends == [("POST", "/printer/print/resume")]
+    audit = review_db.execute(text("SELECT details FROM audit_logs WHERE action='printer.resume_requested'")).scalar_one()
+    for details in (json.loads(audit), controls._read(review_db, 9)):
+        assert (details["via"], details["detection_id"]) == ("vision_dismissal", 701)
+
+
+@pytest.mark.parametrize("newer", [False, True])
+def test_unbound_resume_needs_transition_and_no_new_start(farm, monkeypatch, newer):
+    with farm.factory() as db:
+        install_printer(db)
+        # A cached PAUSE can predate both the command and the current print.
+        printer = db.get(Printer, 9)
+        printer.gcode_state = "PAUSE"
+        db.commit()
+        wire(monkeypatch, "accepted", "printing")
+        receipt = controls.send_control(db, printer, "resume", {})
+        assert receipt["outcome"] == "pending"
+        sent = datetime.fromisoformat(receipt["pending_control"]["sent_at"])
+        observe(db, "paused", sent - timedelta(seconds=1))
+        observe(db, "printing", sent + timedelta(seconds=1))
+        assert controls._read(db, 9)["print_job_id"] is None
+        observe(db, "paused", sent + timedelta(seconds=2))
+        if newer:
+            db.execute(text("INSERT INTO print_jobs(printer_id,started_at,ended_at,status) "
+                            "VALUES(9,:started,:ended,'completed')"),
+                       {"started": sent + timedelta(seconds=3), "ended": sent + timedelta(seconds=4)})
+            db.commit()
+        observe(db, "printing", sent + timedelta(seconds=5))
+        assert bool(controls._read(db, 9)) == newer
+
+
+def test_same_monitor_poll_records_new_start_before_confirming_resume(farm, monkeypatch):
+    from modules.printers.monitors import moonraker_monitor as monitor
+    with farm.factory() as db:
+        install_printer(db)
+        sent = pending(db, monkeypatch, "resume")
+        observe(db, "paused", sent + timedelta(seconds=1))
+        when = sent + timedelta(seconds=3)
+        worker = monitor.MoonrakerMonitor(9, "Test", "fake.test")
+        monkeypatch.setattr(monitor, "engine", farm.engine)
+        monkeypatch.setattr(monitor, "datetime", type("Clock", (datetime,), {"now": staticmethod(lambda tz: when)}))
+        status = moonraker.MoonrakerStatus(state=moonraker.MoonrakerState.PRINTING, raw_print_state="printing")
+        monkeypatch.setattr(worker.printer, "get_status", lambda: status)
+        def process(_):
+            with farm.engine.begin() as conn:
+                conn.execute(text("INSERT INTO print_jobs(printer_id,started_at,status) VALUES (9,:at,'running')"),
+                             {"at": when})
+            worker._running = False
+        monkeypatch.setattr(worker, "_process_status", process)
+        monkeypatch.setattr(monitor, "time", SimpleNamespace(sleep=lambda _: None))
+        worker._running = True
+        worker._poll_loop()
+        assert controls._read(db, 9)["action"] == "resume"
+
+
+def test_short_resume_window_cannot_adopt_a_newer_start(farm, monkeypatch):
+    from datetime import timezone
+    sent = datetime.now(timezone.utc).replace(microsecond=100000)
+    monkeypatch.setattr(controls, "datetime", type("Clock", (datetime,), {"now": staticmethod(lambda tz: sent)}))
+    with farm.factory() as db:
+        install_printer(db)
+        printer = db.get(Printer, 9)
+        printer.gcode_state = "PAUSE"
+        db.commit()
+        def run(adapter, action):
+            adapter.resume_paused_at = sent + timedelta(microseconds=2)
+            with farm.engine.begin() as conn:
+                conn.execute(text("INSERT INTO print_jobs(printer_id,started_at,status) VALUES(9,:at,'running')"),
+                             {"at": sent + timedelta(microseconds=1)})
+            adapter.last_control = moonraker.ControlReply("accepted"), True
+            return True
+        monkeypatch.setattr(REAL_ADAPTER, "run_control", run)
+        receipt = controls.send_control(db, printer, "resume", {})
+        assert receipt["outcome"] == "pending"
+        assert controls._read(db, 9)["print_job_id"] is None
+        observe(db, "printing", sent + timedelta(seconds=1))
+        assert controls._read(db, 9)["action"] == "resume"
+
+
+@pytest.mark.parametrize("state", ["unknown", "cancelled"])
+def test_stop_retry_after_commit_ack_loss_keeps_one_audit(farm, monkeypatch, state):
+    sends, _ = wire(monkeypatch, "accepted", state)
+    with farm.factory() as db:
+        install_printer(db)
+        commit = db.commit
+        def lose_first_ack():
+            commit()
+            monkeypatch.setattr(db, "commit", commit)
+            raise RuntimeError("commit acknowledgement lost")
+        monkeypatch.setattr(db, "commit", lose_first_ack)
+        result = controls.send_control(db, db.get(Printer, 9), "stop", {})
+        assert sends == ["stop"]
+        expected = ["printer.stop_requested"]
+        if state == "cancelled":
+            expected.append("printer.stop_confirmed")
+        assert result["outcome"] == ("pending" if state == "unknown" else "confirmed")
+        assert db.execute(text("SELECT action FROM audit_logs ORDER BY id")).scalars().all() == expected
+
+
+@pytest.mark.parametrize("transport", ["accepted", "no_reply"])
+def test_resume_route_with_only_cached_pause_waits_for_transition(control_client, review_db, monkeypatch, transport):
+    client, issue, _ = control_client
+    review_db.execute(text("UPDATE printers SET api_type='moonraker',api_host='fake.test',gcode_state='PAUSE' WHERE id=299"))
+    review_db.commit()
+    posts, _ = wire(monkeypatch, transport, "printing")
+    response = client.post("/printers/299/resume", headers=issue(["agent:write", "write:printers"]))
+    assert posts == ["resume"] and response.status_code == 200
+    assert response.json()["outcome"] == "pending"
+    assert controls._read(review_db, 299)["print_job_id"] is None
+    assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=299")).scalar_one() == "PAUSE"
+
+
+def test_stop_retry_discards_failed_transaction_when_rollback_fails(farm, monkeypatch):
+    sends, _ = wire(monkeypatch, "accepted", "unknown")
+    with farm.factory() as db:
+        install_printer(db)
+        begin = controls._begin
+        def partial_write(db, printer_id, record, outcome):
+            db.execute(text("INSERT INTO system_config(key,value) VALUES('partial-stop','discard')"))
+            monkeypatch.setattr(controls, "_begin", begin)
+            raise RuntimeError("write failed")
+        def failed_rollback():
+            raise RuntimeError("rollback failed")
+        monkeypatch.setattr(controls, "_begin", partial_write)
+        monkeypatch.setattr(db, "rollback", failed_rollback)
+        receipt = controls.send_control(db, db.get(Printer, 9), "stop", {})
+        assert receipt["outcome"] == "pending" and sends == ["stop"]
+        assert controls._read(db, 9)["sent_at"] == receipt["pending_control"]["sent_at"]
+        assert db.execute(text("SELECT value FROM system_config WHERE key='partial-stop'")).first() is None

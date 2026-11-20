@@ -151,13 +151,15 @@ class MoonrakerMonitor(MoonrakerJobTracking):
             try:
                 observed_at = datetime.now(timezone.utc)
                 status = self.printer.get_status()
-                self._observe_control(status, observed_at=observed_at)
                 if status.state == MoonrakerState.DISCONNECTED:
+                    self._observe_control(status, observed_at=observed_at)
                     # The adapter swallows transport errors and returns a default
                     # DISCONNECTED status; treat it as a lost connection so the
                     # printer goes OFFLINE without refreshing its heartbeat.
                     raise ConnectionError("Moonraker status poll failed")
                 self._process_status(status)
+                # A print start discovered by this poll counts against a pending Resume.
+                self._observe_control(status, observed_at=observed_at)
                 self._consecutive_failures = 0
             except Exception as e:
                 # A failed poll never refreshes the heartbeat; OFFLINE is
