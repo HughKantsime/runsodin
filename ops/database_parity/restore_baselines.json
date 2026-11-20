@@ -25,6 +25,11 @@
       "version": "2.3.1",
       "image_digest": "sha256:71c9d9cb68954bfb5ec2d25b562313a739f2d3c3cb63b43ccc17556dc6a23fb9",
       "schema_era": 60
+    },
+    {
+      "version": "2.4.0",
+      "image_digest": "sha256:ff8a93b191cfb26525ca9cba3011e748bec1ab0a275c170daac30bb2a9e587da",
+      "schema_era": 62
     }
   ]
 }
