@@ -4,17 +4,14 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-## [2.4.1] - 2026-11-20
+### Added
 
-
-<!-- summary: Security fix: ODIN no longer writes notification tokens (Telegram, Discord, Slack and other webhooks) into its own log files, and removes the ones already written. -->
-
-### Security
-
-- ODIN wrote the address of every notification it sent into its own log files. For Telegram, Discord, Slack and other webhook notifications that address contains the secret token, so the token could be read in the log files in ODIN's data folder, in the administrator log viewer and in a troubleshooting report. This affects ODIN 2.1.0 to 2.4.0 on installs that send notifications to those services. ODIN no longer logs these addresses, hides them wherever logs are shown, and removes the lines already written from its log files the first time 2.4.1 starts. After updating, replace the bot token or webhook address of each such notification channel with a new one, especially if you have shared a log file or a troubleshooting report. Backups made by ODIN do not contain log files.
 - Printer cards and details keep the last reported progress, time remaining, and speed through refreshes and show how old those readings are. Operators can pause, resume, or stop a print directly from either view.
 - Moonraker controls now show when a pause, resume, or stop takes effect and alert you if the printer takes too long to confirm. Kobra S1 controls show which actions still need verification.
+- Bambu printers with AMS HT: a print can be mapped to an AMS HT tray and sent from ODIN, alone or together with other AMS trays, with the same checks as other trays. Verified on an H2D.
+
 ### Fixed
+
 - Jobs with alerts or recorded filament use can now be deleted on older installations. Deleting a job removes its alerts and keeps its filament usage history.
 - Each authenticator code can be used once. If you just used a code to set up your authenticator or sign in, wait for the next code.
 - You can change your password on the Account page. Your current device stays signed in and your other devices are signed out.
@@ -32,6 +29,19 @@ All notable changes to O.D.I.N. are documented here.
 - Alert quiet hours can follow the farm or organization time zone through daylight-saving changes. Existing hours stay in UTC until an administrator confirms local time.
 - ODIN can send prints when the Mac shares its data folder into Docker’s VM over virtiofs and the printer lock check passes.
 - When other users can write to the ODIN data folder, blocked commands and the System server check now show the folder mode and how to fix it.
+- Adding a Bambu printer counts AMS HT trays separately. Syncing removes extra empty slots when they have no recorded use.
+- H2D and H2D Pro printers now use the correct 350 × 320 mm bed size and keep bed dimensions you have changed.
+- Adding a printer now saves the suggested bed size for its model.
+
+
+## [2.4.1] - 2026-11-20
+
+
+<!-- summary: Security fix: ODIN no longer writes notification tokens (Telegram, Discord, Slack and other webhooks) into its own log files, and removes the ones already written. -->
+
+### Security
+
+- ODIN wrote the address of every notification it sent into its own log files. For Telegram, Discord, Slack and other webhook notifications that address contains the secret token, so the token could be read in the log files in ODIN's data folder, in the administrator log viewer and in a troubleshooting report. This affects ODIN 2.1.0 to 2.4.0 on installs that send notifications to those services. ODIN no longer logs these addresses, hides them wherever logs are shown, and removes the lines already written from its log files the first time 2.4.1 starts. After updating, replace the bot token or webhook address of each such notification channel with a new one, especially if you have shared a log file or a troubleshooting report. Backups made by ODIN do not contain log files.
 
 ## [2.4.0] - 2026-11-18
 
@@ -39,8 +49,6 @@ All notable changes to O.D.I.N. are documented here.
 <!-- summary: Reminders for paused prints, Plate cleared on printer cards, filament deductions that stay with the physical print, the Fjord theme, a per-job Timeline, AMS humidity as a percentage. -->
 
 ### Added
-
-- Bambu printers with AMS HT: a print can be mapped to an AMS HT tray and sent from ODIN, alone or together with other AMS trays, with the same checks as other trays. Verified on an H2D.
 
 - AMS humidity now also shows as a percentage (Bambu AMS units that report it), in the web app, the API and the Home Assistant integration.
 - ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
@@ -62,9 +70,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Adding a Bambu printer counts AMS HT trays separately. Syncing removes extra empty slots when they have no recorded use.
-- H2D and H2D Pro printers now use the correct 350 × 320 mm bed size and keep bed dimensions you have changed.
-- Adding a printer now saves the suggested bed size for its model.
 - Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
 - Moonraker commands now preserve spaces, special characters and multiple lines when sent to a printer.
 - Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
