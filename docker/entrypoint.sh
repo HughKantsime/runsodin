@@ -190,6 +190,8 @@ trap rollback_restore_on_startup_error ERR
 find /data \( ! -user odin -o ! -group odin \) -exec chown odin:odin {} + 2>/dev/null || true
 
 if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
+    # The bootstrap owner starts before the other services that share these logs.
+    /usr/sbin/runuser -u odin -- python3 -m scripts.scrub_http_client_log_lines || echo "WARNING: Could not finish cleaning HTTP request logs." >&2
     case "${DATABASE_URL}" in
         sqlite:///*)
             /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator
