@@ -110,6 +110,8 @@ def test_root_ws_endpoint_pushes_live_monitor_telemetry(ws_capture):
     assert telemetry, [f["type"] for f in ws_capture["frames"]]
     last = telemetry[-1]["data"]
     after = ws_capture["printer_detail_after"]
+    assert last["telemetry_at"].endswith("Z") and last["telemetry_at"] == after["telemetry_at"]
+    assert last["progress"] == after["mc_percent"]
     assert last["printer_id"] == 9001 and last["state"] == "RUNNING" == after["gcode_state"]
     assert last["nozzle_temp"] == pytest.approx(after["nozzle_temp"])
     assert last["bed_temp"] == pytest.approx(after["bed_temp"])

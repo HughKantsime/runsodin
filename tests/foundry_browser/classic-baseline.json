@@ -1,7 +1,7 @@
 {
   "commit": "3d372ba2",
   "files": {
-    "frontend/src/App.tsx": "829cea82cb970d284ed50184ba9abf229cc9533af3e07266bb7d7c1941b32e4c",
+    "frontend/src/App.tsx": "07b05c33bf2020d7542250561cb11b1a4b58a7a1c9e3ee3ae57a6b8f8c6a3c9f",
     "frontend/src/components/admin/BackupRestore.tsx": "ed09fb186c7f131236386008c8b12d47615d50149085fe6028d1731bbbf7365f",
     "frontend/src/components/admin/ChargebackReport.tsx": "aff63089ae19c1ce1d60eaa7cc7d06aad25084fe3a1bd13d0eb517c35efa76d8",
     "frontend/src/components/admin/DataRetentionSettings.tsx": "7b3b98016aa8b0db4eeb292fb6150e6005ee741b82e50cd94e8ddf914047321c",
@@ -28,12 +28,12 @@
     "frontend/src/components/orders/OrderTable.tsx": "8382832e1f24ef962ffe0978df4946ec3c78b5a9c3c20a0be0377a9682627564",
     "frontend/src/components/printers/AmsEnvironmentChart.tsx": "097952344ef95a19437f2322f71b3504b2841c433d8a1c169b17fb1beddf2141",
     "frontend/src/components/printers/CameraModal.tsx": "35ee3d40eaebcf87f9e2d148e863d2adaf33cc9c0c9b2b73dade5055895a82c8",
-    "frontend/src/components/printers/EmergencyStop.tsx": "9630b198f95d9e039b589af43d2bf2c973dec769adedcbaab15ad73661672260",
+    "frontend/src/components/printers/EmergencyStop.tsx": "52a626265ae842b78d0aa50f9f4ca74a127a5ba9551cd7c679e2bdd27de42625",
     "frontend/src/components/printers/FilamentSlotEditor.tsx": "8a7324ecd4026b3c7ae2d6109016d2b611fcd71dd5311b9877c7c6c3e1dbd611",
     "frontend/src/components/printers/HmsHistoryPanel.tsx": "22a8ed4d79706e50261e3807f189d0664cc5ac5feb651cdeb5fcc8d42d587a95",
     "frontend/src/components/printers/InstalledNozzles.tsx": "489832f30b03fe057125a9902dc5a1a5ac9bb409292e28d27565256f004647f4",
     "frontend/src/components/printers/NozzleStatusCard.tsx": "829ffc24f6c22703767f8692765fbb3ae21df8f2e431e36b2366d0a9e2ef0f79",
-    "frontend/src/components/printers/PrinterCard.tsx": "fd34b4098211b6229fcfbd5cadbe8f883087a1bba7ccec45ed4616370ff45db4",
+    "frontend/src/components/printers/PrinterCard.tsx": "a22c8485c7d461cb48773539e5ab8a5c9ace9e6febdd4230ce696f1c75521360",
     "frontend/src/components/printers/PrinterPanels.tsx": "4d53dc79c303b2308ac500ca77d09a40a026421fa9f0a9f82d80d0362ea90b50",
     "frontend/src/components/printers/PrinterTelemetryChart.tsx": "81d8610ca655f27604bdc0fe6273c98b5d007c8379b77da316aa658a870c4545",
     "frontend/src/components/reporting/EnergyWidget.tsx": "eace03a2e2fddde104cdc7dfbe5f0e5f07a626b9700b008e51e2e7a3b4be5605",
@@ -61,7 +61,7 @@
     "frontend/src/pages/analytics/Utilization.tsx": "ee68fbb41410e5414e440dd1b17d047e2e80007bd217e71197e221256bbe968a",
     "frontend/src/pages/archives/Archives.tsx": "1b4c7227db56aab3503a43f8400fc27cc5f5de80696e0d974a0e804a0e667869",
     "frontend/src/pages/archives/Timelapses.tsx": "0ec983d329a1dbd882806ab7376c21148d5eae57819d3a5f2e5026dd1ad93c69",
-    "frontend/src/pages/dashboard/Dashboard.tsx": "66e8c5342df252216707cc5aca1934efebd624fbfa2b2f0bd9b37a5bda8ea43f",
+    "frontend/src/pages/dashboard/Dashboard.tsx": "16fb207d5d46388e4f36bcd894a2a5fbcfffd086767c62a4a7a4c4b819777276",
     "frontend/src/pages/dashboard/Overlay.tsx": "71eb686443427599a0fc936642817735754e9715c0382b0ec8d07c32bf2fb488",
     "frontend/src/pages/dashboard/TVDashboard.tsx": "31050b49cdbbb3c44380f4d490e09d2de4dc416a664e2a734d74875341a72264",
     "frontend/src/pages/education/EducationWorkbench.tsx": "c4aaa1605fb96000b973bed54f2773339825823660418fd6417622ea2e4b0436",
@@ -80,7 +80,7 @@
     "frontend/src/pages/printers/CameraDetail.tsx": "eaed3d199583256a468f08cbd80a2328537c8952d5687be1f3b5bf15823933f8",
     "frontend/src/pages/printers/Cameras.tsx": "b421eeb3c173998b13763ebb7e8515c7a64ced9710506dfd503a0ff61d5d4289",
     "frontend/src/pages/printers/Maintenance.tsx": "165301913abbabb4842dbaf856c53c7b17b3d7980b6ec68aeaf35a7ecc20e6c2",
-    "frontend/src/pages/printers/PrinterDetail.tsx": "317d665eb14768b90d116e19f13b8fd425480f7a7aac5b52a5c7fbd8c6b38f8a",
+    "frontend/src/pages/printers/PrinterDetail.tsx": "2f78bf4355bd270a9f8c590384ed43743a694eae7ff2a51146bcae5adbfb168b",
     "frontend/src/pages/printers/Printers.tsx": "44c7504769b7c555f0fbc80b6d16cc469bd2589ad003765f57f801b20aa2631b",
     "frontend/src/pages/vision/Detections.tsx": "951594e6c4d548de5c3a1173bbc0023e1620d191362ce2fb53a2cce58ca954eb"
   },
@@ -96,6 +96,13 @@
       "frontend/src/pages/printers/PrinterDetail.tsx"
     ],
     "reason": "These files changed in 2.0.42 and 2.0.43 (pause cause, tray settings, outcome correction, timelapse re-check, audit CSV notice, planned mappings). Their digests were re-pinned from the merged release; every other digest is unchanged from 3d372ba2. Classic is verified by pixel comparison against the pre-Foundry 2.0.43 frontend."
+  },
+  "printer_live_values_changes": {
+    "frontend/src/pages/dashboard/Dashboard.tsx": "Show live readings and shared print controls on dashboard printer cards.",
+    "frontend/src/App.tsx": "Share the existing print control state between the floating panel, cards, and detail.",
+    "frontend/src/components/printers/EmergencyStop.tsx": "Render the shared controls in the existing floating panel.",
+    "frontend/src/components/printers/PrinterCard.tsx": "Show the age of the last readings and offer print controls on the card.",
+    "frontend/src/pages/printers/PrinterDetail.tsx": "Use timestamped printer readings and show print controls on detail."
   },
   "release_2045_changes": {
     "frontend/src/components/admin/DataRetentionSettings.tsx": "E1: integrity retention wording and cleanup response validation.",

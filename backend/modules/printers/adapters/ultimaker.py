@@ -72,6 +72,7 @@ class UltimakerStatus:
     filename: str = ""
     progress_percent: Optional[float] = None
     time_printing: int = 0       # seconds elapsed
+    remaining_minutes: Optional[int] = None
     time_remaining: int = 0      # seconds remaining (total - elapsed); 0 when the total is unknown
     job_uuid: str = ""
     job_state: str = ""          # the printer's own state string, e.g. "printing"
@@ -248,6 +249,7 @@ class UltimakerPrinter:
             status.progress_percent = job["progress_percent"]
             status.time_printing = job["time_printing"]
             status.time_remaining = job["time_remaining"]
+            status.remaining_minutes = job["remaining_minutes"]
             status.job_uuid = job["uuid"]
             status.job_state = job["state_raw"]
 

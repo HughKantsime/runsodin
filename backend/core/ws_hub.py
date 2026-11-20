@@ -12,6 +12,7 @@ Copied to core/ as part of the modular architecture refactor.
 Old import path (from ws_hub import ...) continues to work via re-exports in ws_hub.py.
 """
 
+from datetime import datetime, timezone
 import json
 import time
 import logging
@@ -43,6 +44,11 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
     Signature unchanged from the file-based version — monitors need zero changes.
     """
     try:
+        created_at = time.time()
+        if event_type == "printer_telemetry":
+            from core.printer_live_values import live_fields, save_snapshot
+            stamp = datetime.fromtimestamp(created_at, timezone.utc).isoformat(timespec="microseconds")
+            data = {**data, **live_fields(data), "telemetry_at": stamp.replace("+00:00", "Z")}
         payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
         # Its own transaction; on the dispatch's shared connection when one is open.
         from core.dispatch_connection import dispatch_transaction
@@ -55,9 +61,11 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
                 {
                     "event_type": event_type,
                     "data": payload,
-                    "created_at": time.time(),
+                    "created_at": created_at,
                 },
             )
+            if event_type == "printer_telemetry" and not audience and data.get("printer_id") is not None:
+                save_snapshot(conn, data)
     except Exception:
         log.warning("Failed to persist WebSocket event", exc_info=True)
 

@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Printer cards and details keep the last reported progress, time remaining, and speed through refreshes and show how old those readings are. Operators can pause, resume, or stop a print directly from either view.
+
 - Moonraker controls now show when a pause, resume, or stop takes effect and alert you if the printer takes too long to confirm. Kobra S1 controls show which actions still need verification.
 
 ## [2.4.0] - 2026-11-18

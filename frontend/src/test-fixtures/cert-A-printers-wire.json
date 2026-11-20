@@ -48,6 +48,13 @@
       ],
       "timelapse_enabled": false,
       "machine_type": "A1",
+      "mc_percent": 34.0,
+      "mc_remaining_time": 56.0,
+      "layer_num": 23,
+      "total_layer_num": 240,
+      "speed_level": 2,
+      "speed_percent": 100.0,
+      "telemetry_at": "2026-10-14T12:00:00Z",
       "training_warnings": [],
       "feeding_slot": 3,
       "chamber_temp": 5.0,
@@ -288,6 +295,9 @@
       "camera_enabled": false,
       "camera_source": "auto",
       "experimental_actions_enabled": false,
+      "pending_control": null,
+      "unproven_controls": [],
+      "unavailable_controls": [],
       "support_level": "supported"
     },
     {
@@ -328,6 +338,13 @@
       ],
       "timelapse_enabled": false,
       "machine_type": null,
+      "mc_percent": 25.0,
+      "mc_remaining_time": 30.0,
+      "layer_num": 30,
+      "total_layer_num": 120,
+      "speed_level": null,
+      "speed_percent": 100.0,
+      "telemetry_at": "2026-10-14T12:00:00Z",
       "training_warnings": [],
       "feeding_slot": null,
       "chamber_temp": null,
@@ -359,6 +376,9 @@
       "camera_enabled": true,
       "camera_source": "configured",
       "experimental_actions_enabled": false,
+      "pending_control": null,
+      "unproven_controls": [],
+      "unavailable_controls": [],
       "support_level": "supported"
     },
     {
@@ -397,6 +417,13 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "mc_percent": 42.0,
+      "mc_remaining_time": 33.0,
+      "layer_num": null,
+      "total_layer_num": null,
+      "speed_level": null,
+      "speed_percent": 100.0,
+      "telemetry_at": "2026-10-14T12:00:00Z",
       "training_warnings": [],
       "feeding_slot": null,
       "chamber_temp": null,
@@ -428,6 +455,9 @@
       "camera_enabled": true,
       "camera_source": "configured",
       "experimental_actions_enabled": false,
+      "pending_control": null,
+      "unproven_controls": [],
+      "unavailable_controls": [],
       "support_level": "supported"
     },
     {
@@ -466,6 +496,13 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "mc_percent": 10.0,
+      "mc_remaining_time": 45.0,
+      "layer_num": 12,
+      "total_layer_num": 120,
+      "speed_level": null,
+      "speed_percent": 100.0,
+      "telemetry_at": "2026-10-14T12:00:00Z",
       "training_warnings": [],
       "feeding_slot": null,
       "chamber_temp": null,
@@ -497,6 +534,9 @@
       "camera_enabled": true,
       "camera_source": null,
       "experimental_actions_enabled": false,
+      "pending_control": null,
+      "unproven_controls": [],
+      "unavailable_controls": [],
       "support_level": "supported"
     }
   ],
@@ -819,7 +859,8 @@
     "total_layers": 240,
     "gcode_file": "Unifi_G3_Instant_Camera_LCD_Mount_for_BL_P1S_P1P",
     "speed_level": 2,
-    "speed_percent": 100
+    "speed_percent": 100,
+    "telemetry_at": "2026-10-14T12:00:00Z"
   },
   "ws_other": {
     "401": {
@@ -833,7 +874,10 @@
       "remaining_min": 30,
       "current_layer": 30,
       "total_layers": 120,
-      "fan_speed": 50
+      "fan_speed": 50,
+      "speed_percent": 100.0,
+      "speed_level": null,
+      "telemetry_at": "2026-10-14T12:00:00Z"
     },
     "402": {
       "printer_id": 402,
@@ -843,10 +887,13 @@
       "nozzle_target": 215.0,
       "state": "PRINTING",
       "progress": 42.0,
+      "speed_percent": 100,
       "remaining_min": 33,
-      "current_layer": 0,
-      "total_layers": 0,
-      "fan_speed": 5964
+      "fan_speed": 5964,
+      "current_layer": null,
+      "total_layers": null,
+      "speed_level": null,
+      "telemetry_at": "2026-10-14T12:00:00Z"
     },
     "403": {
       "printer_id": 403,
@@ -856,10 +903,13 @@
       "nozzle_target": 220,
       "state": "PRINTING",
       "progress": 10,
-      "remaining_min": 45,
       "current_layer": 12,
       "total_layers": 120,
-      "fan_speed": 100
+      "speed_percent": 100,
+      "remaining_min": 45,
+      "fan_speed": 100,
+      "speed_level": null,
+      "telemetry_at": "2026-10-14T12:00:00Z"
     }
   }
 }

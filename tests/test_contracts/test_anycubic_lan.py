@@ -141,6 +141,12 @@ def test_real_schema_replay_spool_assignment_and_restart(review_db, fernet_env, 
         return monitor
 
     first = replay()
+    from core import ws_hub
+    watermark = ws_hub.current_event_id()
+    ws_hub.push_event(*next(event for event in reversed(pushed) if event[0] == 'printer_telemetry'))
+    frame = ws_hub.read_events_since(watermark)[0][0]['data']
+    assert frame['printer_id'] == 499 and frame['telemetry_at'].endswith('Z')
+    assert frame['speed_percent'] is None and frame['speed_level'] is None
     slots = review_db.execute(text('SELECT id,slot_number,filament_type,color_hex FROM filament_slots WHERE printer_id=499 ORDER BY slot_number')).all()
     assert len(slots) == 4 and slots[0][2:] == ('PLA','FF6A14')
     response = cert_client.patch('/printers/499/slots/1',
@@ -164,9 +170,13 @@ def test_real_schema_replay_spool_assignment_and_restart(review_db, fernet_env, 
     for event in ('on_print_start', 'on_print_complete', 'on_print_cancelled', 'on_print_failed'):
         monkeypatch.setattr(events, event, lambda *args, _event=event, **kwargs: recorded.append(_event))
     for terminal, event in [('finished', 'on_print_complete'), ('stoped', 'on_print_cancelled')]:
-        state = report('info', {'project': {'state':'printing', 'pause':0, 'filename':'fixture.gcode'}})
+        state = report('info', {'project': {'state': 'printing', 'pause': 0, 'filename': 'fixture.gcode',
+                                            'progress': 21, 'curr_layer': 4, 'total_layer': 20, 'remain_time': 17}})
         first.client._state.update(state)
+        first._last_heartbeat = 0
         first._process_status(first.client.get_status())
+        latest = next(data for kind, data in reversed(pushed) if kind == 'printer_telemetry')
+        assert (latest['progress'], latest['current_layer'], latest['total_layers'], latest['remaining_min']) == (21, 4, 20, 17)
         payload = {'state':'free', 'project':None, 'last_project':{'state':terminal, 'pause':1}}
         for _ in range(2):
             state = report('info', payload, state)

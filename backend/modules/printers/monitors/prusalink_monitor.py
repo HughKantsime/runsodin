@@ -264,10 +264,6 @@ class PrusaLinkMonitorThread(threading.Thread):
                     noz_t = status.nozzle_temp
                     noz_tt = status.nozzle_target
                     gstate = status.internal_state
-                    progress = status.progress_percent
-                    remaining_min = status.time_remaining // 60 if status.time_remaining else None
-                    current_layer = status.current_layer
-                    total_layers = status.total_layers
                     # PrusaLink reports fan RPM — fan_print is the part cooling fan
                     # A measured 0 RPM is a real reading; only a missing field is unknown.
                     raw_printer = (status.raw_data or {}).get("printer") if isinstance(status.raw_data, dict) else None
@@ -317,8 +313,7 @@ class PrusaLinkMonitorThread(threading.Thread):
                 payload = {
                     'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,
                     'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
-                    'progress': progress, 'remaining_min': remaining_min,
-                    'current_layer': current_layer, 'total_layers': total_layers,
+                    **getattr(status, 'live_values', {}),
                     'fan_speed': fan_speed_val,
                 }
                 try:

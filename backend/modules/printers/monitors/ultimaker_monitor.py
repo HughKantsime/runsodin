@@ -322,7 +322,7 @@ class UltimakerMonitorThread(threading.Thread):
                 payload = {
                     'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,
                     'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
-                    'progress': progress, 'remaining_min': remaining_min,
+                    'progress': progress, 'remaining_min': status.remaining_minutes,
                     'current_layer': None, 'total_layers': None,
                     'fan_speed': fan_speed_val,
                 }

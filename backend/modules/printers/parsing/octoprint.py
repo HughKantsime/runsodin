@@ -99,7 +99,9 @@ def parse_job(payload: object) -> dict[str, Any]:
         if cleaned and len(cleaned) <= _MAX_NAME and not any(ord(c) < 32 or ord(c) == 127 for c in cleaned):
             filename = cleaned
     state = body.get("state")
+    left = _number(progress.get("printTimeLeft"))
     return {
+        "remaining_minutes": int(left // 60) if left is not None and left >= 0 else None,
         "filename": filename,
         "progress_percent": _percent(progress.get("completion")),
         "time_printing": _seconds(progress.get("printTime")),

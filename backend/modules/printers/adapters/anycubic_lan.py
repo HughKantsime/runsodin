@@ -338,7 +338,11 @@ class AnycubicLANPrinter:
     def get_status(self):
         from copy import deepcopy
         with self._lock:
-            return SimpleNamespace(**(deepcopy(DEFAULTS) | deepcopy(self._state)))
+            state = deepcopy(self._state)
+            seconds = state.get("time_remaining")
+            live_values = {"progress": state.get("progress_percent"), "current_layer": state.get("current_layer"),
+                           "total_layers": state.get("total_layers"), "remaining_min": seconds // 60 if seconds is not None else None}
+            return SimpleNamespace(**(deepcopy(DEFAULTS) | state), live_values=live_values)
 
     def on_status(self, callback):
         self._callback = callback

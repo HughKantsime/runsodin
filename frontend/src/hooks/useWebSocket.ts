@@ -1,4 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { mergePrinter } from '../utils/printerLiveValues'
+import type { Printer } from '../types/printer'
 import { useQueryClient } from '@tanstack/react-query'
 
 function requestNotificationPermission() {
@@ -36,6 +38,12 @@ export default function useWebSocket() {
   const lastConnectAttempt = useRef(0)
   const tokenFailures = useRef(0)
   const stopped = useRef(false)
+
+  const silenceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const refreshPrinters = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['printers'] })
+    queryClient.invalidateQueries({ queryKey: ['printer'] })
+  }, [queryClient])
 
   const connect = useCallback(async () => {
     if (stopped.current) return
@@ -81,8 +89,30 @@ export default function useWebSocket() {
       const ws = new WebSocket(url)
       wsRef.current = ws
 
+      const reconnect = () => {
+        // A previous effect's socket may close after its replacement has connected.
+        if (wsRef.current !== ws) return
+        clearTimeout(silenceTimer.current)
+        // Disconnected — reconnecting in 5s
+        wsRef.current = null
+        if (stopped.current) return
+        reconnectTimer.current = setTimeout(connect, 5000)
+      }
+
+      const recordMessage = () => {
+        clearTimeout(silenceTimer.current)
+        silenceTimer.current = setTimeout(() => {
+          if (wsRef.current !== ws) return
+          // A broken connection may never finish the browser's close handshake.
+          reconnect()
+          ws.close()
+        }, 75000)
+      }
+      recordMessage()
       ws.onopen = () => {
-        // Connected
+        if (wsRef.current !== ws) return
+        recordMessage()
+        refreshPrinters()
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current)
           reconnectTimer.current = null
@@ -90,6 +120,9 @@ export default function useWebSocket() {
       }
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return
+        recordMessage()
+        if (event.data === 'pong') return
         try {
           const msg = JSON.parse(event.data)
           
@@ -103,31 +136,32 @@ export default function useWebSocket() {
 
           switch (msg.type) {
             case 'printer_telemetry':
-              // Update the specific printer in the cached printers list
-              queryClient.setQueriesData({ queryKey: ['printers'] }, (old) => {
-                if (!old || !Array.isArray(old)) return old
-                return old.map(p => {
-                  if (p.id !== d.printer_id) return p
-                  return {
-                    ...p,
-                    bed_temp: d.bed_temp ?? p.bed_temp,
-                    bed_target_temp: d.bed_target ?? p.bed_target_temp,
-                    nozzle_temp: d.nozzle_temp ?? p.nozzle_temp,
-                    nozzle_target_temp: d.nozzle_target ?? p.nozzle_target_temp,
-                    gcode_state: d.state ?? p.gcode_state,
-                    mc_percent: d.progress ?? p.mc_percent,
-                    mc_remaining_time: d.remaining_min ?? p.mc_remaining_time,
-                    layer_num: d.current_layer ?? p.layer_num,
-                    total_layer_num: d.total_layers ?? p.total_layer_num,
-                    gcode_file: d.gcode_file ?? p.gcode_file,
-                    h2d_nozzles: d.h2d_nozzles ?? p.h2d_nozzles,
-                    external_spools: d.external_spools ?? p.external_spools,
-                    speed_level: d.speed_level ?? p.speed_level,
-                    speed_percent: d.speed_percent ?? p.speed_percent,
-                    last_seen: new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0],
-                  }
-                })
-              })
+              const updatePrinter = (p: Printer) => {
+                if (p.id !== d.printer_id) return p
+                return mergePrinter(p, {
+                  ...p,
+                  bed_temp: d.bed_temp ?? p.bed_temp,
+                  bed_target_temp: d.bed_target ?? p.bed_target_temp,
+                  nozzle_temp: d.nozzle_temp ?? p.nozzle_temp,
+                  nozzle_target_temp: d.nozzle_target ?? p.nozzle_target_temp,
+                  gcode_state: d.state ?? p.gcode_state,
+                  ...(d.gcode_file != null && { gcode_file: d.gcode_file }),
+                  ...(d.h2d_nozzles != null && { h2d_nozzles: d.h2d_nozzles }),
+                  ...(d.external_spools != null && { external_spools: d.external_spools }),
+                  mc_percent: d.progress ?? (d.telemetry_at ? null : p.mc_percent),
+                  mc_remaining_time: d.remaining_min ?? (d.telemetry_at ? null : p.mc_remaining_time),
+                  layer_num: d.current_layer ?? (d.telemetry_at ? null : p.layer_num),
+                  total_layer_num: d.total_layers ?? (d.telemetry_at ? null : p.total_layer_num),
+                  speed_level: d.speed_level ?? (d.telemetry_at ? null : p.speed_level),
+                  speed_percent: d.speed_percent ?? (d.telemetry_at ? null : p.speed_percent),
+                  telemetry_at: d.telemetry_at ?? null,
+                  last_seen: d.telemetry_at ?? new Date().toISOString(),
+                }, 'socket')
+              }
+              queryClient.setQueriesData<Printer[]>({ queryKey: ['printers'] }, old =>
+                Array.isArray(old) ? old.map(updatePrinter) : old)
+              queryClient.setQueriesData<Printer>({ queryKey: ['printer'] }, old =>
+                old ? updatePrinter(old) : old)
               // Update print jobs progress
               if ([d.progress, d.remaining_min, d.current_layer, d.total_layers].some(value => value != null)) {
                 queryClient.setQueryData(['print-jobs'], (old) => {
@@ -196,14 +230,7 @@ export default function useWebSocket() {
         }
       }
 
-      ws.onclose = () => {
-        // A previous effect's socket may close after its replacement has connected.
-        if (wsRef.current !== ws) return
-        // Disconnected — reconnecting in 5s
-        wsRef.current = null
-        if (stopped.current) return
-        reconnectTimer.current = setTimeout(connect, 5000)
-      }
+      ws.onclose = reconnect
 
       ws.onerror = () => {
         // onclose will fire after this
@@ -214,7 +241,7 @@ export default function useWebSocket() {
       console.error('[WS] Connection failed:', e)
       reconnectTimer.current = setTimeout(connect, 5000)
     }
-  }, [queryClient])
+  }, [queryClient, refreshPrinters])
 
   useEffect(() => {
     requestNotificationPermission()
@@ -223,7 +250,13 @@ export default function useWebSocket() {
   useEffect(() => {
     stopped.current = false
     connect()
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshPrinters() }
+    window.addEventListener('online', refreshPrinters)
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
+      window.removeEventListener('online', refreshPrinters)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearTimeout(silenceTimer.current)
       stopped.current = true
       if (wsRef.current) {
         wsRef.current.close()
@@ -233,5 +266,5 @@ export default function useWebSocket() {
         clearTimeout(reconnectTimer.current)
       }
     }
-  }, [connect])
+  }, [connect, refreshPrinters])
 }

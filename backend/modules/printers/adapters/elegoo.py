@@ -201,6 +201,7 @@ class ElegooStatus:
     firmware_version: str = ""
 
     # Raw data
+    live_values: dict = field(default_factory=dict)
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 

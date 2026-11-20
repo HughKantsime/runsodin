@@ -32,6 +32,8 @@ def normalize(value, counter):
     # consumer contract. Canonicalize identities without dropping the field.
     if len(counter) == 1:
         counter.append({})
+    if isinstance(value, dict) and value.get("telemetry_at"):
+        value = {**value, "telemetry_at": BASE.replace(" ", "T") + "Z"}
     if isinstance(value, dict) and value.get('observed_state') is not None:
         state = value['observed_state']
         assert len(state) == 32 and all(c in '0123456789abcdef' for c in state)
@@ -92,10 +94,26 @@ def test_capture_cert_A_printer_wire(cert_client, wire_monitor, proto, moonraker
     review_db.execute(text("UPDATE nozzle_lifecycle SET print_hours_accumulated=12.5,print_count=3 WHERE printer_id=301"))
     review_db.commit()
 
+    from core import ws_hub
+    from core.printer_live_values import LIVE_FIELDS
+    watermark = ws_hub.current_event_id()
+    for pid in (301, 401, 402, 403):
+        stream = events if pid == 301 else proto.events
+        latest = next(p for kind, p in reversed(stream) if kind == "printer_telemetry" and p["printer_id"] == pid)
+        ws_hub.push_event("printer_telemetry", latest)
+    frames, _ = ws_hub.read_events_since(watermark)
+    snapshots = {f["data"]["printer_id"]: f["data"] for f in frames if f["type"] == "printer_telemetry"}
+
     printers = client.get("/printers", headers=roles["operator"])
     assert printers.status_code == 200, printers.text
     listed = {p["id"]: p for p in printers.json() if p["id"] in (301, 401, 402, 403)}
     assert set(listed) == {301, 401, 402, 403}
+    for pid, row in listed.items():
+        assert row["telemetry_at"] == snapshots[pid]["telemetry_at"]
+        for key, field in LIVE_FIELDS.items():
+            assert row[field] == snapshots[pid][key]
+    assert snapshots[401]["speed_percent"] == snapshots[402]["speed_percent"] == snapshots[403]["speed_percent"] == 100
+    assert snapshots[402]["current_layer"] is None and snapshots[402]["total_layers"] is None
     wire = {
         "scope": "Owned real-router responses after real monitor ingestion of captured Bambu A1/H2D MQTT frames "
                  "and protocol-accurate Moonraker/PrusaLink/SDCP payloads. Timestamps normalized: last_seen = "
@@ -106,9 +124,8 @@ def test_capture_cert_A_printer_wire(cert_client, wire_monitor, proto, moonraker
         "ams_environment_301": client.get("/printers/301/ams/environment?hours=24", headers=roles["viewer"]).json(),
         "nozzle_301": client.get("/printers/301/nozzle", headers=roles["viewer"]).json(),
         "nozzle_history_301": client.get("/printers/301/nozzle/history", headers=roles["viewer"]).json(),
-        "ws_301": [p for kind, p in events if kind == "printer_telemetry" and p["printer_id"] == 301][-1],
-        "ws_other": {str(pid): [p for kind, p in proto.events if kind == "printer_telemetry" and p["printer_id"] == pid][-1]
-                     for pid in (401, 402, 403)},
+        "ws_301": snapshots[301],
+        "ws_other": {str(pid): snapshots[pid] for pid in (401, 402, 403)},
     }
     assert wire["telemetry_301"] and wire["hms_301"]["total"] == 5 and wire["ams_environment_301"]["units"]
     assert wire["ws_301"]["progress"] is not None and wire["ws_301"]["speed_percent"] is not None

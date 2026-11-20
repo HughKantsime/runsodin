@@ -101,6 +101,7 @@ class PrusaLinkStatus:
     job_id: Optional[int] = None
 
     # Raw data for debugging
+    live_values: dict = field(default_factory=dict)
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 

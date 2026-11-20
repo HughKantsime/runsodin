@@ -61,3 +61,13 @@ it('Classic floor shows the catalogue name with two-line wrapping', () => {
  expect(screen.getByText(name)).toHaveClass('line-clamp-2')
  expect(screen.getByText(name)).not.toHaveClass('truncate')
 })
+
+it('shows the last printer reading and its age even when the jobs list is behind', () => {
+ render(<PrinterCard printer={{ ...printer, telemetry_at: '2026-10-11T11:57:00Z', mc_percent: 42,
+   mc_remaining_time: 12, speed_percent: 80, layer_num: 18, total_layer_num: 60 }}
+   activeJob={{ job_name: 'Bracket', progress_percent: 10 }} {...props} />)
+ expect(screen.getByRole('progressbar', { name: 'Print progress, 42% as of 3 min ago' })).toBeVisible()
+ expect(screen.getByText('Layer 18/60 as of 3 min ago')).toBeVisible()
+ expect(screen.getByText('12m left as of 3 min ago')).toBeVisible()
+ expect(screen.getByText('Last reported speed: 80% as of 3 min ago')).toBeVisible()
+})

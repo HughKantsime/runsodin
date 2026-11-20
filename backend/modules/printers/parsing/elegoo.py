@@ -49,6 +49,12 @@ def parse_status(data: dict[str, Any]) -> dict[str, Any]:
         "current_ticks": current_ticks, "total_ticks": total_ticks,
         "filename": print_info.get("Filename", ""), "progress_percent": print_info.get("Progress", 0.0),
         "time_remaining": max(0, total_ticks - current_ticks) if total_ticks and current_ticks else 0,
+        "live_values": {
+            "progress": print_info.get("Progress"), "current_layer": print_info.get("CurrentLayer"),
+            "total_layers": print_info.get("TotalLayer"), "speed_percent": print_info.get("PrintSpeedPct"),
+            "remaining_min": max(0, total_ticks - current_ticks) // 60
+            if total_ticks > 0 and "CurrentTicks" in print_info else None,
+        },
         "raw_data": data,
     }
 

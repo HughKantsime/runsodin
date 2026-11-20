@@ -1,5 +1,6 @@
 """WebSocket audience enforcement and bounded event delivery."""
 import asyncio
+import json
 import logging
 import threading
 from fastapi import WebSocket
@@ -11,6 +12,7 @@ class ConnectionManager:
 
     def __init__(self):
         self.active: list[tuple[WebSocket, dict]] = []
+        self._readers = {}
         self._policy_lock = threading.Lock()
         self._heartbeat_task = None
 
@@ -23,6 +25,51 @@ class ConnectionManager:
 
     def disconnect(self, ws: WebSocket):
         self.active = [(active_ws, principal) for active_ws, principal in self.active if active_ws is not ws]
+
+        reader = self._readers.pop(ws, None)
+        if reader is not None:
+            reader.cancel()
+
+    async def close(self, ws, code, reason):
+        self.disconnect(ws)
+        try:
+            await asyncio.wait_for(ws.close(code=code, reason=reason), timeout=1)
+        except Exception:
+            pass
+
+    async def receive_messages(self, ws):
+        def active():
+            return any(sock is ws for sock, _ in self.active)
+
+        async def receive():
+            while active():
+                try:
+                    async with asyncio.timeout(30):
+                        data = await ws.receive_text()
+                except TimeoutError:
+                    if active():
+                        await ws.send_json({"type": "ping"})
+                    continue
+                if not active():
+                    return
+                if data == "ping":
+                    await ws.send_text("pong")
+                    continue
+                try:
+                    request = json.loads(data)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if request == {"type": "subscribe", "channels": ["events"]}:
+                    await ws.send_json({"type": "subscribed", "channels": ["events"]})
+
+        reader = self._readers[ws] = asyncio.create_task(receive())
+        try:
+            await reader
+        except asyncio.CancelledError:
+            if active():
+                raise
+        finally:
+            self._readers.pop(ws, None)
 
     def policy_snapshot(self, *, cached=False):
         from core.license_lock import enabled, snapshot
@@ -72,15 +119,7 @@ class ConnectionManager:
             principal['_license_allowed'] = allowed
             if not allowed:
                 denied.append(ws)
-        async def close(ws):
-            try:
-                await asyncio.wait_for(ws.close(code=4403, reason='license_user_locked'), timeout=1)
-            except Exception:
-                pass
-            finally:
-                self.disconnect(ws)
-        # A slow socket cannot multiply the cycle duration by the socket count.
-        await asyncio.gather(*(close(ws) for ws in denied))
+        await asyncio.gather(*(self.close(ws, 4403, 'license_user_locked') for ws in denied))
 
     @staticmethod
     def _can_receive(principal: dict, user_ids: set[int] | None, org_id: int | None, shared: bool) -> bool:
@@ -161,13 +200,8 @@ class ConnectionManager:
             # individual decisions, never a database session per socket/event.
             allowed = principal.get('_license_allowed')
             if allowed is not True and license_enabled:
-                try:
-                    await asyncio.wait_for(ws.close(code=4403 if allowed is False else 1013,
-                                                    reason='license_user_locked' if allowed is False else 'license_policy_unavailable'), timeout=1)
-                except Exception:
-                    pass
-                finally:
-                    dead.append(ws)
+                dead.append((ws, 4403 if allowed is False else 1013,
+                             'license_user_locked' if allowed is False else 'license_policy_unavailable'))
                 continue
             if not self._can_receive(principal, user_ids, org_id, shared):
                 continue
@@ -179,9 +213,8 @@ class ConnectionManager:
                 await asyncio.wait_for(ws.send_json(controlled_message), timeout=1)
                 delivered += 1
             except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+                dead.append((ws, 1011, "delivery_failed"))
+        await asyncio.gather(*(self.close(*entry) for entry in dead))
         return delivered
 
 

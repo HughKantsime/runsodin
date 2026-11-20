@@ -1,3 +1,5 @@
+import LivePrintValues, { useTelemetryAge } from '../../components/printers/LivePrintValues'
+import { PrintControls } from '../../components/printers/PrintControls'
 import PlateCleared from '../../components/printers/PlateCleared'
 import { FilamentSlotsPanel } from '../../components/printers/PrinterPanels'
 import { optInApplies, supportLevelOfPrinter } from '../../utils/supportLevels'
@@ -24,7 +26,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
 import { printers, printerTelemetry, printJobs } from '../../api'
 import { isActivePrintState, isOnline, parseServerDate } from '../../utils/shared'
-import { PageHeader, Card, StatCard, StatusBadge, Button, ProgressBar } from '../../components/ui'
+import { PageHeader, Card, StatCard, StatusBadge, Button } from '../../components/ui'
 
 
 function formatDuration(seconds) {
@@ -36,9 +38,10 @@ function formatDuration(seconds) {
 }
 
 function formatEta(minutes) {
-  if (!minutes || minutes <= 0) return '--'
-  const h = Math.floor(minutes / 60)
-  const m = Math.round(minutes % 60)
+  if (minutes == null || minutes < 0) return '--'
+  const rounded = Math.round(minutes)
+  const h = Math.floor(rounded / 60)
+  const m = rounded % 60
   if (h > 0) return `${h}h ${m}m remaining`
   return `${m}m remaining`
 }
@@ -70,6 +73,7 @@ export default function PrinterDetail() {
     enabled: !!printer,
   })
 
+  const age = useTelemetryAge(printer?.telemetry_at)
   if (isLoading) {
     return (
       <div className="p-4 md:p-6">
@@ -102,14 +106,14 @@ export default function PrinterDetail() {
   }
 
   const online = isOnline(printer)
-  const progress = printer.progress ?? printer.print_progress ?? 0
+  const activePrint = isActivePrintState(printer.gcode_state)
   // Only a running job has a name; an idle printer shows no Current Job block.
   const reportedJob = printer.current_job || printer.job_name
   const currentJobName = printer.current_print_display_name || reportedJob
     ? displayName({ display_name: printer.current_print_display_name, job_name: reportedJob }) : null
   const nozzleTemp = printer.nozzle_temp ?? printer.temperatures?.nozzle ?? null
   const bedTemp = printer.bed_temp ?? printer.temperatures?.bed ?? null
-  const etaMinutes = printer.remaining_time ?? printer.eta_minutes ?? null
+  const etaMinutes = printer.mc_remaining_time
   const jobList = Array.isArray(recentJobs) ? recentJobs : recentJobs?.items || []
 
   return (
@@ -163,7 +167,7 @@ export default function PrinterDetail() {
         />
         <StatCard
           label="ETA"
-          value={etaMinutes ? formatEta(etaMinutes) : '--'}
+          value={activePrint && etaMinutes != null ? <span className={age ? 'text-[var(--brand-text-muted)]' : undefined}>{formatEta(etaMinutes)}{age}</span> : '--'}
           icon={Clock}
           color="purple"
         />
@@ -177,22 +181,10 @@ export default function PrinterDetail() {
         <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--brand-text-muted)' }}>
           Current Job
         </h2>
-        {currentJobName ? (
+        {activePrint ? (
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium" style={{ color: 'var(--brand-text-primary)' }}>
-                {currentJobName}
-              </span>
-              <span className="text-sm font-mono" style={{ color: 'var(--brand-text-muted)' }}>
-                {Math.round(progress)}%
-              </span>
-            </div>
-            <ProgressBar value={progress} color={progress >= 100 ? 'green' : 'print'} size="md" label={`${currentJobName} progress`} />
-            {etaMinutes > 0 && (
-              <PrinterNumber as="p" className="text-xs mt-2" style={{ color: 'var(--brand-text-muted)' }}>
-                {formatEta(etaMinutes)}
-              </PrinterNumber>
-            )}
+            {currentJobName && <p className="mb-2 text-sm font-medium">{currentJobName}</p>}
+            {!foundry && <><LivePrintValues printer={printer} /><PrintControls printerId={printer.id} inline /></>}
           </div>
         ) : (
           <p className="text-sm" style={{ color: 'var(--brand-text-muted)' }}>

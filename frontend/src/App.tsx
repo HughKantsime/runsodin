@@ -21,6 +21,7 @@ import Toast from './components/ui/Toast'
 import FoundryPage from './components/foundry/Page'
 import ProGate from './components/shared/ProGate'
 import AlertBell from './components/notifications/AlertBell'
+import { PrintControlsProvider } from './components/printers/PrintControls'
 import EmergencyStop from './components/printers/EmergencyStop'
 import UpgradeBanner from './components/shared/UpgradeBanner'
 import GlobalSearch from './components/shared/GlobalSearch'
@@ -126,6 +127,7 @@ export default function App() {
 
   return (
     <ProtectedRoute>
+      <PrintControlsProvider>
       <CameraPipProvider>
       <div className="h-screen flex flex-col md:flex-row overflow-hidden">
         {/* Skip to content — WCAG 2.4.1 */}
@@ -202,6 +204,7 @@ export default function App() {
         <MobileBottomNav />
       </div>
       </CameraPipProvider>
+      </PrintControlsProvider>
     </ProtectedRoute>
   )
 }

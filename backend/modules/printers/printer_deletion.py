@@ -54,6 +54,8 @@ def delete_printer(db, printer_id, current_user):
             plans.append(plan)
     from core.dispatch_recovery_identity import clear
     clear(db, printer_id)
+    from core.printer_live_values import cache_key
+    db.execute(text("DELETE FROM system_config WHERE key=:key"), {"key": cache_key(printer_id)})
     db.delete(printer)
     log_audit(db, "printer.deleted", "printer", printer_id,
               {"name": printer_name, "pinned_job_count": len(pins.marked), "queued_pinned_jobs": live_jobs[:200]})

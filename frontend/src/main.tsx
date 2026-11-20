@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
+import { sharePrinterData } from './utils/printerLiveValues'
 import App from './App'
 import OIDCBootstrap from './components/auth/OIDCBootstrap'
 import { BrandingProvider } from './BrandingContext'
@@ -24,6 +25,9 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+queryClient.setQueryDefaults(['printers'], { structuralSharing: sharePrinterData })
+queryClient.setQueryDefaults(['printer'], { structuralSharing: sharePrinterData })
 
 // Register service worker for PWA install + push notifications
 if ('serviceWorker' in navigator) {

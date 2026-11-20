@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { PrintControlsProvider } from './PrintControls'
+import EmergencyStop from './EmergencyStop'
 import PrinterCard from './PrinterCard'
 
-const state = vi.hoisted(() => ({ user: { id: 3, username: 'synthetic', role: 'operator', group_id: 1 } as any, allowed: true, lights: vi.fn(), speed: vi.fn() }))
+const state = vi.hoisted(() => ({ user: { id: 3, username: 'synthetic', role: 'operator', group_id: 1 } as any, allowed: true, fetch: vi.fn(), lights: vi.fn(), speed: vi.fn() }))
 vi.mock('../../permissions', () => ({ canDo: () => state.allowed, getCurrentUser: () => state.user }))
-vi.mock('../../api', async (original) => ({ ...await original<any>(), printers: { toggleLights: state.lights, setSpeed: state.speed } }))
+vi.mock('../../api', async (original) => ({ ...await original<any>(), fetchAPI: state.fetch, printers: { toggleLights: state.lights, setSpeed: state.speed } }))
 const printer = {
  id: 199, org_id: 1, name: 'Synthetic control', nickname: null, model: null, is_active: true,
  api_type: 'bambu', api_host: '192.0.2.1', has_api_key: true, camera_url: null,
@@ -166,4 +168,31 @@ it('wraps status and speed rows with readable secondary text and a card-sized sl
   expect(screen.getByText(text)).toHaveClass('text-[var(--brand-text-secondary)]')
  }
  expect(screen.getByText('Ludicrous').parentElement).toHaveClass('flex-wrap', 'gap-x-3', 'text-[var(--brand-text-secondary)]')
+})
+
+it.each([true, false])('card and floating controls share permission, Stop confirmation, and pending state (allowed=%s)', async allowed => {
+ state.allowed = allowed
+ const target = { ...printer, api_type: 'moonraker', last_seen: new Date().toISOString() }
+ state.fetch.mockReset().mockImplementation(async path => path === '/printers' ? [target] : {
+   success: true, outcome: 'pending', pending_control: { action: 'pause', sent_at: target.last_seen,
+     deadline_at: new Date(Date.now() + 30000).toISOString() },
+ })
+ render(<PrintControlsProvider><PrinterCard printer={target} {...props} /><EmergencyStop /></PrintControlsProvider>)
+ await act(async () => {})
+ const card = within(screen.getByTestId('printer-card'))
+ if (!allowed) {
+   expect(card.queryByRole('button', { name: 'Pause' })).toBeNull()
+   expect(card.queryByRole('button', { name: 'Stop' })).toBeNull()
+   return
+ }
+ fireEvent.click(card.getByRole('button', { name: 'Pause' }))
+ await waitFor(() => expect(card.getByRole('button', { name: 'Pause' })).toBeDisabled())
+ expect(state.fetch).toHaveBeenCalledWith('/printers/199/pause', { method: 'POST' })
+ fireEvent.click(screen.getByRole('button', { name: 'Emergency controls, 1 active prints' }))
+ const panel = within(screen.getByRole('region', { name: 'Emergency printer controls' }))
+ expect(panel.getByRole('button', { name: 'Pause' })).toBeDisabled()
+ fireEvent.click(card.getByRole('button', { name: 'Stop' }))
+ expect(state.fetch).not.toHaveBeenCalledWith('/printers/199/stop', expect.anything())
+ fireEvent.click(card.getByRole('button', { name: 'Confirm Stop' }))
+ expect(state.fetch).toHaveBeenCalledWith('/printers/199/stop', { method: 'POST' })
 })
