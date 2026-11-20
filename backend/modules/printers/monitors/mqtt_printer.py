@@ -7,6 +7,7 @@ Job lifecycle and telemetry parsing helpers are in mqtt_job_lifecycle.py
 and mqtt_telemetry.py respectively.
 """
 
+from core.ports import CONTAINER_API_PORT
 from core.base import AlertType, AlertSeverity
 
 import os
@@ -558,7 +559,7 @@ class PrinterMonitor:
                 import urllib.request
                 api_key = os.environ.get('API_KEY', '')
                 req = urllib.request.Request(  # nosemgrep: python.lang.security.audit.insecure-transport.urllib.insecure-request-object.insecure-request-object -- by design — MQTT printer adapter, local LAN only
-                    'http://localhost:8000/api/scheduler/run',
+                    f'http://localhost:{CONTAINER_API_PORT}/api/scheduler/run',
                     data=b'{}',
                     headers={'Content-Type': 'application/json', 'X-API-Key': api_key},
                     method='POST'

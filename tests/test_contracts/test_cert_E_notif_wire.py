@@ -130,7 +130,8 @@ def test_capture_alerts_wire_from_real_http(wire_app, notif_env):
         'ids': ids, 'exchanges': exchanges, 'unread_counts': counts})
 
 
-def test_capture_org_quiet_hours_settings_wire(wire_app, notif_env, signed_license):
+def test_capture_org_quiet_hours_settings_wire(wire_app, notif_env, signed_license, monkeypatch):
+    monkeypatch.delenv("TZ", raising=False)
     signed_license(tier='education', features=[])
     client, _ = wire_app
     body = {'quiet_hours_enabled': True, 'quiet_hours_start': '21:30', 'quiet_hours_end': '06:45',

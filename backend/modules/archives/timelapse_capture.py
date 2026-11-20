@@ -6,6 +6,12 @@ with timelapse_enabled=True while they are actively printing. When a print
 completes, stitches frames into an MP4 video using ffmpeg.
 """
 
+if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 import os
 import time
 import logging
@@ -19,10 +25,6 @@ from sqlalchemy.orm import sessionmaker
 from core.database_config import create_database_engine
 from core.db_compat import sql
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [timelapse] %(levelname)s %(message)s",
-)
 log = logging.getLogger("odin.timelapse")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
@@ -253,8 +255,6 @@ def main_loop():
 
 
 if __name__ == "__main__":
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     main_loop()

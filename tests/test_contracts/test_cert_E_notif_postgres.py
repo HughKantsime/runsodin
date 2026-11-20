@@ -187,7 +187,7 @@ def test_postgres_fresh_vapid_key_generation_persists_native_json(pg_engine, mon
     assert crypto.is_encrypted(stored['private_key'])  # review H1: never plaintext at rest
 
 
-def test_postgres_quiet_hours_config_put_round_trips(pg_engine):
+def test_postgres_quiet_hours_config_put_round_trips(pg_engine, monkeypatch):
     """System quiet-hours PUT stores values in the system_config JSON column; GET and the
     suppression config read them back on PostgreSQL."""
     from core.db import get_db
@@ -202,10 +202,15 @@ def test_postgres_quiet_hours_config_put_round_trips(pg_engine):
             yield db
     app.dependency_overrides[get_db] = session
     app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'username': 'admin', 'role': 'admin', 'group_id': None}
+    monkeypatch.setenv('TZ', 'America/New_York')
     with TestClient(app) as client:
         put = client.put('/config/quiet-hours', json={'enabled': True, 'start': '21:30', 'end': '06:15', 'digest': False})
         assert put.status_code == 200, put.text
-        assert client.get('/config/quiet-hours').json() == {'enabled': True, 'start': '21:30', 'end': '06:15', 'digest': False}
+        assert client.get('/config/quiet-hours').json() == {
+            'enabled': True, 'start': '21:30', 'end': '06:15', 'digest': False,
+            'local_timezone': 'America/New_York', 'timezone_confirmed': False}
+        assert client.put('/config/quiet-hours', json={'timezone_confirmed': True}).is_success
+        assert client.get('/config/quiet-hours').json()['timezone_confirmed'] is True
         # Update path (rows exist now).
         assert client.put('/config/quiet-hours', json={'enabled': False}).status_code == 200
         assert client.get('/config/quiet-hours').json()['enabled'] is False
@@ -214,7 +219,7 @@ def test_postgres_quiet_hours_config_put_round_trips(pg_engine):
     quiet_hours.engine = pg_engine
     try:
         quiet_hours.invalidate_cache()
-        assert quiet_hours._get_config() == {'enabled': False, 'start': '21:30', 'end': '06:15', 'digest_enabled': False}
+        assert quiet_hours._get_config() == {'enabled': False, 'start': '21:30', 'end': '06:15', 'digest_enabled': False, 'timezone': 'America/New_York'}
     finally:
         quiet_hours.engine = original
         quiet_hours.invalidate_cache()
@@ -301,3 +306,25 @@ def test_postgres_migration_032_deferred_deliveries_table_and_outbox_logic(pg_en
     with pg_engine.begin() as c:
         assert dd.purge(c, now=now + timedelta(days=8)) == 3
         assert c.execute(text('SELECT COUNT(*) FROM quiet_hours_deferred_deliveries')).scalar_one() == 0
+
+
+def test_postgres_org_confirmation_persists_when_other_settings_change(pg_engine, monkeypatch):
+    from core.db import get_db
+    from core.dependencies import get_current_user
+    from modules.organizations import routes
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    def session():
+        with Session(pg_engine) as db:
+            yield db
+    app.dependency_overrides[get_db] = session
+    app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'admin', 'group_id': None}
+    monkeypatch.setattr(routes, 'require_feature', lambda key: None)
+    with TestClient(app) as client:
+        path = '/orgs/1/settings'
+        assert client.put(path, json={'timezone': 'Europe/Berlin', 'quiet_hours_timezone_confirmed': True}).is_success
+        assert client.put(path, json={'quiet_hours_start': '23:00'}).is_success
+        stored = client.get(path).json()
+        assert stored['quiet_hours_local_timezone'] == 'Europe/Berlin'
+        assert stored['quiet_hours_timezone_confirmed'] is True

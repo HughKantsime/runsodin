@@ -64,6 +64,21 @@ def farm_zone_source(db: Session) -> tuple[str, str]:
     return "UTC", "utc"
 
 
+def alert_local_timezone(db, org_settings=None) -> str:
+    """Use the organization's saved zone when present, otherwise the farm's effective zone."""
+    name = (org_settings or {}).get("timezone")
+    if name and (name != "UTC" or org_settings.get("quiet_hours_timezone_confirmed") is True):
+        try:
+            return check_timezone(name)
+        except ValueError:
+            pass
+    if isinstance(db, Session):
+        return farm_zone_source(db)[0]
+    # Notification daemons already hold a Connection. Reuse it for the ORM reads.
+    with Session(bind=db) as session:
+        return farm_zone_source(session)[0]
+
+
 def farm_zone(db: Session) -> ZoneInfo:
     """The zone the farm's day is counted in (see the module docstring for the order)."""
     return ZoneInfo(farm_zone_source(db)[0])

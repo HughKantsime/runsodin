@@ -5,6 +5,12 @@ Polls report_schedules for due reports and generates + emails them.
 Also sends quiet hours digest when the quiet period ends.
 """
 
+if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 import os
 import time
 import json
@@ -22,10 +28,6 @@ from sqlalchemy.orm import sessionmaker
 from core.database_config import create_database_engine
 from core.db_compat import sql
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [report_runner] %(levelname)s %(message)s",
-)
 log = logging.getLogger("odin.report_runner")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
@@ -642,8 +644,6 @@ def _external_digest_rows(session, rows):
     return [external_payload(session, row) for row in rows]
 
 if __name__ == "__main__":
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     main_loop()

@@ -23,7 +23,7 @@ usage (from /app/backend in the container; see docs/ITAR_MODE.md for the docker 
 
 `set` and `clear` are meant for a stopped server and protect themselves two ways:
   - they refuse to run while the O.D.I.N. API answers on this machine's health port
-    (127.0.0.1, port PORT or 8000), unless --force-running is given. This sees an API in the
+    (127.0.0.1, port 8000), unless --force-running is given. This sees an API in the
     same container or network namespace only; it cannot see one in another container.
   - the write is a compare-and-swap: the address is replaced only if it is still the one
     this command read. If someone changed it in between (a running server's UI), nothing is
@@ -39,10 +39,11 @@ exit status: 0 done (list: no such printer is left), 1 list found at least one p
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 from sqlalchemy import text
+
+from core.ports import CONTAINER_API_PORT
 
 
 def _outside_local_network(api_host) -> bool:
@@ -61,11 +62,11 @@ def api_is_running() -> bool:
     """True when something answers HTTP on this machine's O.D.I.N. API port. Loopback only
     (the fixed address 127.0.0.1); http.client uses no proxy. A refused connection means it
     is not running; a timeout or an unreadable answer counts as running."""
+    return _health_port_answers(CONTAINER_API_PORT)
+
+
+def _health_port_answers(port: int) -> bool:
     import http.client
-    try:
-        port = int(os.environ.get("PORT") or os.environ.get("ODIN_PORT") or 8000)
-    except ValueError:
-        port = 8000
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
     try:
         connection.request("GET", "/health")

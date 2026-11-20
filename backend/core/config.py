@@ -8,9 +8,16 @@ Old import path (from config import settings) continues to work via re-exports i
 """
 
 import json
+import os
 from typing import Annotated, Dict, Optional, List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode
+
+
+def warn_unused_settings(logger):
+    for name in ("HOST", "PORT", "MCP_ENABLED", "SCHEDULER_HORIZON_DAYS"):
+        if name in os.environ:
+            logger.warning("%s is set but has no effect in ODIN; remove it.", name)
 
 
 class Settings(BaseSettings):
@@ -53,11 +60,8 @@ class Settings(BaseSettings):
     # Scheduler defaults
     blackout_start: str = "22:30"
     blackout_end: str = "05:30"
-    scheduler_horizon_days: int = 7
 
     # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
     debug: bool = False
 
     # Security - leave empty to disable auth (trusted network mode)

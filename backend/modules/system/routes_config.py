@@ -13,7 +13,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
-from core.system_config_values import config_text, write_config_text
+from core.system_config_values import config_bool, config_text, write_config_text
 from starlette.responses import JSONResponse, Response
 
 from core.db import get_db
@@ -284,20 +284,22 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
 @router.get("/config/quiet-hours")
 async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: dict = Depends(require_superadmin())):
     """Get quiet hours settings."""
-    keys = ["quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_digest"]
+    from core.farm_time import alert_local_timezone
+    keys = ["quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_digest", "quiet_hours_timezone_confirmed"]
     config = {}
-    defaults = {"enabled": False, "start": "22:00", "end": "07:00", "digest": True}
+    defaults = {"enabled": False, "start": "22:00", "end": "07:00", "digest": True, "timezone_confirmed": False}
     for key in keys:
         row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
         short_key = key.replace("quiet_hours_", "")
         if row:
             val = config_text(row[0])
-            if short_key in ("enabled", "digest"):
-                config[short_key] = val.lower() in ("true", "1", "yes")
+            if short_key in ("enabled", "digest", "timezone_confirmed"):
+                config[short_key] = config_bool(val)
             else:
                 config[short_key] = val
         else:
             config[short_key] = defaults.get(short_key, "")
+    config["local_timezone"] = alert_local_timezone(db)
     return config
 
 
@@ -305,7 +307,11 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: di
 async def update_quiet_hours_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update quiet hours settings. Admin only."""
     body = await request.json()
+    if "timezone_confirmed" in body and not isinstance(body["timezone_confirmed"], bool):
+        raise HTTPException(422, "Choose whether to use local time for alert quiet hours.")
     for short_key, value in body.items():
+        if short_key == "local_timezone":
+            continue  # Displayed by GET, resolved from the farm settings.
         db_key = f"quiet_hours_{short_key}"
         str_val = str(value).lower() if isinstance(value, bool) else str(value)
         write_config_text(db, db_key, str_val)

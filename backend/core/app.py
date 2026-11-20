@@ -405,6 +405,9 @@ def create_app() -> FastAPI:
     # Lifespan (DB init, event bus, background tasks)
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if os.environ.get("SUPERVISOR_PROCESS_NAME") != "backend":
+            from core.config import warn_unused_settings
+            warn_unused_settings(log)
         from core.interfaces.filament_ownership import log_external_filament_accounting
         log_external_filament_accounting(logging.getLogger("uvicorn.error"))
         from core.event_bus import get_event_bus

@@ -1,3 +1,4 @@
+import { AlertQuietHoursZone } from './AlertQuietHoursZone'
 import PageState from '../ui/PageState'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -156,11 +157,16 @@ function OrgCard({ org, printerList, addMemberId, setAddMemberId,
   const [draft, setDraft] = useState(null)
 
   // Sync draft when settings load
-  const activeDraft = draft ?? settings ?? {}
-  const set = (key, val) => setDraft({ ...activeDraft, [key]: val })
+  const activeDraft = { ...settings, ...draft }
+  const set = (key, val) => setDraft(previous => ({ ...previous, [key]: val }))
 
   const handleSave = () => {
-    updateSettings.mutate({ orgId: org.id, data: activeDraft }, {
+    const data = { ...activeDraft }
+    delete data.quiet_hours_local_timezone
+    // The school reporting field displays UTC by default. Saving other settings
+    // must not turn that display default into a saved organization zone.
+    if (draft?.timezone === undefined) delete data.timezone
+    updateSettings.mutate({ orgId: org.id, data }, {
       onSuccess: () => setDraft(null),
     })
   }
@@ -306,6 +312,13 @@ function OrgCard({ org, printerList, addMemberId, setAddMemberId,
                       onChange={(e) => set('quiet_hours_end', e.target.value)}
                       className={inputCls}
                     />
+                  </div>
+                  <div className="col-span-2">
+                    <AlertQuietHoursZone
+                      zone={draft?.timezone ?? settings?.quiet_hours_local_timezone ?? 'UTC'}
+                      confirmed={activeDraft.quiet_hours_timezone_confirmed === true}
+                      pending={activeDraft.quiet_hours_timezone_confirmed && (!settings?.quiet_hours_timezone_confirmed || draft?.timezone !== undefined)}
+                      confirm={() => set('quiet_hours_timezone_confirmed', true)} />
                   </div>
                 </div>
               )}

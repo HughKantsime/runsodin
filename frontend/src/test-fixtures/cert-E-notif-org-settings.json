@@ -21,6 +21,7 @@
     }
   ],
   "settings": {
+    "quiet_hours_local_timezone": "UTC",
     "default_filament_type": null,
     "default_filament_color": null,
     "quiet_hours_enabled": true,

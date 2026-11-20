@@ -357,7 +357,9 @@ def test_the_local_files_with_a_fixed_address_still_have_only_that_address():
     assert _uses(printer, "urllib.request") == {
         "urllib.request.Request", "urllib.request.urlopen",
         "urllib.request.build_opener", "urllib.request.ProxyHandler"}
-    assert printer.count("urllib.request.urlopen(") == 1 and "'http://localhost:8000/api/scheduler/run'" in printer
+    from core.ports import CONTAINER_API_PORT
+    assert CONTAINER_API_PORT == 8000
+    assert printer.count("urllib.request.urlopen(") == 1 and "f'http://localhost:{CONTAINER_API_PORT}/api/scheduler/run'" in printer
     # Under ITAR mode the one request is opened with no proxy; the default opener is ITAR-off only.
     assert printer.count("urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=5)") == 1
     assert printer.count("urllib.request.Request(") == 1

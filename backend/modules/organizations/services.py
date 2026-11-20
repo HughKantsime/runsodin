@@ -47,8 +47,9 @@ class OrgSettingsService(OrgSettingsProvider):
 
     def get_org_quiet_hours(self, db, org_id: int) -> dict:
         """Return quiet hours config for the org."""
-        settings = _get_org_settings(db, org_id)
+        settings = _get_org_settings(db, org_id, include_alert_zone=True)
         return {
+            "timezone": settings["quiet_hours_local_timezone"] if settings.get("quiet_hours_timezone_confirmed") is True else "UTC",
             "enabled": settings.get("quiet_hours_enabled", False),
             "start": settings.get("quiet_hours_start", "22:00"),
             "end": settings.get("quiet_hours_end", "07:00"),

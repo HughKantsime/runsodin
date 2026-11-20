@@ -20,6 +20,12 @@ import os
 import sys
 sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 
+if __name__ == '__main__':
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 import json
 import time
 import signal
@@ -32,7 +38,6 @@ try:
     import cv2
     import numpy as np
 except ImportError:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
     logging.getLogger('vision_monitor').warning(
         'Vision monitor disabled — cv2/numpy not available. '
         'This is normal if opencv is not installed in this environment.'
@@ -45,12 +50,6 @@ from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision.detection_thread import PrinterVisionThread, capture_interval, max_vision_threads
 from modules.vision import frame_storage, training_capture
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 log = logging.getLogger('vision_monitor')
 
 SCAN_INTERVAL = 15          # seconds between main loop scans
@@ -305,8 +304,6 @@ class VisionMonitorDaemon:
         self._publish_monitor_status(max_threads, waiting)
 
 if __name__ == '__main__':
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     from core.job_timeline import start

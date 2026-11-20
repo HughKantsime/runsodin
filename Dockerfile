@@ -183,9 +183,7 @@ RUN mkdir -p /data /data/backups /data/uploads /data/static/branding /app/go2rtc
 
 # Default environment
 ENV PYTHONUNBUFFERED=1 \
-    DATABASE_URL=sqlite:////data/odin.db \
-    HOST=0.0.0.0 \
-    PORT=8000
+    DATABASE_URL=sqlite:////data/odin.db
 
 # Ports: 8000 (API+frontend), 8555 (go2rtc WebRTC)
 # Port 1984 (go2rtc HLS/API) is bound to 127.0.0.1 inside the container and not exposed

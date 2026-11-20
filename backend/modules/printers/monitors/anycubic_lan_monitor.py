@@ -1,4 +1,10 @@
 """Stock Anycubic monitor. Reuses Elegoo's common telemetry/lifecycle sink."""
+if __name__ == '__main__':
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    from core.supervised_log import setup_logging
+    setup_logging()
+
 from core.base import slot_filament_value
 from core.printer_identity_audit import observe_printer_identity
 import logging
@@ -151,7 +157,6 @@ def main():
     install_log_redaction()
     from core.job_timeline import start
     start("anycubic_lan_monitor")
-    logging.basicConfig(level=logging.INFO)
     from core.interfaces.filament_ownership import log_external_filament_accounting
     log_external_filament_accounting(log)
     bootstrap_monitor_authority()
@@ -168,8 +173,6 @@ def main():
 
 
 if __name__ == '__main__':
-    from core.log_redaction import install_log_redaction
-    install_log_redaction()
     from core.schema.bootstrap import configure_orm
     configure_orm()
     main()

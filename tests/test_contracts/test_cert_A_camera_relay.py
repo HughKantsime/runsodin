@@ -98,7 +98,7 @@ def relay(cert_app, review_db, fernet_env, monkeypatch, tmp_path):
     allow_loopback_devices(monkeypatch)
     bind_engine(monkeypatch, review_db.get_bind())
     port = _free_port()
-    monkeypatch.setenv("PORT", str(port))
+    monkeypatch.setenv("ODIN_CAMERA_RELAY_BASE_URL", f"http://127.0.0.1:{port}")
     monkeypatch.setenv("ODIN_CAMERA_RELAY_SECRET_FILE", str(tmp_path / "relay-secret"))
     camera_relay.rotate_relay_secret()
     app = FastAPI()

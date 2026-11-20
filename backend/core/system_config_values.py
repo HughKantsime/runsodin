@@ -27,6 +27,10 @@ def config_text(value) -> str:
     return "" if value is None else str(value)
 
 
+def config_bool(value) -> bool:
+    return config_text(value).lower() in ("true", "1", "yes")
+
+
 def write_config_text(db, key: str, value: str) -> None:
     """Insert or update one text setting in the caller's transaction."""
     statement_value = bindparam("v", type_=JSON) if db.get_bind().dialect.name == "postgresql" else bindparam("v")
