@@ -1,9 +1,13 @@
 import { useEffect, useReducer } from 'react'
 import PrintProgress from './PrintProgress'
 import { isPrintingState } from '../../utils/shared'
-import type { Printer } from '../../types/printer'
+import type { Printer, PrintJob } from '../../types'
 
 export const speedModes = ['Silent', 'Standard', 'Sport', 'Ludicrous']
+
+export function showPrinterReadings(printer: Pick<Printer, 'telemetry_at'>, job?: PrintJob | null) {
+  return !!printer.telemetry_at || !job
+}
 
 export function useTelemetryAge(timestamp?: string | null) {
   const [, tick] = useReducer(n => n + 1, 0)

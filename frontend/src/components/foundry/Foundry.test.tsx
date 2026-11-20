@@ -424,3 +424,8 @@ it('allows Resume after the pending command deadline', () => {
   expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled()
   expect(screen.queryByText('Resume sent, waiting for the printer')).toBeNull()
 })
+
+it('shows active job progress when REST explicitly reports no printer snapshot', () => {
+  mount(<PrinterCard printer={printer({ telemetry_at: null })} job={print({ progress_percent: 0 })} />)
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
+})

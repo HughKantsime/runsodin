@@ -140,7 +140,7 @@ export interface Printer {
   shared: boolean;
   org_id: number | null;
   has_api_key: boolean;
-  created_at: string;
+  created_at: string | null;
   updated_at: string;
 }
 

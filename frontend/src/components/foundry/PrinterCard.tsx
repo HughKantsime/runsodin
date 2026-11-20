@@ -1,4 +1,4 @@
-import LivePrintValues from '../printers/LivePrintValues'
+import LivePrintValues, { showPrinterReadings } from '../printers/LivePrintValues'
 import { PrintControls } from '../printers/PrintControls'
 import PlateCleared from '../printers/PlateCleared'
 import { useState, type ReactNode } from 'react'
@@ -51,7 +51,7 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
     <div className="f-row"><div className="f-printer-heading">{selection}<div><h2><Link to={`/printers/${printer.id}`}>{printer.nickname || printer.name}</Link></h2><p className="f-secondary">{[printer.model, feed(printer)].filter(Boolean).join(' · ')}</p></div></div><StatusBadge status={state(printer)} /></div>
     {statusDetail}
     {job && <p className="f-job">{displayName(job)}</p>}
-    {isActivePrintState(printer.gcode_state) && !job?.awaiting_confirmation && ('telemetry_at' in printer || !job)
+    {isActivePrintState(printer.gcode_state) && !job?.awaiting_confirmation && showPrinterReadings(printer, job)
       ? <LivePrintValues printer={printer} foundry />
       : <PrintTelemetry job={job} now={now} printing={isPrintingState(printer.gcode_state)} />}
     {isActivePrintState(printer.gcode_state) && <PrintControls printerId={printer.id} inline />}

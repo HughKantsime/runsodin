@@ -9,12 +9,11 @@ function instant(value?: string | null) {
   return value?.replace(/(?:\.(\d+))?Z$/, (_, fraction = '') => '.' + fraction.padEnd(6, '0')) ?? ''
 }
 
-export function mergePrinter(previous: Printer | undefined, incoming: Printer, source: 'rest' | 'socket' = 'rest') {
+export function mergePrinter(previous: Printer | undefined, incoming: Printer) {
   if (!previous?.telemetry_at || previous.id !== incoming.id ||
       previous.created_at !== incoming.created_at || instant(previous.telemetry_at) < instant(incoming.telemetry_at)) {
     return incoming
   }
-  if (source === 'socket' && instant(previous.telemetry_at) > instant(incoming.telemetry_at)) return previous
   const merged = { ...incoming }
   for (const field of liveFields) Object.assign(merged, { [field]: previous[field] })
   return merged

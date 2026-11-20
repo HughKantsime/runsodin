@@ -146,7 +146,7 @@ def test_real_schema_replay_spool_assignment_and_restart(review_db, fernet_env, 
     ws_hub.push_event(*next(event for event in reversed(pushed) if event[0] == 'printer_telemetry'))
     frame = ws_hub.read_events_since(watermark)[0][0]['data']
     assert frame['printer_id'] == 499 and frame['telemetry_at'].endswith('Z')
-    assert frame['speed_percent'] is None and frame['speed_level'] is None
+    assert 'speed_percent' not in frame and 'speed_level' not in frame
     slots = review_db.execute(text('SELECT id,slot_number,filament_type,color_hex FROM filament_slots WHERE printer_id=499 ORDER BY slot_number')).all()
     assert len(slots) == 4 and slots[0][2:] == ('PLA','FF6A14')
     response = cert_client.patch('/printers/499/slots/1',

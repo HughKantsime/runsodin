@@ -62,8 +62,15 @@ def bundle_client(monkeypatch):
         def commit(self): pass
         def rollback(self): self.entries.clear()
         def execute(self, statement, *args, **kwargs):
-            if str(statement) == 'SELECT key, value FROM system_config':
-                return SimpleNamespace(fetchall=lambda: [('dispatch_recovery_keys:23', '{}'), ('language', 'en')])
+            if str(statement).startswith('SELECT key, value FROM system_config'):
+                import sqlite3
+                with sqlite3.connect(':memory:') as config:
+                    config.execute('CREATE TABLE system_config(key, value)')
+                    config.executemany('INSERT INTO system_config VALUES (?, ?)', [
+                        ('dispatch_recovery_keys:23', '{}'), ('language', 'en'), ('printer.live_values.1', '{}'),
+                    ])
+                    rows = config.execute(str(statement), *args).fetchall()
+                return SimpleNamespace(fetchall=lambda: rows)
             return Result()
     monkeypatch.setattr(routes_admin, 'sql', SimpleNamespace(is_sqlite=False))
     monkeypatch.setattr(diagnostics, '_read_tail', lambda *_: ['ERROR address=192.0.2.12 password=synthetic-test-value'])
@@ -87,6 +94,7 @@ def test_support_bundle_http_download_has_six_parseable_members(bundle_client):
         settings = json.loads(archive.read('settings_safe.json'))
         assert settings.get('language') == 'en'
         assert 'dispatch_recovery_keys:23' not in settings
+        assert 'printer.live_values.1' not in settings
         logs = archive.read('recent_errors.txt').decode()
         assert '192.0.2.12' not in logs and 'synthetic-test-value' not in logs
         assert '[REDACTED]' in logs

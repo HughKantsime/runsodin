@@ -66,7 +66,7 @@ class ConnectionManager:
         try:
             await reader
         except asyncio.CancelledError:
-            if active():
+            if asyncio.current_task().cancelling() or ws in self._readers:
                 raise
         finally:
             self._readers.pop(ws, None)

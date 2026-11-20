@@ -106,7 +106,8 @@ def test_start_progress_and_completion_through_the_shared_path(world):
     ws_hub.push_event('printer_telemetry', printing[0])
     frame = ws_hub.read_events_since(watermark)[0][0]['data']
     assert frame['telemetry_at'].endswith('Z') and frame['remaining_min'] == 14
-    assert all(frame[key] is None for key in ('current_layer', 'total_layers', 'speed_level', 'speed_percent'))
+    assert frame['current_layer'] is None and frame['total_layers'] is None
+    assert 'speed_level' not in frame and 'speed_percent' not in frame
     assert [p for kind, p in world.events if p['state'] == 'IDLE']
 
 

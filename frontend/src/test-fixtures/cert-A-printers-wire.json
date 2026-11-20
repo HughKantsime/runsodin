@@ -876,7 +876,6 @@
       "total_layers": 120,
       "fan_speed": 50,
       "speed_percent": 100.0,
-      "speed_level": null,
       "telemetry_at": "2026-10-14T12:00:00Z"
     },
     "402": {
@@ -890,9 +889,6 @@
       "speed_percent": 100,
       "remaining_min": 33,
       "fan_speed": 5964,
-      "current_layer": null,
-      "total_layers": null,
-      "speed_level": null,
       "telemetry_at": "2026-10-14T12:00:00Z"
     },
     "403": {
@@ -908,7 +904,6 @@
       "speed_percent": 100,
       "remaining_min": 45,
       "fan_speed": 100,
-      "speed_level": null,
       "telemetry_at": "2026-10-14T12:00:00Z"
     }
   }

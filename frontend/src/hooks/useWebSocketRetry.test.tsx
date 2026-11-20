@@ -289,3 +289,32 @@ it('recovers a mounted progress display from REST after a quiet connection is re
   expect(screen.getByText('67%')).toBeVisible()
   expect(screen.getByText('15m left')).toBeVisible()
 })
+
+it.each(['sparse', 'older'])('applies %s frames to list and detail without losing live values', async kind => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  const client = new QueryClient({ defaultOptions: { queries: { structuralSharing: sharePrinterData } } })
+  const wrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const list = ['printers'], detail = ['printer', '9']
+  const at = '2026-11-20T12:00:02Z'
+  const printer = { id: 9, mc_percent: 42, speed_percent: 125, telemetry_at: at }
+  client.setQueryData(list, [printer])
+  client.setQueryData(detail, printer)
+  renderHook(() => useWebSocket(), { wrapper })
+  await settle(0)
+  const send = (data: object) => act(() => sockets[0].onmessage({
+    data: JSON.stringify({ type: 'printer_telemetry', data: { printer_id: 9, ...data } }),
+  }))
+  const expectBoth = (expected: object) => {
+    expect(client.getQueryData(detail)).toMatchObject(expected)
+    expect(client.getQueryData(list)).toMatchObject([expected])
+  }
+  if (kind === 'older') {
+    send({ telemetry_at: '2026-11-20T12:00:01Z', progress: 10, bed_temp: 60, state: 'PAUSE', gcode_file: 'part' })
+    expectBoth({ ...printer, bed_temp: 60, gcode_state: 'PAUSE', gcode_file: 'part' })
+  } else {
+    send({ telemetry_at: '2026-11-20T12:00:03Z', bed_temp: 60 })
+    expectBoth({ mc_percent: 42, speed_percent: 125, bed_temp: 60 })
+    send({ telemetry_at: '2026-11-20T12:00:04Z', progress: null })
+    expectBoth({ mc_percent: null, speed_percent: 125 })
+  }
+})

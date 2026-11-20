@@ -11,8 +11,8 @@ it('labels unknown active-job progress instead of inventing measured zero', () =
  expect(screen.getByText('Time remaining unknown')).toBeInTheDocument()
  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
 })
-it('preserves zero and carries rounded remaining minutes', () => {
- render(<PrinterCard printer={printer} activeJob={{ job_name: 'Synthetic active', progress_percent: 0, remaining_minutes: 59.6 }} {...props} />)
+it.each([{}, { telemetry_at: null }])('preserves zero and carries rounded remaining minutes without a snapshot (%j)', snapshot => {
+ render(<PrinterCard printer={{ ...printer, ...snapshot }} activeJob={{ job_name: 'Synthetic active', progress_percent: 0, remaining_minutes: 59.6 }} {...props} />)
  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
  expect(screen.getByText('1h 0m left')).toBeInTheDocument()
 })

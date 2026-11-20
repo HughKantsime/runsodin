@@ -271,7 +271,7 @@ def _download_support_bundle(user=Depends(require_superadmin()), db: Session = D
         zf.writestr("connectivity.json", json.dumps(printers_info, indent=2, default=str))
 
         from modules.system.backup_api_export import private_config_key
-        config_rows = db.execute(text("SELECT key, value FROM system_config")).fetchall()
+        config_rows = db.execute(text("SELECT key, value FROM system_config WHERE substr(key, 1, length(:prefix)) <> :prefix"), {"prefix": "printer.live_values."}).fetchall()
         safe_config = {}
         sensitive = ("password", "key", "token", "secret", "code", "credential")
         # Internal bookkeeping rows (one-time markers, per-print quota claims) are

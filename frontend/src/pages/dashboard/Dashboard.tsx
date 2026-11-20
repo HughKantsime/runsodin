@@ -31,7 +31,7 @@ import toast from 'react-hot-toast'
 import CameraModal from '../../components/printers/CameraModal'
 import SpoolRing from '../../components/ui/SpoolRing'
 import { PrintControls } from '../../components/printers/PrintControls'
-import LivePrintValues from '../../components/printers/LivePrintValues'
+import LivePrintValues, { showPrinterReadings } from '../../components/printers/LivePrintValues'
 import PrintProgress from '../../components/printers/PrintProgress'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
@@ -95,7 +95,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
                 <span className="text-sm font-medium truncate">{displayName(activeJob || { display_name: printer.current_print_display_name, filename: printer.gcode_file })}</span>
               </div>
             </div>
-            {activeJob?.awaiting_confirmation ? <p role="status">Waiting for print confirmation in Dispatch Recovery.</p> : printer.telemetry_at || !activeJob ? <LivePrintValues printer={printer} layers /> : <>
+            {activeJob?.awaiting_confirmation ? <p role="status">Waiting for print confirmation in Dispatch Recovery.</p> : showPrinterReadings(printer, activeJob) ? <LivePrintValues printer={printer} layers /> : <>
             <PrintProgress percent={activeJob.progress_percent} remainingMinutes={activeJob.remaining_minutes} />
             <div className="printer-number flex justify-between text-xs text-[var(--brand-text-muted)]">
               <span>

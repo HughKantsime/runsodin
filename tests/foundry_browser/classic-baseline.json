@@ -61,7 +61,7 @@
     "frontend/src/pages/analytics/Utilization.tsx": "ee68fbb41410e5414e440dd1b17d047e2e80007bd217e71197e221256bbe968a",
     "frontend/src/pages/archives/Archives.tsx": "1b4c7227db56aab3503a43f8400fc27cc5f5de80696e0d974a0e804a0e667869",
     "frontend/src/pages/archives/Timelapses.tsx": "0ec983d329a1dbd882806ab7376c21148d5eae57819d3a5f2e5026dd1ad93c69",
-    "frontend/src/pages/dashboard/Dashboard.tsx": "16fb207d5d46388e4f36bcd894a2a5fbcfffd086767c62a4a7a4c4b819777276",
+    "frontend/src/pages/dashboard/Dashboard.tsx": "ba7e66a86c49f115e71e4570b7c1d28f475171c7aa77c1c0c71bc0eb34839217",
     "frontend/src/pages/dashboard/Overlay.tsx": "71eb686443427599a0fc936642817735754e9715c0382b0ec8d07c32bf2fb488",
     "frontend/src/pages/dashboard/TVDashboard.tsx": "31050b49cdbbb3c44380f4d490e09d2de4dc416a664e2a734d74875341a72264",
     "frontend/src/pages/education/EducationWorkbench.tsx": "c4aaa1605fb96000b973bed54f2773339825823660418fd6417622ea2e4b0436",
@@ -98,7 +98,7 @@
     "reason": "These files changed in 2.0.42 and 2.0.43 (pause cause, tray settings, outcome correction, timelapse re-check, audit CSV notice, planned mappings). Their digests were re-pinned from the merged release; every other digest is unchanged from 3d372ba2. Classic is verified by pixel comparison against the pre-Foundry 2.0.43 frontend."
   },
   "printer_live_values_changes": {
-    "frontend/src/pages/dashboard/Dashboard.tsx": "Show live readings and shared print controls on dashboard printer cards.",
+    "frontend/src/pages/dashboard/Dashboard.tsx": "Show live readings and shared print controls on dashboard printer cards, with active-job progress when no snapshot exists.",
     "frontend/src/App.tsx": "Share the existing print control state between the floating panel, cards, and detail.",
     "frontend/src/components/printers/EmergencyStop.tsx": "Render the shared controls in the existing floating panel.",
     "frontend/src/components/printers/PrinterCard.tsx": "Show the age of the last readings and offer print controls on the card.",

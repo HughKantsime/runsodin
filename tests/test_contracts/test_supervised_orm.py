@@ -2,6 +2,7 @@
 import ast
 from configparser import ConfigParser
 from pathlib import Path
+import re
 import shlex
 
 import pytest
@@ -16,10 +17,11 @@ def supervised_modules():
         config.read(path)
         for section in config.sections():
             cmd = shlex.split(config.get(section, "command", fallback=""))
-            if cmd[:2] == ["python3", "-m"]:
+            if cmd[1:2] == ["-m"] and re.fullmatch(r"python(?:3(?:\.\d+)?)?", Path(cmd[0]).name):
                 if cmd[2] == "uvicorn":
                     assert cmd[3] == "main:app"
                 modules.add(cmd[2])
+    assert modules, "No supervised Python module entries found"
     return sorted(modules)
 
 
@@ -54,3 +56,17 @@ def test_configure_orm_before_supervised_loop(module):
                 assert launch not in {"main", "main_loop", "start", "run", "run_forever", "create_task"}, module
     else:
         pytest.fail(f"{module} starts without configuring the ORM")
+
+
+@pytest.mark.parametrize("command", ["python -m monitor", "/usr/bin/python3 -m monitor",
+                                     "/opt/bin/python -m monitor", "/usr/bin/python3.11 -m monitor", "/bin/sh monitor"])
+def test_discovery_handles_interpreter_paths_and_rejects_empty_inventory(monkeypatch, command):
+    monkeypatch.setattr(Path, "glob", lambda *_: [Path("supervisord.conf")])
+    monkeypatch.setattr(ConfigParser, "read", lambda config, _: config.read_dict({
+        "program:monitor": {"command": command},
+    }))
+    if command.startswith("/bin/sh"):
+        with pytest.raises(AssertionError, match="No supervised Python"):
+            supervised_modules()
+    else:
+        assert supervised_modules() == ["monitor"]

@@ -108,12 +108,15 @@ def test_capture_cert_A_printer_wire(cert_client, wire_monitor, proto, moonraker
     assert printers.status_code == 200, printers.text
     listed = {p["id"]: p for p in printers.json() if p["id"] in (301, 401, 402, 403)}
     assert set(listed) == {301, 401, 402, 403}
+    omitted = {301: set(), 401: {"speed_level"}, 402: {"speed_level", "current_layer", "total_layers"},
+               403: {"speed_level"}}
     for pid, row in listed.items():
+        assert LIVE_FIELDS.keys() - snapshots[pid].keys() == omitted[pid]
         assert row["telemetry_at"] == snapshots[pid]["telemetry_at"]
         for key, field in LIVE_FIELDS.items():
-            assert row[field] == snapshots[pid][key]
+            assert row[field] == snapshots[pid].get(key)
     assert snapshots[401]["speed_percent"] == snapshots[402]["speed_percent"] == snapshots[403]["speed_percent"] == 100
-    assert snapshots[402]["current_layer"] is None and snapshots[402]["total_layers"] is None
+    assert listed[402]["layer_num"] is None and listed[402]["total_layer_num"] is None
     wire = {
         "scope": "Owned real-router responses after real monitor ingestion of captured Bambu A1/H2D MQTT frames "
                  "and protocol-accurate Moonraker/PrusaLink/SDCP payloads. Timestamps normalized: last_seen = "

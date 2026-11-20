@@ -148,15 +148,15 @@ export default function useWebSocket() {
                   ...(d.gcode_file != null && { gcode_file: d.gcode_file }),
                   ...(d.h2d_nozzles != null && { h2d_nozzles: d.h2d_nozzles }),
                   ...(d.external_spools != null && { external_spools: d.external_spools }),
-                  mc_percent: d.progress ?? (d.telemetry_at ? null : p.mc_percent),
-                  mc_remaining_time: d.remaining_min ?? (d.telemetry_at ? null : p.mc_remaining_time),
-                  layer_num: d.current_layer ?? (d.telemetry_at ? null : p.layer_num),
-                  total_layer_num: d.total_layers ?? (d.telemetry_at ? null : p.total_layer_num),
-                  speed_level: d.speed_level ?? (d.telemetry_at ? null : p.speed_level),
-                  speed_percent: d.speed_percent ?? (d.telemetry_at ? null : p.speed_percent),
+                  ...('progress' in d && { mc_percent: d.progress }),
+                  ...('remaining_min' in d && { mc_remaining_time: d.remaining_min }),
+                  ...('current_layer' in d && { layer_num: d.current_layer }),
+                  ...('total_layers' in d && { total_layer_num: d.total_layers }),
+                  ...('speed_level' in d && { speed_level: d.speed_level }),
+                  ...('speed_percent' in d && { speed_percent: d.speed_percent }),
                   telemetry_at: d.telemetry_at ?? null,
                   last_seen: d.telemetry_at ?? new Date().toISOString(),
-                }, 'socket')
+                })
               }
               queryClient.setQueriesData<Printer[]>({ queryKey: ['printers'] }, old =>
                 Array.isArray(old) ? old.map(updatePrinter) : old)
