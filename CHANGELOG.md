@@ -4,6 +4,16 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-20
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: Security fix: ODIN no longer writes notification tokens (Telegram, Discord, Slack and other webhooks) into its own log files, and removes the ones already written. -->
+
+### Security
+
+- ODIN wrote the address of every notification it sent into its own log files. For Telegram, Discord, Slack and other webhook notifications that address contains the secret token, so the token could be read in the log files in ODIN's data folder, in the administrator log viewer and in a troubleshooting report. This affects ODIN 2.1.0 to 2.4.0 on installs that send notifications to those services. ODIN no longer logs these addresses, hides them wherever logs are shown, and removes the lines already written from its log files the first time 2.4.1 starts. After updating, replace the bot token or webhook address of each such notification channel with a new one, especially if you have shared a log file or a troubleshooting report. Backups made by ODIN do not contain log files.
+
 ## [2.4.0] - 2026-11-18
 
 
