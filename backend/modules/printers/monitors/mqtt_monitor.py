@@ -33,8 +33,7 @@ except ImportError:
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s [%(name)s] %(levelname)s %(message)s',
 )
 log = logging.getLogger('mqtt_monitor')
 

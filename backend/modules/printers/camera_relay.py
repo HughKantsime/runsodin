@@ -33,6 +33,7 @@ import threading
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from core.api_server import CONTAINER_API_PORT
 from core.itar import ItarOutboundBlocked, pinned_literal_url
 
 log = logging.getLogger("odin.camera_relay")
@@ -188,8 +189,7 @@ def relay_base_url() -> str:
         except (ItarOutboundBlocked, ValueError) as exc:
             log.error("%s No camera source was given to go2rtc for it: %s", ITAR_REFUSAL, exc)
             raise RelayUrlRefused() from None
-    port = int(os.environ.get("PORT", "8000"))
-    return f"http://127.0.0.1:{port}"
+    return f"http://127.0.0.1:{CONTAINER_API_PORT}"
 
 
 def relay_url(printer_id: int) -> str:

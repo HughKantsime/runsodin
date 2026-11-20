@@ -76,3 +76,84 @@ def test_real_configuration_controls_all_external_channels_and_retains_alerts(qu
         assert set(calls['email'])==expected and set(calls['push'])==expected
         assert len(calls['org'])==int(scoped)
         assert len(calls['global'])==int(not scoped)
+
+
+def test_saved_zone_confirmation_and_org_fallback(quiet_config, review_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from core.db import get_db
+    from core.dependencies import get_current_user
+    from core.farm_time import set_farm_timezone
+    from modules.system import routes_config
+    from modules.organizations import routes
+
+    set_farm_timezone(review_db, 'America/New_York')
+    review_db.commit()
+    admin = {'id': 3, 'role': 'admin', 'group_id': None}
+    app = FastAPI()
+    app.include_router(routes_config.router)
+    app.include_router(routes.router)
+    app.dependency_overrides[get_db] = lambda: review_db
+    app.dependency_overrides[get_current_user] = lambda: admin
+    monkeypatch.setattr(routes, 'require_feature', lambda key: None)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 7, 1, 10, tzinfo=timezone.utc)  # 06:00 New York, 12:00 Berlin
+    monkeypatch.setattr(quiet_config, 'datetime', Clock)
+    with TestClient(app) as client:
+        system = '/config/quiet-hours'
+        org = '/orgs/1/settings'
+        assert client.get(system).json()['local_timezone'] == 'America/New_York'
+        assert client.get(system).json()['timezone_confirmed'] is False
+        assert not quiet_config.should_suppress_notification()
+        assert client.put(system, json={'timezone_confirmed': 'false'}).status_code == 422
+        assert client.put(system, json={'timezone_confirmed': True}).is_success
+        assert client.get(system).json()['timezone_confirmed'] is True
+        assert quiet_config.should_suppress_notification(2)
+        assert client.get(org).json()['quiet_hours_local_timezone'] == 'America/New_York'
+        assert client.put(org, json={'quiet_hours_enabled': True}).is_success
+        assert not quiet_config.should_suppress_notification(1)
+        assert client.put(org, json={'quiet_hours_timezone_confirmed': True}).is_success
+        assert quiet_config.should_suppress_notification(1)
+        assert client.put(org, json={'timezone': 'Europe/Berlin'}).is_success
+        assert client.get(org).json()['quiet_hours_timezone_confirmed'] is True
+        assert not quiet_config.should_suppress_notification(1)
+        targets = {row['id']: row['config']['timezone'] for row in quiet_config.iter_orgs_with_digest_enabled()}
+        assert targets == {1: 'Europe/Berlin', None: 'America/New_York'}
+        assert client.put(org, json={'quiet_hours_enabled': False}).is_success
+        assert quiet_config.should_suppress_notification(1)
+
+
+@pytest.mark.parametrize('utc_start,utc_end', [
+    ('2026-03-08T03:00', '2026-03-08T11:00'),
+    ('2026-11-01T02:00', '2026-11-01T12:00'),
+])
+def test_overnight_suppression_and_digest_across_dst(utc_start, utc_end):
+    from datetime import timedelta
+    from modules.notifications import quiet_hours as qh
+
+    config = {'enabled': True, 'start': '22:00', 'end': '07:00', 'timezone': 'America/New_York'}
+    start, end = (datetime.fromisoformat(stamp).replace(tzinfo=timezone.utc) for stamp in (utc_start, utc_end))
+    minute = timedelta(minutes=1)
+    assert not qh._is_quiet_time_for_config(config, start - minute)
+    for instant in (start, start + timedelta(hours=3), end - minute):
+        assert qh._is_quiet_time_for_config(config, instant)
+        assert qh.compute_last_window_end(config, instant) is None
+    assert not qh._is_quiet_time_for_config(config, end)
+    assert qh.compute_last_window_end(config, end) == end
+    assert qh.compute_window_bounds(config, end) == (start, end)
+
+
+@pytest.mark.parametrize('window,first,last', [
+    (('01:30', '02:30'), '2026-03-08T06:30', '2026-03-08T07:00'),
+    (('01:15', '01:45'), '2026-11-01T05:15', '2026-11-01T05:45'),
+    (('01:15', '01:45'), '2026-11-01T06:15', '2026-11-01T06:45'),
+])
+def test_digest_handles_missing_and_repeated_wall_clock_endpoints(window, first, last):
+    from modules.notifications import quiet_hours as qh
+    config = dict(enabled=True, start=window[0], end=window[1], timezone='America/New_York')
+    start, end = (datetime.fromisoformat(value).replace(tzinfo=timezone.utc) for value in (first, last))
+    assert qh.compute_last_window_end(config, end) == end
+    assert qh.compute_window_bounds(config, end) == (start, end)

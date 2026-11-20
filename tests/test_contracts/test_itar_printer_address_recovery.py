@@ -231,7 +231,8 @@ def test_the_running_check_asks_only_this_machines_health_port(monkeypatch):
         conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
         conn.close()
     threading.Thread(target=serve, daemon=True).start()
-    monkeypatch.setenv("PORT", str(port))
+    monkeypatch.setattr(tool, "CONTAINER_API_PORT", port)
+    monkeypatch.setenv("PORT", "invalid")
     monkeypatch.setenv("HTTP_PROXY", "http://203.0.113.9:3128")   # must not be used
     assert tool.api_is_running() is True
     assert seen[0].startswith(b"GET /health HTTP/1.1")
@@ -264,3 +265,14 @@ def test_the_guide_and_the_refusal_say_exactly_which_connections_the_command_mak
         assert "PostgreSQL database it connects to that database" in flat
         for wrong in ("opens no network connection", "no network at all", "It needs no network", "uses no network"):
             assert wrong not in flat, wrong
+
+
+def test_running_check_keeps_both_the_container_and_the_custom_port(monkeypatch):
+    monkeypatch.setenv("PORT", "18080")
+    for listening, expected in [(8000, [8000]), (18080, [8000, 18080])]:
+        seen = []
+        def answers(port):
+            seen.append(port)
+            return port == listening
+        monkeypatch.setattr(tool, "_health_port_answers", answers)
+        assert tool.api_is_running() and seen == expected

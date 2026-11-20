@@ -32,7 +32,7 @@ try:
     import cv2
     import numpy as np
 except ImportError:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s %(message)s')
     logging.getLogger('vision_monitor').warning(
         'Vision monitor disabled — cv2/numpy not available. '
         'This is normal if opencv is not installed in this environment.'
@@ -48,8 +48,7 @@ from modules.vision import frame_storage, training_capture
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s [%(name)s] %(levelname)s %(message)s',
 )
 log = logging.getLogger('vision_monitor')
 

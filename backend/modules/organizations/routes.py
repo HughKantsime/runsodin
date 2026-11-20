@@ -44,14 +44,15 @@ DEFAULT_ORG_SETTINGS = {
     "branding_logo_url": None,
 }
 
-ALLOWED_SETTINGS_KEYS = set(DEFAULT_ORG_SETTINGS.keys())
+ALLOWED_SETTINGS_KEYS = set(DEFAULT_ORG_SETTINGS) | {"quiet_hours_timezone_confirmed"}
 # Org-level white-labelling is the Pro "branding" entitlement; clearing stays free.
 BRANDING_SETTINGS_KEYS = {key for key in ALLOWED_SETTINGS_KEYS if key.startswith("branding_")}
 
 
-def _get_org_settings(db, org_id: int) -> dict:
+def _get_org_settings(db, org_id: int, *, include_alert_zone=False) -> dict:
     """Load org settings from groups.settings_json, merged with defaults."""
     row = db.execute(text("SELECT settings_json FROM groups WHERE id = :id"), {"id": org_id}).fetchone()
+    stored = {}
     if row and row.settings_json:
         stored = json.loads(row.settings_json)
         # Decrypt webhook_url if it was stored encrypted (migration-safe fallback)
@@ -60,8 +61,10 @@ def _get_org_settings(db, org_id: int) -> dict:
                 stored["webhook_url"] = crypto.decrypt(stored["webhook_url"])
             except Exception as e:
                 log.debug(f"Failed to decrypt webhook_url (using raw): {e}")
-        return {**DEFAULT_ORG_SETTINGS, **stored}
-    return dict(DEFAULT_ORG_SETTINGS)
+    if include_alert_zone:
+        from core.farm_time import alert_local_timezone
+        stored["quiet_hours_local_timezone"] = alert_local_timezone(db, stored)
+    return {**DEFAULT_ORG_SETTINGS, **stored}
 
 
 # =============================================================================
@@ -290,7 +293,7 @@ async def get_org_settings(org_id: int, current_user: dict = Depends(require_rol
     org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    return _get_org_settings(db, org_id)
+    return _get_org_settings(db, org_id, include_alert_zone=True)
 
 
 @router.put("/orgs/{org_id}/settings", tags=["Organizations"])
@@ -308,6 +311,8 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
 
     from modules.organizations.education_program_policy import validate_settings
     validate_settings(body)
+    if "quiet_hours_timezone_confirmed" in body and not isinstance(body["quiet_hours_timezone_confirmed"], bool):
+        raise HTTPException(422, "Choose whether to use local time for alert quiet hours.")
 
     # SSRF validation and encryption for webhook URL before persisting
     if "webhook_url" in body and body["webhook_url"]:

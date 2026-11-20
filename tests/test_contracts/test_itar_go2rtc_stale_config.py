@@ -150,7 +150,7 @@ def test_with_itar_off_the_container_always_starts(status):
 def test_the_path_go2rtc_is_started_with_is_one_value_everywhere():
     assert prepare.LAUNCHED_CONFIG_PATH == prepare.DEFAULT_CONFIG_PATH == "/app/go2rtc/go2rtc.yaml"
     supervisor = (ROOT / "docker/supervisord.conf").read_text()
-    assert f"command=/usr/local/bin/go2rtc -config {prepare.LAUNCHED_CONFIG_PATH}\n" in supervisor
+    assert f"command=python3 -m core.supervised_log /usr/local/bin/go2rtc -config {prepare.LAUNCHED_CONFIG_PATH}\n" in supervisor
     assert supervisor.count("go2rtc -config") == 1
     from modules.printers import route_utils
     source = (ROOT / "backend/modules/printers/route_utils.py").read_text()

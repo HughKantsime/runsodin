@@ -19,6 +19,8 @@ import urllib.parse
 
 from fastapi import HTTPException
 
+from core.api_server import CONTAINER_API_PORT
+
 
 class WebhookSSRFError(Exception):
     """Raised when a webhook URL resolves to a disallowed (private) address.
@@ -519,7 +521,7 @@ def is_blocked_device_address(value) -> bool:
 # ODIN API (8000, or PORT). A device URL naming one of ODIN's own addresses on one of
 # these ports would make ODIN re-serve its own streams (e.g. another org's camera via
 # rtsp://<container IP>:8554/printer_<id>), so it is refused.
-_OWN_SERVICE_PORTS = (8554, 8555, 1984, 8000)
+_OWN_SERVICE_PORTS = (8554, 8555, 1984, CONTAINER_API_PORT)
 
 
 def own_service_ports() -> frozenset:

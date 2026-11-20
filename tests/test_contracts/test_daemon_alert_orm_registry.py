@@ -49,7 +49,7 @@ def _daemon_modules():
     import re
     names = set()
     for conf in sorted((ROOT / 'docker').glob('supervisord*.conf')):
-        names.update(re.findall(r'^command=python3 -m (modules\.[\w.]+)\s*$', conf.read_text(), re.M))
+        names.update(re.findall(r'^command=python3 -m core\.supervised_log python3 -m (modules\.[\w.]+)\s*$', conf.read_text(), re.M))
     return sorted(names)
 
 

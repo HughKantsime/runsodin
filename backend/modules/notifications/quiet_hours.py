@@ -1,4 +1,3 @@
-import os
 """
 Quiet Hours Module — Controls notification suppression and digest generation.
 
@@ -13,13 +12,16 @@ import html
 import time
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Optional, Dict, Any, Tuple
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 
 # Resolved at use time: never a stale engine bound at import.
 from core.db import live_engine as engine
+from core.farm_time import alert_local_timezone
 
 log = logging.getLogger("quiet_hours")
 
@@ -44,7 +46,9 @@ def _get_config() -> Dict[str, Any]:
             result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'"))
             rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
+            zone = alert_local_timezone(conn) if rows.get("quiet_hours_timezone_confirmed") == "true" else "UTC"
         _config_cache = {
+            "timezone": zone,
             "enabled": rows.get("quiet_hours_enabled", "false").lower() in ("true", "1"),
             "start": rows.get("quiet_hours_start", "22:00"),  # 24h format HH:MM
             "end": rows.get("quiet_hours_end", "07:00"),
@@ -81,11 +85,21 @@ def _is_quiet_time_for_config(config: Dict, now: datetime = None) -> bool:
     try:
         start,end=_window_minutes(config)
         now=now or datetime.now(timezone.utc)
-        now=now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        now = _as_utc(now).astimezone(ZoneInfo(config.get("timezone", "UTC")))
         minute=now.hour*60+now.minute
         return start<=minute<end if start<end else minute>=start or minute<end
     except (ValueError,TypeError,AttributeError):
         return False
+
+
+def _org_window(conn, settings):
+    confirmed = settings.get("quiet_hours_timezone_confirmed") is True
+    return {
+        "enabled": settings.get("quiet_hours_enabled", False),
+        "start": settings.get("quiet_hours_start", "22:00"),
+        "end": settings.get("quiet_hours_end", "07:00"),
+        "timezone": alert_local_timezone(conn, settings) if confirmed else "UTC",
+    }
 
 
 def _org_quiet_hours_enabled(conn, org_id) -> bool:
@@ -136,14 +150,10 @@ def should_suppress_notification(org_id: int = None, db=None) -> bool:
             with (nullcontext(db) if db is not None else engine.connect()) as conn:
                 row = conn.execute(text("SELECT settings_json FROM groups WHERE id = :oid"), {"oid": org_id}).mappings().fetchone()
                 if row and row["settings_json"]:
-                    settings = json.loads(row["settings_json"])
-                    org_qh = {
-                        "enabled": settings.get("quiet_hours_enabled", False),
-                        "start": settings.get("quiet_hours_start", "22:00"),
-                        "end": settings.get("quiet_hours_end", "07:00"),
-                    }
-                    if org_qh["enabled"]:
-                        return _is_quiet_time_for_config(org_qh)
+                    raw = row["settings_json"]
+                    settings = json.loads(raw) if isinstance(raw, str) else raw
+                    if settings.get("quiet_hours_enabled"):
+                        return _is_quiet_time_for_config(_org_window(conn, settings))
         except Exception as e:
             log.debug(f"Error checking org quiet hours: {e}")
     return is_quiet_time()
@@ -156,28 +166,12 @@ def get_queued_alerts_for_digest() -> list:
         return []
 
     try:
-        now = datetime.now(timezone.utc)
-        end_h, end_m = map(int, config["end"].split(":"))
-        start_h, start_m = map(int, config["start"].split(":"))
-
-        # Calculate the quiet period that just ended
-        # If end is 07:00 and we're at 07:00, the period was yesterday 22:00 - today 07:00
-        quiet_end = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
-        if quiet_end > now:
-            quiet_end -= timedelta(days=1)
-
-        # Calculate start
-        quiet_start = quiet_end.replace(hour=start_h, minute=start_m)
-        if quiet_start >= quiet_end:
-            quiet_start -= timedelta(days=1)
+        quiet_start, quiet_end = _last_ended_window(config, datetime.now(timezone.utc))
 
         with engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT alert_type, severity, title, message, created_at
-                FROM alerts
-                WHERE created_at BETWEEN :start AND :end
-                ORDER BY created_at DESC
-            """), {"start": quiet_start.isoformat(), "end": quiet_end.isoformat()})
+            query = ("SELECT alert_type, severity, title, message, created_at FROM alerts WHERE "
+                     + _alert_window_predicate(conn) + " ORDER BY created_at DESC")
+            result = conn.execute(text(query), {"start": quiet_start, "end": quiet_end})
             alerts = [dict(r._mapping) for r in result.fetchall()]
 
         return alerts
@@ -290,40 +284,69 @@ def compute_last_window_end(config: Dict[str, Any], now: datetime = None) -> Opt
     instead of the system-level one. `now` defaults to UTC wall-clock and
     is injectable for tests.
     """
-    if not config.get("enabled", False):
+    now = now or datetime.now(timezone.utc)
+    if not config.get("enabled") or _is_quiet_time_for_config(config, now):
         return None
-    if now is None:
-        now = datetime.now(timezone.utc)
-
     try:
-        _window_minutes(config)
-    except (ValueError,TypeError,AttributeError):
+        return _last_ended_window(config, now)[1]
+    except (TypeError, ValueError, AttributeError):
         return None
 
-    # If we're currently inside the window, it hasn't ended yet.
-    if _is_quiet_time_for_config(config, now=now):
-        return None
 
-    try:
-        end_h, end_m = map(int, config.get("end", "07:00").split(":"))
-    except Exception:
-        return None
+def _as_utc(moment):
+    return moment.astimezone(timezone.utc) if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
-    # Most recent end: today's end-of-window if it's already passed, else
-    # yesterday's.
-    quiet_end = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
-    if quiet_end > now:
-        quiet_end -= timedelta(days=1)
-    return quiet_end
+
+@lru_cache(maxsize=256)
+def _windows_on(day: date, start: int, end: int, zone: ZoneInfo):
+    """UTC intervals matching a window starting on this local calendar date."""
+    midnight = datetime.combine(day, datetime.min.time(), tzinfo=zone)
+    first = midnight + timedelta(minutes=start)
+    last = midnight + timedelta(days=int(end < start), minutes=end)
+    # Most windows have two unambiguous endpoints, even if the clocks change overnight.
+    if all(t.utcoffset() == t.replace(fold=1).utcoffset() for t in (first, last)):
+        return [(_as_utc(first), _as_utc(last))]
+
+    # A missing or repeated endpoint can shorten, split or erase the window. Walk only
+    # this exceptional interval in real time, testing the same local minutes as suppression.
+    bounds = [_as_utc(t.replace(fold=fold)) for t in (first, last) for fold in (0, 1)]
+    moment, limit = min(bounds), max(bounds)
+    intervals = []
+    opened = None
+    while moment <= limit:
+        wall = moment.astimezone(zone)
+        inside = first <= wall < last
+        if inside and opened is None:
+            opened = moment
+        elif not inside and opened is not None:
+            intervals.append((opened, moment))
+            opened = None
+        moment += timedelta(minutes=1)
+    return intervals
+
+
+def _last_ended_window(config, now):
+    start, end = _window_minutes(config)
+    now = _as_utc(now)
+    zone = ZoneInfo(config.get("timezone", "UTC"))
+    day = now.astimezone(zone).date()
+    while True:
+        for bounds in reversed(_windows_on(day, start, end, zone)):
+            if bounds[1] <= now:
+                return bounds
+        day -= timedelta(days=1)
 
 
 def compute_window_bounds(config: Dict[str, Any], window_end: datetime) -> Tuple[datetime, datetime]:
-    """Given a window-end datetime, compute the matching window-start."""
-    start_h, start_m = map(int, config.get("start", "22:00").split(":"))
-    start = window_end.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
-    if start >= window_end:
-        start -= timedelta(days=1)
-    return start, window_end
+    """UTC bounds for the completed local window used by the digest."""
+    return _last_ended_window(config, window_end)
+
+
+def _alert_window_predicate(conn):
+    # SQLite has both ORM space-separated UTC values and legacy ISO values.
+    if conn.dialect.name == "sqlite":
+        return "datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)"
+    return "created_at>=:start AND created_at<:end"
 
 
 def get_suppressed_alerts_for_window(
@@ -343,13 +366,7 @@ def get_suppressed_alerts_for_window(
     from modules.notifications.recipient_policy import resolve_alert_scope
     try:
         with engine.connect() as conn:
-            # SQLite contains both ORM space-separated UTC values and legacy
-            # ISO values. Parse time instead of comparing incompatible strings.
-            predicate = (
-                "datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)"
-                if conn.dialect.name == "sqlite" else "created_at>=:start AND created_at<:end"
-            )
-            query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + predicate + " ORDER BY created_at DESC"
+            query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + _alert_window_predicate(conn) + " ORDER BY created_at DESC"
             rows = conn.execute(text(query), {"start": window_start, "end": window_end}).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from a closed pair of literal dialect comparisons; values are bound
             result = []
             for row in rows:
@@ -407,34 +424,32 @@ def iter_orgs_with_digest_enabled() -> list:
                 "SELECT id, name, settings_json FROM groups "
                 "WHERE settings_json IS NOT NULL"
             )).mappings().fetchall()
-        for r in rows:
-            raw = r.get("settings_json")
-            if not raw:
-                continue
-            try:
-                s = json.loads(raw) if isinstance(raw, str) else raw
-            except Exception:
-                continue
-            if not s.get("quiet_hours_enabled"):
-                continue
-            if s.get("quiet_hours_digest_enabled") is False:
-                continue  # explicit opt-out
-            config = {
-                "enabled": True,
-                "start": s.get("quiet_hours_start", "22:00"),
-                "end": s.get("quiet_hours_end", "07:00"),
-                "digest_enabled": s.get("quiet_hours_digest_enabled", True),
-                # PUT /orgs/{id}/settings stores the URL Fernet-encrypted;
-                # legacy rows may hold plaintext.
-                "webhook_url": _decrypt_org_webhook_url(s.get("webhook_url")),
-                "webhook_type": s.get("webhook_type", "generic"),
-            }
-            out.append({
-                "id": r["id"],
-                "name": r["name"],
-                "settings_json": s,
-                "config": config,
-            })
+            for r in rows:
+                raw = r.get("settings_json")
+                if not raw:
+                    continue
+                try:
+                    s = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    continue
+                if not s.get("quiet_hours_enabled"):
+                    continue
+                if s.get("quiet_hours_digest_enabled") is False:
+                    continue  # explicit opt-out
+                config = {
+                    **_org_window(conn, s),
+                    "digest_enabled": s.get("quiet_hours_digest_enabled", True),
+                    # PUT /orgs/{id}/settings stores the URL Fernet-encrypted;
+                    # legacy rows may hold plaintext.
+                    "webhook_url": _decrypt_org_webhook_url(s.get("webhook_url")),
+                    "webhook_type": s.get("webhook_type", "generic"),
+                }
+                out.append({
+                    "id": r["id"],
+                    "name": r["name"],
+                    "settings_json": s,
+                    "config": config,
+                })
     except Exception as e:
         log.error(f"iter_orgs_with_digest_enabled failed: {e}")
 

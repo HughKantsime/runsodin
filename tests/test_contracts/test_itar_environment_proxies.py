@@ -395,7 +395,7 @@ def _supervisor_commands():
     commands = []
     for conf in sorted((ROOT / "docker").glob("supervisord*.conf")):
         commands += re.findall(r"^command=(.+)$", conf.read_text(encoding="utf-8"), flags=re.M)
-    return commands
+    return [command.removeprefix("python3 -m core.supervised_log ") for command in commands]
 
 
 def _shell_python_commands():
@@ -431,7 +431,8 @@ def entry_points():
     block, and the Python workers ODIN starts itself."""
     files = set()
     for command in _supervisor_commands():
-        if command.startswith("python3 -m uvicorn main:app "):
+        if command.startswith("python3 -m core.api_server "):
+            files.add("backend/core/api_server.py")
             files.add("backend/main.py")
         elif command.startswith("python3 -m "):
             files.add("backend/" + command.split()[2].replace(".", "/") + ".py")

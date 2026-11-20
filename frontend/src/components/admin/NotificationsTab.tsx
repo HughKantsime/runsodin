@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
 import { Button, Input, Card } from '../ui'
 import TemperatureAlertsCard from './TemperatureAlertsCard'
+import { FarmAlertQuietHours } from './AlertQuietHoursZone'
 import PauseRemindersCard from './PauseRemindersCard'
 
 export default function NotificationsTab() {
@@ -252,6 +253,8 @@ export default function NotificationsTab() {
         </div>
       )}
 
+
+      {isSuperadmin && <FarmAlertQuietHours />}
 
       {/* Alert Preferences */}
       <Card padding="lg" className="mb-4 md:mb-6">

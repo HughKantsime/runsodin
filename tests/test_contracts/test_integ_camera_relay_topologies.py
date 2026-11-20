@@ -43,7 +43,8 @@ def test_single_container_topology_trusts_only_loopback(cert_app, review_db, fer
     from modules.printers import camera_relay
     monkeypatch.delenv("ODIN_CAMERA_RELAY_BASE_URL", raising=False)
     monkeypatch.delenv("ODIN_CAMERA_RELAY_PEERS", raising=False)
-    monkeypatch.setenv("PORT", "8000")
+    monkeypatch.setenv("PORT", "18080")
+    monkeypatch.setenv("ODIN_PORT", "28080")
     assert camera_relay.relay_url(301).startswith("http://127.0.0.1:8000/internal/camera-source/301/")
     assert _call(review_db, monkeypatch, tmp_path, ("172.19.0.4", 4000)) == 404
 

@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import OrgManager from './OrgManager'
+import { FarmAlertQuietHours } from './AlertQuietHoursZone'
 import WebhookSettings from './WebhookSettings'
 import NotificationsTab from './NotificationsTab'
 import orgFixture from '../../test-fixtures/cert-E-notif-org-settings.json'
@@ -40,15 +41,32 @@ test('CertENotif: org settings show the stored quiet-hours window and save an ed
   const toggle = await within(card).findByRole('checkbox', { name: 'Quiet hours' })
   await waitFor(() => expect(toggle).toBeChecked())
   expect(within(card).getByDisplayValue('21:30')).toBeInTheDocument()
+  expect(within(card).getByText('These hours are still read as UTC. Confirm your time zone to apply them in local time.')).toBeVisible()
+  fireEvent.click(within(card).getByRole('button', { name: 'Confirm time zone (UTC)' }))
+  expect(calls.some(c => c.method === 'PUT')).toBe(false)
   fireEvent.change(within(card).getByDisplayValue('06:45'), { target: { value: '07:15' } })
   fireEvent.click(within(card).getByRole('button', { name: 'Save Settings' }))
   await waitFor(() => expect(calls.find(c => c.method === 'PUT')).toBeTruthy())
   const put = calls.find(c => c.method === 'PUT')!
   expect(put.path).toBe('/orgs/1/settings')
-  expect(put.body).toMatchObject({ quiet_hours_enabled: true, quiet_hours_start: '21:30', quiet_hours_end: '07:15',
+  expect(put.body).toMatchObject({ quiet_hours_enabled: true, quiet_hours_start: '21:30', quiet_hours_end: '07:15', quiet_hours_timezone_confirmed: true,
                                    webhook_url: 'https://hooks.cert-e.test/org-1', webhook_type: 'discord' })
   // The sibling org's settings were never touched.
   expect(calls.some(c => c.path.startsWith('/orgs/2'))).toBe(false)
+})
+
+test('farm alert hours stay in UTC until the administrator confirms the displayed zone', async () => {
+  const hours = { enabled: true, start: '22:00', end: '07:00', local_timezone: 'America/New_York', timezone_confirmed: false }
+  wire({ 'GET /config/quiet-hours': hours, 'PUT /config/quiet-hours': { status: 'ok' } })
+  render(<FarmAlertQuietHours />)
+  expect(await screen.findByText('Alert quiet hours use UTC.')).toBeVisible()
+  expect(screen.getByText('These hours are still read as UTC. Confirm your time zone to apply them in local time.')).toBeVisible()
+  expect(calls.some(c => c.method === 'PUT')).toBe(false)
+  hours.timezone_confirmed = true
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm time zone (America/New_York)' }))
+  expect(await screen.findByText('Alert quiet hours use America/New_York.')).toBeVisible()
+  expect(calls.find(c => c.method === 'PUT')?.body).toEqual({ timezone_confirmed: true })
+  expect(screen.queryByText(/These hours are still read as UTC/)).toBeNull()
 })
 
 // ---------------- Webhooks UI ----------------
