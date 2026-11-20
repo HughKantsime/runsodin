@@ -213,6 +213,30 @@ def test_unrelated_deferred_constraint_is_not_job_conflict(review_db, monkeypatc
     assert_links(engine, deleted=False)
 
 
+def test_deferred_account_binding_failure_rolls_back_job_delete(review_db, monkeypatch):
+    from datetime import datetime, timezone
+    from core import account_lifetime_schema
+    from core.account_lifetime_creation import _account_creation_scope, _create_account
+
+    engine = review_db.get_bind()
+    with client_for(engine, monkeypatch) as client:
+        with engine.begin() as db:
+            db.exec_driver_sql("BEGIN")
+            account_lifetime_schema.install(db)
+            with _account_creation_scope(db) as scope:
+                _create_account(db, scope, {"id": 81, "username": "binding-test", "password_hash": "fixture"},
+                                born_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+            # Leave the binding in place when retiring its account in the delete transaction.
+            db.exec_driver_sql("""CREATE TRIGGER incomplete_retirement AFTER DELETE ON jobs
+                BEGIN UPDATE account_lifetimes SET current_user_id=NULL, state='retired',
+                    retired_at='2026-01-02T00:00:00.000Z' WHERE current_user_id=81; END""")
+        with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+            client.delete("/api/jobs/81")
+    assert_links(engine, deleted=False)
+    with engine.connect() as db:
+        assert db.exec_driver_sql("SELECT state FROM account_lifetimes WHERE birth_user_id=81").scalar_one() == "active"
+
+
 def test_retention_job_count_changed(review_db, monkeypatch):
     engine = review_db.get_bind()
     with client_for(engine, monkeypatch, legacy=True) as client:
