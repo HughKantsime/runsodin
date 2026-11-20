@@ -14,7 +14,7 @@ export function AlertQuietHoursZone({ zone, confirmed, confirm, pending, saving 
   return <div className="text-sm space-y-1">
     <p>{pending ? `Save settings to use ${zone} for alert quiet hours.` : `Alert quiet hours use ${confirmed ? zone : 'UTC'}.`}</p>
     {!confirmed && <>
-      <p>These hours are still read as UTC. Confirm your time zone to apply them in local time.</p>
+      <p>These hours are still read as UTC. Confirm your time zone to apply them in local time. After confirmation, these hours will use {zone}.</p>
       <Button type="button" variant="tertiary" size="sm" disabled={saving} onClick={confirm}>
         Confirm time zone ({zone})
       </Button>

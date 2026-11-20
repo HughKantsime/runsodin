@@ -33,4 +33,4 @@ loggers:
     propagate: false
 root:
   handlers: [service]
-  level: INFO
+  level: WARNING

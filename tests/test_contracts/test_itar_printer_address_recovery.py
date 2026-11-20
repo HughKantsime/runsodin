@@ -267,12 +267,14 @@ def test_the_guide_and_the_refusal_say_exactly_which_connections_the_command_mak
             assert wrong not in flat, wrong
 
 
-def test_running_check_keeps_both_the_container_and_the_custom_port(monkeypatch):
-    monkeypatch.setenv("PORT", "18080")
-    for listening, expected in [(8000, [8000]), (18080, [8000, 18080])]:
+@pytest.mark.parametrize("variable", ["PORT", "ODIN_PORT"])
+def test_running_check_uses_only_the_container_port(monkeypatch, variable):
+    monkeypatch.setenv(variable, "18080")
+    for listening in (8000, 18080):
         seen = []
         def answers(port):
             seen.append(port)
             return port == listening
         monkeypatch.setattr(tool, "_health_port_answers", answers)
-        assert tool.api_is_running() and seen == expected
+        assert tool.api_is_running() is (listening == 8000)
+        assert seen == [8000]

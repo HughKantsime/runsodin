@@ -44,3 +44,16 @@ def test_spoolman_refusal_reason_carries_no_credentials(monkeypatch):
     assert "hunter2" not in reason and "k3y" not in reason and "spoolman.example.test:7912" in reason
     errors = services.push_consumption_to_spoolman([{"spoolman_spool_id": 42, "grams": 1, "job_id": 1}])
     assert errors and "hunter2" not in errors[0] and "k3y" not in errors[0]
+
+
+@pytest.mark.parametrize("line", [
+    "https://api.telegram.org/bot123:synthetic-value/sendMessage",
+    "https://discord.com/api/webhooks/123/synthetic-value",
+    "https://hooks.slack.com/services/T/B/synthetic-value",
+    "https://example.test/api/webhook/synthetic-value",
+    "https://example.test/hooks/synthetic-value",
+    "HTTP Request: POST https://example.test/custom/synthetic-value",
+])
+def test_webhook_path_credentials_are_removed_from_log_output(line):
+    from core.log_redaction import redact_text
+    assert "synthetic-value" not in redact_text(line)

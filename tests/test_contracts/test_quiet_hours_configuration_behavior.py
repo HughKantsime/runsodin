@@ -78,7 +78,8 @@ def test_real_configuration_controls_all_external_channels_and_retains_alerts(qu
         assert len(calls['global'])==int(not scoped)
 
 
-def test_saved_zone_confirmation_and_org_fallback(quiet_config, review_db, monkeypatch):
+@pytest.mark.parametrize("legacy_saved_utc", [False, True])
+def test_saved_zone_confirmation_and_org_fallback(quiet_config, review_db, monkeypatch, legacy_saved_utc):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from core.db import get_db
@@ -87,6 +88,9 @@ def test_saved_zone_confirmation_and_org_fallback(quiet_config, review_db, monke
     from modules.system import routes_config
     from modules.organizations import routes
 
+    # Older settings screens saved the displayed school default with unrelated changes.
+    if legacy_saved_utc:
+        review_db.execute(text("UPDATE groups SET settings_json=:s WHERE id=1"), {'s': json.dumps({'timezone': 'UTC'})})
     set_farm_timezone(review_db, 'America/New_York')
     review_db.commit()
     admin = {'id': 3, 'role': 'admin', 'group_id': None}
@@ -117,6 +121,9 @@ def test_saved_zone_confirmation_and_org_fallback(quiet_config, review_db, monke
         assert not quiet_config.should_suppress_notification(1)
         assert client.put(org, json={'quiet_hours_timezone_confirmed': True}).is_success
         assert quiet_config.should_suppress_notification(1)
+        from modules.organizations.education_program_policy import options
+        assert options(review_db, 1)['timezone'] == 'UTC'
+        assert client.get(org).json()['quiet_hours_local_timezone'] == 'America/New_York'
         assert client.put(org, json={'timezone': 'Europe/Berlin'}).is_success
         assert client.get(org).json()['quiet_hours_timezone_confirmed'] is True
         assert not quiet_config.should_suppress_notification(1)
@@ -157,3 +164,42 @@ def test_digest_handles_missing_and_repeated_wall_clock_endpoints(window, first,
     start, end = (datetime.fromisoformat(value).replace(tzinfo=timezone.utc) for value in (first, last))
     assert qh.compute_last_window_end(config, end) == end
     assert qh.compute_window_bounds(config, end) == (start, end)
+
+
+@pytest.mark.parametrize("stored", ["1", "YES", '"true"'])
+def test_daemon_and_get_agree_on_stored_confirmation(quiet_config, review_db, stored):
+    import asyncio
+    from core.farm_time import set_farm_timezone
+    from modules.system.routes_config import get_quiet_hours_config
+    set_farm_timezone(review_db, "America/New_York")
+    review_db.execute(text("INSERT INTO system_config(key,value) VALUES('quiet_hours_timezone_confirmed', :v)"),
+                      {"v": stored})
+    review_db.commit()
+    shown = asyncio.run(get_quiet_hours_config(db=review_db, current_user={}))
+    assert shown["timezone_confirmed"] is True
+    assert quiet_config._get_config()["timezone"] == shown["local_timezone"] == "America/New_York"
+
+
+def test_one_org_zone_failure_does_not_skip_the_next_org(quiet_config, review_db, monkeypatch):
+    for org_id, zone in [(1, "broken"), (2, "Europe/Berlin")]:
+        review_db.execute(text("UPDATE groups SET settings_json=:s WHERE id=:id"),
+                          {"s": json.dumps(dict(quiet_hours_enabled=True, quiet_hours_timezone_confirmed=True,
+                                                timezone=zone)), "id": org_id})
+    review_db.commit()
+    resolve = quiet_config.alert_local_timezone
+    def lookup(conn, settings):
+        if settings["timezone"] == "broken":
+            raise ValueError("unreadable zone")
+        return resolve(conn, settings)
+    monkeypatch.setattr(quiet_config, "alert_local_timezone", lookup)
+    assert [target["id"] for target in quiet_config.iter_orgs_with_digest_enabled()] == [2, None]
+
+
+def test_digest_query_logs_the_original_exception(quiet_config, monkeypatch, caplog):
+    def fail(*args):
+        raise ValueError("unreadable digest bounds")
+    monkeypatch.setattr(quiet_config, "_alert_window_filter", fail)
+    now = datetime.now(timezone.utc)
+    assert quiet_config.get_suppressed_alerts_for_window(now, now) == []
+    assert any(record.exc_info and str(record.exc_info[1]) == "unreadable digest bounds"
+               for record in caplog.records)

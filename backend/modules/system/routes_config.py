@@ -12,7 +12,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
-from core.system_config_values import config_text, write_config_text
+from core.system_config_values import config_bool, config_text, write_config_text
 from starlette.responses import Response
 
 from core.db import get_db
@@ -285,7 +285,7 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: di
         if row:
             val = config_text(row[0])
             if short_key in ("enabled", "digest", "timezone_confirmed"):
-                config[short_key] = val.lower() in ("true", "1", "yes")
+                config[short_key] = config_bool(val)
             else:
                 config[short_key] = val
         else:

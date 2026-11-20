@@ -67,7 +67,7 @@ def farm_zone_source(db: Session) -> tuple[str, str]:
 def alert_local_timezone(db, org_settings=None) -> str:
     """Use the organization's saved zone when present, otherwise the farm's effective zone."""
     name = (org_settings or {}).get("timezone")
-    if name:
+    if name and (name != "UTC" or org_settings.get("quiet_hours_timezone_confirmed") is True):
         try:
             return check_timezone(name)
         except ValueError:

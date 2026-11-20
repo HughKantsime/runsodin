@@ -36,9 +36,10 @@ def test_own_services_metadata_and_link_local_stay_refused(url):
         validate_spoolman_base(url)
 
 
-def test_configured_odin_port_on_loopback_is_refused(monkeypatch):
+@pytest.mark.parametrize("variable", ["ODIN_GO2RTC_PORT", "ODIN_WEBRTC_PORT"])
+def test_configured_odin_port_on_loopback_is_refused(monkeypatch, variable):
     from core.spoolman_client import SpoolmanURLRefused, validate_spoolman_base
-    monkeypatch.setenv("PORT", "18080")
+    monkeypatch.setenv(variable, "18080")
     with pytest.raises(SpoolmanURLRefused):
         validate_spoolman_base("http://127.0.0.1:18080")
 
@@ -97,3 +98,10 @@ def test_saving_localhost_spoolman_is_200(monkeypatch):
     response = TestClient(application).put("/api/config", json={"spoolman_url": "http://localhost:7912"})
     assert response.status_code == 200, response.text
     assert saved["url"] == "http://localhost:7912"
+
+
+@pytest.mark.parametrize("variable", ["PORT", "ODIN_PORT"])
+def test_unused_api_port_does_not_block_a_local_spoolman(monkeypatch, variable):
+    from core.spoolman_client import validate_spoolman_base
+    monkeypatch.setenv(variable, "18080")
+    assert validate_spoolman_base("http://127.0.0.1:18080") == "http://127.0.0.1:18080"

@@ -322,6 +322,11 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
         body["webhook_url"] = None  # allow clearing
 
     current = json.loads(org.settings_json) if org.settings_json else {}
+    if (current.get("timezone") == "UTC" and current.get("quiet_hours_timezone_confirmed") is not True
+            and body.get("quiet_hours_timezone_confirmed") is True):
+        # Older clients saved the displayed school default. Missing still means UTC
+        # for school reports. An explicit zone in this request takes precedence below.
+        current.pop("timezone")
     for key in ALLOWED_SETTINGS_KEYS:
         if key in body:
             current[key] = body[key]

@@ -15,12 +15,7 @@ from pydantic_settings import BaseSettings, NoDecode
 
 
 def warn_unused_settings(logger):
-    if "PORT" in os.environ:
-        logger.warning(
-            "PORT does not change ODIN's listening port. ODIN uses it to check for a running server "
-            "and protect its own services."
-        )
-    for name in ("HOST", "MCP_ENABLED", "SCHEDULER_HORIZON_DAYS"):
+    for name in ("HOST", "PORT", "MCP_ENABLED", "SCHEDULER_HORIZON_DAYS"):
         if name in os.environ:
             logger.warning("%s is set but has no effect in ODIN; remove it.", name)
 

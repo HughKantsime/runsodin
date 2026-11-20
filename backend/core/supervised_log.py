@@ -17,7 +17,7 @@ class DatedFormatter(logging.Formatter):
     def format(self, record):
         prefix = self.formatTime(record) + " "
         if self.include_name:
-            prefix += f"[{record.name}] "
+            prefix += f"[{record.name}] {record.levelname} "
         return prefix + self.inner.format(record).replace("\n", "\n" + prefix)
 
 
@@ -27,11 +27,15 @@ def _uncaught(exc_type, exc, tb):
 
 def _thread_error(args):
     if args.exc_type is not SystemExit:
-        logging.getLogger("uncaught").error("Exception in thread %s", args.thread.name,
+        logging.getLogger("uncaught").error("Exception in thread %s", getattr(args.thread, "name", "<unknown>"),
                                           exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
 
 
 def _service_handler():
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
     handler = logging.StreamHandler()
     handler.setFormatter(DatedFormatter(include_name=True))
     sys.excepthook = _uncaught

@@ -63,13 +63,13 @@ def test_program_setup_dates_prints_tracebacks_and_access_lines(conf, name, comm
 import logging, sys
 from uvicorn import Config
 Config("main:app", log_config=sys.argv[1])
-logging.getLogger("odin.api").info("starting")
+logging.getLogger("odin.api").warning("starting")
 logging.getLogger("uvicorn.error").info("ready")
 logging.getLogger("uvicorn.access").info('%s - "%s %s HTTP/%s" %d', "client", "GET", "/", "1.1", 200)
 """, args[args.index("--log-config") + 1])
         assert result.returncode == 0, result.stderr
         service, error = result.stderr.splitlines()
-        assert re.fullmatch(DATE + r"\[odin.api\] starting", service)
+        assert re.fullmatch(DATE + r"\[odin.api\] WARNING starting", service)
         assert re.fullmatch(DATE + r"INFO: +ready", error)
         assert re.fullmatch(DATE + r'INFO: +client - "GET / HTTP/1.1" 200 OK', result.stdout.strip())
         return
@@ -83,7 +83,7 @@ logging.getLogger("uvicorn.access").info('%s - "%s %s HTTP/%s" %d', "client", "G
     result = run_python(DAEMON_PROBE, module, SUPERVISOR_PROCESS_NAME=name)
     assert result.returncode == 1 and result.stdout == "", result.stderr
     lines = result.stderr.splitlines()
-    assert any(re.fullmatch(DATE + r"\[probe\] starting", line) for line in lines), result.stderr
+    assert any(re.fullmatch(DATE + r"\[probe\] INFO starting", line) for line in lines), result.stderr
     assert all(re.match(DATE + r"\[[^]]+\] ", line) for line in lines), result.stderr
     for message in ("Traceback (most recent call last):", "RuntimeError: thread stopped", "RuntimeError: daemon stopped"):
         assert any(line.endswith(message) for line in lines), result.stderr
@@ -97,7 +97,7 @@ print("ordinary stdout")
 raise RuntimeError("daemon stopped")
 """)
     assert result.returncode == 1 and result.stdout == "ordinary stdout\n"
-    assert re.search(DATE + r"\[[^]]+\] RuntimeError: daemon stopped$", result.stderr, re.M)
+    assert re.search(DATE + r"\[[^]]+\] ERROR RuntimeError: daemon stopped$", result.stderr, re.M)
 
 
 @pytest.mark.parametrize("present", [True, False])
@@ -105,18 +105,17 @@ def test_settings_load_and_warn_only_for_present_unused_names(monkeypatch, caplo
     import logging
     from core.config import Settings, warn_unused_settings
 
-    names = ("HOST", "MCP_ENABLED", "SCHEDULER_HORIZON_DAYS")
-    for name in (*names, "PORT"):
+    names = ("HOST", "PORT", "MCP_ENABLED", "SCHEDULER_HORIZON_DAYS")
+    for name in names:
         if present:
             monkeypatch.setenv(name, "invalid")
         else:
             monkeypatch.delenv(name, raising=False)
     settings = Settings(_env_file=None)
-    assert not any(hasattr(settings, name.lower()) for name in (*names, "PORT"))
+    assert not any(hasattr(settings, name.lower()) for name in names)
     warn_unused_settings(logging.getLogger("odin.api"))
-    assert [msg for msg in caplog.messages if not msg.startswith("PORT ")] == (
+    assert caplog.messages == (
         [f"{name} is set but has no effect in ODIN; remove it." for name in names] if present else [])
-    assert sum(msg.startswith("PORT ") for msg in caplog.messages) == int(present)
 
 
 def test_supervised_listeners_use_the_container_port_and_warn_once():
@@ -147,4 +146,52 @@ if int(sys.argv[2]) > 1:
                             MCP_ENABLED="", SCHEDULER_HORIZON_DAYS="")
         assert result.returncode == 0, result.stderr
         for variable in ("HOST", "PORT", "MCP_ENABLED", "SCHEDULER_HORIZON_DAYS"):
-            assert result.stderr.count(f"[odin.api] {variable} ") == 1, conf
+            assert result.stderr.count(f"[odin.api] WARNING {variable} is set but has no effect in ODIN; remove it.") == 1, conf
+
+
+@pytest.mark.parametrize("level, viewer_level", [("DEBUG", "DEBUG"), ("INFO", "INFO"),
+                         ("WARNING", "WARNING"), ("ERROR", "ERROR"), ("CRITICAL", "ERROR")])
+def test_service_line_can_be_filtered_by_level(level, viewer_level):
+    from modules.system.routes_admin import _line_level
+    result = run_python("""
+import logging, sys
+from core.supervised_log import setup_logging
+setup_logging()
+probe = logging.getLogger("probe")
+probe.setLevel(logging.DEBUG)
+probe.log(getattr(logging, sys.argv[1]), "sampling")
+""", level)
+    assert result.returncode == 0
+    assert _line_level(result.stderr) == viewer_level
+
+
+@pytest.mark.parametrize("api", [False, True])
+def test_supervised_http_client_levels_and_root(api):
+    result = run_python("""
+import logging, sys
+if sys.argv[1] == "True":
+    from uvicorn import Config
+    Config("main:app", log_config="core/uvicorn_logging.yaml")
+else:
+    from core.supervised_log import setup_logging
+    setup_logging()
+for name in ("httpx", "httpcore"):
+    assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING, name
+assert logging.getLogger().level == (logging.WARNING if sys.argv[1] == "True" else logging.INFO)
+logging.getLogger("httpx").warning("https://hooks.slack.com/services/T/B/synthetic-value")
+""", str(api))
+    assert result.returncode == 0, result.stderr
+    assert "synthetic-value" not in result.stderr and "[REDACTED]" in result.stderr
+
+
+def test_thread_exception_without_thread_keeps_the_exception():
+    result = run_python("""
+import threading
+from core.supervised_log import setup_logging
+setup_logging()
+try:
+    raise ValueError("worker stopped")
+except ValueError as exc:
+    threading.excepthook(threading.ExceptHookArgs((type(exc), exc, exc.__traceback__, None)))
+""")
+    assert result.returncode == 0 and "ValueError: worker stopped" in result.stderr

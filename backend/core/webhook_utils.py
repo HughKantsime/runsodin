@@ -518,7 +518,7 @@ def is_blocked_device_address(value) -> bool:
 
 
 # ODIN's own service ports: go2rtc RTSP (8554), WebRTC (8555), go2rtc API (1984) and the
-# ODIN API (8000, or PORT). A device URL naming one of ODIN's own addresses on one of
+# ODIN API (8000). A device URL naming one of ODIN's own addresses on one of
 # these ports would make ODIN re-serve its own streams (e.g. another org's camera via
 # rtsp://<container IP>:8554/printer_<id>), so it is refused.
 _OWN_SERVICE_PORTS = (8554, 8555, 1984, CONTAINER_API_PORT)
@@ -526,7 +526,7 @@ _OWN_SERVICE_PORTS = (8554, 8555, 1984, CONTAINER_API_PORT)
 
 def own_service_ports() -> frozenset:
     ports = set(_OWN_SERVICE_PORTS)
-    for name in ("PORT", "ODIN_PORT", "ODIN_GO2RTC_PORT", "ODIN_WEBRTC_PORT"):
+    for name in ("ODIN_GO2RTC_PORT", "ODIN_WEBRTC_PORT"):
         try:
             value = int(os.environ.get(name, "") or 0)
         except ValueError:

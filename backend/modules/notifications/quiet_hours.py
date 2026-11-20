@@ -30,7 +30,7 @@ _config_ts: float = 0
 CONFIG_TTL = 30  # seconds
 
 
-from core.system_config_values import config_text  # noqa: E402 -- re-exported for callers
+from core.system_config_values import config_bool, config_text  # noqa: E402 -- re-exported for callers
 
 
 def _get_config() -> Dict[str, Any]:
@@ -46,7 +46,7 @@ def _get_config() -> Dict[str, Any]:
             result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'"))
             rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
-            zone = alert_local_timezone(conn) if rows.get("quiet_hours_timezone_confirmed") == "true" else "UTC"
+            zone = alert_local_timezone(conn) if config_bool(rows.get("quiet_hours_timezone_confirmed")) else "UTC"
         _config_cache = {
             "timezone": zone,
             "enabled": rows.get("quiet_hours_enabled", "false").lower() in ("true", "1"),
@@ -385,7 +385,7 @@ def get_suppressed_alerts_for_window(
                     result.append(dict(row))
             return result
     except Exception:
-        log.error("Digest alert scope resolution failed")
+        log.exception("Digest alert scope resolution failed")
         return []
 
 
@@ -428,31 +428,32 @@ def iter_orgs_with_digest_enabled() -> list:
                 "WHERE settings_json IS NOT NULL"
             )).mappings().fetchall()
             for r in rows:
-                raw = r.get("settings_json")
-                if not raw:
-                    continue
                 try:
+                    raw = r["settings_json"]
                     s = json.loads(raw) if isinstance(raw, str) else raw
+                    if not isinstance(s, dict):
+                        continue
+                    if not s.get("quiet_hours_enabled"):
+                        continue
+                    if s.get("quiet_hours_digest_enabled") is False:
+                        continue  # explicit opt-out
+                    config = {
+                        **_org_window(conn, s),
+                        "digest_enabled": s.get("quiet_hours_digest_enabled", True),
+                        # PUT /orgs/{id}/settings stores the URL Fernet-encrypted;
+                        # legacy rows may hold plaintext.
+                        "webhook_url": _decrypt_org_webhook_url(s.get("webhook_url")),
+                        "webhook_type": s.get("webhook_type", "generic"),
+                    }
+                    out.append({
+                        "id": r["id"],
+                        "name": r["name"],
+                        "settings_json": s,
+                        "config": config,
+                    })
                 except Exception:
-                    continue
-                if not s.get("quiet_hours_enabled"):
-                    continue
-                if s.get("quiet_hours_digest_enabled") is False:
-                    continue  # explicit opt-out
-                config = {
-                    **_org_window(conn, s),
-                    "digest_enabled": s.get("quiet_hours_digest_enabled", True),
-                    # PUT /orgs/{id}/settings stores the URL Fernet-encrypted;
-                    # legacy rows may hold plaintext.
-                    "webhook_url": _decrypt_org_webhook_url(s.get("webhook_url")),
-                    "webhook_type": s.get("webhook_type", "generic"),
-                }
-                out.append({
-                    "id": r["id"],
-                    "name": r["name"],
-                    "settings_json": s,
-                    "config": config,
-                })
+                    conn.rollback()
+                    log.exception("Could not load quiet hours for organization %s", r["id"])
     except Exception as e:
         log.error(f"iter_orgs_with_digest_enabled failed: {e}")
 

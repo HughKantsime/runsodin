@@ -68,12 +68,23 @@ _SECRET_KEYS = re.compile(r"(?i)^(" + "|".join(re.escape(name) for name in _SECR
 
 _ANYCUBIC_UPLOAD = re.compile(r"(?i)(\bgcode_upload\?)[^\s\"\'<>#]+")
 
+# Outbound webhook credentials can occupy the whole path. A generic receiver
+# can choose any path, so also strip paths from HTTPX's outbound POST lines.
+_TELEGRAM_BOT_PATH = re.compile(r"(?i)(https?://api\.telegram\.org/bot)[^/\s?#\"'<>]+")
+_WEBHOOK_PATH = re.compile(
+    r"(?i)(https?://hooks\.slack(?:-gov)?\.com/services/|"
+    r"https?://[^\s/?#\"'<>]+/(?:[^\s/?#\"'<>]+/)*?(?:web)?hooks?/|"
+    r"HTTP Request: POST https?://[^\s/?#\"'<>]+/)[^\s?#\"'<>]+"
+)
+
 
 def redact_text(value: str) -> str:
     if not isinstance(value, str):
         value = _safe_str(value)
     value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", REDACTED, value, flags=re.DOTALL)
     value = _ANYCUBIC_UPLOAD.sub(lambda m: m.group(1) + REDACTED, value)
+    value = _TELEGRAM_BOT_PATH.sub(lambda m: m.group(1) + REDACTED, value)
+    value = _WEBHOOK_PATH.sub(lambda m: m.group(1) + REDACTED, value)
     value = _RELAY_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _UNIFI_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _RTSP_OPAQUE_PATH.sub(lambda m: m.group(1) + REDACTED, value)
