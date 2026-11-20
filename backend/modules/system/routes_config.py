@@ -1,6 +1,7 @@
 """System config routes — Spoolman URL and blackout hours (/config, /spoolman/test), IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
 import asyncio
+from modules.jobs.services import deleting_job_links, JobLinkConflict
 from sqlalchemy import inspect
 import json
 import time
@@ -13,7 +14,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from core.system_config_values import config_text, write_config_text
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from core.db import get_db
 from core.dependencies import log_audit
@@ -222,7 +223,13 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 statement = text("DELETE FROM jobs " + predicate + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fixed predicate and dialect fragment, bound values
                 from core.controlled_deletion import controlled_job_ids, redact_job_history_ids
                 restricted = controlled_job_ids(db, candidates)
-                removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                with deleting_job_links(db, candidates):
+                    removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                if len(removed_ids) != len(candidates):
+                    db.rollback()
+                    return JSONResponse(status_code=409, content={
+                        "code": "retention_jobs_changed", "message": "Jobs changed during cleanup. Run it again.",
+                    })
                 redact_job_history_ids(db, {jid: restricted[jid] for jid in removed_ids if jid in restricted})
                 # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
@@ -261,6 +268,8 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
 
         db.commit()
         return {"status": "partial" if refused else "ok", "deleted": deleted, "refused": refused}
+    except JobLinkConflict as exc:
+        return exc.response(db, "retention")
     except Exception:
         try:
             db.rollback()

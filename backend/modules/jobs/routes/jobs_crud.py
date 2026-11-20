@@ -29,6 +29,7 @@ from core.responses import build_next_actions, next_action
 from core.quota import charge_job_quota
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
+from modules.jobs.services import deleting_job_links, JobLinkConflict, rollback_on_integrity_error
 from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.schemas import (
@@ -279,17 +280,23 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
     production_orders = prepare_job_write(db, authorized_ids)
     db.expire_all()
 
-
     if action == "delete":
         from modules.jobs.bulk_deletion import delete_bulk_jobs
-        count = delete_bulk_jobs(db, current_user, job_ids, check=assert_generic_job_mutation_allowed)
+        try:
+            count = delete_bulk_jobs(db, current_user, job_ids, check=assert_generic_job_mutation_allowed)
+        except JobLinkConflict as exc:
+            return exc.response(db, "bulk")
     else:
         from modules.jobs.bulk_actions import apply_bulk_action
         count = apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority)
 
     log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
     reconcile_job_write(db, production_orders)
-    db.commit()
+    if action == "delete":
+        with rollback_on_integrity_error(db):
+            db.commit()
+    else:
+        db.commit()
     result = {"status": "ok", "affected": count}
     if action == 'reschedule':
         result['skipped'] = len(job_ids) - count
@@ -614,8 +621,8 @@ def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.de
     assert_generic_job_mutation_allowed(db, job_id)
     from modules.orders.services import assert_job_history_deletable
     production_orders = prepare_job_write(db, [job_id])
-    assert_job_history_deletable(db, job_id)
     from core.traceability_delivery import prepare_job_deletion
+    assert_job_history_deletable(db, job_id)
     prepare_job_deletion(db, job_id)
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
@@ -623,16 +630,22 @@ def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.de
 
     from core.quota import clear_print_consumption_markers, sqlalchemy_runner as _sar
     clear_print_consumption_markers(_sar(db), job_id)
-    from core.controlled_parts import policies
     from core.controlled_deletion import redact_deleted_job_history
     audit_name = job.item_name
     log_audit(db, "job.deleted", "job", job.id, {"item_name": audit_name})
     redact_deleted_job_history(db, job.id)
     from core.print_attempts import clear_job_attempts, sqlalchemy_runner
     clear_job_attempts(sqlalchemy_runner(db), job.id)
-    db.delete(job)
+    db.flush()
+    try:
+        with deleting_job_links(db, [job_id]):
+            db.delete(job)
+            db.flush()
+    except JobLinkConflict as exc:
+        return exc.response(db, "single")
     reconcile_job_write(db, production_orders)
-    db.commit()
+    with rollback_on_integrity_error(db):
+        db.commit()
 
 
 @router.post("/{job_id}/repeat", tags=["Jobs"])

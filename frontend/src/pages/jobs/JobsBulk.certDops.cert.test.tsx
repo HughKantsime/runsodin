@@ -60,6 +60,17 @@ describe('F04-4.3-05 / F19-19.2-01 multi-select bulk job toolbar', () => {
     await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument())
   })
 
+  it('shows the server message when linked records block deletion', async () => {
+    const message = 'This job has linked records and cannot be deleted.'
+    transport.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'job_has_linked_records', message }), { status: 409 }))
+    show(); await selectBoth()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete All' }))
+    await waitFor(() => expect(h.error).toHaveBeenCalledWith(`Bulk delete failed: ${message}`))
+    expect(h.success).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['cancel', 'Cancel', 'Bulk cancel completed'],
     ['set_priority', 'Priority 1', 'Bulk set_priority completed'],
