@@ -19,6 +19,8 @@ AUDIT_MIGRATION = runpy.run_path(str(BACKEND / 'core/schema/audit_integrity_vers
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/printers/bambu_slots.py": (
+        "dialect-neutral", "Slot deletion reads audit_logs.details (JSON) with ->> on both providers and compares the extracted values as text."),
     "backend/modules/vision/printer_native.py": ("dialect-neutral", "Printer detection correlation uses bound qmark reads through the shared monitor DBAPI adapter."),
     "backend/modules/jobs/list_query.py": ("dialect-neutral", "Job-number regular expression contains question marks; SQL uses SQLAlchemy bound parameters and portable LIKE with explicit escape."),
     "backend/modules/printers/monitors/restart_question.py": ("sqlite-provider-only", "Monitor DBAPI adapter translates BEGIN IMMEDIATE for PostgreSQL; startup reads use the shared transaction view."),
@@ -434,6 +436,8 @@ def scan_source(relative: str, source: str) -> list[dict[str, object]]:
                 # where it is represented as a dictionary key rather than a call
                 # keyword argument.
                 hits.add((node.lineno, "check_same_thread"))
+            if upper.lstrip().startswith("DELETE FROM ") and "->>" in node.value:
+                hits.add((node.lineno, "delete-json-extraction"))
             if "PRAGMA" in upper:
                 hits.add((node.lineno, "PRAGMA"))
             if "LAST_INSERT_ROWID" in upper:
@@ -526,6 +530,7 @@ def generate() -> dict[str, object]:
     return {
         "schema_version": 1,
         "patterns": [
+            "delete-json-extraction",
             "sqlite3",
             "PRAGMA",
             "check_same_thread",

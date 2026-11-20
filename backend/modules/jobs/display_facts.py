@@ -88,7 +88,7 @@ def enrich_job_facts(db, jobs, actor):
             continue
         bindings = facts.get(printer_id, {}).get('slot_extruders', {})
         for source, tray in enumerate(mapping):
-            if type(tray) is int and 0 <= tray < 16:
+            if type(tray) is int and 0 <= tray < 24:
                 extruder = bindings.get(str(tray + 1))
                 job.ams_slot_nozzles.append({'source_index': source, 'slot_number': tray + 1,
                     'nozzle': ('right' if extruder == 0 else 'left') if type(extruder) is int and extruder in (0, 1) else None})

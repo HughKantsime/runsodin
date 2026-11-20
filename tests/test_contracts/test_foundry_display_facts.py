@@ -214,3 +214,16 @@ def test_job_list_reuses_printers_without_losing_pin_issues(board, offline_store
     finally:
         event.remove(engine, 'before_cursor_execute', count)
     assert len(seen) == 1, seen
+
+
+def test_ht_job_displays_its_physical_slot_and_reported_nozzle(board, offline_store):
+    monitor, client, issue = board
+    offline_store.execute(text("UPDATE jobs SET ams_mapping='[-1,16]' WHERE id=701"))
+    offline_store.commit()
+    report(monitor, ams={'tray_now': '128', 'ams': [
+        {'id': '128', 'info': '10002104', 'tray': [{'id': '0', 'tray_type': 'PC'}]},
+    ]})
+    headers = issue(['read:printers', 'read:jobs'])
+    assert get_printer(client, headers)['feeding_slot'] == 17
+    assert client.get('/jobs/701', headers=headers).json()['ams_slot_nozzles'] == [
+        {'source_index': 1, 'slot_number': 17, 'nozzle': 'left'}]

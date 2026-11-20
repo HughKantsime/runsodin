@@ -32,11 +32,13 @@ from modules.printers.connection_reasons import (
     AUTH, NOT_THIS_TYPE, UNKNOWN, failed, reason_for_exception, reason_for_http_status,
 )
 from modules.printers.moonraker_controls import enrich_controls
+from modules.printers.services import bambu_tray_counts, apply_printer_updates
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
 )
+from modules.printers.support_levels import enrich_response_opt_ins
 from modules.printers.ledger_display import enrich_printers, ensure_local_filaments
 from modules.printers.route_utils import (
     TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url, camera_url_has_credentials,
@@ -75,6 +77,7 @@ def list_printers(
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
     enrich_controls(db, printers)
+    enrich_response_opt_ins(db, printers)
     return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, printers, current_user), current_user)), current_user))
 
 
@@ -163,6 +166,7 @@ def create_printer(
             sync_go2rtc_config(db)
         except Exception as e:
             log.debug(f"Failed to sync go2rtc config: {e}")
+    enrich_response_opt_ins(db, [db_printer])
     return db_printer
 
 
@@ -234,6 +238,7 @@ def get_printer(
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
     enrich_controls(db, [printer])
+    enrich_response_opt_ins(db, [printer])
     return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, [printer], current_user), current_user)), current_user))[0]
 
 
@@ -311,11 +316,10 @@ def update_printer(
 
     from modules.organizations.services import printer_edit_warnings
     training_warnings = printer_edit_warnings(db, printer, update_data)
-    for field, value in update_data.items():
-        setattr(printer, field, value)
+    changed_fields = apply_printer_updates(printer, update_data)
 
     log_audit(db, "printer.updated", "printer", printer_id,
-              {"fields": list(update_data.keys())})
+              {"fields": changed_fields, "fields_mean": "changed"})
     db.commit()
     db.refresh(printer)
 
@@ -328,6 +332,7 @@ def update_printer(
             log.debug(f"Failed to sync go2rtc config: {e}")
 
     enrich_controls(db, [printer])
+    enrich_response_opt_ins(db, [printer])
     return printer
 
 
@@ -492,7 +497,6 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
             from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
             from modules.printers.telemetry.bambu.session import read_status_once
-            from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
 
             endpoint = resolve_bambu_broker_config(request.api_host, printer_id="crud-test")
             config = BambuAdapterConfig(
@@ -511,7 +515,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             if not result.success:
                 return failed(result.reason or UNKNOWN, result.error or "Failed to connect.")
             view = result.view
-            ams_slots = ams_slots_from_section(result.section) if result.section else []
+            section = result.section
             try:
                 from modules.printers.printer_models import normalize_model_name
                 detected_model = normalize_model_name("bambu", view.printer_type)
@@ -520,7 +524,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": view.state,
                 "bed_temp": view.bed_temp, "nozzle_temp": view.nozzle_temp,
-                "ams_slots": len(ams_slots), "model": detected_model,
+                **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}), "model": detected_model,
             }
 
         # Legacy path
@@ -543,7 +547,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": bambu_status.state.value,
                 "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-                "ams_slots": len(bambu_status.ams_slots), "model": detected_model,
+                **bambu_status.ams_counts, "model": detected_model,
             }
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")

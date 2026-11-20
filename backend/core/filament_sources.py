@@ -34,7 +34,7 @@ def attribute_source_grams(slot_grams, *, mapping, mapped, slots):
         target = source_slot
         if mapped:
             if (not isinstance(mapping, list) or len(mapping) < source_slot
-                    or type(mapping[source_slot - 1]) is not int or not 0 <= mapping[source_slot - 1] < 16):
+                    or type(mapping[source_slot - 1]) is not int or not 0 <= mapping[source_slot - 1] < 24):
                 unattributed.append(dict(source_slot=source_slot, grams=grams, reason='missing_material_mapping'))
                 continue
             target = mapping[source_slot - 1] + 1

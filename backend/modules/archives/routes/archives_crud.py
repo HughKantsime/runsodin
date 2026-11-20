@@ -539,6 +539,9 @@ def ams_preview(
                     "spool_id": s.assigned_spool_id,
                 })
 
+        from core.ams_mapping import selectable_slots
+        available = selectable_slots(db, printer_id, printer.api_type, available)
+
     from modules.archives.ams_mapping import suggest_mapping
     suggested = suggest_mapping(required, available)
     return {"required": required, "available": available, "suggested_mapping": suggested}

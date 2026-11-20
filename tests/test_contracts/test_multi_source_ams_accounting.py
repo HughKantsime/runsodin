@@ -6,7 +6,12 @@ from tests.test_contracts.test_archive_persistence_accounting_behavior import ar
 from tests.test_contracts.test_education_review_workflow import review_db
 
 
-@pytest.mark.parametrize('shape', ['dense', 'sparse', 'reordered', 'shared', 'missing_grams', 'unmapped'])
+@pytest.fixture(autouse=True)
+def local_spool_accounting(monkeypatch):
+    monkeypatch.setattr('modules.inventory.services.push_consumption_to_spoolman', lambda deductions: [])
+
+
+@pytest.mark.parametrize('shape', ['dense', 'ams_ht', 'sparse', 'reordered', 'shared', 'missing_grams', 'unmapped'])
 def test_completion_charges_each_mapped_trays_frozen_spool(archive_case, shape):
     from modules.archives.attempt_accounting import capture_attempt_spools
     archive, engine = archive_case
@@ -27,6 +32,9 @@ def test_completion_charges_each_mapped_trays_frozen_spool(archive_case, shape):
     if shape == 'unmapped':
         mapping = [1, -1]
     with engine.begin() as conn:
+        if shape == 'ams_ht':
+            mapping = [23, 0]
+            conn.execute(text('UPDATE filament_slots SET slot_number=24 WHERE printer_id=9 AND slot_number=2'))
         conn.execute(text('UPDATE jobs SET ams_mapping=:mapping WHERE id=7099'), {'mapping': json.dumps(mapping)})
         conn.execute(text('UPDATE print_files SET filaments_json=:materials WHERE id=7099'), {'materials': json.dumps(materials)})
         conn.execute(text("UPDATE print_jobs SET status='running',spool_snapshot=NULL WHERE id=7099"))
@@ -89,6 +97,7 @@ def test_operator_completion_prefers_selected_file_ids_over_model_positions(revi
 @pytest.mark.parametrize('grams,mapping', [
     pytest.param([0], [0], id='single_zero_overrides_model'),
     pytest.param([20, 0], [1, 0], id='multi_zero_mapped'),
+    pytest.param([20, 0], [16, 0], id='ams_ht_feeds_positive_grams'),
     pytest.param([20, 0], [1, -1], id='multi_zero_unmapped'),
     pytest.param([20, 0], [1, 2], id='multi_zero_unbound'),
 ])
@@ -114,7 +123,8 @@ def test_operator_completion_skips_zero_grams_without_unattributed_audit(review_
         conn.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(101,'Synthetic','Test','PLA')"))
         conn.execute(text("INSERT INTO spools(id,filament_id,remaining_weight_g,initial_weight_g,org_id) VALUES(101,101,100,100,1),(102,101,100,100,1)"))
         conn.execute(text('UPDATE filament_slots SET assigned_spool_id=101 WHERE printer_id=9 AND slot_number=1'))
-        conn.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,assigned_spool_id) VALUES(9,2,'PLA',102)"))
+        conn.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,assigned_spool_id) VALUES(9,:slot,'PLA',102)"),
+                     {'slot': 17 if mapping[0] == 16 else 2})
     app = FastAPI()
     app.include_router(jobs_lifecycle.router)
     def request_db():

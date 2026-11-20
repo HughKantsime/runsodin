@@ -243,6 +243,13 @@ export const AMS_HT_FIRST_SLOT = 17
 /** Last slot number the backend assigns: AMS HT units 128-135 -> slots 17-24. */
 export const AMS_LAST_SLOT = 24
 
+export function spoolSlotNumbers(printer: { slot_count?: number; api_type?: string | null; filament_slots?: { slot_number: number }[] }, fallback = 0) {
+  const configured = Array.from({ length: printer.slot_count || fallback }, (_, i) => i + 1)
+  const ht = printer.api_type === 'bambu' ? (printer.filament_slots || []).map(s => s.slot_number)
+    .filter(n => n >= AMS_HT_FIRST_SLOT && n <= AMS_LAST_SLOT && !configured.includes(n)) : []
+  return [...configured, ...ht.sort((a, b) => a - b)]
+}
+
 export interface AmsSlotGroup { key: string; label: string }
 
 /** Unit group of a Bambu AMS slot, or null for a slot number outside AMS numbering. */

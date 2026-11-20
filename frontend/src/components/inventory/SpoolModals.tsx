@@ -1,4 +1,4 @@
-import { materialLabel } from '../../utils/shared'
+import { materialLabel, spoolSlotNumbers } from '../../utils/shared'
 import CataloguePicker from './CataloguePicker'
 import { useFoundry } from '../../hooks/themePreferences'
 import SlotTile from '../foundry/SlotTile'
@@ -198,7 +198,7 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
               className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             >
               <option value="">Select slot...</option>
-              {Array.from({ length: selectedPrinter.slot_count }, (_, i) => i + 1).map(n => {
+              {spoolSlotNumbers(selectedPrinter).map(n => {
                 const slot = selectedPrinter.filament_slots?.find(s => s.slot_number === n)
                 return (
                   <option key={n} value={n}>

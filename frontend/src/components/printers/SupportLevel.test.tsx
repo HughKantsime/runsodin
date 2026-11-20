@@ -106,3 +106,12 @@ it.each([['bambu', 'classic'], ['elegoo', 'classic'], ['bambu', 'foundry'], ['el
   expect(screen.getByText(api_type === 'bambu' ? 'Skipping objects is on for this printer.' : 'Job sending is on for this printer. Monitoring, pause, resume, speed and stop are not affected.')).toBeInTheDocument()
   expect(screen.getByRole('note')).not.toHaveClass('text-amber-400')
 })
+
+it('shows only the skip-objects switch on a Bambu printer reporting an HT tray', async () => {
+  mount({ ...bambu, experimental_actions_enabled: true, filament_slots: [{ slot_number: 17 }] }, true)
+  const skip = screen.getByRole('checkbox', { name: 'Allow skipping objects (Experimental)' })
+  expect(screen.getAllByRole('checkbox')).toEqual([skip])
+  expect(skip).toBeChecked()
+  fireEvent.click(skip)
+  await waitFor(() => expect(printerSupport.setExperimentalActions).toHaveBeenCalledWith(8, false))
+})

@@ -6,7 +6,7 @@ from typing import Literal
 from core.material_identity import canonical_reported_material
 
 from modules.printers.telemetry.bambu.ams_identity import (
-    AMS_HT_FIRST_SLOT, AMS_HT_UNIT_COUNT, ams_trays_by_slot, ams_slot_number,
+    AMS_HT_FIRST_SLOT, AMS_HT_UNIT_COUNT, ams_trays_by_slot, ams_slot_number, tray_exists, unit_and_tray,
 )
 
 @dataclass(frozen=True)
@@ -58,16 +58,15 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
     for unit in root['ams']:
         info = unit.get('info')
         extruder = (int(info, 16) >> 8) & 0xf if type(info) is str and re.fullmatch('[0-9a-fA-F]{1,8}', info) else None
-        bindings[ams_slot_number(unit['id'], 0)] = extruder if extruder in (0, 1) else None
+        bindings[int(unit['id'])] = extruder if extruder in (0, 1) else None
     result = []
     for slot, tray in entries:
-        if slot >= AMS_HT_FIRST_SLOT:
-            # AMS HT stays inventory-only: no acquisition fact, so dispatch can
-            # never select it (mapping is capped to slots 1-16).
-            continue
+        unit, tray_id = unit_and_tray(slot)
         value = tray.get('tray_type')
         material = canonical_reported_material(value)
-        if 'tray_type' not in tray:
+        if slot >= AMS_HT_FIRST_SLOT and tray_exists(root.get('tray_exist_bits'), slot) is False:
+            material, state = None, 'explicit_empty'
+        elif 'tray_type' not in tray:
             state = 'unknown'
         elif not isinstance(value, str) or len(value) > 32 or any(ord(c) < 32 for c in value):
             state = 'invalid'
@@ -79,6 +78,5 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
             state = 'unknown'
         else:
             state = 'invalid'
-        result.append(RawTrayFact(slot, (slot - 1) // 4, (slot - 1) % 4,
-                                  material, state, extruder=bindings.get((slot - 1) // 4 * 4 + 1)))
+        result.append(RawTrayFact(slot, unit, tray_id, material, state, extruder=bindings.get(unit)))
     return tuple(sorted(result, key=lambda fact: fact.slot_number))

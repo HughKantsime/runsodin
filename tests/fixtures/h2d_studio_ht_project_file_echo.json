@@ -1,0 +1,52 @@
+{
+  "ams_mapping": [
+    128,
+    -1,
+    -1,
+    -1
+  ],
+  "ams_mapping2": [
+    {
+      "ams_id": 128,
+      "slot_id": 0
+    },
+    {
+      "ams_id": 255,
+      "slot_id": 255
+    },
+    {
+      "ams_id": 255,
+      "slot_id": 255
+    },
+    {
+      "ams_id": 255,
+      "slot_id": 255
+    }
+  ],
+  "auto_bed_leveling": 2,
+  "bed_leveling": false,
+  "bed_type": "textured_plate",
+  "cfg": "0",
+  "command": "project_file",
+  "err_code": 0,
+  "extrude_cali_flag": 2,
+  "extrude_cali_manual_mode": 0,
+  "file": "ht-tile-30x30x1.2.stl.gcode.3mf",
+  "flow_cali": false,
+  "is_from_mqtt": true,
+  "layer_inspect": true,
+  "md5": "3CC49908949ED9DB8C7FF94970927FB9",
+  "nozzle_offset_cali": 0,
+  "param": "Metadata/plate_1.gcode",
+  "profile_id": "0",
+  "project_id": "0",
+  "reason": "SUCCESS",
+  "result": "SUCCESS",
+  "sequence_id": "20007",
+  "subtask_id": "0",
+  "subtask_name": "ht-tile-30x30x1.2.stl",
+  "task_id": "0",
+  "timelapse": true,
+  "use_ams": true,
+  "vibration_cali": false
+}

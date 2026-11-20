@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from threading import Event, RLock
 from modules.printers.telemetry.bambu.ams_acquisition_collector import RawAMSAcquisitionCollector, RawAMSSnapshot, safe_status_fields
 from modules.printers.telemetry.bambu.ams_evidence import RawTrayFact
+from modules.printers.telemetry.bambu.ams_identity import ams_slot_number
 from core.material_identity import canonical_reported_material
 
 
@@ -175,8 +176,7 @@ def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now,
     for fact in snapshot.trays:
         if (type(fact) is not RawTrayFact or type(fact.slot_number) is not int
             or type(fact.unit_id) is not int or type(fact.tray_id) is not int
-            or not 0<=fact.unit_id<=3 or not 0<=fact.tray_id<=3
-            or fact.slot_number!=fact.unit_id*4+fact.tray_id+1
+            or fact.slot_number != ams_slot_number(fact.unit_id, fact.tray_id)
             or fact.mechanically_ready is not None):return False
         if fact.material_state == 'reported':
             if (type(fact.material) is not str or canonical_reported_material(fact.material) is None

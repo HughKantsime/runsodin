@@ -59,6 +59,11 @@ const PRINTER_MODELS = {
 }
 
 
+export function defaultSlotCount(printerType: string, printerModel: string): number {
+  const model = PRINTER_MODELS[printerType]?.find(m => m.value === printerModel)
+  return model?.slots ?? (['moonraker', 'prusalink', 'elegoo'].includes(printerType) ? 1 : 4)
+}
+
 /** Text for an error that may arrive as a string or as the API's {code, detail} object.
  *  Rendering the object itself throws and blanks the page. */
 export function errorText(value: unknown): string {
@@ -97,7 +102,10 @@ export default function Setup() {
   const [serial, setSerial] = useState('')
   const [accessCode, setAccessCode] = useState('')
   const [printerApiKey, setPrinterApiKey] = useState('')
-  const [slotCount, setSlotCount] = useState(4)
+  const [reportedSlots, setReportedSlots] = useState<{ host: string, serial: string, count: number } | null>(null)
+  const [modelSlotCount, setModelSlotCount] = useState(4)
+  const slotCount = printerType === 'bambu' && reportedSlots?.host === printerIp.trim() && reportedSlots.serial === serial.trim()
+    ? reportedSlots.count : modelSlotCount
   const [testResult, setTestResult] = useState(null)
   const [testLoading, setTestLoading] = useState(false)
   const [printerAdded, setPrinterAdded] = useState(false)
@@ -136,15 +144,13 @@ export default function Setup() {
     return () => { cancelled = true }
   }, [])
 
-  // Auto-set slot count when model changes
+  // Use the selected model as the initial display name.
   useEffect(() => {
     const models = PRINTER_MODELS[printerType] || []
     const found = models.find(m => m.value === printerModel)
     if (found) {
-      setSlotCount(found.slots)
-      if (!printerName) {
-        setPrinterName(found.label)
-      }
+      setModelSlotCount(found.slots)
+      if (!printerName) setPrinterName(found.label)
     }
   }, [printerModel, printerType])
 
@@ -157,7 +163,8 @@ export default function Setup() {
     setPrinterApiKey('')
     setTestResult(null)
     setPrinterAdded(false)
-    setSlotCount(['moonraker', 'prusalink', 'elegoo'].includes(printerType) ? 1 : 4)
+    setReportedSlots(null)
+    setModelSlotCount(defaultSlotCount(printerType, ''))
   }, [printerType])
 
   // Session cookie is sent automatically (credentials: 'include').
@@ -244,6 +251,9 @@ export default function Setup() {
       if (!resp.ok) {
         setTestResult({ success: false, error: errorText(data?.detail) || `The connection test could not run (HTTP ${resp.status})` })
       } else {
+        if (printerType === 'bambu' && data?.success && data.ams_slots > 0) {
+          setReportedSlots({ host: printerIp.trim(), serial: serial.trim(), count: data.ams_slots })
+        }
         setTestResult(data && typeof data === 'object' ? data : { success: false, error: 'Connection failed' })
       }
     } catch (err: any) {
@@ -289,6 +299,7 @@ export default function Setup() {
   }
 
   const handleAddAnother = () => {
+    setReportedSlots(null)
     setPrinterName('')
     setPrinterIp('')
     setPrinterApiKey('')
@@ -819,7 +830,7 @@ export default function Setup() {
                 {testResult.success ? (
                   <div className="flex items-center gap-2">
                     <CheckCircle2 size={16} />
-                    <span>Connected! {testResult.state && `State: ${testResult.state}`} {testResult.ams_slots !== undefined && `\u2022 ${testResult.ams_slots} AMS slots`}</span>
+                    <span>Connected! {testResult.state && `State: ${testResult.state}`} {testResult.ams_slots !== undefined && `\u2022 ${testResult.ams_slots} AMS slots`}{testResult.ams_ht_slots != null && `, ${testResult.ams_ht_slots} AMS HT`}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">

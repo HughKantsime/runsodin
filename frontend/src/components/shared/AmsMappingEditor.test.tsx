@@ -58,3 +58,21 @@ test('Foundry S1 mapping labels ACE colours and refuses flagged tiles even in a 
     expect(screen.getByText(/Plan the trays now/)).toBeInTheDocument()
   } finally { cleanup(); document.documentElement.dataset.themeFamily = 'classic' }
 })
+
+test.each(['classic', 'foundry'])('%s offers only reported HT options from the preview and selects physical slot 17', family => {
+  document.documentElement.dataset.themeFamily = family
+  const onChange = vi.fn()
+  const props = { preview, mapping: [], enabled: true, valid: false, onChange, onEnabledChange: vi.fn() }
+  try {
+    const view = render(<AmsMappingEditor {...props} />)
+    expect(screen.queryByText(/AMS HT/)).not.toBeInTheDocument()
+    view.rerender(<AmsMappingEditor {...props} preview={{ ...preview, available: [{ ...preview.available[0], slot: 17 }] }} />)
+    if (family === 'classic') {
+      expect(screen.getByRole('option', { name: /AMS HT 1/ })).toHaveValue('17')
+      fireEvent.change(screen.getByLabelText('Filament 4 AMS slot'), { target: { value: '17' } })
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: /AMS HT 1/ }))
+    }
+    expect(onChange).toHaveBeenCalledWith([{ source_slot: 4, target_slot: 17 }])
+  } finally { document.documentElement.removeAttribute('data-theme-family') }
+})

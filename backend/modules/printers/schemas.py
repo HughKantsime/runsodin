@@ -7,6 +7,7 @@ from typing import Literal, Optional, List
 from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
 
 from core.base import FilamentType
+from modules.printers.services import check_bambu_create_count
 
 
 # ============== Filament Slot Schemas ==============
@@ -163,6 +164,8 @@ class PrinterCreate(PrinterBase):
     initial_slots: Optional[List[FilamentSlotCreate]] = None
     shared: bool = False
 
+    _check_bambu_count = model_validator(mode='before')(check_bambu_create_count)
+
     @model_validator(mode='after')
     def default_bambu_bed(self):
         from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name
@@ -307,8 +310,6 @@ class PrinterResponse(PrinterBase):
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''
         values['camera_url'] = url
         values['camera_source'] = None if not url else ('configured' if data.camera_url else 'auto')
-        from modules.printers.support_levels import enabled_for_printer
-        values['experimental_actions_enabled'] = bool(values.get('experimental_actions_enabled')) or enabled_for_printer(data)
         return values
 
     @field_validator('camera_enabled', mode='before')

@@ -50,6 +50,8 @@ class StatusReadResult:
     section: Optional[BambuPrintSection] = None
     error: Optional[str] = None
     reason: Optional[str] = None  # on failure: modules.printers.connection_reasons value
+    mqtt_retained: Optional[bool] = None
+    received_at: Optional[float] = None
 
 
 def read_status_once(
@@ -71,15 +73,16 @@ def read_status_once(
     if not math.isfinite(timeout) or timeout <= 0 or timeout > threading.TIMEOUT_MAX:
         return StatusReadResult(success=False, error="Invalid status timeout")
     deadline = time.monotonic() + timeout
-    first_section: dict[str, Optional[BambuPrintSection]] = {"value": None}
+    report: Optional[BambuReportEvent] = None
     connected = threading.Event()
     had_report = threading.Event()
 
     def emitter(item) -> None:
+        nonlocal report
         if isinstance(item, ConnectionEvent) and item.kind == "connected":
             connected.set()
         elif isinstance(item, BambuReportEvent):
-            first_section["value"] = item.section
+            report = item
             had_report.set()
 
     adapter = BambuTelemetryAdapter(config, emitter=emitter)
@@ -100,10 +103,13 @@ def read_status_once(
         remaining = max(0.0, deadline - time.monotonic())
         had_report.wait(timeout=remaining)
         status = adapter.status()
+        received = report
         return StatusReadResult(
             success=True,
             view=BambuV2StatusView(status),
-            section=first_section["value"],
+            section=received.section if received else None,
+            received_at=received.ts if received else None,
+            mqtt_retained=received.mqtt_retained if received else None,
         )
     finally:
         adapter.stop()

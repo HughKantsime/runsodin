@@ -5,10 +5,8 @@ AMS HT units 128-135 (captured H2D: unit "128", module n3s/128). Slots 1-16
 are the four-tray units; AMS HT unit 128+n is slot 17+n, matching the bit
 position Bambu uses for it in ``tray_exist_bits`` (captured H2D: 0x100ff).
 
-Dispatch AMS mapping stays capped to slots 1-16 (Bambu tray index 0-15):
-ams_evidence rejects AMS HT units, so no mapping target can reach an HT
-slot. AMS HT is inventory/display only until HT acquisition evidence is
-accepted; mapping it would need Bambu's HT tray id (the unit id, 128+).
+Job selections use physical slot minus one. Only the print command converts
+an HT selection to its wire representation.
 """
 import re
 
@@ -31,6 +29,38 @@ def ams_slot_number(unit_id, tray_id):
     if AMS_HT_FIRST_UNIT <= unit < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT and tray == 0:
         return AMS_HT_FIRST_SLOT + unit - AMS_HT_FIRST_UNIT
     return None
+
+
+def unit_and_tray(slot):
+    """Inverse of ams_slot_number for a validated physical slot."""
+    if 1 <= slot < AMS_HT_FIRST_SLOT:
+        return divmod(slot - 1, 4)
+    if AMS_HT_FIRST_SLOT <= slot < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT:
+        return AMS_HT_FIRST_UNIT + slot - AMS_HT_FIRST_SLOT, 0
+    raise ValueError('Unknown AMS slot')
+
+
+def has_ht_target(mapping):
+    return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
+
+
+def print_mapping_fields(mapping):
+    """Both senders share this translation at the wire boundary."""
+    if any(AMS_HT_FIRST_UNIT <= index < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT for index in mapping):
+        raise ValueError('Select an AMS HT tray by its physical slot')
+    if not has_ht_target(mapping):
+        return {'ams_mapping': mapping}
+    flat = []
+    pairs = []
+    for index in mapping:
+        if type(index) is int and index == -1:
+            flat.append(-1)
+            pairs.append({'ams_id': 255, 'slot_id': 255})
+            continue
+        unit, tray = unit_and_tray(index + 1)
+        flat.append(unit if unit >= AMS_HT_FIRST_UNIT else index)
+        pairs.append({'ams_id': unit, 'slot_id': tray})
+    return {'ams_mapping': flat, 'ams_mapping2': pairs}
 
 
 def is_rfid_tag(tag_uid):
@@ -66,6 +96,15 @@ def ams_trays_by_slot(units, *, strict=False):
     if strict and (invalid or duplicate):
         raise ValueError('AMS physical identity unavailable')
     return [(number, tray) for number, tray in entries if number not in duplicate]
+
+
+def ams_connection_counts(units, slot_numbers):
+    # A listed standard AMS has four slots even when its tray list is incomplete.
+    if not isinstance(units, list):
+        units = []
+    first_slots = {ams_slot_number(unit.get('id'), 0) for unit in units if isinstance(unit, dict)}
+    return {"ams_slots": 4 * sum(n is not None and n <= 16 for n in first_slots),
+            "ams_ht_slots": sum(17 <= n <= 24 for n in slot_numbers)}
 
 
 _HEX_COLOR = re.compile(r'#?([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?')

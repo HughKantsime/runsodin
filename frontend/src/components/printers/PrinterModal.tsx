@@ -220,15 +220,14 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     return () => { cancelled = true }
   }, [printer?.id, isOpen])
 
-  // Auto-fill bed size from known printer model lookup
   useEffect(() => {
-    if (!formData.model) return
-    if (formData.bed_x_mm !== '' || formData.bed_y_mm !== '') return
-    const dims = lookupBedSize(formData.model)
-    if (dims) {
-      setFormData(prev => ({ ...prev, bed_x_mm: String(dims[0]), bed_y_mm: String(dims[1]) }))
-    }
-  }, [formData.model]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (printer) return
+    setFormData(prev => {
+      if (prev.bed_x_mm !== '' || prev.bed_y_mm !== '') return prev
+      const dims = lookupBedSize(prev.model)
+      return dims ? { ...prev, bed_x_mm: String(dims[0]), bed_y_mm: String(dims[1]) } : prev
+    })
+  }, [printer, formData.model])
 
   const handleTestConnection = async () => {
     if (!formData.api_host) {
@@ -265,8 +264,8 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         setVerifiedConnection(tested)
         setTestStatus('success')
         const detail = (result as unknown as { detail?: string }).detail
-        setTestMessage(detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots`)
-        if (result.ams_slots != null && result.ams_slots > 0) {
+        setTestMessage(detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots${result.ams_ht_slots != null ? `, ${result.ams_ht_slots} AMS HT` : ''}`)
+        if (!printer && result.ams_slots != null && result.ams_slots > 0) {
           setFormData(prev => ({ ...prev, slot_count: result.ams_slots }))
         }
         if (result.model && result.model !== 'Unknown' && !formData.model) {
@@ -303,14 +302,16 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       name: formData.name,
       nickname: formData.nickname || null,
       model: formData.model,
-      slot_count: formData.slot_count,
+      ...(!printer || formData.slot_count !== printer.slot_count ? { slot_count: formData.slot_count } : {}),
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,
       shared: formData.shared || false,
-      bed_x_mm: formData.bed_x_mm !== '' && !isNaN(parseFloat(formData.bed_x_mm)) ? parseFloat(formData.bed_x_mm) : null,
-      bed_y_mm: formData.bed_y_mm !== '' && !isNaN(parseFloat(formData.bed_y_mm)) ? parseFloat(formData.bed_y_mm) : null,
     }
 
+    for (const axis of ['bed_x_mm', 'bed_y_mm'] as const) {
+      const value = formData[axis] === '' ? null : Number(formData[axis])
+      if (value !== (printer?.[axis] ?? null)) submitData[axis] = value
+    }
     if (!unchangedMaskedCamera && !unchangedAutoCamera) submitData.camera_url = cameraUrl || null
     // Saved separately through PUT/DELETE /printers/{id}/plug by the caller.
     const plug = plugConfigToSave(formData, plugBaseline)
@@ -410,9 +411,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
             <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value={1}>1 slot (no AMS)</option>
               <option value={4}>4 slots (1x AMS)</option>
-              <option value={5}>5 slots (AMS + HT slot)</option>
+              {(isEditing || !showBambuFields) && <option value={5}>5 slots (AMS + HT slot)</option>}
               <option value={8}>8 slots (2x AMS)</option>
-              <option value={9}>9 slots (2x AMS + HT slot)</option>
+              {(isEditing || !showBambuFields) && <option value={9}>9 slots (2x AMS + HT slot)</option>}
               <option value={12}>12 slots (3x AMS)</option>
               <option value={16}>16 slots (4x AMS)</option>
             </select>
@@ -452,7 +453,14 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
         <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-2">Printer Connection (Optional)</label>
-          <select value={formData.api_type} onChange={(e) => setFormData(prev => ({ ...prev, api_type: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+          <select value={formData.api_type} onChange={(e) => {
+            const api_type = e.target.value
+            setFormData(prev => ({
+              ...prev, api_type,
+              slot_count: !isEditing && api_type === 'bambu' && ![1, 4, 8, 12, 16].includes(prev.slot_count)
+                ? 4 : prev.slot_count,
+            }))
+          }} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
             <option value="">Manual (no connection)</option>
             {PRINTER_TYPE_OPTIONS.map(option => (
               <option key={option.value} value={option.value} disabled={option.disabled}>{printerTypeLabel(option)}</option>

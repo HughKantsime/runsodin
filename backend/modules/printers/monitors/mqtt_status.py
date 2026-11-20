@@ -1,5 +1,6 @@
 """MQTT status ingestion; dependencies resolved from the owning monitor at call time."""
 
+from core.monitor_observations import fresh_report
 from core.printer_identity_audit import observe_printer_identity
 
 RETAINED_REPORT_LOG_SECONDS = 3600
@@ -82,6 +83,7 @@ def handle_status(self, status, generation, runtime):
             pending_nozzles['nozzle_1_target_temp'] = (second_extruder[1], 'nozzle_1_target_observed_at', observed)
         self._pending_right_nozzle = pending_nozzles
         incoming_ams_report = raw.get('ams')
+
         if isinstance(incoming_ams_report, dict) and ('ams' in incoming_ams_report or 'tray_exist_bits' in incoming_ams_report):
             # Held until the next heartbeat write: Bambu sends the AMS list
             # only on change/pushall, usually between heartbeats.
@@ -95,6 +97,18 @@ def handle_status(self, status, generation, runtime):
             for _, tray in ams_trays_by_slot(self._inventory_ams_units):
                 tray.pop('_removed', None)
             self._note_ams_report(report)
+            # Bind repair evidence to this exact inventory batch, including across a throttled heartbeat.
+            from modules.printers.bambu_slots import full_ams_slots
+            self._phantom_slot_evidence = None
+            received_at = getattr(status, 'mqtt_received_at', None)
+            if (getattr(status, 'mqtt_retained', None) is False and received_at is not None
+                    and fresh_report(False, runtime.time.time() - received_at)):
+                numbers = full_ams_slots(raw)
+                if numbers:
+                    self._phantom_slot_evidence = (report, numbers, received_at)
+
+        elif isinstance(incoming_ams_report, dict) and 'ams_exist_bits' in incoming_ams_report:
+            self._phantom_slot_evidence = None  # A newer mask without the matching list.
 
         # Merge correlation and lifecycle fields before any HMS processing.
         # A first RUNNING packet may also contain a print-stopping HMS code;
@@ -217,7 +231,6 @@ def handle_status(self, status, generation, runtime):
                 return True
             # HMS belongs to this packet, never an identity from cached telemetry.
             observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
-            from core.monitor_observations import fresh_report
             corroborated = (fresh_report(report_evidence['mqtt_retained'], report_evidence['report_age_seconds'])
                             and report_evidence['live_state'] in ('FAILED', 'PAUSE', 'IDLE'))
             process_key = (expected_print_job_id, observed_filename,
@@ -260,7 +273,6 @@ def handle_status(self, status, generation, runtime):
             # later tracked observation, even if its display name matches.
             self._pending_hms_terminal = None
             pending_hms = None
-        from core.monitor_observations import fresh_report
         current_report_fresh = fresh_report(getattr(status, 'mqtt_retained', False),
                                             getattr(status, 'report_age_seconds', None))
         resolved = pending_hms is None
@@ -400,6 +412,17 @@ def handle_status(self, status, generation, runtime):
                         try:
                             detected_type = bambu_model_name(raw_pt) or raw_pt
                             observe_printer_identity(conn, self.printer_id, 'machine_type', detected_type)
+                            from modules.printers.printer_models import BAMBU_BEDS
+                            if detected_type in BAMBU_BEDS:
+                                try:
+                                    conn.execute('SAVEPOINT observed_bed')
+                                    observe_bambu_bed(conn, self.printer_id, detected_type, BAMBU_BEDS[detected_type])
+                                    conn.execute('RELEASE SAVEPOINT observed_bed')
+                                except Exception:
+                                    # A failed SAVEPOINT can itself abort a PostgreSQL transaction.
+                                    conn.rollback()
+                                    observe_printer_identity(conn, self.printer_id, 'machine_type', detected_type)
+                                    runtime.log.warning("Could not update bed size for printer %s", self.printer_id)
                             conn.commit()
                         except Exception as e:
                             runtime.log.debug(f"[{self.name}] machine_type detect failed: {e}")
@@ -469,6 +492,11 @@ def handle_status(self, status, generation, runtime):
                         try:
                             from modules.printers.monitors.ams_inventory import sync_ams_inventory
                             sync_ams_inventory(conn, self.printer_id, pending_ams)
+                            evidence = getattr(self, '_phantom_slot_evidence', None)
+                            if evidence and evidence[0] is pending_ams and fresh_report(False, runtime.time.time() - evidence[2]):
+                                from core.print_attempts import qmark_runner
+                                from modules.printers.bambu_slots import repair_phantom_slots
+                                repair_phantom_slots(qmark_runner(conn), self.printer_id, evidence[1])
                             conn.commit()
                             self._last_ams_slot_sync = now
                             if self._pending_ams_report is pending_ams:
@@ -582,3 +610,34 @@ def handle_status(self, status, generation, runtime):
         if runtime.time.time() - self._last_spool_check >= 60:
             self._check_spool_levels()
             self._last_spool_check = runtime.time.time()
+
+
+def observe_bambu_bed(conn, printer_id, model, dims):
+    import json
+    old = conn.execute('SELECT bed_x_mm,bed_y_mm FROM printers WHERE id=?', (printer_id,)).fetchone()
+    if old is None:
+        return
+    if tuple(old) == (None, None):
+        before = None
+    elif model in ('H2D', 'H2D Pro') and tuple(old) == (320, 320):
+        before = [320, 320]
+    else:
+        return
+    edits = conn.execute("SELECT details FROM audit_logs WHERE entity_type='printer' AND entity_id=? "
+                         "AND action='printer.updated'", (printer_id,))
+    from core.display_json import display_object
+    for (details,) in edits:
+        audit = display_object(details)
+        if audit is None:
+            return
+        fields = audit.get('fields')
+        if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
+            return
+        if audit.get('fields_mean') == 'changed' and (
+                'bed_x_mm' in fields or 'bed_y_mm' in fields):
+            return
+    # Machine-type observation already holds the printer write lock in this transaction.
+    conn.execute('UPDATE printers SET bed_x_mm=?,bed_y_mm=? WHERE id=?', (*dims, printer_id))
+    conn.execute("INSERT INTO audit_logs(action,entity_type,entity_id,details) "
+                 "VALUES('printer.observed_config_changed','printer',?,?)",
+                 (printer_id, json.dumps({'field': 'bed_size', 'old': before, 'new': dims})))

@@ -300,5 +300,6 @@ class BambuCommandAdapter:
             }
         }
         if ams_mapping is not None:
-            payload["print"]["ams_mapping"] = ams_mapping
+            from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
+            payload["print"].update(print_mapping_fields(ams_mapping))
         return self._publish(payload)

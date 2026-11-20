@@ -358,6 +358,8 @@ export interface ConnectionTestRequest {
 }
 
 export interface ConnectionTestResult {
+  ams_slots?: number;
+  ams_ht_slots?: number;
   success: boolean;
   message: string;
   /** Failed test: the server's sentence, and why (see CONNECTION_FAILURE_REASONS). */

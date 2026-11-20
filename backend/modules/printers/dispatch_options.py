@@ -105,21 +105,17 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
 
 
 def _mapping_error(job, mapping):
-    from core.print_payload import MappingMaterialMismatch, validate_mapping
+    from core.print_payload import MappingMaterialMismatch, MappingSlotUnavailable, validate_mapping
     from fastapi import HTTPException
-    # Bambu tray index 0-15, with -1 for unused file sources. AMS HT (tray
-    # id 128+) is not a dispatch target; see ams_identity.
+    # Stored targets are physical slot minus one; -1 is an unused file source.
     if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
-            or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)):
+            or any(type(slot) is not int or not -1 <= slot < 24 for slot in mapping)):
         return "Stored AMS mapping is invalid; no command was sent"
     from core.db import engine
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        slots = {row[0]: row[1] for row in conn.execute(
-            text("SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id"),
-            {"id": job['printer_id']}).fetchall()}
+    from core.ams_mapping import mapping_materials
     from modules.printers.slot_feed_policy import flagged_mapping_reason
     with engine.connect() as conn:
+        slots = mapping_materials(conn, job['printer_id'], 'bambu')
         reason = flagged_mapping_reason(conn, job['printer_id'], mapping)
     if reason:
         return reason
@@ -130,15 +126,14 @@ def _mapping_error(job, mapping):
         if validated != mapping:
             return "Stored AMS mapping differs from file sources; no command was sent"
     except HTTPException as exc:
-        if isinstance(exc, MappingMaterialMismatch):
+        if isinstance(exc, (MappingMaterialMismatch, MappingSlotUnavailable)):
             return f'{exc.detail} (AMS slot {exc.target_slot})'
         return str(exc.detail)
     return None
 
 
 def _requires_ams_mapping(creds):
-    # The printer UI defines one slot as external spool only. HT inventory is
-    # AMS too, but retains its existing unsupported-target validation.
+    # One configured slot normally means external spool only; HT units are separate.
     return creds.get('api_type') == 'bambu' and (
         (creds.get('slot_count') or 1) > 1
         or any(17 <= slot[0] <= 24 for slot in creds.get('filament_slots', [])))
@@ -146,7 +141,7 @@ def _requires_ams_mapping(creds):
 
 def _missing_mapping(job):
     """Suggestions are diagnostics only, never transport options or job writes."""
-    from core.ams_mapping import preview_for_slots
+    from core.ams_mapping import preview_for_slots, selectable_slots
     from core.db import engine
     from sqlalchemy import text
     from modules.printers import dispatch
@@ -158,6 +153,7 @@ def _missing_mapping(job):
                 'SELECT slot_number AS slot,color,color_hex,filament_type AS material,do_not_feed '
                 'FROM filament_slots WHERE printer_id=:id ORDER BY slot_number'),
                 {'id': job['printer_id']}).mappings()]
+            available = selectable_slots(conn, job['printer_id'], 'bambu', available)
         preview = preview_for_slots(job.get('filaments_json'), available)
         choices = ', '.join(f"{item['source_slot']}→{item['target_slot']} ({item['confidence']})"
                             for item in preview['suggested_mapping'])

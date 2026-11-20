@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import Setup from './Setup'
+import Setup, { defaultSlotCount } from './Setup'
 import Settings from '../admin/Settings'
 const api=vi.hoisted(()=>({refresh:vi.fn(),completeOK:true,branding:true}))
 vi.mock('../../permissions',()=>({refreshPermissions:api.refresh,getCurrentUser:()=>({id:1})}))
@@ -157,6 +157,27 @@ test('wizard packs Bambu credentials for creation and keeps separate probe crede
  expect(JSON.parse(String(created[1]?.body))).toMatchObject({api_type:'bambu',api_host:'192.0.2.45',api_key:'FIXTURE-SERIAL|fixture-code',serial:'FIXTURE-SERIAL',access_code:'fixture-code'})
 })
 
+test.each([4, 8, 0])('wizard shows both tray counts and saves the standard count when it reports %i', async standard => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'),{target:{value:'Fixture Bambu'}})
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'),{target:{value:'192.0.2.45'}})
+ fireEvent.change(screen.getByPlaceholderText('From printer settings or Bambu app'),{target:{value:'FIXTURE-SERIAL'}})
+ fireEvent.change(screen.getByPlaceholderText('8-digit code from printer'),{target:{value:'fixture-code'}})
+ const previousFetch = vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async (url, opts) => url === '/api/printers/test-connection'
+   ? { ok: true, json: async () => ({ success: true, ams_slots: standard, ams_ht_slots: 1 }) } as Response
+   : previousFetch(url, opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ expect(await screen.findByText(/^Connected!/)).toHaveTextContent(`${standard} AMS slots, 1 AMS HT`)
+ fireEvent.change(screen.getByRole('option',{name:'H2D'}).closest('select')!,{target:{value:'H2D'}})
+ fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/printer',expect.objectContaining({body:expect.any(String)})))
+ const created=vi.mocked(fetch).mock.calls.find(([url])=>url==='/api/setup/printer')!
+ expect(JSON.parse(String(created[1]?.body)).slot_count).toBe(standard || 4)
+})
+
 test('a failed connection test shows its sentence and never renders the error object', async () => {
  mount(); await admin()
  fireEvent.click(screen.getByText('Community (free)'))
@@ -211,4 +232,29 @@ test.each([
  expect(message).toHaveTextContent(sentence)
  expect(message.textContent).not.toMatch(/192\.0\.2\.45|FIXTURE-SERIAL|fixture-code|Failed to connect/)
  expect(screen.getByRole('heading',{name:'Add a Printer'})).toBeInTheDocument()
+})
+
+test.each([
+ { models: [''], slots: 1 }, { models: ['XL'], slots: 5 }, { models: ['XL', ''], slots: 5 },
+])('wizard keeps the Prusa slot default after selecting $models and probing', async ({ models, slots }) => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.click(screen.getByRole('button',{name:'Prusa',exact:true}))
+ for (const model of models) fireEvent.change(screen.getByRole('combobox'), { target: { value: model } })
+ fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'), { target: { value: 'Fixture Prusa' } })
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '192.0.2.45' } })
+ const original = vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async (url, opts) => url === '/api/printers/test-connection'
+   ? { ok: true, json: async () => ({ success: true, ams_slots: 8 }) } as Response : original(url, opts))
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ await screen.findByText(/^Connected!/)
+ fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
+ await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/setup/printer', expect.anything()))
+ const created = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/setup/printer')!
+ expect(JSON.parse(String(created[1]?.body)).slot_count).toBe(slots)
+})
+
+test('a printer type without a setup model list defaults to four slots', () => {
+ expect(defaultSlotCount('octoprint', '')).toBe(4)
 })

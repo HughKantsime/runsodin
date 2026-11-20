@@ -116,7 +116,7 @@ def _positive(value) -> Optional[float]:
 
 def _mapping(value):
     mapping = _as_json(value)
-    if isinstance(mapping, list) and mapping and all(type(i) is int and -1 <= i < 16 for i in mapping):
+    if isinstance(mapping, list) and mapping and all(type(i) is int and -1 <= i < 24 for i in mapping):
         return mapping
     return None
 

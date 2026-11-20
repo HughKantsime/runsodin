@@ -114,6 +114,9 @@ class PrinterStatus:
     raw_data: Dict = field(default_factory=dict)
     mqtt_retained: Optional[bool] = None
     printer_type: str = ""  # e.g. "X1C", "BL-P001" — raw value from MQTT printer_type field
+    mqtt_received_at: Optional[float] = None
+    # Unit capacity survives intervening status deltas, including units with no tray details.
+    ams_counts: dict = field(default_factory=lambda: {"ams_slots": 0, "ams_ht_slots": 0})
 
 
 class BambuPrinter:
@@ -521,7 +524,8 @@ class BambuPrinter:
             }
         }
         if ams_mapping is not None:
-            payload["print"]["ams_mapping"] = ams_mapping
+            from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
+            payload["print"].update(print_mapping_fields(ams_mapping))
         return self._publish(payload)
 
     # ============== Private Methods ==============
@@ -555,18 +559,20 @@ class BambuPrinter:
     def _on_message(self, client, userdata, msg):
         """MQTT message callback - parse printer status updates."""
         try:
+            received_at = time.time()
             payload = json.loads(msg.payload.decode())
             retained = getattr(msg, "retain", None)
-            self._parse_status(payload, mqtt_retained=retained if type(retained) is bool else None)
+            self._parse_status(payload, received_at=received_at, mqtt_retained=retained if type(retained) is bool else None)
         except json.JSONDecodeError:
             pass
         except Exception as e:
             print(f"Error parsing message: {e}")
     
-    def _parse_status(self, payload: Dict, *, mqtt_retained=None):
+    def _parse_status(self, payload: Dict, *, mqtt_retained=None, received_at=None):
         """Parse printer status from MQTT payload."""
         with self._lock:
             self._status.raw_data = payload
+            self._status.mqtt_received_at = received_at
             self._status.mqtt_retained = mqtt_retained if type(mqtt_retained) is bool else None
             
             # Model identity: real printers report it only in the get_version
@@ -635,7 +641,9 @@ class BambuPrinter:
         self._status.ams_slots = []
         
         ams_units = ams_data.get("ams", [])
-        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag, reported_color
+        from modules.printers.telemetry.bambu.ams_identity import (
+            ams_connection_counts, ams_trays_by_slot, is_rfid_tag, reported_color, tray_exists,
+        )
         
         from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -665,6 +673,8 @@ class BambuPrinter:
                 sub_brand=tray.get("tray_sub_brands", "")
             )
             self._status.ams_slots.append(slot)
+        self._status.ams_counts = ams_connection_counts(
+            ams_units, (slot.slot_number for slot in self._status.ams_slots))
 
     def _send_gcode(self, gcode: str) -> bool:
         """Send G-code command to printer."""

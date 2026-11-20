@@ -374,3 +374,9 @@ def test_a_job_on_a_later_plate_is_never_judged_with_the_first_plates_grams(engi
         assert outcome.refusal is None and outcome.warning is None
     else:
         assert outcome.refusal.startswith('filament_short')
+
+
+def test_ht_mapping_checks_the_selected_spools_balance(engine):
+    seed(engine, slots=((1, 'PLA', 'white', 1), (17, 'PLA', 'black', 2)), spools={1: 900, 2: 40})
+    item, = evaluate(engine, job(BLACK_PLA, mapping=[16]))['slots']
+    assert (item['slot'], item['needed_g'], item['status']) == (17, 55.0, 'short')

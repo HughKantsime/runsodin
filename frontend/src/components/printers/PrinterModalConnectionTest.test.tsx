@@ -107,3 +107,65 @@ it('editing a saved printer asks only when its connection details changed or its
   expect(submit).toHaveBeenCalledTimes(1)
   expect(screen.getByTestId('save-anyway-prompt')).toHaveTextContent(/last connection test failed/)
 })
+
+it.each([4, 8, 0])('shows both tray counts and submits the standard count when the printer reports %i', async standard => {
+  const submit = fillNewBambu()
+  const slots = screen.getByRole('option', { name: '12 slots (3x AMS)' }).closest('select')!
+  fireEvent.change(slots, { target: { value: '12' } })
+  api.testConnection.mockResolvedValue({ success: true, state: 'idle', bed_temp: 0, ams_slots: standard, ams_ht_slots: 1 })
+  test()
+  expect(await screen.findByText(/^Connected!/)).toHaveTextContent(`${standard} AMS slots, 1 AMS HT`)
+  fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
+  expect(submit.mock.calls[0][0].slot_count).toBe(standard || 12)
+})
+
+it('renames a printer with no stored bed and submits only the bed axis the owner later edits', () => {
+  const submit = vi.fn()
+  render(<PrinterModal isOpen onClose={vi.fn()} onSubmit={submit} printer={{ ...saved, model: 'H2D', bed_x_mm: null, bed_y_mm: null }} />)
+  fireEvent.change(screen.getByPlaceholderText('e.g., p1s-01, x1c-floor2'), { target: { value: 'Renamed' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  expect(submit.mock.calls[0][0].name).toBe('Renamed')
+  expect(submit.mock.calls[0][0]).not.toHaveProperty('bed_x_mm')
+  expect(submit.mock.calls[0][0]).not.toHaveProperty('bed_y_mm')
+  fireEvent.change(screen.getByPlaceholderText('X mm'), { target: { value: '315' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  expect(submit.mock.calls[1][0].bed_x_mm).toBe(315)
+  expect(submit.mock.calls[1][0]).not.toHaveProperty('bed_y_mm')
+})
+
+it('retesting a saved printer leaves its slot count for Sync AMS to repair safely', async () => {
+  const submit = vi.fn()
+  render(<PrinterModal isOpen onClose={vi.fn()} onSubmit={submit} printer={{ ...saved, slot_count: 5 }} />)
+  api.testConnection.mockResolvedValue({ success: true, state: 'idle', bed_temp: 0, ams_slots: 4, ams_ht_slots: 1 })
+  test()
+  expect(await screen.findByText(/^Connected!/)).toHaveTextContent('4 AMS slots, 1 AMS HT')
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  expect(submit.mock.calls[0][0]).not.toHaveProperty('slot_count')
+})
+
+it('creates a Prusa MK4 with its suggested 250 by 210 mm bed', async () => {
+  const submit = vi.fn()
+  api.testConnection.mockResolvedValue({ success: true })
+  render(<PrinterModal isOpen onClose={vi.fn()} onSubmit={submit} />)
+  fireEvent.change(screen.getByRole('option', { name: /PrusaLink/ }).closest('select')!, { target: { value: 'prusalink' } })
+  fireEvent.change(screen.getByPlaceholderText('e.g., p1s-01, x1c-floor2'), { target: { value: 'workshop-mk4' } })
+  fireEvent.change(screen.getByPlaceholderText('e.g., Prusa MK4, Ender 3'), { target: { value: 'Prusa MK4' } })
+  fireEvent.change(screen.getByPlaceholderText('e.g., 192.168.1.100'), { target: { value: HOST } })
+  test()
+  await screen.findByText(/^Connected!/)
+  fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
+  expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'prusalink', model: 'Prusa MK4', bed_x_mm: 250, bed_y_mm: 210 })
+})
+
+it.each([[5, 4], [9, 4], [8, 8]])('switching to Bambu with %i slots submits %i', (initial, expected) => {
+  const submit = fillNewBambu()
+  const type = screen.getByRole('option', { name: /PrusaLink/ }).closest('select')!
+  fireEvent.change(type, { target: { value: 'prusalink' } })
+  const slots = screen.getByRole('option', { name: '8 slots (2x AMS)' }).closest('select')!
+  fireEvent.change(slots, { target: { value: String(initial) } })
+  fireEvent.change(type, { target: { value: 'bambu' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save anyway' }))
+  expect(submit.mock.calls[0][0].slot_count).toBe(expected)
+  expect(slots).toHaveValue(String(expected))
+})

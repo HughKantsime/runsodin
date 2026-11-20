@@ -37,6 +37,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
+- Bambu printers with AMS HT: a print can be mapped to an AMS HT tray and sent from ODIN, alone or together with other AMS trays, with the same checks as other trays. Verified on an H2D.
+
 - AMS humidity now also shows as a percentage (Bambu AMS units that report it), in the web app, the API and the Home Assistant integration.
 - ODIN can remind you when a print stays paused, with farm-wide timing settings and the recorded cause. Home Assistant shows pause duration, a Paused too long sensor, and a fleet count. Reminders follow Print Paused preferences and quiet hours.
 - Printer cards and details now offer “Plate cleared” with a confirmation that says whether a waiting job will be released. A waiting job exists only where the installation's queue uses the `waiting_plate_clear` state; the standard PostgreSQL job enum does not include it. Home Assistant gains a Plate cleared button and a Plate needs clearing sensor, with the same state available on its Status entity.
@@ -57,6 +59,9 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Adding a Bambu printer counts AMS HT trays separately. Syncing removes extra empty slots when they have no recorded use.
+- H2D and H2D Pro printers now use the correct 350 × 320 mm bed size and keep bed dimensions you have changed.
+- Adding a printer now saves the suggested bed size for its model.
 - Reports, analytics and the Home Assistant integration now show one number for prints that did not complete (failed plus stopped). Success rates use it, so they can be lower than before on farms that stop prints by hand. The failed and stopped counts are still there.
 - Moonraker commands now preserve spaces, special characters and multiple lines when sent to a printer.
 - Editing a spool's remaining weight now records balance decreases and an audit entry, rejects invalid balances, and warns before deducting filament already included in the edited balance.
