@@ -37,7 +37,7 @@ def fake_pg_restore(tmp_path, monkeypatch):
     # bundles for every synthetic prefix on the shared build host.
     import importlib
     from functools import lru_cache
-    for era in (29, 34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46, 53, 55, 56, 57, 60):
+    for era in (29, 34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46, 53, 55, 56, 57, 60, 62):
         package = importlib.import_module(f'core.schema.preserved{era:03d}')
         monkeypatch.setattr(package, 'ledger_ids', lru_cache(maxsize=1)(package.ledger_ids))
     tools = tmp_path / "bin"; tools.mkdir()
@@ -59,14 +59,14 @@ def validated_release_ledgers(monkeypatch):
     from functools import lru_cache
     from importlib import import_module
     for number in ('029', '034', '035', '036', '037', '038', '039', '040',
-                   '043', '044', '045', '046', '053', '055', '056', '057', '060'):
+                   '043', '044', '045', '046', '053', '055', '056', '057', '060', '062'):
         module = import_module('core.schema.preserved'+number)
         monkeypatch.setattr(module, 'ledger_ids', lru_cache(maxsize=1)(module.ledger_ids))
 
 
 @pytest.mark.parametrize("future", [False, True])
 def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_restore, monkeypatch, validated_release_ledgers, future):
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046, PRESERVED053, PRESERVED055, PRESERVED056, PRESERVED057, PRESERVED060
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046, PRESERVED053, PRESERVED055, PRESERVED056, PRESERVED057, PRESERVED060, PRESERVED062
     tmp_path, archive = fake_pg_restore
     from core.schema import bootstrap
     registry = POST027_MIGRATIONS
@@ -75,16 +75,17 @@ def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_
     monkeypatch.setattr(bootstrap, 'POST027_MIGRATIONS', registry)
     current = [migration_id for migration_id, _ in registry]
     releases = _releases()
-    # A hotfix with no migration records identical ledger content. Exercise 2.3.1
+    # A hotfix with no migration records identical ledger content. Exercise a 2.4.0 hotfix
     # without changing the immutable on-disk release history or skipping duplicates.
-    releases['2.3.1'] = list(releases['2.3.0'])
+    hotfix = 'synthetic 2.4.0 hotfix'
+    releases[hotfix] = list(releases['2.4.0'])
     assert "1.9.24" in releases and len(releases) >= 170
     checked_ledgers = set()
     for version, ids in releases.items():
         assert ids == [i for i in current if i in ids], (version, "ledger must be a registry prefix in order")
         # Releases sharing identical ledger bytes exercise the same routing input.
         # Check every recorded prefix above, then route each distinct archive once.
-        if tuple(ids) in checked_ledgers and version != '2.3.1':
+        if tuple(ids) in checked_ledgers and version != hotfix:
             continue
         checked_ledgers.add(tuple(ids))
         ledger = tmp_path / f"{version}.sql"
@@ -96,13 +97,10 @@ def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_
             routed = refused
         if ids == current:
             assert routed is None, version
-        elif future and ids == [migration_id for migration_id, _ in POST027_MIGRATIONS]:
-            # The newest recorded ledger is the real registry: a bundle is frozen from the
-            # release commit itself (ops.database_parity.freeze_preserved_bundle), so it cannot
-            # exist before that release is cut. A later build must refuse this archive by name
-            # until the bundle lands; the future=False run demands the bundle as soon as a real
-            # migration follows. (Removed by mistake in a2f2b0a2; restored for 2.4.0, whose
-            # first candidate failed validation here.)
+        elif ids == releases['2.4.0']:
+            assert routed is PRESERVED062, version
+        elif future and len(ids) > len(releases['2.4.0']) and ids == [mid for mid, _ in POST027_MIGRATIONS]:
+            # A newer release can only be frozen after its release commit exists.
             from modules.system.backup_service import BackupValidationError
             assert isinstance(routed, BackupValidationError), version
             assert 'intermediate post-027 build' in str(routed), (version, routed)
@@ -117,13 +115,13 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
     # This matrix tests routing, not repeated filesystem verification. Verify each
     # frozen bundle once; dedicated bundle tests exercise tamper detection.
     from importlib import import_module
-    for era in ('029','034','035','036','037','038','039','040','043','044','045','046','053','055','056','057','060'):
+    for era in ('029','034','035','036','037','038','039','040','043','044','045','046','053','055','056','057','060','062'):
         bundle = import_module('core.schema.preserved' + era)
         verified_ids = bundle.ledger_ids()
         monkeypatch.setattr(bundle, 'ledger_ids', lambda ids=verified_ids: ids)
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046, PRESERVED053, PRESERVED055, PRESERVED056, PRESERVED057, PRESERVED060
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046, PRESERVED053, PRESERVED055, PRESERVED056, PRESERVED057, PRESERVED060, PRESERVED062
     tmp_path, archive = fake_pg_restore
     from core.schema import bootstrap
     # The synthetic 099 registry is a future build: under it a released ledger such as 2.0.0's
@@ -139,7 +137,7 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
 def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046, PRESERVED053, PRESERVED055, PRESERVED056, PRESERVED057, PRESERVED060
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046, PRESERVED053, PRESERVED055, PRESERVED056, PRESERVED057, PRESERVED060, PRESERVED062
     bases = {"025": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER], "026": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER026],
              "027": sorted(preserved029.ledger_ids())}
     releases = _releases()
@@ -168,6 +166,8 @@ def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED055
             elif frozenset(base + prefix) == __import__('core.schema.preserved060', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED060
+            elif frozenset(base + prefix) == __import__('core.schema.preserved062', fromlist=['ledger_ids']).ledger_ids():
+                assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED062
             elif frozenset(base + prefix) == __import__('core.schema.preserved057', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED057
             elif frozenset(base + prefix) == __import__('core.schema.preserved056', fromlist=['ledger_ids']).ledger_ids():
@@ -259,7 +259,7 @@ def test_registry_is_a_plain_literal_that_matches_the_audit_identity():
 
 
 @pytest.mark.parametrize('era', ['029', '034', '035', '036', '037', '038',
-                                 '039', '040', '043', '044', '045', '046', '053', '055', '056', '057', '060'])
+                                 '039', '040', '043', '044', '045', '046', '053', '055', '056', '057', '060', '062'])
 def test_routed_bundles_can_import_their_restore_closure(era):
     from .preserved_restore_helpers import RESTORE_CLOSURE, run_frozen
     runner = ROOT / 'backend/core/schema' / ('preserved' + era) / 'runner.py'

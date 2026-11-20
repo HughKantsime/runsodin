@@ -92,6 +92,30 @@ engine.dispose()
 '''
 
 
+RELEASED062_ARCHIVE_SOURCE = '''
+import importlib,json,os,sys
+import core
+from sqlalchemy import text
+from core.database_config import create_database_engine
+from core.schema import bootstrap_database
+from core.schema.bootstrap import POST027_MIGRATIONS
+
+assert core.__file__.startswith(sys.argv[1]) and '/preserved' not in core.__file__,core.__file__
+assert [mid for mid,_ in POST027_MIGRATIONS[-2:]] == ['python:061-print-filament-evidence','python:062-ams-humidity-percent']
+engine = create_database_engine(os.environ['DATABASE_URL'],role='restore',password_file=os.environ['DATABASE_PASSWORD_FILE'])
+bootstrap_database(engine)
+with engine.begin() as c:
+    c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker',:v)"), {'v':json.dumps('source62')})
+    c.execute(text("INSERT INTO printers(id,name) VALUES(990620,'Released 062')"))
+    c.execute(text("INSERT INTO print_filament_evidence(print_job_id,print_birth_nonce,kind,claim,source,spool_id,grams) VALUES(481,:nonce,'usage',1,'backfill',51,12.75)"), {'nonce':'a'*32})
+    c.execute(text("INSERT INTO ams_telemetry(printer_id,ams_unit,humidity,humidity_percent) VALUES(990620,0,2,37.75),(990620,1,3,NULL)"))
+    for name in ('061_print_filament_evidence', '062_ams_humidity_percent'):
+        importlib.import_module('core.schema.migrations.' + name).validate(c)
+    print(json.dumps(sorted(row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations')))))
+engine.dispose()
+'''
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix='post027-owned-') as folder:
         root = Path(folder); root.chmod(0o700)
@@ -299,6 +323,47 @@ def main():
         assert not list(backups.glob('.odin-preserved060-*')) and not list(backups.glob('.odin-upgraded029-*'))
         assert not list(restore_artifacts.journal_dir(backups).glob('.odin-preserved060-*'))
         print('post027-native-released060-independent-archive-frozen-stage-validated-staged-applied-catalogue-materials-files-preserved-no-leftovers-pass',flush=True)
+
+        # Build the 2.4.0 archive independently of the bundle that must read it.
+        from core.schema import preserved062
+        released062 = os.environ['POST027_RELEASED062_SOURCE']
+        fresh('post027_released062').dispose()
+        db062 = server + '/post027_released062'
+        env062 = {**os.environ, 'DATABASE_URL': db062, 'PYTHONPATH': released062, 'PYTHONDONTWRITEBYTECODE': '1'}
+        made062 = subprocess.run([sys.executable, '-c', RELEASED062_ARCHIVE_SOURCE, released062],
+                                 cwd=root, env=env062, capture_output=True, text=True, timeout=600)
+        assert made062.returncode == 0, made062.stderr[-4000:]
+        ledger062 = set(json.loads(made062.stdout.strip().splitlines()[-1]))
+        assert ledger062 == preserved062.ledger_ids()
+        archive062 = root / 'released062.dump'
+        b._run_pg_tool(['pg_dump', '--format=custom', '--schema', 'public', '--no-owner', '--no-privileges',
+                        '--no-comments', '--file', str(archive062), '--dbname', db062], maintenance, str(credential), root)
+        sha062 = b._sha256(archive062)
+        routing = patch.object(stage, 'identify_contract', identify_future) if ledger062 >= set(post_ids) else nullcontext()
+        with routing:
+            assert stage.identify_contract(archive062, target, str(credential), root) is stage.PRESERVED062
+            before = marker()
+            metadata = b.validate_postgres_restore(archive062, target, maintenance, **args)
+            assert metadata['sha256'] == sha062 and metadata['source_schema_version'] == 62
+            assert metadata['prepared_schema_version'] == current_era and marker() == before
+            staged = b.stage_postgres_restore(archive062, target, maintenance, **args)
+            assert staged['candidate_sha256'] == sha062
+            release_sessions(engine)
+            result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=sha062, **args)
+            assert result['status'] == 'restored' and marker() == 'source62'
+        with engine.connect() as c:
+            assert set(c.execute(text('SELECT migration_id FROM odin_schema_migrations')).scalars()) == ledger062 | set(post_ids)
+            assert c.execute(text('SELECT print_birth_nonce,kind,claim,source,spool_id,grams FROM print_filament_evidence WHERE print_job_id=481')).one() == ('a'*32,'usage',1,'backfill',51,12.75)
+            assert c.execute(text('SELECT ams_unit,humidity,humidity_percent FROM ams_telemetry WHERE printer_id=990620 ORDER BY ams_unit')).all() == [(0,2,37.75),(1,3,None)]
+            for name in ('061_print_filament_evidence','062_ams_humidity_percent'):
+                importlib.import_module('core.schema.migrations.'+name).validate(c)
+            validate_executables(c)
+        again062 = bootstrap_database(engine)
+        assert again062['applied'] == [] and bootstrap_database(engine)['schema_fingerprint'] == again062['schema_fingerprint']
+        assert b._sha256(archive062) == sha062 and leftover() == 0
+        assert not list(backups.glob('.odin-preserved062-*')) and not list(backups.glob('.odin-upgraded029-*'))
+        assert not list(restore_artifacts.journal_dir(backups).glob('.odin-preserved062-*'))
+        print('post027-native-released062-independent-archive-frozen-stage-validated-staged-applied-filament-evidence-and-humidity-preserved-no-leftovers-pass', flush=True)
 
         # Release 2.2.0 writes an independent archive, then exercises the frozen 057 stage.
         # Before a later migration ships, simulate a future registry only for identification;
@@ -687,7 +752,7 @@ def main():
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_released060', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_released060', 'post027_released062', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 
