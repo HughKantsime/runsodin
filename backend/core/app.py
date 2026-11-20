@@ -421,6 +421,10 @@ def create_app() -> FastAPI:
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
         _check_schema_drift(engine, Base)
+        from core.dispatch_target_lock import data_folder_lock_warning
+        warning = data_folder_lock_warning(engine)
+        if warning:
+            log.warning('%s', warning)
         from core.job_timeline import start, shutdown
         start("api", engine.url)
 

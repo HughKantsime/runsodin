@@ -29,6 +29,8 @@ All notable changes to O.D.I.N. are documented here.
 - The built-in HTTP camera relay now reaches ODIN on port 8000 even when `PORT` is set. ODIN also warns when an unused host, scheduler horizon, or MCP setting is present.
 - Python service logs now include dates on monitor messages, error tracebacks and API access lines.
 - Alert quiet hours can follow the farm or organization time zone through daylight-saving changes. Existing hours stay in UTC until an administrator confirms local time.
+- ODIN can send prints when the Mac shares its data folder into Docker’s VM over virtiofs and the printer lock check passes.
+- When other users can write to the ODIN data folder, blocked commands and the System server check now show the folder mode and how to fix it.
 
 ## [2.4.0] - 2026-11-18
 

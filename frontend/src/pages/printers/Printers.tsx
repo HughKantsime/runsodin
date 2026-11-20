@@ -1,3 +1,4 @@
+import { dataFolderLockMessage } from '../../api/client'
 import CheckTarget from '../../components/ui/CheckTarget'
 import PageState from '../../components/ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
@@ -69,8 +70,9 @@ export default function Printers() {
       } else {
         setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: 'Power command not confirmed. Check plug state before retrying.' } }))
       }
-    } catch {
-      if (stillCurrent()) setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: 'Power command not confirmed. Check plug state before retrying.' } }))
+    } catch (error) {
+      const text = dataFolderLockMessage(error) ?? 'Power command not confirmed. Check plug state before retrying.'
+      if (stillCurrent()) setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text } }))
     } finally {
       plugBusy.current.delete(key)
       plugVersions.current[printerId] = (plugVersions.current[printerId] || 0) + 1

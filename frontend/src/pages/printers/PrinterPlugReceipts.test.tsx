@@ -126,3 +126,11 @@ it('does not overwrite the command receipt with a status read begun during the c
  expect(screen.getByText('State unknown')).toBeInTheDocument()
  expect(screen.queryByRole('button', { name: 'Power off plug' })).not.toBeInTheDocument()
 })
+it('shows the data folder refusal and preserves the measured plug state', async () => {
+ const message = 'The ODIN data folder is writable by other users (mode 777). Set it to 755 (chmod go-w on the folder), then try again. No command was sent.'
+ state.on.mockRejectedValue(Object.assign(new Error(message), { storageReason: 'folder_permissions' }))
+ page({ plug_type: 'tasmota' })
+ fireEvent.click(await screen.findByRole('button', { name: 'Power on plug' }))
+ expect(await screen.findByRole('status')).toHaveTextContent(message)
+ expect(screen.getByRole('button', { name: 'Power on plug' })).toBeInTheDocument()
+})

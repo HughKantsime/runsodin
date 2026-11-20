@@ -44,6 +44,10 @@ def server_checks(db):
     from modules.organizations.services import upload_storage_probe
     UPLOAD_ROOT,storage=upload_storage_probe()
     checks = [check('version', 'pass', 'Application version read.', version=_read_version())]
+    from core.dispatch_target_lock import data_folder_lock_warning
+    warning = data_folder_lock_warning(db.get_bind())
+    if warning:
+        checks.append(check('data_folder_lock', 'warn', warning))
     try:
         db.execute(text('SELECT 1')).scalar()
         checks.append(check('database', 'pass', 'Database query succeeded.'))

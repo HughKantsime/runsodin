@@ -1,3 +1,4 @@
+import { dataFolderLockMessage } from '../../api/client'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { education } from '../../api'
@@ -23,7 +24,7 @@ export default function EducationQueues({ kind, orgId, readOnly = false, audienc
     education.reorderQueue(group.printer_id, { revision: group.revision, job_ids: ids }),
     onSuccess: async () => { setError(''); await refresh() },
     onError: async (failure: Error & { status?: number }) => {
-      setError(failure.status === 409 ? 'Queue changed. Reloaded the latest order; try again.' : failure.message)
+      setError(dataFolderLockMessage(failure) ?? (failure.status === 409 ? 'Queue changed. Reloaded the latest order; try again.' : failure.message))
       await refresh()
     } })
   const move = (group: EducationPrinterQueue, from: number, to: number) => {

@@ -13,11 +13,17 @@ import time
 from urllib.parse import urlsplit
 from sqlalchemy import text
 from core.dispatch_identity import build_identity, ownership_refusal, _host
-from core.dispatch_target_lock import acquire_target_lock
+from core.dispatch_target_lock import acquire_target_lock, warn_storage_once
 from core.dispatch_target_guard import unresolved_target
 from core.power_target_operations import PowerFacts, _stage_operation, _stage_transition
 
 _uncertain_handles = []
+
+
+class PowerStorageRefusal(Exception):
+    def __init__(self, target):
+        super().__init__(target.message)
+        self.reason = target.reason
 
 
 def _key():
@@ -177,6 +183,12 @@ def run(module, printer_id, purpose, *, physical_id=None, expected=None, timer=N
             return None
         target = acquire_target_lock(module.engine, facts.target_key)
         if target.status != 'acquired':
+            if target.message:
+                if authority is not None:
+                    raise PowerStorageRefusal(target)
+                warn_storage_once(module.log, target)
+            elif target.status == 'conflict' and authority is None:
+                module.log.info('Another sender is using this printer. No power command was sent.')
             return None
         handle = target.handle
         if not handle.held():
@@ -253,6 +265,8 @@ def run(module, printer_id, purpose, *, physical_id=None, expected=None, timer=N
         state, revision = 'release_pending', 2
         release_ready = True
         result = observed
+    except PowerStorageRefusal:
+        raise
     except Exception:
         # Never log raw configuration, credentials, DB exception parameters or IPC.
         module.log.warning('Power fence command was refused or remains unresolved')

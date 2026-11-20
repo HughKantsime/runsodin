@@ -1,5 +1,6 @@
 """Short committed dispatch-fence transactions; no age-based recovery or I/O."""
 from dataclasses import dataclass,field
+import logging
 import re
 import uuid
 from sqlalchemy import insert,update,delete,select,text
@@ -235,7 +236,7 @@ def retire_observed_terminal(engine,*,printer_id,print_job_id=None):
     observation that arrived before the accepted outcome was committed.
     """
     from sqlalchemy import text
-    from core.dispatch_target_lock import acquire_target_lock
+    from core.dispatch_target_lock import acquire_target_lock, warn_storage_once
     if (type(printer_id) is not int or printer_id<=0
             or print_job_id is not None and (type(print_job_id) is not int or print_job_id<=0)):
         return 'uncertain'
@@ -246,7 +247,12 @@ def retire_observed_terminal(engine,*,printer_id,print_job_id=None):
         if hint is None or hint['observed_print_job_id'] is None:return 'retained'
         if print_job_id is not None and hint['observed_print_job_id']!=print_job_id:return 'retained'
         acquired=acquire_target_lock(engine,hint['physical_key'])
-        if acquired.status!='acquired':return 'retained'
+        if acquired.status!='acquired':
+            if acquired.message:
+                warn_storage_once(logging.getLogger(__name__), acquired)
+            elif acquired.status == 'conflict':
+                logging.getLogger(__name__).info('Another sender is using this printer. ODIN kept the print reservation.')
+            return 'retained'
         handle=acquired.handle
         from core.auth import SECRET_KEY
         from core.dispatch_identity import build_identity

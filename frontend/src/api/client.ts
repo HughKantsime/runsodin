@@ -25,9 +25,16 @@ export function errorDetailMessage(detail: unknown): string | null {
   return String(detail)
 }
 
-function apiError(err: { detail?: unknown; message?: unknown }, fallback: string, status?: number): Error {
-  const error = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback) as Error & { detail?: unknown; status?: number }
+export function dataFolderLockMessage(error: unknown): string | null {
+  return error instanceof Error && 'storageReason' in error && typeof error.storageReason === 'string' ? error.message : null
+}
+
+function apiError(err: { detail?: unknown; message?: unknown; error?: { storage_reason?: string } }, fallback: string, status?: number): Error {
+  const error = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback) as Error & { detail?: unknown; status?: number; storageReason?: string }
   if (err.detail !== undefined) error.detail = err.detail
+  const detail = err.detail
+  const reason = detail && typeof detail === 'object' && 'storage_reason' in detail ? detail.storage_reason : err.error?.storage_reason
+  if (typeof reason === 'string') error.storageReason = reason
   error.status = status
   return error
 }

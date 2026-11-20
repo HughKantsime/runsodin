@@ -53,3 +53,11 @@ it('archive groups and filters work and already archived rows are read only', as
   fireEvent.change(screen.getByLabelText('Archived work'), { target: { value: 'archived' } })
   await waitFor(() => expect(education.queue).toHaveBeenCalledWith('archive', { orgId: 7, archived: 'archived' }))
 })
+it('shows the data folder refusal after refreshing the queue', async () => {
+  const message = 'The ODIN data folder is writable by other users (mode 775). Set it to 755 (chmod go-w on the folder), then try again. No command was sent.'
+  vi.mocked(education.reorderQueue).mockRejectedValue(Object.assign(new Error(message), { status: 409, storageReason: 'folder_permissions' }))
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Move Job 2 up' }))
+  await waitFor(() => expect(education.queue).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('alert')).toHaveTextContent(message)
+})
