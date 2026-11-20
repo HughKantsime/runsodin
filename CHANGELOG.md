@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Each authenticator code can be used once. If you just used a code to set up your authenticator or sign in, wait for the next code.
+
 - You can change your password on the Account page. Your current device stays signed in and your other devices are signed out.
 
 - Open Account to manage two-factor authentication, recovery codes, personal API tokens and signed-in devices. You can use a recovery code at sign-in. Administrators can end sessions from Settings > Access > Sessions.

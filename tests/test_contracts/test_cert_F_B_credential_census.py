@@ -31,7 +31,7 @@ WRITE_TABLES = {
     "active_sessions", "oidc_config", "password_reset_tokens", "mfa_recovery_codes", "mfa_code_attempts",
 }
 # users is guarded only for credential/recovery columns, not role/is_active/group_id/theme.
-USERS_CREDENTIAL_COLS = {"email", "username", "password_hash", "mfa_enabled", "mfa_secret",
+USERS_CREDENTIAL_COLS = {"email", "username", "password_hash", "mfa_enabled", "mfa_secret", "mfa_last_totp_step",
                          "oidc_issuer", "oidc_subject", "oidc_provider"}
 # system_config keys that are credential/transport/setup material.
 CONFIG_KEYS = {"smtp_config", "base_url", "setup_complete", "setup_admin_claimed", "oidc"}

@@ -88,7 +88,7 @@ def upsert_personas_connection(
                     role = excluded.role,
                     is_active = TRUE,
                     mfa_enabled = FALSE,
-                    mfa_secret = NULL
+                    mfa_secret = NULL, mfa_last_totp_step = NULL
                 """,
                 (persona.email, persona.email, password_hash, persona.role),
             )

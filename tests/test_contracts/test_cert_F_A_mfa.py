@@ -40,10 +40,11 @@ def sessions(o, uid):
     return o.sql("SELECT COUNT(*) FROM active_sessions WHERE user_id=:u", u=uid)[0][0]
 
 
-def fresh_code(totp: pyotp.TOTP) -> str:
-    # avoid a code minted in the last second of its 30 s step
-    if 30 - (time.time() % 30) < 2:
-        time.sleep(2.2)
+def fresh_code(odin, totp: pyotp.TOTP) -> str:
+    last = odin.sql("SELECT mfa_last_totp_step FROM users WHERE id=:u", u=odin.uid)[0][0]
+    now = time.time()
+    if last is not None and int(now // totp.interval) <= last:
+        time.sleep((last + 1) * totp.interval - now)
     return totp.now()
 
 
@@ -75,7 +76,7 @@ def test_mfa_setup_returns_qr_of_provisioning_uri_and_confirm_enables(odin):
     wrong = str((int(totp.now()) + 1) % 1_000_000).zfill(6)
     bad = odin.post("/api/auth/mfa/confirm", headers=odin.user_auth, json={"code": wrong})
     assert bad.status_code == 400
-    ok = odin.post("/api/auth/mfa/confirm", headers=odin.user_auth, json={"code": fresh_code(totp)})
+    ok = odin.post("/api/auth/mfa/confirm", headers=odin.user_auth, json={"code": fresh_code(odin, totp)})
     assert ok.status_code == 200
     confirmed = ok.json()
     assert len(confirmed.pop("recovery_codes")) == 10
@@ -106,7 +107,7 @@ def test_login_for_enrolled_user_returns_challenge_without_session(odin):
 
 
 def test_challenge_requires_the_current_six_digit_code(odin):
-    code = fresh_code(odin.totp)
+    code = fresh_code(odin, odin.totp)
     assert len(code) == 6 and code.isdigit()
     for bad in (code[:5], code + "0", str((int(code) + 1) % 1_000_000).zfill(6)):
         r = odin.post("/api/auth/mfa/verify", json={"mfa_token": odin.pending, "code": bad})
@@ -119,7 +120,7 @@ def test_challenge_requires_the_current_six_digit_code(odin):
 def test_valid_code_issues_one_session_and_blacklists_pending_token_immediately(odin):
     before = sessions(odin, odin.uid)
     jti = jwt.decode(odin.pending, odin.jwt_secret, algorithms=["HS256"])["jti"]
-    code = fresh_code(odin.totp)
+    code = fresh_code(odin, odin.totp)
     r = odin.post("/api/auth/mfa/verify", json={"mfa_token": odin.pending, "code": code})
     assert r.status_code == 200, r.text
     token = assert_production_cookie(r)  # F11-11.1-01: MFA verify cookie
@@ -139,7 +140,7 @@ def test_concurrent_redemption_of_one_pending_token_yields_exactly_one_session(o
     r = odin.login("mfa_person", odin.pw)
     pending = r.json()["access_token"]
     before = sessions(odin, odin.uid)
-    code = fresh_code(odin.totp)
+    code = fresh_code(odin, odin.totp)
     barrier = threading.Barrier(4)
     results = []
 

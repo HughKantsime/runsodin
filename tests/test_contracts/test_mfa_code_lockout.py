@@ -14,7 +14,7 @@ from core.schema import bootstrap_database
 from modules.organizations import mfa_attempts
 from tests.test_contracts.test_education_classes_migration import native_engine, pg_engine
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.test_mfa_authentication_behavior import challenge
+from tests.test_contracts.test_mfa_authentication_behavior import challenge, next_code
 from tests.test_contracts.test_mfa_recovery_codes import CODES, client, headers, issue, make_app
 from tests.test_contracts.test_password_reset_behavior import new_password
 
@@ -111,7 +111,7 @@ def test_clock_rollback_ignores_future_failures_and_bounds_retry(client, review_
     assert_locked(submit(client, VERIFY, 'wrong', recovery=True), mfa_attempts.LOCKOUT_SECONDS)
     assert failure_times(review_db) == [999] * 4 + [now]
     now += mfa_attempts.LOCKOUT_SECONDS
-    assert submit(client, VERIFY, totp.now()).status_code == 200
+    assert submit(client, VERIFY, next_code(totp)).status_code == 200
 
 
 @pytest.mark.parametrize('stored', ['broken-json', '[1001,1001,1001,1001,1001]'])
@@ -119,7 +119,7 @@ def test_correct_code_clears_unusable_history(client, review_db, monkeypatch, st
     totp, _ = issue(client)
     monkeypatch.setattr(mfa_attempts, 'time', lambda: 1000)
     seed_failures(review_db, stored)
-    assert submit(client, VERIFY, totp.now()).status_code == 200
+    assert submit(client, VERIFY, next_code(totp)).status_code == 200
     assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0
 
 
@@ -139,7 +139,7 @@ def test_failed_lockout_audit_preserves_fifth_failure(client, review_db, monkeyp
     finally:
         event.remove(AuditLog, 'before_insert', refuse_insert)
     assert failure_times(review_db) == [1000] * 5
-    assert_locked(submit(client, VERIFY, totp.now()))
+    assert_locked(submit(client, VERIFY, next_code(totp)))
     assert any('audit' in r.getMessage().lower() for r in caplog.records if r.name == mfa_attempts.__name__)
     assert 'private audit failure detail' not in caplog.text
 
@@ -159,10 +159,10 @@ def test_fifth_wrong_totp_locks_account_before_evaluating_correct_code(account_a
     def unexpected(*args, **kwargs):
         pytest.fail('A locked account evaluated an MFA code')
 
-    monkeypatch.setattr(mfa_attempts, 'valid_totp', unexpected)
+    monkeypatch.setattr(mfa_attempts, 'consume_totp', unexpected)
     monkeypatch.setattr(mfa_attempts, 'consume_code', unexpected)
     for path in (VERIFY, CODES, DISABLE):
-        assert_locked(submit(client, path, totp.now(), token=token))
+        assert_locked(submit(client, path, next_code(totp), token=token))
         assert_locked(submit(client, path, codes[0], recovery=True, token=token))
     assert client.get(CODES, headers=headers()).json()['remaining'] == 10
 
@@ -192,7 +192,7 @@ def test_rolling_window_and_expiry_across_routes_and_addresses(account_app, nati
     login = client.post('/auth/login', data={'username': 'student', 'password': password})
     assert login.status_code == 200 and login.json()['mfa_required']
     assert client.get('/auth/me', headers=headers()).status_code == 200
-    accepted_totp = totp.now()
+    accepted_totp = next_code(totp)
     assert_locked(submit(client, VERIFY, accepted_totp, token=login.json()['access_token']))
     t += 899
     assert_locked(submit(client, VERIFY, codes[0], recovery=True), 1)
@@ -218,7 +218,7 @@ def test_success_after_four_resets_other_routes(account_app, use_recovery):
     wrong = wrong_totp(totp)
     for _ in range(4):
         assert_refused(submit(client, DISABLE, wrong))
-    value = codes[0] if use_recovery else totp.now()
+    value = codes[0] if use_recovery else next_code(totp)
     assert submit(client, VERIFY, value, recovery=use_recovery).status_code == 200
     for _ in range(4):
         assert_refused(submit(client, CODES, wrong))
@@ -245,7 +245,7 @@ def parallel_guesses(app, engine, monkeypatch):
         assert db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='mfa_code_lockout'")).scalar_one() == 1
         assert db.execute(text('SELECT COUNT(*) FROM token_blacklist')).scalar_one() == 0
     with TestClient(app) as caller:
-        assert_locked(submit(caller, VERIFY, totp.now()))
+        assert_locked(submit(caller, VERIFY, next_code(totp)))
 
 
 def test_sqlite_parallel_guesses(client, review_db, monkeypatch):
@@ -320,6 +320,8 @@ def test_enrollment_ignores_failures_then_clears_them(client, review_db, mandato
     confirmation = client.post(path + '/confirm', headers=who, json={'code': code})
     assert confirmation.status_code == 200
     assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0
+    assert_refused(submit(client, VERIFY, code))
+    assert len(failure_times(review_db)) == 1
 
 
 def check_upgrade_from_063(engine):
@@ -349,7 +351,7 @@ def test_address_ceiling_discloses_lock_only_for_a_current_challenge(client, mon
     monkeypatch.setattr(mfa_attempts, 'time', lambda: 1000)
     totp, _ = issue(client)
     spent = challenge()
-    assert submit(client, VERIFY, totp.now(), token=spent).status_code == 200
+    assert submit(client, VERIFY, next_code(totp), token=spent).status_code == 200
     for i in range(9):
         response = submit(client, VERIFY, wrong_totp(totp))
         assert response.status_code == (401 if i < 4 else 429)
@@ -363,7 +365,7 @@ def test_address_ceiling_discloses_lock_only_for_a_current_challenge(client, mon
 @pytest.mark.parametrize('route', [VERIFY, DISABLE, CODES])
 def test_spaced_authenticator_code_is_accepted(client, review_db, route):
     totp, _ = issue(client)
-    code = totp.now()
+    code = next_code(totp)
     response = submit(client, route, code[:3] + ' \t' + code[3:])
     assert response.status_code == 200
     assert review_db.execute(text('SELECT COUNT(*) FROM mfa_code_attempts')).scalar_one() == 0

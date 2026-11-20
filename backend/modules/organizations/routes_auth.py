@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.audit_actor import bind_verified_actor
+from core.crypto import decrypt
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
@@ -28,7 +29,7 @@ from core.auth import hash_password, create_access_token, verify_password, decod
 from core.models import SystemConfig
 from core.mfa_login import RevokedLoginCredentials, decode_login_challenge
 from modules.organizations.mfa_attempts import (
-    MFA_ADDRESS_LIMIT, clear_failures, limit_code_checks, lock_for_code_check, normalize_totp, require_code, valid_totp,
+    MFA_ADDRESS_LIMIT, clear_failures, consume_totp, limit_code_checks, lock_for_code_check, normalize_totp, require_code,
 )
 from modules.organizations.mfa_recovery import (
     MFA_ENCRYPTION_UNAVAILABLE, code_status, delete_codes, issue_codes, recovery_key,
@@ -265,7 +266,7 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     encrypted_secret = encrypt(secret)
     from core.license_lock import authorize_user
     authorize_user(db, current_user["id"], issuance=True)
-    changed = db.execute(text("UPDATE users SET mfa_secret = :secret WHERE id = :id AND mfa_enabled IS NOT TRUE"),
+    changed = db.execute(text("UPDATE users SET mfa_secret = :secret, mfa_last_totp_step = NULL WHERE id = :id AND mfa_enabled IS NOT TRUE"),
                          {"secret": encrypted_secret, "id": current_user["id"]})
     if changed.rowcount != 1:
         raise HTTPException(status_code=409, detail="MFA is already enabled. Disable it first.")
@@ -283,14 +284,14 @@ async def mfa_confirm(request: Request, body: dict, current_user: dict = Depends
     if not code:
         raise HTTPException(status_code=400, detail="TOTP code is required")
 
-    user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": current_user["id"]}).fetchone()
+    user = lock_for_code_check(db, current_user["id"])
     if not user or not user.mfa_secret:
         raise HTTPException(status_code=400, detail="Run /api/auth/mfa/setup first")
     if user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is already enabled")
 
     key = recovery_key()
-    if not valid_totp(user, normalize_totp(code)):
+    if not consume_totp(db, user.id, decrypt(user.mfa_secret), normalize_totp(code)):
         raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
 
     from core.license_lock import authorize_user
@@ -343,7 +344,7 @@ async def mfa_disable(request: Request, body: dict = None, current_user: dict = 
         raise HTTPException(status_code=400, detail="Enter one authenticator or recovery code to disable MFA.")
     require_code(db, request, user, recovery or code, recovery=bool(recovery))
     delete_codes(db, user.id)
-    db.execute(text("UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id"), {"id": current_user["id"]})
+    db.execute(text("UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_last_totp_step = NULL WHERE id = :id"), {"id": current_user["id"]})
     log_audit(db, "mfa_disabled", "user", current_user["id"], "MFA disabled")
     db.commit()
     return {"status": "ok", "message": "MFA disabled"}
@@ -362,7 +363,7 @@ async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_r
         raise HTTPException(status_code=400, detail="MFA is not enabled for this user")
     try:
         params = {"id": user_id}
-        statement = "UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id AND mfa_enabled = TRUE"
+        statement = "UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_last_totp_step = NULL WHERE id = :id AND mfa_enabled = TRUE"
         if not global_admin:
             statement += " AND group_id = :group_id"
             params["group_id"] = current_user["group_id"]

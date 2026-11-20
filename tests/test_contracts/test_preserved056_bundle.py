@@ -53,7 +53,8 @@ with engine.begin() as c:
     assert first['applied'] == ['python:057-slot-feed-policy',
         'python:058-filament-catalogue', 'python:059-six-materials',
         'python:060-print-files-stored-path-index', 'python:061-print-filament-evidence',
-        'python:062-ams-humidity-percent', 'python:063-mfa-recovery-codes', 'python:064-mfa-code-attempts']
+        'python:062-ams-humidity-percent', 'python:063-mfa-recovery-codes', 'python:064-mfa-code-attempts',
+        'python:065-mfa-last-totp-step']
     second = bootstrap_database(engine)
     assert second['applied'] == [] and second['schema_fingerprint'] == first['schema_fingerprint']
     with engine.connect() as c:

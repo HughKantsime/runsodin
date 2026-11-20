@@ -120,6 +120,7 @@ POST027_RAW_TABLES = {
     "python:061-print-filament-evidence": {
         "print_filament_evidence": frozenset("id print_job_id print_birth_nonce kind claim source usage_id spool_id grams used_at reason recorded_at".split()),
     },
+    "python:065-mfa-last-totp-step": {},  # Adds a column to existing users.
     "python:064-mfa-code-attempts": {
         "mfa_code_attempts": frozenset("user_id failure_times".split()),
     },
@@ -176,6 +177,7 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
     expected_columns["audit_logs"] = sorted(set(expected_columns["audit_logs"]) | {"prev_hash", "row_hash", "chain_seq", "hash_salt"})
     expected_columns["ams_telemetry"] = sorted([*expected_columns["ams_telemetry"], "humidity_percent"])
+    expected_columns["users"] = sorted([*expected_columns["users"], "mfa_last_totp_step"])
     assert live_columns == expected_columns
     # Registered migrations add exactly their source-owned functions and triggers.
     import importlib

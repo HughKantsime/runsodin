@@ -24,7 +24,7 @@ from core.schema.migrator import MigrationError, apply_python_migration
 from modules.organizations import routes_auth, routes_sessions, routes_users
 from tests.test_contracts.test_education_classes_migration import pg_engine
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.test_mfa_authentication_behavior import challenge
+from tests.test_contracts.test_mfa_authentication_behavior import challenge, next_code
 from tests.test_contracts.test_password_reset_behavior import new_password, seed_link
 
 CODES = '/auth/mfa/recovery-codes'
@@ -65,12 +65,12 @@ def client(review_db, monkeypatch):
     return TestClient(make_app(review_db.get_bind(), monkeypatch))
 
 
-def issue(client, who=None):
+def issue(client, who=None, *, confirm_key='confirm'):
     who = who or headers()
     setup = client.post('/auth/mfa/setup', headers=who)
     assert setup.status_code == 200
     totp = pyotp.TOTP(setup.json()['secret'])
-    response = client.post('/auth/mfa/confirm', headers={**who, 'Idempotency-Key': 'confirm'},
+    response = client.post('/auth/mfa/confirm', headers={**who, 'Idempotency-Key': confirm_key},
                            json={'code': totp.now()})
     assert response.status_code == 200
     assert response.headers['cache-control'] == 'no-store'
@@ -107,7 +107,9 @@ def test_issue_use_replace_disable_and_privacy(client, review_db, caplog):
     assert client.get('/auth/mfa/status').json() == {'mfa_enabled': True}
     assert verify(client, codes[1], token).status_code == 401  # replay cannot burn a different code
     assert verify(client, codes[0]).status_code == 401
-    exported = client.get('/users/1/export').json()['mfa_recovery_codes']
+    data = client.get('/users/1/export').json()
+    assert 'mfa_last_totp_step' not in data['user']
+    exported = data['mfa_recovery_codes']
     assert set(exported) == {'remaining', 'generated_at', 'used_at'}
     assert exported['remaining'] == 9 and exported['generated_at'] == status['generated_at']
     assert len(exported['used_at']) == 1 and exported['used_at'][0]
@@ -220,7 +222,7 @@ def test_existing_account_and_password_reset(client, review_db):
     review_db.execute(text('DELETE FROM mfa_recovery_codes'))
     review_db.commit()
     assert client.get(CODES, headers=headers()).json() == {'remaining': 0, 'generated_at': None}
-    response = client.post(CODES, headers=headers(), json={'code': totp.now()})
+    response = client.post(CODES, headers=headers(), json={'code': next_code(totp)})
     assert response.status_code == 200
     fresh = response.json()['recovery_codes']
     link = seed_link(review_db)

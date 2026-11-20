@@ -2,6 +2,7 @@
 import json
 import logging
 import math
+from datetime import datetime, timezone
 from functools import wraps
 from time import time
 
@@ -96,8 +97,21 @@ def normalize_totp(code):
     return ''.join(code.split()) if isinstance(code, str) else code
 
 
-def valid_totp(user, code):
-    return pyotp.TOTP(decrypt(user.mfa_secret)).verify(code, valid_window=1)
+def consume_totp(db, user_id, secret, code):
+    """Claim a matching step in the caller's locked user transaction."""
+    totp = pyotp.TOTP(secret)
+    current = totp.timecode(datetime.now(timezone.utc))
+    # If digits coincide in adjacent steps, consume every matching step and
+    # reject the code if any of those steps was already used.
+    matches = [step for step in range(current - 1, current + 2)
+               if pyotp.utils.strings_equal(str(code), totp.generate_otp(step))]
+    if not matches:
+        return False
+    claimed = db.execute(text(
+        "UPDATE users SET mfa_last_totp_step=:last WHERE id=:uid "
+        "AND (mfa_last_totp_step IS NULL OR mfa_last_totp_step<:first)"
+    ), {"uid": user_id, "first": matches[0], "last": matches[-1]})
+    return claimed.rowcount == 1
 
 
 def require_code(db, request, user, value, *, recovery=False, regenerate=False):
@@ -113,7 +127,7 @@ def require_code(db, request, user, value, *, recovery=False, regenerate=False):
     if regenerate:
         key = recovery_key()
         recovery = not (isinstance(totp, str) and len(totp) == 6 and totp.isascii() and totp.isdigit())
-    accepted = consume_code(db, user.id, value) if recovery else valid_totp(user, totp)
+    accepted = consume_code(db, user.id, value) if recovery else consume_totp(db, user.id, decrypt(user.mfa_secret), totp)
     if accepted:
         clear_failures(db, user.id)
         return key

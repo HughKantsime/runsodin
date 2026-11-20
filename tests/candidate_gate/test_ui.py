@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import pytest
@@ -941,7 +942,7 @@ def test_compiled_required_mfa_password_enrollment_real_account(page,admin,mobil
         page.get_by_role('button',name='Sign In',exact=True).click()
         expect(page.get_by_role('heading',name='Two-factor authentication',exact=True)).to_be_visible()
         assert page.request.get(BASE_URL+'/api/auth/me').status==401
-        page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
+        page.locator('#continuation-code').fill(pyotp.TOTP(secret).at(datetime.now(timezone.utc), counter_offset=1))
         page.get_by_role('button',name='Verify and sign in',exact=True).click()
         expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
     finally:
@@ -988,7 +989,7 @@ def test_compiled_sso_continuation_real_restricted_authorities(page,admin,mobile
         expect(page.get_by_role('heading',name='Two-factor authentication',exact=True)).to_be_visible()
         assert page.request.get(BASE_URL+'/api/auth/me').status==401
         assert current['exchanges']==2
-        page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
+        page.locator('#continuation-code').fill(pyotp.TOTP(secret).at(datetime.now(timezone.utc), counter_offset=1))
         page.get_by_role('button',name='Verify and sign in',exact=True).click()
         expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
         actual_user=page.request.get(BASE_URL+'/api/auth/me').json().get('username')==username

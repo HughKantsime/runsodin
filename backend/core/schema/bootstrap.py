@@ -210,7 +210,7 @@ RAW_REQUIRED_COLUMNS = {
     "quota_usage": frozenset("id user_id period_key grams_used hours_used jobs_used updated_at".split()),
     "report_schedules": frozenset("id name report_type frequency recipients filters is_active next_run_at last_run_at created_by created_at".split()),
     "token_blacklist": frozenset("jti expires_at".split()),
-    "users": frozenset("id username email password_hash role is_active last_login created_at oidc_subject oidc_provider oidc_issuer mfa_enabled mfa_secret quota_grams quota_hours quota_jobs quota_period theme_json group_id".split()),
+    "users": frozenset("id username email password_hash role is_active last_login created_at oidc_subject oidc_provider oidc_issuer mfa_enabled mfa_secret mfa_last_totp_step quota_grams quota_hours quota_jobs quota_period theme_json group_id".split()),
     "webhooks": frozenset("id name url webhook_type alert_types is_enabled created_at updated_at".split()),
     "ws_events": frozenset("id event_type data created_at".split()),
     "education_cost_centers": frozenset("id org_id name_key code_key display_name code description state revision created_by created_at updated_at".split()),
@@ -389,6 +389,7 @@ POST027_MIGRATIONS = (
     ("python:062-ams-humidity-percent", "core.schema.migrations.062_ams_humidity_percent"),
     ("python:063-mfa-recovery-codes", "core.schema.migrations.063_mfa_recovery_codes"),
     ("python:064-mfa-code-attempts", "core.schema.migrations.064_mfa_code_attempts"),
+    ("python:065-mfa-last-totp-step", "core.schema.migrations.065_mfa_last_totp_step"),
 )
 
 
@@ -655,7 +656,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence", "python:062-ams-humidity-percent", "python:063-mfa-recovery-codes", "python:064-mfa-code-attempts"}:
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament", "python:048-training-signoff", "python:049-education-classes", "python:050-education-program-reports", "python:051-roster-sync", "python:052-traceability", "python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence", "python:062-ams-humidity-percent", "python:063-mfa-recovery-codes", "python:064-mfa-code-attempts", "python:065-mfa-last-totp-step"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -694,7 +695,7 @@ def _bootstrap_database_contract(
             applied.append("python:052-traceability")
         # Keep the release tail ordered after Education rebuilds and identity guards.
         for migration_id, module_name in POST027_MIGRATIONS if contract is None else ():
-            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence", "python:062-ams-humidity-percent", "python:063-mfa-recovery-codes", "python:064-mfa-code-attempts"} and apply_python_migration(connection, module_name):
+            if migration_id in {"python:053-term-retention", "python:054-controlled-parts", "python:055-controlled-history", "python:056-dispatch-recovery-global", "python:057-slot-feed-policy", "python:058-filament-catalogue", "python:059-six-materials", "python:060-print-files-stored-path-index", "python:061-print-filament-evidence", "python:062-ams-humidity-percent", "python:063-mfa-recovery-codes", "python:064-mfa-code-attempts", "python:065-mfa-last-totp-step"} and apply_python_migration(connection, module_name):
                 applied.append(migration_id)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")

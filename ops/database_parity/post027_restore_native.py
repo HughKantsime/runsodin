@@ -439,6 +439,7 @@ def main():
             c.execute(text("INSERT INTO groups(id,name,is_org) VALUES(1,'Roundtrip org',TRUE) ON CONFLICT(id) DO NOTHING"))
             c.execute(text("INSERT INTO users(id,username,password_hash,role,group_id,is_active) VALUES(3,'roundtrip-user','fixture','viewer',1,TRUE) ON CONFLICT(id) DO NOTHING"))
             c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
+            c.execute(text("UPDATE users SET mfa_last_totp_step=990065 WHERE id=3"))
             c.execute(text("INSERT INTO mfa_code_attempts(user_id,failure_times) VALUES(3,'[100,101]')"))
             c.execute(text("INSERT INTO mfa_recovery_codes(id,user_id,code_salt,code_hash,created_at,used_at) "
                            "VALUES(990063,3,:salt,:digest,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"),
@@ -535,6 +536,7 @@ def main():
             verify_roster(c)
         print('post027-native-current-backup-restore-roundtrip-e1-pass', flush=True)
         with engine.connect() as c:
+            assert c.execute(text("SELECT mfa_last_totp_step FROM users WHERE id=3")).scalar_one() == 990065
             assert c.execute(text("SELECT failure_times FROM mfa_code_attempts WHERE user_id=3")).scalar_one() == '[100,101]'
             assert c.execute(text("SELECT user_id,code_salt,code_hash,used_at IS NOT NULL FROM mfa_recovery_codes "
                                   "WHERE id=990063")).one() == (3, "0" * 32, "0" * 64, True)

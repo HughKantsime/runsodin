@@ -15,7 +15,7 @@ from core.db_compat import sql
 from core.dependencies import log_audit
 from core.session_tracking import record_session
 from core.rate_limit import limiter
-from modules.organizations.mfa_attempts import MFA_ADDRESS_LIMIT, clear_failures, normalize_totp
+from modules.organizations.mfa_attempts import MFA_ADDRESS_LIMIT, clear_failures, consume_totp, normalize_totp
 from modules.organizations.mfa_recovery import issue_codes
 
 router=APIRouter()
@@ -121,7 +121,7 @@ def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
         if not isinstance(code,str) or not re.fullmatch('[0-9]{6}',code) or not row.encrypted_pending_secret:
             raise HTTPException(status_code=400,detail='Set up an authenticator and enter its six-digit code')
         secret=_secret(row.encrypted_pending_secret)
-        if not pyotp.TOTP(secret).verify(code,valid_window=1):
+        if not consume_totp(db,user.id,secret,code):
             raise HTTPException(status_code=400,detail='Invalid MFA code')
         now=time.time()
         claimed=db.execute(text("UPDATE mfa_enrollments SET state='consumed',encrypted_pending_secret=NULL,consumed_at=:now WHERE jti=:jti AND user_id=:uid AND state='pending' AND expires_at=:exp AND expires_at>:now AND encrypted_pending_secret=:secret"),

@@ -45,7 +45,7 @@ GUARDED_TABLES = frozenset({
 })
 # users: only credential / account-recovery columns (role, is_active, group_id, theme stay writable).
 USERS_CREDENTIAL_COLUMNS = frozenset({
-    "email", "username", "password_hash", "mfa_enabled", "mfa_secret",
+    "email", "username", "password_hash", "mfa_enabled", "mfa_secret", "mfa_last_totp_step",
     "oidc_issuer", "oidc_subject", "oidc_provider",
 })
 # system_config keys that carry credential, transport or setup material.

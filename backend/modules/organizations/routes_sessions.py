@@ -414,6 +414,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     u = dict(user._mapping)
     u.pop("password_hash", None)
     u.pop("mfa_secret", None)
+    u.pop("mfa_last_totp_step", None)
 
     jobs = [dict(r._mapping) for r in db.execute(text("SELECT * FROM jobs WHERE submitted_by = :uid"), {"uid": user_id}).fetchall()]
     # Queue jobs created by operators need no approval and have no submitted_by.

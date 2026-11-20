@@ -1,4 +1,6 @@
 """Real MFA enrollment/challenge/replay behavior against disposable HTTP routes."""
+from datetime import datetime, timezone
+
 import pytest
 import pyotp
 from cryptography.fernet import Fernet
@@ -32,6 +34,11 @@ def enroll(client):
     return secret
 
 
+def next_code(totp):
+    # Enrollment used the current step. The following step is within the allowed drift.
+    return totp.at(datetime.now(timezone.utc), counter_offset=1)
+
+
 def challenge(username="student"):
     from core.auth import create_access_token
     return create_access_token({'sub':username,'role':'viewer','mfa_pending':True})
@@ -51,10 +58,10 @@ def test_mfa_enrollment_wrong_code_and_ciphertext(mfa_client,review_db):
 def test_mfa_challenge_wrong_code_then_success_then_replay(mfa_client):
     secret=enroll(mfa_client);token=challenge()
     assert mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':'not-a-code'}).status_code==401
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==200,response.text
     assert response.json()['access_token']!=token
-    assert mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()}).status_code==401
+    assert mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))}).status_code==401
 
 
 @pytest.mark.parametrize('account_change',['disable','delete'])
@@ -67,7 +74,7 @@ def test_disabled_user_cannot_finish_existing_mfa_challenge(mfa_client,review_db
         review_db.commit();token=challenge('removed-user')
         review_db.execute(text('DELETE FROM users WHERE id=8'))
     review_db.commit()
-    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':pyotp.TOTP(secret).now()})
+    response=mfa_client.post('/auth/mfa/verify',json={'mfa_token':token,'code':next_code(pyotp.TOTP(secret))})
     assert response.status_code==401
     assert 'access_token' not in response.json()
     assert 'set-cookie' not in response.headers
@@ -78,7 +85,7 @@ def test_disabled_user_cannot_finish_existing_mfa_challenge(mfa_client,review_db
 def test_mfa_disable_requires_valid_code(mfa_client,review_db):
     secret=enroll(mfa_client)
     assert mfa_client.request('DELETE','/auth/mfa',json={'code':'not-a-code'}).status_code==401
-    assert mfa_client.request('DELETE','/auth/mfa',json={'code':pyotp.TOTP(secret).now()}).status_code==200
+    assert mfa_client.request('DELETE','/auth/mfa',json={'code':next_code(pyotp.TOTP(secret))}).status_code==200
     assert tuple(review_db.execute(text('SELECT mfa_enabled,mfa_secret FROM users WHERE id=1')).one())==(0,None)
 
 
@@ -87,15 +94,16 @@ def test_numeric_totp_matches_legacy_text_conversion(mfa_client, monkeypatch, le
     setup = mfa_client.post('/auth/mfa/setup')
     assert setup.status_code == 200
     totp = pyotp.TOTP(setup.json()['secret'])
-    counter = next(i for i in range(1, 10000) if totp.generate_otp(i).startswith('0') == leading_zero
-                   and int(totp.generate_otp(i)) != 0)
+    counter = 0
     monkeypatch.setattr(pyotp.TOTP, 'timecode', lambda self, when: counter)
-    code = totp.now()
     for method, path, extra, invalid in [
         ('POST', '/auth/mfa/confirm', {}, 400),
         ('POST', '/auth/mfa/verify', {'mfa_token': challenge()}, 401),
         ('DELETE', '/auth/mfa', {}, 401),
     ]:
+        counter = next(i for i in range(counter + 3, counter + 10000)
+                       if totp.generate_otp(i).startswith('0') == leading_zero and int(totp.generate_otp(i)))
+        code = totp.now()
         response = mfa_client.request(method, path, json={**extra, 'code': int(code)})
         if leading_zero:
             assert response.status_code == invalid
