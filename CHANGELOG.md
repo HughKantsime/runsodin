@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.4.1] - 2026-11-20
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Security fix: ODIN no longer writes notification tokens (Telegram, Discord, Slack and other webhooks) into its own log files, and removes the ones already written. -->
 
