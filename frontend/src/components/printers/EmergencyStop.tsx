@@ -7,6 +7,9 @@ import { fetchAPI } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { isOnline, isActivePrintState, isPausedState, isPrintingState } from '../../utils/shared'
 
+import { controlLabel, pendingMessage, unavailableMessage, unprovenHelp, type ControlReceipt } from '../../utils/printControl'
+import type { PrintControlAction } from '../../types/printer'
+
 type ActivePrinter = Printer
 
 /**
@@ -16,11 +19,12 @@ type ActivePrinter = Printer
 export default function EmergencyStop() {
   const [printers, setPrinters] = useState<ActivePrinter[]>([])
   const [showPanel, setShowPanel] = useState(false)
-  const [loading, setLoading] = useState<Record<number, string | null>>({})
+  const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [confirmStop, setConfirmStop] = useState<number | null>(null)
   const [listError, setListError] = useState(false)
   const [outcome, setOutcome] = useState('')
-  const busy = useRef(new Set<number>())
+  const busy = useRef(new Set<string>())
+  const latest = useRef(new Map<number, symbol>())
   const mounted = useRef(false)
 
   // Fetch printer status
@@ -35,7 +39,7 @@ export default function EmergencyStop() {
         if (!Array.isArray(data)) throw new Error('Invalid printer list')
         if (!active || request !== sequence) return
         setListError(false)
-        setPrinters(data.filter((p: ActivePrinter) => isOnline(p) && isActivePrintState(p.gcode_state)))
+        setPrinters(data.filter((p: ActivePrinter) => p.pending_control || (isOnline(p) && isActivePrintState(p.gcode_state))))
       } catch {
         if (!active || request !== sequence) return
         setListError(true)
@@ -49,27 +53,37 @@ export default function EmergencyStop() {
     return () => { active = false; mounted.current = false; clearInterval(interval) }
   }, [])
 
-  const sendCommand = async (printerId: number, action: string) => {
+  const sendCommand = async (printerId: number, action: PrintControlAction) => {
+    const target = printers.find(p => p.id === printerId)
+    const key = target?.api_type === 'moonraker' ? printerId + action : String(printerId)
     const principal = getCurrentUser()
-    if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit') || listError || busy.current.has(printerId)) return
-    busy.current.add(printerId)
+    if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit') || listError || busy.current.has(key)) return
+    busy.current.add(key)
+    const request = Symbol()
+    latest.current.set(printerId, request)
     const identity = JSON.stringify(principal)
     const stillCurrent = () => mounted.current && JSON.stringify(getCurrentUser()) === identity
-    setLoading(prev => ({ ...prev, [printerId]: action }))
+    setLoading(prev => ({ ...prev, [printerId + action]: true }))
 
     try {
-      const receipt = await fetchAPI<{ success?: boolean }>(`/printers/${printerId}/${action}`, { method: 'POST' })
+      const receipt = await fetchAPI<ControlReceipt>(`/printers/${printerId}/${action}`, { method: 'POST' })
       if (!stillCurrent()) return
-      setOutcome(receipt?.success === true ? 'Command accepted; printer confirmation pending' : 'Command not confirmed')
-    } catch {
-      if (!stillCurrent()) return
-      setOutcome('Command not confirmed')
+      if (latest.current.get(printerId) !== request) return
+      if (receipt?.outcome) {
+        setPrinters(rows => rows.map(p => p.id === printerId ? { ...p, pending_control: receipt.pending_control || null } : p))
+      }
+      let message = receipt?.success === true ? receipt.message || 'Command accepted; printer confirmation pending' : 'Command not confirmed'
+      if (receipt?.unproven && action === 'stop') message += ' The printer unwinds filament for up to a few minutes before it is idle.'
+      setOutcome(message)
+    } catch (error) {
+      if (!stillCurrent() || latest.current.get(printerId) !== request) return
+      setOutcome(target?.api_type === 'moonraker' && error instanceof Error ? error.message : 'Command not confirmed')
       toast.error('Printer command failed')
     } finally {
-      busy.current.delete(printerId)
+      busy.current.delete(key)
       if (stillCurrent()) {
-        setLoading(prev => ({ ...prev, [printerId]: null }))
-        setConfirmStop(null)
+        setLoading(prev => ({ ...prev, [printerId + action]: false }))
+        if (action === 'stop') setConfirmStop(null)
       }
     }
   }
@@ -116,7 +130,11 @@ export default function EmergencyStop() {
             {!listError && printers.length === 0 && <p>No active prints</p>}
             {printers.map(printer => {
               const isPaused = isPausedState(printer.gcode_state)
-              const isLoading = loading[printer.id]
+              const isLoading = (action: PrintControlAction) => loading[printer.id + action]
+              const disabled = (action: PrintControlAction) => printer.pending_control?.action === action ||
+                (printer.api_type === 'moonraker' ? isLoading(action) : busy.current.has(String(printer.id)))
+              const unavailable = (action: PrintControlAction) => printer.unavailable_controls?.includes(action)
+              const toggle = isPaused ? 'resume' : 'pause'
 
               return (
                 <div key={printer.id} className="p-3 bg-[var(--brand-card-border)] rounded-md">
@@ -125,51 +143,55 @@ export default function EmergencyStop() {
                     <span className={`text-xs px-2 py-0.5 rounded-md ${
                       isPaused ? 'bg-yellow-900/50 text-yellow-400' : 'bg-green-900/50 text-green-400'
                     }`}>
-                      {isPaused ? 'Paused' : 'Printing'}
+                      {!isOnline(printer) ? 'Offline' : isPaused ? 'Paused' : isPrintingState(printer.gcode_state) ? 'Printing' : printer.print_stage || 'Idle'}
                     </span>
                   </div>
 
+                  {pendingMessage(printer) && <p>{pendingMessage(printer)}</p>}
+                  {isOnline(printer) && isActivePrintState(printer.gcode_state) && <>
                   <div className="flex gap-2">
-                    {isPaused ? (
+                    {unavailable(toggle) ? <p>{unavailableMessage(toggle)}</p> : isPaused ? (
                       <button
                         onClick={() => sendCommand(printer.id, 'resume')}
-                        disabled={!!isLoading}
+                        disabled={disabled('resume')}
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <Play size={14} />
-                        {isLoading === 'resume' ? 'Resuming...' : 'Resume'}
+                        {isLoading('resume') ? 'Resuming...' : controlLabel(printer, 'resume')}
                       </button>
                     ) : (
                       <button
                         onClick={() => sendCommand(printer.id, 'pause')}
-                        disabled={!!isLoading}
+                        disabled={disabled('pause')}
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <Pause size={14} />
-                        {isLoading === 'pause' ? 'Pausing...' : 'Pause'}
+                        {isLoading('pause') ? 'Pausing...' : controlLabel(printer, 'pause')}
                       </button>
                     )}
 
-                    {confirmStop === printer.id ? (
+                    {unavailable('stop') ? <p>{unavailableMessage('stop')}</p> : confirmStop === printer.id ? (
                       <button
                         onClick={() => sendCommand(printer.id, 'stop')}
-                        disabled={!!isLoading}
+                        disabled={disabled('stop')}
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white hover:bg-red-500 rounded-md text-sm transition-colors disabled:opacity-50 animate-pulse"
                       >
                         <StopCircle size={14} />
-                        {isLoading === 'stop' ? 'Stopping...' : 'Confirm Stop'}
+                        {isLoading('stop') ? 'Stopping...' : 'Confirm ' + controlLabel(printer, 'stop')}
                       </button>
                     ) : (
                       <button
                         onClick={() => setConfirmStop(printer.id)}
-                        disabled={!!isLoading}
+                        disabled={disabled('stop')}
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <StopCircle size={14} />
-                        Stop
+                        {controlLabel(printer, 'stop')}
                       </button>
                     )}
                   </div>
+                  {(printer.unproven_controls?.includes(toggle) || printer.unproven_controls?.includes('stop')) && <p>{unprovenHelp}</p>}
+                  </>}
                 </div>
               )
             })}

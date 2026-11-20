@@ -402,12 +402,21 @@ class PrinterVisionThread(threading.Thread):
             'build_plate_empty': f"Plate Ready: {self.printer_name}",
         }
 
+        message = f"Confidence: {confidence:.0%}"
+        # Auto-pause if enabled
+        if (self.settings.get('auto_pause', 0)
+                and detection_type in ('spaghetti', 'first_layer', 'detachment')
+                and is_printing_state(self.gcode_state)):
+            note = self._auto_pause()
+            if note:
+                message += f". {note}."
+
         # Dispatch alert through existing pipeline
         printer_events.dispatch_alert(
             alert_type=alert_type,
             severity=severity_map[detection_type],
             title=title_map[detection_type],
-            message=f"Confidence: {confidence:.0%}",
+            message=message,
             printer_id=self.printer_id,
             metadata={
                 'detection_id': detection_id,
@@ -424,12 +433,6 @@ class PrinterVisionThread(threading.Thread):
             'detection_id': detection_id,
             'print_job_id': self.print_job_id,
         })
-
-        # Auto-pause if enabled
-        if (self.settings.get('auto_pause', 0)
-                and detection_type in ('spaghetti', 'first_layer', 'detachment')
-                and is_printing_state(self.gcode_state)):
-            self._auto_pause()
 
     def _training_capture_allowed(self) -> bool:
         """No training frame is written for controlled work.
@@ -698,10 +701,13 @@ class PrinterVisionThread(threading.Thread):
             success = False
 
             if api_type == 'moonraker':
-                from modules.printers.adapters.moonraker import MoonrakerPrinter
-                adapter = MoonrakerPrinter(api_host)
-                if self._live_printing():
-                    success = adapter.pause_print()
+                from modules.printers.services import automatic_moonraker_pause
+                outcome = automatic_moonraker_pause(engine, self.printer_id, self._live_printing)
+                if outcome == "pending":
+                    return "Automatic pause sent, not yet confirmed"
+                if outcome == "unavailable":
+                    return "ODIN could not pause this printer model"
+                success = outcome == "confirmed"
 
             elif api_type == 'bambu':
                 from core.crypto import decrypt
@@ -770,10 +776,11 @@ class PrinterVisionThread(threading.Thread):
                 log.info(f"[{self.printer_name}] Auto-paused printer")
                 # Update gcode_state in DB
                 with engine.begin() as conn3:
-                    conn3.execute(
-                        text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :pid"),
-                        {"pid": self.printer_id}
-                    )
+                    if api_type != 'moonraker':
+                        conn3.execute(
+                            text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :pid"),
+                            {"pid": self.printer_id}
+                        )
                     # Update detection status
                     conn3.execute(
                         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragment is the constant NOT_PRINTER_SOURCE_SQL; the printer id is bound

@@ -149,7 +149,9 @@ class MoonrakerMonitor(MoonrakerJobTracking):
         """Main polling loop — runs in its own thread."""
         while self._running:
             try:
+                observed_at = datetime.now(timezone.utc)
                 status = self.printer.get_status()
+                self._observe_control(status, observed_at=observed_at)
                 if status.state == MoonrakerState.DISCONNECTED:
                     # The adapter swallows transport errors and returns a default
                     # DISCONNECTED status; treat it as a lost connection so the
@@ -189,6 +191,16 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                 log.debug(f"Reconnect attempt failed: {e}")
             log.warning(f"[{self.name}] Reconnect failed, retrying...")
     
+    def _observe_control(self, status=None, *, observed_at=None):
+        from sqlalchemy.orm import Session
+        from core.db import concrete_engine
+        from modules.printers.moonraker_controls import observe_control
+        try:
+            with Session(concrete_engine(engine)) as db:
+                observe_control(db, self.printer_id, self.name, status, observed_at=observed_at)
+        except Exception:
+            log.exception("Could not check the pending command for printer %s", self.printer_id)
+
     def _persist_offline(self):
         with self._status_lock:
             if self._retired:
@@ -614,6 +626,26 @@ class _MoonrakerSession(threading.Thread):
 
 
 
+def _check_control_deadlines(stop_event):
+    from sqlalchemy.orm import Session
+    from core.db import concrete_engine
+    from modules.printers.moonraker_controls import expired_printer_ids, observe_control
+    while not stop_event.wait(POLL_INTERVAL):
+        try:
+            with Session(concrete_engine(engine)) as db:
+                ids = expired_printer_ids(db, datetime.now(timezone.utc))
+            for printer_id in ids:
+                try:
+                    with Session(concrete_engine(engine)) as db:
+                        name = db.execute(text("SELECT name FROM printers WHERE id=:id"), {"id": printer_id}).scalar()
+                        if name is not None:
+                            observe_control(db, printer_id, name)
+                except Exception:
+                    log.exception("Could not expire the command for printer %s", printer_id)
+        except Exception:
+            log.exception("Could not check printer command deadlines")
+
+
 def start_moonraker_monitors():
     """Load Moonraker printers from DB and start monitors (license fleet lock off; see __main__)."""
     from core.monitor_bootstrap import bootstrap_monitor_authority
@@ -665,5 +697,8 @@ if __name__ == "__main__":
     # License fleet lock enabled: restart retirement (B2c, core.license_monitor).
     # Otherwise the monitors start once (retried every 60 s while none exist), as before.
     from core.license_monitor import run_monitor_process
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
+    threading.Thread(target=_check_control_deadlines, args=(shutdown,), daemon=True).start()
     run_monitor_process(engine, _inventory, _MoonrakerSession, start_moonraker_monitors, 'Moonraker', shutdown, log)
     log.info("Moonraker monitor daemon stopped.")

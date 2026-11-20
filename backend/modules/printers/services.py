@@ -361,3 +361,14 @@ def latest_gate_refusals(db, job_ids, actor):
 def paused_prints(db, now):
     from modules.printers.integration_floor import paused_prints as load
     return load(db, now)
+
+def automatic_moonraker_pause(engine, printer_id, live_check):
+    from sqlalchemy.orm import Session
+    from core.db import concrete_engine
+    from modules.printers.models import Printer
+    from modules.printers.moonraker_controls import send_control
+    with Session(concrete_engine(engine)) as db:
+        printer = db.get(Printer, printer_id)
+        if printer is None or printer.api_type != "moonraker":
+            return "skipped"
+        return send_control(db, printer, "pause", {}, live_check=live_check)["outcome"]

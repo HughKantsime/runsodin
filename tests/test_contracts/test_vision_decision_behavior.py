@@ -122,9 +122,10 @@ def test_adapter_pause_updates_only_on_success(vision, review_db, monkeypatch, s
     review_db.commit()
     calls = []
     class Adapter:
-        def __init__(self, host): assert host == "synthetic.invalid"
+        def __init__(self, host, **kwargs): assert host == "synthetic.invalid"
         def pause_print(self):
             calls.append("pause")
+            self.last_control = (moonraker.ControlReply("no_reply" if succeeds else "unreachable"), succeeds)
             return succeeds
     monkeypatch.setattr(moonraker, "MoonrakerPrinter", Adapter)
     # The restart gate has separate coverage; this test isolates adapter outcomes.
@@ -134,7 +135,7 @@ def test_adapter_pause_updates_only_on_success(vision, review_db, monkeypatch, s
     thread._auto_pause()
     assert calls == ["pause"]
     review_db.expire_all()
-    assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=9")).scalar_one() == ("PAUSED" if succeeds else "RUNNING")
+    assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=9")).scalar_one() == "RUNNING"
     assert review_db.execute(text("SELECT status FROM vision_detections WHERE id=101")).scalar_one() == ("auto_paused" if succeeds else "pending")
 
 

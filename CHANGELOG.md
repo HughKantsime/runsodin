@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Moonraker controls now show when a pause, resume, or stop takes effect and alert you if the printer takes too long to confirm. Kobra S1 controls show which actions still need verification.
+
 ## [2.4.0] - 2026-11-18
 
 

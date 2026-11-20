@@ -106,3 +106,20 @@ it('does not accept an empty command response as confirmed', async () => {
  fireEvent.click(screen.getByRole('button', { name: 'Confirm Stop', exact: true }))
  expect(await screen.findByRole('status')).toHaveTextContent('Command not confirmed')
 })
+
+it('shows the Moonraker receipt and keeps Stop available while Pause awaits confirmation', async () => {
+ const printer = { id: 199, name: 'Test printer', api_type: 'moonraker', gcode_state: 'RUNNING', last_seen: new Date().toISOString(), unproven_controls: ['pause', 'stop'] }
+ state.fetch.mockImplementation(async (path: string) => path === '/printers' ? [printer] : {
+   success: true, message: 'Pause sent. Waiting for the printer to confirm.', outcome: 'pending',
+   pending_control: { action: 'pause', sent_at: printer.last_seen, deadline_at: printer.last_seen },
+ })
+ render(<EmergencyStop />)
+ fireEvent.click(await screen.findByRole('button', { name: 'Emergency controls, 1 active prints' }))
+ fireEvent.click(screen.getByRole('button', { name: 'Pause (unproven)' }))
+ expect(await screen.findByRole('status')).toHaveTextContent('Pause sent. Waiting for the printer to confirm.')
+ expect(screen.getByText('Pause sent, waiting for the printer')).toBeInTheDocument()
+ expect(screen.getByRole('button', { name: 'Pause (unproven)' })).toBeDisabled()
+ fireEvent.click(screen.getByRole('button', { name: 'Stop (unproven)' }))
+ expect(screen.getByRole('button', { name: 'Confirm Stop (unproven)' })).toBeEnabled()
+ expect(screen.getByText(/use its touchscreen/)).toBeInTheDocument()
+})

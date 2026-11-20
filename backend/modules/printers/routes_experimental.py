@@ -105,3 +105,4 @@ def experimental_controls_guard(
 @event.listens_for(Printer, 'after_delete')
 def _forget_experimental_opt_in(mapper, connection, target):
     support_levels.forget_printer(connection, target.id)
+    connection.execute(text("DELETE FROM system_config WHERE key=:key"), {"key": f"pending_control:{target.id}"})

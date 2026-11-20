@@ -116,6 +116,19 @@ it('Resume uses existing endpoint and reports acceptance, not confirmation', asy
   await waitFor(() => expect(mocks.request).toHaveBeenCalledWith('/printers/1/resume', { method: 'POST' }))
   expect(await screen.findByRole('status')).toHaveTextContent('Resume requested; waiting for printer confirmation.')
 })
+it('shows a pending control and disables only a matching Resume', async () => {
+  mount(<NeedsYouBanner printers={[printer({ gcode_state: 'PAUSE', pending_control: {
+    action: 'resume', sent_at: new Date(now).toISOString(), deadline_at: new Date(now + 300000).toISOString(),
+  } })]} />)
+  expect(screen.getByText('Resume sent, waiting for the printer')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled()
+})
+it('shows the server message after an observed resume', async () => {
+  mocks.request.mockResolvedValueOnce({ success: true, outcome: 'confirmed', message: 'Print resumed.' })
+  mount(<NeedsYouBanner printers={[printer({ gcode_state: 'PAUSE' })]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('Print resumed.')
+})
 it('reports failed resume without saying it resumed', async () => {
   mocks.request.mockRejectedValueOnce(new Error('offline'))
   mount(<NeedsYouBanner printers={[printer({ gcode_state: 'PAUSE' })]} />)

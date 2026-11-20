@@ -16,6 +16,12 @@ import AlertGroupRow from './AlertGroupRow'
 import AlertTitle from './AlertTitle'
 import { groupAlerts } from './alertGroups'
 
+import { controlLabel, pendingMessage, unavailableMessage, type ControlReceipt } from '../../utils/printControl'
+
+const VISION_ALERT_TYPES = new Set([
+  'spaghetti_detected', 'first_layer_issue', 'detachment_detected',
+])
+
 interface DigestStatusEntry {
   window_ended_at: string
   status: string
@@ -85,6 +91,11 @@ export default function Alerts() {
   const foundry = useFoundry()
   const [searchParams, setSearchParams] = useSearchParams()
   const [alerts, setAlerts] = useState([])
+  const controlPrinters = useQuery({
+    queryKey: ['printers', 'alert-controls'], queryFn: () => printersApi.list(),
+    enabled: alerts.some(a => VISION_ALERT_TYPES.has(a.alert_type) && a.printer_id), refetchInterval: 5000,
+  })
+  const printerFor = (alert) => controlPrinters.data?.find(p => p.id === alert.printer_id)
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const listGeneration = useRef(0)
   const deletedIds = useRef(new Set<number>())
@@ -205,10 +216,15 @@ export default function Alerts() {
     if (!alert.printer_id) return
     setActionLoading(alert.id)
     try {
-      await fetchAPI(`/printers/${alert.printer_id}/resume`, { method: 'POST' })
+      const receipt = await fetchAPI<ControlReceipt>(`/printers/${alert.printer_id}/resume`, { method: 'POST' })
+      if (!receipt?.success) {
+        toast.error('Resume was not confirmed. Check the printer.')
+        return
+      }
       try { await alertsApi.markRead(alert.id) } catch { /* read failure is non-blocking */ }
       setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, is_read: true } : a))
-      toast.success('Print resumed')
+      toast.success(receipt?.message || 'Resume requested.')
+      void controlPrinters.refetch()
     } catch (err: any) {
       toast.error('Resume failed: ' + (err?.message || 'Unknown error'))
     } finally {
@@ -216,9 +232,7 @@ export default function Alerts() {
     }
   }
 
-  const VISION_ALERT_TYPES = new Set([
-    'spaghetti_detected', 'first_layer_issue', 'detachment_detected',
-  ])
+
 
   const handleMarkAllRead = async () => {
     try {
@@ -352,12 +366,14 @@ export default function Alerts() {
       )}
       {/* v1.8.8: one-click "false alarm — resume" on
           vision auto-pause alerts. */}
+      {VISION_ALERT_TYPES.has(alert.alert_type) && pendingMessage(printerFor(alert)) && <span>{pendingMessage(printerFor(alert))}</span>}
       {VISION_ALERT_TYPES.has(alert.alert_type) && !alert.is_read && alert.printer_id && (
+        printerFor(alert)?.unavailable_controls?.includes('resume') ? <span>{unavailableMessage('resume')}</span> :
         <button
           onClick={() => handleResumeFromAlert(alert)}
-          disabled={actionLoading === alert.id}
+          disabled={actionLoading === alert.id || printerFor(alert)?.pending_control?.action === 'resume'}
           className="p-1.5 rounded-md transition-colors hover:bg-green-900/40 text-green-400"
-          title="False alarm — resume print"
+          title={'False alarm — ' + controlLabel(printerFor(alert), 'resume') + ' print'}
         >
           <CheckCircle size={14} />
         </button>

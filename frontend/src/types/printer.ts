@@ -74,7 +74,11 @@ export interface FilamentSlotUpdate {
 
 // ---- Printer ----
 
+export type PrintControlAction = 'pause' | 'resume' | 'stop'
 export interface Printer {
+  pending_control?: { action: PrintControlAction; sent_at: string; deadline_at: string } | null;
+  unproven_controls?: PrintControlAction[];
+  unavailable_controls?: PrintControlAction[];
   training_warnings?: string[];
   feeding_slot?: number | null;
   chamber_temp?: number | null;

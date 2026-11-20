@@ -1,0 +1,54 @@
+{
+  "pause": [
+    {
+      "seconds": -1.011,
+      "state": "printing",
+      "filename": "sample.gcode",
+      "is_active": true
+    },
+    {
+      "seconds": 2.75,
+      "state": "paused"
+    }
+  ],
+  "resume": [
+    {
+      "seconds": -1.005,
+      "state": "paused",
+      "filename": "sample.gcode",
+      "is_active": false
+    },
+    {
+      "seconds": 61.083,
+      "state": "paused",
+      "filename": "sample.gcode",
+      "is_active": false
+    },
+    {
+      "seconds": 116.151,
+      "state": "printing",
+      "filename": "sample.gcode",
+      "is_active": true
+    }
+  ],
+  "stop": [
+    {
+      "seconds": -1.002,
+      "state": "printing",
+      "filename": "sample.gcode",
+      "is_active": true
+    },
+    {
+      "seconds": 60.899,
+      "state": "printing",
+      "filename": "sample.gcode",
+      "is_active": true
+    },
+    {
+      "seconds": 129.285,
+      "state": "cancelled",
+      "filename": "sample.gcode",
+      "is_active": false
+    }
+  ]
+}

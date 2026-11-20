@@ -9,6 +9,8 @@ import type { Printer, PrintJob, Alert } from '../../types'
 import { activePrint, needsYou, number, utc } from './data'
 import { formatMinutesAgo } from '../../utils/relativeTime'
 
+import { controlLabel, pendingMessage, unavailableMessage, type ControlReceipt } from '../../utils/printControl'
+
 export function mayResume(printer: Printer) {
   const user = getCurrentUser()
   return !!user && ['operator', 'admin'].includes(user.role) && canDo('printers.edit') && isPausedState(printer.gcode_state) && isOnline(printer)
@@ -22,17 +24,18 @@ function Resume({ printer }: { printer: Printer }) {
   const [outcome, setOutcome] = useState('')
   const busy = useRef(false)
   async function resume() {
-    if (busy.current || !mayResume(printer)) return
+    if (busy.current || printer.pending_control?.action === 'resume' || !mayResume(printer)) return
     busy.current = true; setPending(true); setOutcome('')
     try {
-      const result = await fetchAPI<{ success?: boolean }>(`/printers/${printer.id}/resume`, { method: 'POST' })
-      setOutcome(result.success === true ? 'Resume requested; waiting for printer confirmation.' : 'Resume was not confirmed.')
-      client.invalidateQueries({ queryKey: ['printers'] })
+      const result = await fetchAPI<ControlReceipt>(`/printers/${printer.id}/resume`, { method: 'POST' })
+      setOutcome(result.success === true ? result.message || 'Resume requested; waiting for printer confirmation.' : 'Resume was not confirmed.')
+      await client.invalidateQueries({ queryKey: ['printers'] })
       client.invalidateQueries({ queryKey: ['print-jobs'] })
     } catch { setOutcome('Resume was not confirmed. Check the printer before retrying.') }
     finally { busy.current = false; setPending(false) }
   }
-  return <div><button type="button" className="f-primary" disabled={pending} onClick={resume}>{pending ? 'Requesting…' : 'Resume'}</button>{outcome && <p role="status">{outcome}</p>}</div>
+  if (printer.unavailable_controls?.includes('resume')) return <p>{unavailableMessage('resume')}</p>
+  return <div><button type="button" className="f-primary" disabled={pending || printer.pending_control?.action === 'resume'} onClick={resume}>{pending ? 'Requesting…' : controlLabel(printer, 'resume')}</button>{outcome && <p role="status">{outcome}</p>}</div>
 }
 /** Use server-written alert copy. No frontend HMS/runout decoding or guessed pause timestamp. */
 export default function NeedsYouBanner({ printers, prints = [], alerts = [], cameraIds = [], now = Date.now() }: { printers: Printer[]; prints?: PrintJob[]; alerts?: Alert[]; cameraIds?: number[]; now?: number }) {
@@ -53,6 +56,7 @@ export default function NeedsYouBanner({ printers, prints = [], alerts = [], cam
       ].filter(Boolean).join(' · ')
       return <article id={`needs-you-${printer.id}`} key={printer.id} className="f-attention">
         <div className="f-attention-copy"><h2 title={title}>{title}</h2>
+          {pendingMessage(printer) && <p>{pendingMessage(printer)}</p>}
           {detail && <p className="f-mono" title={detail}>{detail}</p>}
         </div>
         <div className="f-actions">{mayResume(printer) && <Resume printer={printer} />}{cameraIds.includes(printer.id) && canAccessPage('cameras') && <Link className="f-button" to={`/cameras/${printer.id}`}>Open camera</Link>}</div>

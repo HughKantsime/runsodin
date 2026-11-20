@@ -1,5 +1,6 @@
 """Printer control routes — stop, pause, resume, lights, speed, fans, clear-errors, skip-objects, plate-cleared."""
 
+import asyncio
 import logging
 import time
 
@@ -20,6 +21,7 @@ from core.rbac import (
 from core.responses import build_next_actions, next_action
 import core.crypto as crypto
 from modules.printers.models import Printer
+from modules.printers.moonraker_controls import send_control
 from modules.printers.schemas import PlateClearConfirmation, PlateClearState
 from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
 from modules.printers.resume_guard import may_suggest_pause, resume_refusal
@@ -43,8 +45,9 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_act
 
     from core.audit import log_audit
     audit_details = {"actor_token_id": current_user.get("_token_id")}
-    action = "cancel_print" if printer.api_type == "moonraker" else "stop_print"
-    if _send_printer_command(printer, action):
+    if printer.api_type == "moonraker":
+        return await asyncio.to_thread(send_control, db, printer, "stop", current_user)
+    if _send_printer_command(printer, "stop_print"):
         db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
         log_audit(db, "printer.stop_requested", "printer", printer_id, audit_details)
         db.commit()
@@ -114,26 +117,30 @@ async def pause_printer(
 
     from core.audit import log_audit
     audit_details = {"actor_token_id": current_user.get("_token_id")}
-    if not _send_printer_command(printer, "pause_print"):
-        log_audit(db, "printer.pause_failed", "printer", printer_id, audit_details)
-        db.commit()
-        raise OdinError(
-            ErrorCode.upstream_unavailable,
-            "Printer unreachable or command failed",
-            status=503,
-            retriable=True,
+    if printer.api_type == "moonraker":
+        receipt = await asyncio.to_thread(send_control, db, printer, "pause", current_user)
+        if receipt["outcome"] == "confirmed":
+            receipt["state"] = "PAUSED"
+    else:
+        if not _send_printer_command(printer, "pause_print"):
+            log_audit(db, "printer.pause_failed", "printer", printer_id, audit_details)
+            db.commit()
+            raise OdinError(
+                ErrorCode.upstream_unavailable,
+                "Printer unreachable or command failed",
+                status=503,
+                retriable=True,
+            )
+        db.execute(
+            text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"),
+            {"id": printer_id},
         )
-    db.execute(
-        text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"),
-        {"id": printer_id},
-    )
-    log_audit(db, "printer.pause_requested", "printer", printer_id, audit_details)
-    db.commit()
+        log_audit(db, "printer.pause_requested", "printer", printer_id, audit_details)
+        db.commit()
+        receipt = {"success": True, "message": "Print paused", "state": "PAUSED"}
     return {
-        "success": True,
-        "message": "Print paused",
+        **receipt,
         "printer_id": printer_id,
-        "state": "PAUSED",
         "next_actions": build_next_actions(
             next_action(
                 "get_printer",
@@ -214,28 +221,32 @@ async def resume_printer(
 
     # The audit row's actor columns name the user; only the token id is extra.
     audit_details = {"actor_token_id": current_user.get("_token_id")}
-    if not _send_printer_command(printer, "resume_print"):
-        # A failed send may still have reached the printer, so it leaves a trace.
-        log_audit(db, "printer.resume_failed", "printer", printer_id, audit_details)
-        db.commit()
-        raise OdinError(
-            ErrorCode.upstream_unavailable,
-            "Printer unreachable or command failed",
-            status=503,
-            retriable=True,
+    if printer.api_type == "moonraker":
+        receipt = await asyncio.to_thread(send_control, db, printer, "resume", current_user)
+        if receipt["outcome"] == "confirmed":
+            receipt["state"] = "RUNNING"
+    else:
+        if not _send_printer_command(printer, "resume_print"):
+            # A failed send may still have reached the printer, so it leaves a trace.
+            log_audit(db, "printer.resume_failed", "printer", printer_id, audit_details)
+            db.commit()
+            raise OdinError(
+                ErrorCode.upstream_unavailable,
+                "Printer unreachable or command failed",
+                status=503,
+                retriable=True,
+            )
+        db.execute(
+            text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
+            {"id": printer_id},
         )
-    db.execute(
-        text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
-        {"id": printer_id},
-    )
-    # Accepted by the transport, not proof the printer resumed.
-    log_audit(db, "printer.resume_requested", "printer", printer_id, audit_details)
-    db.commit()
+        # Accepted by the transport, not proof the printer resumed.
+        log_audit(db, "printer.resume_requested", "printer", printer_id, audit_details)
+        db.commit()
+        receipt = {"success": True, "message": "Print resumed", "state": "RUNNING"}
     return {
-        "success": True,
-        "message": "Print resumed",
+        **receipt,
         "printer_id": printer_id,
-        "state": "RUNNING",
         "next_actions": build_next_actions(
             next_action(
                 "get_printer",
