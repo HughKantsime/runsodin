@@ -16,7 +16,8 @@ import PrinterTelemetryChart from './PrinterTelemetryChart'
 import NozzleStatusCard from './NozzleStatusCard'
 import HmsHistoryPanel from './HmsHistoryPanel'
 import FilamentSlotEditor from './FilamentSlotEditor'
-import PrintProgress from './PrintProgress'
+import LivePrintValues, { speedModes } from './LivePrintValues'
+import { PrintControls } from './PrintControls'
 import { printers, apiTokens } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
@@ -187,9 +188,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
   }
 
   const hasBambuConnection = !!printer.api_host && ((printer.api_type === 'bambu' && printer.has_api_key) || printer.api_type === 'anycubic_lan')
-  const speedModes = ['Silent', 'Standard', 'Sport', 'Ludicrous']
   const reportedLevel = Number.isInteger(printer.speed_level) && printer.speed_level >= 1 && printer.speed_level <= 4 ? printer.speed_level : null
-  const reportedPercent = Number.isSafeInteger(printer.speed_percent) && printer.speed_percent >= 0 ? printer.speed_percent : null
   const currentDraft = speedDraft?.identity === JSON.stringify(getCurrentUser()) && speedDraft.printerId === printer.id ? speedDraft : null
   const selectedSpeed = currentDraft?.level ?? reportedLevel ?? 2
 
@@ -419,23 +418,17 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           )
         })()}
       </div>
-      {isOnline(printer) && isActivePrintState(printer.gcode_state) && (
+      {!foundry && isActivePrintState(printer.gcode_state) && (
         <div className={clsx("px-3 md:px-4 py-2 border-t border-[var(--brand-border)]", platePictureUrl && "relative pr-[76px] md:pr-[84px] min-h-[72px]")}>
           {platePictureUrl && <img data-testid="plate-picture" src={platePictureUrl} alt="Plate preview of the running print" width={56} height={56} className="absolute top-2 right-3 md:right-4 w-14 h-14 object-contain rounded bg-[var(--brand-content-bg)]" />}
           <p className="text-sm font-medium truncate mb-1">{displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file })}</p>
-          <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
+          <LivePrintValues printer={printer} />
+          <PrintControls printerId={printer.id} inline />
         </div>
       )}
       {/* Bambu speed control — active prints only */}
-      {printer.api_type === 'bambu' && isOnline(printer) && isActivePrintState(printer.gcode_state) && (
-        <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
-          <p className="printer-number text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">
-            {reportedPercent == null ? 'Reported speed unknown' : `Last reported speed: ${reportedPercent}%`}
-          </p>
-          <p className="text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">
-            {reportedLevel == null ? 'Printer speed mode unknown' : `Last reported mode: ${speedModes[reportedLevel - 1]}`}
-          </p>
-          {mayControl(printer, true) && <div className="mt-2 space-y-2">
+      {mayControl(printer, true) && (
+        <div className="px-3 md:px-4 py-2 space-y-2 border-t border-[var(--brand-border)]">
             <p className="text-xs">Selected mode: {speedModes[selectedSpeed - 1]}</p>
             <input type="range" min="1" max="4" step="1" value={selectedSpeed}
               aria-label="Print speed mode" aria-valuetext={speedModes[selectedSpeed - 1]}
@@ -451,7 +444,6 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             </div>
             <button disabled={commandPending} className="min-h-11 px-3 py-2 rounded-md text-xs bg-[var(--brand-input-bg)] disabled:opacity-50"
               onClick={event => { event.stopPropagation(); void sendCardCommand('speed', selectedSpeed) }}>Apply speed</button>
-          </div>}
         </div>
       )}
       {commandOutcome?.identity === JSON.stringify(getCurrentUser()) && commandOutcome.printerId === printer.id && (

@@ -45,11 +45,10 @@ describe('CertEInteg WebSocket live push', () => {
     expect(printer.mc_percent).toBe(frame.data.progress)
   })
 
-  it('does not patch the printer-detail cache, so the detail page still depends on its 5 s poll', async () => {
+  it('updates printer detail from the same telemetry frame as the list', async () => {
     const { client, sockets } = mount()
     await waitFor(() => expect(sockets[0]?.onmessage).toBeTypeOf('function'))
     act(() => sockets[0].onmessage({ data: JSON.stringify(wire.frames[0]) }))
-    // PrinterDetail.tsx reads ['printer', id] with refetchInterval: 5000; WS leaves it stale.
-    expect(client.getQueryData(['printer', '9001'])).toEqual(wire.printer_detail)
+    expect(client.getQueryData(['printer', '9001'])).toMatchObject({ mc_percent: wire.frames[0].data.progress })
   })
 })

@@ -12,6 +12,7 @@ Copied to core/ as part of the modular architecture refactor.
 Old import path (from ws_hub import ...) continues to work via re-exports in ws_hub.py.
 """
 
+from datetime import datetime, timezone
 import json
 import time
 import logging
@@ -28,6 +29,7 @@ _CLEANUP_INTERVAL = 30   # seconds between cleanup runs
 _EVENT_TTL = 60           # delete events older than this (seconds)
 _last_cleanup = 0
 _EVENT_BATCH_SIZE = 128
+_snapshot_warnings = {}
 
 
 def ensure_table():
@@ -43,6 +45,12 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
     Signature unchanged from the file-based version — monitors need zero changes.
     """
     try:
+        created_at = time.time()
+        if event_type == "printer_telemetry":
+            from core.printer_live_values import LIVE_FIELDS, live_fields, save_snapshot
+            stamp = datetime.fromtimestamp(created_at, timezone.utc).isoformat(timespec="microseconds")
+            other = {k: v for k, v in data.items() if k not in LIVE_FIELDS}
+            data = {**other, **live_fields(data), "telemetry_at": stamp.replace("+00:00", "Z")}
         payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
         # Its own transaction; on the dispatch's shared connection when one is open.
         from core.dispatch_connection import dispatch_transaction
@@ -55,9 +63,19 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
                 {
                     "event_type": event_type,
                     "data": payload,
-                    "created_at": time.time(),
+                    "created_at": created_at,
                 },
             )
+        if event_type == "printer_telemetry" and not audience and data.get("printer_id") is not None:
+            try:
+                with dispatch_transaction(engine) as conn:
+                    save_snapshot(conn, data)
+            except Exception as exc:
+                printer_id = data["printer_id"]
+                # Only the first failing publisher for this printer emits a warning.
+                claim = object()
+                if _snapshot_warnings.setdefault(printer_id, claim) is claim:
+                    log.warning("Failed to save live values for printer %s (%s)", printer_id, type(exc).__name__)
     except Exception:
         log.warning("Failed to persist WebSocket event", exc_info=True)
 

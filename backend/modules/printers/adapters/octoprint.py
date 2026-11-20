@@ -72,6 +72,7 @@ class OctoPrintStatus:
     filename: str = ""
     progress_percent: Optional[float] = None
     time_printing: int = 0       # seconds elapsed
+    remaining_minutes: Optional[int] = None
     time_remaining: int = 0      # seconds remaining (as OctoPrint estimates)
     current_layer: int = 0
     total_layers: int = 0
@@ -200,6 +201,7 @@ class OctoPrintPrinter:
         status.progress_percent = job["progress_percent"]
         status.time_printing = job["time_printing"]
         status.time_remaining = job["time_remaining"]
+        status.remaining_minutes = job["remaining_minutes"]
         status.job_state = job["job_state"]
         status.job_read = True
 

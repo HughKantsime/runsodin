@@ -1,6 +1,8 @@
-import { cleanup, renderHook, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, render, renderHook, act, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import LivePrintValues from '../components/printers/LivePrintValues'
+import { sharePrinterData } from '../utils/printerLiveValues'
 import useWebSocket, { tokenRetryDelayMs } from './useWebSocket'
 
 // Regression (screen check 2026-11-13): a refused live-updates token (HTTP 429 after several
@@ -160,4 +162,159 @@ describe('live updates token retry', () => {
     await settle(5000); expect(fetchMock).toHaveBeenCalledTimes(3); expect(sockets).toHaveLength(1)
     await settle(5000); expect(sockets).toHaveLength(2)   // 5 s again, not 10
   })
+})
+
+it('closes a silent socket at 75 seconds and refreshes printers when the replacement opens', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  const client = new QueryClient()
+  const invalidate = vi.spyOn(client, 'invalidateQueries')
+  const wrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  renderHook(() => useWebSocket(), { wrapper })
+  await settle(0)
+  const first = sockets[0]
+  first.close = vi.fn() // the dead connection never acknowledges the close
+  act(() => first.onopen())
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['printers'] })
+  await settle(74999)
+  expect(first.close).not.toHaveBeenCalled()
+  await settle(1)
+  expect(first.close).toHaveBeenCalledOnce()
+  await settle(5000)
+  expect(sockets).toHaveLength(2)
+  invalidate.mockClear()
+  act(() => sockets[1].onopen())
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['printers'] })
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['printer'] })
+})
+
+it('renews the silence deadline on pings and plain text pongs', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  renderHook(() => useWebSocket(), { wrapper })
+  await settle(0)
+  const socket = sockets[0]
+  socket.close = vi.fn()
+  socket.send = vi.fn()
+  act(() => socket.onopen())
+  await settle(60000)
+  act(() => socket.onmessage({ data: '{"type":"ping"}' }))
+  expect(socket.send).toHaveBeenCalledWith('ping')
+  await settle(60000)
+  const parse = vi.spyOn(JSON, 'parse')
+  try {
+    act(() => socket.onmessage({ data: 'pong' }))
+    expect(parse).not.toHaveBeenCalledWith('pong')
+  } finally { parse.mockRestore() }
+  await settle(74999)
+  expect(socket.close).not.toHaveBeenCalled()
+})
+
+it('refreshes printers when online and on returning to a visible tab', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  const client = new QueryClient()
+  const invalidate = vi.spyOn(client, 'invalidateQueries')
+  const wrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const { unmount } = renderHook(() => useWebSocket(), { wrapper })
+  await settle(0)
+  act(() => window.dispatchEvent(new Event('online')))
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['printers'] })
+  invalidate.mockClear()
+  const visible = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+  try {
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(invalidate).not.toHaveBeenCalled()
+    visible.mockReturnValue('visible')
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['printers'] })
+    unmount()
+    invalidate.mockClear()
+    window.dispatchEvent(new Event('online'))
+    expect(invalidate).not.toHaveBeenCalled()
+  } finally { visible.mockRestore() }
+})
+
+it('keeps the newest six readings across in-flight refetches and socket frames in list and detail', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  const client = new QueryClient({ defaultOptions: { queries: { structuralSharing: sharePrinterData } } })
+  const wrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const list = ['printers', 7], detail = ['printer', '9']
+  const empty = { id: 9, mc_percent: null, mc_remaining_time: null, layer_num: null,
+    total_layer_num: null, speed_level: null, speed_percent: null, telemetry_at: null }
+  client.setQueryData(list, [empty])
+  client.setQueryData(detail, empty)
+  renderHook(() => useWebSocket(), { wrapper })
+  await settle(0)
+  const at = '2026-11-20T12:00:00.123456Z'
+  const frame = { printer_id: 9, progress: 40, remaining_min: 0, current_layer: 4, total_layers: 10,
+    speed_level: 2, speed_percent: 100, telemetry_at: at }
+  const send = () => act(() => sockets[0].onmessage({ data: JSON.stringify({ type: 'printer_telemetry', data: frame }) }))
+  send()
+  const live = { id: 9, mc_percent: 40, mc_remaining_time: 0, layer_num: 4, total_layer_num: 10,
+    speed_level: 2, speed_percent: 100, telemetry_at: at }
+  for (const stamp of [null, '2026-11-20T12:00:00.123455Z', at, '2026-11-20T12:00:00.123457Z']) {
+    const rest = { ...empty, name: 'Renamed', telemetry_at: stamp, speed_percent: 0 }
+    await client.fetchQuery({ queryKey: list, queryFn: async () => [rest] })
+    await client.fetchQuery({ queryKey: detail, queryFn: async () => rest })
+    const expected = stamp && stamp > at ? rest : { ...live, name: rest.name }
+    send()
+    expect(client.getQueryData(detail)).toMatchObject(expected)
+    expect(client.getQueryData(list)).toMatchObject([expected])
+  }
+})
+
+it('recovers a mounted progress display from REST after a quiet connection is replaced', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  const client = new QueryClient({ defaultOptions: { queries: { structuralSharing: sharePrinterData } } })
+  let rest = { id: 9, api_type: 'bambu', telemetry_at: null, mc_percent: null, mc_remaining_time: null }
+  function Card() {
+    useWebSocket()
+    const { data } = useQuery({ queryKey: ['printers'], queryFn: async () => [rest] })
+    return data && <LivePrintValues printer={data[0]} />
+  }
+  render(<QueryClientProvider client={client}><Card /></QueryClientProvider>)
+  await settle(1)
+  const socket = sockets[0]
+  socket.close = () => socket.onclose()
+  act(() => socket.onopen())
+  await settle(1)
+  const reading = { printer_id: 9, telemetry_at: new Date().toISOString(), progress: 42 }
+  act(() => socket.onmessage({ data: JSON.stringify({ type: 'printer_telemetry', data: reading }) }))
+  await settle(1)
+  expect(screen.getByText('42%')).toBeVisible()
+  await settle(75000)
+  expect(screen.getByText('42% as of 1 min ago')).toBeVisible()
+  rest = { ...rest, telemetry_at: new Date().toISOString(), mc_percent: 67, mc_remaining_time: 15 }
+  await settle(5000)
+  act(() => sockets[1].onopen())
+  await settle(1)
+  expect(screen.getByText('67%')).toBeVisible()
+  expect(screen.getByText('15m left')).toBeVisible()
+})
+
+it.each(['sparse', 'older'])('applies %s frames to list and detail without losing live values', async kind => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(200, 'local-token')))
+  const client = new QueryClient({ defaultOptions: { queries: { structuralSharing: sharePrinterData } } })
+  const wrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const list = ['printers'], detail = ['printer', '9']
+  const at = '2026-11-20T12:00:02Z'
+  const printer = { id: 9, mc_percent: 42, speed_percent: 125, telemetry_at: at }
+  client.setQueryData(list, [printer])
+  client.setQueryData(detail, printer)
+  renderHook(() => useWebSocket(), { wrapper })
+  await settle(0)
+  const send = (data: object) => act(() => sockets[0].onmessage({
+    data: JSON.stringify({ type: 'printer_telemetry', data: { printer_id: 9, ...data } }),
+  }))
+  const expectBoth = (expected: object) => {
+    expect(client.getQueryData(detail)).toMatchObject(expected)
+    expect(client.getQueryData(list)).toMatchObject([expected])
+  }
+  if (kind === 'older') {
+    send({ telemetry_at: '2026-11-20T12:00:01Z', progress: 10, bed_temp: 60, state: 'PAUSE', gcode_file: 'part' })
+    expectBoth({ ...printer, bed_temp: 60, gcode_state: 'PAUSE', gcode_file: 'part' })
+  } else {
+    send({ telemetry_at: '2026-11-20T12:00:03Z', bed_temp: 60 })
+    expectBoth({ mc_percent: 42, speed_percent: 125, bed_temp: 60 })
+    send({ telemetry_at: '2026-11-20T12:00:04Z', progress: null })
+    expectBoth({ mc_percent: null, speed_percent: 125 })
+  }
 })

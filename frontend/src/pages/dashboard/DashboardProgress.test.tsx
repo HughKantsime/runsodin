@@ -11,8 +11,8 @@ it('labels unknown active-job progress instead of inventing measured zero', () =
  expect(screen.getByText('Time remaining unknown')).toBeInTheDocument()
  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
 })
-it('preserves zero and carries rounded remaining minutes', () => {
- render(<PrinterCard printer={printer} activeJob={{ job_name: 'Synthetic active', progress_percent: 0, remaining_minutes: 59.6 }} {...props} />)
+it.each([{}, { telemetry_at: null }])('preserves zero and carries rounded remaining minutes without a snapshot (%j)', snapshot => {
+ render(<PrinterCard printer={{ ...printer, ...snapshot }} activeJob={{ job_name: 'Synthetic active', progress_percent: 0, remaining_minutes: 59.6 }} {...props} />)
  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
  expect(screen.getByText('1h 0m left')).toBeInTheDocument()
 })
@@ -60,4 +60,14 @@ it('Classic floor shows the catalogue name with two-line wrapping', () => {
  render(<PrinterCard printer={{ ...printer, filament_slots: [{ slot_number: 1, filament_type: 'ASA-CF', catalogue_name: name, color_hex: '123456' }] }} {...props} />)
  expect(screen.getByText(name)).toHaveClass('line-clamp-2')
  expect(screen.getByText(name)).not.toHaveClass('truncate')
+})
+
+it('shows the last printer reading and its age even when the jobs list is behind', () => {
+ render(<PrinterCard printer={{ ...printer, telemetry_at: '2026-10-11T11:57:00Z', mc_percent: 42,
+   mc_remaining_time: 12, speed_percent: 80, layer_num: 18, total_layer_num: 60 }}
+   activeJob={{ job_name: 'Bracket', progress_percent: 10 }} {...props} />)
+ expect(screen.getByRole('progressbar', { name: 'Print progress, 42% as of 3 min ago' })).toBeVisible()
+ expect(screen.getByText('Layer 18/60 as of 3 min ago')).toBeVisible()
+ expect(screen.getByText('12m left as of 3 min ago')).toBeVisible()
+ expect(screen.getByText('Last reported speed: 80% as of 3 min ago')).toBeVisible()
 })

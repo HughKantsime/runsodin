@@ -1,3 +1,5 @@
+import LivePrintValues, { showPrinterReadings } from '../printers/LivePrintValues'
+import { PrintControls } from '../printers/PrintControls'
 import PlateCleared from '../printers/PlateCleared'
 import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -9,7 +11,7 @@ import type { Printer, PrintJob, Job } from '../../types'
 import StatusBadge from '../ui/StatusBadge'
 import SlotTile, { slotLabel } from './SlotTile'
 import { displayName } from '../../utils/displayName'
-import { isDualNozzle, isPrintingState } from '../../utils/shared'
+import { isActivePrintState, isDualNozzle, isPrintingState } from '../../utils/shared'
 import { number, state, utc } from './data'
 
 export function PrintTelemetry({ job, now = Date.now(), printing = false }: { job?: PrintJob; now?: number; printing?: boolean }) {
@@ -49,7 +51,10 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
     <div className="f-row"><div className="f-printer-heading">{selection}<div><h2><Link to={`/printers/${printer.id}`}>{printer.nickname || printer.name}</Link></h2><p className="f-secondary">{[printer.model, feed(printer)].filter(Boolean).join(' · ')}</p></div></div><StatusBadge status={state(printer)} /></div>
     {statusDetail}
     {job && <p className="f-job">{displayName(job)}</p>}
-    <PrintTelemetry job={job} now={now} printing={isPrintingState(printer.gcode_state)} />
+    {isActivePrintState(printer.gcode_state) && !job?.awaiting_confirmation && showPrinterReadings(printer, job)
+      ? <LivePrintValues printer={printer} foundry />
+      : <PrintTelemetry job={job} now={now} printing={isPrintingState(printer.gcode_state)} />}
+    {isActivePrintState(printer.gcode_state) && <PrintControls printerId={printer.id} inline />}
     {job?.recording_note && <p>{job.recording_note}</p>}
     {next && <div className="f-next"><p>Next: {displayName(next)}</p>
       {next.hold && <p>Waiting on you · job held</p>}

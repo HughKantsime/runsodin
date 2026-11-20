@@ -96,6 +96,13 @@ def test_start_progress_and_completion_through_the_shared_path(world):
     assert r['gcode_state'] == 'IDLE' and r['last_seen']
     printing = [p for kind, p in world.events if kind == 'printer_telemetry' and p['state'] == 'PRINTING']
     assert printing[0]['progress'] == 42.0 and printing[0]['remaining_min'] == 14
+    from core import ws_hub
+    watermark = ws_hub.current_event_id()
+    ws_hub.push_event('printer_telemetry', printing[0])
+    frame = ws_hub.read_events_since(watermark)[0][0]['data']
+    assert frame['telemetry_at'].endswith('Z') and frame['remaining_min'] == 14
+    assert frame['current_layer'] is None and frame['total_layers'] is None
+    assert 'speed_level' not in frame and 'speed_percent' not in frame
     assert [p for kind, p in world.events if p['state'] == 'IDLE']
 
 

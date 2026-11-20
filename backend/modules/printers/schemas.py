@@ -226,6 +226,18 @@ class PendingControl(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    mc_percent: Optional[float] = None
+    mc_remaining_time: Optional[float] = None
+    layer_num: Optional[int] = None
+    total_layer_num: Optional[int] = None
+    speed_level: Optional[int] = None
+    speed_percent: Optional[float] = None
+    telemetry_at: Optional[datetime] = None
+
+    @field_serializer('telemetry_at')
+    def _telemetry_timestamp(self, value):
+        return value.isoformat(timespec='microseconds').replace('+00:00', 'Z') if value else None
+
     training_warnings: list[str] = Field(default_factory=list)
     hms_model_prefix: str = Field(default='', exclude=True)
 
@@ -258,7 +270,7 @@ class PrinterResponse(PrinterBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    created_at: datetime
+    created_at: Optional[datetime]
     updated_at: datetime
     filament_slots: List[FilamentSlotResponse] = []
     filament_source: Optional[str] = None

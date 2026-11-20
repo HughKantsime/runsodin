@@ -13,6 +13,10 @@ STATE_MAP = {
 }
 
 
+def _minutes(seconds):
+    return seconds // 60 if type(seconds) in (float, int) and seconds >= 0 else None
+
+
 def map_state(value: object) -> str:
     return STATE_MAP.get(str(value).upper(), "UNKNOWN")
 
@@ -30,6 +34,8 @@ def parse_v1_status(data: dict[str, Any]) -> dict[str, Any]:
         "fan_print": printer.get("fan_print", 0), "job_id": job.get("id"),
         "progress_percent": job.get("progress", 0.0), "time_printing": job.get("time_printing", 0),
         "time_remaining": job.get("time_remaining", 0), "raw_data": data,
+        "live_values": {"progress": job.get("progress"), "speed_percent": printer.get("speed"),
+                        "remaining_min": _minutes(job.get("time_remaining"))},
     }
     file_info = job.get("file") if isinstance(job.get("file"), dict) else {}
     parsed["filename"] = file_info.get("display", "") or file_info.get("name", "")
@@ -70,4 +76,5 @@ def parse_legacy_status(
         "time_remaining": progress.get("printTimeLeft", 0) or 0,
         "filename": file_info.get("display", "") or file_info.get("name", ""),
         "job_id": job.get("id"), "raw_data": printer_data,
+        "live_values": {"progress": progress.get("completion"), "remaining_min": _minutes(progress.get("printTimeLeft"))},
     }

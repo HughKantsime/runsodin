@@ -122,7 +122,7 @@
     ]
   },
   {
-    "file": "components/printers/EmergencyStop.tsx",
+    "file": "components/printers/PrintControls.tsx",
     "expression": "`/printers/${printerId}/${action}`",
     "options": "{ method: 'POST' }",
     "reason": "The three printer command buttons supply resume, pause and stop.",

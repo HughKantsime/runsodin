@@ -76,6 +76,13 @@ export interface FilamentSlotUpdate {
 
 export type PrintControlAction = 'pause' | 'resume' | 'stop'
 export interface Printer {
+  telemetry_at?: string | null;
+  mc_percent?: number | null;
+  mc_remaining_time?: number | null;
+  layer_num?: number | null;
+  total_layer_num?: number | null;
+  speed_level?: number | null;
+  speed_percent?: number | null;
   pending_control?: { action: PrintControlAction; sent_at: string; deadline_at: string } | null;
   unproven_controls?: PrintControlAction[];
   unavailable_controls?: PrintControlAction[];
@@ -133,7 +140,7 @@ export interface Printer {
   shared: boolean;
   org_id: number | null;
   has_api_key: boolean;
-  created_at: string;
+  created_at: string | null;
   updated_at: string;
 }
 

@@ -30,6 +30,8 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import CameraModal from '../../components/printers/CameraModal'
 import SpoolRing from '../../components/ui/SpoolRing'
+import { PrintControls } from '../../components/printers/PrintControls'
+import LivePrintValues, { showPrinterReadings } from '../../components/printers/LivePrintValues'
 import PrintProgress from '../../components/printers/PrintProgress'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
@@ -66,7 +68,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
   return (
     <div
       className={clsx("dashboard-printer-card bg-[var(--brand-card-bg)] rounded-md border overflow-hidden h-fit cursor-pointer hover:border-[var(--brand-card-border)] transition-colors", hasLowSpool ? "border-amber-600/50" : "border-[var(--brand-card-border)]")}
-      onClick={onClick}
+      onClick={event => { if (!(event.target as Element).closest('button')) onClick() }}
     >
       <div className="p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
@@ -85,15 +87,15 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
             )}
           </div>
         </div>
-        {activeJob && isPrinting && (
+        {isActivePrintState(printer.gcode_state) && (
           <div className="mb-3 bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Activity size={14} className="text-[var(--brand-primary)] animate-pulse shrink-0" />
-                <span className="text-sm font-medium truncate">{displayName(activeJob)}</span>
+                <span className="text-sm font-medium truncate">{displayName(activeJob || { display_name: printer.current_print_display_name, filename: printer.gcode_file })}</span>
               </div>
             </div>
-            {activeJob.awaiting_confirmation ? <p role="status">Waiting for print confirmation in Dispatch Recovery.</p> : <>
+            {activeJob?.awaiting_confirmation ? <p role="status">Waiting for print confirmation in Dispatch Recovery.</p> : showPrinterReadings(printer, activeJob) ? <LivePrintValues printer={printer} layers /> : <>
             <PrintProgress percent={activeJob.progress_percent} remainingMinutes={activeJob.remaining_minutes} />
             <div className="printer-number flex justify-between text-xs text-[var(--brand-text-muted)]">
               <span>
@@ -106,7 +108,8 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
 
             </div>
             </>}
-            {activeJob.recording_note && <p className="text-xs">{activeJob.recording_note}</p>}
+            <PrintControls printerId={printer.id} inline />
+            {activeJob?.recording_note && <p className="text-xs">{activeJob.recording_note}</p>}
           </div>
         )}
 

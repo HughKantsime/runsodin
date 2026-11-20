@@ -117,7 +117,8 @@ def parse_job(payload: object) -> dict[str, Any]:
     state_raw = raw_state if isinstance(raw_state, str) and len(raw_state) <= _MAX_TEXT else ""
     progress = _number(body.get("progress"))
     percent = None if progress is None else round(min(max(progress, 0.0), 1.0) * 100.0, 2)
-    elapsed = _seconds(body.get("time_elapsed"))
+    elapsed_reading = _number(body.get("time_elapsed"))
+    elapsed = _seconds(elapsed_reading)
     total = _seconds(body.get("time_total"))
     return {
         "filename": _text(body.get("name"), _MAX_NAME),
@@ -127,6 +128,7 @@ def parse_job(payload: object) -> dict[str, Any]:
         "progress_percent": percent,
         "time_printing": elapsed,
         "time_total": total,
+        "remaining_minutes": max(total - elapsed, 0) // 60 if total > 0 and elapsed_reading is not None and elapsed_reading >= 0 else None,
         "time_remaining": max(total - elapsed, 0) if total > 0 else 0,
         "finished": state_raw in FINISHED_JOB_STATES,
     }

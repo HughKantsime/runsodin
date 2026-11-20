@@ -357,6 +357,9 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                 total_layers = None
                 # A measured 0% fan is a real reading; only a missing fan object is unknown.
                 raw_status = getattr(status, 'raw_data', None) or {}
+                motion = raw_status.get('gcode_move')
+                factor = motion.get('speed_factor') if isinstance(motion, dict) else None
+                speed_percent = round(factor * 100, 2) if type(factor) in (float, int) and 0 <= factor <= (2**53 - 1) / 100 else None
                 fan_speed_val = status.fan_speed if isinstance(raw_status.get('fan'), dict) else None
                 noz_dia = status.nozzle_diameter
 
@@ -377,9 +380,11 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                     elif bed_tt and bed_tt > 0: stage = 'Heating bed'
 
                 # Progress data
-                progress = status.progress_percent
-                current_layer = status.current_layer
-                total_layers = status.total_layers
+                disk = raw_status.get('virtual_sdcard') or {}
+                progress = status.progress_percent if isinstance(disk, dict) and disk.get('progress') is not None else None
+                layers = (raw_status.get('print_stats') or {}).get('info')
+                current_layer = layers.get('current_layer') if isinstance(layers, dict) else None
+                total_layers = layers.get('total_layer') if isinstance(layers, dict) else None
 
                 # Calculate remaining time from elapsed + progress
                 if status.print_duration and status.print_duration > 0 and progress and progress > 1:
@@ -431,7 +436,7 @@ class MoonrakerMonitor(MoonrakerJobTracking):
                   'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
                   'progress': progress, 'remaining_min': remaining_min,
                   'current_layer': current_layer, 'total_layers': total_layers,
-                  'fan_speed': fan_speed_val,
+                  'fan_speed': fan_speed_val, 'speed_percent': speed_percent,
               }
               try:
                   ws_push('printer_telemetry', payload)

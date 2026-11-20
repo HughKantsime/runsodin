@@ -2,7 +2,6 @@
 
 import asyncio
 import importlib
-import json
 import logging
 import os
 import pathlib
@@ -405,6 +404,8 @@ def create_app() -> FastAPI:
     # Lifespan (DB init, event bus, background tasks)
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        from core.schema.bootstrap import configure_orm
+        configure_orm()
         if os.environ.get("SUPERVISOR_PROCESS_NAME") != "backend":
             from core.config import warn_unused_settings
             warn_unused_settings(log)
@@ -681,24 +682,8 @@ def create_app() -> FastAPI:
             await ws.close(code=4403, reason='license_user_locked')
             return
         await ws_manager.connect(ws, principal)
-        async def receive_messages():
-            while True:
-                try:
-                    data = await asyncio.wait_for(ws.receive_text(), timeout=30)
-                    if data == "ping":
-                        await ws.send_text("pong")
-                    else:
-                        try:
-                            request = json.loads(data)
-                        except (json.JSONDecodeError, TypeError):
-                            request = None
-                        if request == {"type": "subscribe", "channels": ["events"]}:
-                            await ws.send_json({"type": "subscribed", "channels": ["events"]})
-                except asyncio.TimeoutError:
-                    await ws.send_json({"type": "ping"})
-
         try:
-            await receive_messages()
+            await ws_manager.receive_messages(ws)
         except WebSocketDisconnect:
             pass
         except Exception:

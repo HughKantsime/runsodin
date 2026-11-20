@@ -2,6 +2,7 @@
 from core.base import FilamentType, slot_filament_value
 from core.printer_maintenance import enrich_maintenance
 from modules.inventory.services import enrich_catalogue_slots
+from core.printer_live_values import enrich_live_values
 from core.printer_display_facts import enrich_printer_facts
 
 from modules.inventory.services import assign_slot
@@ -76,6 +77,7 @@ def list_printers(
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
+    enrich_live_values(db, printers, current_user)
     enrich_controls(db, printers)
     enrich_response_opt_ins(db, printers)
     return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, printers, current_user), current_user)), current_user))
@@ -237,6 +239,7 @@ def get_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
+    enrich_live_values(db, [printer], current_user)
     enrich_controls(db, [printer])
     enrich_response_opt_ins(db, [printer])
     return enrich_printers(enrich_printer_facts(db, enrich_maintenance(db, enrich_catalogue_slots(db, name_printers(db, [printer], current_user), current_user)), current_user))[0]
