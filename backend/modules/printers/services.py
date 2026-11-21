@@ -285,8 +285,22 @@ def validate_bambu_slot_count(count):
 
 def check_bambu_create_count(values):
     if isinstance(values, dict) and str(values.get('api_type')).lower() == 'bambu':
+        if is_h3c_printer(values):
+            return {**values, 'slot_count': 9}
         validate_bambu_slot_count(values.get('slot_count', 4))
     return values
+
+
+def prepare_rack_slot_count(printer, update_data):
+    rack = is_h3c_printer({key: update_data.get(key, getattr(printer, key))
+                           for key in ('api_type', 'model', 'machine_type')})
+    if rack:
+        from fastapi import HTTPException
+        if update_data.get('slot_count', 9) != 9:
+            raise HTTPException(422, 'The H3C has nine rack positions.')
+        if printer.slot_count != 9:
+            update_data['slot_count'] = 9
+    return rack
 
 
 def create_printer_record(db, **fields):
@@ -298,7 +312,7 @@ def create_printer_record(db, **fields):
     check_printer_limit(db.query(Printer).count())
     if (fields.get('api_type') or '').lower() == 'bambu':
         from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name
-        validate_bambu_slot_count(fields.get('slot_count', 4))
+        fields = check_bambu_create_count(fields)
         dims = BAMBU_BEDS.get(bambu_model_name(fields.get('model')))
         if dims and fields.get('bed_x_mm') is None and fields.get('bed_y_mm') is None:
             fields['bed_x_mm'], fields['bed_y_mm'] = dims

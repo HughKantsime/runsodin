@@ -2674,7 +2674,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 452,
+      "line": 453,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2682,7 +2682,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 469,
+      "line": 470,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2690,7 +2690,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 531,
+      "line": 532,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2698,7 +2698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 572,
+      "line": 573,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2706,7 +2706,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 617,
+      "line": 618,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2714,7 +2714,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 626,
+      "line": 627,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2722,7 +2722,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 640,
+      "line": 641,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2730,7 +2730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 641,
+      "line": 642,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2738,19 +2738,51 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 30,
+      "line": 55,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
-      "source": "row = conn.execute('SELECT installed_nozzles,machine_type,model FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
+      "source": "row = conn.execute('SELECT installed_nozzles,machine_type,model,slot_count FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
     },
     {
       "classification": "dialect-neutral",
-      "line": 43,
+      "line": 74,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
       "source": "conn.execute('UPDATE printers SET installed_nozzles=? WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 86,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "conn.execute('UPDATE printers SET slot_count=9 WHERE id=?', (printer_id,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 87,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "rows = conn.execute('SELECT slot_number,id,tray_observation,assigned_spool_id FROM filament_slots WHERE printer_id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 93,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "slot_id = conn.execute(\"INSERT INTO filament_slots(printer_id,filament_type,slot_number) \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 117,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=?,loaded_at=? WHERE id=?',"
     },
     {
       "classification": "sqlite-provider-only",

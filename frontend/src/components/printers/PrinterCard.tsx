@@ -258,8 +258,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
       <ExperimentalOptIn printer={printer} />
-      {rack && !foundry && <InstalledNozzles rack nozzles={printer.installed_nozzles} amsConnected={printer.ams_connected} />}
-      {(!rack || externallyManagedFilament || printer.ams_connected) && <div className="filament-slot-container p-3 md:p-4">
+      {rack && !foundry && <InstalledNozzles rack nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
+      <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
           <span className="text-xs md:text-sm text-[var(--brand-text-secondary)]">{externallyManagedFilament ? 'Filament Ledger · read only' : 'Loaded Filaments'}</span>
@@ -269,7 +269,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               {slotsNeedingAttention}
             </span>
           )}
-          {!externallyManagedFilament && canDo('printers.slots') && hasBambuConnection ? (
+          {!rack && !externallyManagedFilament && canDo('printers.slots') && hasBambuConnection ? (
             <button
               onClick={handleSyncAms}
               disabled={syncing}
@@ -288,7 +288,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           const slots = printer.filament_slots || []
           // Keep ACE box grouping aligned with the common filament-slot numbering.
           const groups = slots.map((slot: any) => filamentSlotGroup(printer.api_type, slot.slot_number))
-          const labelled = !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
+          const labelled = !rack && !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
           let previous: string | null = null
           return (
             <div data-testid="filament-slot-grid" className="filament-slot-grid grid gap-2 min-w-0">
@@ -298,6 +298,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   <FilamentSlotEditor
                     printerId={printer.id}
                     apiType={printer.api_type}
+                    label={rack ? `Position ${slot.slot_number}` : undefined}
                     spools={spools}
                     key={slot.id}
                     slot={slot}
@@ -342,7 +343,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             </div>
           </div>
         )}
-      </div>}
+      </div>
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-surface)] border-t border-[var(--brand-border)]">
         {(() => {
           const online = isOnline(printer)

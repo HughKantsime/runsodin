@@ -138,7 +138,7 @@ export default function PrinterDetail() {
       <ActiveHms printer={printer} />
       <PrinterDetectionLink printer={printer} />
       {!rack && printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
-      {foundry ? <PrinterDetailOverview printer={printer} /> : <div className="mb-6"><FilamentSlotsPanel printer={printer} /></div>}
+      {foundry ? <PrinterDetailOverview printer={printer} /> : !rack && <div className="mb-6"><FilamentSlotsPanel printer={printer} /></div>}
       {!rack && online && isActivePrintState(printer.gcode_state) && printer.api_type === 'bambu'
         && canDo('printers.edit') && ['operator', 'admin'].includes(getCurrentUser()?.role || '') && (
         <div className="mb-4"><Button variant="secondary" className="min-h-11" onClick={() => setSkipOpen(true)}>Skip objects</Button></div>
@@ -196,7 +196,7 @@ export default function PrinterDetail() {
 
       </DetailPresentation>
       <ExperimentalFeatures printer={printer} foundry={foundry} />
-      {(!foundry || !rack) && <InstalledNozzles rack={rack} nozzles={printer.installed_nozzles} amsConnected={printer.ams_connected} />}
+      {(!foundry || !rack) && <InstalledNozzles rack={rack} nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
 
       {/* Telemetry */}
       {telemetry && Array.isArray(telemetry) && telemetry.length > 0 && (

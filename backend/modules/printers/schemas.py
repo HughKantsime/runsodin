@@ -74,6 +74,7 @@ class FilamentSlotResponse(FilamentSlotBase):
     remaining_weight: Optional[float] = None  # grams left on the assigned spool
     spool_change_pending: bool = False
     observed_state: Optional[str] = None
+    rack_filament: Optional[dict] = None
     preset: Optional[str] = None
     brand: Optional[str] = None
     material_type: Optional[str] = None
@@ -108,6 +109,8 @@ class FilamentSlotResponse(FilamentSlotBase):
             values['color'] = f'{spool.filament.brand} {spool.filament.name}'.strip() if spool and spool.filament else values['preset']
             if observed.get('exists') is False:
                 values.update(color=None, brand=None, preset=None)
+        if isinstance(state.get('rack_filament'), dict):
+            values['rack_filament'] = state['rack_filament']
         return values
 
 
@@ -325,9 +328,7 @@ class PrinterResponse(PrinterBase):
             values['installed_nozzles'] = display_nozzles(values.get('installed_nozzles'), rack=rack)
         if rack:
             values['model'] = 'H3C'
-            # Configured rows can hold operator edits. Only filter the response.
-            if values.get('ams_connected') is not True:
-                values.update(filament_slots=[], loaded_colors=[])
+            values['ams_connected'] = None
         url = effective_camera_url(data)
         from modules.printers.bambu_hms_bundle import credential_prefix
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''

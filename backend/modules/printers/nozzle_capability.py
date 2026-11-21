@@ -61,6 +61,10 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
             identity = {'nozzle_id': identifier, 'side': 'rack',
                         'position': address + 1 if type(address) is int and 0 <= address < 9 else None,
                         'stat': row.get('stat') if type(row.get('stat')) is int else None}
+            # One known load suggests snow's high byte names a virtual slot.
+            # Use only the reported ID for display until a second load confirms direction.
+            if type(row.get('snow')) is int and 0 <= row['snow'] <= 0xffff:
+                identity['virtual_slot_id'] = row['snow'] >> 8
         else:
             continue
         code = row.get('type')

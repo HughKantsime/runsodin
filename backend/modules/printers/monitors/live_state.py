@@ -21,6 +21,7 @@ def publisher(owner, printer_id):
 
 def reset_mqtt(monitor, runtime):
     """Caller holds the monitor lock; merged telemetry is never a new seed."""
+    monitor._pending_rack_filaments = {}
     monitor._phantom_slot_evidence = None
     monitor._live_mqtt_state = None
     monitor._live_mqtt_generation = monitor._connection_generation

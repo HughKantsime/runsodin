@@ -93,10 +93,10 @@ it.each([['RUNNING', 'Printing'], ['PAUSED', 'Needs you'], ['IDLE', 'Ready'], ['
  expect(screen.getByTestId('printer-status')).toHaveClass('foundry-status')
 })
 
-it('shows the reported H3C rack and the disconnected AMS on the card', () => {
+it.each([false, null])('shows the H3C rack and its ODIN slot with AMS status %s', amsConnected => {
  const rows = [{ nozzle_id: 23, position: 8, side: 'rack', type: 'HT01', diameter: 0.4, present: true }]
- render(<PrinterCard printer={{ ...printer, api_type: 'bambu', model: 'H3C', installed_nozzles: rows, ams_connected: false }} {...props} />)
+ render(<PrinterCard printer={{ ...printer, api_type: 'bambu', model: 'H3C', installed_nozzles: rows, ams_connected: amsConnected, filament_slots: [{ id: 8, slot_number: 8, filament_type: 'empty' }] }} {...props} />)
  expect(screen.getByRole('region', { name: 'Nozzle rack' })).toHaveTextContent('Position 8 · HT01 · 0.4 mm')
- expect(screen.getByText('No AMS connected')).toBeInTheDocument()
- expect(screen.queryByTestId('filament-slot-grid')).not.toBeInTheDocument()
+ expect(screen.queryByText(/No AMS connected|AMS status unknown/)).not.toBeInTheDocument()
+ expect(screen.getByTestId('filament-slot')).toBeInTheDocument()
 })

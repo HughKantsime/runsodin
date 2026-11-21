@@ -266,4 +266,5 @@ test('offers H3C in Bambu setup', async () => {
  const select = screen.getByRole('combobox')
  fireEvent.change(select, { target: { value: 'H3C' } })
  expect(select).toHaveValue('H3C')
+ expect(defaultSlotCount('bambu', 'H3C')).toBe(9)
 })
