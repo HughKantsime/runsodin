@@ -264,15 +264,16 @@ def test_fixed_nozzle_presence_matches_baseline_for_signed_mask():
     assert [r['present'] for r in installed_nozzles(packet)] == [True, True]
 
 
-def test_rack_only_printer_serializes_prefetched_slots_without_sql(offline_store):
+@pytest.mark.parametrize('model,expected', [(None, (None, False)), ('P1S', ('old-tray', True))])
+def test_rack_only_printer_serializes_prefetched_slots_without_sql(offline_store, model, expected):
     from sqlalchemy import event
     from modules.inventory.catalogue_slots import enrich_catalogue_slots
     from modules.printers.models import Printer
     from modules.printers.schemas import FilamentSlotResponse
 
     rows = [{'side': 'rack', 'nozzle_id': n} for n in (16, 17, 18)]
-    offline_store.execute(text("UPDATE printers SET model='P1S', installed_nozzles=:rows WHERE id=199"),
-                          {'rows': json.dumps(rows)})
+    offline_store.execute(text("UPDATE printers SET model=:model,machine_type=NULL,installed_nozzles=:rows WHERE id=199"),
+                          {'model': model, 'rows': json.dumps(rows)})
     offline_store.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,tray_observation) "
                                "VALUES(199,:n,'empty',:obs)"),
                           [{'n': n, 'obs': json.dumps({'id': 'old-tray', 'pending': True})} for n in range(1, 10)])
@@ -288,7 +289,7 @@ def test_rack_only_printer_serializes_prefetched_slots_without_sql(offline_store
     finally:
         event.remove(engine, 'before_cursor_execute', unexpected)
     assert len(slots) == 9
-    assert all(slot.observed_state is None and not slot.spool_change_pending for slot in slots)
+    assert all((slot.observed_state, slot.spool_change_pending) == expected for slot in slots)
 
 
 def test_dual_printer_with_only_primary_fallback_persists_empty_list(offline_store, v2_offline_monitor):

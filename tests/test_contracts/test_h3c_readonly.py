@@ -13,6 +13,9 @@ from tests.test_contracts.test_api_token_delegation_behavior import review_db, t
 from tests.test_contracts.test_printer_offline_behavior import offline_store, v2_offline_monitor
 
 
+STORED_RACK_ROWS = json.dumps([{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)])
+
+
 @pytest.fixture
 def capture(request, monkeypatch, review_db):
     from core import db
@@ -186,7 +189,7 @@ def test_presence_uses_nozzle_id_and_position_uses_address(capture):
 
 
 @pytest.mark.parametrize('model,machine,file_model', [
-    ('N10', None, 'Bambu Lab P1S'), ('P1S', None, 'Bambu Lab P1S'),
+    ('N10', None, 'Bambu Lab P1S'), (None, None, 'Bambu Lab P1S'),
     ('H3C', 'P1S', 'Bambu Lab P1S'), ('P1S', 'Bambu Lab H3C', 'Bambu Lab H3C'), ('H3C', None, None)])
 def test_dispatch_refuses_target_before_device_or_file_inspection(review_db, tmp_path, monkeypatch, model, machine, file_model):
     from modules.printers import dispatch, smart_plug
@@ -195,15 +198,28 @@ def test_dispatch_refuses_target_before_device_or_file_inspection(review_db, tmp
         with ZipFile(path, 'a') as package:
             package.writestr('Metadata/project_settings.config', json.dumps({'printer_model': file_model}))
     with engine.begin() as conn:
-        rows = [{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)] if model == 'P1S' and machine is None else []
         conn.execute(text("UPDATE printers SET model=:model,machine_type=:machine,installed_nozzles=:rows WHERE id=59"),
-                     {'model': model, 'machine': machine, 'rows': json.dumps(rows)})
+                     {'model': model, 'machine': machine, 'rows': STORED_RACK_ROWS if model is None else '[]'})
     monkeypatch.setattr(dispatch, '_validated_print_options', lambda *a: pytest.fail('Reached file inspection'))
     monkeypatch.setattr(smart_plug, 'prepare_bounded_dispatch_power', lambda *a: pytest.fail('Reached device preparation'))
     ok, reason = dispatch.dispatch_job(59, 53)
     assert not ok and reason.startswith('unsupported_rack_printer:')
     with engine.connect() as conn:
         assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
+
+
+def test_dispatch_to_p1s_ignores_stored_rack_rows(review_db, tmp_path, monkeypatch):
+    from modules.printers import dispatch
+    from tests.test_contracts.test_multi_source_ams_dispatch import transport
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
+    with ZipFile(path, 'a') as package:
+        package.writestr('Metadata/project_settings.config', json.dumps({'printer_model': 'Bambu Lab P1S'}))
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE printers SET model='P1S',machine_type=NULL,installed_nozzles=:rows WHERE id=59"),
+                     {'rows': STORED_RACK_ROWS})
+    transport(monkeypatch, path, 'v2', [])
+    _, reason = dispatch.dispatch_job(59, 53)
+    assert not reason.startswith('unsupported_rack_printer:')
 
 
 def test_printer_controls_stay_read_only(offline_store, token_client):
@@ -286,7 +302,7 @@ def test_identified_rack_does_not_show_an_old_ams_confirmation(offline_store, to
 
 
 @pytest.mark.parametrize('sender', ['monitor', 'v2', 'legacy', 'fallback'])
-@pytest.mark.parametrize('identity', ['model', 'get_version', 'N10', 'rack_report'])
+@pytest.mark.parametrize('identity', ['model', 'get_version', 'N10', 'rack_report', 'rack_report_on_p1s'])
 @pytest.mark.parametrize('api_type', ['bambu', None], ids=['bambu', 'unset'])
 def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_store, v2_offline_monitor, monkeypatch):
     import time
@@ -313,54 +329,87 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
         assert adapter.pause_print() is True
         wire.publish.assert_called_once()
         wire.publish.reset_mock()
-    offline_store.execute(text("UPDATE printers SET model=:model,api_type=:api,api_host=:host,api_key=:credential WHERE id=199"),
-                          {'model': {'model': 'H3C', 'N10': 'N10'}.get(identity, 'P1S'),
+    offline_store.execute(text("UPDATE printers SET model=:model,machine_type=NULL,api_type=:api,api_host=:host,api_key=:credential WHERE id=199"),
+                          {'model': {'model': 'H3C', 'N10': 'N10', 'rack_report': None}.get(identity, 'P1S'),
                            'api': api_type, 'host': monitor.ip, 'credential': monitor.serial + '|fixture'})
     offline_store.commit()
     # A legacy fallback can hold the row it loaded before the monitor commits.
     target = offline_store.get(Printer, 199) if api_type is None else None
     monitor._last_heartbeat = 2000
-    if identity == 'get_version':
-        info = {'command': 'get_version', 'module': [{'name': 'ota', 'sw_ver': '1', 'product_name': 'Bambu Lab H3C'}]}
-        emit[0](BambuInfoEvent('monitor-199', 2000, BambuInfoSection.model_validate(info)))
-    elif identity == 'rack_report':
-        monitor._on_status(SimpleNamespace(raw_data={'print': {'device': capture['device']}}))
-        stored = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=199')).scalar_one()
-        assert [row['position'] for row in json.loads(stored)] == list(range(1, 10))
     if sender == 'monitor':
         monitor._v2_adapter._client = wire
         monitor._v2_adapter._connected = True
-        outcome = monitor_commands.execute({199: monitor}, dict(printer_id=199, action='light', on=True,
-                                           deadline=time.monotonic() + 3))
-        assert outcome == 'refused'
     elif sender == 'fallback':
-        monkeypatch.setattr(route_utils, '_bambu_command', wire.publish)
-        assert route_utils._send_printer_command(target or offline_store.get(Printer, 199), 'pause_print') is False
-    else:
-        assert adapter.pause_print() is False
+        def connect(adapter):
+            adapter._client, adapter._connected = wire, True
+            return True
+        monkeypatch.setenv('ODIN_TELEMETRY_V2', '0')
+        monkeypatch.setattr(BambuPrinter, 'connect', connect)
+
+    def check_send(allowed):
+        if sender == 'monitor':
+            outcome = monitor_commands.execute({199: monitor}, dict(printer_id=199, action='light', on=True,
+                                               deadline=time.monotonic() + 3))
+            assert outcome == ('accepted' if allowed else 'refused')
+        elif sender == 'fallback':
+            assert route_utils._send_printer_command(target or offline_store.get(Printer, 199), 'pause_print') is allowed
+        else:
+            assert adapter.pause_print() is allowed
+
+    def stored_nozzles():
+        raw = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=199')).scalar_one()
+        return json.loads(raw or '[]')
+
+    if identity in ('rack_report', 'rack_report_on_p1s'):
+        monitor._on_status(SimpleNamespace(raw_data={'print': {'device': capture['device']}}))
+    if identity == 'rack_report_on_p1s':
+        assert offline_store.execute(text('SELECT model,machine_type FROM printers WHERE id=199')).one() == ('P1S', None)
+        assert all(row['side'] != 'rack' for row in stored_nozzles())
+        check_send(allowed=True)
+        topic = f'device/{monitor.serial}/request'
+        if sender == 'monitor':
+            payload = {'system': {'sequence_id': '0', 'command': 'ledctrl', 'led_node': 'chamber_light', 'led_mode': 'on'}}
+            wire.publish.assert_called_once_with(topic, json.dumps(payload), qos=0)
+        else:
+            wire.publish.assert_called_once_with(topic, json.dumps({'print': {'sequence_id': '0', 'command': 'pause'}}))
+        wire.publish.reset_mock()
+    if identity in ('get_version', 'rack_report_on_p1s'):
+        info = {'command': 'get_version', 'module': [{'name': 'ota', 'sw_ver': '1', 'product_name': 'Bambu Lab H3C'}]}
+        emit[0](BambuInfoEvent('monitor-199', 2000, BambuInfoSection.model_validate(info)))
+    if identity in ('rack_report', 'rack_report_on_p1s'):
+        assert [row['position'] for row in stored_nozzles()] == list(range(1, 10))
+    if sender == 'fallback':
+        monkeypatch.setattr(route_utils, '_bambu_command', lambda *args: pytest.fail('Reached Bambu fallback'))
+    check_send(allowed=False)
     wire.publish.assert_not_called()
 
 
 @pytest.mark.parametrize('protocol', ['v2', 'legacy'])
-@pytest.mark.parametrize('mapped', [False, True])
-def test_rack_observed_during_upload_refuses_next_dispatch(review_db, tmp_path, monkeypatch, protocol, mapped):
+@pytest.mark.parametrize('mapped,model', [(False, None), (True, None), (True, 'P1S')])
+def test_rack_observed_during_upload_refuses_next_dispatch(review_db, tmp_path, monkeypatch, protocol, mapped, model):
     from modules.printers import dispatch
     from tests.test_contracts.test_multi_source_ams_dispatch import owned_read, setup_multi, transport
     events = []
     if mapped:
         engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='P1S')
+        if model is None:
+            with engine.begin() as conn:
+                conn.execute(text('UPDATE printers SET model=NULL,machine_type=NULL WHERE id=59'))
         owned_read(monkeypatch, engine, report, events)
     else:
         engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
     def report_rack():
         with engine.begin() as conn:
             conn.execute(text("UPDATE printers SET installed_nozzles=:rows WHERE id=59"),
-                         {'rows': json.dumps([{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)])})
+                         {'rows': STORED_RACK_ROWS})
     sent = transport(monkeypatch, path, protocol, events, after_upload=report_rack)
     ok, reason = dispatch.dispatch_job(59, 53)
     assert ok, reason
     ok, reason = dispatch.dispatch_job(59, 54)
-    assert not ok and reason.startswith('unsupported_rack_printer:')
+    if model == 'P1S':
+        assert not reason.startswith('unsupported_rack_printer:')
+    else:
+        assert not ok and reason.startswith('unsupported_rack_printer:')
     assert events == (['upload', 'fresh_read', 'start'] if mapped else ['upload', 'start'])
     assert len(sent) == 1
 
@@ -401,13 +450,16 @@ def test_unidentified_rack_keeps_refusal_across_partial_reports(offline_store, v
     from modules.printers.printer_models import rack_printer_refusal
     monitor, _, runtime = v2_offline_monitor
     monitor._last_heartbeat = runtime.time.time()
-    # The count establishes the refusal even without a product name or known rack addresses.
+    # No product name or known rack addresses. Only a fresh, complete report counts.
     entries = [{'id': n} for n in (30, 31, 32)]
     packet = {'print': {'device': {'nozzle': {'info': entries}}}}
-    monitor._on_status(SimpleNamespace(raw_data=packet, mqtt_retained=True))
     def refusal():
         row = offline_store.execute(text('SELECT model,machine_type,installed_nozzles FROM printers WHERE id=199')).mappings().one()
         return rack_printer_refusal(row)
+    monitor._on_status(SimpleNamespace(raw_data=packet))
+    assert refusal() is None
+    packet['print']['device']['nozzle']['exist'] = sum(1 << row['id'] for row in entries)
+    monitor._on_status(SimpleNamespace(raw_data=packet, mqtt_retained=True))
     assert refusal() is None
     monitor._on_status(SimpleNamespace(raw_data=packet))
     assert refusal().startswith('unsupported_rack_printer:')
