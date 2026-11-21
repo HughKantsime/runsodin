@@ -16,6 +16,7 @@ vi.mock('../../api', async () => {
     maintenance: real.maintenance,
     fetchAPI: vi.fn().mockResolvedValue({}), stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() },
     printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() },
+    archives: { accountingSummary: async () => ({ unresolved: 0, by_cause: [], oldest_completed_at: null }) },
   }
 })
 vi.mock('../../permissions', () => ({ canDo: () => true, canAccessPage: () => true, getCurrentUser: () => ({ id: 1, role: 'admin' }), clearSensitiveBrowserState: vi.fn() }))

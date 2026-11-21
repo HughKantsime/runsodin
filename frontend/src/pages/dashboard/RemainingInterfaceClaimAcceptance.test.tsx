@@ -12,7 +12,11 @@ import es from '../../i18n/es.json'
 import itCatalog from '../../i18n/it.json'
 
 const api = vi.hoisted(() => ({ language: vi.fn() }))
-vi.mock('../../api', () => ({ fetchAPI: api.language, stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() }, printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() }, maintenance: { getStatus: vi.fn() } }))
+vi.mock('../../api', () => ({
+  fetchAPI: api.language, stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() },
+  printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() }, maintenance: { getStatus: vi.fn() },
+  archives: { accountingSummary: async () => ({ unresolved: 0, by_cause: [], oldest_completed_at: null }) },
+}))
 vi.mock('../../permissions', () => ({ getCurrentUser: () => null, canAccessPage: () => true, canDo: () => true }))
 const catalogs = { en, de, ja, es, it: itCatalog }
 const clients: QueryClient[] = []
@@ -26,7 +30,8 @@ function showDashboard(tasks: any[] = []) {
   c.setQueryData(['stats'], { jobs: {} }); c.setQueryData(['jobs', 'active'], []); c.setQueryData(['print-jobs'], [])
   c.setQueryData(['printers', 'active', null, null], [{ id: 1, name: 'Fixture Alpha', last_seen: new Date().toISOString(), gcode_state: 'IDLE', filament_slots: [] }, { id: 2, name: 'Fixture Beta', last_seen: new Date().toISOString(), gcode_state: 'IDLE', filament_slots: [] }])
   c.setQueryData(['maintenance-status'], [{ printer_id: 1, printer_name: 'Fixture Alpha', tasks }])
-  return render(<QueryClientProvider client={c}><MemoryRouter><I18nProvider><Route /><Dashboard /></I18nProvider></MemoryRouter></QueryClientProvider>)
+  const view = render(<QueryClientProvider client={c}><MemoryRouter><I18nProvider><Route /><Dashboard /></I18nProvider></MemoryRouter></QueryClientProvider>)
+  return { ...view, client: c }
 }
 const due = { task_name: 'Lubricate rails', status: 'overdue', progress_percent: 130, hours_since_service: 120, days_since_service: 30 }
 beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); api.language.mockResolvedValue({}) })
@@ -88,4 +93,10 @@ it('F16-16.6-02 limits visible maintenance cards to six with remaining count', (
 })
 it('F16-16.6-02 hides maintenance widget when no task requires attention', () => {
   showDashboard([{ ...due, status: 'ok', progress_percent: 74 }]); expect(screen.queryByRole('heading', { name: 'Maintenance Due' })).not.toBeInTheDocument()
+})
+it('renders the dashboard without a settlement link when no filament is unaccounted for', async () => {
+  const { client } = showDashboard()
+  await waitFor(() => expect(client.getQueryState(['archive-accounting-summary'])?.status).toBe('success'))
+  expect(screen.queryByRole('link', { name: /filament settled/i })).not.toBeInTheDocument()
+  expect(screen.queryByText("This section couldn't load")).not.toBeInTheDocument()
 })

@@ -8,7 +8,11 @@ import Dashboard from './Dashboard'
 import { I18nProvider } from '../../contexts/I18nContext'
 import { farmDayNote, zoneOffsetMinutes, zoneShortName } from '../../utils/farmTime'
 
-vi.mock('../../api', () => ({ fetchAPI: vi.fn().mockResolvedValue({}), stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() }, printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() }, maintenance: { getStatus: vi.fn() } }))
+vi.mock('../../api', () => ({
+  fetchAPI: vi.fn().mockResolvedValue({}), stats: { get: vi.fn() }, jobs: { list: vi.fn() }, printers: { list: vi.fn() },
+  printJobs: { list: vi.fn() }, alerts: { summary: vi.fn() }, maintenance: { getStatus: vi.fn() },
+  archives: { accountingSummary: async () => ({ unresolved: 0, by_cause: [], oldest_completed_at: null }) },
+}))
 vi.mock('../../permissions', () => ({ getCurrentUser: () => null, canAccessPage: () => true, canDo: () => true }))
 const realResolved = Intl.DateTimeFormat.prototype.resolvedOptions
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); localStorage.clear() })
@@ -30,6 +34,7 @@ describe('dashboard "Completed today" label', () => {
   it('names the farm zone for a viewer in another zone', () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(JANUARY)
     show(farm('America/New_York'), 'Europe/Berlin')
+    expect(screen.queryByText("This section couldn't load")).not.toBeInTheDocument()
     expect(screen.getByText('Completed Today (farm time, EST)')).toBeInTheDocument()
   })
   it('is unchanged for a viewer in the farm zone', () => {
