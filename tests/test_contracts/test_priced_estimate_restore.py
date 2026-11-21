@@ -13,7 +13,7 @@ TOC=tuple(r.TableDataEntry(i+1,table) for i,table in enumerate(s.TABLES))
 
 
 def dump(rows=None):
-    rows=rows or {};parts=[b'--\n-- PostgreSQL database dump\n--\n\n',b'\\restrict '+TOKEN+b'\n\n',b'-- Dumped from database version 16.15\n-- Dumped by pg_dump version 16.15\n\n',*r.ENVELOPE,b'\n']
+    rows=rows or {};parts=[b'--\n-- PostgreSQL database dump\n--\n\n',b'\\restrict '+TOKEN+b'\n\n',b'-- Dumped from database version 16.16\n-- Dumped by pg_dump version 16.16\n\n',*r.ENVELOPE,b'\n']
     for table in reversed(s.TABLES):
         parts.extend([('--\n-- Data for Name: '+table+'; Type: TABLE DATA; Schema: public; Owner: -\n--\n\n').encode(),('COPY public.'+table+' ('+', '.join(r.columns(table))+') FROM stdin;\n').encode()])
         parts.extend(rows.get(table,()));parts.append(b'\\.\n\n\n')
@@ -25,16 +25,22 @@ def parse(payload,**kw):return list(r.extract_copy(io.BytesIO(payload),table_dat
 
 
 def test_exact_seven_empty_blocks_and_qualified_profile():
-    events=parse(dump())
+    events=parse(dump(),profile='postgresql-16.16-restricted-text')
     assert [event.table for event in events if isinstance(event,r.CopyStart)]==list(reversed(s.TABLES))
     assert len(events)==14
+
+
+@pytest.mark.parametrize('header', [b'-- Dumped from database version ', b'-- Dumped by pg_dump version '])
+def test_previous_version_headers_refused(header):
+    with pytest.raises(r.PricedRestoreError):
+        parse(dump().replace(header+b'16.16', header+b'16.15'))
 
 @pytest.mark.parametrize('replacement',[b'SELECT 1;\n',b'SET statement_timeout = 1;\n',b'SET statement_timeout = 0; DROP TABLE public.users;\n',b'-- arbitrary lookalike\n'])
 def test_executable_or_unknown_envelope_refused(replacement):
     payload=dump().replace(r.ENVELOPE[0],replacement)
     with pytest.raises(r.PricedRestoreError):parse(payload)
 
-@pytest.mark.parametrize('mutation',[lambda p:p.replace(b'public.priced_source_revisions (source_uid,',b'public.users (source_uid,'),lambda p:p.replace(b'FROM stdin;',b'FROM stdin WITH (FORMAT binary);',1),lambda p:p.replace(b'source_uid, revision',b'revision, source_uid'),lambda p:p.replace(b'-- Dumped by pg_dump version 16.15',b'-- Dumped by pg_dump version 18.0'),lambda p:p.replace(b'\\unrestrict '+TOKEN,b'\\unrestrict '+b'B'*63),lambda p:p[:-1],lambda p:p+b'SELECT pg_sleep(1);\n',lambda p:p.replace(b'\\.\n',b'',1)])
+@pytest.mark.parametrize('mutation',[lambda p:p.replace(b'public.priced_source_revisions (source_uid,',b'public.users (source_uid,'),lambda p:p.replace(b'FROM stdin;',b'FROM stdin WITH (FORMAT binary);',1),lambda p:p.replace(b'source_uid, revision',b'revision, source_uid'),lambda p:p.replace(b'-- Dumped by pg_dump version 16.16',b'-- Dumped by pg_dump version 18.0'),lambda p:p.replace(b'\\unrestrict '+TOKEN,b'\\unrestrict '+b'B'*63),lambda p:p[:-1],lambda p:p+b'SELECT pg_sleep(1);\n',lambda p:p.replace(b'\\.\n',b'',1)])
 def test_bad_header_profile_pair_truncation_and_extra_sql(mutation):
     with pytest.raises(r.PricedRestoreError):parse(mutation(dump()))
 
@@ -198,7 +204,7 @@ def test_staged4096_history_bound_and_unordered_domain_validation(db):
     stage.drop()
 
 
-def test_actual_qualified_f4_producer_build_header_and_no_general_suffix():
-    payload=dump().replace(b'-- Dumped by pg_dump version 16.15\n',b'-- Dumped by pg_dump version 16.15 (Debian 16.15-1.pgdg13+2)\n')
+def test_qualified_debian_producer_build_header_and_no_general_suffix():
+    payload=dump().replace(b'-- Dumped by pg_dump version 16.16\n',b'-- Dumped by pg_dump version 16.16 (Debian 16.16-1.pgdg13+1)\n')
     assert len(parse(payload))==14
-    with pytest.raises(r.PricedRestoreError):parse(payload.replace(b'pgdg13+2',b'unknown-build'))
+    with pytest.raises(r.PricedRestoreError):parse(payload.replace(b'pgdg13+1',b'unknown-build'))

@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Enterprise Compose now pins PostgreSQL 16.16. For an existing installation, copy the new PostgreSQL image line from `docker-compose.enterprise.yml` into your Compose file and recreate the database container. This minor update does not require a dump and restore.
+
 ### Added
 
 - Printer cards and details keep the last reported progress, time remaining, and speed through refreshes and show how old those readings are. Operators can pause, resume, or stop a print directly from either view.

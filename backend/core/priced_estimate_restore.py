@@ -11,7 +11,7 @@ from core import priced_estimate_schema as schema,priced_estimate_validation as 
 
 MAX_RECORD=4*(65536+4096)
 MAX_DECODED_RECORD=65536+4096
-PROFILE='postgresql-16.15-restricted-text'
+PROFILE='postgresql-16.16-restricted-text'
 ENVELOPE=(b'SET statement_timeout = 0;\n',b'SET lock_timeout = 0;\n',b'SET idle_in_transaction_session_timeout = 0;\n',b"SET client_encoding = 'UTF8';\n",b'SET standard_conforming_strings = on;\n',b"SELECT pg_catalog.set_config('search_path', '', false);\n",b'SET check_function_bodies = false;\n',b'SET xmloption = content;\n',b'SET client_min_messages = warning;\n',b'SET row_security = off;\n')
 
 class PricedRestoreError(ValueError):pass
@@ -111,8 +111,8 @@ def extract_copy(stream,*,table_data,budget,profile=PROFILE):
     restricted=read();match=re.fullmatch(rb'\\restrict ([A-Za-z0-9]{63})\n',restricted)
     if not match:_refuse()
     token=match[1];exact(b'\n')
-    exact(b'-- Dumped from database version 16.15\n')
-    if read() not in (b'-- Dumped by pg_dump version 16.15\n',b'-- Dumped by pg_dump version 16.15 (Debian 16.15-1.pgdg13+2)\n'):_refuse()
+    exact(b'-- Dumped from database version 16.16\n')
+    if read() not in (b'-- Dumped by pg_dump version 16.16\n',b'-- Dumped by pg_dump version 16.16 (Debian 16.16-1.pgdg13+1)\n'):_refuse()
     exact(b'\n')
     for line in ENVELOPE:exact(line)
     exact(b'\n');seen=set()
