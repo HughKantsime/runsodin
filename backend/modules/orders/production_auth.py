@@ -5,16 +5,18 @@ from core.rbac import mark_token_scope_checker
 PRODUCTION_SCOPE = 'write:production'
 
 
+def is_password_session(user):
+    return user.get('_auth_kind') in ('jwt', 'session_jwt', 'bearer_jwt') and not user.get('_token_scopes')
+
+
 def assert_production_operator(user):
     if not user:
         raise HTTPException(401, 'Not authenticated')
     if user.get('role') not in ('admin', 'operator'):
         raise HTTPException(403, 'Production operator access is required')
-    kind = user.get('_auth_kind')
-    scopes = user.get('_token_scopes') or []
-    if kind in ('jwt', 'session_jwt', 'bearer_jwt') and not scopes:
+    if is_password_session(user):
         return user
-    if kind == 'user_api_token' and PRODUCTION_SCOPE in scopes:
+    if user.get('_auth_kind') == 'user_api_token' and PRODUCTION_SCOPE in (user.get('_token_scopes') or []):
         return user
     raise HTTPException(403, 'Sign in with a password session or use an explicit write:production operator token')
 

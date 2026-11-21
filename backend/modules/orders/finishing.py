@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from core.models import SystemConfig
 from core.inspection_details import InspectionDetails
 from modules.orders import square_store as store,batch_production as batches
+from modules.orders.production_auth import is_password_session
 
 PREFIX='production_finishing:'
 class Input(BaseModel):
@@ -179,7 +180,7 @@ def finish(db,user,data):
         if h['managed']:expected=whole(expected)
         uses.append({**h,'expected_units':expected})
     row['material_use']=consume_hardware(db,owner,uses,data.hardware_usage,data.hardware_used_confirmed,identifier,
-                                         allow_over_bom=user.get('_auth_kind') != 'user_api_token')
+                                         allow_over_bom=is_password_session(user))
     if data.accepted:
         config,encoded=store.load(db,owner)
         if not config:raise HTTPException(409,'Connect and map the finished product to Square before accepting good assemblies')

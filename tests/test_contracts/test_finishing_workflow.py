@@ -150,3 +150,6 @@ def test_history_search_finds_component_or_assembly_by_inspection_text(batch):
             assert row['id'] == receipt['id'] and row['note'] == receipt['note']
     assert client.get('/products/production/history', params={
         'query':lot['counted_by'], 'state':'prepared'}).json()['receipts'] == []
+    for query, ids in [('JOËL', [assembly['id']]), ('counted_by', []), ('note', [])]:
+        rows = client.get('/products/production/history', params={'query':query}).json()['receipts']
+        assert [row['id'] for row in rows] == ids

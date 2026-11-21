@@ -386,7 +386,7 @@ def test_invalid_count_details_return_422_on_each_form(batch):
              'finishing': finish_body(batch, {'id':'a'*32}, preview)}
     for route, data in forms.items():
         for field, value in [('counted_by',' '), ('note',' '), ('counted_by','x'*121), ('note','x'*501),
-                             ('note','a\nb'), ('counted_by','\tRobin'), ('note','x\x7f')]:
+                             ('note','a\nb'), ('counted_by','\tRobin'), ('note','x\x7f'), ('note','a\u202eb')]:
             response = batch[0].post('/products/production/'+route, json={**data, field:value})
             assert response.status_code == 422, (route, field)
 
@@ -397,6 +397,19 @@ def test_count_detail_boundaries_are_measured_after_trimming(batch):
     response = batch[0].post('/products/production/inspections',json=data)
     assert response.status_code == 200
     assert response.json()['counted_by'] == 'a'*120 and response.json()['note'] == 'b'*500
+
+
+@pytest.mark.parametrize('name,note,stored_note', [
+    ('علی\u200cرضا', 'Counted', 'Counted'),
+    ('Avery', 'क्\u200dष', 'क्\u200dष'),
+    ('Avery', '\u3000Second\u00a0tray\u3000', 'Second tray'),
+])
+def test_inspection_unicode_details_round_trip(batch, name, note, stored_note):
+    data = {**body(batch, make_recipe(batch)), 'counted_by':name, 'note':note}
+    response = batch[0].post('/products/production/inspections', json=data)
+    assert response.status_code == 200, response.text
+    saved, = batch[0].get('/products/production/history').json()['receipts']
+    assert (saved['counted_by'], saved['note']) == (name, stored_note)
 
 
 def test_inspection_key_reuse_after_private_success(batch, monkeypatch):

@@ -147,6 +147,18 @@ def test_only_password_session_can_record_hardware_above_bom(materials, caller, 
     stock = materials[3].execute(text('SELECT current_stock FROM consumables WHERE id=:id'), {'id':cid}).scalar_one()
     assert stock == (10 if status == 409 else 10 - units)
 
+@pytest.mark.parametrize('kind,scopes', [('other', []), ('bearer_jwt', ['write:production'])])
+def test_finishing_service_requires_unscoped_session_for_excess_hardware(materials, kind, scopes):
+    from fastapi import HTTPException
+    from modules.orders.finishing import FinishInput, finish
+
+    _, payload = assembly_setup(materials)
+    payload['hardware_usage'][0].update(units=9, reason='One damaged during assembly')
+    user = {**materials[1], '_auth_kind':kind, '_token_scopes':scopes}
+    with pytest.raises(HTTPException) as error:
+        finish(materials[3], user, FinishInput(**payload))
+    assert error.value.status_code == 409 and 'exceeds the BOM' in error.value.detail
+
 @pytest.mark.parametrize('mode',['missing','confirmation','shortage','difference_reason'])
 def test_finishing_bad_usage_or_shortage_rolls_back_all(materials,mode):
     cid,payload=assembly_setup(materials,5 if mode=='shortage' else 10)

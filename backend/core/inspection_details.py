@@ -12,9 +12,13 @@ class InspectionDetails(BaseModel):
     @classmethod
     def clean_text(cls, value):
         if isinstance(value, str):
-            if any(unicodedata.category(ch) in ('Cc', 'Cf', 'Cs', 'Zl', 'Zp') for ch in value):
-                raise ValueError('Use a single line of plain text')
-            return value.strip()
+            chars = []
+            for ch in value:
+                category = unicodedata.category(ch)
+                if category in ('Cc', 'Cf', 'Cs', 'Zl', 'Zp') and ch not in ('\u200c', '\u200d'):
+                    raise ValueError('Use a single line of plain text')
+                chars.append(' ' if category == 'Zs' else ch)
+            return ''.join(chars).strip()
         return value
 
     def receipt_details(self):

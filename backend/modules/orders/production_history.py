@@ -1,7 +1,17 @@
 """Tenant-filtered, bounded inspection history without another stock balance."""
 import json
+from itertools import islice
 from sqlalchemy import JSON, cast, func, select
 from modules.orders import batch_production as batches
+
+
+def _matches_value(value, needle):
+    if isinstance(value, dict):
+        return any(_matches_value(v, needle) for v in value.values())
+    if isinstance(value, list):
+        return any(_matches_value(v, needle) for v in value)
+    text_value = value if isinstance(value, str) else json.dumps(value)
+    return needle in text_value.casefold()
 
 
 def history(db, owner, *, offset=0, query='', state=None, limit=25):
@@ -9,11 +19,6 @@ def history(db, owner, *, offset=0, query='', state=None, limit=25):
                  if db.get_bind().dialect.name == 'sqlite'
                  else cast(batches.all_receipts.c.definition, JSON)['occurred_at'].as_string())
     statement = select(batches.all_receipts).where(batches.all_receipts.c.owner == owner)
-    if query:
-        # Literal substring, not user-supplied SQL or wildcard syntax.
-        # Definitions are stored as ASCII-escaped JSON, including quotes in free text.
-        needle = batches.packed(query)[1:-1].lower()
-        statement = statement.where(func.lower(batches.all_receipts.c.definition).contains(needle, autoescape=True))
     if state == 'in_baseline':
         # Disposition belongs to the receipt, including mixed receipts with an addition.
         if db.get_bind().dialect.name == 'sqlite':
@@ -41,11 +46,20 @@ def history(db, owner, *, offset=0, query='', state=None, limit=25):
             component = {k: row[k] for k in fields if k in row}
             finished.append(dict(component, recipe_id=None, recipe_name=row['source']['name'], outputs=[]))
     if query:
-        finished = [r for r in finished if needle in batches.packed(r).lower()]
+        needle = query.casefold()
+        finished = [r for r in finished if _matches_value(r, needle)]
     # At most 500 components and 500 assemblies. Skip only SQL rows guaranteed
     # to precede the requested merged page.
     start=max(0,offset-len(finished))
-    legacy=db.execute(statement.order_by(timestamp.desc(),batches.all_receipts.c.id).offset(start).limit(limit+len(finished)+1)).mappings().all()
+    ordered = statement.order_by(timestamp.desc(), batches.all_receipts.c.id)
+    size = limit + len(finished) + 1
+    if query:
+        # Stream in page order so Unicode matching is identical across database collations.
+        with db.execute(ordered.execution_options(yield_per=size)) as result:
+            matches = (row for row in result.mappings() if _matches_value(json.loads(row['definition']), needle))
+            legacy = list(islice(matches, start, start + size))
+    else:
+        legacy = db.execute(ordered.offset(start).limit(size)).mappings().all()
     combined=[batches.receipt_public(r) for r in legacy]+finished
     # Timestamp descending, stable opaque ID ascending for ties, matching SQL.
     combined.sort(key=lambda r:r['id']);combined.sort(key=lambda r:r['occurred_at'],reverse=True)
