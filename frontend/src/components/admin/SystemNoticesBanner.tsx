@@ -7,12 +7,13 @@ import { systemNotices, type SystemNotice } from '../../api/system'
 import { useOrg } from '../../contexts/OrgContext'
 
 const LINK_LABEL: Record<SystemNotice['kind'], string> = {
+  update_available: 'Release notes',
   restore_quarantined: 'Open backups',
   license_trial_ending: 'Open license',
   license_expiring: 'Open license',
 }
 
-/** Dashboard banner for superadmins: active system notices (a quarantined restore, a license expiring, a Pro trial ending). */
+/** Dashboard notices for platform administrators. */
 export default function SystemNoticesBanner() {
   const org = useOrg()
   const queryClient = useQueryClient()
@@ -30,9 +31,9 @@ export default function SystemNoticesBanner() {
   const dismiss = async (notice: SystemNotice) => {
     setDismissing(notice.kind)
     try {
-      await systemNotices.dismiss(notice.kind)
+      await systemNotices.dismiss(notice.kind === 'update_available' ? `update_available:${notice.version}` : notice.kind)
       queryClient.setQueryData<{ notices: SystemNotice[] }>(['system-notices'], (old) =>
-        old ? { notices: old.notices.filter((n) => n.kind !== notice.kind) } : old)
+        old ? { notices: old.notices.filter((n) => n.kind !== notice.kind || n.version !== notice.version) } : old)
     } catch {
       // The notice stays visible; the next refresh shows the server's state.
     } finally {
@@ -45,6 +46,7 @@ export default function SystemNoticesBanner() {
     <div className="mb-4 space-y-2">
       {notices.map((notice) => {
         const warning = notice.severity === 'warning'
+        const linkClass = `text-xs font-medium underline ${warning ? 'text-amber-200' : 'text-red-200'}`
         const Icon = warning ? Clock : AlertTriangle
         return (
           <PageState kind="error"
@@ -63,9 +65,13 @@ export default function SystemNoticesBanner() {
                   {notice.kind === 'license_trial_ending' ? 'Buy Pro' : 'Renew license'}
                 </a>
               )}
-              <Link to={notice.link} className={`text-xs font-medium underline ${warning ? 'text-amber-200' : 'text-red-200'}`}>
+              {notice.kind === 'update_available' ? (
+                <a href={notice.link} target="_blank" rel="noopener noreferrer" className={linkClass}>
+                  {LINK_LABEL[notice.kind]}
+                </a>
+              ) : <Link to={notice.link} className={linkClass}>
                 {LINK_LABEL[notice.kind] ?? 'Open'}
-              </Link>
+              </Link>}
               {notice.dismissible && (
                 <button
                   type="button"

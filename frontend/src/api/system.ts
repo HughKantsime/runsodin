@@ -32,7 +32,8 @@ export interface BackupEntry {
 }
 
 export interface SystemNotice {
-  kind: 'restore_quarantined' | 'license_trial_ending' | 'license_expiring';
+  kind: 'restore_quarantined' | 'license_trial_ending' | 'license_expiring' | 'update_available';
+  version?: string;
   severity: 'critical' | 'warning';
   title: string;
   message: string;
@@ -49,8 +50,28 @@ export interface SystemNotice {
 /** Superadmin-only notices derived from current server state (GET /system/notices). */
 export const systemNotices = {
   list: (): Promise<{ notices: SystemNotice[] }> => fetchAPI('/system/notices'),
-  dismiss: (kind: SystemNotice['kind']): Promise<{ status: string; kind: string }> =>
+  dismiss: (kind: SystemNotice['kind'] | `update_available:${string}`): Promise<{ status: string; kind: string }> =>
     fetchAPI(`/system/notices/${encodeURIComponent(kind)}/dismiss`, { method: 'POST' }),
+}
+
+export interface UpdateStatus {
+  enabled: boolean
+  stored_enabled: boolean
+  disabled_reason: string | null
+  installed: string
+  newest: string | null
+  published_at: string | null
+  checked_at: string | null
+  outcome: string | null
+  available: boolean
+  security: boolean
+}
+
+export const updates = {
+  get: (): Promise<UpdateStatus> => fetchAPI('/system/updates'),
+  configure: (enabled: boolean): Promise<UpdateStatus> =>
+    fetchAPI('/system/updates', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  check: (): Promise<UpdateStatus> => fetchAPI('/system/updates/check', { method: 'POST' }),
 }
 
 export interface StagedRestore {

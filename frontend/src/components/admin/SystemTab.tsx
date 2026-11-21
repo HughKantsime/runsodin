@@ -1,3 +1,4 @@
+import UpdateSettings from './UpdateSettings'
 import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -551,6 +552,7 @@ export default function SystemTab() {
 
       <InstallAppCard />
       <AuditLogLink />
+      <UpdateSettings />
       <AboutVersion />
 
       {/* Privacy & Data (GDPR) */}

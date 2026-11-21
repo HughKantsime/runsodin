@@ -260,13 +260,19 @@ def system_notices(current_user: dict = Depends(require_superadmin(scope="admin"
     """Active system notices for superadmins (restore quarantine, license expiring, Pro trial ending)."""
     from modules.system.license_notices import license_notices
     from core.controlled_retention import pending_notice
-    return {"notices": active_system_notices() + license_notices(current_user.get("id")) + pending_notice(db)}
+    from modules.system.update_check import update_notices
+    user_id = current_user.get("id")
+    return {"notices": active_system_notices() + license_notices(user_id) + pending_notice(db) + update_notices(db, user_id)}
 
 
 @router.post("/system/notices/{kind}/dismiss", tags=["System"])
-def dismiss_system_notice(kind: str, current_user: dict = Depends(require_superadmin(scope="admin"))):
+def dismiss_system_notice(kind: str, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Dismiss a dismissible notice for the calling admin (the license expiry notices are)."""
     from modules.system.license_notices import DISMISSIBLE_KINDS, dismiss_license_notice
+    if kind.startswith("update_available:"):
+        from modules.system.update_check import dismiss_update
+        dismiss_update(db, current_user["id"], kind.split(":", 1)[1])
+        return {"status": "dismissed", "kind": kind}
     if kind not in DISMISSIBLE_KINDS:
         raise HTTPException(status_code=404, detail="Unknown or non-dismissible notice")
     if not dismiss_license_notice(kind, current_user.get("id")):

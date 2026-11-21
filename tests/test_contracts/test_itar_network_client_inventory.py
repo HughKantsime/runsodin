@@ -217,7 +217,7 @@ ITAR_FILES = (
     "modules/organizations/routes_auth.py", "modules/organizations/routes_users.py",
     "modules/push/apns.py", "modules/reporting/report_runner.py",
     "modules/system/audit_siem_transport.py", "modules/system/routes_health.py",
-    "modules/system/troubleshooting.py",
+    "modules/system/troubleshooting.py", "modules/system/update_releases.py",
     # saved printers, cameras and smart plugs: the device destination functions
     "modules/system/routes_setup.py", "modules/printers/ledger_display.py",
     "modules/printers/plug_http_protocol.py", "modules/printers/route_utils.py",

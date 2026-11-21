@@ -7,6 +7,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Added
 
 - Stock inspections can record who counted and a note. Operators can record components and assemblies with a production token, and add missed flush pieces to a completed job while keeping its original inspection.
+- Platform administrators can turn on daily ODIN release checks in Settings > System and see when a newer version fixes a security problem.
 
 ## [2.5.0] - 2026-11-21
 

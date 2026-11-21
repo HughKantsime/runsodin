@@ -620,6 +620,8 @@ def _check_database_guardian():
 
 def main_loop():
     """Main polling loop."""
+    from modules.system.services import check_for_scheduled_update
+    started = datetime.now(timezone.utc)
     log.info("Report runner daemon started")
 
     while True:
@@ -635,6 +637,12 @@ def main_loop():
 
         _check_database_guardian()
         time.sleep(POLL_INTERVAL)
+        # The first update poll is after the sleep, never at process startup.
+        try:
+            with SessionLocal() as session:
+                check_for_scheduled_update(session, started)
+        except Exception as exc:
+            log.error("Scheduled update check failed (%s)", type(exc).__name__)
 
 
 
