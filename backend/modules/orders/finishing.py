@@ -178,7 +178,8 @@ def finish(db,user,data):
         expected=h['quantity_per_product']*(data.accepted+data.rejected)
         if h['managed']:expected=whole(expected)
         uses.append({**h,'expected_units':expected})
-    row['material_use']=consume_hardware(db,owner,uses,data.hardware_usage,data.hardware_used_confirmed,identifier)
+    row['material_use']=consume_hardware(db,owner,uses,data.hardware_usage,data.hardware_used_confirmed,identifier,
+                                         allow_over_bom=user.get('_auth_kind') != 'user_api_token')
     if data.accepted:
         config,encoded=store.load(db,owner)
         if not config:raise HTTPException(409,'Connect and map the finished product to Square before accepting good assemblies')

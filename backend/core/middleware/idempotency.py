@@ -257,7 +257,7 @@ _LOOKUP_UNCACHEABLE = "uncacheable_success"
 
 
 def _lookup_row(
-    db: Session, key: str, user_id: int, request_hash: str
+    db: Session, key: str, user_id: int, request_hash: Optional[str]
 ) -> tuple[str, Optional[int], Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Look up the cache row and classify its state.
 
@@ -958,9 +958,6 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             query=(request.url.query or ""),
         )
 
-        if request_hash is None:
-            # Let the route enforce its authorization and return its normal validation error.
-            return await call_next(request)
         inspection = request.method == "POST" and request.url.path in _INSPECTION_PATHS
         classification, status, body_text, created_at_str, stored_fp, stored_mt = _lookup_row(
             db, key, user_id, request_hash
@@ -1022,6 +1019,10 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 "duplicate side effects — mint a fresh key for any new "
                 "request.",
             )
+
+        if request_hash is None:
+            # Honor an existing key before the route validates the inspection text.
+            return await call_next(request)
 
         # miss / stuck_pending / expired — claim the key before the handler.
         claimed = False

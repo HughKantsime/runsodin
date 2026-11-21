@@ -397,3 +397,35 @@ def test_count_detail_boundaries_are_measured_after_trimming(batch):
     response = batch[0].post('/products/production/inspections',json=data)
     assert response.status_code == 200
     assert response.json()['counted_by'] == 'a'*120 and response.json()['note'] == 'b'*500
+
+
+def test_inspection_key_reuse_after_private_success(batch, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+    from core import db as database
+    from core.middleware.idempotency import idempotency_middleware
+    from modules.orders.routes.batches import router
+    from tests.test_contracts.test_production_operator_token import authenticate
+
+    data = body(batch, make_recipe(batch))
+    authenticate(batch)
+    app = FastAPI()
+    app.include_router(router, prefix='/api')
+    app.dependency_overrides.update(batch[4].dependency_overrides)
+    app.middleware('http')(idempotency_middleware)
+    monkeypatch.setattr(database, 'SessionLocal', sessionmaker(bind=batch[3].get_bind()))
+    url = '/api/products/production/inspections'
+    with TestClient(app, headers=batch[0].headers) as client:
+        headers = {'Idempotency-Key': 'private-inspection'}
+        saved = client.post(url, json=data, headers=headers)
+        assert saved.status_code == 200, saved.text
+        assert saved.headers['Cache-Control'] == 'private, no-store'
+        for retry in (data, {**data, 'note':'Changed'}, {**data, 'note':' '}):
+            response = client.post(url, json=retry, headers=headers)
+            assert response.status_code == 409
+            assert response.json()['error']['code'] == 'idempotency_uncacheable_success'
+        invalid = client.post(url, json={**data, 'note':' '}, headers={'Idempotency-Key':'fresh-key'})
+        assert invalid.status_code == 422
+        assert client.post(url, json=data).json() == saved.json()
+    assert batch[3].execute(text('SELECT count(*) FROM production_acceptances')).scalar_one() == 1

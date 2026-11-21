@@ -2,12 +2,13 @@
 
 A password-authenticated admin or operator can create a per-user token with explicit `write:production`. Its owner must still have operator/admin role at use time. Include `read` for the production overview, recipes, general `/api/jobs` reads and Square stock reads. The older `/api/products/production/jobs` eligibility list additionally requires generic `write`; the existing claude-operator token already has it. Existing job/upload/printer scopes are separate. Generic `write`, `admin` and `agent:write` do not imply this explicit permission.
 
-Permitted writes:
+## Permitted production operations
 
 - `POST /api/products/production/outside-prints/{print_job_id}/bind`
 - `POST /api/products/production/recipes` (completed ODIN-dispatched reference, stable configuration evidence, owner-count confirmation)
 - `POST /api/products/production/components` records inspected printed parts.
-- `POST /api/products/production/finishing` records inspected assemblies and the parts used.
+- Before finishing, fetch the current BOM hash with `GET /api/products/production/finishing/{product_id}/requirements`.
+- `POST /api/products/production/finishing` records inspected assemblies and actual hardware use up to the BOM quantity for accepted and rejected assemblies. Record excess hardware use in the web app.
 - `POST /api/products/production/inspections`
 - `POST /api/products/production/additions/{addition_id}/check`
 - `POST /api/products/batches/additions/{addition_id}/send`

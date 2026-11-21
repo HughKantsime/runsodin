@@ -43,7 +43,7 @@ def pg_url():
         _docker('rm', '-f', name)
 
 
-@pytest.fixture(params=['sqlite','postgresql'])
+@pytest.fixture(params=['sqlite', pytest.param('postgresql', marks=pytest.mark.postgresql)])
 def config_engine(request,tmp_path,monkeypatch):
     from core.schema.bootstrap import import_all_models
     import_all_models()

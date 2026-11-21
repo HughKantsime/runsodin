@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from core.db import get_db
-from core.rbac import require_role, require_interactive_session
+from core.rbac import require_role, require_any_scope, require_interactive_session
 from modules.orders import batch_production as service
 from modules.orders.production_auth import require_production_operator, require_recipe_qualifier
 from modules.orders import square_store
@@ -113,8 +113,8 @@ def finishing_overview(user=Depends(operator),db:Session=Depends(get_db)):
     from modules.orders.finishing import overview
     return overview(db,user)
 
-@router.get('/finishing/{product_id}/requirements')
-def finishing_requirements(product_id:int,user=Depends(operator),db:Session=Depends(get_db)):
+@router.get('/finishing/{product_id}/requirements', dependencies=[Depends(require_any_scope('write', 'write:production'))])
+def finishing_requirements(product_id:int,user=Depends(require_role('operator')),db:Session=Depends(get_db)):
     from modules.orders.finishing import preview
     return preview(db,user,product_id)
 

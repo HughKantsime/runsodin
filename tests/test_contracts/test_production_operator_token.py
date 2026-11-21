@@ -235,14 +235,18 @@ def test_audit_flush_failure_rolls_back_business_intent(batch,monkeypatch,operat
             assert fresh.execute(text('SELECT COUNT(*) FROM production_stock_additions')).scalar()==0
 
 
-def test_component_and_assembly_token_retries_and_send(batch, monkeypatch):
-    from tests.test_contracts.test_finishing_workflow import bom, finish_body
+@pytest.mark.parametrize('scopes', [('write:production',), ('read', 'write:production')])
+def test_component_and_assembly_token_retries_and_send(batch, monkeypatch, scopes):
+    from tests.test_contracts.test_finishing_workflow import finish_body
     from modules.orders.finishing import load
-    preview = bom(batch)
+    assert batch[0].post('/products/101/components', json={'model_id':301, 'quantity_needed':1}).status_code == 200
     enable(batch)
     batch[-1].update(batch[0].get('/products/square').json())
-    authenticate(batch)
+    authenticate(batch, scopes=scopes)
     client, _, _, db, *_ = batch
+    response = client.get('/products/production/finishing/101/requirements')
+    assert response.status_code == 200, response.text
+    preview = response.json()
     component = {'job_id':302, 'accepted':3, 'rejected':0, 'unit_description':'Handle',
                  'inspection_confirmed':True, 'single_component_type_confirmed':True}
     url = '/products/production/components'
