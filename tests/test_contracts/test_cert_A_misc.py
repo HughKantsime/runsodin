@@ -343,6 +343,9 @@ def test_live_engine_stays_out_of_engine_type_checks():
             # concrete_engine() to build its own bounded policy engine; Retirement and
             # monitor_loop only hand it to MonitorLicense; run_monitor_process only passes
             # it on to monitor_loop.
+            # The vision pause service unwraps its argument with concrete_engine before Session.
+            if (name, call) == ("modules/vision/detection_thread.py", "automatic_moonraker_pause"):
+                continue
             assert call in {"bind_generic_observation", "retire_observed_terminal", "Session",
                             "dispatch_transaction", "observe_status", "redact_payload",
                             "concrete_engine", "monitor_loop", "MonitorLicense", "Retirement",

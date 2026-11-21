@@ -34,6 +34,12 @@ it('F04-4.8-01 one Gantt row per captured printer; each captured slot sits only 
   const view = mount()
   await screen.findAllByText('CertC printing')
   const rows = Array.from(view.container.querySelectorAll('.timeline-grid')).map(g => (g as HTMLElement).dataset.printerId)
+  for (const printer of wire.printers) {
+    expect(printer).toMatchObject({
+      telemetry_at: null, mc_percent: null, mc_remaining_time: null, layer_num: null, total_layer_num: null,
+      speed_level: null, speed_percent: null, pending_control: null, unavailable_controls: [], unproven_controls: [],
+    })
+  }
   expect(rows).toEqual(wire.printers.map((p: any) => String(p.id)))
   const p9 = view.container.querySelector('.timeline-grid[data-printer-id="9"]') as HTMLElement
   const p10 = view.container.querySelector('.timeline-grid[data-printer-id="10"]') as HTMLElement

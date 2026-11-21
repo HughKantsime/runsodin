@@ -17,7 +17,7 @@ from functools import lru_cache
 from typing import Optional, Dict, Any, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+from sqlalchemy import select, table, text
 
 # Resolved at use time: never a stale engine bound at import.
 from core.db import live_engine as engine
@@ -170,9 +170,9 @@ def get_queued_alerts_for_digest() -> list:
 
         with engine.connect() as conn:
             predicate, bounds = _alert_window_filter(conn, quiet_start, quiet_end)
-            query = ("SELECT alert_type, severity, title, message, created_at FROM alerts WHERE "
-                     + predicate + " ORDER BY created_at DESC")
-            result = conn.execute(text(query), bounds)
+            query = (select(text("alert_type, severity, title, message, created_at")).select_from(table("alerts"))
+                     .where(predicate).order_by(text("created_at DESC")))
+            result = conn.execute(query, bounds)
             alerts = [dict(r._mapping) for r in result.fetchall()]
 
         return alerts
@@ -346,9 +346,9 @@ def compute_window_bounds(config: Dict[str, Any], window_end: datetime) -> Tuple
 def _alert_window_filter(conn, start, end):
     if conn.dialect.name == "sqlite":
         # SQLite accepts ISO timestamps for datetime(), including bounds from datetime subclasses.
-        return ("datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)",
+        return (text("datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)"),
                 {"start": start.isoformat(), "end": end.isoformat()})
-    return "created_at>=:start AND created_at<:end", {"start": start, "end": end}
+    return text("created_at>=:start AND created_at<:end"), {"start": start, "end": end}
 
 
 def get_suppressed_alerts_for_window(
@@ -369,8 +369,9 @@ def get_suppressed_alerts_for_window(
     try:
         with engine.connect() as conn:
             predicate, bounds = _alert_window_filter(conn, window_start, window_end)
-            query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + predicate + " ORDER BY created_at DESC"
-            rows = conn.execute(text(query), bounds).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from a closed pair of literal dialect comparisons; values are bound
+            query = (select(text("id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at"))
+                     .select_from(table("alerts")).where(predicate).order_by(text("created_at DESC")))
+            rows = conn.execute(query, bounds).mappings().all()
             result = []
             for row in rows:
                 try:

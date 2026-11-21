@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import Jobs from './Jobs'
-import { refreshPermissions, clearSensitiveBrowserState } from '../../permissions'
+import { refreshPermissions, clearSensitiveBrowserState, getCurrentUser } from '../../permissions'
 import wire from '../../test-fixtures/certD-jobsA-approval-wire.json'
 
 type Call = { method: string; url: string; body: unknown }
@@ -46,6 +46,12 @@ async function show(user: keyof typeof wire.me, jobsResponses: unknown[][]) {
   render(<QueryClientProvider client={client}><MemoryRouter><Jobs /></MemoryRouter></QueryClientProvider>)
   await screen.findByText('Wire operator pending')
 }
+
+it('keeps the local-password flag when loading the approval user', async () => {
+  principal = 'operator1'
+  await refreshPermissions()
+  expect(getCurrentUser()?.has_local_password).toBe(true)
+})
 
 const row = (name: string) => screen.getByText(name, { exact: true }).closest('tr')!
 const submittedCount = (rows: { status: string }[]) => rows.filter(j => j.status === 'submitted').length

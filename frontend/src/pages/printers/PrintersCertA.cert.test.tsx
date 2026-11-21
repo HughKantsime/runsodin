@@ -263,6 +263,8 @@ it('printer settings panel shows smart plug, camera URL, tags and timelapse fiel
   const onSubmit = vi.fn()
   render(<PrinterModal isOpen onClose={() => {}} onSubmit={onSubmit} printer={{ ...w.printers[0], camera_url: null, camera_source: null }} />)
   expect(screen.getByRole('option', { name: 'No smart plug' })).toBeInTheDocument()
+  expect(screen.getByPlaceholderText('X mm')).toHaveValue(256)
+  expect(screen.getByPlaceholderText('Y mm')).toHaveValue(256)
   fireEvent.submit(screen.getByRole('button', { name: /save|update/i }).closest('form')!)
   const [data, id] = onSubmit.mock.calls[0]
   expect(id).toBe(301)

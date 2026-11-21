@@ -83,6 +83,11 @@ def test_committed_policy_records_the_owner_approval_and_expiry():
     assert record['expires_at'] == '2026-12-17T00:00:00Z'
 
 
+def test_current_dockerfile_matches_the_picomatch_review():
+    record = next(record for record in policy.ACCEPTANCES if record['advisory'] == ADVISORY)
+    assert policy.digest((policy.ROOT / 'Dockerfile').read_bytes()) == record['file_hashes']['Dockerfile']
+
+
 def test_acceptance_matches_recorded_graph_and_lockfile(npm_reports):
     record = next(record for record in policy.ACCEPTANCES if record['advisory'] == ADVISORY)
     full = npm_reports[0]

@@ -64,6 +64,20 @@ def test_composed_organization_sql_keeps_its_audit_triage(filename, function):
             assert any(directive in line for line in lines[call.lineno - 2:call.lineno])
 
 
+@pytest.mark.parametrize(("module", "function"), [
+    ("notifications/quiet_hours", "get_queued_alerts_for_digest"),
+    ("notifications/quiet_hours", "_alert_window_filter"),
+    ("printers/moonraker_controls", "_matches_attempt"),
+    ("printers/moonraker_controls", "_begin"),
+])
+def test_dialect_specific_time_queries_use_literal_sql(module, function):
+    tree = ast.parse((REPO_ROOT / f"backend/modules/{module}.py").read_text())
+    handler = next(node for node in tree.body if getattr(node, "name", None) == function)
+    for call in ast.walk(handler):
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "text":
+            assert isinstance(call.args[0], ast.Constant), function
+
+
 def _string_value(node: ast.AST) -> str | None:
     """Return the literal/joined string content of a string-like node, or
     None if it can't be statically resolved."""

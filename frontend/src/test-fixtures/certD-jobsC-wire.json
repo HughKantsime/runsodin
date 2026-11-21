@@ -148,11 +148,11 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-11-19T01:48:45",
+  "updated_at": "2026-11-21T04:12:40",
   "waiting_reason": null
  },
  "fail_printing_response": {
-  "actual_end": "2026-11-19T01:48:45",
+  "actual_end": "2026-11-21T04:12:40",
   "actual_start": "2026-10-12T06:00:00",
   "ams_mapping": [
    0
@@ -691,7 +691,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-11-19T01:48:45",
+   "updated_at": "2026-11-21T04:12:40",
    "waiting_reason": null
   },
   {
@@ -3679,7 +3679,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-11-19T01:48:45",
+  "created_at": "2026-11-21T04:12:40",
   "display_name": "CertC pinned blocked",
   "due_date": null,
   "duration_hours": 1.0,
@@ -3715,7 +3715,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-11-19T01:48:45",
+  "updated_at": "2026-11-21T04:12:40",
   "waiting_reason": null
  },
  "printers": [
@@ -3732,7 +3732,7 @@
    "camera_source": "auto",
    "camera_url": "bambu-chamber://auto",
    "chamber_temp": null,
-   "created_at": "2026-11-19T01:48:44",
+   "created_at": "2026-11-21T04:12:39",
    "current_print_display_name": null,
    "experimental_actions_enabled": false,
    "fan_speed": null,
@@ -3751,7 +3751,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-11-19T01:48:44",
+     "loaded_at": "2026-11-21T04:12:39",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3778,6 +3778,7 @@
    "last_error_code": null,
    "last_error_message": null,
    "last_seen": null,
+   "layer_num": null,
    "lights_on": null,
    "loaded_colors": [],
    "machine_type": "P1S",
@@ -3788,6 +3789,8 @@
     "set_by_name": null,
     "state": "ok"
    },
+   "mc_percent": null,
+   "mc_remaining_time": null,
    "model": "Bambu Lab P1S",
    "name": "P1S-09",
    "nickname": null,
@@ -3796,6 +3799,7 @@
    "nozzle_temp": null,
    "nozzle_type": null,
    "org_id": 1,
+   "pending_control": null,
    "plate_clear": {
     "has_waiting_job": false,
     "last_print_ended_at": "2026-10-11T12:30:00Z",
@@ -3807,13 +3811,19 @@
    "prints_since_maintenance": null,
    "shared": false,
    "slot_count": 1,
+   "speed_level": null,
+   "speed_percent": null,
    "support_level": "supported",
    "tags": [],
+   "telemetry_at": null,
    "timelapse_enabled": false,
+   "total_layer_num": null,
    "total_print_count": null,
    "total_print_hours": null,
    "training_warnings": [],
-   "updated_at": "2026-11-19T01:48:44"
+   "unavailable_controls": [],
+   "unproven_controls": [],
+   "updated_at": "2026-11-21T04:12:39"
   },
   {
    "ace_status": null,
@@ -3828,7 +3838,7 @@
    "camera_source": null,
    "camera_url": null,
    "chamber_temp": null,
-   "created_at": "2026-11-19T01:48:44",
+   "created_at": "2026-11-21T04:12:39",
    "current_print_display_name": null,
    "experimental_actions_enabled": false,
    "fan_speed": null,
@@ -3847,7 +3857,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-11-19T01:48:44",
+     "loaded_at": "2026-11-21T04:12:39",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3874,6 +3884,7 @@
    "last_error_code": null,
    "last_error_message": null,
    "last_seen": null,
+   "layer_num": null,
    "lights_on": null,
    "loaded_colors": [],
    "machine_type": "P1S",
@@ -3884,6 +3895,8 @@
     "set_by_name": null,
     "state": "ok"
    },
+   "mc_percent": null,
+   "mc_remaining_time": null,
    "model": "Bambu Lab P1S",
    "name": "P1S-10",
    "nickname": null,
@@ -3892,6 +3905,7 @@
    "nozzle_temp": null,
    "nozzle_type": null,
    "org_id": 1,
+   "pending_control": null,
    "plate_clear": {
     "has_waiting_job": false,
     "last_print_ended_at": "2026-10-11T13:45:00Z",
@@ -3903,13 +3917,19 @@
    "prints_since_maintenance": null,
    "shared": false,
    "slot_count": 1,
+   "speed_level": null,
+   "speed_percent": null,
    "support_level": "supported",
    "tags": [],
+   "telemetry_at": null,
    "timelapse_enabled": false,
+   "total_layer_num": null,
    "total_print_count": null,
    "total_print_hours": null,
    "training_warnings": [],
-   "updated_at": "2026-11-19T01:48:44"
+   "unavailable_controls": [],
+   "unproven_controls": [],
+   "updated_at": "2026-11-21T04:12:39"
   }
  ],
  "recent_terminal": [

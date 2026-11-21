@@ -480,10 +480,15 @@ def test_imported_monitor_launcher_starts_one_deadline_worker(monkeypatch):
     assert calls == [monitor._check_control_deadlines]
 
 
-def test_existing_pause_explained_on_matching_detection_alert(farm, monkeypatch):
+@pytest.mark.parametrize("use_live_engine", [False, True])
+def test_existing_pause_explained_on_matching_detection_alert(farm, monkeypatch, use_live_engine):
     from core.base import AlertType, AlertSeverity
     from modules.notifications.models import Alert
     from modules.printers.services import automatic_moonraker_pause
+    from core import db as core_db
+    if use_live_engine:
+        monkeypatch.setattr(core_db, "engine", farm.engine)
+    engine = core_db.live_engine if use_live_engine else farm.engine
     with farm.factory() as db:
         install_printer(db)
         pending(db, monkeypatch, "pause")
@@ -493,7 +498,7 @@ def test_existing_pause_explained_on_matching_detection_alert(farm, monkeypatch)
                          metadata_json={"detection_id": detection_id}))
         db.commit()
         sends, _ = wire(monkeypatch, "no_reply", "printing")
-        automatic_moonraker_pause(farm.engine, 9, lambda: True, 18)
+        automatic_moonraker_pause(engine, 9, lambda: True, 18)
         messages = db.query(Alert.message).order_by(Alert.id).all()
         assert messages == [("Confidence: 99%",), ("Confidence: 99%. Automatic pause skipped: a pause is already pending.",)]
         assert sends == []

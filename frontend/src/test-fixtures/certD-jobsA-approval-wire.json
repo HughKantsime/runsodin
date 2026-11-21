@@ -1244,6 +1244,7 @@
     "admin": {
       "email": "admin@example.test",
       "group_id": 1,
+      "has_local_password": true,
       "id": 3,
       "role": "admin",
       "username": "admin"
@@ -1251,6 +1252,7 @@
     "operator1": {
       "email": "operator1@example.test",
       "group_id": 1,
+      "has_local_password": true,
       "id": 6,
       "role": "operator",
       "username": "operator1"
@@ -1258,6 +1260,7 @@
     "student": {
       "email": "student@example.test",
       "group_id": 1,
+      "has_local_password": true,
       "id": 1,
       "role": "viewer",
       "username": "student"

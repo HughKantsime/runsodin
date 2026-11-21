@@ -4,10 +4,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
-### Security
-
-- Enterprise Compose now pins PostgreSQL 16.16. For an existing installation, copy the new PostgreSQL image line from `docker-compose.enterprise.yml` into your Compose file and recreate the database container. This minor update does not require a dump and restore.
-
 ### Added
 
 - Printer cards and details keep the last reported progress, time remaining, and speed through refreshes and show how old those readings are. Operators can pause, resume, or stop a print directly from either view.
@@ -40,6 +36,10 @@ All notable changes to O.D.I.N. are documented here.
 - Adding a Bambu printer counts AMS HT trays separately. Syncing removes extra empty slots when they have no recorded use.
 - H2D and H2D Pro printers now use the correct 350 × 320 mm bed size and keep bed dimensions you have changed.
 - Adding a printer now saves the suggested bed size for its model.
+
+### Security
+
+- Enterprise Compose now pins PostgreSQL 16.16. For an existing installation, copy the new PostgreSQL image line from `docker-compose.enterprise.yml` into your Compose file and recreate the database container. This minor update does not require a dump and restore.
 
 
 ## [2.4.1] - 2026-11-20

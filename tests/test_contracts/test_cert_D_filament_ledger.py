@@ -1393,23 +1393,50 @@ def test_startup_entrypoints_log_external_filament_accounting():
     for target in targets:
         tree = ast.parse((backend / target).read_text())
         if target == 'core/app.py':
-            entrypoints = [node for node in ast.walk(tree)
-                           if isinstance(node, ast.AsyncFunctionDef) and node.name == 'lifespan']
+            lifespan, = [node for node in ast.walk(tree)
+                         if isinstance(node, ast.AsyncFunctionDef) and node.name == 'lifespan']
+            statements = lifespan.body
         else:
-            entrypoints = [node for node in tree.body
-                           if isinstance(node, ast.If) and '__main__' in ast.unparse(node.test)]
-        assert len(entrypoints) == 1, target
-        startup = entrypoints[0]
-        if target.endswith(('mqtt_monitor.py', 'anycubic_lan_monitor.py')):
-            assert any(isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
-                       and isinstance(statement.value.func, ast.Name) and statement.value.func.id == 'main'
-                       for statement in startup.body), target
-            startup = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
-        calls = [statement.value for statement in startup.body
-                 if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
-                 and isinstance(statement.value.func, ast.Name)
-                 and statement.value.func.id == 'log_external_filament_accounting']
-        assert len(calls) == 1, f'{target}: log the effective policy directly on startup'
+            from tests.test_contracts.test_supervised_orm import main_statements
+            statements = list(main_statements(tree))
+            if target.endswith(('mqtt_monitor.py', 'anycubic_lan_monitor.py')):
+                # Expand main at its call site so both outer startup blocks still count.
+                entry, = [i for i, stmt in enumerate(statements) if ast.unparse(stmt) == 'main()']
+                main, = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main']
+                statements[entry:entry + 1] = main.body
+        _assert_filament_log_before_loop(target, statements)
+
+
+def _assert_filament_log_before_loop(target, statements):
+    log_name = 'log_external_filament_accounting'
+    direct_logs = [i for i, stmt in enumerate(statements)
+                   if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)
+                   and ast.unparse(stmt.value.func) == log_name]
+    assert len(direct_logs) == 1, f'{target}: log the effective policy directly on startup once'
+    launches = []
+    logs = 0
+    for i, statement in enumerate(statements):
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Call):
+                name = ast.unparse(node.func)
+                logs += name == log_name
+                if name in ('daemon.start', 'monitor_loop', '_legacy_loop', 'run_monitor_process'):
+                    launches.append(i)
+            elif isinstance(node, ast.Yield):
+                launches.append(i)
+    assert logs == 1, target
+    assert launches and direct_logs[0] < min(launches), f'{target}: log before the monitor loop or lifespan yield'
+
+
+@pytest.mark.parametrize('startup', [
+    'run_monitor_process()\nlog_external_filament_accounting(log)',
+    'log_external_filament_accounting(log)\nif enabled: log_external_filament_accounting(log)\nmonitor_loop()',
+])
+def test_filament_startup_guard_rejects_late_or_duplicate_log(startup):
+    with pytest.raises(AssertionError):
+        _assert_filament_log_before_loop('monitor', ast.parse(startup).body)
 
 
 def test_settlement_source_and_zero_claim_survive_detached_job(lifecycle_client):

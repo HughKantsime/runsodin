@@ -41,7 +41,7 @@ ACCEPTANCES = [
      'coverage': {'prod': 64, 'dev': 223, 'optional': 57, 'peer': 11, 'peerOptional': 0, 'total': 287},
      'file_hashes': {
          'frontend/package-lock.json': '2c71dc7b7d632c6d2a65a2a16e8311bb800152c1c54c03601e6b08f58eb2687a',
-         'Dockerfile': 'f32c6b07ca381f86422842f07d9338061837397366dc61a9d0e53bff4ce985b6',
+         'Dockerfile': '3ecd8f12c7dfae1b38091a3eb7c7d769afa59a87bad0ac910dcd7c3d192973cd',
      },
      'versions': {
          'node_modules/@vitejs/plugin-react': '6.1.1',

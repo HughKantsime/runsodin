@@ -8,11 +8,10 @@ from ops.release_control.record_post027_ledger import registered_ids
 def test_changelog_preserves_released_history_after_train_merge():
     root = Path(__file__).resolve().parents[2]
     changelog = (root / 'CHANGELOG.md').read_bytes()
-    unreleased, released = changelog.split(b'## [2.3.1]', 1)
-    # Byte-for-byte released history as on main after 2.3.1 (e65d4477: the approved 2.3.0 wording
-    # correction is part of it); works in shallow CI checkouts too. Update at each release.
-    assert hashlib.sha256(b'## [2.3.1]' + released).hexdigest() == (
-        '49e443c077ef8cc57852caa52dbb374c33d1dcdf8f97a4e5729fe8d0ce68e210'
+    unreleased, released = changelog.split(b'## [2.4.1]', 1)
+    # Pin the complete released history on release/2.4.1, including in shallow checkouts.
+    assert hashlib.sha256(b'## [2.4.1]' + released).hexdigest() == (
+        '09f891d18578175f410cff8c9509a4af820da2f31a7b08f3c35c0e2a271a7ddb'
     )
     unreleased = unreleased.split(b'## [Unreleased]\n', 1)[1].split(b'\n## [', 1)[0]
     headings = [line for line in unreleased.splitlines() if line.startswith(b'### ')]

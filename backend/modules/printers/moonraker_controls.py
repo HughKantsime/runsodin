@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, or_, select, table, text
 
 from core.audit import log_audit
 from core.db_compat import as_utc_datetime
@@ -112,10 +112,11 @@ def _matches_attempt(db, printer_id, record):
             return False
         sent = datetime.fromisoformat(record["sent_at"])
         # SQLite's julianday rounds to milliseconds. Resolve ties at stored precision.
-        newer = ("julianday(started_at) >= julianday(:sent)" if db.get_bind().dialect.name == "sqlite"
-                 else "started_at > :sent")
-        starts = db.execute(text(f"SELECT started_at FROM print_jobs WHERE printer_id=:id AND {newer}"),
-                            {"id": printer_id, "sent": record["sent_at"]}).scalars()
+        if db.get_bind().dialect.name == "sqlite":
+            query = text("SELECT started_at FROM print_jobs WHERE printer_id=:id AND julianday(started_at) >= julianday(:sent)")
+        else:
+            query = text("SELECT started_at FROM print_jobs WHERE printer_id=:id AND started_at > :sent")
+        starts = db.execute(query, {"id": printer_id, "sent": record["sent_at"]}).scalars()
         return not any(as_utc_datetime(start) > sent for start in starts)
     active = _active_print(db, printer_id)
     if active is None:
@@ -131,12 +132,13 @@ def _begin(db, printer_id, record, outcome):
     # SQLite stores both space- and T-separated timestamps.
     sent = datetime.fromisoformat(record["sent_at"])
     sqlite = db.get_bind().dialect.name == "sqlite"
-    started = "julianday(started_at) <= julianday(:sent)" if sqlite else "started_at <= :sent"
-    ended = "julianday(ended_at) >= julianday(:sent)" if sqlite else "ended_at >= :sent"
-    attempt = db.execute(text(
-        f"SELECT id, scheduled_job_id, economic_uid, started_at FROM print_jobs WHERE printer_id=:id AND {started} "
-        f"AND ((ended_at IS NULL AND status IN ('running','paused','printing')) OR {ended}) "
-        "ORDER BY id DESC LIMIT 1"), {"id": printer_id, "sent": record["sent_at"]}).first()
+    started = text("julianday(started_at) <= julianday(:sent)") if sqlite else text("started_at <= :sent")
+    ended = text("julianday(ended_at) >= julianday(:sent)") if sqlite else text("ended_at >= :sent")
+    query = (select(text("id, scheduled_job_id, economic_uid, started_at")).select_from(table("print_jobs"))
+             .where(text("printer_id=:id"), started,
+                    or_(text("ended_at IS NULL AND status IN ('running','paused','printing')"), ended))
+             .order_by(text("id DESC")).limit(1))
+    attempt = db.execute(query, {"id": printer_id, "sent": record["sent_at"]}).first()
     if attempt and as_utc_datetime(attempt.started_at) <= sent:
         record.update(job_id=attempt.scheduled_job_id, print_job_id=attempt.id, print_attempt_uid=attempt.economic_uid)
     if outcome == "failed":

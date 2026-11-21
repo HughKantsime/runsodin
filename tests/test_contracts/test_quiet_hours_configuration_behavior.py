@@ -195,6 +195,21 @@ def test_one_org_zone_failure_does_not_skip_the_next_org(quiet_config, review_db
     assert [target["id"] for target in quiet_config.iter_orgs_with_digest_enabled()] == [2, None]
 
 
+def test_digest_readers_include_only_the_half_open_window(quiet_config, review_db, monkeypatch):
+    start = datetime(2026, 10, 10, 22, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 11, 7, tzinfo=timezone.utc)
+    monkeypatch.setattr(quiet_config, "_last_ended_window", lambda *_: (start, end))
+    review_db.execute(text("INSERT INTO alerts(user_id, alert_type, severity, title, created_at) "
+                           "VALUES(1, 'print_complete', 'info', :title, :created)"), [
+        {"title": "start", "created": "2026-10-10 22:00:00"},
+        {"title": "inside", "created": "2026-10-11T06:59:59"},
+        {"title": "end", "created": "2026-10-11T07:00:00"},
+    ])
+    review_db.commit()
+    for rows in (quiet_config.get_queued_alerts_for_digest(), quiet_config.get_suppressed_alerts_for_window(start, end)):
+        assert [row["title"] for row in rows] == ["inside", "start"]
+
+
 def test_digest_query_logs_the_original_exception(quiet_config, monkeypatch, caplog):
     def fail(*args):
         raise ValueError("unreadable digest bounds")
