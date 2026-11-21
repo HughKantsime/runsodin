@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import pytest
+from tests.test_contracts.test_batch_acceptance import batch, shop
 from sqlalchemy import text
 from tests.test_contracts.test_audit_compliance_claim_acceptance import audit_client
 from tests.test_contracts.test_education_review_workflow import review_db
@@ -123,3 +124,19 @@ def test_audit_dates_refuse_datetime_numeric_and_noncanonical_coercion(audit_cli
     client, _ = audit_client
     assert client.get('/audit-logs', params={field:value}).status_code == 422
     assert client.get('/export/audit-logs', params={field:value}).status_code == 422
+
+
+def test_counted_by_stays_in_local_inspection_audit(batch, audit_client):
+    from tests.test_contracts.test_batch_acceptance import make_recipe, body
+    client, _ = audit_client
+    receipt = batch[0].post('/products/production/inspections', json={
+        **body(batch, make_recipe(batch)), 'counted_by':'Private counter', 'note':'Private note'}).json()
+    params = {'action':'production.inspected'}
+    details = client.get('/audit-logs',params=params).json()['logs'][0]['details']
+    assert details['receipt_id'] == receipt['id'] and details['counted_by'] == 'Private counter'
+    assert details['note_present'] and 'note' not in details
+    exported = client.get('/export/audit-logs',params=params)
+    assert exported.status_code == 200
+    public = json.loads(next(csv.DictReader(io.StringIO(exported.text)))['Details'])
+    assert public['receipt_id'] == receipt['id'] and public['note_present']
+    assert 'Private counter' not in exported.text and 'Private note' not in exported.text

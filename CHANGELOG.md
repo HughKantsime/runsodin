@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Stock inspections can record who counted and a note. Operators can record components and assemblies with a production token, and add missed flush pieces to a completed job while keeping its original inspection.
+
 ## [2.5.0] - 2026-11-21
 
 

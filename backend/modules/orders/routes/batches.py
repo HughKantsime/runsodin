@@ -27,7 +27,7 @@ interactive = Depends(require_interactive_session())
 def overview(offset: int = Query(default=0,ge=0), user=Depends(viewer), db: Session=Depends(get_db)):
     owner = square_store.tenant(user)
     recipes = [ {**json.loads(r.definition),'id':r.id} for r in db.execute(select(service.recipes).where(service.recipes.c.owner==owner).order_by(service.recipes.c.id).offset(offset).limit(100)) ]
-    receipts = [service.receipt_public(r) for r in db.execute(select(service.receipts).where(service.receipts.c.owner==owner).order_by(service.receipts.c.id.desc()).limit(100)).mappings()]
+    receipts = [service.receipt_public(r) for r in db.execute(select(service.all_receipts).where(service.all_receipts.c.owner==owner).order_by(service.all_receipts.c.id.desc()).limit(100)).mappings()]
     # Expose receipt metadata, never transport bodies or credential documents.
     additions = [{'id':r.id,'receipt_id':r.receipt_id,'state':r.state,'attempts':r.attempts}
         for r in db.execute(select(service.additions).where(service.additions.c.owner==owner).order_by(service.additions.c.id).limit(100))]
@@ -118,13 +118,13 @@ def finishing_requirements(product_id:int,user=Depends(operator),db:Session=Depe
     from modules.orders.finishing import preview
     return preview(db,user,product_id)
 
-@router.post('/components',dependencies=[interactive,Depends(require_action('products.finishing',scope='write'))])
-def inspect_components(data:ComponentInput,user=Depends(operator),db:Session=Depends(get_db)):
+@router.post('/components',dependencies=[Depends(require_production_operator()), Depends(require_action('products.finishing',scope='write:production'))])
+def inspect_components(data:ComponentInput,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
     from modules.orders.finishing import inspect
     return inspect(db,user,data)
 
-@router.post('/finishing',dependencies=[interactive,Depends(require_action('products.finishing',scope='write'))])
-def finish_components(data:FinishInput,user=Depends(operator),db:Session=Depends(get_db)):
+@router.post('/finishing',dependencies=[Depends(require_production_operator()), Depends(require_action('products.finishing',scope='write:production'))])
+def finish_components(data:FinishInput,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
     from modules.orders.finishing import finish
     return finish(db,user,data)
 

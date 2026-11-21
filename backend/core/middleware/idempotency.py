@@ -106,6 +106,12 @@ _PENDING_WATCHDOG_SECONDS = 15 * 60
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+_INSPECTION_PATHS = frozenset(
+    f"{prefix}/products/production/{route}"
+    for prefix in ("/api", "/api/v1")
+    for route in ("inspections", "components", "finishing")
+)
+
 _STATE_PENDING = "pending"
 _STATE_COMPLETE = "complete"
 # Codex pass 12 (2026-04-15): routes that return 2xx with Set-Cookie,
@@ -182,7 +188,7 @@ def _canonicalize_query_string(query: str) -> str:
     return urlencode(pairs)
 
 
-def _compute_request_hash(method: str, path: str, body: bytes, query: str = "") -> str:
+def _compute_request_hash(method: str, path: str, body: bytes, query: str = "") -> Optional[str]:
     """Deterministic hash over the request identity + body.
 
     Includes: method, path, canonicalized query string, canonicalized
@@ -197,6 +203,15 @@ def _compute_request_hash(method: str, path: str, body: bytes, query: str = "") 
     if payload_bytes:
         try:
             parsed = json.loads(payload_bytes.decode("utf-8"))
+            if method == "POST" and path in _INSPECTION_PATHS and isinstance(parsed, dict):
+                from core.inspection_details import InspectionDetails
+                from pydantic import ValidationError
+                try:
+                    InspectionDetails.model_validate(parsed)
+                except ValidationError:
+                    return None
+                parsed.pop("counted_by", None)
+                parsed.pop("note", None)
             payload_bytes = json.dumps(parsed, sort_keys=True).encode("utf-8")
         except (json.JSONDecodeError, UnicodeDecodeError):
             # Non-JSON body (e.g. multipart upload) — hash verbatim.
@@ -480,6 +495,7 @@ def _finalize_row(
     response_status: int,
     response_body: bytes,
     response_media_type: str = "application/json",
+    inspection: bool = False,
 ) -> None:
     """UPDATE the pending row to complete with the real response.
 
@@ -505,6 +521,12 @@ def _finalize_row(
             f"exceeds {_MAX_BODY_BYTES}-byte cap. Caller should release the "
             f"pending row instead of caching a truncated response."
         )
+
+    if inspection:
+        receipt = json.loads(body_text)
+        if isinstance(receipt, dict) and ('counted_by' in receipt or 'note' in receipt):
+            from core.inspection_details import seal_text
+            body_text = "private-inspection:" + seal_text(body_text)
 
     try:
         result = db.execute(
@@ -719,8 +741,22 @@ def _conflict_response(code: str, detail: str):
     )
 
 
+def _replay_response(status, body, media_type, inspection):
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse, Response
+    if inspection and body and body.startswith("private-inspection:"):
+        from core.inspection_details import open_text
+        try:
+            body = open_text(body.removeprefix("private-inspection:"))
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return Response(content=body or "", status_code=int(status or 200),
+                    media_type=media_type or "application/json",
+                    headers={"X-Idempotent-Replay": "true"})
+
+
 def _concurrent_loser_response(
-    db: Session, key: str, user_id: int, request_hash: str, current_fp: str = ""
+    db: Session, key: str, user_id: int, request_hash: str, current_fp: str = "", inspection: bool = False
 ):
     """Build the response for a request that lost a concurrent claim.
 
@@ -733,7 +769,6 @@ def _concurrent_loser_response(
     - CONFLICT: winner has a different request hash → 409.
     - anything else (pending / stuck / expired): 409 in_progress.
     """
-    from fastapi.responses import Response  # noqa: WPS433
     classification, status, body_text, _, stored_fp, stored_mt = _lookup_row(
         db, key, user_id, request_hash
     )
@@ -745,12 +780,7 @@ def _concurrent_loser_response(
                 "idempotency_in_progress",
                 "Another request under a different authorization context holds this key. Retry.",
             )
-        return Response(
-            content=body_text or "",
-            status_code=int(status or 200),
-            media_type=stored_mt or "application/json",
-            headers={"X-Idempotent-Replay": "true"},
-        )
+        return _replay_response(status, body_text, stored_mt, inspection)
     if classification == _LOOKUP_CONFLICT:
         return _conflict_response(
             "idempotency_conflict",
@@ -928,6 +958,10 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             query=(request.url.query or ""),
         )
 
+        if request_hash is None:
+            # Let the route enforce its authorization and return its normal validation error.
+            return await call_next(request)
+        inspection = request.method == "POST" and request.url.path in _INSPECTION_PATHS
         classification, status, body_text, created_at_str, stored_fp, stored_mt = _lookup_row(
             db, key, user_id, request_hash
         )
@@ -975,12 +1009,7 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             )
 
         if classification == _LOOKUP_HIT:
-            return Response(
-                content=body_text or "",
-                status_code=int(status or 200),
-                media_type=stored_mt or "application/json",
-                headers={"X-Idempotent-Replay": "true"},
-            )
+            return _replay_response(status, body_text, stored_mt, inspection)
 
         # Key was used for a non-cacheable success. Refuse further
         # requests; client must mint a fresh key (codex pass 12).
@@ -1005,7 +1034,7 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             if not claimed:
                 # Race lost at INSERT time. Re-read to see who won.
                 return _concurrent_loser_response(
-                    db, key, user_id, request_hash, current_fp,
+                    db, key, user_id, request_hash, current_fp, inspection,
                 )
         else:
             if created_at_str is None:
@@ -1021,7 +1050,7 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             )
             if not claimed:
                 return _concurrent_loser_response(
-                    db, key, user_id, request_hash, current_fp,
+                    db, key, user_id, request_hash, current_fp, inspection,
                 )
 
         # We own the key. Run the handler.
@@ -1077,6 +1106,7 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             try:
                 _finalize_row(
                     db, key, user_id, response.status_code, captured,
+                    inspection=inspection,
                     response_media_type=getattr(response, "media_type", None) or "application/json",
                 )
             except IdempotencyFinalizeError as exc:

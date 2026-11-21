@@ -56,7 +56,7 @@ def test_token_records_checks_sends_and_retries_without_double_stock(batch,monke
 def test_other_tokens_never_reach_inspection_or_stock_transport(batch,monkeypatch,scopes):
     recipe=make_recipe(batch); authenticate(batch,scopes)
     factory,_=http(monkeypatch)
-    for path,data in [('/products/production/inspections',body(batch,recipe)),('/products/production/additions/absent/check',{}),('/products/batches/additions/absent/send',{})]:
+    for path,data in [('/products/production/inspections',body(batch,recipe)),('/products/production/components',{}),('/products/production/finishing',{}),('/products/production/additions/absent/check',{}),('/products/batches/additions/absent/send',{})]:
         assert batch[0].post(path,json=data).status_code in (401,403)
     assert batch[3].execute(text('SELECT COUNT(*) FROM production_acceptances')).scalar()==0
     factory.assert_not_called()
@@ -65,8 +65,8 @@ def test_other_tokens_never_reach_inspection_or_stock_transport(batch,monkeypatc
 @pytest.mark.parametrize('path,method',[
     ('/products/square','put'),('/products/square','delete'),
     ('/products/101/square','put'),('/products/square/activation','put'),('/products/101/square/baseline','put'),
-    ('/products/batches/additions/absent/baseline-review','post'),('/products/production/components','post'),
-    ('/products/production/finishing','post'),('/products/production/assortment/101','put'),
+    ('/products/batches/additions/absent/baseline-review','post'),
+    ('/products/production/assortment/101','put'),
     ('/products/production/assortment/101/preview','post'),
 ])
 def test_production_permission_cannot_change_setup_or_unrelated_workflows(batch,path,method):
@@ -233,3 +233,61 @@ def test_audit_flush_failure_rolls_back_business_intent(batch,monkeypatch,operat
         else:
             assert fresh.execute(text('SELECT COUNT(*) FROM production_acceptances')).scalar()==0
             assert fresh.execute(text('SELECT COUNT(*) FROM production_stock_additions')).scalar()==0
+
+
+def test_component_and_assembly_token_retries_and_send(batch, monkeypatch):
+    from tests.test_contracts.test_finishing_workflow import bom, finish_body
+    from modules.orders.finishing import load
+    preview = bom(batch)
+    enable(batch)
+    batch[-1].update(batch[0].get('/products/square').json())
+    authenticate(batch)
+    client, _, _, db, *_ = batch
+    component = {'job_id':302, 'accepted':3, 'rejected':0, 'unit_description':'Handle',
+                 'inspection_confirmed':True, 'single_component_type_confirmed':True}
+    url = '/products/production/components'
+    lot = client.post(url, json={**component, 'counted_by':' Sam ', 'note':' First tray '}).json()
+    assert lot['counted_by'] == 'Sam' and lot['note'] == 'First tray'
+    assert client.post(url, json={**component, 'note':'Another note'}).json() == lot
+    data = finish_body(batch, lot, preview)
+    url = '/products/production/finishing'
+    assembly = client.post(url, json={**data, 'counted_by':'Robin', 'note':'Final check'}).json()
+    assert assembly['counted_by'] == 'Robin' and assembly['note'] == 'Final check'
+    assert client.post(url, json={**data, 'counted_by':'Sam'}).json() == assembly
+    stored, _ = load(db, 1)
+    assert len(stored['components']) == len(stored['finishes']) == 1
+    row = db.execute(select(batches.additions)).mappings().one()
+    monkeypatch.setattr(wire, 'LIVE_WRITES_ENABLED', True)
+    _, transport = http(monkeypatch, counts(row['request_body']))
+    assert client.post(f"/products/batches/additions/{row['id']}/send").json()['state'] == 'confirmed'
+    assert transport.request.call_count == 1
+    audits = [json.loads(d) for d in db.execute(text(
+        "SELECT details FROM audit_logs WHERE action IN ('production.component_inspected','production.assembly_finished') ORDER BY id")).scalars()]
+    from modules.orders.services import inspection_audit_counters
+    from core.models import AuditLog
+    assert 'First tray' not in str(stored) and 'Final check' not in str(stored)
+    entries = db.query(AuditLog).filter(AuditLog.action.in_(['production.component_inspected', 'production.assembly_finished'])).all()
+    counters = inspection_audit_counters(db, [(entry,) for entry in entries])
+    assert [counters[(1, r['receipt_id'])] for r in audits] == ['Sam', 'Robin']
+    assert all(r['note_present'] and 'note' not in r and r['operator_id'] == 3 and r['api_token_id'] for r in audits)
+
+
+@pytest.mark.parametrize('caller', ['viewer', 'global', 'other_org'])
+def test_component_and_assembly_caller_refusals(batch, caller, monkeypatch):
+    from tests.test_contracts.test_finishing_workflow import bom, component, finish_body
+    from core.dependencies import get_current_user
+    preview = bom(batch)
+    lot = component(batch).json()
+    if caller == 'global':
+        monkeypatch.setenv('API_KEY', 'synthetic-global-key')
+        batch[4].dependency_overrides.pop(get_current_user)
+        batch[0].headers['X-API-Key'] = 'synthetic-global-key'
+    else:
+        authenticate(batch, role='viewer' if caller == 'viewer' else 'operator')
+    if caller == 'other_org':
+        batch[3].execute(text('UPDATE users SET group_id=2 WHERE id=3'))
+        batch[3].commit()
+    code = 404 if caller == 'other_org' else 403
+    assert component(batch, job=302).status_code == code
+    assert batch[0].post('/products/production/finishing', json=finish_body(batch, lot, preview)).status_code == code
+    assert batch[3].execute(select(batches.additions.c.id)).first() is None

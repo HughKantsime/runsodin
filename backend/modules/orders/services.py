@@ -45,3 +45,41 @@ def print_next_count(db, user):
         return count(db, user)
     except HTTPException:
         return None
+
+
+def inspection_audit_counters(db, logs):
+    """Resolve retained counter names for this local, visibility-filtered audit page."""
+    import json
+    from sqlalchemy import select
+    from core.inspection_details import local_count_details
+    from core.log_redaction import redact_text
+    from modules.orders import batch_production, finishing
+
+    batch_ids = {}
+    finishing_ids = {}
+    for entry, *_ in logs:
+        details = entry.details
+        if entry.entity_type != 'production_acceptance' or not isinstance(details, dict):
+            continue
+        owner, rid = details.get('counted_by_receipt_owner'), details.get('receipt_id')
+        if type(owner) is not int or not isinstance(rid, str):
+            continue
+        if entry.action == 'production.inspected':
+            batch_ids[rid] = owner
+        elif entry.action in ('production.component_inspected', 'production.assembly_finished'):
+            finishing_ids.setdefault(owner, set()).add(rid)
+
+    records = {}
+    if batch_ids:
+        receipts = batch_production.all_receipts.c
+        for rid, owner, definition in db.execute(select(receipts.id, receipts.owner, receipts.definition)
+                                                .where(receipts.id.in_(batch_ids))):
+            if batch_ids[rid] == owner:
+                records[(owner, rid)] = json.loads(definition)
+    for owner, ids in finishing_ids.items():
+        doc, _ = finishing.load(db, owner)
+        for group in ('components', 'finishes'):
+            for row in doc[group].values():
+                if row['id'] in ids:
+                    records[(owner, row['id'])] = row
+    return {key: redact_text(local_count_details(row)['counted_by']) for key, row in records.items()}

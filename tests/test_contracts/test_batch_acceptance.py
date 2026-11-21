@@ -345,3 +345,55 @@ def test_optional_sender_never_overrides_contradictory_retained_evidence(batch,s
          'payload':('a' if sha_match else 'c')*64,'nonce':uuid.uuid4().hex,'state':state})
     db.commit()
     assert batch[0].post('/products/production/inspections', json=body(batch,recipe)).status_code == (200 if accepted else 409)
+
+
+def test_count_details_first_write_and_square_bytes(batch, monkeypatch):
+    from modules.orders import batch_production as service
+    from modules.system.audit_siem import payload
+    client, _, _, db, *_ = batch
+    request = body(batch, make_recipe(batch))
+    monkeypatch.setattr(service, 'now', lambda: '2026-11-21T09:00:00Z')
+    url = '/products/production/inspections'
+    assert client.post(url, json=request).status_code == 200
+    original = db.execute(select(service.additions.c.request_body)).scalar_one().encode()
+    # Replay the identical physical fixture from before its first inspection.
+    db.execute(service.additions.delete())
+    db.execute(service.receipts.delete())
+    db.commit()
+    saved = client.post(url, json={**request, 'counted_by': '  Robin ', 'note': ' Second tray '}).json()
+    assert saved['counted_by'] == 'Robin' and saved['note'] == 'Second tray'
+    assert client.post(url, json={**request, 'counted_by': 'Avery', 'note': 'New note'}).json() == saved
+    assert client.get('/products/production/history').json()['receipts'] == [saved]
+    assert db.execute(select(service.additions.c.request_body)).scalar_one().encode() == original
+    assert db.execute(select(service.receipts.c.id)).scalars().all() == [saved['id']]
+    details = db.execute(text("SELECT details FROM audit_logs WHERE action='production.inspected' ORDER BY id DESC LIMIT 1")).scalar_one()
+    assert json.loads(details)['counted_by_receipt_owner'] == 1 and json.loads(details)['note_present']
+    assert json.loads(payload({'action':'production.inspected','details':details}))['details'] == details
+    assert 'Robin' not in details
+    stored = db.execute(select(service.receipts.c.definition)).scalar_one()
+    assert 'Robin' not in stored and 'Second tray' not in stored
+    assert 'Second tray' not in details
+    assert b'Robin' not in payload({'action':'production.inspected','details':details})
+
+
+def test_invalid_count_details_return_422_on_each_form(batch):
+    from tests.test_contracts.test_finishing_workflow import bom, finish_body
+    recipe = make_recipe(batch)
+    preview = bom(batch)
+    forms = {'inspections': body(batch, recipe),
+             'components': {'job_id':301, 'accepted':1, 'rejected':0, 'unit_description':'Handle',
+                            'inspection_confirmed':True, 'single_component_type_confirmed':True},
+             'finishing': finish_body(batch, {'id':'a'*32}, preview)}
+    for route, data in forms.items():
+        for field, value in [('counted_by',' '), ('note',' '), ('counted_by','x'*121), ('note','x'*501),
+                             ('note','a\nb'), ('counted_by','\tRobin'), ('note','x\x7f')]:
+            response = batch[0].post('/products/production/'+route, json={**data, field:value})
+            assert response.status_code == 422, (route, field)
+
+
+def test_count_detail_boundaries_are_measured_after_trimming(batch):
+    data = body(batch,make_recipe(batch))
+    data.update(counted_by=' '+'a'*120+' ',note=' '+'b'*500+' ')
+    response = batch[0].post('/products/production/inspections',json=data)
+    assert response.status_code == 200
+    assert response.json()['counted_by'] == 'a'*120 and response.json()['note'] == 'b'*500

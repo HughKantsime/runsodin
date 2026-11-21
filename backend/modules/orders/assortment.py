@@ -181,7 +181,7 @@ def pending_work(db,owner,product_id,recipes):
     if len(outstanding)>1000:return 'Pending-addition scan is incomplete. Review existing work first.'
     from modules.orders.finishing import receipt as finish_receipt
     for receipt_id in outstanding:
-        raw=db.execute(select(batches.receipts.c.definition).where(batches.receipts.c.owner==owner,batches.receipts.c.id==receipt_id)).scalar_one_or_none()
+        raw=db.execute(select(batches.all_receipts.c.definition).where(batches.all_receipts.c.owner==owner,batches.all_receipts.c.id==receipt_id)).scalar_one_or_none()
         detail=json.loads(raw) if raw else finish_receipt(db,owner,receipt_id)
         if detail is None:return 'A pending stock addition has missing evidence. Review existing work first.'
         if any(o['product_id']==product_id and o['accepted']>0 for o in detail['outputs']):

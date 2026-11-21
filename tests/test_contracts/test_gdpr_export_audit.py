@@ -1,4 +1,5 @@
 """Real-app export coverage for user entities, actors, and charged queue jobs."""
+import json
 import pytest
 
 from tests.test_contracts.test_cert_G_harness import run_probe
@@ -20,6 +21,7 @@ for action, entity, entity_id, actor in [
     ('auth.login', 'user', uid, None),
     ('account.changed', 'user', uid, other),
     ('actor.only', 'printer', 99, uid),
+    ('production.inspected', 'production_acceptance', None, uid),
     ('camera.viewed', 'printer', 99, uid),
     ('timelapse.viewed', 'timelapse', 99, uid),
     ('actor.null_entity', None, None, uid),
@@ -31,7 +33,7 @@ for action, entity, entity_id, actor in [
     sql('INSERT INTO audit_logs(action,entity_type,entity_id,actor_user_id,actor_username,actor_auth_kind,details) '
         'VALUES(:a,:e,:i,:u,:n,:k,:d)', a=action, e=entity, i=entity_id, u=actor,
         n=('export-operator' if actor == uid else 'export-other') if actor else None,
-        k='bearer_jwt' if actor else None, d='{}')
+        k='bearer_jwt' if actor else None, d='{"counted_by_receipt_owner":1,"note_present":true}' if action=='production.inspected' else '{}')
 response = c.get(f'/api/users/{uid}/export')
 assert response.status_code == 200, response.text
 export = response.json()
@@ -53,6 +55,8 @@ def test_export_preserves_user_entity_and_actor_links(exported):
     assert not {r['id'] for r in entities} & {r['id'] for r in actors}
     assert not {'unrelated', 'wrong.entity'} & {r['action'] for r in entities + actors}
     assert all(not {'actor_user_id', 'actor_username', 'actor_auth_kind'} & set(r) for r in entities + actors)
+    inspection = next(r for r in actors if r['action']=='production.inspected')
+    assert 'counted_by' not in json.loads(inspection['details']) and 'note_present' in str(inspection)
     assert result['_net_attempts'] == []
 
 

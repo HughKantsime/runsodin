@@ -1,8 +1,8 @@
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,beforeEach,it,expect,vi} from 'vitest'
 import ProductionHistory from './ProductionHistory'
-import {productionHistory} from '../../api/production'
-vi.mock('../../api/production',()=>({productionHistory:{read:vi.fn(),check:vi.fn(),send:vi.fn()}}))
+import {production, productionHistory} from '../../api/production'
+vi.mock('../../api/production',()=>({production:{state:vi.fn(),inspect:vi.fn(),recipe:vi.fn()},productionHistory:{read:vi.fn(),check:vi.fn(),send:vi.fn()}}))
 const receipt={id:'a'.repeat(32),recipe_id:'recipe',job_id:2,recipe_name:'Test minis',occurred_at:'2026-10-20T12:00:00Z',stock_status:'prepared',outputs:[{product_id:101,product_name:'Mini',kind:'main' as const,expected:5,accepted:4,rejected:1}]}
 const addition={id:'addition1',receipt_id:receipt.id,state:'unknown' as const,attempts:1}
 const page={receipts:[receipt],additions:[addition],next_offset:null}
@@ -69,4 +69,47 @@ it('labels an outside-print receipt with its physical ID and attested source',as
  render(<ProductionHistory operator/>);fireEvent.click(screen.getByRole('button',{name:'Inspection history and Square recovery'}))
  await screen.findByText('Test minis · Owner-attested outside print 120')
  expect(screen.queryByText(/job undefined/)).not.toBeInTheDocument()
+})
+
+it.each([true,false])('records only missed pieces with confirmation (create revision %s)',async(create)=>{
+ const base={id:receipt.recipe_id,name:'Mini plate',qualified:true,reference_job_id:1,materials:'PLA',outputs:receipt.outputs}
+ const flush={product_id:102,kind:'flush' as const,expected:2,product_name:'Charm'}
+ const revision={...base,id:'revised',extends_recipe_id:base.id,outputs:[...base.outputs,flush]}
+ vi.mocked(production.state).mockResolvedValue({recipes:create?[base]:[base,revision],receipts:[],additions:[],next_offset:null,square_writes_enabled:false})
+ vi.mocked(productionHistory.read).mockResolvedValue({...page,receipts:[{...receipt,counted_by:'Avery',note:'First tray'}]})
+ render(<ProductionHistory operator admin={create} products={[{id:102,name:'Charm'}]}/>)
+ fireEvent.click(screen.getByRole('button',{name:'Inspection history and Square recovery'}))
+ await screen.findByText('Counted by Avery')
+ expect(screen.getByText('Note: First tray')).toBeVisible()
+ fireEvent.click(screen.getByRole('button',{name:'Add pieces missed at inspection'}))
+ if(create){
+   fireEvent.change(await screen.findByLabelText('Product'),{target:{value:'102'}})
+   fireEvent.change(screen.getByLabelText('Expected pieces'),{target:{value:'2'}})
+   fireEvent.click(screen.getByLabelText(/I verified the added pieces/))
+   vi.mocked(production.recipe).mockResolvedValue(revision)
+   fireEvent.click(screen.getByRole('button',{name:'Save extended recipe'}))
+   await waitFor(()=>expect(production.recipe).toHaveBeenCalledWith(expect.objectContaining({extends_recipe_id:base.id,reference_job_id:1,
+     outputs:[{product_id:101,kind:'main',expected:5},{product_id:102,kind:'flush',expected:2}]})))
+ }
+ fireEvent.change(await screen.findByLabelText('Accepted pieces'),{target:{value:'0'}})
+ fireEvent.change(screen.getByLabelText('Rejected pieces'),{target:{value:'2'}})
+ fireEvent.change(screen.getByLabelText('Counted by'),{target:{value:'Jo'}})
+ fireEvent.change(screen.getByLabelText('Note'),{target:{value:'Second tray'}})
+ const submit=screen.getByRole('button',{name:'Record additional pieces'})
+ fireEvent.click(submit)
+ expect(production.inspect).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByLabelText(/I inspected these pieces/))
+ fireEvent.click(submit)
+ await waitFor(()=>expect(production.inspect).toHaveBeenCalledWith({recipe_id:revision.id,job_id:2,supplement_of:receipt.id,inspection_confirmed:true,
+   not_already_added_confirmed:true,counted_by:'Jo',note:'Second tray',square_revision:null,outputs:[{product_id:102,kind:'flush',accepted:0,rejected:2}]}))
+ expect(productionHistory.send).not.toHaveBeenCalled()
+})
+
+it('hides missed-piece entry for recipes without a dispatched reference and jobs already supplemented',async()=>{
+ for (const flag of [{can_supplement:false},{has_supplement:true}]) {
+   vi.mocked(productionHistory.read).mockResolvedValue({...page,receipts:[{...receipt,...flag}]})
+   await open()
+   expect(screen.queryByRole('button',{name:'Add pieces missed at inspection'})).not.toBeInTheDocument()
+   cleanup()
+ }
 })

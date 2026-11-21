@@ -277,7 +277,7 @@ def _download_support_bundle(user=Depends(require_superadmin()), db: Session = D
         # Internal bookkeeping rows (one-time markers, per-print quota claims) are
         # not configuration and never belong in a shared diagnostics bundle.
         internal_prefixes = ("dispatch_recovery_keys:", "restart_question:", "restart_print:", "outside_print_binding:", "outside_print_previous_job:", "quota_attempt:", "quota_charged:", "setup_admin_claimed",
-                             "biometric_revoked", "square_readonly:", "show_fulfillment:", "production_finishing:", "production_operations:", "material_purchases:", "material_identity:", "material_mutex:")
+                             "biometric_revoked", "square_readonly:", "show_fulfillment:", "production_finishing:", "production_supplement:", "production_operations:", "material_purchases:", "material_identity:", "material_mutex:")
         for k, v in ([] if controlled else config_rows):
             if private_config_key(k) or any(k.startswith(p) for p in internal_prefixes):
                 continue

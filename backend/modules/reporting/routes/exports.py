@@ -357,6 +357,19 @@ def list_audit_logs(
     from core.controlled_audit import redact_audit_rows
     logs = redact_audit_rows(db, current_user, logs)
 
+    from modules.orders.services import inspection_audit_counters
+    counters = inspection_audit_counters(db, logs)
+
+    def local_details(entry):
+        details = entry.details
+        if not isinstance(details, dict) or 'counted_by_receipt_owner' not in details:
+            return details
+        public = dict(details)
+        name = counters.get((public.pop('counted_by_receipt_owner'), public.get('receipt_id')))
+        if name is not None:
+            public['counted_by'] = name
+        return public
+
     return {
         "total": total,
         "offset": offset,
@@ -371,7 +384,7 @@ def list_audit_logs(
                 "action": log_entry.action,
                 "entity_type": log_entry.entity_type,
                 "entity_id": log_entry.entity_id,
-                "details": log_entry.details,
+                "details": local_details(log_entry),
                 "ip_address": log_entry.ip_address,
             }
             for log_entry, actor_id, actor_name, actor_kind in logs

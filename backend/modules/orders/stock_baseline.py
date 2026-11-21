@@ -38,8 +38,8 @@ def version(mapping):
 
 def posted_outputs(db, owner, row):
     from modules.orders import batch_production as batches
-    raw = db.execute(select(batches.receipts.c.definition).where(
-        batches.receipts.c.owner == owner, batches.receipts.c.id == row['receipt_id'])).scalar_one_or_none()
+    raw = db.execute(select(batches.all_receipts.c.definition).where(
+        batches.all_receipts.c.owner == owner, batches.all_receipts.c.id == row['receipt_id'])).scalar_one_or_none()
     if raw is None:
         from modules.orders.finishing import receipt
         finished = receipt(db, owner, row['receipt_id'])

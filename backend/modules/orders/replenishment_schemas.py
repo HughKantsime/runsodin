@@ -50,6 +50,7 @@ class OutsideReference(Evidence):
 
 
 class Recipe(Evidence):
+    extends_recipe_id: RecordID | None = None
     # Some stored copies include an id. It must agree with the authoritative column.
     id: RecordID = None
     version: Annotated[int, Field(ge=1, le=2)]
@@ -150,7 +151,12 @@ class OutsideBinding(Evidence):
     restored_job: RestoredJob | None
 
 
-class Receipt(Evidence):
+class CountDetails(Evidence):
+    private_count_details: str | None = None
+
+
+class Receipt(CountDetails):
+    not_already_added_confirmed: Literal[True] | None = None
     id: RecordID = None
     recipe_id: RecordID = None
     version: Literal[1]
@@ -186,7 +192,7 @@ class ModelSnapshot(Evidence):
     quantity_per_bed: Positive | None
 
 
-class Component(Evidence):
+class Component(CountDetails):
     id: RecordID
     job_id: Positive
     job_uid: Name
@@ -244,7 +250,7 @@ class MaterialUses(Evidence):
     reclaimed_units: Count
 
 
-class Finish(Evidence):
+class Finish(CountDetails):
     id: RecordID
     kind: Literal['assembly']
     occurred_at: Name

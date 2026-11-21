@@ -1,8 +1,11 @@
+import MissedPieces from './MissedPieces'
+import {CountSummary} from './InspectionDetails'
 import Modal from '../ui/Modal'
 import {useEffect, useRef, useState} from 'react'
 import {InspectionHistory, productionHistory, RecoveryCheck} from '../../api/production'
 
-export default function ProductionHistory({operator,refreshKey=0}:{operator:boolean;refreshKey?:number}) {
+export default function ProductionHistory({operator,admin=false,products=[],refreshKey=0}:{operator:boolean;admin?:boolean;products?:{id:number;name:string}[];refreshKey?:number}) {
+  const [editing,setEditing]=useState<string|null>(null)
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const [query,setQuery]=useState(''),[filter,setFilter]=useState(''),[applied,setApplied]=useState({query:'',state:''})
   const [history,setHistory]=useState<InspectionHistory|null>(null),[checks,setChecks]=useState<Record<string,RecoveryCheck>>({})
@@ -29,8 +32,14 @@ export default function ProductionHistory({operator,refreshKey=0}:{operator:bool
         const addition=history.additions.find(a=>a.receipt_id===r.id),check=addition?checks[addition.id]:undefined,status=check?.state??addition?.state
         return <article key={r.id} className="space-y-2 rounded-md border border-[var(--brand-card-border)] p-3 text-sm break-words">
           <h3 className="font-medium">{r.recipe_name} · {r.kind==='assembly'?'Assembly receipt':r.print_job_id?`Owner-attested outside print ${r.print_job_id}`:`job ${r.job_id}`}</h3><p>{new Date(r.occurred_at).toLocaleString()}</p>
+          {r.supplement_of && <p>Additional pieces for receipt {r.supplement_of}</p>}
+          <CountSummary {...r}/>
           {r.outputs.map(o=><p key={`${o.product_id}-${o.kind}`}>{o.product_name} ({o.kind}): {o.accepted} accepted, {o.rejected} rejected{o.disposition==='in_baseline'?' · Counted in baseline':o.send_quantity!==undefined?` · ${o.send_quantity} to send`:''}</p>)}
           <p>Receipt: <span className="font-mono break-all">{r.id}</span></p>
+          {operator && r.job_id && r.recipe_id && !r.supplement_of && !r.has_supplement && r.can_supplement!==false && r.outputs.length<8 &&
+            (editing===r.id ? <MissedPieces receipt={r} admin={admin} products={products} close={()=>setEditing(null)}
+              saved={()=>{setEditing(null);void run(()=>load(applied.query,applied.state))}}/> :
+              <button className={button} type="button" onClick={()=>setEditing(r.id)}>Add pieces missed at inspection</button>)}
           {!addition?<p>{r.stock_status==='in_baseline'?'Counted in baseline; no Square addition.':r.stock_status==='no_sellable_output'?'No sellable output; no Square addition.':'No linked addition found. Retain this receipt for review.'}</p>:<>
             <p>Square: {status==='unknown'?'Unknown outcome':status==='confirmed'?'Confirmed':status==='withdrawn_baseline'?'Withdrawn into baseline':'Prepared, not sent'} · attempts {check?.attempts??addition.attempts}</p>
             {status==='unknown'&&<p>Do not recreate or resend this addition. Review the exact Square history first.</p>}

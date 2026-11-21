@@ -49,12 +49,13 @@ def test_bind_inspect_list_and_retry_exactly_once(outside):
     jobs=client.get('/products/production/jobs').json()['jobs']
     entry=next(j for j in jobs if j.get('print_job_id')==pid)
     assert entry['kind']=='outside_print' and entry['recipe']==recipe
-    request=body(batch,recipe);request.pop('job_id');request['print_job_id']=pid
+    request=body(batch,recipe);request.pop('job_id');request.update(print_job_id=pid,counted_by='Sam',note='Side tray')
     response=client.post('/products/production/inspections',json=request)
     assert response.status_code==200,response.text
     receipt=response.json()
     assert receipt['print_job_id']==pid and receipt['outside_binding']['id']==saved['id']
-    assert client.post('/products/production/inspections',json=request).json()==receipt
+    assert receipt['counted_by']=='Sam' and receipt['note']=='Side tray'
+    assert client.post('/products/production/inspections',json={**request,'note':'Retry'}).json()==receipt
     assert db.execute(text('SELECT COUNT(*) FROM production_acceptances')).scalar_one()==1
     assert db.execute(text('SELECT COUNT(*) FROM production_stock_additions')).scalar_one()==1
     assert not any(path=='/v2/inventory/changes/batch-create' for _,path,_,_ in calls)
@@ -370,6 +371,8 @@ def test_diagnostics_omits_outside_binding_and_undo_state(outside,monkeypatch):
     batch,pid,_=outside
     db=batch[3]
     assert bind(outside).status_code==200
+    from modules.orders.inspection_supplements import insert
+    insert(db,'a'*32,'b'*32,'c'*32,'d'*64,json.dumps({'note':'Private supplement note'}))
     db.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value)'),{'key':f'outside_print_previous_job:{pid}','value':json.dumps({'job_id':302,'state':{'filename':'synthetic private name'}})})
     db.commit()
     monkeypatch.setattr(subprocess,'check_output',lambda *a,**k:'synthetic docker' if k.get('text') else b'synthetic platform')
@@ -379,4 +382,4 @@ def test_diagnostics_omits_outside_binding_and_undo_state(outside,monkeypatch):
         return b''.join([chunk async for chunk in response.body_iterator])
     with zipfile.ZipFile(io.BytesIO(asyncio.run(collect()))) as archive:
         settings=json.loads(archive.read('settings_safe.json'))
-    assert not any(k.startswith(('outside_print_binding:','outside_print_previous_job:')) for k in settings)
+    assert not any(k.startswith(('outside_print_binding:','outside_print_previous_job:','production_supplement:')) for k in settings)
