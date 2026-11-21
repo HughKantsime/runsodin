@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.5.0] - 2026-11-21
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Pause, resume and stop from the printer card with live values that survive a refresh, Skip objects on Bambu printers out of Experimental, AMS HT trays, an Account page for two-factor sign-in with recovery codes, and fixes for organizations, quiet hours and Docker on a Mac. -->
 
