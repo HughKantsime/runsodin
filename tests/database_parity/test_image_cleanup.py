@@ -162,7 +162,8 @@ def test_DI08_database_failure_cleans_resources_and_exact_owned_image(
     result = runner.run("parity-unit", tmp_path / "artifacts", image)
 
     build, = (args for args in commands if args[:2] == ["docker", "build"])
-    assert build[build.index("--no-cache-filter") + 1] == "backend-base"
+    assert "--no-cache" in build
+    assert "--no-cache-filter" not in build
     assert result == 1
     assert cleaned_resources == [{"container:odin-sqlite-parity-parity-unit"}]
     assert ["docker", "image", "rm", image] in commands

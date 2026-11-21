@@ -62,7 +62,7 @@ def test_distributed_compose_and_shell_installer_support_guarded_candidate_image
 def test_install_smoke_builds_and_verifies_the_candidate_image() -> None:
     smoke = (ROOT / "ops" / "release_control" / "installer_smoke.py").read_text(encoding="utf-8")
     overlay = (ROOT / "install" / "docker-compose.test.yml").read_text(encoding="utf-8")
-    assert '"docker", "build", "--no-cache-filter", "backend-base"' in smoke
+    assert '"docker", "build", "--no-cache", "--iidfile"' in smoke
     assert smoke.index("expected_image = verify_built_image(") < smoke.index(
         "check_image_client(expected_image)"
     ) < smoke.index('_run(["bash", str(ROOT / "install/install.sh")]')

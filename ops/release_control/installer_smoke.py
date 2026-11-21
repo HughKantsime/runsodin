@@ -613,8 +613,9 @@ def run(run_id: str, artifact_root: Path) -> int:
         iid_file_path.unlink()
         image_lifecycle.mark_build_attempted()
         try:
+            # Filtering only backend-base left the final stage on stale layers in 2.5.0 validation (2026-11-21).
             _run([
-                "docker", "build", "--no-cache-filter", "backend-base", "--iidfile", str(iid_file_path),
+                "docker", "build", "--no-cache", "--iidfile", str(iid_file_path),
                 *image_lifecycle.docker_build_owner_args(),
                 "--label", f"{LABEL}={run_id}", "-t", image, ".",
             ], timeout=1800)
