@@ -91,10 +91,17 @@ class FilamentSlotResponse(FilamentSlotBase):
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'remaining_weight' and hasattr(data, name)}
         spool = data.assigned_spool
         from core.tray_identity import preset_label
-        from core.display_json import display_object, display_tray_state
-        state = display_tray_state(data.tray_observation)
-        values['spool_change_pending'] = (True if data.tray_observation and display_object(data.tray_observation) is None
-                                          else state.get('pending', False))
+        from core.display_json import display_object
+        from modules.printers.printer_models import is_h3c_printer
+        observation = display_object(data.tray_observation)
+        state = observation or {}
+        if is_h3c_printer(data.printer):
+            if isinstance(state.get('rack_filament'), dict):
+                values['rack_filament'] = state['rack_filament']
+            state = {}  # Rack readings do not participate in ODIN spool confirmation.
+            values['spool_change_pending'] = False
+        else:
+            values['spool_change_pending'] = bool(data.tray_observation and observation is None) or state.get('pending', False)
         values['observed_state'] = state.get('id')
         # A missing initial weight prevents a percentage, not a known gram
         # balance on an operator-managed non-Bambu spool (spec item 1).
@@ -109,8 +116,6 @@ class FilamentSlotResponse(FilamentSlotBase):
             values['color'] = f'{spool.filament.brand} {spool.filament.name}'.strip() if spool and spool.filament else values['preset']
             if observed.get('exists') is False:
                 values.update(color=None, brand=None, preset=None)
-        if isinstance(state.get('rack_filament'), dict):
-            values['rack_filament'] = state['rack_filament']
         return values
 
 
@@ -259,7 +264,6 @@ class PrinterResponse(PrinterBase):
         except (ValueError, KeyError, TypeError):
             return '[]' if self.api_type == 'bambu' else value
 
-    ams_connected: Optional[bool] = None
     feeding_slot: Optional[int] = None
     chamber_temp: Optional[float] = None
     plate_clear_confirmed_at: Optional[datetime] = None
@@ -328,7 +332,6 @@ class PrinterResponse(PrinterBase):
             values['installed_nozzles'] = display_nozzles(values.get('installed_nozzles'), rack=rack)
         if rack:
             values['model'] = 'H3C'
-            values['ams_connected'] = None
         url = effective_camera_url(data)
         from modules.printers.bambu_hms_bundle import credential_prefix
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''

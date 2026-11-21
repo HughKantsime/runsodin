@@ -131,6 +131,7 @@ class PrinterMonitor:
                 access_code=self.access_code,
                 on_status_update=lambda status: self._on_status(status, generation),
                 on_connection_change=lambda: self._reset_live_connection(generation),
+                on_product_name=lambda product: self._on_product_name(product, generation),
                 client_id=f"odin_{self.printer_id}_{int(time.time())}"
             )
             if self._bambu.connect():
@@ -149,6 +150,28 @@ class PrinterMonitor:
         except Exception as e:
             log.error(f"[{self.name}] Connection error: {e}")
             return False
+
+    def _on_product_name(self, product, generation):
+        from modules.printers.printer_models import bambu_model_name
+        if not product:
+            return
+        with self._lock:
+            if generation != self._connection_generation or self._connection_retired:
+                return
+            self._reported_model = product
+            if bambu_model_name(product) == 'H3C':
+                # The rack can arrive before get_version, with no further status delta.
+                from core.printer_identity_audit import observe_printer_identity
+                from modules.printers.monitors.nozzle_observations import persist
+                try:
+                    with get_db() as conn:
+                        observe_printer_identity(conn, self.printer_id, 'machine_type', 'H3C')
+                        pending, readings = persist(conn, self)
+                        conn.commit()
+                    self._pending_installed_nozzles = pending
+                    self._pending_rack_filaments = readings
+                except Exception:
+                    log.warning('[%s] Rack identification will retry on heartbeat', self.name)
 
     def _connect_v2(self) -> bool:
         """V2 path — BambuTelemetryAdapter with a shim that mimics the
@@ -179,12 +202,7 @@ class PrinterMonitor:
                 section_dict = item.section.model_dump(exclude_unset=True)
                 on_status(_LegacyStatusShim(section_dict, item.mqtt_retained, item.ts), generation)
             elif isinstance(item, BambuInfoEvent):
-                # Model identity (ota product_name); persisted on the next heartbeat.
-                product = ota_product_name(item.section.model_dump())
-                if product:
-                    with self._lock:
-                        if generation == self._connection_generation:
-                            self._reported_model = product
+                self._on_product_name(ota_product_name(item.section.model_dump()), generation)
             elif isinstance(item, ConnectionEvent) and item.kind == "connected":
                 if not self._reset_live_connection(generation):
                     return

@@ -44,6 +44,7 @@ BAMBU_MODEL_IDS = {
     "N1": "A1 Mini",
     "N2S": "A1",
     "N7": "P2S",
+    "N10": "H3C",  # Firmware folder in the printer's calibration file path.
     "O1C2": "H2C",
     "O1D": "H2D",
     "O1E": "H2D Pro",

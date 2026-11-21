@@ -16,6 +16,8 @@ _MACHINE_ALIASES = {
     "bambulabh2d": "h2d",
     "h2s": "h2s",
     "bambulabh2s": "h2s",
+    "h3c": "h3c",
+    "bambulabh3c": "h3c",
     "h2c": "h2c",
     "bambulabh2c": "h2c",
     "a1": "a1",

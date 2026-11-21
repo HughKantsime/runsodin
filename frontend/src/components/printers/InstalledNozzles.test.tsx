@@ -16,3 +16,13 @@ it('does not claim unknown nozzles were checked', () => {
   render(<InstalledNozzles />)
   expect(screen.getByText(/No nozzle report received/)).toBeInTheDocument()
 })
+
+it('shows an unrecognized rack tool code as reported', () => {
+  render(<InstalledNozzles rack nozzles={[{ nozzle_id: 20, position: 5, side: 'rack', type: 'ZZ99',
+    virtual_slot_id: 251, diameter: null, material: null, flow: null, wear: null, observed_at: '2026-11-21T19:40:00Z' }]} />)
+  const row = screen.getByRole('listitem')
+  expect(row).toHaveTextContent('Position 5 · ZZ99 · Diameter unknown')
+  expect(row).toHaveTextContent('Nothing reported')
+  expect(row.querySelector('small')).toHaveTextContent('ID 251')
+  expect(row).not.toHaveTextContent('In the tool head')
+})

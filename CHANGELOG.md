@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Added
 
-- You can select the Bambu Lab H3C during setup or when adding a printer. Its card and printer page show the reported rack nozzle positions, types, and diameters, and tell you when no AMS is connected.
+- You can select the Bambu Lab H3C during setup or when adding a printer. Its card and printer page show the nine rack positions, nozzle types and diameters, the tool in the head, and the filament the printer reports beside your ODIN slot settings. Dispatch and printer controls are not supported yet.
 
 ## [2.5.0] - 2026-11-21
 

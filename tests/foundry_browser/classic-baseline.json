@@ -31,7 +31,7 @@
     "frontend/src/components/printers/EmergencyStop.tsx": "52a626265ae842b78d0aa50f9f4ca74a127a5ba9551cd7c679e2bdd27de42625",
     "frontend/src/components/printers/FilamentSlotEditor.tsx": "6a168f24d14cad0326ca57ddd29de50274118a8ab61cc6044563f37855a36c93",
     "frontend/src/components/printers/HmsHistoryPanel.tsx": "50a45371f72a738852a4b77158a9eac8ee3a85a2eac91dca01d4aeccc2b2c400",
-    "frontend/src/components/printers/InstalledNozzles.tsx": "457561a8fc53670a5458ff6455ca31b6c394f97455850b31d460eba5662e33df",
+    "frontend/src/components/printers/InstalledNozzles.tsx": "6765bcbc3d83e11fa9ec10cf156f74b93fde1aa8b4a3ae8ee3702d3998bcd4ea",
     "frontend/src/components/printers/NozzleStatusCard.tsx": "829ffc24f6c22703767f8692765fbb3ae21df8f2e431e36b2366d0a9e2ef0f79",
     "frontend/src/components/printers/PrinterCard.tsx": "0f2c674c62ae67b243c3a9fa1099090215783800281abf493cf1c8112fd27e73",
     "frontend/src/components/printers/PrinterPanels.tsx": "4d53dc79c303b2308ac500ca77d09a40a026421fa9f0a9f82d80d0362ea90b50",

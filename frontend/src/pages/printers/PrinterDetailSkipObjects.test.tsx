@@ -93,27 +93,34 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   const capture = await import('../../../../tests/fixtures/telemetry/h3c-one-filament-2026-11-21.json')
   const nozzles = capture.message.print.device.nozzle.info.map(row => ({
     nozzle_id: row.id, position: row.addr_id + 1, side: 'rack', diameter: row.diameter, type: row.type,
-    virtual_slot_id: row.snow >> 8,
+    virtual_slot_id: row.snow >> 8, mounted: row.id === 20,
     present: true, material: null, flow: null, wear: row.wear, observed_at: '2026-11-21T19:40:00Z',
   }))
   const slots = nozzles.map(nozzle => {
     const tray = capture.message.print.vir_slot.find(slot => Number(slot.id) === nozzle.virtual_slot_id)!
-    return { slot_number: nozzle.position, filament_type: tray.tray_type || 'empty',
+    return { slot_number: nozzle.position, filament_type: 'PETG', color_hex: '112233',
       rack_filament: { id: Number(tray.id), type: tray.tray_type, preset: tray.tray_info_idx, color: tray.tray_color, observed_at: '2026-11-21T19:57:00Z' } }
   })
   vi.mocked(printers.get).mockResolvedValueOnce({
     id: 9, name: 'Printer detail', api_type: 'bambu', model: 'H3C', gcode_state: 'RUNNING',
-    last_seen: new Date().toISOString(), installed_nozzles: nozzles, ams_connected: false, filament_slots: slots,
+    last_seen: new Date().toISOString(), installed_nozzles: nozzles, filament_slots: slots,
   } as Awaited<ReturnType<typeof printers.get>>)
   document.documentElement.dataset.themeFamily = family
   mount()
   const rack = await screen.findByRole('region', { name: 'Nozzle rack' })
   const rows = rack.querySelectorAll('li')
   expect(rows).toHaveLength(9)
-  expect(rows[0]).toHaveTextContent('Position 1 · HS01 · 0.4 mm · ID 255 · PLA')
-  expect(rows[8]).toHaveTextContent('Position 9 · HS01 · 0.4 mm · ID 247 · Empty')
-  expect(Array.from(rows).filter(row => row.textContent?.includes('Empty'))).toHaveLength(8)
-  expect(rack).toHaveTextContent('Position 8 · HT01 · 0.4 mm')
+  expect(rows[0]).toHaveTextContent('Position 1 · Standard (1.75 mm) (HS01) · 0.4 mm')
+  expect(rows[8]).toHaveTextContent('Nothing reported')
+  expect(Array.from(rows).filter(row => row.textContent?.includes('Nothing reported'))).toHaveLength(8)
+  expect(rack).toHaveTextContent('Position 8 · TPU 2.85 mm (HT01) · 0.4 mm')
+  expect(rows[0]).toHaveTextContent('Printer reports: PLA, GFA01, #AE96D4')
+  expect(rows[0]).toHaveTextContent('ODIN slot: PETG, #112233')
+  expect(rows[0]).toHaveTextContent('ID 255')
+  expect(rows[8]).toHaveTextContent('ID 247')
+  expect(rows[4]).toHaveTextContent('In the tool head')
+  expect(Array.from(rows).filter(row => row.textContent?.includes('In the tool head'))).toHaveLength(1)
+  expect(rack).not.toHaveTextContent(/provisional|Confirm spool/i)
   expect(rack).not.toHaveTextContent(/No AMS connected|AMS status unknown/)
   expect(rack).not.toHaveTextContent(/mounted|active nozzle|161|129/i)
   expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()

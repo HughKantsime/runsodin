@@ -63,13 +63,6 @@ def observe(monitor, packet, *, retained=False):
         facts[key] = {'value': value, 'at': now}
     ams = packet.get('ams')
     if isinstance(ams, dict):
-        units = ams.get('ams')
-        if units == [] and ams.get('ams_exist_bits') == '0':
-            put('ams_connected', False)
-        elif isinstance(units, list) and units:
-            put('ams_connected', True)
-        elif 'ams_exist_bits' in ams and ams['ams_exist_bits'] != '0':
-            put('ams_connected', None)  # A changed mask needs a matching unit list.
         if 'tray_now' in ams:
             tray = ams['tray_now']
             if isinstance(tray, str) and tray.isdecimal():
@@ -144,8 +137,7 @@ def read_facts(db, printers):
             if printer.api_type != 'bambu' or str(printer.created_at) != entry.get('printer_created_at') or (printer.gcode_state or '').upper() == 'OFFLINE':
                 continue
             result[printer.id] = {key: fact['value'] for key, fact in entry.get('facts', {}).items()
-                                  # The last reported unit roster is hardware configuration.
-                                  if key == 'ams_connected' or 0 <= now - fact['at'] <= MAX_AGE_SECONDS}
+                                  if 0 <= now - fact['at'] <= MAX_AGE_SECONDS}
         except (ValueError, TypeError, AttributeError, KeyError):
             continue
     return result
@@ -214,7 +206,6 @@ def enrich_printer_facts(db, printers, actor):
     for printer in printers:
         printer.plate_clear = plate_states[printer.id]
         observed = facts.get(printer.id, {})
-        printer.ams_connected = observed.get('ams_connected')
         printer.feeding_slot = observed.get('feeding_slot')
         printer.chamber_temp = observed.get('chamber_temp')
         printer.plate_clear_confirmed_at = cleared.get(printer.id)

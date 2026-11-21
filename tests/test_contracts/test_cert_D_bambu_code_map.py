@@ -36,7 +36,7 @@ FRIENDLY = {'X1 Carbon': 'X1C', 'A1 mini': 'A1 Mini'}
 
 def test_model_table_is_exactly_the_bambu_studio_ids():
     from modules.printers.printer_models import BAMBU_MODEL_IDS
-    assert BAMBU_MODEL_IDS == EXPECTED
+    assert BAMBU_MODEL_IDS == {**EXPECTED, 'N10': 'H3C'}  # N10 is from the firmware folder.
 
 
 @pytest.mark.parametrize('code,name', sorted(EXPECTED.items()))
@@ -64,7 +64,9 @@ def _assert_profiles_agree(profiles):
             found[code] = name
     assert set(EXPECTED) <= set(found), f'Missing supported vendor ids: {sorted(set(EXPECTED) - set(found))}'
     assert {code: found[code] for code in EXPECTED} == EXPECTED
-    for code in set(found) - set(EXPECTED):
+    if 'N10' in found:
+        assert found['N10'] == 'H3C'
+    for code in set(found) - set(EXPECTED) - {'N10'}:
         assert bambu_model_name(code) == code
         assert normalize_model_name('bambu', code) == code
         assert _friendly_printer_name(code) == code

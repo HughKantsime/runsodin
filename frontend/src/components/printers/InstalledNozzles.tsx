@@ -2,6 +2,8 @@ import PrinterNumber from '../ui/PrinterNumber'
 import type { FilamentSlot, InstalledNozzle } from '../../types/printer'
 import { parseServerDate } from '../../utils/shared'
 
+const rackToolNames: Record<string, string> = { HS01: 'Standard (1.75 mm)', HT01: 'TPU 2.85 mm' }
+
 export default function InstalledNozzles({ nozzles, rack = false, slots }: {
   nozzles?: InstalledNozzle[] | null
   slots?: FilamentSlot[]
@@ -15,15 +17,18 @@ export default function InstalledNozzles({ nozzles, rack = false, slots }: {
         {positions.map(nozzle => {
           const slot = slots?.find(slot => slot.slot_number === nozzle.position)
           const filament = slot?.rack_filament?.id === nozzle.virtual_slot_id ? slot?.rack_filament : null
+          const tool = nozzle.type && rackToolNames[nozzle.type]
+          const reported = filament?.type && [filament.type, filament.preset,
+            filament.color && `#${filament.color.slice(0, 6)}`].filter(Boolean).join(', ')
           return <li key={nozzle.nozzle_id}>
-            Position {nozzle.position} · {nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}
+            Position {nozzle.position} · {tool ? `${tool} (${nozzle.type})` : nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}
             {nozzle.present === false && ' · Absent'}
-            {filament ? <> · ID {filament.id} · {filament.type || 'Empty'}</> : ' · Filament unreported'}
-            {filament && slot?.spool_change_pending && <a className="ml-1 underline" href="/printers">Confirm spool on Printers</a>}
+            {nozzle.mounted && ' · In the tool head'}
+            <div>Printer reports: {reported || 'Nothing reported'} {nozzle.virtual_slot_id != null && <small>ID {nozzle.virtual_slot_id}</small>}</div>
+            {slot && <div>ODIN slot: {[slot.filament_type, slot.color, slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`].filter(Boolean).join(', ')}</div>}
           </li>
         })}
       </ul> : <p>No rack report received.</p>}
-      {slots?.some(slot => slot.rack_filament) && <p className="mt-2 text-xs">Filament IDs are reported by the printer. Their nozzle assignments are provisional.</p>}
     </section>
   }
   return <section aria-label="Installed nozzles" className="mb-6 rounded-lg border border-[var(--brand-card-border)] p-4">

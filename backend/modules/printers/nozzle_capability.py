@@ -30,6 +30,11 @@ def decode_type(code):
     return material, flow
 
 
+def rack_slot_id(position):
+    """Raw filament slot for a numbered H3C rack position."""
+    return 256 - position
+
+
 def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=None):
     """Parse one packet, never copy top-level primary data to a second nozzle."""
     stamp = observed_at or datetime.now(timezone.utc).isoformat()
@@ -42,9 +47,10 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
         rows = ([{'id': 0, 'type': packet.get('nozzle_type'), 'diameter': packet.get('nozzle_diameter')}]
                 if not dual and ('nozzle_type' in packet or 'nozzle_diameter' in packet) else [])
     dual = dual or any(isinstance(row, dict) and row.get('id') == 1 for row in rows)
-    if type(exist) is int:
+    source = nozzle.get('src_id') if include_rack and isinstance(nozzle, dict) else None
+    if type(exist) is int or type(source) is int:
         ids = {row.get('id') for row in rows if isinstance(row, dict) and type(row.get('id')) is int}
-        expected = list(range(2 if dual else 1))
+        expected = list(range(2 if dual else 1)) if type(exist) is int else []
         if include_rack:
             expected.extend(range(16, 25))
         rows = rows + [{'id': index} for index in expected if index not in ids]
@@ -61,10 +67,10 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
             identity = {'nozzle_id': identifier, 'side': 'rack',
                         'position': address + 1 if type(address) is int and 0 <= address < 9 else None,
                         'stat': row.get('stat') if type(row.get('stat')) is int else None}
-            # One known load suggests snow's high byte names a virtual slot.
-            # Use only the reported ID for display until a second load confirms direction.
-            if type(row.get('snow')) is int and 0 <= row['snow'] <= 0xffff:
-                identity['virtual_slot_id'] = row['snow'] >> 8
+            if identity['position'] is not None:
+                identity['virtual_slot_id'] = rack_slot_id(identity['position'])
+            if type(source) is int:
+                identity['mounted'] = identifier == source
         else:
             continue
         code = row.get('type')
@@ -88,7 +94,7 @@ def display_nozzles(rows, rack):
 def compare_nozzles(requirements, installed):
     """(safe mismatch detail, incomplete). Compare every known requirement."""
     incomplete = not requirements
-    by_id = {row['extruder']: row for row in installed}
+    by_id = {row['extruder']: row for row in installed if row.get('side') != 'rack'}
     for required in requirements:
         actual = by_id.get(required['extruder'])
         side = required['side']

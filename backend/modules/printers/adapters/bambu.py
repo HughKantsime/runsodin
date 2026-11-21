@@ -139,6 +139,7 @@ class BambuPrinter:
         on_status_update: Optional[Callable[[PrinterStatus], None]] = None,
         client_id: Optional[str] = None,
         on_connection_change: Optional[Callable[[], None]] = None,
+        on_product_name: Optional[Callable[[str], None]] = None,
     ):
         """
         Initialize Bambu printer connection.
@@ -159,6 +160,7 @@ class BambuPrinter:
         self.access_code = access_code
         self.on_status_update = on_status_update
         self.on_connection_change = on_connection_change
+        self.on_product_name = on_product_name
         self._client_id = client_id or f"printfarm_{serial}"
         
         self._client: Optional[mqtt.Client] = None
@@ -581,6 +583,8 @@ class BambuPrinter:
             product = ota_product_name(payload.get("info"))
             if product:
                 self._status.printer_type = product
+                if self.on_product_name:
+                    self.on_product_name(product)
 
             # Get the print section if present
             print_data = payload.get("print", {})

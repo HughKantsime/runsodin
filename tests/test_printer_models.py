@@ -39,6 +39,9 @@ class TestBambuModels:
     def test_h3c_ota_product_name(self):
         assert normalize_model_name("bambu", "Bambu Lab H3C") == "H3C"
 
+    def test_h3c_firmware_folder(self):
+        assert normalize_model_name("bambu", "N10") == "H3C"
+
     def test_ota_product_names(self):
         assert normalize_model_name("bambu", "Bambu Lab A1") == "A1"
         assert normalize_model_name("bambu", "Bambu Lab H2D") == "H2D"

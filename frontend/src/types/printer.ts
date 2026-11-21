@@ -1,4 +1,5 @@
 export interface InstalledNozzle {
+  mounted?: boolean
   virtual_slot_id?: number
   nozzle_id?: number; position?: number; type?: string | null
   extruder?: number; side: string; diameter: number | null; flow: string | null
@@ -39,7 +40,7 @@ export type FilamentType =
 // ---- Filament Slots ----
 
 export interface FilamentSlot {
-  rack_filament?: { id: number; type: string; preset: string | null; color: string | null; observed_at: string } | null
+  rack_filament?: { id: number; type?: string; preset?: string | null; color?: string | null; observed_at: string } | null
   catalogue_name?: string | null;
   catalogue_choices?: { id: number; name: string }[];
   do_not_feed?: boolean;
@@ -123,7 +124,6 @@ export interface Printer {
   nozzle_type: string | null;
   nozzle_diameter: number | null;
   fan_speed: number | null;
-  ams_connected?: boolean | null;
   installed_nozzles?: InstalledNozzle[] | null;
   bed_x_mm: number | null;
   bed_y_mm: number | null;
