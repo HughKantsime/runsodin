@@ -9,6 +9,9 @@ PROTOCOLS = {
     ('modules/printers/plate_clear.py', 'record_plate_clear'): {
         'modules/printers/routes_controls.py': ('record_plate_clear', {'plate_cleared'}),
     },
+    ('modules/printers/moonraker_controls.py', '_finish'): {
+        'modules/printers/moonraker_controls.py': ('_finish', {'_begin', 'observe_control'}),
+    },
     ('modules/jobs/print_failure.py', 'change'): {
         'modules/jobs/routes/print_failure.py': ('change', {'_apply'}),
     },

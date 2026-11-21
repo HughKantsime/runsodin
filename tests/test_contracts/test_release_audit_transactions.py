@@ -28,3 +28,19 @@ def test_each_caller_must_commit_the_same_session(key, path):
     sources = sources_for(key)
     sources[path] = sources[path].replace('db.commit()', 'other_session.commit()')
     assert not caller_owned_audit_is_atomic(key, sources)
+
+
+@pytest.mark.parametrize('after_commit', [
+    '        return None, outcome',
+    '    return (record if outcome == "pending" else None), outcome',
+    '    if plan is not None:',
+], ids=['send-failed', 'send-confirmed', 'observed-outcome'])
+def test_moonraker_finish_requires_each_caller_commit(after_commit):
+    path = 'modules/printers/moonraker_controls.py'
+    key = (path, '_finish')
+    sources = sources_for(key)
+    assert caller_owned_audit_is_atomic(key, sources)
+    boundary = f'db.commit()\n{after_commit}'
+    assert sources[path].count(boundary) == 1
+    sources[path] = sources[path].replace(boundary, f'db.flush()\n{after_commit}')
+    assert not caller_owned_audit_is_atomic(key, sources)
