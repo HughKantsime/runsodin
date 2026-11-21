@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ops.edu_readiness.artifact_scan import scan_text as scan_text_for_pii
+from ops.release_control.check_image_client import check_image_client
 from ops.release_gate.policy import redact_text, scan_text_for_secrets
 from ops.release_control.validation_image_cleanup import (
     PROBE_IMAGE_REF,
@@ -631,6 +632,7 @@ def run(run_id: str, artifact_root: Path) -> int:
                 except Exception:
                     pass
             raise
+        check_image_client(expected_image)
         env = os.environ.copy()
         env.update({
             "ODIN_INSTALL_TEST_MODE": "1", "ODIN_TEST_ROOT": str(run_root),

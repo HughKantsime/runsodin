@@ -32,7 +32,7 @@ SHOWS = ["SHOW server_version_num", "SHOW server_version"]
 class FakeEngine:
     dialect = SimpleNamespace(name="postgresql")
 
-    def __init__(self, number=160015, version="16.15"):
+    def __init__(self, number=160016, version="16.16"):
         self.values = dict(zip(SHOWS, (str(number), version)))
         self.statements = []
         self.disposed = False
@@ -322,10 +322,10 @@ def test_every_pinned_postgres_image_records_tested_major():
     digests = set()
     for line in result.stdout.splitlines():
         path, number, source = line.split(":", 2)
-        recorded = re.search(r"# PostgreSQL (\d+)\.15; read from the image by Dev on 2026-11-16\.", source)
+        recorded = re.search(r"# PostgreSQL (\d+)\.16 \(Alpine\); read from the image by Dev on 2026-11-20\.", source)
         assert recorded and int(recorded[1]) == TESTED_POSTGRES_MAJOR, f"{path}:{number} lacks the tested major"
         digests.update(re.findall(r"sha256:([0-9a-f]{64})", source))
-    assert len(digests) == 2
+    assert digests == {"1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857"}
 
 
 @pytest.mark.postgresql

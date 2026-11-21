@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
-IMAGE = "postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685"  # PostgreSQL 16.15; read from the image by Dev on 2026-11-16.
+IMAGE = "postgres@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857"  # PostgreSQL 16.16 (Alpine); read from the image by Dev on 2026-11-20.
 
 
 def _docker(*args, timeout=60):

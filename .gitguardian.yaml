@@ -1,0 +1,7 @@
+version: 2
+secret:
+  ignored_paths:
+    # SHA-256 checksums of source files used by the Classic baseline.
+    - tests/foundry_browser/classic-baseline.json
+    # Synthetic password_hash fixtures for dispatch recovery tests.
+    - tests/test_contracts/test_dispatch_recovery_slot_change.py

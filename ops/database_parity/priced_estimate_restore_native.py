@@ -97,11 +97,12 @@ def main():
         tool(['pg_restore','--data-only','--no-owner','--no-privileges','--use-list',str(listing),'--file','-',str(archive)],extracted);extracted.chmod(0o600)
         # This metadata is not printed; fixed package producer-build confirmation.
         metadata=extracted.read_bytes().splitlines()[:12]
+        assert b'-- Dumped from database version 16.16' in metadata
         producer=next(line for line in metadata if line.startswith(b'-- Dumped by pg_dump version '))
-        assert producer in (b'-- Dumped by pg_dump version 16.15',b'-- Dumped by pg_dump version 16.15 (Debian 16.15-1.pgdg13+2)')
-        print('priced-restore-actual-owned-customArchive-sevenTOC-16.15-producer-qualified',flush=True)
+        assert producer in (b'-- Dumped by pg_dump version 16.16',b'-- Dumped by pg_dump version 16.16 (Debian 16.16-1.pgdg13+1)')
+        print('priced-restore-actual-owned-customArchive-sevenTOC-16.16-producer-qualified',flush=True)
         if os.environ.get('PRICED_RESTORE_DIAGNOSTIC')=='1':
-            print('priced-restore-producer-variant-'+('plain' if producer.endswith(b'version 16.15') else 'debian16.15-1.pgdg13+2'),flush=True)
+            print('priced-restore-producer-variant-'+('plain' if producer.endswith(b'version 16.16') else 'debian16.16-1.pgdg13+1'),flush=True)
             print('priced-estimate-restore-envelope-diagnostic-complete',flush=True)
             return
         admin=create_database_engine('postgresql+psycopg://postgres@pg/postgres',role='restore',password_file=str(secret));targets=[]
