@@ -68,7 +68,8 @@ def configure(db, enabled, user_id):
 
 def status(db):
     reason = disabled_reason()
-    enabled = reason is None and read(db, SETTING).get("enabled") is True
+    stored_enabled = read(db, SETTING).get("enabled") is True
+    enabled = stored_enabled and reason is None
     installed = backend_version()
     result = read(db, RESULT) if enabled else {}
     newest = result.get("newest")
@@ -76,7 +77,7 @@ def status(db):
     available = bool(installed_number) and version_number(newest) > installed_number
     security = available and version_number(result.get("security_version")) > installed_number
     outcome = "unknown_installed_version" if enabled and not installed_number else result.get("outcome")
-    return {"enabled": enabled, "disabled_reason": reason, "installed": installed,
+    return {"enabled": enabled, "stored_enabled": stored_enabled, "disabled_reason": reason, "installed": installed,
             "checked_at": result.get("checked_at"), "outcome": outcome,
             "newest": newest, "published_at": result.get("published_at"),
             "available": available, "security": security}
@@ -90,8 +91,7 @@ def due_slot(pref, result, at, started):
         slot -= DAY
     last = result.get("scheduled_at")
     attempt = result.get("attempt_at")
-    # Older results stored the actual poll time in scheduled_at.
-    last_poll = result.get("scheduled_attempt_at", last)
+    last_poll = result.get("scheduled_attempt_at")
     if (slot >= datetime.fromisoformat(pref["enabled_at"])
             and (not attempt or datetime.fromisoformat(attempt) < slot)
             and (not last or datetime.fromisoformat(last) < slot)

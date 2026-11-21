@@ -1,12 +1,11 @@
 """Read only the public ODIN release list. Never persist remote text or URLs."""
-import asyncio
 import json
 import re
 from datetime import datetime, timezone
 
 import httpx
 
-from core import itar
+from core import itar, outbound_http
 
 RELEASES_URL = "https://api.github.com/repos/HughKantsime/runsodin/releases?per_page=20"
 NOTES_URL = "https://github.com/HughKantsime/runsodin/releases/tag/v"
@@ -57,42 +56,30 @@ def parse_releases(data, installed):
             "security": security_version is not None}
 
 
-async def _request_releases(installed, transport):
-    async with asyncio.timeout(REQUEST_SECONDS):
-        async with httpx.AsyncClient(
-            trust_env=itar.should_trust_env(), timeout=REQUEST_SECONDS, verify=True, follow_redirects=False, transport=transport,
-        ) as client:
-            # A standalone request omits httpx's default encoding and connection headers.
-            request = httpx.Request("GET", RELEASES_URL, headers={"Accept": "application/vnd.github+json", "User-Agent": "ODIN"})
-            response = await client.send(request, stream=True)
-            try:
-                if response.status_code != 200:
-                    return {"outcome": "http_error"}
-                # We requested no encoding. Reject compressed data before any decompression.
-                if response.headers.get("content-encoding", "identity").lower() != "identity":
-                    return {"outcome": "invalid_response"}
-                body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    if len(chunk) + len(body) > LIMIT:
-                        return {"outcome": "too_large"}
-                    body.extend(chunk)
-                return {"outcome": "ok", **parse_releases(json.loads(body), installed)}
-            finally:
-                await response.aclose()
+def _validate_response(response):
+    if response.status_code != 200:
+        raise httpx.HTTPStatusError("Expected 200", request=response.request, response=response)
+    if response.headers.get("content-encoding", "identity").lower() != "identity":
+        raise ValueError("Expected an unencoded response")
 
 
 def fetch_releases(installed, *, transport=None):
     if itar.is_itar_mode():
         return {"outcome": "blocked"}
+    if not version_number(installed):
+        return {"outcome": "unknown_installed_version"}
     try:
         itar.enforce_request_destination(RELEASES_URL)
-        with itar.pin_for_request(RELEASES_URL):
-            # asyncio.run waits for the DNS executor on shutdown, even after cancellation.
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(_request_releases(installed, transport))
-            finally:
-                loop.close()
+        response = outbound_http.pinned_get(
+            RELEASES_URL, headers={"Accept": "application/vnd.github+json", "User-Agent": "ODIN"},
+            timeout=REQUEST_SECONDS, max_response_bytes=LIMIT, validate_response=_validate_response,
+            transport=transport,
+        )
+        return {"outcome": "ok", **parse_releases(json.loads(response.content), installed)}
+    except httpx.HTTPStatusError:
+        return {"outcome": "http_error"}
+    except outbound_http.OutboundResponseTooLarge:
+        return {"outcome": "too_large"}
     except itar.ItarOutboundBlocked:
         return {"outcome": "blocked"}
     except (TimeoutError, httpx.TimeoutException):

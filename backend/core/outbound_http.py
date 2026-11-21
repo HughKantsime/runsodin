@@ -1,4 +1,4 @@
-"""Async outbound HTTP with the existing ITAR destination and proxy policy."""
+"""Outbound HTTP with the existing ITAR destination and proxy policy."""
 
 import asyncio
 import math
@@ -6,7 +6,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 
 import httpx
 
@@ -44,6 +44,66 @@ def _release_slot(loop, slots):
             raise
 
 
+def _prepare_request(url, timeout, max_response_bytes, open_stream, *, public_only=False, transport=None, cancelled=None):
+    """Build the synchronous worker with one deadline for admission, setup and streaming."""
+    timeout = float(timeout)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("outbound timeout must be a positive finite number")
+    if isinstance(max_response_bytes, bool) or not isinstance(max_response_bytes, int) or max_response_bytes <= 0:
+        raise ValueError("outbound response size limit must be a positive integer")
+    deadline = time.monotonic() + timeout
+
+    def remaining():
+        budget = deadline - time.monotonic()
+        if budget <= 0 or (cancelled is not None and cancelled.is_set()):
+            raise httpx.TimeoutException("Outbound request total deadline exceeded")
+        return budget
+
+    def request():
+        remaining()
+        with ExitStack() as pins:
+            pins.enter_context(itar.pin_for_request(url))
+            if public_only:
+                ips, port, host, _ = webhook_utils._resolve_and_pin(url)
+                pins.enter_context(webhook_utils._pin_dns(host, port, ips))
+            options = {"transport": transport} if transport is not None else {}
+            with httpx.Client(trust_env=not public_only and itar.should_trust_env(), timeout=remaining(), **options) as client:
+                with open_stream(client, remaining()) as response:
+                    body = bytearray()
+                    for chunk in response.iter_bytes():
+                        remaining()
+                        if len(body) + len(chunk) > max_response_bytes:
+                            raise OutboundResponseTooLarge("Outbound response body exceeds size limit",
+                                                           status_code=response.status_code)
+                        body.extend(chunk)
+                    remaining()
+                    # Match Response.read(): preserve request, headers, encoding,
+                    # extensions and decoded content without decoding it twice.
+                    response._content = bytes(body)
+                    return response
+
+    return request, remaining
+
+
+def pinned_get(url, *, headers, timeout, max_response_bytes, validate_response, transport=None):
+    """GET with exactly the supplied headers (plus Host), validating before reading the body."""
+    @contextmanager
+    def open_stream(client, _budget):
+        client.headers.clear()
+        with client.stream("GET", url, headers=headers, timeout=timeout, follow_redirects=False) as response:
+            validate_response(response)
+            yield response
+
+    request, remaining = _prepare_request(
+        url, timeout, max_response_bytes, open_stream, transport=transport)
+    future = _executor.submit(copy_context().run, request)
+    try:
+        return future.result(timeout=remaining())
+    except TimeoutError as exc:
+        future.cancel()
+        raise httpx.TimeoutException("Outbound request total deadline exceeded") from exc
+
+
 async def pinned_async_request(
     method: str, url: str, *, timeout=5,
     max_response_bytes=_DEFAULT_MAX_RESPONSE_BYTES, public_only=False, **kwargs,
@@ -72,46 +132,16 @@ async def pinned_async_request(
     cancelled or timed-out license POST may still complete at the portal.
     Callers must reconcile portal state before retrying a mutation.
     """
-    timeout = float(timeout)
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("outbound timeout must be a positive finite number")
-    if isinstance(max_response_bytes, bool) or not isinstance(max_response_bytes, int) or max_response_bytes <= 0:
-        raise ValueError("outbound response size limit must be a positive integer")
-    deadline = time.monotonic() + timeout
+    def open_stream(client, budget):
+        return client.stream(method, url, timeout=budget, follow_redirects=False, **kwargs)
+
     cancelled = threading.Event()
-
-    def remaining():
-        budget = deadline - time.monotonic()
-        if cancelled.is_set() or budget <= 0:
-            raise httpx.TimeoutException("Outbound request total deadline exceeded")
-        return budget
-
-    def request():
-        remaining()
-        with ExitStack() as pins:
-            pins.enter_context(itar.pin_for_request(url))
-            if public_only:
-                ips, port, host, _ = webhook_utils._resolve_and_pin(url)
-                pins.enter_context(webhook_utils._pin_dns(host, port, ips))
-            with httpx.Client(trust_env=not public_only and itar.should_trust_env(), timeout=remaining()) as client:
-                with client.stream(method, url, timeout=remaining(), follow_redirects=False, **kwargs) as response:
-                    body = bytearray()
-                    for chunk in response.iter_bytes():
-                        remaining()
-                        if len(body) + len(chunk) > max_response_bytes:
-                            raise OutboundResponseTooLarge("Outbound response body exceeds size limit",
-                                                           status_code=response.status_code)
-                        body.extend(chunk)
-                    remaining()
-                    # Match Response.read(): preserve request, headers, encoding,
-                    # extensions and decoded content without decoding it twice.
-                    response._content = bytes(body)
-                    return response
-
+    request, remaining = _prepare_request(
+        url, timeout, max_response_bytes, open_stream, public_only=public_only, cancelled=cancelled)
     loop = asyncio.get_running_loop()
     slots = _get_slots()
     try:
-        async with asyncio.timeout(max(0, deadline - time.monotonic())):
+        async with asyncio.timeout(remaining()):
             await slots.acquire()
             try:
                 remaining()

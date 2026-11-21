@@ -15,14 +15,17 @@ let notices: SystemNotice[]
 const requests = vi.fn()
 
 beforeEach(() => {
-  state = {enabled: false, disabled_reason: null, installed: '2.5.0', newest: null, published_at: null,
+  state = {enabled: false, stored_enabled: false, disabled_reason: null, installed: '2.5.0', newest: null, published_at: null,
     checked_at: null, outcome: null, available: false, security: false}
   notices = []
   requests.mockImplementation(async (url: string, init?: RequestInit) => {
     let body: unknown
     if (url === '/api/orgs') body = []
     else if (url === '/api/system/updates') {
-      if (init?.method === 'PUT') state.enabled = JSON.parse(String(init.body)).enabled
+      if (init?.method === 'PUT') {
+        state.stored_enabled = JSON.parse(String(init.body)).enabled
+        state.enabled = state.stored_enabled && !state.disabled_reason
+      }
       body = state
     } else if (url === '/api/system/updates/check') {
       Object.assign(state, {outcome: 'ok', available: false, newest: '2.5.0', checked_at: '2026-11-20T12:00:00Z'})
@@ -74,6 +77,22 @@ test.each(['Update checks are turned off while ITAR mode is on: this server does
   expect(screen.getByRole('switch', {name: switchName})).toBeDisabled()
   expect(screen.getByText(disclosure)).toBeVisible()
   expect(screen.getByText(off)).toBeVisible()
+})
+
+test.each(['Update checks are turned off while ITAR mode is on: this server does not contact public services.',
+           'Update checks are turned off by this server’s ODIN_UPDATE_CHECK setting.'])('withdraw a saved opt-in under %s', async reason => {
+  Object.assign(state, {stored_enabled: true, disabled_reason: reason})
+  open()
+  expect(await screen.findByText(reason)).toBeVisible()
+  expect(screen.getByText(/switched on earlier.*will resume/i)).toBeVisible()
+  expect(screen.getByRole('switch', {name: switchName})).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', {name: 'Turn off'}))
+  await waitFor(() => expect(requests).toHaveBeenCalledWith('/api/system/updates', expect.objectContaining({
+    method: 'PUT', body: JSON.stringify({enabled: false}),
+  })))
+  expect(await screen.findByText(off)).toBeVisible()
+  expect(screen.queryByRole('button', {name: 'Turn off'})).toBeNull()
+  expect(screen.getByText(reason)).toBeVisible()
 })
 
 test('a failed check shows the date and keeps the newest known version', async () => {

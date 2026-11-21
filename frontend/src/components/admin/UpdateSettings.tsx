@@ -54,6 +54,11 @@ export default function UpdateSettings() {
           <p role="status">{lastResult(data)}</p>
           <Button variant="secondary" disabled={change.isPending} onClick={() => change.mutate('check')}>Check now</Button>
         </div>
+      ) : data.disabled_reason && data.stored_enabled ? (
+        <div className="text-sm space-y-2 mt-2">
+          <p>Update checks were switched on earlier and will resume when this restriction is lifted.</p>
+          <Button variant="secondary" disabled={change.isPending} onClick={() => change.mutate(false)}>Turn off</Button>
+        </div>
       ) : (
         <p className="text-sm mt-2">Off. ODIN does not check for updates. To hear about releases without this, watch the repository's releases and security advisories on GitHub.</p>
       ))}

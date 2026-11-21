@@ -2,9 +2,10 @@
 import asyncio
 import json
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Thread, get_ident
 
 import httpx
 import pytest
@@ -56,6 +57,48 @@ def test_captured_github_releases():
     assert result["outcome"] == "ok" and result["security"]
 
 
+def test_release_transport_runs_synchronously_inside_pin(monkeypatch):
+    pin_threads = []
+
+    @contextmanager
+    def pin(url):
+        assert url == releases.RELEASES_URL
+        pin_threads.append(get_ident())
+        try:
+            yield
+        finally:
+            pin_threads.pop()
+
+    class Transport(httpx.BaseTransport):
+        def handle_request(self, request):
+            assert pin_threads == [get_ident()]
+            return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(releases.itar, "pin_for_request", pin)
+    assert releases.fetch_releases("2.5.0", transport=Transport())["outcome"] == "ok"
+    assert not pin_threads
+
+
+@pytest.mark.parametrize("code,outcome", [(200, "invalid_response"), (302, "http_error")])
+def test_encoded_release_response_is_closed_without_reading(code, outcome):
+    closed = []
+
+    class UnreadBody(httpx.SyncByteStream, httpx.AsyncByteStream):
+        def __iter__(self):
+            pytest.fail("encoded body was read")
+
+        def close(self):
+            closed.append(True)
+
+        async def aclose(self):
+            self.close()
+
+    transport = httpx.MockTransport(lambda req: httpx.Response(
+        code, headers={"Content-Encoding": "gzip"}, stream=UnreadBody()))
+    assert releases.fetch_releases("2.5.0", transport=transport) == {"outcome": outcome}
+    assert closed == [True]
+
+
 @pytest.mark.parametrize("code,body,expected", [
     (200, b" " * (512 * 1024 - 2) + b"[]", "ok"),
     (200, b" " * (512 * 1024 - 1) + b"[]", "too_large"),
@@ -102,7 +145,7 @@ def seed(sessions, offset=14):
 
 
 def test_deadline_interrupts_a_pending_read(monkeypatch):
-    monkeypatch.setattr(releases, "REQUEST_SECONDS", 0.1, raising=False)
+    monkeypatch.setattr(releases, "REQUEST_SECONDS", 0.1)
     delivered = []
 
     class Drip(httpx.SyncByteStream, httpx.AsyncByteStream):
@@ -190,7 +233,8 @@ def test_unparseable_installed_version_suppresses_cached_and_new_notices(session
     entries = [release("v9.0.0", "### Security")]
     cached = releases.parse_releases(entries, "2.5.0")
     monkeypatch.setattr(checks, "backend_version", lambda: "dev")
-    transport = httpx.MockTransport(lambda req: httpx.Response(200, json=entries))
+    transport = httpx.MockTransport(lambda req: pytest.fail("request for an unknown installed version"))
+    monkeypatch.setattr(releases.itar, "enforce_request_destination", lambda url: pytest.fail("destination lookup"))
     monkeypatch.setattr(checks, "fetch_releases", lambda v: releases.fetch_releases(v, transport=transport))
     with sessions() as db:
         checks.write(db, checks.RESULT, {"outcome": "ok", **cached})
@@ -200,6 +244,14 @@ def test_unparseable_installed_version_suppresses_cached_and_new_notices(session
         assert checks.read(db, checks.RESULT)["outcome"] == state["outcome"] == "unknown_installed_version"
         assert not state["available"] and not state["security"]
         assert checks.update_notices(db, 1) == []
+
+
+def test_schedule_does_not_treat_a_slot_as_an_actual_poll():
+    slot = START + timedelta(minutes=30)
+    pref = {"enabled": True, "enabled_at": START.isoformat(), "offset_minutes": 30}
+    # An unshipped result contains no actual-poll field. Only the slot comparison applies.
+    result = {"scheduled_at": (slot + timedelta(seconds=40)).isoformat()}
+    assert checks.due_slot(pref, result, slot + checks.DAY, START) == slot + checks.DAY
 
 
 @pytest.mark.parametrize("filename", ["docker-compose.yml", "install/docker-compose.yml", "docker-compose.enterprise.yml"])
@@ -259,6 +311,7 @@ def test_override_blocks_stored_consent(sessions, monkeypatch, mode):
     monkeypatch.setattr(checks, "fetch_releases", lambda v: pytest.fail("Unexpected request"))
     with sessions() as db:
         assert checks.status(db)["enabled"] is False
+        assert checks.status(db)["stored_enabled"] is True
         checks.run_check(db, started=START)
         assert checks.update_notices(db, 1) == []
         with pytest.raises(HTTPException) as locked:
@@ -369,6 +422,7 @@ assert admin.post(path+"/check").json()["detail"] == checks.ITAR_REASON
 assert admin.put(path,json={"enabled":True}).status_code == 409
 assert not listing(admin)
 assert not toggle(False)["enabled"]
+assert admin.get(path).json()["stored_enabled"] is False
 os.environ.pop("ODIN_ITAR_MODE")
 assert not admin.get(path).json()["enabled"]
 assert not toggle(False)["enabled"] and not listing(admin)

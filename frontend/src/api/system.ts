@@ -56,6 +56,7 @@ export const systemNotices = {
 
 export interface UpdateStatus {
   enabled: boolean
+  stored_enabled: boolean
   disabled_reason: string | null
   installed: string
   newest: string | null
