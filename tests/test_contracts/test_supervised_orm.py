@@ -37,25 +37,50 @@ def test_configure_orm_before_supervised_loop(module):
         assert any(isinstance(n, ast.Call) and ast.unparse(n.func) == "FastAPI"
                    and any(k.arg == "lifespan" and ast.unparse(k.value) == "lifespan" for k in n.keywords)
                    for n in ast.walk(app))
-        block = next(n for n in ast.walk(app) if isinstance(n, ast.AsyncFunctionDef) and n.name == "lifespan")
+        lifespan = next(n for n in ast.walk(app) if isinstance(n, ast.AsyncFunctionDef) and n.name == "lifespan")
+        statements = lifespan.body
     else:
         tree = parse(module.replace(".", "/") + ".py")
-        block = next(n for n in tree.body if isinstance(n, ast.If)
-                     and ast.unparse(n.test) == "__name__ == '__main__'")
+        statements = main_statements(tree)
+    assert_configured_before_launch(module, statements)
+
+
+def main_statements(tree):
+    for block in tree.body:
+        if isinstance(block, ast.If) and ast.unparse(block.test) == "__name__ == '__main__'":
+            yield from block.body
+
+
+def assert_configured_before_launch(module, statements):
     imported = False
-    for statement in block.body:
+    for statement in statements:
         if isinstance(statement, ast.ImportFrom) and statement.module == "core.schema.bootstrap":
             imported = any(n.name == "configure_orm" and not n.asname for n in statement.names)
         if ast.unparse(statement) == "configure_orm()":
             assert imported
             break
         for node in ast.walk(statement):
-            assert not isinstance(node, (ast.While, ast.Yield)), f"{module} starts its loop before configuring the ORM"
+            assert not isinstance(node, (ast.While, ast.For, ast.AsyncFor, ast.Yield, ast.YieldFrom)), (
+                f"{module} starts its loop before configuring the ORM"
+            )
             if isinstance(node, ast.Call):
                 launch = ast.unparse(node.func).split(".")[-1]
-                assert launch not in {"main", "main_loop", "start", "run", "run_forever", "create_task"}, module
+                assert launch not in {"main", "main_loop", "start", "run", "run_forever", "create_task"}, (
+                    f"{module} calls {launch} before configuring the ORM"
+                )
     else:
         pytest.fail(f"{module} starts without configuring the ORM")
+
+
+def test_second_main_block_cannot_launch_without_configuring_orm():
+    tree = ast.parse("""
+if __name__ == "__main__":
+    setup_logging()
+if __name__ == "__main__":
+    main_loop()
+""")
+    with pytest.raises(AssertionError, match="worker calls main_loop before configuring the ORM"):
+        assert_configured_before_launch("worker", main_statements(tree))
 
 
 @pytest.mark.parametrize("command", ["python -m monitor", "/usr/bin/python3 -m monitor",
