@@ -77,15 +77,6 @@ it('labels an Experimental type in the add-printer list and warns when it is cho
 })
 
 
-it('shows only the Bambu skip capability and saves its opt-in', async () => {
-  mount(bambu, true)
-  expect(screen.getByRole('note')).toHaveTextContent("Skip objects (Experimental): built from how Bambu's own software sends this command, and not yet verified on a real printer.")
-  expect(screen.getByText('Skipping objects is off for this printer.')).toBeInTheDocument()
-  expect(screen.queryByText(/Job sending and controls are/)).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Allow skipping objects (Experimental)' }))
-  await waitFor(() => expect(printerSupport.setExperimentalActions).toHaveBeenCalledWith(8, true))
-})
-
 it('describes only the Elegoo dispatch gate and saves its opt-in', async () => {
   mount({ ...bambu, api_type: 'elegoo' }, true)
   expect(screen.getByRole('note')).toHaveTextContent("Job sending (Experimental): built from Elegoo's public SDCP documentation and not yet verified on a real printer.")
@@ -95,23 +86,20 @@ it('describes only the Elegoo dispatch gate and saves its opt-in', async () => {
 })
 
 
-it.each([['bambu', 'classic'], ['elegoo', 'classic'], ['bambu', 'foundry'], ['elegoo', 'foundry']])('shows the enabled capability state for %s with a 44px tick target in %s', (api_type, family) => {
+it.each(['classic', 'foundry'])('shows the enabled Elegoo capability with a 44px tick target in %s', family => {
   document.documentElement.dataset.themeFamily = family
-  mount({ ...bambu, api_type, experimental_actions_enabled: true }, true)
+  mount({ ...bambu, api_type: 'elegoo', experimental_actions_enabled: true }, true)
   const checkbox = screen.getByRole('checkbox')
   expect(checkbox).toBeChecked()
   expect(checkbox).toHaveClass('h-6', 'w-6')
   expect(checkbox.closest('label')).toHaveClass(family === 'classic' ? 'p-2.5' : 'f-check-target')
-  expect(screen.getByText(api_type === 'bambu' ? 'Allow skipping objects (Experimental)' : 'Allow job sending (Experimental)')).toHaveClass('min-h-11')
-  expect(screen.getByText(api_type === 'bambu' ? 'Skipping objects is on for this printer.' : 'Job sending is on for this printer. Monitoring, pause, resume, speed and stop are not affected.')).toBeInTheDocument()
+  expect(screen.getByText('Allow job sending (Experimental)')).toHaveClass('min-h-11')
+  expect(screen.getByText('Job sending is on for this printer. Monitoring, pause, resume, speed and stop are not affected.')).toBeInTheDocument()
   expect(screen.getByRole('note')).not.toHaveClass('text-amber-400')
 })
 
-it('shows only the skip-objects switch on a Bambu printer reporting an HT tray', async () => {
-  mount({ ...bambu, experimental_actions_enabled: true, filament_slots: [{ slot_number: 17 }] }, true)
-  const skip = screen.getByRole('checkbox', { name: 'Allow skipping objects (Experimental)' })
-  expect(screen.getAllByRole('checkbox')).toEqual([skip])
-  expect(skip).toBeChecked()
-  fireEvent.click(skip)
-  await waitFor(() => expect(printerSupport.setExperimentalActions).toHaveBeenCalledWith(8, false))
+it.each([false, true])('hides the Bambu capability panel even with an HT tray (stored opt-in=%s)', enabled => {
+  mount({ ...bambu, experimental_actions_enabled: enabled, filament_slots: [{ slot_number: 17 }] }, true)
+  expect(screen.queryByTestId('experimental-opt-in')).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 })

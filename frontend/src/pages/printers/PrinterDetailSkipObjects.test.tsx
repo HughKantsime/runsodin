@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterDetail from './PrinterDetail'
 import { printers as objectApi } from '../../api/printers'
@@ -18,7 +18,13 @@ vi.mock('../../api', () => ({
 }))
 beforeEach(() => {
   Object.assign(state, { role: 'operator', permitted: true, type: 'bambu', gcode: 'RUNNING', online: true, group_id: 1 })
-  vi.mocked(objectApi.printObjects).mockResolvedValue({ supported: false, reason_code: 'experimental_not_enabled', reason: 'Enable Experimental actions first.', objects: [], can_skip: false } as any)
+  vi.mocked(objectApi.printObjects).mockResolvedValue({
+    printer_id: 9, supported: true, can_skip: true, experimental: false, source: 'bambu_3mf',
+    reason: null, reason_code: null, retry_after_seconds: null, skipped_reported: true, current_object_id: null,
+    print: { print_job_id: 912, job_id: 501, name: 'Parts', plate: 1 }, max_selectable: 1,
+    picture: { available: false, aspect: null, front_edge: null },
+    objects: ['15', '79'].map((id, i) => ({ id, number: i + 1, name: 'Bracket', state: 'printing', skippable: true, bounds: null, outline: null })),
+  })
 })
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); document.documentElement.removeAttribute('data-theme-family') })
 function mount(hash = '') {
@@ -29,7 +35,7 @@ function mount(hash = '') {
 
 it.each([
   ['classic', false], ['classic', true], ['foundry', false], ['foundry', true],
-])('offers the action with opt-in off, loads only on opening (%s, phone=%s)', async (family, phone) => {
+])('offers Bambu skip without opt-in and loads only on opening (%s, phone=%s)', async (family, phone) => {
   document.documentElement.dataset.themeFamily = family as string
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: phone && query.includes('max-width'), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   mount()
@@ -38,10 +44,10 @@ it.each([
   expect(button).toHaveClass('bg-transparent', 'border')
   expect(objectApi.printObjects).not.toHaveBeenCalled()
   fireEvent.click(button)
-  expect(await screen.findByText('Enable Experimental actions first.')).toBeInTheDocument()
+  expect(await screen.findByText('Parts · Plate 1')).toBeInTheDocument()
   expect(objectApi.printObjects).toHaveBeenCalledExactlyOnceWith(9)
-  expect(screen.getByRole('link', { name: 'Skip objects settings' })).toHaveAttribute('href', '#experimental-opt-in-9')
-  expect(document.getElementById('experimental-opt-in-9')).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Skip objects settings' })).not.toBeInTheDocument()
+  expect(document.getElementById('experimental-opt-in-9')).not.toBeInTheDocument()
   expect(screen.getByRole('dialog').querySelector('[data-foundry-ui]') !== null).toBe(family === 'foundry')
   expect(objectApi.skipObjects).not.toHaveBeenCalled()
 })
@@ -64,23 +70,17 @@ it.each(['RUNNING', 'PRINTING', 'PAUSE', 'PAUSED'])('offers the action for an ad
 })
 
 
-it.each(['classic', 'foundry'])('opens the settings disclosure and focuses its checkbox in %s', async family => {
+it.each(['classic', 'foundry'])('hides the Bambu Experimental switch for a platform admin in %s', async family => {
   document.documentElement.dataset.themeFamily = family
   state.role = 'admin'; state.group_id = null
-  Element.prototype.scrollIntoView = vi.fn()
-  mount()
-  const button = await screen.findByRole('button', { name: 'Skip objects' })
-  const disclosure = screen.getByText('Experimental features').closest('details')!
-  expect(disclosure).not.toHaveAttribute('open')
-  fireEvent.click(button)
-  fireEvent.click(await screen.findByRole('link', { name: 'Skip objects settings' }))
-  await waitFor(() => expect(disclosure).toHaveAttribute('open'))
-  expect(screen.getByRole('checkbox', { name: 'Allow skipping objects (Experimental)' })).toHaveFocus()
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  mount('#experimental-opt-in-9')
+  expect(await screen.findByRole('button', { name: 'Skip objects' })).toBeInTheDocument()
+  expect(screen.queryByText('Experimental features')).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox', { name: /skipping objects/i })).not.toBeInTheDocument()
 })
 
-it.each(['bambu', 'elegoo'])('opens %s Experimental features from the hash for a non-superadmin', async type => {
-  state.type = type
+it('opens Elegoo Experimental features from the hash for a non-superadmin', async () => {
+  state.type = 'elegoo'
   mount('#experimental-opt-in-9')
   const disclosure = (await screen.findByText('Experimental features')).closest('details')!
   expect(disclosure).toHaveAttribute('open')

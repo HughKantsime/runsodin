@@ -27,7 +27,7 @@ def test_table_keeps_elegoo_supported_and_gates_only_dispatch():
     assert support_levels.support_level('elegoo') == support_levels.SUPPORTED
     gated = support_levels.gated_capabilities('Elegoo')
     assert gated == {'dispatch'}   # resume and speed shipped before job sending: never newly gated
-    assert support_levels.gated_capabilities('bambu') == frozenset({'skip_objects'})
+    assert not support_levels.gated_capabilities('bambu')
     assert support_levels.opt_in_applies('elegoo') and support_levels.opt_in_applies('octoprint')
     assert not support_levels.opt_in_applies('moonraker') and not support_levels.opt_in_applies(None)
 

@@ -3,7 +3,7 @@ import json
 import pytest
 from sqlalchemy import text
 from modules.printers import monitor_commands
-from tests.test_contracts.test_print_objects_route import objects_env, token_client, review_db, stored  # noqa: F401
+from tests.test_contracts.test_print_objects_route import objects_env, token_client, review_db, stored, read  # noqa: F401
 
 POST = '/printers/9/skip-objects'
 
@@ -99,10 +99,8 @@ def test_busy_retry_after_and_unsupported(objects_env, monkeypatch):
     assert response.headers['retry-after'] == str(mesh_isolation.RETRY_AFTER_SECONDS) and env.calls == []
 
 
-def test_gate_and_visibility_precede_body_checks(objects_env):
+def test_visibility_precedes_body_checks(objects_env):
     env = objects_env
-    env.db.execute(text("DELETE FROM system_config WHERE key='experimental_printer_actions'"));env.db.commit()
-    assert post(env, {'bad':1}).json()['detail']['code'] == 'experimental_not_enabled'
     env.db.execute(text('DELETE FROM education_cost_center_printers WHERE printer_id=9'))
     env.db.execute(text('UPDATE printers SET org_id=2 WHERE id=9'));env.db.commit()
     assert post(env, {'bad':1}).status_code == 404
@@ -116,15 +114,37 @@ def test_skip_every_remaining_object_after_previous_skip(objects_env):
     assert env.calls==[]
 
 
-@pytest.mark.parametrize('api_type,expected', [
-    ('bambu', "Skipping objects is Experimental on Bambu printers and is off for this printer. A platform administrator can turn it on in this printer's Experimental features."),
-    ('octoprint', "This printer is Experimental: ODIN's support for its type is built from public documentation and has not been verified on real hardware. Job sending and printer controls stay off until an administrator turns them on for this printer. Monitoring still works."),
-])
-def test_gate_names_only_the_gated_capability(objects_env, api_type, expected):
+@pytest.mark.parametrize('legacy_opt_in', [False, True])
+def test_bambu_can_list_and_skip_regardless_of_legacy_opt_in(objects_env, legacy_opt_in):
+    from modules.printers import support_levels
+    from modules.printers.models import Printer
+
     env = objects_env
-    env.db.execute(text("UPDATE printers SET api_type=:type WHERE id=9"), {'type': api_type})
-    env.db.execute(text("DELETE FROM system_config WHERE key='experimental_printer_actions'"))
+    if legacy_opt_in:
+        support_levels.set_experimental_enabled(env.db, env.db.get(Printer, 9), True, 3)
+        env.db.commit()
+    listing = read(env)
+    assert listing['supported'] and listing['can_skip'] and not listing['experimental']
+    response = post(env)
+    assert response.status_code == 200 and response.json()['sent'] == ['15']
+    assert env.calls == [((9, 'skip_objects'), dict(print_job_id=912, object_ids=[15]))]
+
+
+def test_moonraker_skip_remains_unavailable(objects_env):
+    env = objects_env
+    env.db.execute(text("UPDATE printers SET api_type='moonraker' WHERE id=9"))
     env.db.commit()
+    assert read(env)['reason_code'] == 'printer_type_unsupported'
+    response = post(env)
+    assert response.status_code == 409 and response.json()['error']['code'] == 'printer_type_unsupported'
+    assert env.calls == []
+
+
+def test_experimental_type_still_requires_opt_in(objects_env):
+    env = objects_env
+    env.db.execute(text("UPDATE printers SET api_type='octoprint' WHERE id=9"))
+    env.db.commit()
+    expected = "This printer is Experimental: ODIN's support for its type is built from public documentation and has not been verified on real hardware. Job sending and printer controls stay off until an administrator turns them on for this printer. Monitoring still works."
     response = post(env)
     assert response.status_code == 409
     assert response.json()['detail'] == {'code': 'experimental_not_enabled', 'message': expected}

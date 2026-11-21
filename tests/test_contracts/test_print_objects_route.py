@@ -1,11 +1,10 @@
 """Real auth/database reads; stored synthetic 3MF and substituted monitor IPC only."""
-import json
 from types import SimpleNamespace
 
 import pytest
 from fastapi import Depends
 from sqlalchemy import event, text
-from modules.printers import monitor_commands, support_levels
+from modules.printers import monitor_commands
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db  # noqa: F401
 from tests.test_contracts.test_print_objects_cache import stored  # noqa: F401
 from tests.test_contracts.test_print_objects_parser import synthetic_members, parse
@@ -18,7 +17,6 @@ READ = '/printers/9/print-objects'
 def objects_env(token_client, review_db, stored, monkeypatch):
     from modules.printers import routes_print_objects, routes_controls
     from modules.printers.routes_experimental import experimental_controls_guard
-    from modules.printers.models import Printer
     from core.registry import registry
     from modules.organizations.services import EducationPolicyService
     monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
@@ -30,7 +28,6 @@ def objects_env(token_client, review_db, stored, monkeypatch):
     db.execute(text("INSERT INTO jobs(id,item_name,status,print_file_id,payload_sha256,plate_index,printer_id,charged_to_org_id) VALUES(501,'Parts','printing',21,:h,0,9,1)"), {'h': stored.file_hash})
     db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at,scheduled_job_id) VALUES(912,9,'parts','running',CURRENT_TIMESTAMP,501)"))
     db.execute(text("INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,observed_print_job_id) VALUES(:t,9,501,:h,:h,:h,912)"), {'t': 'a'*32, 'h': 'a'*64})
-    support_levels.set_experimental_enabled(db, db.get(Printer, 9), True, 3)
     db.commit()
     state = dict(print_job_id=912, gcode_state='RUNNING', skipped=[], fun=None, plate_idx=1)
     calls = []
@@ -57,7 +54,7 @@ def test_read_returns_objects_and_never_writes_database(objects_env):
         result = read(env)
     finally:
         event.remove(env.db.get_bind(), 'before_cursor_execute', capture)
-    assert result['supported'] and result['experimental'] and result['can_skip']
+    assert result['supported'] and not result['experimental'] and result['can_skip']
     assert result['print'] == dict(print_job_id=912, job_id=501, name='Parts', plate=1)
     assert [o['id'] for o in result['objects']] == ['15', '300', '79', '90000']
     assert result['max_selectable'] == 3 and result['skipped_reported']
@@ -69,7 +66,6 @@ def test_read_returns_objects_and_never_writes_database(objects_env):
 @pytest.mark.parametrize('sql,code', [
     ("UPDATE print_jobs SET status='completed'", 'not_printing'),
     ("UPDATE printers SET api_type='moonraker' WHERE id=9", 'printer_type_unsupported'),
-    ("DELETE FROM system_config WHERE key='experimental_printer_actions'", 'experimental_not_enabled'),
     ("UPDATE print_jobs SET scheduled_job_id=NULL", 'started_outside_odin'),
     ("DELETE FROM dispatch_attempt_receipts", 'dispatch_not_proven'),
     ("UPDATE jobs SET payload_sha256=NULL WHERE id=501", 'file_unavailable'),
@@ -82,8 +78,7 @@ def test_reasons_never_release_partial_objects(objects_env, sql, code):
     from modules.printers.print_objects import REASONS
     env = objects_env; env.db.execute(text(sql)); env.db.commit()
     result = read(env)
-    expected = support_levels.SKIP_OBJECTS_MESSAGE if code == 'experimental_not_enabled' else REASONS[code]
-    assert result['reason_code'] == code and result['reason'] == expected
+    assert result['reason_code'] == code and result['reason'] == REASONS[code]
     assert result['objects'] == [] and not result['can_skip'] and not result['picture']['available']
     assert env.calls == []
 
@@ -197,12 +192,20 @@ def test_print_name_uses_reader_visible_display_name(objects_env, model_org, exp
     assert env.db.execute(text('SELECT item_name FROM jobs WHERE id=501')).scalar_one() == 'odin-dispatch-abcd'
 
 
-def test_read_gate_names_only_skipping_objects(objects_env):
+@pytest.mark.parametrize('model,has_bounds,front_edge', [
+    ('P2S', True, 'bottom'), ('  bambu  lab p2s ', True, 'bottom'), ('N7', True, 'bottom'),
+    ('P1S', True, None), ('P2S', False, None),
+])
+def test_picture_front_edge(objects_env, monkeypatch, model, has_bounds, front_edge):
+    from modules.models_library import plate_cache
+
     env = objects_env
-    env.db.execute(text("DELETE FROM system_config WHERE key='experimental_printer_actions'"))
+    env.db.execute(text('UPDATE printers SET model=:model WHERE id=9'), {'model': model})
     env.db.commit()
+    if not has_bounds:
+        document = parse(synthetic_members())
+        document['plates'][0]['objects'][0]['bounds'] = None
+        monkeypatch.setattr(plate_cache, 'objects_for_row', lambda row: document)
     result = read(env)
-    assert result['reason_code'] == 'experimental_not_enabled'
-    assert result['reason'] == ("Skipping objects is Experimental on Bambu printers and is off for this printer. "
-                                "A platform administrator can turn it on in this printer's Experimental features.")
-    assert result['objects'] == [] and env.calls == []
+    assert result['supported']
+    assert result['picture'] == dict(available=has_bounds, aspect=1.25, front_edge=front_edge)

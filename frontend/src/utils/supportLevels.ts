@@ -14,14 +14,8 @@ export const SUPPORT_LEVELS: Record<string, SupportLevel> = {
 
 const OCTOPRINT_WARNING = "Built from OctoPrint's public API and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong."
 const GENERIC_WARNING = 'Built from public documentation and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong.'
-export const SKIP_OBJECTS_WARNING = "Skip objects (Experimental): built from how Bambu's own software sends this command, and not yet verified on a real printer."
 
 export const CAPABILITY_COPY: Record<string, { note: string; state: (enabled: boolean) => string; label: string }> = {
-  skip_objects: {
-    note: SKIP_OBJECTS_WARNING,
-    state: enabled => `Skipping objects is ${enabled ? 'on' : 'off'} for this printer.`,
-    label: 'Allow skipping objects (Experimental)',
-  },
   dispatch: {
     note: "Job sending (Experimental): built from Elegoo's public SDCP documentation and not yet verified on a real printer.",
     state: enabled => `Job sending is ${enabled ? 'on' : 'off'} for this printer. Monitoring, pause, resume, speed and stop are not affected.`,
@@ -30,7 +24,7 @@ export const CAPABILITY_COPY: Record<string, { note: string; state: (enabled: bo
 }
 
 // Mirror of support_levels.GATED_CAPABILITIES; these types remain Supported overall.
-export const GATED_CAPABILITIES: Record<string, readonly string[]> = { bambu: ['skip_objects'], elegoo: ['dispatch'] }
+export const GATED_CAPABILITIES: Record<string, readonly string[]> = { elegoo: ['dispatch'] }
 
 export function optInApplies(apiType?: string | null): boolean {
   const key = (apiType ?? '').trim().toLowerCase()

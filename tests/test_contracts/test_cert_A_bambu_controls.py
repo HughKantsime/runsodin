@@ -241,13 +241,10 @@ def test_foreign_org_printer_is_invisible_to_controls(cert_app, broker_socket, r
 
 
 @pytest.mark.parametrize('role', ['viewer','operator','admin'])
-def test_skip_uses_only_monitor_client(cert_app, broker_socket, review_db, monkeypatch, role):
+def test_skip_uses_only_monitor_client(cert_app, broker_socket, monkeypatch, role):
     import time
-    from modules.printers import monitor_commands, print_objects, support_levels
-    from modules.printers.models import Printer
+    from modules.printers import monitor_commands, print_objects
     from tests.test_contracts.test_monitor_command_channel import monitor
-    support_levels.set_experimental_enabled(review_db,review_db.get(Printer,301),True,3)
-    review_db.commit()
     mon, sent = monitor()
     monkeypatch.setattr(print_objects,'running_print_objects',lambda *a:dict(supported=True,
         print=dict(print_job_id=991,job_id=501),source='bambu_3mf',
