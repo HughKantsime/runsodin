@@ -614,7 +614,7 @@ def run(run_id: str, artifact_root: Path) -> int:
         image_lifecycle.mark_build_attempted()
         try:
             _run([
-                "docker", "build", "--iidfile", str(iid_file_path),
+                "docker", "build", "--no-cache-filter", "backend-base", "--iidfile", str(iid_file_path),
                 *image_lifecycle.docker_build_owner_args(),
                 "--label", f"{LABEL}={run_id}", "-t", image, ".",
             ], timeout=1800)

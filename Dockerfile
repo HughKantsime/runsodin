@@ -27,7 +27,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-16 \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' postgresql-client-16)" ge 16.16 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install go2rtc (camera proxy) — SHA256 and ELF machine verified for this image's architecture.
@@ -138,7 +137,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source
 COPY backend/ ./backend/
-COPY ops/release_control/image_client_minimums.json ./ops/release_control/image_client_minimums.json
 # The bundled Obico model (AGPL-3.0) must ship with its license text, notice and source files.
 RUN for f in NOTICE.txt LICENSE-AGPL-3.0.txt obico-model.cfg obico-model.names; do \
         test -s "/app/backend/vision_models_default/$f" || { echo "missing AGPL notice file: $f" >&2; exit 1; }; \

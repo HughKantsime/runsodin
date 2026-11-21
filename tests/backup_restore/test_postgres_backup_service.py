@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -26,7 +27,7 @@ from modules.system.postgres_backup_service import (  # noqa: E402
 from core.schema.bootstrap import RAW_REQUIRED_TABLES  # noqa: E402
 
 
-def test_backup_refusal_logs_validation_site_and_client_version(monkeypatch, caplog):
+def test_backup_refusal_logs_validation_site_and_client_version(monkeypatch, caplog, tmp_path):
     from fastapi import HTTPException
     from modules.system import routes_backup
     from modules.system import postgres_backup_service as service
@@ -41,13 +42,16 @@ def test_backup_refusal_logs_validation_site_and_client_version(monkeypatch, cap
     monkeypatch.setattr(routes_backup, "sql", SimpleNamespace(is_postgres=True))
     monkeypatch.setattr(routes_backup, "_postgres_maintenance_config", lambda: ("unused", None, None))
     monkeypatch.setattr(routes_backup, "create_postgres_backup", refuse)
+    monkeypatch.setattr(service, "__file__", str(tmp_path / "backend/modules/system/postgres_backup_service.py"))
     monkeypatch.setattr(service.subprocess, "run", version)
     with pytest.raises(HTTPException) as raised:
         routes_backup.create_backup({}, None)
     assert raised.value.detail == "Backup refused: database validation failed."
-    assert "validate_archive_toc" in caplog.text
-    assert "unsupported object type" in caplog.text
-    assert "pg_dump 16.15" in caplog.text and "required 16.16" in caplog.text
+    assert raised.value.status_code == 500
+    assert re.fullmatch(
+        r"PostgreSQL backup refused by validate_archive_toc \(postgres_archive_inventory\.py:[1-9]\d*\); pg_dump 16\.15",
+        caplog.records[-1].getMessage(),
+    )
 
 
 def _toc(*, omit: str | None = None, extra: str | None = None) -> str:

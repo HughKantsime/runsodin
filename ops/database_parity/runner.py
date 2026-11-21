@@ -522,6 +522,7 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
             build = _command(
                 [
                     "docker", "build", "--pull", "--iidfile", str(iid_file_path),
+                    "--no-cache-filter", "backend-base",
                     *image_lifecycle.docker_build_owner_args(),
                     "-t", image, ".",
                 ]

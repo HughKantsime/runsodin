@@ -12,13 +12,21 @@ def test_minimums_for_both_tools():
     assert json.loads(MINIMUMS.read_text()) == {"pg_restore": "16.16", "pg_dump": "16.16"}
 
 
-def test_image_build_checks_installed_package_against_release_minimums():
-    dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text()
-    package_version = """$(dpkg-query -W -f='${Version}' postgresql-client-16)"""
-    install = dockerfile.split("apt-get install -y --no-install-recommends postgresql-client-16", 1)[1]
-    check = install.splitlines()[1].strip().removesuffix(" \\")
-    for minimum in json.loads(MINIMUMS.read_text()).values():
-        assert check == f'&& dpkg --compare-versions "{package_version}" ge {minimum}'
+@pytest.mark.parametrize("tool", ["pg_dump", "pg_restore"])
+def test_image_build_checks_installed_package_against_release_minimums(tool, monkeypatch):
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "Dockerfile").read_text()
+    assert "apt-get install -y --no-install-recommends postgresql-client-16" in dockerfile
+    assert MINIMUMS.name not in dockerfile
+
+    minimums = json.loads(MINIMUMS.read_text())
+    minimums[tool] = "16.17"
+    policy = Mock()
+    policy.read_text.return_value = json.dumps(minimums)
+    monkeypatch.setattr("ops.release_control.check_image_client.MINIMUMS", policy)
+    results = [CompletedProcess([], 0, f"{name} (PostgreSQL) 16.16") for name in ("pg_restore", "pg_dump")]
+    with pytest.raises(ValueError, match=rf"Found {tool} 16\.16\. Version 16\.17"):
+        check_image_client("candidate", Mock(side_effect=results))
 
 
 @pytest.mark.parametrize("version,suffix", [("16.16", " (Debian 16.16-1.pgdg13+1)"), ("17.2", "")])

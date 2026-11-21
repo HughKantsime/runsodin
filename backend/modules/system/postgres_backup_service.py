@@ -536,18 +536,16 @@ logger = logging.getLogger(__name__)
 def log_backup_refusal(error: BackupValidationError) -> None:
     # The failing check is safe to identify. Its exception or client stderr can contain database values.
     site = traceback.extract_tb(error.__traceback__, limit=-1)[0]
-    found = required = "unknown"
+    found = "unknown"
     try:
-        minimums = Path(__file__).resolve().parents[3] / "ops/release_control/image_client_minimums.json"
-        required = json.loads(minimums.read_text())["pg_dump"]
         result = subprocess.run(["pg_dump", "--version"], capture_output=True, text=True, timeout=2, check=True)
         version = re.match(r"pg_dump \(PostgreSQL\) ([0-9]+\.[0-9]+)\b", result.stdout)
         if version:
             found = version[1]
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         pass
-    logger.warning("PostgreSQL backup refused by %s (%s:%d, %s); pg_dump %s, required %s or later",
-                   site.name, Path(site.filename).name, site.lineno, site.line, found, required)
+    logger.warning("PostgreSQL backup refused by %s (%s:%d); pg_dump %s",
+                   site.name, Path(site.filename).name, site.lineno, found)
 
 # Preserve the service entry points and patchable dependencies across split modules.
 from modules.system.postgres_archive_inventory import (
