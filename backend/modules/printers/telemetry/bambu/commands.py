@@ -121,7 +121,7 @@ class BambuCommandAdapter:
             row_id = self._config.printer_row_id
             if row_id is None and str(self._config.printer_id).isdecimal():
                 row_id = int(self._config.printer_id)
-            if stored_rack_refusal(row_id, host=self._config.host, serial=self._config.serial, payload=payload, allow_print_start=True):
+            if stored_rack_refusal(row_id, host=self._config.host, serial=self._config.serial, payload=payload, allow_print_start=self._config.allow_print_start):
                 return False
             result = self._client.publish(
                 self._config.topic_request,

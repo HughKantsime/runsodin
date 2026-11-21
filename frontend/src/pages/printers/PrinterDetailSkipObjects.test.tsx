@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterDetail from './PrinterDetail'
 import { printers as objectApi } from '../../api/printers'
@@ -12,7 +12,8 @@ vi.mock('../../components/printers/DispatchRecoveryPanel', () => ({ default: () 
 vi.mock('../../api/client', () => ({ fetchAPI: vi.fn().mockResolvedValue([]) }))
 vi.mock('../../api/printers', () => ({ printers: { printObjects: vi.fn(), skipObjects: vi.fn() } }))
 vi.mock('../../api', () => ({
-  printers: { get: vi.fn(async () => ({ id: 9, name: 'Printer detail', api_type: state.type, gcode_state: state.gcode, current_job: 'Parts',
+  filaments: { combined: vi.fn().mockResolvedValue([]) }, spools: { list: vi.fn().mockResolvedValue([]) },
+  printers: { updateSlot: vi.fn().mockResolvedValue({}), get: vi.fn(async () => ({ id: 9, name: 'Printer detail', api_type: state.type, gcode_state: state.gcode, current_job: 'Parts',
     last_seen: state.online ? new Date().toISOString() : null, experimental_actions_enabled: false })) },
   printerTelemetry: { get: vi.fn().mockResolvedValue([]) }, printJobs: { list: vi.fn().mockResolvedValue([]) }, jobs: { list: vi.fn().mockResolvedValue([]) },
 }))
@@ -124,4 +125,29 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   expect(rack).not.toHaveTextContent(/No AMS connected|AMS status unknown/)
   expect(rack).not.toHaveTextContent(/mounted|active nozzle|161|129/i)
   expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()
+})
+
+it.each([
+  ['classic', 'bambu'], ['foundry', 'bambu'], ['classic', null], ['foundry', null],
+])('edits an ODIN rack slot before any nozzle report in %s (protocol %s)', async (family, apiType) => {
+  const { printers } = await import('../../api')
+  const slots = Array.from({ length: 9 }, (_, index) => ({
+    id: index + 1, slot_number: index + 1, filament_type: 'PETG',
+    rack_filament: { id: 255 - index, type: 'PLA', preset: 'GFA01', color: 'AE96D4FF', observed_at: '2026-11-21T19:57:00Z' },
+  }))
+  vi.mocked(printers.get).mockResolvedValueOnce({
+    id: 9, name: 'Rack printer', api_type: apiType, model: 'H3C', filament_slots: slots,
+  } as Awaited<ReturnType<typeof printers.get>>)
+  document.documentElement.dataset.themeFamily = family
+  mount()
+  await screen.findByText('No rack report received.')
+  expect(screen.queryByRole('button', { name: 'Configure AMS tray' })).not.toBeInTheDocument()
+  const editors = screen.getAllByTestId('filament-slot')
+  expect(editors).toHaveLength(9)
+  expect(editors[7].parentElement).toHaveTextContent('Printer reports: PLA, GFA01, #AE96D4')
+  fireEvent.click(editors[7])
+  fireEvent.click(await screen.findByRole('button', { name: 'Clear' }))
+  await waitFor(() => expect(printers.updateSlot).toHaveBeenCalledWith(9, 8, {
+    filament_type: 'empty', color: null, color_hex: null, spoolman_spool_id: null,
+  }))
 })

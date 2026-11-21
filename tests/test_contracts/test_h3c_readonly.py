@@ -431,3 +431,17 @@ def test_legacy_nowait_cannot_send_a_control_with_a_status_request(offline_store
     assert not sender._publish_nowait({'pushing': {'sequence_id': '0', 'command': 'pushall'},
                                        'print': {'sequence_id': '0', 'command': 'pause'}})
     sender._client.publish.assert_not_called()
+
+
+def test_setting_known_fixed_model_clears_old_rack_evidence(offline_store, token_client):
+    from modules.printers import routes_crud
+    rows = [{'nozzle_id': i, 'side': 'rack', 'position': i - 15} for i in range(16, 19)]
+    offline_store.execute(text("UPDATE printers SET installed_nozzles=:rows WHERE id=199"), {'rows': json.dumps(rows)})
+    offline_store.commit()
+    client, issue = token_client
+    client.app.include_router(routes_crud.router)
+    response = client.patch('/printers/199', headers=issue(['admin', 'write:printers']), json={'model': 'H2C'})
+    assert response.status_code == 200
+    assert response.json()['model'] == 'H2C' and response.json()['installed_nozzles'] == []
+    stored = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=199')).scalar_one()
+    assert json.loads(stored) == []

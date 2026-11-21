@@ -155,22 +155,34 @@ class PrinterMonitor:
             return False
 
     def _on_product_name(self, product, generation):
-        from modules.printers.printer_models import bambu_model_name
+        from modules.printers.printer_models import bambu_model_name, rack_model_identity
         if not product:
             return
         with self._lock:
             if generation != self._connection_generation or self._connection_retired:
                 return
             self._reported_model = product
-            if bambu_model_name(product) == 'H3C':
+            rack = rack_model_identity(product)
+            if rack is False:
+                self._unconfirmed_nozzle_report = None
+            if rack or (rack is False and (self._rack_rows_stored or getattr(self, '_pending_rack_ids', None))):
                 # The rack can arrive before get_version, with no further status delta.
                 from core.printer_identity_audit import observe_printer_identity
-                from modules.printers.monitors.nozzle_observations import persist
+                from modules.printers.monitors.nozzle_observations import observe, persist
                 try:
+                    held = getattr(self, '_unconfirmed_nozzle_report', None)
+                    if rack and held:
+                        from types import SimpleNamespace
+                        packet, received = held
+                        observe(self, packet, SimpleNamespace(mqtt_received_at=received), sys.modules[__name__])
                     with get_db() as conn:
-                        observe_printer_identity(conn, self.printer_id, 'machine_type', 'H3C')
-                        unconfirmed_filaments = persist(conn, self)
+                        observe_printer_identity(conn, self.printer_id, 'machine_type', bambu_model_name(product))
+                        unconfirmed_filaments = persist(conn, self, first_rack=None if rack else set())
                         conn.commit()
+                    self._unconfirmed_nozzle_report = None
+                    if not rack:
+                        self._rack_rows_stored = False
+                        self._pending_rack_ids = None
                     self._pending_installed_nozzles = {}
                     self._pending_rack_filaments = unconfirmed_filaments
                 except Exception:

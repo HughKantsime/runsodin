@@ -203,3 +203,35 @@ def test_h3c_auto_pause_stops_before_device_access(guarded_vision, review_db, mo
     assert thread._live_printing()
     monkeypatch.setattr(crypto, 'decrypt', lambda *_: pytest.fail('Reached Bambu command preparation'))
     thread._auto_pause()
+
+
+@pytest.mark.parametrize('v2', [False, True])
+def test_p1s_auto_pause_survives_identity_lookup_failure(v2, guarded_vision, review_db, monkeypatch):
+    import json
+    from unittest.mock import Mock
+    from core import crypto, db
+    from modules.printers.adapters.bambu import BambuPrinter
+    from modules.printers.telemetry import feature_flag
+    from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
+
+    thread, _, clock, report, _, _, _ = guarded_vision
+    review_db.execute(text("UPDATE printers SET api_type='bambu',model='P1S',api_host='127.0.0.1' WHERE id=9"))
+    review_db.commit()
+    thread._analyzed_frames = 3
+    thread._first_analysis_at = clock[0] - 61
+    report()
+    monkeypatch.setattr(crypto, 'decrypt', lambda _: 'synthetic|fixture')
+    monkeypatch.setattr(feature_flag, 'is_v2_enabled', lambda: v2)
+    wire = Mock()
+    wire.publish.return_value.rc = 0
+    wire.publish.return_value.is_published.return_value = True
+    def connect(sender):
+        sender._connected, sender._client = True, wire
+        return True
+    adapter = BambuCommandAdapter if v2 else BambuPrinter
+    monkeypatch.setattr(adapter, 'start' if v2 else 'connect', connect)
+    monkeypatch.setattr(adapter, 'stop' if v2 else 'disconnect', lambda self: None)
+    monkeypatch.setattr(db, 'engine', Mock(connect=Mock(side_effect=RuntimeError('store unavailable'))))
+    thread._auto_pause()
+    wire.publish.assert_called_once()
+    assert json.loads(wire.publish.call_args.args[1])['print']['command'] == 'pause'

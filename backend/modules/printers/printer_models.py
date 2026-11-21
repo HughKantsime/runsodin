@@ -135,12 +135,19 @@ def rack_nozzle_ids(rows):
     return ids if len(ids) >= 3 else set()
 
 
-def is_h3c_printer(printer):
+def rack_model_identity(*values):
+    """True for explicit H3C, False for another known model, None for unidentified."""
     from core.printer_identity import canonical_machine
+    models = {canonical_machine(value) for value in values} - {None}
+    return ('h3c' in models) if models else None
+
+
+def is_h3c_printer(printer):
     get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
-    return (str(get('api_type') or '').strip().lower() in ('', 'bambu')
-            and (any(canonical_machine(get(key)) == 'h3c' for key in ('model', 'machine_type'))
-                 or bool(rack_nozzle_ids(get('installed_nozzles')))))
+    if str(get('api_type') or '').strip().lower() not in ('', 'bambu'):
+        return False
+    identified = rack_model_identity(get('model'), get('machine_type'))
+    return identified if identified is not None else bool(rack_nozzle_ids(get('installed_nozzles')))
 
 
 def rack_printer_refusal(printer):
@@ -162,6 +169,14 @@ def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, all
                 return None
     if printer_id is None and (not host or not serial):
         return None
+    try:
+        return _lookup_rack_refusal(printer_id, host, serial)
+    except Exception:
+        # This guard requires positive rack identity. Transport errors are handled by the publisher.
+        return None
+
+
+def _lookup_rack_refusal(printer_id, host, serial):
     from core.db import engine
     from sqlalchemy import text
     with engine.connect() as conn:

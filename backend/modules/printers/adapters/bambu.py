@@ -141,6 +141,7 @@ class BambuPrinter:
         on_connection_change: Optional[Callable[[], None]] = None,
         on_product_name: Optional[Callable[[str], None]] = None,
         printer_id: Optional[int] = None,
+        *, allow_print_start: bool = False,
     ):
         """
         Initialize Bambu printer connection.
@@ -157,6 +158,7 @@ class BambuPrinter:
                        with the monitor daemon's persistent connection.
         """
         self.printer_id = printer_id
+        self._allow_print_start = allow_print_start
         self.ip = ip
         self.serial = serial
         self.access_code = access_code
@@ -720,7 +722,7 @@ class BambuPrinter:
 
         try:
             from modules.printers.printer_models import stored_rack_refusal
-            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload, allow_print_start=True):
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload, allow_print_start=self._allow_print_start):
                 return False
             result = self._client.publish(
                 self._topic_request,

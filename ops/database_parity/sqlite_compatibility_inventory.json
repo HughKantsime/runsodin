@@ -2570,7 +2570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 226,
+      "line": 238,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2578,7 +2578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 308,
+      "line": 320,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2586,7 +2586,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 320,
+      "line": 332,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2594,7 +2594,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 341,
+      "line": 353,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2602,7 +2602,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 432,
+      "line": 444,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2610,7 +2610,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 478,
+      "line": 490,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2618,7 +2618,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 638,
+      "line": 650,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2626,7 +2626,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 733,
+      "line": 745,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2634,7 +2634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 782,
+      "line": 794,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2642,7 +2642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 826,
+      "line": 838,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2658,7 +2658,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 363,
+      "line": 364,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2666,7 +2666,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 375,
+      "line": 376,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2674,7 +2674,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 453,
+      "line": 454,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2682,7 +2682,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 470,
+      "line": 471,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2738,19 +2738,11 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 96,
+      "line": 54,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
-      "source": "row = conn.execute('SELECT installed_nozzles,machine_type,model,slot_count FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 122,
-      "path": "backend/modules/printers/monitors/nozzle_observations.py",
-      "pattern": "qmark-parameter",
-      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
-      "source": "conn.execute('UPDATE printers SET installed_nozzles=? WHERE id=?',"
+      "source": "row = conn.execute('SELECT model,machine_type FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
     },
     {
       "classification": "dialect-neutral",
@@ -2758,11 +2750,27 @@
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "row = conn.execute('SELECT installed_nozzles,machine_type,model,slot_count FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 159,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "conn.execute('UPDATE printers SET installed_nozzles=? WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 168,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
       "source": "conn.execute('UPDATE printers SET slot_count=9 WHERE id=?', (printer_id,))"
     },
     {
       "classification": "dialect-neutral",
-      "line": 132,
+      "line": 169,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2770,7 +2778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 137,
+      "line": 174,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2778,7 +2786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
+      "line": 189,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",

@@ -185,6 +185,7 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         serial=creds["serial"],
         host=endpoint.host,
         port=endpoint.port,
+        allow_print_start=True,
         use_tls=endpoint.use_tls,
         access_code=creds["access_code"],
     )
@@ -230,6 +231,7 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
         serial=creds["serial"],
         access_code=creds["access_code"],
         printer_id=creds.get("printer_id"),
+        allow_print_start=True,
         client_id=f"odin_dispatch_{creds['serial']}_{int(time.time())}",
     )
 

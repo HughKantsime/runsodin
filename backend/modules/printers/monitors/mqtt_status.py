@@ -338,6 +338,7 @@ def handle_status(self, status, generation, runtime):
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
                     # Check cooldown — don't overwrite if toggled via API within last 20s
                     printer_config = conn.execute('SELECT lights_toggled_at,model,machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()
+                    self._stored_models = tuple(printer_config[1:]) if printer_config else ()
                     lights_on = lights_on_raw
                     if printer_config and printer_config[0]:
                         try:
@@ -481,10 +482,9 @@ def handle_status(self, status, generation, runtime):
 
                     # ---- AMS Filament Slot Auto-Sync ----
                     pending_ams = getattr(self, '_pending_ams_report', None)
-                    stored_models = printer_config[1:] if printer_config else ()
-                    identities = (raw_pt, getattr(self, '_reported_model', None), *stored_models)
-                    if pending_ams is not None and (getattr(self, '_rack_rows_stored', False) or any(
-                            bambu_model_name(value) == 'H3C' for value in identities)):
+                    from modules.printers.printer_models import rack_model_identity
+                    rack = rack_model_identity(raw_pt, getattr(self, '_reported_model', None), *self._stored_models)
+                    if pending_ams is not None and (rack if rack is not None else getattr(self, '_rack_rows_stored', False)):
                         self._reset_pending_ams()
                         pending_ams = None
                     now = runtime.time.time()

@@ -313,3 +313,112 @@ def test_mixed_h2c_clears_unconfirmed_rack_filaments_without_resizing_slots(offl
     assert set(monitor._pending_installed_nozzles) == {0, 1}
     current = offline_store.execute(text('SELECT model,installed_nozzles FROM printers WHERE id=199')).mappings().one()
     assert rack_printer_refusal(current) is None
+
+
+@pytest.mark.parametrize('mask', [None, (1 << 16) | (1 << 20), -1])
+def test_incomplete_rack_list_cannot_establish_identity(mask, offline_store, v2_offline_monitor):
+    from modules.printers.printer_models import rack_printer_refusal
+    monitor, _, _ = v2_offline_monitor
+    nozzle = {'info': [{'id': n, 'addr_id': n - 16} for n in (16, 17, 18)]}
+    if mask is not None:
+        nozzle['exist'] = mask
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'device': {'nozzle': nozzle}}}))
+    row = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=199')).mappings().one()
+    assert rack_printer_refusal(row) is None
+
+
+def test_h2c_rack_delta_keeps_fixed_rows_and_pending_ams(offline_store, v2_offline_monitor, monkeypatch):
+    from core import db
+    from modules.printers.dispatch_support import dispatch_unsupported_reason
+    from modules.printers.printer_models import stored_rack_refusal
+    monitor, _, runtime = v2_offline_monitor
+    packet = fixed_report('H2C')
+    offline_store.execute(text("UPDATE printers SET machine_type='O1C2' WHERE id=199"))
+    offline_store.commit()
+    # Hold the full packet's fixed nozzles and AMS inventory until the delta's heartbeat.
+    monitor._last_heartbeat = runtime.time.time()
+    monitor._on_status(SimpleNamespace(raw_data={'print': packet}))
+    expected = list(monitor._pending_installed_nozzles.values())
+    delta = {'info': [r for r in packet['device']['nozzle']['info'] if r['id'] >= 16]}
+    monitor._last_heartbeat = 0
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'device': {'nozzle': delta}}}))
+    row = offline_store.execute(text('SELECT model,machine_type,installed_nozzles,slot_count,api_type '
+                                     'FROM printers WHERE id=199')).mappings().one()
+    assert json.loads(row['installed_nozzles']) == expected
+    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+    trays = ams_trays_by_slot(packet['ams']['ams'])
+    from core.base import slot_filament_value
+    from modules.printers.telemetry.bambu.ams_identity import reported_color
+    slots = offline_store.execute(text('SELECT slot_number,filament_type,color_hex FROM filament_slots '
+                                       'WHERE printer_id=199 ORDER BY slot_number')).all()
+    assert slots == [(n, slot_filament_value(tray['tray_type']), reported_color(tray)) for n, tray in sorted(trays)]
+    assert row['slot_count'] == 4
+    monkeypatch.setattr(db, 'engine', offline_store.get_bind())
+    assert stored_rack_refusal(199) is None
+    assert dispatch_unsupported_reason(row) is None
+
+
+@pytest.mark.parametrize('source', ['product_name', 'printer_type'])
+def test_identification_clears_previously_stored_rack(source, v2_offline_monitor, offline_store):
+    from modules.printers.printer_models import rack_printer_refusal
+    monitor, _, _ = v2_offline_monitor
+    ids = (16, 17, 18)
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'device': {'nozzle': {
+        'info': [{'id': i, 'addr_id': i - 16} for i in ids], 'exist': sum(1 << i for i in ids)}}}}))
+    def stored():
+        return offline_store.execute(text('SELECT model,machine_type,installed_nozzles FROM printers WHERE id=199')).mappings().one()
+    assert rack_printer_refusal(stored())
+    if source == 'product_name':
+        monitor._on_product_name('Bambu Lab H2C', monitor._connection_generation)
+    else:
+        monitor._on_status(SimpleNamespace(raw_data={'print': {'printer_type': 'O1C2'}}))
+    assert not rack_printer_refusal(stored())
+    assert json.loads(stored()['installed_nozzles']) == []
+
+
+@pytest.mark.parametrize('protocol', ['v2', 'legacy'])
+def test_direct_rack_print_start_is_refused(protocol, offline_store, monkeypatch):
+    from core import db
+    from modules.printers.adapters.bambu import BambuPrinter
+    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
+    monkeypatch.setattr(db, 'engine', offline_store.get_bind())
+    offline_store.execute(text("UPDATE printers SET model='H3C' WHERE id=199"))
+    offline_store.commit()
+    sender = (BambuPrinter('127.0.0.1', 'synthetic', '', printer_id=199) if protocol == 'legacy'
+              else BambuCommandAdapter(BambuAdapterConfig('199', 'synthetic', '127.0.0.1', '')))
+    sender._client, sender._connected = Mock(), True
+    sender._client.publish.return_value.rc = 0
+    sender._client.publish.return_value.is_published.return_value = True
+    assert not sender.start_print('file.3mf')
+    sender._client.publish.assert_not_called()
+
+
+def test_monitor_control_survives_identity_lookup_failure(v2_offline_monitor, monkeypatch):
+    import time
+    from core import db
+    from modules.printers import monitor_commands
+    monitor, _, _ = v2_offline_monitor
+    monitor._v2_adapter._client, monitor._v2_adapter._connected = Mock(), True
+    monitor._v2_adapter._client.publish.return_value.rc = 0
+    monkeypatch.setattr(db, 'engine', Mock(connect=Mock(side_effect=RuntimeError('store unavailable'))))
+    assert monitor_commands.execute({199: monitor}, dict(printer_id=199, action='light', on=True,
+                                    deadline=time.monotonic() + 3)) == 'accepted'
+    monitor._v2_adapter._client.publish.assert_called_once()
+
+
+@pytest.mark.parametrize('model,expected_rack', [('Unidentified', True), ('P1S', False), ('O1C2', False)])
+def test_only_unidentified_printer_uses_complete_rack_evidence(model, expected_rack, offline_store, v2_offline_monitor):
+    from modules.printers.printer_models import is_h3c_printer
+    monitor, _, _ = v2_offline_monitor
+    offline_store.execute(text("UPDATE printers SET model=:model WHERE id=199"), {'model': model})
+    offline_store.commit()
+    ids = (16, 17, 18)
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'device': {'nozzle': {
+        'info': [{'id': i, 'addr_id': i - 16} for i in ids], 'exist': sum(1 << i for i in ids)}}}}))
+    monitor._last_heartbeat = 0
+    monitor._on_status(SimpleNamespace(raw_data={'print': {}}))
+    row = offline_store.execute(text('SELECT model,installed_nozzles FROM printers WHERE id=199')).mappings().one()
+    assert is_h3c_printer(row) is expected_rack
+    positions = [n['position'] for n in json.loads(row['installed_nozzles'] or '[]') if n['side'] == 'rack']
+    assert positions == ([1, 2, 3] if expected_rack else [])

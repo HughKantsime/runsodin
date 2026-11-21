@@ -5,7 +5,7 @@ from core.base import slot_filament_value
 from core.display_json import display_tray_state
 from core.monitor_observations import fresh_report
 from modules.printers.nozzle_capability import installed_nozzles, rack_slot_id
-from modules.printers.printer_models import bambu_model_name, bambu_nozzle_count, rack_nozzle_ids
+from modules.printers.printer_models import bambu_model_name, bambu_nozzle_count, rack_model_identity, rack_nozzle_ids
 
 
 _RACK_SLOT_IDS = {str(i) for i in range(247, 256)}
@@ -17,6 +17,19 @@ def _key(row):
 
 def _merge(old, new):
     return {**old, **{key: value for key, value in new.items() if value is not None}}
+
+
+def _complete_rack_ids(nozzle):
+    if not isinstance(nozzle, dict):
+        return set()
+    mask, rows = nozzle.get('exist'), nozzle.get('info')
+    if type(mask) is not int or mask < 0 or not isinstance(rows, list):
+        return set()
+    if not all(isinstance(row, dict) and 'id' in row for row in rows):
+        return set()
+    ids = rack_nozzle_ids(rows)
+    # A delta can omit the H2C's fixed nozzles even when its mask includes them.
+    return ids if sum((mask >> i) & 1 for i in ids) == mask.bit_count() else set()
 
 
 def observe(monitor, packet, status, runtime):
@@ -31,17 +44,39 @@ def observe(monitor, packet, status, runtime):
     device = packet.get('device')
     nozzle = device.get('nozzle') if isinstance(device, dict) else None
     info = nozzle.get('info') if isinstance(nozzle, dict) else None
-    ids = rack_nozzle_ids(info) if fresh else set()
-    if fresh and isinstance(info, list) and any(isinstance(r, dict) and type(r.get('id')) is int
-                                               and r['id'] < 16 for r in info):
+    ids = _complete_rack_ids(nozzle) if fresh else set()
+    stored_models = getattr(monitor, '_stored_models', None)
+    stored_rack = getattr(monitor, '_rack_rows_stored', False)
+    if stored_models is None and (ids or stored_rack):
+        # Before the first heartbeat even get_version may not have supplied a model.
+        try:
+            with runtime.get_db() as conn:
+                row = conn.execute('SELECT model,machine_type FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()
+            if row:
+                monitor._stored_models = stored_models = tuple(row)
+        except Exception:
+            ids = set()  # The stored identity could not be verified for this report.
+    if stored_models is None:
+        stored_models = ('H3C',) if getattr(monitor, '_configured_h3c', False) else ()
+    model_code = packet.get('printer_type') or monitor._state.get('printer_type')
+    identity = rack_model_identity(model, model_code, getattr(status, 'printer_type', None), *stored_models)
+    fixed_report = fresh and isinstance(info, list) and any(
+        isinstance(r, dict) and type(r.get('id')) is int and r['id'] < 16 for r in info)
+    if identity is False and ids and not getattr(monitor, '_reported_model', None):
+        # get_version may correct an operator-entered model. Keep this fresh reading
+        # for that explicit identification, without applying it to the fixed printer.
+        monitor._unconfirmed_nozzle_report = ({'device': {'nozzle': nozzle}, 'vir_slot': packet.get('vir_slot')},
+                                              now - (age or 0))
+    elif fixed_report:
+        monitor._unconfirmed_nozzle_report = None
+    if identity is False or fixed_report:
         # Withdraw a previous rack-only identification as soon as a fixed
         # extruder appears. An empty set is a pending correction until commit.
         if getattr(monitor, '_rack_rows_stored', False) or getattr(monitor, '_pending_rack_ids', None):
             monitor._pending_rack_ids = set()
         monitor._rack_rows_stored = False
-    rack = (model == 'H3C' or bambu_model_name(packet.get('printer_type')) == 'H3C'
-            or getattr(monitor, '_configured_h3c', False) or getattr(monitor, '_rack_rows_stored', False)
-            or ids or getattr(monitor, '_pending_rack_ids', None))
+    rack = identity if identity is not None else (
+        getattr(monitor, '_rack_rows_stored', False) or ids or getattr(monitor, '_pending_rack_ids', None))
     if rack:
         pending = {key: row for key, row in pending.items() if row['side'] == 'rack'}
     elif getattr(monitor, '_pending_rack_filaments', None) or any(r['side'] == 'rack' for r in pending.values()):
@@ -73,7 +108,7 @@ def observe(monitor, packet, status, runtime):
         elif not rack:
             pending[key] = nozzle
     monitor._pending_installed_nozzles = pending
-    if ids and not getattr(monitor, '_rack_rows_stored', False):
+    if ids and identity is None and not getattr(monitor, '_rack_rows_stored', False):
         monitor._pending_rack_ids = ids
     pending_ids = getattr(monitor, '_pending_rack_ids', None)
     if pending_ids is not None:
@@ -97,13 +132,15 @@ def persist(conn, monitor, *, first_rack=None):
     if not row:
         return {}
     stored = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-    model = getattr(monitor, '_reported_model', None) or row[1] or row[2]
-    identified = any(bambu_model_name(value) == 'H3C' for value in (model, row[1], row[2]))
+    identified = rack_model_identity(getattr(monitor, '_reported_model', None), monitor._state.get('printer_type'),
+                                     row[1], row[2])
+    if identified is False:
+        first_rack = None
     stored_rack = bool(rack_nozzle_ids(stored)) and not any(
         item['side'] != 'rack' for item in pending.values())
     if first_rack and stored_rack:
         return readings
-    rack = identified or (stored_rack if first_rack is None else bool(first_rack))
+    rack = identified if identified is not None else (stored_rack if first_rack is None else bool(first_rack))
     dual = bambu_nozzle_count(row[1] or row[2]) == 2
     merged = {_key(item): item for item in stored or [] if (item.get('side') == 'rack') == rack}
     for key, new in pending.items():

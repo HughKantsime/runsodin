@@ -79,6 +79,7 @@ class BambuAdapterConfig:
     # Every other config goes through the device destination policy.
     replay_broker: bool = False
     printer_row_id: Optional[int] = None  # Database target, independent of the session label.
+    allow_print_start: bool = False  # Dispatch checked the target at admission.
 
     @property
     def topic_report(self) -> str:

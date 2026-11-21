@@ -7,7 +7,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from modules.printers.printer_models import is_h3c_printer
+from modules.printers.printer_models import is_h3c_printer, rack_model_identity
 from modules.printers.education_compatibility import evaluate_education_compatibility
 from modules.printers.dispatch_support import (
     automatic_dispatch_unsupported_reason,
@@ -336,6 +336,10 @@ def apply_printer_updates(printer, update_data):
         if changed:
             changed_fields.append(field)
         setattr(printer, field, value)
+    if 'model' in changed_fields and rack_model_identity(printer.model, printer.machine_type) is False:
+        rows = printer.installed_nozzles
+        if isinstance(rows, list) and any(isinstance(row, dict) and row.get('side') == 'rack' for row in rows):
+            printer.installed_nozzles = [row for row in rows if not isinstance(row, dict) or row.get('side') != 'rack']
     return changed_fields
 
 

@@ -4,6 +4,13 @@ import { parseServerDate } from '../../utils/shared'
 
 const rackToolNames: Record<string, string> = { HS01: 'Standard (1.75 mm)', HT01: 'TPU 2.85 mm' }
 
+export function RackFilamentReading({ slot, rawId }: { slot?: FilamentSlot; rawId?: number }) {
+  const reading = slot?.rack_filament?.id === rawId ? slot?.rack_filament : null
+  const reported = reading?.type && [reading.type, reading.preset,
+    reading.color && `#${reading.color.slice(0, 6)}`].filter(Boolean).join(', ')
+  return <div>Printer reports: {reported || 'Nothing reported'} {rawId != null && <small>ID {rawId}</small>}</div>
+}
+
 export default function InstalledNozzles({ nozzles, rack = false, slots }: {
   nozzles?: InstalledNozzle[] | null
   slots?: FilamentSlot[]
@@ -16,15 +23,12 @@ export default function InstalledNozzles({ nozzles, rack = false, slots }: {
       {positions?.length ? <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
         {positions.map(nozzle => {
           const slot = slots?.find(slot => slot.slot_number === nozzle.position)
-          const filament = slot?.rack_filament?.id === nozzle.virtual_slot_id ? slot?.rack_filament : null
           const tool = nozzle.type && rackToolNames[nozzle.type]
-          const reported = filament?.type && [filament.type, filament.preset,
-            filament.color && `#${filament.color.slice(0, 6)}`].filter(Boolean).join(', ')
           return <li key={nozzle.nozzle_id}>
             Position {nozzle.position} · {tool ? `${tool} (${nozzle.type})` : nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}
             {nozzle.present === false && ' · Absent'}
             {nozzle.mounted && ' · In the tool head'}
-            <div>Printer reports: {reported || 'Nothing reported'} {nozzle.virtual_slot_id != null && <small>ID {nozzle.virtual_slot_id}</small>}</div>
+            <RackFilamentReading slot={slot} rawId={nozzle.virtual_slot_id} />
             {slot && <div>ODIN slot: {[slot.filament_type, slot.color, slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`].filter(Boolean).join(', ')}</div>}
           </li>
         })}
