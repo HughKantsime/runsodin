@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Platform administrators can turn on daily ODIN release checks in Settings > System and see when a newer version fixes a security problem.
+
 ## [2.5.0] - 2026-11-21
 
 

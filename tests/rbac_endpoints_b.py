@@ -229,6 +229,9 @@ ENDPOINTS = [
     # =========================================================================
     ("GET",  "/api/system/license-server-status", _admin_read(), None, "Admin-initiated license reachability probe"),
     ("GET",  "/api/license/installation-id",    _admin_read(), None, "Get installation ID"),
+    ("GET", "/api/system/updates", _admin_read(), None, "Read update settings"),
+    ("PUT", "/api/system/updates", _admin_only(), {"enabled": False}, "Turn off update checks"),
+    ("POST", "/api/system/updates/check", {**_admin_only(), "admin": 409}, None, "Manual check while off"),
     ("GET",  "/api/license/last-refresh",       _admin_read(), None, "Last Refresh license answer (billing state)"),
     ("POST", "/api/license/activation-request", _admin_only(), {"key": "x", "nonce": "x"}, "Create signed offline activation request"),
     ("POST", "/api/license/unactivation-request", _admin_only(), {"nonce": "x"}, "Create signed offline unactivation request"),

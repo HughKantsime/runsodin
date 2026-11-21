@@ -385,6 +385,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("POST", "/api/admin/logs"), ("POST", "/api/admin/logs/stream-token"),
         ("POST", "/api/system/troubleshooting/printer"), ("POST", "/api/system/troubleshooting/report"),
         ("POST", "/api/system/troubleshooting/server"),
+        ("PUT", "/api/system/updates"), ("POST", "/api/system/updates/check"),
         ("POST", "/api/system/notices/{kind}/dismiss"),  # license expiry / Pro trial notices (cert-trial)
         ("POST", "/api/vision/models"), ("DELETE", "/api/vision/models/{model_id}"),
         ("PATCH", "/api/vision/models/{model_id}/activate"), ("PATCH", "/api/vision/settings"),

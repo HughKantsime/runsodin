@@ -40,6 +40,7 @@ services:
       
       # Database location (inside the container, mapped to volume)
       - DATABASE_URL=sqlite:////data/odin.db
+      - ODIN_UPDATE_CHECK=${ODIN_UPDATE_CHECK:-}
       
       # CORS — add your domain/IP if accessing remotely
       - CORS_ORIGINS=http://localhost:8000,http://localhost:3000

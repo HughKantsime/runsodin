@@ -30,6 +30,7 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - API_KEY=${API_KEY:-}
       - DATABASE_URL=sqlite:////data/odin.db
+      - ODIN_UPDATE_CHECK=${ODIN_UPDATE_CHECK:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:3000}
       - ODIN_PUBLIC_URL=${ODIN_PUBLIC_URL:-}
       - ODIN_TAILNET_IP=${ODIN_TAILNET_IP:-}

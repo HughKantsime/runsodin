@@ -72,6 +72,7 @@ services:
       DATABASE_MAINTENANCE_PASSWORD_FILE: /run/secrets/postgres_maintenance_password
       ODIN_DB_BOOTSTRAP_OWNER: "1"
       ODIN_DB_ROLE: api
+      ODIN_UPDATE_CHECK: ${ODIN_UPDATE_CHECK:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       API_KEY: ${API_KEY:-}
@@ -234,6 +235,7 @@ services:
       DATABASE_PASSWORD_FILE: /run/secrets/postgres_app_password
       ODIN_DB_BOOTSTRAP_OWNER: "0"
       ODIN_DB_ROLE: reports
+      ODIN_UPDATE_CHECK: ${ODIN_UPDATE_CHECK:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TZ: ${TZ:-America/New_York}
     secrets:
