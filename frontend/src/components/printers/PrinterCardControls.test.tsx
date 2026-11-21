@@ -170,6 +170,20 @@ it('wraps status and speed rows with readable secondary text and a card-sized sl
  expect(screen.getByText('Ludicrous').parentElement).toHaveClass('flex-wrap', 'gap-x-3', 'text-[var(--brand-text-secondary)]')
 })
 
+it.each([['RUNNING', 'Pause', 'amber'], ['PAUSE', 'Resume', 'green']])('uses contrasting button colours for %s prints', async (gcode_state, action, color) => {
+ const target = { ...printer, gcode_state, last_seen: new Date().toISOString() }
+ state.fetch.mockResolvedValue([target])
+ render(<PrintControlsProvider><PrinterCard printer={target} {...props} /></PrintControlsProvider>)
+ const card = within(screen.getByTestId('printer-card'))
+ expect(await card.findByRole('button', { name: action })).toHaveClass('text-white', `bg-${color}-700`, `hover:bg-${color}-800`)
+ const stop = card.getByRole('button', { name: 'Stop' })
+ expect(stop).toHaveClass('text-white', 'bg-red-700', 'hover:bg-red-800')
+ fireEvent.click(stop)
+ const confirm = card.getByRole('button', { name: 'Confirm Stop' })
+ expect(confirm).toHaveClass('text-white', 'bg-red-700', 'hover:bg-red-800')
+ expect(confirm).not.toHaveClass('animate-pulse')
+})
+
 it.each([true, false])('card and floating controls share permission, Stop confirmation, and pending state (allowed=%s)', async allowed => {
  state.allowed = allowed
  const target = { ...printer, api_type: 'moonraker', last_seen: new Date().toISOString() }

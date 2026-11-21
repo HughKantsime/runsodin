@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import Mock
 
@@ -9,6 +10,15 @@ from ops.release_control.check_image_client import MINIMUMS, check_image_client,
 
 def test_minimums_for_both_tools():
     assert json.loads(MINIMUMS.read_text()) == {"pg_restore": "16.16", "pg_dump": "16.16"}
+
+
+def test_image_build_checks_installed_package_against_release_minimums():
+    dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text()
+    package_version = """$(dpkg-query -W -f='${Version}' postgresql-client-16)"""
+    install = dockerfile.split("apt-get install -y --no-install-recommends postgresql-client-16", 1)[1]
+    check = install.splitlines()[1].strip().removesuffix(" \\")
+    for minimum in json.loads(MINIMUMS.read_text()).values():
+        assert check == f'&& dpkg --compare-versions "{package_version}" ge {minimum}'
 
 
 @pytest.mark.parametrize("version,suffix", [("16.16", " (Debian 16.16-1.pgdg13+1)"), ("17.2", "")])

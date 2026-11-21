@@ -42,7 +42,8 @@ def test_mqtt_identity_change_is_audited_once(v2_offline_monitor,offline_store,f
 def test_mqtt_keeps_user_model_and_does_not_audit_unchanged_values(v2_offline_monitor,offline_store):
     monitor,_,_=v2_offline_monitor
     from modules.printers.printer_models import bambu_model_name
-    offline_store.execute(text("UPDATE printers SET model='Custom',machine_type=:model,nozzle_diameter=.4 WHERE id=199"), {'model':bambu_model_name('X1C')})
+    offline_store.execute(text("UPDATE printers SET model='Custom',machine_type=:model,nozzle_diameter=.4, "
+                               "bed_x_mm=256,bed_y_mm=256 WHERE id=199"), {'model':bambu_model_name('X1C')})
     offline_store.commit()
     monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':'IDLE','printer_type':'X1C','nozzle_diameter':'0.4'}}))
     assert audits(offline_store)==[]

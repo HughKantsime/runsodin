@@ -1,6 +1,7 @@
 """Missing-file preflight contracts. All device, MQTT and clock boundaries are fakes."""
 import copy
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
@@ -331,7 +332,7 @@ def test_lost_target_ownership_is_a_clean_preflight_refusal(pipeline, monkeypatc
     held = [True]
     def acquired(*args):
         result = acquire(*args)
-        return SimpleNamespace(status=result.status, handle=SimpleNamespace(
+        return replace(result, handle=SimpleNamespace(
             held=lambda: held[0] and result.handle.held(), close=result.handle.close))
     monkeypatch.setattr(dispatch_orchestration, 'acquire_target_lock', acquired)
     pipeline.after_upload = lambda: held.__setitem__(0, False)

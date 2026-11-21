@@ -496,9 +496,9 @@ def _tray(mapping, file_slot):
     return None
 
 
-def _slot_in(error):
-    found = re.search(r"\(AMS slot (\d+)\)$", error or "")
-    return int(found.group(1)) if found else None
+def _mismatched_slot(error):
+    from core.print_payload import MappingMaterialMismatch
+    return error.target_slot if isinstance(error, MappingMaterialMismatch) and error.confirmed else None
 
 
 # ---------------------------------------------------------------------------
@@ -707,10 +707,10 @@ class Floor:
                 {"slot": n["file_slot"], "need": side(n), "loaded": None, "ok": None} for n in needs]}, None
         from modules.printers.dispatch_options import _mapping_error
         try:
-            whole = _mapping_error({"printer_id": printer_id, "filaments_json": row["filaments_json"]}, mapping)
+            whole = _mapping_error({"printer_id": printer_id, "filaments_json": row["filaments_json"]}, mapping, slot_details=True)
         except Exception:
             whole = "AMS check unavailable"
-        failed = _slot_in(whole)
+        failed = _mismatched_slot(whole)
         loaded = self.loaded.get(printer_id, {})
         slots = []
         for need in needs:
@@ -726,10 +726,10 @@ class Floor:
                 try:
                     alone = _mapping_error({"printer_id": printer_id, "filaments_json": json.dumps(
                         [{"slot": need["file_slot"], "type": need["material"]}])},
-                        [-1] * (need["file_slot"] - 1) + [tray - 1])
+                        [-1] * (need["file_slot"] - 1) + [tray - 1], slot_details=True)
                 except Exception:
                     alone = "AMS check unavailable"
-                ok = True if alone is None else (False if _slot_in(alone) is not None else None)
+                ok = True if alone is None else (False if _mismatched_slot(alone) is not None else None)
             slots.append({"slot": tray, "need": side(need), "loaded": loaded.get(tray) if tray else None, "ok": ok})
         status = "match" if whole is None else ("mismatch" if failed is not None else "unknown")
         reason = None

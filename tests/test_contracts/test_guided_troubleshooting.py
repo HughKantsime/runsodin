@@ -173,33 +173,24 @@ def test_read_only_admin_token_cannot_run_printer_diagnostic(monkeypatch):
     assert TestClient(app).post('/system/troubleshooting/printer',json={'printer_id':1}).status_code==403
 
 
-def test_legacy_zip_filters_recent_errors_and_nested_config(monkeypatch):
+def test_legacy_zip_filters_recent_errors_and_nested_config(monkeypatch, database):
     import asyncio,io,json,zipfile
     from modules.system import routes_admin,diagnostics
-    from core.schema.bootstrap import import_all_models
-    import_all_models()  # The export audit constructs an ORM model even with a fake DB.
+    from sqlalchemy import text
     secret=secrets.token_urlsafe(24)
-    class Result:
-        def __init__(self,rows=()):self.rows=rows
-        def scalar(self):return 0
-        def first(self):return self.rows[0] if self.rows else None
-        def fetchall(self):return self.rows
-    class DB:
-        def __init__(self):
-            self.info = {}
-            self.entries = []
-        def add(self, entry): self.entries.append(entry)
-        def commit(self): pass
-        def rollback(self): self.entries.clear()
-        def execute(self,statement):
-            query=str(statement)
-            return Result([('smtp_url','http://user:'+secret+'@example.test')]) if 'system_config' in query else Result()
+    database.execute(text("INSERT INTO system_config(key,value) VALUES (:key,:value)"), [
+        {'key': 'smtp_url', 'value': 'http://user:'+secret+'@example.test'},
+        {'key': 'printer.live_values.9', 'value': 'internal snapshot'},
+    ])
     monkeypatch.setattr(diagnostics,'_read_tail',lambda *_:[f'ERROR {{"Authorization": "Bearer {secret}"}}',f'WARNING PASS {secret}'])
     monkeypatch.setattr(routes_admin,'sql',SimpleNamespace(is_sqlite=False))
-    response=routes_admin.download_support_bundle({},DB())
+    response=routes_admin.download_support_bundle({},database)
     async def collect():return b''.join([chunk async for chunk in response.body_iterator])
     archive=zipfile.ZipFile(io.BytesIO(asyncio.run(collect())))
     content='\n'.join(archive.read(name).decode() for name in archive.namelist())
+    settings = json.loads(archive.read('settings_safe.json'))
+    assert 'smtp_url' in settings
+    assert 'printer.live_values.9' not in content and 'internal snapshot' not in content
     assert secret not in content and '[REDACTED]' in content
 
 

@@ -7,9 +7,10 @@ from fastapi import HTTPException
 class MappingMaterialMismatch(HTTPException):
     """Keep the API detail stable while retaining the tray for dispatch diagnostics."""
 
-    def __init__(self, target_slot):
+    def __init__(self, target_slot, *, confirmed=True):
         super().__init__(400, 'Selected tray material does not match the source filament')
         self.target_slot = target_slot
+        self.confirmed = confirmed
 
 
 class MappingSlotUnavailable(HTTPException):
@@ -132,7 +133,9 @@ def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material
             raise MappingSlotUnavailable(target)
         if not 1 <= target <= 24 or result[source - 1] != -1:
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
-        if check_material and material_match(by_id[source].get('type'), slots[target]) is not True:
-            raise MappingMaterialMismatch(target)
+        if check_material:
+            match = material_match(by_id[source].get('type'), slots[target])
+            if match is not True:
+                raise MappingMaterialMismatch(target, confirmed=match is False or slots[target] == 'empty')
         result[source - 1] = target - 1
     return result

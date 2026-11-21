@@ -28,6 +28,7 @@ from modules.system.backup_service import (
 )
 from modules.system.postgres_backup_service import (
     create_postgres_backup,
+    log_backup_refusal,
     postgres_paths,
     quarantined_restores,
     stage_postgres_restore,
@@ -163,6 +164,8 @@ def create_backup(current_user: dict = Depends(require_superadmin(scope="admin")
             path, metadata = create_online_backup(settings.database_url)
     except (BackupValidationError, OSError) as exc:
         from modules.system.backup_failure_alerts import backup_failure_reason
+        if sql.is_postgres and isinstance(exc, BackupValidationError):
+            log_backup_refusal(exc)
         _reason, message = backup_failure_reason(exc)
         raise HTTPException(status_code=500, detail=message) from exc
     log_audit(

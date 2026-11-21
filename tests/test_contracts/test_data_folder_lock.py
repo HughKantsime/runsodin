@@ -391,9 +391,11 @@ def test_owner_denied_write_open_gets_mode_600_instruction(engine, monkeypatch):
 
 def test_changelog_scopes_mac_data_folder_to_virtiofs_vm():
     changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
-    fixed = changelog.split('## [Unreleased]', 1)[1].split('## [', 1)[0]
+    releases = changelog.split('\n## [')[1:]
+    entry = next(block for block in releases if 'ODIN can send prints when the Mac' in block)
+    assert entry.startswith('2.5.0]')
     assert any(all(term in line for term in ('Mac', 'Docker', 'VM', 'virtiofs', 'lock'))
-               for line in fixed.splitlines())
+               for line in entry.splitlines() if line.startswith('- ODIN can send prints when the Mac'))
 
 
 def test_poll_warnings_are_shared_per_cause_and_process(caplog, monkeypatch):

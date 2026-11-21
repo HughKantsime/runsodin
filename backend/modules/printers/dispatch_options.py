@@ -104,7 +104,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
     return print_options,None
 
 
-def _mapping_error(job, mapping):
+def _mapping_error(job, mapping, *, slot_details=False):
     from core.print_payload import MappingMaterialMismatch, MappingSlotUnavailable, validate_mapping
     from fastapi import HTTPException
     # Stored targets are physical slot minus one; -1 is an unused file source.
@@ -127,6 +127,8 @@ def _mapping_error(job, mapping):
             return "Stored AMS mapping differs from file sources; no command was sent"
     except HTTPException as exc:
         if isinstance(exc, (MappingMaterialMismatch, MappingSlotUnavailable)):
+            if slot_details:
+                return exc
             return f'{exc.detail} (AMS slot {exc.target_slot})'
         return str(exc.detail)
     return None

@@ -137,7 +137,7 @@ export function PrintControls({ printerId, inline = false }: { printerId: number
         <button
           onClick={() => sendCommand(printer.id, 'resume')}
           disabled={disabled('resume')}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-md text-sm transition-colors disabled:opacity-50"
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 text-white hover:bg-green-800 rounded-md text-sm transition-colors disabled:opacity-50"
         >
           <Play size={14} />
           {isLoading('resume') ? 'Resuming...' : controlLabel(printer, 'resume')}
@@ -146,7 +146,7 @@ export function PrintControls({ printerId, inline = false }: { printerId: number
         <button
           onClick={() => sendCommand(printer.id, 'pause')}
           disabled={disabled('pause')}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm transition-colors disabled:opacity-50"
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-700 text-white hover:bg-amber-800 rounded-md text-sm transition-colors disabled:opacity-50"
         >
           <Pause size={14} />
           {isLoading('pause') ? 'Pausing...' : controlLabel(printer, 'pause')}
@@ -157,7 +157,7 @@ export function PrintControls({ printerId, inline = false }: { printerId: number
         <button
           onClick={() => sendCommand(printer.id, 'stop')}
           disabled={disabled('stop')}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white hover:bg-red-500 rounded-md text-sm transition-colors disabled:opacity-50 animate-pulse"
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-700 text-white hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
         >
           <StopCircle size={14} />
           {isLoading('stop') ? 'Stopping...' : repeatedStop || 'Confirm ' + controlLabel(printer, 'stop')}
@@ -166,7 +166,7 @@ export function PrintControls({ printerId, inline = false }: { printerId: number
         <button
           onClick={() => setConfirmStop(printer.id)}
           disabled={disabled('stop')}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-700 text-white hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
         >
           <StopCircle size={14} />
           {isLoading('stop') && printer.api_type === 'moonraker' ? 'Sending...' : controlLabel(printer, 'stop')}

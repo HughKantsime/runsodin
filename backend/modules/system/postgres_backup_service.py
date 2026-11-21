@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -530,6 +531,23 @@ def quarantined_restores(base_dir: Path | None = None) -> list[dict[str, object]
 
 
 logger = logging.getLogger(__name__)
+
+
+def log_backup_refusal(error: BackupValidationError) -> None:
+    # The failing check is safe to identify. Its exception or client stderr can contain database values.
+    site = traceback.extract_tb(error.__traceback__, limit=-1)[0]
+    found = required = "unknown"
+    try:
+        minimums = Path(__file__).resolve().parents[3] / "ops/release_control/image_client_minimums.json"
+        required = json.loads(minimums.read_text())["pg_dump"]
+        result = subprocess.run(["pg_dump", "--version"], capture_output=True, text=True, timeout=2, check=True)
+        version = re.match(r"pg_dump \(PostgreSQL\) ([0-9]+\.[0-9]+)\b", result.stdout)
+        if version:
+            found = version[1]
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        pass
+    logger.warning("PostgreSQL backup refused by %s (%s:%d, %s); pg_dump %s, required %s or later",
+                   site.name, Path(site.filename).name, site.lineno, site.line, found, required)
 
 # Preserve the service entry points and patchable dependencies across split modules.
 from modules.system.postgres_archive_inventory import (

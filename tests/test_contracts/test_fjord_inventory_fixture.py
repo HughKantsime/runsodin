@@ -1,4 +1,5 @@
-"""The Fjord Spools audit gets the same empty inventory as a real admin."""
+"""The Fjord accessibility fixture matches the responses an admin receives."""
+import asyncio
 import json
 from pathlib import Path
 
@@ -32,3 +33,10 @@ def test_empty_inventory_fixture_matches_handler(empty_inventory, path, handler)
     fixture = Path(__file__).resolve().parents[1] / "accessibility/fixtures/fjord.json"
     expected = handler(current_user={"id": 1, "role": "admin", "group_id": None}, db=empty_inventory)
     assert json.loads(fixture.read_text())[f"GET {path}"] == expected
+
+
+def test_notifications_quiet_hours_fixture_matches_handler(empty_inventory):
+    from modules.system.routes_config import get_quiet_hours_config
+    fixture = Path(__file__).resolve().parents[1] / "accessibility/fixtures/fjord.json"
+    expected = asyncio.run(get_quiet_hours_config(db=empty_inventory))
+    assert json.loads(fixture.read_text())["GET /api/config/quiet-hours"] == expected

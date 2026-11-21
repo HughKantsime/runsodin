@@ -171,6 +171,7 @@
   },
   "GET /api/alert-preferences": [],
   "GET /api/config/pause-reminders": {"enabled": true, "first_hours": 2, "repeat_hours": 12},
+  "GET /api/config/quiet-hours": {"enabled": false, "start": "22:00", "end": "07:00", "digest": true, "timezone_confirmed": false, "local_timezone": "UTC"},
   "GET /api/config/temperature-alerts": {
     "enabled": false
   },

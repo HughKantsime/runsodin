@@ -169,14 +169,17 @@ def test_ams_check_mismatch_names_the_slot_and_blocks_the_bench(ams, review_db):
     assert printer['bench']['reason'] == 'AMS slot 2: needs PETG #FFFFFF, has PLA white'
 
 
-def test_ams_check_unknown_when_a_tray_cannot_be_read(ams, review_db):
+@pytest.mark.parametrize(('tray', 'has_row'), [(3, False), (17, False), (3, True)])
+def test_ams_check_unknown_when_a_tray_cannot_be_read(ams, review_db, tray, has_row):
     client, issue = ams
-    _job(review_db, 554, 'Missing tray', printer=9, model_id=12, ams_mapping='[0, 2]')  # tray 3 does not exist
+    if has_row:
+        review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,:tray,NULL)"), {'tray': tray})
+    _job(review_db, 554, 'Missing tray', printer=9, model_id=12, ams_mapping=json.dumps([0, tray - 1]))
     review_db.commit()
     printer = _printers(_get(client, issue))[9]
     check = printer['next_job']['ams_check']
     assert check['status'] == 'unknown'
-    assert [s['slot'] for s in check['slots']] == [1, 3] and all(s['ok'] is None for s in check['slots'])
+    assert [s['slot'] for s in check['slots']] == [1, tray] and all(s['ok'] is None for s in check['slots'])
     assert printer['bench'] is None  # unknown never blocks
 
 
