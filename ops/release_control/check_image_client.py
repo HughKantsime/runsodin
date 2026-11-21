@@ -18,7 +18,8 @@ def check_image_client(image, runner=subprocess.run):
         required = minimums[tool]
         try:
             result = runner(
-                ["docker", "run", "--rm", "--entrypoint", tool, image, "--version"],
+                ["docker", "run", "--rm", "--pull=never", "--network", "none",
+                 "--entrypoint", tool, image, "--version"],
                 capture_output=True, text=True, errors="replace", timeout=60,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:

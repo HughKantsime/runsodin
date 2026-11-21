@@ -2,12 +2,13 @@
 import hashlib,json,subprocess,time,uuid,secrets
 from pathlib import Path
 from ops.database_parity.run_ams_adoption import IMAGE,run
+from ops.database_parity.runtime_image import runtime_image_receipt
 root=Path.cwd().resolve();name='odin-account-bound-session-parity-'+uuid.uuid4().hex[:12];database=name+'-db';runtime=name+'-runtime'
-paths=['backend/core/account_lifetime_schema.py', 'backend/core/account_lifetime_validation.py', 'backend/core/account_lifetime_creation.py', 'backend/core/account_bound_tokens.py', 'backend/core/account_bound_session_schema.py', 'backend/core/account_bound_session_validation.py', 'backend/core/schema/bootstrap.py', 'backend/core/schema/migrator.py', 'backend/core/database_config.py', 'ops/database_parity/account_bound_session_parity_native.py', 'ops/database_parity/run_account_bound_session_parity.py']
-receipt={'passed':False,'scope':'Unregistered explicitnonce session/token PostgreSQL parity only; no currentauth/issuer/cutover/APIactivation','source_sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths},'postgres_image':IMAGE,'runtime_provenance':'Existing published1.9.24 immutable runtime, current source mounted read-only; no pull/build','external_stubs':'Owned synthetic credentials; actual JWT/scopedkey/passwordlogin cookie; no authentication override or external call'}
+paths=['backend/core/account_lifetime_schema.py', 'backend/core/account_lifetime_validation.py', 'backend/core/account_lifetime_creation.py', 'backend/core/account_bound_tokens.py', 'backend/core/account_bound_session_schema.py', 'backend/core/account_bound_session_validation.py', 'backend/core/schema/bootstrap.py', 'backend/core/schema/migrator.py', 'backend/core/database_config.py', 'ops/database_parity/account_bound_session_parity_native.py', 'ops/database_parity/run_account_bound_session_parity.py', 'ops/database_parity/runtime_image.py']
+receipt={'passed':False,'scope':'Unregistered explicitnonce session/token PostgreSQL parity only; no currentauth/issuer/cutover/APIactivation','source_sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths},'postgres_image':IMAGE,'runtime_provenance':'Local ODIN parity image verified against the expected image ID, current source mounted read-only; no pull/build','external_stubs':'Owned synthetic credentials; actual JWT/scopedkey/passwordlogin cookie; no authentication override or external call'}
+receipt.update(runtime_image_receipt())
 output=root/'artifacts/application-certification/account-bound-session-parity-native.json';log=root/'artifacts/application-certification/account-bound-session-parity-native.log';private=name+'-credentials';writer=name+'-credential-writer';password=secrets.token_urlsafe(48)
 try:
- receipt['runtime_image']=run('docker','image','inspect','--format','{{.Id}}','f4ecb5d6dd0b').strip()
  run('docker','network','create','--internal',name)
  run('docker','volume','create',private)
  pg_uid=run('docker','run','--rm','--network','none','--entrypoint','id',IMAGE,'-u','postgres').strip()
