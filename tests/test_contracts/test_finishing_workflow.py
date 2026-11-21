@@ -131,3 +131,22 @@ def test_assembly_addition_keeps_baseline_review_and_withdrawal_guards(batch):
     history=batch[0].get('/products/production/history',params={'state':'withdrawn_baseline'}).json()
     assert history['receipts'][0]['id']==done.json()['id']
     assert batch[0].get('/products/production/history',params={'state':'in_baseline'}).json()['receipts']==[]
+
+
+def test_history_search_finds_component_or_assembly_by_inspection_text(batch):
+    client = batch[0]
+    preview = bom(batch)
+    lot = client.post('/products/production/components', json={
+        'job_id':301, 'accepted':3, 'rejected':0, 'unit_description':'Handle',
+        'inspection_confirmed':True, 'single_component_type_confirmed':True,
+        'counted_by':'Alex', 'note':'Shelf "C"'}).json()
+    assembly = client.post('/products/production/finishing', json={
+        **finish_body(batch, lot, preview), 'counted_by':'Joël', 'note':'Crate "B"'}).json()
+    for receipt in [lot, assembly]:
+        for field in ['counted_by', 'note']:
+            result = client.get('/products/production/history', params={'query':receipt[field]})
+            assert result.status_code == 200
+            row, = result.json()['receipts']
+            assert row['id'] == receipt['id'] and row['note'] == receipt['note']
+    assert client.get('/products/production/history', params={
+        'query':lot['counted_by'], 'state':'prepared'}).json()['receipts'] == []

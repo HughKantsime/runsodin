@@ -267,12 +267,12 @@ def test_component_and_assembly_token_retries_and_send(batch, monkeypatch, scope
     assert transport.request.call_count == 1
     audits = [json.loads(d) for d in db.execute(text(
         "SELECT details FROM audit_logs WHERE action IN ('production.component_inspected','production.assembly_finished') ORDER BY id")).scalars()]
-    from modules.orders.services import inspection_audit_counters
-    from core.models import AuditLog
-    assert 'First tray' not in str(stored) and 'Final check' not in str(stored)
-    entries = db.query(AuditLog).filter(AuditLog.action.in_(['production.component_inspected', 'production.assembly_finished'])).all()
-    counters = inspection_audit_counters(db, [(entry,) for entry in entries])
-    assert [counters[(1, r['receipt_id'])] for r in audits] == ['Sam', 'Robin']
+    assert stored['components'][lot['id']]['note'] == 'First tray'
+    assert stored['finishes'][data['request_id']]['note'] == 'Final check'
+    assert [r['receipt_id'] for r in audits] == [lot['id'], assembly['id']]
+    assert all(r['counted_by_present'] is True for r in audits)
+    for value in ('Sam', 'Robin', 'First tray', 'Final check'):
+        assert value not in str(audits)
     assert all(r['note_present'] and 'note' not in r and r['operator_id'] == 3 and r['api_token_id'] for r in audits)
 
 

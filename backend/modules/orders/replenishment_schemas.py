@@ -3,6 +3,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core.inspection_details import InspectionDetails
+
 Positive = Annotated[int, Field(strict=True, gt=0, le=9223372036854775807)]
 Count = Annotated[int, Field(strict=True, ge=0)]
 RecordID = Annotated[str, Field(strict=True, pattern=r'^[a-f0-9]{32}$')]
@@ -151,11 +153,7 @@ class OutsideBinding(Evidence):
     restored_job: RestoredJob | None
 
 
-class CountDetails(Evidence):
-    private_count_details: str | None = None
-
-
-class Receipt(CountDetails):
+class Receipt(InspectionDetails, Evidence):
     not_already_added_confirmed: Literal[True] | None = None
     id: RecordID = None
     recipe_id: RecordID = None
@@ -192,7 +190,7 @@ class ModelSnapshot(Evidence):
     quantity_per_bed: Positive | None
 
 
-class Component(CountDetails):
+class Component(InspectionDetails, Evidence):
     id: RecordID
     job_id: Positive
     job_uid: Name
@@ -250,7 +248,7 @@ class MaterialUses(Evidence):
     reclaimed_units: Count
 
 
-class Finish(CountDetails):
+class Finish(InspectionDetails, Evidence):
     id: RecordID
     kind: Literal['assembly']
     occurred_at: Name

@@ -1,3 +1,4 @@
+import type {ComponentLot} from './finishing'
 import { fetchAPI } from './client'
 export interface RecipeOutput { product_id:number; product_name?:string; kind:'main'|'flush'; expected:number }
 export interface Recipe { extends_recipe_id?:string; id:string; name:string; materials:string; qualified:boolean; reference_job_id:number|null; qualified_from_outside_print?:boolean; outside_print_evidence?:{actor_user_id:number;confirmed_at:string;print_job_id:number;matched_by:'explicit'|'filename';observed_filename:string|null;observed_job_name:string|null}; payload?:Record<string,unknown>; outputs:RecipeOutput[] }
@@ -19,7 +20,8 @@ export const production = {
 }
 
 export interface StockAddition {id:string;receipt_id:string;state:'prepared'|'unknown'|'confirmed'|'withdrawn_baseline';attempts:number}
-export interface InspectionHistory {receipts:Inspection[];additions:StockAddition[];next_offset:number|null;square_writes_enabled?:boolean}
+type ComponentHistory = Inspection & Pick<ComponentLot, 'unit_description'|'accepted'|'rejected'>
+export interface InspectionHistory {receipts:(Inspection|ComponentHistory)[];additions:StockAddition[];next_offset:number|null;square_writes_enabled?:boolean}
 export interface RecoveryCheck {id:string;state:string;attempts:number;readiness:'blocked'|'checks_passed'|'manual_review'|'confirmed'|'withdrawn_baseline';message:string;square_writes_enabled:boolean;preview?:{product:string;quantity:string;location:string;location_id:string;current_count:string|null}[];retry_allowed:false}
 export const productionHistory = {
   read:(offset=0,query='',state='')=>fetchAPI<InspectionHistory>(`/products/production/history?${new URLSearchParams({offset:String(offset),query,...(state?{state}:{})})}`),

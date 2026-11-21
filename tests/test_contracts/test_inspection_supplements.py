@@ -213,3 +213,16 @@ def test_recipe_without_dispatched_reference_cannot_offer_an_extension(batch):
     row, = batch[0].get('/products/production/history').json()['receipts']
     assert row['id'] == first['id'] and row['can_supplement'] is False
     assert batch[0].post(RECIPES,json=extension(parent)).status_code == 409
+
+
+def test_history_search_finds_only_matching_receipt_or_supplement(batch):
+    client = batch[0]
+    recipe = make_recipe(batch)
+    first = post(client, INSPECTIONS, {**body(batch, recipe), 'counted_by':'Joël', 'note':'Tray "A"'})
+    child = post(client, RECIPES, extension(recipe))
+    second = post(client, INSPECTIONS, supplement(batch, child, first))
+    for receipt in [first, second]:
+        for field in ['counted_by', 'note']:
+            response = client.get('/products/production/history', params={'query':receipt[field]})
+            assert response.status_code == 200
+            assert [row['id'] for row in response.json()['receipts']] == [receipt['id']]

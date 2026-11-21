@@ -7,7 +7,6 @@ import hashlib
 import importlib
 import json
 import uuid
-from core.inspection_details import local_count_details
 from fastapi import HTTPException
 from sqlalchemy import select, update, text, func
 from sqlalchemy.exc import IntegrityError
@@ -198,7 +197,7 @@ def inspection_id(owner, evidence, supplement_of):
 
 
 def receipt_public(row):
-    return {**local_count_details(json.loads(row['definition'])), 'id':row['id'], 'recipe_id':row['recipe_id'],
+    return {**json.loads(row['definition']), 'id':row['id'], 'recipe_id':row['recipe_id'],
             **({'supplement_of': row['supplement_of']} if row.get('supplement_of') else {})}
 
 
@@ -324,13 +323,13 @@ def inspect_batch(db, user, data):
                 state='prepared',attempts=0))
         from core.audit import log_audit
         log_audit(db, 'production.inspected', 'production_acceptance', None,
-            {**data.audit_details(owner), 'receipt_id':identifier, 'job_id':data.job_id, 'operator_id':user['id'],
+            {**data.audit_details(), 'receipt_id':identifier, 'job_id':data.job_id, 'operator_id':user['id'],
              'auth_kind':user.get('_auth_kind'), 'api_token_id':user.get('_token_id')})
         db.commit()
     except IntegrityError:
         db.rollback()
         fail('This physical batch was already recorded. Reload its inspection receipt.')
-    return {'id':identifier,'recipe_id':data.recipe_id,**local_count_details(definition)}
+    return {'id':identifier,'recipe_id':data.recipe_id,**definition}
 
 
 def assert_tenant_deletable(db, owner):

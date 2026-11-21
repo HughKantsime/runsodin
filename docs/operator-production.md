@@ -26,7 +26,7 @@ The send reply’s `square_writes_enabled` reports the switch state when the sen
 5. Verify addition `state: confirmed` and read Square stock. Report the actual result. The immutable receipt/idempotency key and reservation prevent duplicate stock on retry.
 6. For an unknown outcome, check the existing addition. Do not create another receipt or send again. Reconciliation matches Square adjustment history; unresolved outcomes need human review.
 
-Inspections, component counts and finished assemblies accept optional `counted_by` and `note` fields. The first saved values appear on the receipt. ODIN uses the installation encryption key to protect these fields in database backups. Restoring them requires the original key.
+Inspections, component counts and finished assemblies accept optional `counted_by` and `note` fields. The first saved values appear on the receipt. ODIN stores both fields as plain text. You can search for either in production history. The audit row records only whether each field was supplied.
 
 For flush pieces found later on an ODIN-dispatched job, qualify a recipe with `extends_recipe_id` and the original reference job. Submit the added outputs with `supplement_of` set to the first receipt ID and `not_already_added_confirmed` set to true after checking Square. Use the new receipt ID to locate its own stock addition.
 

@@ -23,7 +23,7 @@ export default function ProductionHistory({operator,admin=false,products=[],refr
       <p className="text-sm">Send each prepared addition only after checking and confirming its destination. Checks read Square and can confirm an uncertain addition only when its exact adjustment history matches. An uncertain outcome is never treated as a failed send.</p>
       {busy&&<p role="status">Checking…</p>}{error&&<p role="alert" className="break-words text-red-400">{error}</p>}
       <form className="grid gap-3 sm:grid-cols-2" onSubmit={e=>{e.preventDefault();void run(()=>load(query,filter))}}>
-        <label className="text-sm">Search inspections<input aria-label="Search inspections" className={input} maxLength={100} value={query} disabled={busy} placeholder="Product, recipe or job" onChange={e=>setQuery(e.target.value)}/></label>
+        <label className="text-sm">Search inspections<input aria-label="Search inspections" className={input} maxLength={100} value={query} disabled={busy} placeholder="Product, recipe, job, counter or note" onChange={e=>setQuery(e.target.value)}/></label>
         <label className="text-sm">Square addition status<select aria-label="Square addition status" className={input} value={filter} disabled={busy} onChange={e=>setFilter(e.target.value)}><option value="">All inspections</option><option value="prepared">Prepared</option><option value="unknown">Unknown outcome</option><option value="confirmed">Confirmed</option><option value="in_baseline">Counted in baseline</option><option value="withdrawn_baseline">Withdrawn into baseline</option></select></label>
         <button className={button} disabled={busy} type="submit">Search or reload history</button>
       </form>
@@ -40,7 +40,8 @@ export default function ProductionHistory({operator,admin=false,products=[],refr
             (editing===r.id ? <MissedPieces receipt={r} admin={admin} products={products} close={()=>setEditing(null)}
               saved={()=>{setEditing(null);void run(()=>load(applied.query,applied.state))}}/> :
               <button className={button} type="button" onClick={()=>setEditing(r.id)}>Add pieces missed at inspection</button>)}
-          {!addition?<p>{r.stock_status==='in_baseline'?'Counted in baseline; no Square addition.':r.stock_status==='no_sellable_output'?'No sellable output; no Square addition.':'No linked addition found. Retain this receipt for review.'}</p>:<>
+          {'unit_description' in r ? <p>Component inspection · {r.unit_description}: {r.accepted} accepted, {r.rejected} rejected</p>
+            : !addition?<p>{r.stock_status==='in_baseline'?'Counted in baseline; no Square addition.':r.stock_status==='no_sellable_output'?'No sellable output; no Square addition.':'No linked addition found. Retain this receipt for review.'}</p>:<>
             <p>Square: {status==='unknown'?'Unknown outcome':status==='confirmed'?'Confirmed':status==='withdrawn_baseline'?'Withdrawn into baseline':'Prepared, not sent'} · attempts {check?.attempts??addition.attempts}</p>
             {status==='unknown'&&<p>Do not recreate or resend this addition. Review the exact Square history first.</p>}
             {check&&<p role="status">{check.message}</p>}

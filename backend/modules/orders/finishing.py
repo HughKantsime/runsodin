@@ -11,7 +11,7 @@ from pydantic import BaseModel,ConfigDict,Field,StrictInt,StrictBool
 from sqlalchemy import select,update,cast,String,text
 from sqlalchemy.exc import IntegrityError
 from core.models import SystemConfig
-from core.inspection_details import InspectionDetails, local_count_details
+from core.inspection_details import InspectionDetails
 from modules.orders import square_store as store,batch_production as batches
 
 PREFIX='production_finishing:'
@@ -88,7 +88,7 @@ def inspect(db,user,data):
     old=component_for_job(doc,evidence['economic_uid'])
     if old:
         if old['request_hash']!=request_hash:raise HTTPException(409,'This component batch already has a different retained inspection')
-        return local_count_details(old)
+        return old
     if db.execute(select(batches.receipts.c.id).where(batches.receipts.c.job_uid==evidence['economic_uid'])).first():raise HTTPException(409,'This job already has finished-product acceptance. Do not count it again as components.')
     if len(doc['components'])>=500:raise HTTPException(409,'Component receipt capacity reached; retain history for review.')
     identifier=uuid.uuid5(uuid.NAMESPACE_URL,'odin:component:'+evidence['economic_uid']).hex
@@ -100,9 +100,9 @@ def inspect(db,user,data):
     from core.audit import log_audit
     log_audit(db, 'production.component_inspected', 'production_acceptance', None,
               {'receipt_id': identifier, 'operator_id': user['id'], 'auth_kind': user.get('_auth_kind'),
-               'api_token_id': user.get('_token_id'), **data.audit_details(owner)})
+               'api_token_id': user.get('_token_id'), **data.audit_details()})
     db.commit()
-    return local_count_details(row)
+    return row
 
 def requirements(db,owner,product_id,*,locked=False):
     product=store.own_product(db,owner,product_id,lock=locked)
@@ -144,14 +144,14 @@ def preview(db,user,product_id):
     owner=store.tenant(user);snapshot,bom_hash=requirements(db,owner,product_id);doc,_=load(db,owner);balances=available(doc)
     from modules.orders.material_store import own_material
     hardware_stock={str(h['consumable_id']):own_material(db,owner,h['consumable_id'])[0].current_stock for h in snapshot['hardware'] if h.get('managed')}
-    return {'hardware_stock':hardware_stock,'bom':snapshot,'bom_hash':bom_hash,'components':[dict(local_count_details(row),available=balances[rid],source_current=(row['source']==snapshot['sources'].get(str(row['source']['model_id'])))) for rid,row in doc['components'].items() if str(row['source']['model_id']) in snapshot['sources']], 'stock_updated':False}
+    return {'hardware_stock':hardware_stock,'bom':snapshot,'bom_hash':bom_hash,'components':[dict(row,available=balances[rid],source_current=(row['source']==snapshot['sources'].get(str(row['source']['model_id'])))) for rid,row in doc['components'].items() if str(row['source']['model_id']) in snapshot['sources']], 'stock_updated':False}
 
 def finish(db,user,data):
     owner=store.tenant(user);doc,raw=lock(db,owner,user);request_hash=digest(data.model_dump(exclude={'counted_by', 'note'}))
     old=doc['finishes'].get(data.request_id)
     if old:
         if old['request_hash']!=request_hash:raise HTTPException(409,'This finishing request already has different retained facts')
-        return local_count_details(old)
+        return old
     if len(doc['finishes'])>=500:raise HTTPException(409,'Finishing receipt capacity reached; retain history for review.')
     if not data.assembly_confirmed or not data.hardware_confirmed or data.accepted+data.rejected<1:raise HTTPException(409,'Confirm physical assembly, fit/quality inspection and required hardware before finishing.')
     from modules.orders import material_store
@@ -194,16 +194,16 @@ def finish(db,user,data):
     from core.audit import log_audit
     log_audit(db, 'production.assembly_finished', 'production_acceptance', None,
               {'receipt_id': identifier, 'operator_id': user['id'], 'auth_kind': user.get('_auth_kind'),
-               'api_token_id': user.get('_token_id'), **data.audit_details(owner)})
+               'api_token_id': user.get('_token_id'), **data.audit_details()})
     db.commit()
-    return local_count_details(row)
+    return row
 
 def receipt(db,owner,receipt_id):
     doc,_=load(db,owner);return next((r for r in doc['finishes'].values() if r['id']==receipt_id),None)
 def overview(db,user):
     owner=store.tenant(user);doc,_=load(db,owner);balances=available(doc)
-    return {'revision':doc['revision'],'components':[dict(local_count_details(r),available=balances[rid]) for rid,r in doc['components'].items()],
-            'finishes':[local_count_details(r) for r in doc['finishes'].values()],'square_writes_enabled':False}
+    return {'revision':doc['revision'],'components':[dict(r,available=balances[rid]) for rid,r in doc['components'].items()],
+            'finishes':list(doc['finishes'].values()),'square_writes_enabled':False}
 def guard_product(db,product):
     doc,_=load(db,product.org_id or 0)
     if any(r['bom']['product_id']==product.id for r in doc['finishes'].values()):raise HTTPException(409,'Keep products with retained assembly receipts')

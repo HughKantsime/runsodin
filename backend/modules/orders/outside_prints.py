@@ -2,7 +2,6 @@
 import json
 import uuid
 from sqlalchemy import text, select
-from core.inspection_details import local_count_details
 from fastapi import HTTPException
 from modules.orders import batch_production as batches, square_store as square
 
@@ -350,11 +349,11 @@ def inspect(db, user, data):
                 destination=packed(destination),request_body=packed({'idempotency_key':identifier,'changes':changes}),
                 state='prepared',attempts=0))
         audit(db, 'production.inspected', 'production_acceptance', None,
-            {**data.audit_details(owner), 'receipt_id':identifier, 'print_job_id':data.print_job_id, 'binding_id':evidence['claim_token'], 'actor_user_id':user['id'],
+            {**data.audit_details(), 'receipt_id':identifier, 'print_job_id':data.print_job_id, 'binding_id':evidence['claim_token'], 'actor_user_id':user['id'],
              'auth_kind':user.get('_auth_kind'), 'actor_token_id':user.get('_token_id')})
         db.commit()
     except IntegrityError:
         db.rollback()
         fail('This physical batch was already recorded. Reload its inspection receipt.')
-    return {'id':identifier,'recipe_id':data.recipe_id,**local_count_details(definition)}
+    return {'id':identifier,'recipe_id':data.recipe_id,**definition}
 

@@ -113,3 +113,17 @@ it('hides missed-piece entry for recipes without a dispatched reference and jobs
    cleanup()
  }
 })
+
+it('shows a component search result with its count and note',async()=>{
+ vi.mocked(productionHistory.read).mockResolvedValue({receipts:[{
+   ...receipt,id:'component1',recipe_id:null,recipe_name:'Handle model',stock_status:'components_only',outputs:[],
+   unit_description:'Handle',accepted:3,rejected:1,counted_by:'Alex',note:'Shelf C'
+ }],additions:[],next_offset:null})
+ render(<ProductionHistory operator/>)
+ fireEvent.click(screen.getByRole('button',{name:'Inspection history and Square recovery'}))
+ await screen.findByText('Handle model · job 2')
+ expect(screen.getByText('Component inspection · Handle: 3 accepted, 1 rejected')).toBeVisible()
+ expect(screen.getByText('Counted by Alex')).toBeVisible()
+ expect(screen.getByText('Note: Shelf C')).toBeVisible()
+ expect(screen.queryByText(/No linked addition/)).not.toBeInTheDocument()
+})

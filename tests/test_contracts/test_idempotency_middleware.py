@@ -1276,32 +1276,3 @@ def test_prune_does_not_delete_fresh_rows_on_mixed_timestamp_formats(conn):
         "SELECT COUNT(*) FROM idempotency_keys"
     ).fetchone()[0]
     assert remaining == 1
-
-
-@pytest.mark.parametrize('prefix', ['/api', '/api/v1'])
-@pytest.mark.parametrize('route', ['inspections', 'components', 'finishing'])
-def test_inspection_key_ignores_only_valid_optional_text(prefix, route):
-    from core.middleware.idempotency import _compute_request_hash
-    path = f'{prefix}/products/production/{route}'
-    original = _compute_request_hash('POST',path,b'{"accepted":1}')
-    assert original == _compute_request_hash('POST',path,b'{"accepted":1,"counted_by":"Sam","note":"Tray two"}')
-    assert original != _compute_request_hash('POST',path,b'{"accepted":2,"counted_by":"Sam"}')
-    assert _compute_request_hash('POST',path,b'{"accepted":1,"note":" "}') is None
-    assert _compute_request_hash('POST','/api/jobs',b'{}') != _compute_request_hash('POST','/api/jobs',b'{"note":"Tray"}')
-
-
-def test_inspection_http_cache_protects_and_replays_original_response(conn, monkeypatch):
-    from cryptography.fernet import Fernet
-    from core.middleware.idempotency import _try_claim, _finalize_row, _concurrent_loser_response
-    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
-    db = _fake_db(conn)
-    path = '/api/products/production/inspections'
-    _try_claim(db, 'k', 1, 'POST', path, 'hash', auth_fingerprint='operator')
-    body = b'{"counted_by":"Local person","note":"Local note"}'
-    _finalize_row(db, 'k', 1, 200, body, inspection=True)
-    stored, = conn.execute('SELECT response_body FROM idempotency_keys').fetchone()
-    assert 'Local person' not in stored and 'Local note' not in stored
-    assert _concurrent_loser_response(db, 'k', 1, 'hash', 'operator', True).body == body
-    monkeypatch.delenv('ENCRYPTION_KEY')
-    assert _concurrent_loser_response(db, 'k', 1, 'hash', 'other', True).status_code == 409
-    assert _concurrent_loser_response(db, 'k', 1, 'hash', 'operator', True).status_code == 503
