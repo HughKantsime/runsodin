@@ -32,6 +32,7 @@ const PRINTER_MODELS = {
     { value: 'H2D Pro', label: 'H2D Pro', slots: 4 },
     { value: 'H2S', label: 'H2S', slots: 4 },
     { value: 'H2C', label: 'H2C', slots: 4 },
+    { value: 'H3C', label: 'H3C', slots: 1 },
   ],
   moonraker: [
     { value: 'Voron', label: 'Voron', slots: 1 },

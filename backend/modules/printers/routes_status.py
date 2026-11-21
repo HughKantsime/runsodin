@@ -217,7 +217,10 @@ def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role
     """Get live nozzle temperature status. Dual-nozzle models (H2D, H2D Pro, H2C) return both nozzles."""
     printer = _visible_printer(printer_id, db, current_user)
 
-    observed = {item['extruder']: item for item in printer.installed_nozzles or []}
+    from modules.printers.printer_models import bambu_nozzle_count, is_h3c_printer
+    from modules.printers.nozzle_capability import display_nozzles
+    nozzles = display_nozzles(printer.installed_nozzles, rack=is_h3c_printer(printer))
+    observed = {item['extruder']: item for item in nozzles if 'extruder' in item}
     nozzle_0 = {
         "temp": printer.nozzle_temp,
         "target": printer.nozzle_target_temp,
@@ -225,11 +228,10 @@ def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role
         "diameter": observed.get(0, {}).get("diameter", printer.nozzle_diameter),
     }
 
-    from modules.printers.printer_models import bambu_nozzle_count
     if bambu_nozzle_count(printer.machine_type) == 2:
         return {
             "nozzle_count": 2,
-            "installed_nozzles": printer.installed_nozzles or [],
+            "installed_nozzles": nozzles,
             "nozzle_0": nozzle_0,
             "nozzle_1": {
                 "temp": printer.nozzle_1_temp,
@@ -243,7 +245,7 @@ def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role
 
     return {
         "nozzle_count": 1,
-        "installed_nozzles": printer.installed_nozzles or [],
+        "installed_nozzles": nozzles,
         "nozzle_0": nozzle_0,
         "nozzle_1": None,
     }

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
+from modules.printers.printer_models import is_h3c_printer
 
 SUPPORTED = 'supported'
 EXPERIMENTAL = 'experimental'
@@ -67,8 +68,17 @@ CONTROL_PROOF = {
 }
 
 
+def require_control_capable_model(printer):
+    if is_h3c_printer(printer):
+        from fastapi import HTTPException
+        raise HTTPException(409, detail={'code': MONITOR_ONLY_NOT_AVAILABLE,
+                                         'message': 'Printer controls are not available for the H3C yet.'})
+
+
 def control_proof(printer, action):
     from modules.printers.dispatch_support import is_kobra_s1
+    if is_h3c_printer(printer):
+        return "not_working"
     kind = "kobra_s1" if is_kobra_s1(printer) else None
     return CONTROL_PROOF.get((kind, action), "proven")
 

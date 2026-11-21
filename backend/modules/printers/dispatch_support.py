@@ -16,6 +16,9 @@ def dispatch_unsupported_reason(printer):
     from modules.printers.support_levels import MONITOR_ONLY, MONITOR_ONLY_DETAIL
     if api_type in MONITOR_ONLY:
         return 'printer_dispatch_unsupported: ' + MONITOR_ONLY_DETAIL
+    from modules.printers.printer_models import is_h3c_printer
+    if is_h3c_printer(printer):
+        return 'unsupported_rack_printer: Sending jobs to an H3C is not available yet.'
     if is_kobra_s1(printer):
         if s1_sending_enabled():
             return None

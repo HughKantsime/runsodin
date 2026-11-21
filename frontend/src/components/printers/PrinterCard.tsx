@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from './AmsEnvironmentChart'
 import PrinterTelemetryChart from './PrinterTelemetryChart'
+import InstalledNozzles from './InstalledNozzles'
 import NozzleStatusCard from './NozzleStatusCard'
 import HmsHistoryPanel from './HmsHistoryPanel'
 import FilamentSlotEditor from './FilamentSlotEditor'
@@ -23,7 +24,7 @@ import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
 import PauseCause from './PauseCause'
 import { displayName } from '../../utils/displayName'
-import { isOnline, isActivePrintState, filamentSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
+import { isOnline, isActivePrintState, filamentSlotGroup, isH3C, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 import { usePlatePicture } from '../../hooks/usePlatePicture'
 
@@ -130,6 +131,7 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome, showPlatePicture }: PrinterCardProps) {
   const foundry = useFoundry()
+  const rack = isH3C(printer)
   const externallyManagedFilament = printer.filament_source === 'filament-ledger'
 
   const [syncing, setSyncing] = useState(false)
@@ -153,7 +155,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit')) return false
     if (target.org_id === undefined) return false
     const tenantAccess = (principal.role === 'admin' && !principal.group_id) || target.org_id === null || target.org_id === principal.group_id
-    return tenantAccess && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
+    return tenantAccess && !isH3C(target) && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
       && (!speed || isActivePrintState(target.gcode_state))
   }
 
@@ -256,7 +258,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
       <ExperimentalOptIn printer={printer} />
-      <div className="filament-slot-container p-3 md:p-4">
+      {rack && !foundry && <InstalledNozzles rack nozzles={printer.installed_nozzles} amsConnected={printer.ams_connected} />}
+      {(!rack || externallyManagedFilament || printer.ams_connected) && <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
           <span className="text-xs md:text-sm text-[var(--brand-text-secondary)]">{externallyManagedFilament ? 'Filament Ledger · read only' : 'Loaded Filaments'}</span>
@@ -339,7 +342,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             </div>
           </div>
         )}
-      </div>
+      </div>}
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-surface)] border-t border-[var(--brand-border)]">
         {(() => {
           const online = isOnline(printer)
@@ -480,7 +483,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
       {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} readOnly={rack} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
     </div>
   )
 }

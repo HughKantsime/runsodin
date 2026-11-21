@@ -25,7 +25,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
 import { printers, printerTelemetry, printJobs } from '../../api'
-import { isActivePrintState, isOnline, parseServerDate } from '../../utils/shared'
+import { isActivePrintState, isH3C, isOnline, parseServerDate } from '../../utils/shared'
 import { PageHeader, Card, StatCard, StatusBadge, Button } from '../../components/ui'
 
 
@@ -105,6 +105,7 @@ export default function PrinterDetail() {
     )
   }
 
+  const rack = isH3C(printer)
   const online = isOnline(printer)
   const activePrint = isActivePrintState(printer.gcode_state)
   // Only a running job has a name; an idle printer shows no Current Job block.
@@ -136,9 +137,9 @@ export default function PrinterDetail() {
       <PauseCause printer={printer} />
       <ActiveHms printer={printer} />
       <PrinterDetectionLink printer={printer} />
-      {printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
+      {!rack && printer.api_type === 'bambu' && <TraySettings key={printer.id} printerId={printer.id} />}
       {foundry ? <PrinterDetailOverview printer={printer} /> : <div className="mb-6"><FilamentSlotsPanel printer={printer} /></div>}
-      {online && isActivePrintState(printer.gcode_state) && printer.api_type === 'bambu'
+      {!rack && online && isActivePrintState(printer.gcode_state) && printer.api_type === 'bambu'
         && canDo('printers.edit') && ['operator', 'admin'].includes(getCurrentUser()?.role || '') && (
         <div className="mb-4"><Button variant="secondary" className="min-h-11" onClick={() => setSkipOpen(true)}>Skip objects</Button></div>
       )}
@@ -195,7 +196,7 @@ export default function PrinterDetail() {
 
       </DetailPresentation>
       <ExperimentalFeatures printer={printer} foundry={foundry} />
-      <InstalledNozzles nozzles={printer.installed_nozzles} />
+      {(!foundry || !rack) && <InstalledNozzles rack={rack} nozzles={printer.installed_nozzles} amsConnected={printer.ams_connected} />}
 
       {/* Telemetry */}
       {telemetry && Array.isArray(telemetry) && telemetry.length > 0 && (

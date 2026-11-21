@@ -93,6 +93,7 @@ def experimental_controls_guard(
     printer = db.get(Printer, printer_id)
     if printer is None or not check_org_access(current_user, printer.org_id):
         return
+    support_levels.require_control_capable_model(printer)
     if action in _EXEMPT_SUFFIXES and not support_levels.is_monitor_only(printer.api_type):
         return
     refusal = support_levels.control_refusal(db, printer.id, printer.api_type, action)

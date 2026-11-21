@@ -7,6 +7,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from modules.printers.printer_models import is_h3c_printer
 from modules.printers.education_compatibility import evaluate_education_compatibility
 from modules.printers.dispatch_support import (
     automatic_dispatch_unsupported_reason,
@@ -232,6 +233,8 @@ def request_observed_task_resume(printer, print_job_id: int) -> str:
     Bambu adds monitor-side current observation and paused telemetry admission.
     Acceptance never proves the printer has actually resumed.
     """
+    if is_h3c_printer(printer):
+        return 'refused'
     if (printer.api_type or '').lower() == 'bambu':
         from modules.printers.monitor_commands import request_command
         return request_command(printer.id, 'resume', print_job_id=print_job_id)

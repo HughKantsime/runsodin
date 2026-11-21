@@ -284,6 +284,12 @@ export function dualNozzleModelName(machineType: string | null | undefined): str
   return DUAL_NOZZLE_NAMES[raw.toUpperCase().replace(/^BAMBU LAB /, '')] || raw
 }
 
+export function isH3C(printer: { api_type?: string | null; model?: string | null; machine_type?: string | null }): boolean {
+  return printer.api_type === 'bambu' && [printer.model, printer.machine_type].some(
+    value => /^(?:Bambu Lab )?H3C$/i.test(value?.trim() || '')
+  )
+}
+
 /** Four zero-indexed wire trays per ACE; ODIN slot numbers remain one based. */
 export function filamentSlotGroup(apiType: string | null | undefined, slotNumber: number): AmsSlotGroup | null {
   if (apiType === 'bambu') return amsSlotGroup(slotNumber)

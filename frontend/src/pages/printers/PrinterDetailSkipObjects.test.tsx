@@ -87,3 +87,24 @@ it('opens Elegoo Experimental features from the hash for a non-superadmin', asyn
   expect(screen.getByText('Only a platform administrator can change this.')).toBeInTheDocument()
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 })
+
+it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s printer page', async family => {
+  const { printers } = await import('../../api')
+  const capture = await import('../../../../tests/fixtures/telemetry/h3c-idle-2026-11-21.json')
+  const nozzles = capture.message.print.device.nozzle.info.map(row => ({
+    nozzle_id: row.id, position: row.addr_id + 1, side: 'rack', diameter: row.diameter, type: row.type,
+    present: true, material: null, flow: null, wear: row.wear, observed_at: '2026-11-21T19:40:00Z',
+  }))
+  vi.mocked(printers.get).mockResolvedValueOnce({
+    id: 9, name: 'Printer detail', api_type: 'bambu', model: 'H3C', gcode_state: 'RUNNING',
+    last_seen: new Date().toISOString(), installed_nozzles: nozzles, ams_connected: false, filament_slots: [],
+  } as Awaited<ReturnType<typeof printers.get>>)
+  document.documentElement.dataset.themeFamily = family
+  mount()
+  const rack = await screen.findByRole('region', { name: 'Nozzle rack' })
+  expect(rack.querySelectorAll('li')).toHaveLength(9)
+  expect(rack).toHaveTextContent('Position 8 · HT01 · 0.4 mm')
+  expect(rack).toHaveTextContent('No AMS connected')
+  expect(rack).not.toHaveTextContent(/mounted|active nozzle|161|129/i)
+  expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()
+})

@@ -13,6 +13,7 @@ Usage:
     name = normalize_model_name("bambu", "")          # -> None
 """
 
+from collections.abc import Mapping
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ BAMBU_PRODUCT_NAMES = {
     "H2D PRO": "H2D Pro",
     "H2S": "H2S",
     "H2C": "H2C",
+    "H3C": "H3C",
 }
 
 # Total XY build areas, Bambu specifications (sources in docs/dispatch-capability.md).
@@ -110,6 +112,13 @@ def bambu_model_name(raw_value: Optional[str]) -> Optional[str]:
     if product in BAMBU_PRODUCT_NAMES:
         return BAMBU_PRODUCT_NAMES[product]
     return _BAMBU_FRIENDLY_NAMES.get(upper, value)
+
+
+def is_h3c_printer(printer):
+    """Recognize both the configured model and the name observed by the monitor."""
+    get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
+    return str(get('api_type') or '').strip().lower() == 'bambu' and any(
+        bambu_model_name(get(key)) == 'H3C' for key in ('model', 'machine_type'))
 
 
 # ---------------------------------------------------------------------------

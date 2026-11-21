@@ -375,11 +375,11 @@ def handle_status(self, status, generation, runtime):
                         conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column/stamp names come from the literal nozzle column tuples in _on_status (closed set); values are bound
                                      (value, observed_at.isoformat(), self.printer_id))
                     from modules.printers.monitors.nozzle_observations import persist
-                    persist(conn, self)
+                    unidentified_rack = persist(conn, self)
                     conn.commit()
                     live_state_allowed = True
                     self._pending_nozzle_diameter = None
-                    self._pending_installed_nozzles = {}
+                    self._pending_installed_nozzles = unidentified_rack or {}
                     self._pending_right_nozzle = {}
                     # Foundry's display cache is optional: write it after the
                     # status commit so a cache failure can't roll that back.

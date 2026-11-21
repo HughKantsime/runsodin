@@ -2,7 +2,24 @@ import PrinterNumber from '../ui/PrinterNumber'
 import type { InstalledNozzle } from '../../types/printer'
 import { parseServerDate } from '../../utils/shared'
 
-export default function InstalledNozzles({ nozzles }: { nozzles?: InstalledNozzle[] | null }) {
+export default function InstalledNozzles({ nozzles, rack = false, amsConnected }: {
+  nozzles?: InstalledNozzle[] | null
+  rack?: boolean
+  amsConnected?: boolean | null
+}) {
+  if (rack) {
+    const positions = nozzles?.filter(nozzle => nozzle.side === 'rack')
+    return <section aria-label="Nozzle rack" className="rounded-lg border border-[var(--brand-card-border)] p-3">
+      <h2 className="font-medium">Nozzle rack · Experimental</h2>
+      {positions?.length ? <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+        {positions.map(nozzle => <li key={nozzle.nozzle_id}>
+          Position {nozzle.position} · {nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}
+          {nozzle.present === false && ' · Absent'}
+        </li>)}
+      </ul> : <p>No rack report received.</p>}
+      {amsConnected !== true && <p className="mt-2 text-sm">{amsConnected === false ? 'No AMS connected' : 'AMS status unknown'}</p>}
+    </section>
+  }
   return <section aria-label="Installed nozzles" className="mb-6 rounded-lg border border-[var(--brand-card-border)] p-4">
     <h2 className="font-medium">Installed nozzles</h2>
     {!nozzles?.length ? <p>No nozzle report received. Nozzle compatibility has not been verified.</p> :

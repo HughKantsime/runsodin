@@ -1,5 +1,6 @@
 export interface InstalledNozzle {
-  extruder: number; side: string; diameter: number | null; flow: string | null
+  nozzle_id?: number; position?: number; type?: string | null
+  extruder?: number; side: string; diameter: number | null; flow: string | null
   material: string | null; wear: number | null; observed_at: string; present?: boolean | null
 }
 
@@ -120,6 +121,7 @@ export interface Printer {
   nozzle_type: string | null;
   nozzle_diameter: number | null;
   fan_speed: number | null;
+  ams_connected?: boolean | null;
   installed_nozzles?: InstalledNozzle[] | null;
   bed_x_mm: number | null;
   bed_y_mm: number | null;
@@ -365,6 +367,7 @@ export interface ConnectionTestRequest {
 }
 
 export interface ConnectionTestResult {
+  model?: string | null;
   ams_slots?: number;
   ams_ht_slots?: number;
   success: boolean;

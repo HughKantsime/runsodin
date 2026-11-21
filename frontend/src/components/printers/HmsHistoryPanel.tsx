@@ -18,10 +18,11 @@ const SEVERITY_COLORS: Record<string, string> = {
 interface HmsHistoryPanelProps {
   printerId: number
   apiType?: string | null
+  readOnly?: boolean
   onClose?: () => void
 }
 
-export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHistoryPanelProps) {
+export default function HmsHistoryPanel({ printerId, apiType, readOnly = false, onClose }: HmsHistoryPanelProps) {
   const [data, setData] = useState<HmsHistoryResponse>({ entries: [], frequency: {}, total: 0 })
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
@@ -29,7 +30,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
   const [error, setError] = useState<string | null>(null)
   const generation = useRef(0)
   const clearPending = useRef(false)
-  const canClear = canDo('printers.edit')
+  const canClear = !readOnly && canDo('printers.edit')
 
   useEffect(() => {
     generation.current += 1

@@ -161,7 +161,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   const [modelOverride, setModelOverride] = useState(false)
   const [slotOverride, setSlotOverride] = useState(false)
 
-  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'P2S', 'A1', 'A1 Mini', 'H2D', 'H2D Pro', 'H2S', 'H2C']
+  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'P2S', 'A1', 'A1 Mini', 'H2D', 'H2D Pro', 'H2S', 'H2C', 'H3C']
 
   useEffect(() => {
     setSubmitError(null)
@@ -265,7 +265,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         setTestStatus('success')
         const detail = (result as unknown as { detail?: string }).detail
         setTestMessage(detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots${result.ams_ht_slots != null ? `, ${result.ams_ht_slots} AMS HT` : ''}`)
-        if (!printer && result.ams_slots != null && result.ams_slots > 0) {
+        if (!printer && result.ams_slots === 0 && (result.model || formData.model) === 'H3C') {
+          setFormData(prev => ({ ...prev, slot_count: 1 }))
+        } else if (!printer && result.ams_slots != null && result.ams_slots > 0) {
           setFormData(prev => ({ ...prev, slot_count: result.ams_slots }))
         }
         if (result.model && result.model !== 'Unknown' && !formData.model) {
@@ -370,7 +372,10 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         ) : showBambuFields ? (
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Model</label>
-            <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+            <select value={formData.model} onChange={e => {
+              const model = e.target.value
+              setFormData(prev => ({ ...prev, model, slot_count: !isEditing && model === 'H3C' ? 1 : prev.slot_count }))
+            }} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Will auto-detect on first connect</option>
               {BAMBU_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
             </select>

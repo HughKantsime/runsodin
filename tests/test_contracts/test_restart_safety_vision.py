@@ -190,3 +190,16 @@ def test_bambu_delta_traffic_preserves_pause_authority_after_grace(guarded_visio
     assert thread._live_printing() is False
     thread._auto_pause()
     assert pauses == ['pause']  # reconnect cannot reuse the old explicit state
+
+
+def test_h3c_auto_pause_stops_before_device_access(guarded_vision, review_db, monkeypatch):
+    from core import crypto
+    thread, _, clock, report, _, _, _ = guarded_vision
+    review_db.execute(text("UPDATE printers SET api_type='bambu',machine_type='Bambu Lab H3C' WHERE id=9"))
+    review_db.commit()
+    thread._analyzed_frames = 3
+    thread._first_analysis_at = clock[0] - 61
+    report()
+    assert thread._live_printing()
+    monkeypatch.setattr(crypto, 'decrypt', lambda *_: pytest.fail('Reached Bambu command preparation'))
+    thread._auto_pause()

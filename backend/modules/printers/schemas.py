@@ -256,6 +256,7 @@ class PrinterResponse(PrinterBase):
         except (ValueError, KeyError, TypeError):
             return '[]' if self.api_type == 'bambu' else value
 
+    ams_connected: Optional[bool] = None
     feeding_slot: Optional[int] = None
     chamber_temp: Optional[float] = None
     plate_clear_confirmed_at: Optional[datetime] = None
@@ -317,6 +318,16 @@ class PrinterResponse(PrinterBase):
             return data
         from modules.printers.route_utils import effective_camera_url
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'camera_source' and hasattr(data, name)}
+        from modules.printers.printer_models import is_h3c_printer
+        rack = is_h3c_printer(data)
+        if rack or values.get('installed_nozzles'):
+            from modules.printers.nozzle_capability import display_nozzles
+            values['installed_nozzles'] = display_nozzles(values.get('installed_nozzles'), rack=rack)
+        if rack:
+            values['model'] = 'H3C'
+            # Configured rows can hold operator edits. Only filter the response.
+            if values.get('ams_connected') is not True:
+                values.update(filament_slots=[], loaded_colors=[])
         url = effective_camera_url(data)
         from modules.printers.bambu_hms_bundle import credential_prefix
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''

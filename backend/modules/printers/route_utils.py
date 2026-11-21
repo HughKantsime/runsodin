@@ -635,7 +635,8 @@ def _send_printer_command(printer, action: str) -> bool:
     if action not in _SAFETY_COMMANDS and command_refusal(printer, action):
         log.warning("Printer command %s refused: Experimental printer without opt-in", action)
         return False
-    if printer.api_type == "anycubic_lan":
+    from modules.printers.printer_models import is_h3c_printer
+    if printer.api_type == "anycubic_lan" or is_h3c_printer(printer):
         return False  # Monitor-only: never fall through to the Bambu command path.
     if str(printer.api_type or "").strip().lower() == "ultimaker":
         return False  # Part 1 is monitoring only: no write of any kind (pause and stop included) is sent; never the Bambu fallback.
@@ -654,6 +655,9 @@ def _send_printer_command(printer, action: str) -> bool:
 
 def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     """Call a BambuPrinter method directly (for commands not in the generic allowlist)."""
+    from modules.printers.printer_models import is_h3c_printer
+    if is_h3c_printer(printer):
+        return False
     from modules.printers.telemetry.feature_flag import is_v2_enabled
 
     if is_v2_enabled():

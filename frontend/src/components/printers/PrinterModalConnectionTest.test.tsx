@@ -169,3 +169,11 @@ it.each([[5, 4], [9, 4], [8, 8]])('switching to Bambu with %i slots submits %i',
   expect(submit.mock.calls[0][0].slot_count).toBe(expected)
   expect(slots).toHaveValue(String(expected))
 })
+
+it('offers H3C when adding a Bambu printer', () => {
+  fillNewBambu()
+  const select = screen.getByRole('option', { name: 'H3C' }).closest('select')!
+  fireEvent.change(select, { target: { value: 'H3C' } })
+  expect(select.value).toBe('H3C')
+  expect(screen.getByRole('option', { name: '1 slot (no AMS)' }).closest('select')).toHaveValue('1')
+})
