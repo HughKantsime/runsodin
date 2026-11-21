@@ -63,7 +63,7 @@ def _validate_response(response):
         raise ValueError("Expected an unencoded response")
 
 
-def fetch_releases(installed, *, transport=None):
+def fetch_releases(installed, *, transport=None, before_send=None, admission_loop=None):
     if itar.is_itar_mode():
         return {"outcome": "blocked"}
     if not version_number(installed):
@@ -73,9 +73,11 @@ def fetch_releases(installed, *, transport=None):
         response = outbound_http.pinned_get(
             RELEASES_URL, headers={"Accept": "application/vnd.github+json", "User-Agent": "ODIN"},
             timeout=REQUEST_SECONDS, max_response_bytes=LIMIT, validate_response=_validate_response,
-            transport=transport,
+            transport=transport, before_send=before_send, admission_loop=admission_loop,
         )
         return {"outcome": "ok", **parse_releases(json.loads(response.content), installed)}
+    except outbound_http.OutboundRequestCancelled:
+        return {"outcome": "cancelled"}
     except httpx.HTTPStatusError:
         return {"outcome": "http_error"}
     except outbound_http.OutboundResponseTooLarge:

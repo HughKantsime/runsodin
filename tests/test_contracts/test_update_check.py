@@ -1,21 +1,26 @@
 """Register B88: opt-in release checks, with no network in any test."""
 import asyncio
 import json
+import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from threading import Event, Thread, get_ident
+from types import ModuleType, SimpleNamespace
 
 import httpx
 import pytest
 import yaml
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from core import outbound_http
 from core.models import SystemConfig
-from modules.system import update_check as checks, update_releases as releases
+from modules.system import health_version, update_check as checks, update_releases as releases
 from tests.test_contracts.test_cert_G_harness import run_probe
 
 START = datetime(2026, 11, 21, tzinfo=timezone.utc)
@@ -108,6 +113,7 @@ def test_encoded_release_response_is_closed_without_reading(code, outcome):
 ])
 def test_transport(code, body, expected, monkeypatch):
     monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    monkeypatch.setattr(outbound_http, "time", SimpleNamespace(monotonic=lambda: 0))
     requests = []
 
     def respond(request):
@@ -144,6 +150,118 @@ def seed(sessions, offset=14):
         checks.write(db, checks.SETTING, {"enabled": True, "enabled_at": START.isoformat(), "offset_minutes": offset})
 
 
+def test_withdrawal_while_worker_is_queued_sends_nothing(sessions, monkeypatch):
+    seed(sessions)
+    queued, resume = Event(), Event()
+    requests = []
+    transport = httpx.MockTransport(lambda req: requests.append(req) or httpx.Response(200, json=[]))
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=transport))
+    monkeypatch.setattr(checks, "log_audit", lambda *args, **kwargs: None)
+
+    def check():
+        with sessions() as db:
+            return checks.run_check(db)
+
+    with ThreadPoolExecutor(1) as outbound, ThreadPoolExecutor(1) as caller:
+        outbound.submit(resume.wait, 5)
+        submit = outbound.submit
+
+        def enqueue(*args):
+            future = submit(*args)
+            queued.set()
+            return future
+
+        monkeypatch.setattr(outbound_http, "_executor", outbound)
+        monkeypatch.setattr(outbound, "submit", enqueue)
+        future = caller.submit(check)
+        try:
+            assert queued.wait(5)
+            with sessions() as admin:
+                checks.configure(admin, False, 1)
+        finally:
+            resume.set()
+        with pytest.raises(HTTPException) as refused:
+            future.result(timeout=5)
+        assert refused.value.status_code == 409
+        assert not requests
+        with sessions() as db:
+            row = db.execute(text("SELECT value FROM system_config WHERE key=:key"), {"key": checks.RESULT}).first()
+            assert row is None
+            checks.configure(db, True, 1)
+            assert checks.run_check(db)["outcome"] == "ok"
+
+
+def test_response_in_flight_cannot_restore_result_after_reenable(sessions, monkeypatch):
+    seed(sessions)
+    monkeypatch.setattr(checks, "log_audit", lambda *args, **kwargs: None)
+
+    def reply(req):
+        with sessions() as admin:
+            checks.configure(admin, False, 1)
+            checks.configure(admin, True, 1)
+        return httpx.Response(200, json=[release("v9.0.0", "### Security")])
+
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=httpx.MockTransport(reply)))
+    with sessions() as db:
+        state = checks.run_check(db)
+        assert state["enabled"] and state["checked_at"] is None
+        assert checks.update_notices(db, 1) == []
+        with pytest.raises(HTTPException) as limited:
+            checks.run_check(db)
+        assert limited.value.status_code == 429
+
+
+def test_api_update_waits_for_outbound_admission(sessions, monkeypatch):
+    from modules.system.routes_updates import check_now
+    seed(sessions)
+    requests = []
+    transport = httpx.MockTransport(lambda req: requests.append(req) or httpx.Response(200, json=[]))
+    monkeypatch.setattr(releases, "REQUEST_SECONDS", 0.1)
+    monkeypatch.setattr(outbound_http, "_WORKERS", 1)
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=transport))
+    monkeypatch.setattr(checks, "now", lambda: START)
+
+    async def run():
+        with sessions() as db:
+            async with outbound_http._get_slots():
+                assert (await check_now(db, {}))["outcome"] == "timeout"
+                assert not requests
+            monkeypatch.setattr(checks, "now", lambda: START + timedelta(minutes=1))
+            assert (await check_now(db, {}))["outcome"] == "ok"
+
+    asyncio.run(run())
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("setup,policy,expected", [(3, 2, 5), (10, 0, None), (3, 7, None)])
+def test_release_send_uses_remaining_deadline(monkeypatch, setup, policy, expected):
+    clock = 0
+    calls, budgets = [], []
+    monkeypatch.setattr(outbound_http, "time", SimpleNamespace(monotonic=lambda: clock))
+
+    @contextmanager
+    def pin(url):
+        nonlocal clock
+        clock += setup
+        yield
+
+    def before_send():
+        nonlocal clock
+        calls.append(True)
+        clock += policy
+        return True
+
+    def respond(req):
+        budgets.append(set(req.extensions["timeout"].values()))
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(releases.itar, "pin_for_request", pin)
+    result = releases.fetch_releases("2.5.0", transport=httpx.MockTransport(respond), before_send=before_send)
+    assert calls == ([True] if setup < 10 else [])
+    assert budgets == ([{expected}] if expected else [])
+    assert result["outcome"] == ("ok" if expected else "timeout")
+
+
 def test_deadline_interrupts_a_pending_read(monkeypatch):
     monkeypatch.setattr(releases, "REQUEST_SECONDS", 0.1)
     delivered = []
@@ -173,7 +291,8 @@ def test_policy_changes_after_reservation_cancel_the_slot(sessions, monkeypatch,
     seed(sessions, 30)
     at = START + timedelta(minutes=31)
     monkeypatch.setattr(checks, "now", lambda: at)
-    monkeypatch.setattr(checks, "fetch_releases", lambda v: pytest.fail("request after policy changed"))
+    transport = httpx.MockTransport(lambda req: pytest.fail("request after policy changed"))
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=transport))
     with sessions() as db:
         commit = db.commit
         def reserve_then_disable():
@@ -196,7 +315,7 @@ def test_policy_changes_after_reservation_cancel_the_slot(sessions, monkeypatch,
 def test_part_day_server_catches_up_after_startup_grace(sessions, monkeypatch, restarting):
     seed(sessions, 8 * 60 + 5 if restarting else 3 * 60)
     calls = []
-    monkeypatch.setattr(checks, "fetch_releases", lambda v: calls.append(at) or {"outcome": "ok"})
+    monkeypatch.setattr(checks, "fetch_releases", lambda v, **kwargs: calls.append(at) or {"outcome": "ok"})
     with sessions() as db:
         for day in range(7):
             morning = START + timedelta(days=day, hours=8)
@@ -215,7 +334,7 @@ def test_late_poll_records_slot_and_respects_real_elapsed_day(sessions, monkeypa
     at = slot + timedelta(seconds=40)
     calls = []
     monkeypatch.setattr(checks, "now", lambda: at)
-    monkeypatch.setattr(checks, "fetch_releases", lambda v: calls.append(at) or {"outcome": "ok"})
+    monkeypatch.setattr(checks, "fetch_releases", lambda v, **kwargs: calls.append(at) or {"outcome": "ok"})
     with sessions() as db:
         checks.run_check(db, started=START)
         assert checks.read(db, checks.RESULT)["scheduled_at"] == slot.isoformat()
@@ -228,14 +347,23 @@ def test_late_poll_records_slot_and_respects_real_elapsed_day(sessions, monkeypa
         assert checks.read(db, checks.RESULT)["scheduled_at"] == (slot + timedelta(days=1)).isoformat()
 
 
-def test_unparseable_installed_version_suppresses_cached_and_new_notices(sessions, monkeypatch):
+@pytest.mark.parametrize("installed", ["dev", "missing", "unreadable"])
+def test_unparseable_installed_version_suppresses_cached_and_new_notices(sessions, monkeypatch, tmp_path, installed):
     seed(sessions)
     entries = [release("v9.0.0", "### Security")]
     cached = releases.parse_releases(entries, "2.5.0")
-    monkeypatch.setattr(checks, "backend_version", lambda: "dev")
+    if installed == "dev":
+        monkeypatch.setattr(checks, "backend_version", lambda: installed)
+    else:
+        monkeypatch.setattr(health_version, "__file__", str(tmp_path / "backend/modules/system/health_version.py"))
+        monkeypatch.setitem(sys.modules, "main", ModuleType("main"))
+        if installed == "missing":
+            assert checks.backend_version() == "0.0.0"
+        else:
+            (tmp_path / "VERSION").mkdir()
     transport = httpx.MockTransport(lambda req: pytest.fail("request for an unknown installed version"))
     monkeypatch.setattr(releases.itar, "enforce_request_destination", lambda url: pytest.fail("destination lookup"))
-    monkeypatch.setattr(checks, "fetch_releases", lambda v: releases.fetch_releases(v, transport=transport))
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=transport))
     with sessions() as db:
         checks.write(db, checks.RESULT, {"outcome": "ok", **cached})
         db.commit()
@@ -292,7 +420,7 @@ def test_supervised_runner_across_three_days(sessions, monkeypatch, enabled, fai
             raise Finished
 
     monkeypatch.setattr(checks, "now", lambda: clock[0])
-    monkeypatch.setattr(checks, "fetch_releases", lambda v: releases.fetch_releases(v, transport=httpx.MockTransport(reply)))
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=httpx.MockTransport(reply)))
     monkeypatch.setattr(runner, "datetime", Clock)
     monkeypatch.setattr(runner.time, "sleep", sleep)
     monkeypatch.setattr(runner, "SessionLocal", sessions)
@@ -338,7 +466,7 @@ def test_manual_reservation_survives_concurrent_request_and_preserves_known_fix(
         if len(calls) == 3:
             return httpx.Response(200, json=[release("v9.1.0")])
         return httpx.Response(200, json=[release("v9.0.0"), release("v8.0.0", "### Security")])
-    monkeypatch.setattr(checks, "fetch_releases", lambda v: releases.fetch_releases(v, transport=httpx.MockTransport(reply)))
+    monkeypatch.setattr(checks, "fetch_releases", partial(releases.fetch_releases, transport=httpx.MockTransport(reply)))
     monkeypatch.setattr(checks, "now", lambda: clock[0])
     def manual():
         with sessions() as db:
@@ -398,7 +526,7 @@ pref = lambda: json.loads(sql("SELECT value FROM system_config WHERE key='update
 first = pref()
 assert first["enabled_by"] == sql("SELECT id FROM users WHERE username='owner'")[0][0]
 assert first["enabled_at"] and 0 <= first["offset_minutes"] < 1440
-checks.fetch_releases = lambda v: {"outcome": "ok", **parse_releases(
+checks.fetch_releases = lambda v, **kwargs: {"outcome": "ok", **parse_releases(
     [{"tag_name":"v8.0.0","draft":False,"prerelease":False,"body":"ordinary"}], v)}
 assert admin.post(path+"/check").json()["newest"] == "8.0.0"
 assert admin.post(path+"/check").status_code == 429
@@ -412,7 +540,7 @@ assert listing(login("owner2"))
 from datetime import timedelta
 real_now = checks.now
 checks.now = lambda: real_now() + timedelta(minutes=2)
-checks.fetch_releases = lambda v: {"outcome":"ok", **parse_releases(
+checks.fetch_releases = lambda v, **kwargs: {"outcome":"ok", **parse_releases(
     [{"tag_name":"v9.0.0","draft":False,"prerelease":False,"body":"### Security"}], v)}
 assert admin.post(path+"/check").json()["security"]
 assert not listing(admin)[0]["dismissible"]
@@ -427,7 +555,10 @@ os.environ.pop("ODIN_ITAR_MODE")
 assert not admin.get(path).json()["enabled"]
 assert not toggle(False)["enabled"] and not listing(admin)
 toggle(False)
-toggle(True)
+reenabled = toggle(True)
+assert reenabled["checked_at"] is None and reenabled["outcome"] is None
+assert reenabled["newest"] is None and not listing(admin)
+assert admin.post(path+"/check").status_code == 429
 assert first["offset_minutes"] == pref()["offset_minutes"]
 rows = sql("SELECT details, actor_username FROM audit_logs WHERE action='update_check.changed' ORDER BY id")
 assert [(json.loads(d)["enabled"], actor) for d,actor in rows] == [(True,"owner"),(False,"owner"),(True,"owner")]

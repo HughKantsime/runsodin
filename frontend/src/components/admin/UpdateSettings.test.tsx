@@ -127,6 +127,7 @@ test('dismissal identifies the displayed version and a later security update sta
   Object.assign(state, {enabled: true, newest: '3.0.0', available: true, outcome: 'ok', checked_at: '2026-11-20T12:00:00Z'})
   const client = open()
   expect(await screen.findByRole('alert')).toHaveTextContent('Version 3.0.0 is available')
+  expect(screen.getByRole('link', {name: 'Release notes'})).toHaveClass('text-amber-200')
   expect(await screen.findByRole('status')).toHaveTextContent('Version 3.0.0 is available')
   fireEvent.click(screen.getByRole('button', {name: 'Dismiss'}))
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
@@ -136,6 +137,7 @@ test('dismissal identifies the displayed version and a later security update sta
   expect(await screen.findByRole('alert')).toHaveTextContent('Version 3.1.0 is available and fixes a security problem')
   expect(screen.getByRole('status')).toHaveTextContent('Version 3.1.0 is available and fixes a security problem')
   expect(screen.getByRole('link', {name: 'Release notes'})).toHaveAttribute('href', notices[0].link)
+  expect(screen.getByRole('link', {name: 'Release notes'})).toHaveClass('text-red-200')
   expect(screen.queryByRole('button', {name: 'Dismiss'})).toBeNull()
 })
 

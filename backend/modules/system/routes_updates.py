@@ -1,5 +1,8 @@
 """Platform administrator update settings, available on every tier."""
+import asyncio
+
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, StrictBool
 from sqlalchemy.orm import Session
 
@@ -25,5 +28,5 @@ def set_updates(body: UpdateSetting, db: Session = Depends(get_db), user: dict =
 
 
 @router.post("/system/updates/check")
-def check_now(db: Session = Depends(get_db), user: dict = Depends(require_superadmin(scope="admin"))):
-    return update_check.run_check(db)
+async def check_now(db: Session = Depends(get_db), user: dict = Depends(require_superadmin(scope="admin"))):
+    return await run_in_threadpool(update_check.run_check, db, admission_loop=asyncio.get_running_loop())

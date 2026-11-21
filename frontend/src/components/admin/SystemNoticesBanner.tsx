@@ -46,6 +46,7 @@ export default function SystemNoticesBanner() {
     <div className="mb-4 space-y-2">
       {notices.map((notice) => {
         const warning = notice.severity === 'warning'
+        const linkClass = `text-xs font-medium underline ${warning ? 'text-amber-200' : 'text-red-200'}`
         const Icon = warning ? Clock : AlertTriangle
         return (
           <PageState kind="error"
@@ -65,10 +66,10 @@ export default function SystemNoticesBanner() {
                 </a>
               )}
               {notice.kind === 'update_available' ? (
-                <a href={notice.link} target="_blank" rel="noopener noreferrer" className="text-xs font-medium underline">
+                <a href={notice.link} target="_blank" rel="noopener noreferrer" className={linkClass}>
                   {LINK_LABEL[notice.kind]}
                 </a>
-              ) : <Link to={notice.link} className={`text-xs font-medium underline ${warning ? 'text-amber-200' : 'text-red-200'}`}>
+              ) : <Link to={notice.link} className={linkClass}>
                 {LINK_LABEL[notice.kind] ?? 'Open'}
               </Link>}
               {notice.dismissible && (

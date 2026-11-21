@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import JSON, bindparam, text
+from sqlalchemy.orm import Session
 
 from core import itar
 from core.audit import log_audit
@@ -17,6 +18,14 @@ RESULT = "update_check_result"
 DAY = timedelta(days=1)
 ITAR_REASON = "Update checks are turned off while ITAR mode is on: this server does not contact public services."
 OFF = "Off. ODIN does not check for updates."
+
+
+def installed_version():
+    try:
+        version = backend_version()
+    except (OSError, UnicodeError):
+        return "Unknown"
+    return "Unknown" if version == "0.0.0" else version
 
 
 def now():
@@ -48,6 +57,13 @@ def lock_setting(db):
                     "ON CONFLICT(key) DO UPDATE SET value=system_config.value"), {"key": SETTING})
 
 
+def save_result(db, result):
+    if result:
+        write(db, RESULT, result)
+    else:
+        db.execute(text("DELETE FROM system_config WHERE key=:key"), {"key": RESULT})
+
+
 def configure(db, enabled, user_id):
     reason = disabled_reason()
     if enabled and reason:
@@ -56,11 +72,18 @@ def configure(db, enabled, user_id):
     pref = read(db, SETTING)
     if enabled != (pref.get("enabled") is True):
         offset = pref.get("offset_minutes")
-        write(db, SETTING, {
+        setting = {
             "enabled": enabled, "enabled_by": user_id if enabled else None,
             "enabled_at": now().isoformat() if enabled else None,
             "offset_minutes": secrets.randbelow(1440) if offset is None else offset,
-        })
+        }
+        # Withdraw the result but keep the existing rate limits across a toggle.
+        if not enabled:
+            result = read(db, RESULT)
+            setting["limits"] = {key: result[key] for key in ("attempt_at", "scheduled_at", "scheduled_attempt_at")
+                                 if key in result}
+        save_result(db, pref.get("limits", {}) if enabled else {})
+        write(db, SETTING, setting)
         log_audit(db, "update_check.changed", "settings", details={"enabled": enabled})
     db.commit()
     return status(db)
@@ -70,7 +93,7 @@ def status(db):
     reason = disabled_reason()
     stored_enabled = read(db, SETTING).get("enabled") is True
     enabled = stored_enabled and reason is None
-    installed = backend_version()
+    installed = installed_version()
     result = read(db, RESULT) if enabled else {}
     newest = result.get("newest")
     installed_number = version_number(installed)
@@ -100,7 +123,7 @@ def due_slot(pref, result, at, started):
     return None
 
 
-def run_check(db, *, started=None):
+def run_check(db, *, started=None, admission_loop=None):
     """Reserve before network I/O so competing API workers and runner ticks see the same limit."""
     reason = disabled_reason()
     manual = started is None
@@ -135,25 +158,35 @@ def run_check(db, *, started=None):
     write(db, RESULT, {**previous, **reserved})
     db.commit()
 
-    installed = backend_version()
-    consent = read(db, SETTING)
-    db.rollback()
-    reason = disabled_reason()
-    # Consent can still change between this fresh read and the send. No transaction spans I/O.
-    cancelled = reason is not None or consent != pref
-    answer = None if cancelled else fetch_releases(installed)
+    installed = installed_version()
+    engine = db.get_bind()
+
+    def may_send():
+        with Session(engine) as policy_db:
+            return read(policy_db, SETTING) == pref and disabled_reason() is None
+
+    answer = fetch_releases(installed, before_send=may_send, admission_loop=admission_loop)
+    if answer.get("outcome") == "blocked":
+        reason = ITAR_REASON
+    elif answer.get("outcome") == "cancelled":
+        reason = disabled_reason() or OFF
     lock_setting(db)
+    consent = read(db, SETTING)
     current = read(db, RESULT)
-    if cancelled:
+    if reason:
         # Undo only our timestamps, retaining results or reservations from later requests.
+        limits = consent.get("limits", current)
         for key, stamp in reserved.items():
-            if current.get(key) == stamp:
+            if limits.get(key) == stamp:
                 if key in previous:
-                    current[key] = previous[key]
+                    limits[key] = previous[key]
                 else:
-                    current.pop(key, None)
-        write(db, RESULT, current)
-    elif current.get("attempt_at") == reserved["attempt_at"]:
+                    limits.pop(key, None)
+        if "limits" in consent:
+            write(db, SETTING, consent)
+        else:
+            save_result(db, current)
+    elif consent == pref and current.get("attempt_at") == reserved["attempt_at"]:
         # A known, unapplied security fix can fall outside GitHub's 20-release window.
         known_fix = version_number(current.get("security_version"))
         installed_number = version_number(installed)
@@ -165,8 +198,8 @@ def run_check(db, *, started=None):
         write(db, RESULT, {**current, **answer, "checked_at": at.isoformat()})
     db.commit()
     if manual:
-        if cancelled:
-            raise HTTPException(409, reason or OFF)
+        if reason:
+            raise HTTPException(409, reason)
         return status(db)
 
 

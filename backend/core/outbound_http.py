@@ -26,6 +26,10 @@ class OutboundResponseTooLarge(httpx.HTTPError):
         self.status_code = status_code
 
 
+class OutboundRequestCancelled(Exception):
+    """The caller's policy check refused to send the request."""
+
+
 def _get_slots():
     # Semaphores belong to one event loop. Keep one on that loop so subsequent
     # asyncio.run/TestClient loops cannot reuse a semaphore bound to a dead loop.
@@ -85,18 +89,49 @@ def _prepare_request(url, timeout, max_response_bytes, open_stream, *, public_on
     return request, remaining
 
 
-def pinned_get(url, *, headers, timeout, max_response_bytes, validate_response, transport=None):
-    """GET with exactly the supplied headers (plus Host), validating before reading the body."""
+async def _run_in_slot(request, remaining):
+    loop = asyncio.get_running_loop()
+    slots = _get_slots()
+    async with asyncio.timeout(remaining()):
+        await slots.acquire()
+        try:
+            remaining()
+            future = _executor.submit(copy_context().run, request)
+        except BaseException:
+            slots.release()
+            raise
+        # Release from the concurrent Future, never the cancelled asyncio
+        # wrapper: abandoning an await must not admit more background work.
+        future.add_done_callback(lambda done: _release_slot(loop, slots))
+        return await asyncio.wrap_future(future)
+
+
+def pinned_get(url, *, headers, timeout, max_response_bytes, validate_response, transport=None,
+               before_send=None, admission_loop=None):
+    """GET with the supplied headers plus Host, validating before reading the body.
+
+    The API supplies its event loop to use the same 16 admission slots as
+    licence requests. The standalone reports process submits to its own pool.
+    Both use the same deadline for queueing, the optional policy check and I/O.
+    before_send must return true to permit opening the stream.
+    """
     @contextmanager
     def open_stream(client, _budget):
         client.headers.clear()
-        with client.stream("GET", url, headers=headers, timeout=timeout, follow_redirects=False) as response:
+        if before_send is not None:
+            remaining()
+            if not before_send():
+                raise OutboundRequestCancelled()
+        with client.stream("GET", url, headers=headers, timeout=remaining(), follow_redirects=False) as response:
             validate_response(response)
             yield response
 
     request, remaining = _prepare_request(
         url, timeout, max_response_bytes, open_stream, transport=transport)
-    future = _executor.submit(copy_context().run, request)
+    if admission_loop is None:
+        future = _executor.submit(copy_context().run, request)
+    else:
+        future = asyncio.run_coroutine_threadsafe(_run_in_slot(request, remaining), admission_loop)
     try:
         return future.result(timeout=remaining())
     except TimeoutError as exc:
@@ -138,21 +173,8 @@ async def pinned_async_request(
     cancelled = threading.Event()
     request, remaining = _prepare_request(
         url, timeout, max_response_bytes, open_stream, public_only=public_only, cancelled=cancelled)
-    loop = asyncio.get_running_loop()
-    slots = _get_slots()
     try:
-        async with asyncio.timeout(remaining()):
-            await slots.acquire()
-            try:
-                remaining()
-                future = _executor.submit(copy_context().run, request)
-            except BaseException:
-                slots.release()
-                raise
-            # Release from the concurrent Future, never the cancelled asyncio
-            # wrapper: abandoning an await must not admit more background work.
-            future.add_done_callback(lambda done: _release_slot(loop, slots))
-            return await asyncio.wrap_future(future)
+        return await _run_in_slot(request, remaining)
     except TimeoutError as exc:
         cancelled.set()
         raise httpx.TimeoutException("Outbound request total deadline exceeded") from exc
