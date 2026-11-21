@@ -195,7 +195,7 @@ def test_dispatch_refuses_target_before_device_or_file_inspection(review_db, tmp
         with ZipFile(path, 'a') as package:
             package.writestr('Metadata/project_settings.config', json.dumps({'printer_model': file_model}))
     with engine.begin() as conn:
-        rows = [{'side': 'rack', 'position': n} for n in (1, 2, 3)] if model == 'P1S' and machine is None else []
+        rows = [{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)] if model == 'P1S' and machine is None else []
         conn.execute(text("UPDATE printers SET model=:model,machine_type=:machine,installed_nozzles=:rows WHERE id=59"),
                      {'model': model, 'machine': machine, 'rows': json.dumps(rows)})
     monkeypatch.setattr(dispatch, '_validated_print_options', lambda *a: pytest.fail('Reached file inspection'))
@@ -313,9 +313,9 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
         assert adapter.pause_print() is True
         wire.publish.assert_called_once()
         wire.publish.reset_mock()
-    offline_store.execute(text("UPDATE printers SET model=:model,api_type=:api,api_host=:host WHERE id=199"),
+    offline_store.execute(text("UPDATE printers SET model=:model,api_type=:api,api_host=:host,api_key=:credential WHERE id=199"),
                           {'model': {'model': 'H3C', 'N10': 'N10'}.get(identity, 'P1S'),
-                           'api': api_type, 'host': monitor.ip})
+                           'api': api_type, 'host': monitor.ip, 'credential': monitor.serial + '|fixture'})
     offline_store.commit()
     # A legacy fallback can hold the row it loaded before the monitor commits.
     target = offline_store.get(Printer, 199) if api_type is None else None
@@ -349,7 +349,7 @@ def test_rack_observed_during_upload_never_reaches_start(review_db, tmp_path, mo
     def report_rack():
         with engine.begin() as conn:
             conn.execute(text("UPDATE printers SET installed_nozzles=:rows WHERE id=59"),
-                         {'rows': json.dumps([{'side': 'rack', 'position': n} for n in (1, 2, 3)])})
+                         {'rows': json.dumps([{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)])})
     events = []
     sent = transport(monkeypatch, path, protocol, events, after_upload=report_rack)
     ok, reason = dispatch.dispatch_job(59, 53)
@@ -394,7 +394,7 @@ def test_unidentified_rack_keeps_refusal_across_partial_reports(offline_store, v
     monitor, _, runtime = v2_offline_monitor
     monitor._last_heartbeat = runtime.time.time()
     # The count establishes the refusal even without a product name or known rack addresses.
-    entries = [{'id': n} for n in (1, 2, 3)]
+    entries = [{'id': n} for n in (30, 31, 32)]
     packet = {'print': {'device': {'nozzle': {'info': entries}}}}
     monitor._on_status(SimpleNamespace(raw_data=packet, mqtt_retained=True))
     def refusal():

@@ -5,7 +5,7 @@ from core.base import slot_filament_value
 from core.display_json import display_tray_state
 from core.monitor_observations import fresh_report
 from modules.printers.nozzle_capability import installed_nozzles, rack_slot_id
-from modules.printers.printer_models import bambu_model_name, bambu_nozzle_count
+from modules.printers.printer_models import bambu_model_name, bambu_nozzle_count, rack_nozzle_ids
 
 
 _RACK_SLOT_IDS = {str(i) for i in range(247, 256)}
@@ -28,8 +28,27 @@ def observe(monitor, packet, status, runtime):
     fresh = fresh_report(getattr(status, 'mqtt_retained', False), age)
     pending = getattr(monitor, '_pending_installed_nozzles', {})
     model = bambu_model_name(getattr(monitor, '_reported_model', None))
+    device = packet.get('device')
+    nozzle = device.get('nozzle') if isinstance(device, dict) else None
+    info = nozzle.get('info') if isinstance(nozzle, dict) else None
+    ids = rack_nozzle_ids(info) if fresh else set()
+    if fresh and isinstance(info, list) and any(isinstance(r, dict) and type(r.get('id')) is int
+                                               and r['id'] < 16 for r in info):
+        # Withdraw a previous rack-only identification as soon as a fixed
+        # extruder appears. An empty set is a pending correction until commit.
+        if getattr(monitor, '_rack_rows_stored', False) or getattr(monitor, '_pending_rack_ids', None):
+            monitor._pending_rack_ids = set()
+        monitor._rack_rows_stored = False
+    rack = (model == 'H3C' or bambu_model_name(packet.get('printer_type')) == 'H3C'
+            or getattr(monitor, '_configured_h3c', False) or getattr(monitor, '_rack_rows_stored', False)
+            or ids or getattr(monitor, '_pending_rack_ids', None))
+    if rack:
+        pending = {key: row for key, row in pending.items() if row['side'] == 'rack'}
+    elif getattr(monitor, '_pending_rack_filaments', None) or any(r['side'] == 'rack' for r in pending.values()):
+        pending = {key: row for key, row in pending.items() if row['side'] != 'rack'}
+        monitor._pending_rack_filaments = {}
     slots = packet.get('vir_slot')
-    if fresh and isinstance(slots, list):
+    if fresh and rack and isinstance(slots, list):
         readings = getattr(monitor, '_pending_rack_filaments', {})
         stamp = datetime.fromtimestamp(now - (age or 0), timezone.utc).isoformat()
         for tray in slots:
@@ -47,46 +66,45 @@ def observe(monitor, packet, status, runtime):
         monitor._pending_rack_filaments = readings
     dual = bambu_nozzle_count(model) == 2 or any(
         row.get('side') in ('left', 'right') for row in pending.values())
-    for nozzle in installed_nozzles(packet, dual=dual, include_rack=fresh):
+    for nozzle in installed_nozzles(packet, dual=dual, include_rack=bool(fresh and rack)):
         key = _key(nozzle)
-        pending[key] = _merge(pending.get(key, {}), nozzle)
+        if nozzle['side'] == 'rack':
+            pending[key] = _merge(pending.get(key, {}), nozzle)
+        elif not rack:
+            pending[key] = nozzle
     monitor._pending_installed_nozzles = pending
-    device = packet.get('device')
-    nozzle = device.get('nozzle') if isinstance(device, dict) else None
-    info = nozzle.get('info') if isinstance(nozzle, dict) else None
-    if fresh and isinstance(info, list) and len(info) > 2 and not getattr(monitor, '_rack_rows_stored', False):
-        ids = {entry['id'] for entry in info if isinstance(entry, dict)
-               and type(entry.get('id')) is int}
-        if len(ids) > 2:
-            monitor._pending_rack_ids = ids
-    if getattr(monitor, '_pending_rack_ids', None):
+    if ids and not getattr(monitor, '_rack_rows_stored', False):
+        monitor._pending_rack_ids = ids
+    pending_ids = getattr(monitor, '_pending_rack_ids', None)
+    if pending_ids is not None:
         try:
             with runtime.get_db() as conn:
-                persist(conn, monitor, first_rack=monitor._pending_rack_ids)
+                persist(conn, monitor, first_rack=pending_ids)
                 conn.commit()
         except Exception:
             runtime.log.warning('[%s] Rack observation will retry on the next report', monitor.name)
         else:
             monitor._pending_rack_ids = None
-            monitor._rack_rows_stored = True
+            monitor._rack_rows_stored = bool(pending_ids)
 
 
 def persist(conn, monitor, *, first_rack=None):
     pending = getattr(monitor, '_pending_installed_nozzles', {})
     readings = getattr(monitor, '_pending_rack_filaments', {})
-    if not pending and not readings and not first_rack:
-        return {}, {}
+    if not pending and not readings and first_rack is None:
+        return {}
     row = conn.execute('SELECT installed_nozzles,machine_type,model,slot_count FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()
     if not row:
-        return {}, {}
+        return {}
     stored = json.loads(row[0]) if isinstance(row[0], str) else row[0]
     model = getattr(monitor, '_reported_model', None) or row[1] or row[2]
     identified = any(bambu_model_name(value) == 'H3C' for value in (model, row[1], row[2]))
-    stored_rack = isinstance(stored, list) and len(stored) > 2
+    stored_rack = bool(rack_nozzle_ids(stored)) and not any(
+        item['side'] != 'rack' for item in pending.values())
     if first_rack and stored_rack:
-        return
-    rack = identified or stored_rack or bool(first_rack)
-    dual = bambu_nozzle_count(model) == 2
+        return readings
+    rack = identified or (stored_rack if first_rack is None else bool(first_rack))
+    dual = bambu_nozzle_count(row[1] or row[2]) == 2
     merged = {_key(item): item for item in stored or [] if (item.get('side') == 'rack') == rack}
     for key, new in pending.items():
         if (new['side'] == 'rack') != rack or (dual and new['side'] == 'single'):
@@ -100,15 +118,10 @@ def persist(conn, monitor, *, first_rack=None):
             merged.setdefault(identifier, {'side': 'rack', 'nozzle_id': identifier})
     if identified and not first_rack:
         _persist_filaments(conn, monitor.printer_id, row[3], readings)
-    if list(merged.values()) != (stored or []):
+    if not rack or list(merged.values()) != (stored or []):
         conn.execute('UPDATE printers SET installed_nozzles=? WHERE id=?',
                      (json.dumps(list(merged.values())), monitor.printer_id))
-    # A new printer can send its rack before get_version identifies the model.
-    if not identified:
-        candidates = {key: item for key, item in pending.items() if item['side'] == 'rack' and item.get('position')}
-        if candidates or not getattr(monitor, '_reported_model', None):
-            return candidates, readings
-    return {}, {}
+    return readings if rack and not identified else {}
 
 
 def _persist_filaments(conn, printer_id, count, readings):

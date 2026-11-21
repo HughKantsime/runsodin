@@ -543,7 +543,7 @@ def _bambu_command_v2(printer, action: str) -> bool:
             printer.api_host, printer_id=f"cmd-{printer.id}",
         )
         config = BambuAdapterConfig(
-            printer_id=str(printer.id),
+            printer_id=f"cmd-{printer.id}", printer_row_id=printer.id,
             serial=serial,
             host=endpoint.host,
             port=endpoint.port,
@@ -676,7 +676,7 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
                 printer.api_host, printer_id=f"cmd-direct-{printer.id}",
             )
             config = BambuAdapterConfig(
-                printer_id=str(printer.id),
+                printer_id=f"cmd-direct-{printer.id}", printer_row_id=printer.id,
                 serial=serial,
                 host=endpoint.host,
                 port=endpoint.port,

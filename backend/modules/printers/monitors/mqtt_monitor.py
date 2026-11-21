@@ -62,7 +62,7 @@ class MQTTMonitorDaemon:
 
         with (bind or engine).connect() as conn:
             result = conn.execute(text('''
-                SELECT id, name, model, api_host, api_key
+                SELECT id, name, model, machine_type, installed_nozzles, api_host, api_key
                 FROM printers
                 WHERE api_host IS NOT NULL AND api_key IS NOT NULL AND api_key != ''
                   AND LOWER(COALESCE(api_type, 'bambu')) = 'bambu'
@@ -75,11 +75,18 @@ class MQTTMonitorDaemon:
                     decrypted = crypto.decrypt(row['api_key'])
                     parts = decrypted.split('|')
                     if len(parts) == 2:
+                        from modules.printers.printer_models import is_h3c_printer, rack_nozzle_ids
+                        rack = {}
+                        if is_h3c_printer({'model': row['model'], 'machine_type': row['machine_type']}):
+                            rack['configured_h3c'] = True
+                        if rack_nozzle_ids(row['installed_nozzles']):
+                            rack['stored_rack'] = True
                         printers.append({
                             'id': row['id'],
                             'name': row['name'],
                             'ip': row['api_host'],
                             'serial': parts[0],
+                            **({'rack': rack} if rack else {}),
                             'access_code': parts[1]
                         })
                 except Exception as e:
@@ -191,7 +198,7 @@ class MQTTMonitorDaemon:
                 name=p['name'],
                 ip=p['ip'],
                 serial=p['serial'],
-                access_code=p['access_code']
+                access_code=p['access_code'], **p.get('rack', {})
             )
             if monitor.connect():
                 self.monitors[p['id']] = monitor
@@ -259,7 +266,7 @@ class MQTTMonitorDaemon:
     def _families(self):
         families = [("Bambu", '_all_printers', self.load_printers, ('ip', 'serial', 'access_code'),
                      lambda p: PrinterMonitor(printer_id=p['id'], name=p['name'], ip=p['ip'],
-                                              serial=p['serial'], access_code=p['access_code']))]
+                                              serial=p['serial'], access_code=p['access_code'], **p.get('rack', {})))]
         if MOONRAKER_AVAILABLE:
             families.append(("Moonraker", '_all_moonraker', self.load_moonraker_printers, ('host', 'port', 'model', 'machine_type'),
                              lambda p: MoonrakerMonitor(printer_id=p['id'], name=p['name'],
@@ -392,7 +399,7 @@ class MQTTMonitorDaemon:
                 name=p['name'],
                 ip=p['ip'],
                 serial=p['serial'],
-                access_code=p['access_code']
+                access_code=p['access_code'], **p.get('rack', {})
             )
             if new_mon.connect():
                 self.monitors[pid] = new_mon
@@ -424,7 +431,7 @@ class MQTTMonitorDaemon:
                 name=p['name'],
                 ip=p['ip'],
                 serial=p['serial'],
-                access_code=p['access_code']
+                access_code=p['access_code'], **p.get('rack', {})
             )
             if new_mon.connect():
                 self.monitors[pid] = new_mon

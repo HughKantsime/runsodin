@@ -718,7 +718,7 @@ class PrinterVisionThread(threading.Thread):
                         api_host, printer_id=f"vision-pause-{self.printer_id}",
                     )
                     config = BambuAdapterConfig(
-                        printer_id=str(self.printer_id),
+                        printer_id=f"vision-pause-{self.printer_id}", printer_row_id=self.printer_id,
                         serial=serial,
                         host=endpoint.host,
                         port=endpoint.port,

@@ -702,7 +702,7 @@ class BambuPrinter:
             return False
         try:
             from modules.printers.printer_models import stored_rack_refusal
-            if stored_rack_refusal(self.printer_id, host=self.ip, payload=payload):
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload):
                 return False
             result = self._client.publish(self._topic_request, json.dumps(payload))
         except Exception:
@@ -720,7 +720,7 @@ class BambuPrinter:
 
         try:
             from modules.printers.printer_models import stored_rack_refusal
-            if stored_rack_refusal(self.printer_id, host=self.ip, payload=payload):
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload):
                 return False
             result = self._client.publish(
                 self._topic_request,

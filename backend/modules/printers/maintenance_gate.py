@@ -6,6 +6,7 @@ from modules.printers.dispatch_ams_gate import GateRefusal
 
 _context = ContextVar('maintenance_dispatch', default=None)
 _refusal = ContextVar('dispatch_refusal', default=None)
+_rack_start = ContextVar('rack_start_refusal', default=None)
 
 
 @contextmanager
@@ -30,6 +31,30 @@ class MaintenanceHold(RuntimeError):
 
 class ExperimentalNotEnabled(MaintenanceHold):
     """An Experimental printer's job sending was switched off before the print command. Handled as a hold."""
+
+
+class RackStartRefused(MaintenanceHold):
+    """The rack guard refused before MQTT publish."""
+
+
+@contextmanager
+def bambu_submission():
+    refusal = []
+    token = _rack_start.set(refusal)
+    try:
+        yield
+    finally:
+        _rack_start.reset(token)
+        if refusal:
+            raise RackStartRefused(refusal[0])
+
+
+def record_rack_start_refusal(reason, payload):
+    refusal = _rack_start.get()
+    if refusal is not None and isinstance(payload, dict) and set(payload) == {'print'}:
+        command = payload['print']
+        if isinstance(command, dict) and command.get('command') == 'project_file':
+            refusal.append(reason)
 
 
 def refusal(engine, printer_id):
@@ -80,6 +105,8 @@ def check_command():
             report(job, reason)
             raise MaintenanceHold(reason)
         reason = experimental_refusal(engine, job['printer_id'])
+        if reason and reason.startswith('unsupported_rack_printer:'):
+            raise RackStartRefused(reason)
         if reason:
             report_experimental(job, reason)
             raise ExperimentalNotEnabled(reason)

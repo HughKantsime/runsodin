@@ -75,7 +75,9 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
             continue
         code = row.get('type')
         material, flow = decode_type(code) if isinstance(code, str) else (None, None)
-        present = bool(exist & (1 << identifier)) if type(exist) is int and exist >= 0 else None
+        present = bool(exist & (1 << identifier)) if type(exist) is int else None
+        if identity['side'] == 'rack' and type(exist) is int and exist < 0:
+            present = None
         result.append({**identity, 'diameter': number(row.get('diameter'), positive=True),
                        'flow': flow, 'material': material, 'wear': number(row.get('wear')), 'present': present,
                        'type': code if isinstance(code, str) and len(code) <= 30 else None,

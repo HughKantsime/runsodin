@@ -375,12 +375,12 @@ def handle_status(self, status, generation, runtime):
                         conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column/stamp names come from the literal nozzle column tuples in _on_status (closed set); values are bound
                                      (value, observed_at.isoformat(), self.printer_id))
                     from modules.printers.monitors.nozzle_observations import persist
-                    unidentified_rack, unmatched_filaments = persist(conn, self)
+                    unconfirmed_filaments = persist(conn, self)
                     conn.commit()
                     live_state_allowed = True
                     self._pending_nozzle_diameter = None
-                    self._pending_installed_nozzles = unidentified_rack
-                    self._pending_rack_filaments = unmatched_filaments
+                    self._pending_installed_nozzles = {}
+                    self._pending_rack_filaments = unconfirmed_filaments
                     self._pending_right_nozzle = {}
                     # Foundry's display cache is optional: write it after the
                     # status commit so a cache failure can't roll that back.
@@ -483,7 +483,7 @@ def handle_status(self, status, generation, runtime):
                     pending_ams = getattr(self, '_pending_ams_report', None)
                     stored_models = printer_config[1:] if printer_config else ()
                     identities = (raw_pt, getattr(self, '_reported_model', None), *stored_models)
-                    if pending_ams is not None and (len(unidentified_rack) == 9 or any(
+                    if pending_ams is not None and (getattr(self, '_rack_rows_stored', False) or any(
                             bambu_model_name(value) == 'H3C' for value in identities)):
                         self._reset_pending_ams()
                         pending_ams = None

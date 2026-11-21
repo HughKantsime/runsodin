@@ -118,9 +118,10 @@ class BambuCommandAdapter:
             return False
         try:
             from modules.printers.printer_models import stored_rack_refusal
-            row_id = str(self._config.printer_id)
-            if stored_rack_refusal(int(row_id) if row_id.isdecimal() else None,
-                                   host=self._config.host, payload=payload):
+            row_id = self._config.printer_row_id
+            if row_id is None and str(self._config.printer_id).isdecimal():
+                row_id = int(self._config.printer_id)
+            if stored_rack_refusal(row_id, host=self._config.host, serial=self._config.serial, payload=payload):
                 return False
             result = self._client.publish(
                 self._config.topic_request,

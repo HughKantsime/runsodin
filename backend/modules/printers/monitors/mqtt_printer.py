@@ -77,8 +77,10 @@ def _ams_report_digest(report) -> str:
 class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""
 
-    def __init__(self, printer_id: int, name: str, ip: str, serial: str, access_code: str):
+    def __init__(self, printer_id: int, name: str, ip: str, serial: str, access_code: str, *, configured_h3c=False, stored_rack=False):
         self._monitor_started_at = MONITOR_STARTED_AT
+        self._configured_h3c = configured_h3c
+        self._rack_rows_stored = stored_rack
         self.printer_id = printer_id
         self.name = name
         self.ip = ip
@@ -167,10 +169,10 @@ class PrinterMonitor:
                 try:
                     with get_db() as conn:
                         observe_printer_identity(conn, self.printer_id, 'machine_type', 'H3C')
-                        pending, readings = persist(conn, self)
+                        unconfirmed_filaments = persist(conn, self)
                         conn.commit()
-                    self._pending_installed_nozzles = pending
-                    self._pending_rack_filaments = readings
+                    self._pending_installed_nozzles = {}
+                    self._pending_rack_filaments = unconfirmed_filaments
                 except Exception:
                     log.warning('[%s] Rack identification will retry on heartbeat', self.name)
 

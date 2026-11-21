@@ -116,47 +116,68 @@ def bambu_model_name(raw_value: Optional[str]) -> Optional[str]:
     return _BAMBU_FRIENDLY_NAMES.get(upper, value)
 
 
+def rack_nozzle_ids(rows):
+    """Raw or persisted nozzle IDs are rack evidence only without fixed extruders."""
+    if isinstance(rows, str):
+        try:
+            rows = json.loads(rows)
+        except (ValueError, RecursionError):
+            return set()
+    ids = set()
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                return set()
+            identifier = row.get('id', row.get('extruder', row.get('nozzle_id')))
+            if type(identifier) is not int or identifier < 16:
+                return set()
+            ids.add(identifier)
+    return ids if len(ids) >= 3 else set()
+
+
 def is_h3c_printer(printer):
-    """Recognize both the configured model and the name observed by the monitor."""
+    from core.printer_identity import canonical_machine
     get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
-    return str(get('api_type') or '').strip().lower() == 'bambu' and any(
-        bambu_model_name(get(key)) == 'H3C' for key in ('model', 'machine_type'))
+    return (str(get('api_type') or '').strip().lower() in ('', 'bambu')
+            and (any(canonical_machine(get(key)) == 'h3c' for key in ('model', 'machine_type'))
+                 or bool(rack_nozzle_ids(get('installed_nozzles')))))
 
 
 def rack_printer_refusal(printer):
-    """Read-only policy at Bambu senders, including legacy rows with no api_type."""
-    get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
-    if str(get('api_type') or '').strip().lower() not in ('', 'bambu'):
-        return None
-    from core.printer_identity import canonical_machine
-    reason = 'unsupported_rack_printer: Sending jobs to an H3C is not available yet.'
-    if any(canonical_machine(get(key)) == 'h3c' for key in ('model', 'machine_type')):
-        return reason
-    rows = get('installed_nozzles')
-    if isinstance(rows, str):
-        rows = json.loads(rows)
-    if isinstance(rows, list) and len(rows) > 2:
-        return reason
+    if is_h3c_printer(printer):
+        return 'unsupported_rack_printer: Sending jobs to an H3C is not available yet.'
     return None
 
 
-def stored_rack_refusal(printer_id, *, host=None, payload=None):
-    """Read committed facts at send time. Standalone transports may only know the endpoint."""
+def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None):
+    """Look up the row ID, or match the MQTT topic's serial at a standalone endpoint."""
     if isinstance(payload, dict) and len(payload) == 1:
         section, fields = next(iter(payload.items()))
-        if isinstance(fields, dict) and fields.keys() <= {'command', 'sequence_id'}:
-            if (section, fields.get('command')) in (('pushing', 'pushall'), ('info', 'get_version')):
-                return None
+        if isinstance(fields, dict) and (section, fields.get('command')) in (
+                ('pushing', 'pushall'), ('info', 'get_version')):
+            return None
+    if printer_id is None and (not host or not serial):
+        return None
+    from modules.printers.maintenance_gate import record_rack_start_refusal
     from core.db import engine
     from sqlalchemy import text
-    where = 'id=:target' if printer_id is not None else 'lower(api_host)=lower(:target)'
-    target = printer_id if printer_id is not None else host
-    query = text('SELECT api_type, model, machine_type, installed_nozzles FROM printers WHERE ' + where)
     with engine.connect() as conn:
-        for row in conn.execute(query, {'target': target}).mappings():
-            refusal = rack_printer_refusal(row)
-            if refusal:
-                return refusal
+        if printer_id is not None:
+            row = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
+                               {'id': printer_id}).mappings().first()
+            reason = rack_printer_refusal(row)
+            if reason:
+                record_rack_start_refusal(reason, payload)
+            return reason
+        from core.crypto import decrypt
+        rows = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles,api_key FROM printers '
+                                 'WHERE lower(api_host)=lower(:host)'),
+                            {'host': host}).mappings()
+        for row in rows:
+            reason = rack_printer_refusal(row)
+            if reason and serial and (decrypt(row['api_key']) or '').partition('|')[0] == serial:
+                record_rack_start_refusal(reason, payload)
+                return reason
     return None
 
 
