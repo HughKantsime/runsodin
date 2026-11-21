@@ -30,6 +30,11 @@
       "version": "2.4.0",
       "image_digest": "sha256:ff8a93b191cfb26525ca9cba3011e748bec1ab0a275c170daac30bb2a9e587da",
       "schema_era": 62
+    },
+    {
+      "version": "2.4.1",
+      "image_digest": "sha256:a8e56517e1b94dd6d312014b3c84b9a9434d95d0623f99a4af429c4838b733f0",
+      "schema_era": 62
     }
   ]
 }
