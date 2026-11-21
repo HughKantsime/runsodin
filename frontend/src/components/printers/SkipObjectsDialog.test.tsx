@@ -14,7 +14,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 beforeEach(() => {
   list = {
-    printer_id: 9, supported: true, can_skip: true, experimental: true,
+    printer_id: 9, supported: true, can_skip: true, experimental: false,
     reason: null, reason_code: null, retry_after_seconds: null, source: 'bambu_3mf',
     print: { print_job_id: 912, job_id: 501, name: 'Parts', plate: 2 },
     skipped_reported: true, current_object_id: null, max_selectable: 1,
@@ -51,7 +51,7 @@ it.each(['classic', 'foundry'])('lists numbered objects, skipped state and geome
   expect(screen.getByRole('checkbox', { name: '3. Other' })).toBeDisabled()
   expect(screen.getByText(/Cannot be sent to this printer/)).toBeInTheDocument()
   expect(screen.getByText('The printer has not reported any skipped objects for this print.')).toBeInTheDocument()
-  expect(screen.getByText(/built from how Bambu's own software sends this command/)).toBeInTheDocument()
+  expect(screen.queryByText(/Experimental/i)).not.toBeInTheDocument()
   expect(screen.getByTestId('object-picture').parentElement).toHaveAttribute('aria-hidden', 'true')
   expect(screen.queryByText('Front of printer')).not.toBeInTheDocument()
   fireEvent.click(screen.getByTestId('object-picture').querySelectorAll('rect')[1])
@@ -123,7 +123,7 @@ it('shows loading, then the server refusal and opt-in link without sending', asy
   response = () => new Promise(resolve => { finish = resolve })
   mount()
   expect(screen.getByRole('status')).toHaveTextContent('Reading the objects of this print...')
-  await act(async () => finish(json({ ...list, supported: false, objects: [], can_skip: false, reason_code: 'experimental_not_enabled', reason: 'Enable Experimental actions first.' })))
+  await act(async () => finish(json({ ...list, source: null, experimental: true, supported: false, objects: [], can_skip: false, reason_code: 'experimental_not_enabled', reason: 'Enable Experimental actions first.' })))
   expect(await screen.findByText('Enable Experimental actions first.')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Skip objects settings' })).toHaveAttribute('href', '#experimental-opt-in-9')
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()

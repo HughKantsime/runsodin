@@ -14,6 +14,10 @@ All notable changes to O.D.I.N. are documented here.
 - Moonraker controls now show when a pause, resume, or stop takes effect and alert you if the printer takes too long to confirm. Kobra S1 controls show which actions still need verification.
 - Bambu printers with AMS HT: a print can be mapped to an AMS HT tray and sent from ODIN, alone or together with other AMS trays, with the same checks as other trays. Verified on an H2D.
 
+### Changed
+
+- Skipping objects on Bambu Lab printers is no longer Experimental: it works without the per-printer switch. Verified on a P2S. The plate picture marks the front of the printer on verified models.
+
 ### Fixed
 
 - Jobs with alerts or recorded filament use can now be deleted on older installations. Deleting a job removes its alerts and keeps its filament usage history.

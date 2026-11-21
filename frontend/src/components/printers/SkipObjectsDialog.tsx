@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { printers } from '../../api/printers'
 import type { PrintObject } from '../../types/printer'
-import { SKIP_OBJECTS_WARNING } from '../../utils/supportLevels'
 import Modal from '../ui/Modal'
 import CheckTarget from '../ui/CheckTarget'
 import Button from '../ui/Button'
@@ -142,7 +141,7 @@ export default function SkipObjectsDialog({ printerId, onClose }: { printerId: n
             {data?.reason_code === 'experimental_not_enabled' && <a className="underline inline-flex items-center min-h-11" href={`#experimental-opt-in-${printerId}`} onClick={showOptIn}>Skip objects settings</a>}
           </> : <>
             <p className="break-words">{data.print?.name || 'Unnamed print'} · Plate {data.print?.plate}</p>
-            {data.experimental && <p className="text-[var(--brand-text-secondary)]">{SKIP_OBJECTS_WARNING}</p>}
+            {data.experimental && <p className="text-[var(--brand-text-secondary)]">Skipping objects is Experimental on this printer.</p>}
             {confirming ? <>
               <ul className="space-y-2 break-words">{selected.map(object => <li key={object.id}>{objectLabel(object)}</li>)}</ul>
               <p>The printer stops printing {selected.length === 1 ? 'this object' : 'these objects'} for the rest of this print. This cannot be undone.</p>

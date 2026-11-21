@@ -104,6 +104,7 @@ def test_forget_printer_locks_shared_store_before_reading(graph):
     """Compile the real read for PostgreSQL; exercise its mutation on local SQLite."""
     from sqlalchemy.dialects import postgresql
 
+    graph.execute(text("UPDATE printers SET api_type='octoprint' WHERE id IN (9,10)"))
     opt_in(graph, 9)
     opt_in(graph, 10)
     reads = []
@@ -119,8 +120,8 @@ def test_forget_printer_locks_shared_store_before_reading(graph):
 
     support_levels.forget_printer(CheckedConnection(), 9)
     assert len(reads) == 1
-    assert not support_levels.experimental_enabled(graph, 9, 'bambu')
-    assert support_levels.experimental_enabled(graph, 10, 'bambu')
+    assert not support_levels.experimental_enabled(graph, 9, 'octoprint')
+    assert support_levels.experimental_enabled(graph, 10, 'octoprint')
 
 
 # ---- printer list and detail ----
@@ -137,12 +138,15 @@ def test_printer_list_and_detail_report_level_and_opt_in(graph, monkeypatch):
     for item in views():
         assert (item.support_level, item.experimental_actions_enabled) == ('supported', False)
         assert item.model_dump()['support_level'] == 'supported'
+    opt_in(graph)  # A stored entry from before Bambu skip left Experimental.
+    for item in views():
+        assert (item.support_level, item.experimental_actions_enabled) == ('supported', False)
     experimental(monkeypatch, 'bambu')
     for item in views():
-        assert (item.support_level, item.experimental_actions_enabled) == ('experimental', False)
-    opt_in(graph)
-    for item in views():
         assert (item.support_level, item.experimental_actions_enabled) == ('experimental', True)
+    opt_in(graph, enabled=False)
+    for item in views():
+        assert (item.support_level, item.experimental_actions_enabled) == ('experimental', False)
 
 
 # ---- dispatch ----
@@ -334,16 +338,30 @@ def test_every_controls_route_is_keyed_by_printer_id():
             assert '{printer_id}' in route.path, route.path
 
 
-def test_bambu_only_skip_capability_is_gated(graph):
-    assert support_levels.gated_capabilities('bambu') == frozenset({'skip_objects'})
-    assert support_levels.control_refusal(graph,9,'bambu','skip-objects') == (
-        'experimental_not_enabled: ' + support_levels.SKIP_OBJECTS_MESSAGE)
-    for family in ('bambu','moonraker'):
-        for action in ('pause','resume','stop','speed','lights'):
-            assert support_levels.control_refusal(graph,9,family,action) is None
-        assert support_levels.dispatch_refusal(graph,9,family) is None
-    opt_in(graph)
-    assert support_levels.control_refusal(graph,9,'bambu','skip-objects') is None
+def test_bambu_has_no_experimental_capabilities(graph):
+    assert not support_levels.opt_in_applies('bambu')
+    for family in ('bambu', 'moonraker'):
+        for action in ('pause', 'resume', 'stop', 'speed', 'lights'):
+            assert support_levels.control_refusal(graph, 9, family, action) is None
+        assert support_levels.dispatch_refusal(graph, 9, family) is None
+    assert support_levels.control_refusal(graph, 9, 'bambu', 'skip-objects') is None
+
+
+def test_bambu_opt_in_put_refuses_both_values_and_preserves_stored_entry(token_client, review_db):
+    from modules.printers import routes_experimental
+    client, issue = token_client
+    client.app.include_router(routes_experimental.router)
+    make_superadmin(review_db)
+    headers = issue(['admin', 'write:printers'])
+    opt_in(review_db)
+    store = text('SELECT value FROM system_config WHERE key=:key')
+    params = {'key': support_levels.CONFIG_KEY}
+    before = review_db.execute(store, params).scalar_one()
+    for enabled in (True, False):
+        response = client.put('/printers/9/experimental-actions', headers=headers, json={'enabled': enabled})
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'not_experimental'
+    assert review_db.execute(store, params).scalar_one() == before
+    assert not support_levels.experimental_enabled(review_db, 9, 'bambu')
 
 
 def test_retired_ht_switch_is_unknown_and_does_not_toggle_existing_opt_in(experimental_app, review_db):
@@ -362,7 +380,7 @@ def test_retired_ht_switch_is_unknown_and_does_not_toggle_existing_opt_in(experi
     assert client.put(path, headers=headers, json={'enabled': False}).json()['experimental_actions_enabled'] is False
 
 
-def test_list_reads_opt_ins_once_ignores_legacy_ht_entry_and_surfaces_store_errors(graph, monkeypatch):
+def test_printer_list_ignores_retired_bambu_opt_ins_and_reads_store_only_for_gated_types(graph, monkeypatch):
     from modules.printers.routes_crud import list_printers
     from modules.printers.schemas import PrinterResponse
     from unittest.mock import Mock
@@ -379,14 +397,19 @@ def test_list_reads_opt_ins_once_ignores_legacy_ht_entry_and_surfaces_store_erro
     def views():
         return {row.id: PrinterResponse.model_validate(row) for row in list_printers(current_user=USER, db=graph)}
     rows = views()
-    assert rows[9].experimental_actions_enabled
+    assert not rows[9].experimental_actions_enabled
     assert 'ams_ht_enabled' not in rows[9].model_dump()
     assert not rows[10].experimental_actions_enabled
     assert 'ams_ht_enabled' not in rows[10].model_dump()
-    assert read.call_count == 1
+    read.assert_not_called()
+    graph.get(Printer, 10).api_type = 'elegoo'
+    opt_in(graph, 10)
+    rows = views()
+    assert not rows[9].experimental_actions_enabled and rows[10].experimental_actions_enabled
+    read.assert_called_once()
     read.side_effect = RuntimeError('store unavailable')
-    with pytest.raises(RuntimeError, match='store unavailable'):
-        views()
+    rows = views()
+    assert not rows[9].experimental_actions_enabled and not rows[10].experimental_actions_enabled
     support_levels.forget_printer(graph.connection(), 10)
     opt_in(graph, enabled=False)
     graph.refresh(config)

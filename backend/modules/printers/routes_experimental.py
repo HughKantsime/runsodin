@@ -27,6 +27,20 @@ class ExperimentalActions(BaseModel):
     enabled: StrictBool  # "yes" or 1 is refused (422), never read as true
 
 
+def _printer_for_opt_in(db, printer_id, enabling):
+    printer = db.get(Printer, printer_id)
+    if printer is None:
+        raise HTTPException(404, 'Printer not found')
+    # Disable can clear obsolete settings on other types. Retired Bambu entries stay untouched.
+    if not support_levels.opt_in_applies(printer.api_type) and (
+        enabling or support_levels.normalize(printer.api_type) == 'bambu'
+    ):
+        raise HTTPException(409, detail={
+            'code': 'not_experimental',
+            'message': 'This printer has no Experimental actions.'})
+    return printer
+
+
 @router.put('/printers/{printer_id}/experimental-actions')
 def set_experimental_actions(
     body: ExperimentalActions,
@@ -37,20 +51,12 @@ def set_experimental_actions(
     """Turn job sending and controls on or off for one Experimental printer (platform superadmin)."""
     from core.audit import log_audit
     try:
-        printer = db.get(Printer, printer_id)
-        if printer is None:
-            raise HTTPException(404, 'Printer not found')
-        level = support_levels.support_level(printer.api_type)
-        if body.enabled and not support_levels.opt_in_applies(printer.api_type):
-            raise HTTPException(409, detail={
-                'code': 'not_experimental',
-                'message': 'Only a printer of an Experimental type has this setting.'})
+        _printer_for_opt_in(db, printer_id, body.enabled)
         # Same printer row dispatch admission locks: an opt-in change cannot interleave with an admission.
         db.execute(text('UPDATE printers SET is_active=is_active WHERE id=:id'), {'id': printer_id})
         db.expire_all()
-        printer = db.get(Printer, printer_id)
-        if printer is None:
-            raise HTTPException(404, 'Printer not found')
+        printer = _printer_for_opt_in(db, printer_id, body.enabled)
+        level = support_levels.support_level(printer.api_type)
         result = support_levels.set_experimental_enabled(db, printer, body.enabled, current_user.get('id'))
         if result['changed']:
             log_audit(db, 'printer.experimental_actions_enabled' if body.enabled else 'printer.experimental_actions_disabled',

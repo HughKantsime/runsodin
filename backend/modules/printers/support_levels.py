@@ -8,7 +8,7 @@ Spec: .claude/specs/octoprint-adapter.md, Part 1.
 * The opt-in lives in ``system_config`` under ``CONFIG_KEY``:
   ``{printer_id: {"enabled": true, "by": user_id, "at": iso, "api_type": type}}``.
   ``api_type`` is stored so an opt-in never carries over to a different type.
-* Command checks fail closed. A Bambu printer response surfaces an unreadable opt-in store.
+* Command checks fail closed on an unreadable opt-in store.
 """
 import json
 from datetime import datetime, timezone
@@ -24,7 +24,7 @@ LEVELS = (SUPPORTED, EXPERIMENTAL, UNSUPPORTED)
 # api_type -> (level, what the adapter was built from).
 # Tests mark a type experimental by monkeypatching this dict; there is no production flag.
 SUPPORT_TABLE: dict[str, tuple[str, str]] = {
-    'bambu': (SUPPORTED, 'Bambu Lab LAN-mode MQTT and FTPS; skipping objects is Experimental and needs the per-printer opt-in; other supported controls verified on real hardware'),
+    'bambu': (SUPPORTED, 'Bambu Lab LAN-mode MQTT and FTPS. Skipping objects was verified on a P2S. Other supported controls were verified on real hardware.'),
     'moonraker': (SUPPORTED, 'Moonraker REST API; verified on real hardware'),
     'prusalink': (SUPPORTED, 'PrusaLink REST API; verified on real hardware'),
     'elegoo': (SUPPORTED, 'Elegoo SDCP (port 3030); monitoring, pause, resume, speed and stop; job sending is Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in'),
@@ -41,10 +41,6 @@ EXPERIMENTAL_MESSAGE = (
     "administrator turns them on for this printer. Monitoring still works."
 )
 EXPERIMENTAL_REFUSAL = f'{EXPERIMENTAL_NOT_ENABLED}: {EXPERIMENTAL_MESSAGE}'
-SKIP_OBJECTS_MESSAGE = (
-    "Skipping objects is Experimental on Bambu printers and is off for this printer. "
-    "A platform administrator can turn it on in this printer's Experimental features."
-)
 SEND_JOBS_MESSAGE = (
     "Sending jobs is Experimental on Elegoo printers and is off for this printer. "
     "A platform administrator can turn it on in this printer's Experimental features. "
@@ -109,7 +105,6 @@ DISPATCH = 'dispatch'
 GATED_CAPABILITIES: dict[str, frozenset] = {
     # Resume and speed shipped as Supported before job sending existed: they stay ungated.
     'elegoo': frozenset({DISPATCH}),
-    'bambu': frozenset({'skip_objects'}),
 }
 # Control route suffix or command name -> the capability it needs.
 ACTION_CAPABILITY = {'skip-objects': 'skip_objects', 'skip_objects': 'skip_objects', 'resume': 'resume', 'resume_print': 'resume', 'speed': 'speed', 'set_print_speed': 'speed'}
@@ -148,9 +143,7 @@ def enrich_response_opt_ins(db, printers):
     try:
         store = _read_store(db) if any(opt_in_applies(p.api_type) for p in printers) else {}
     except Exception:
-        if any(p.api_type == 'bambu' for p in printers):
-            raise
-        store = {}  # Other printer types fail closed on an unreadable store.
+        store = {}  # Fail closed on an unreadable store.
     for p in printers:
         p.experimental_actions_enabled = opt_in_applies(p.api_type) and _entry_enabled(store, p.id, p.api_type, p.name)
 
@@ -159,8 +152,8 @@ def experimental_enabled(db, printer_id, api_type) -> bool:
     """True only for a well-formed entry, enabled, recorded for this printer's current type AND
     name. The name binds the entry to this printer: a recycled id (bulk delete, raw SQL, cascade)
     for a different printer never inherits an opt-in."""
-    if is_monitor_only(api_type):
-        return False  # nothing to opt in to yet: a hand-written store entry enables nothing
+    if not opt_in_applies(api_type):
+        return False
     try:
         store = _read_store(db)
         if str(printer_id) not in store:
@@ -215,7 +208,7 @@ def control_refusal(db, printer_id, api_type, action) -> Optional[str]:
 
 def experimental_capability_message(api_type, capability):
     if support_level(api_type) == SUPPORTED and capability in gated_capabilities(api_type):
-        messages = {('bambu', 'skip_objects'): SKIP_OBJECTS_MESSAGE, ('elegoo', DISPATCH): SEND_JOBS_MESSAGE}
+        messages = {('elegoo', DISPATCH): SEND_JOBS_MESSAGE}
         return messages.get((normalize(api_type), capability), EXPERIMENTAL_MESSAGE)
     return EXPERIMENTAL_MESSAGE
 

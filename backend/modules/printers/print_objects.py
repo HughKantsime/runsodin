@@ -10,7 +10,10 @@ from core.rbac import _check_token_scope, _is_platform_superadmin, check_org_acc
 from core.rbac_policy import action_roles
 from modules.models_library.services import stored_print_objects
 from modules.printers import monitor_commands, support_levels
+from modules.printers.printer_models import bambu_model_name
 from modules.printers.routes_plate_thumbnail import _RUNNING_PRINT
+
+BOTTOM_FRONT_MODELS = frozenset({'P2S'})
 
 REASONS = {
     'not_printing': 'Nothing is printing on this printer.',
@@ -123,10 +126,11 @@ def running_print_objects(db, printer, principal):
                     state='skipped' if o['identify_id'] in (skipped or []) else 'printing',
                     skippable=True, bounds=o['bounds'], outline=None)
                for i, o in enumerate(plate['objects'], 1)]
+    picture_available = all(o['bounds'] is not None for o in objects)
+    front_edge = 'bottom' if picture_available and bambu_model_name(printer.model) in BOTTOM_FRONT_MODELS else None
     result.update(supported=True, source='bambu_3mf', skipped_reported=skipped is not None,
                   can_skip=_may_skip(db, printer, principal), objects=objects,
                   max_selectable=max(0, sum(o['state'] == 'printing' for o in objects) - 1),
-                  picture=dict(available=all(o['bounds'] is not None for o in objects),
-                               aspect=plate['aspect'], front_edge=None))
+                  picture=dict(available=picture_available, aspect=plate['aspect'], front_edge=front_edge))
     result['print'].update(name=display_names(db, 'job', [running.scheduled_job_id], principal).get(running.scheduled_job_id), plate=number)
     return result
