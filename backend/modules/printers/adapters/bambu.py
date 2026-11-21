@@ -720,7 +720,7 @@ class BambuPrinter:
 
         try:
             from modules.printers.printer_models import stored_rack_refusal
-            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload):
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload, allow_print_start=True):
                 return False
             result = self._client.publish(
                 self._topic_request,

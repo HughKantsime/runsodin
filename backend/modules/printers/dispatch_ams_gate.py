@@ -131,8 +131,6 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
         if not admission.admitted:
             if str(getattr(admission, 'reason', '')).startswith('slot_do_not_feed:'):
                 return refuse('slot_do_not_feed', admission.reason.split(': ', 1)[-1])
-            if str(getattr(admission, 'reason', '')).startswith('unsupported_rack_printer:'):
-                return refuse('unsupported_rack_printer', admission.reason)
             if str(getattr(admission, 'reason', '')).startswith('printer_maintenance_hold:'):
                 return refuse('printer_maintenance_hold', admission.reason)
             return refuse("admission_changed", f"Dispatch admission is no longer valid: {getattr(admission, 'reason', 'Admission recheck refused')}")

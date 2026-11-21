@@ -342,19 +342,27 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
 
 
 @pytest.mark.parametrize('protocol', ['v2', 'legacy'])
-def test_rack_observed_during_upload_never_reaches_start(review_db, tmp_path, monkeypatch, protocol):
+@pytest.mark.parametrize('mapped', [False, True])
+def test_rack_observed_during_upload_refuses_next_dispatch(review_db, tmp_path, monkeypatch, protocol, mapped):
     from modules.printers import dispatch
-    from tests.test_contracts.test_multi_source_ams_dispatch import transport
-    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
+    from tests.test_contracts.test_multi_source_ams_dispatch import owned_read, setup_multi, transport
+    events = []
+    if mapped:
+        engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='P1S')
+        owned_read(monkeypatch, engine, report, events)
+    else:
+        engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
     def report_rack():
         with engine.begin() as conn:
             conn.execute(text("UPDATE printers SET installed_nozzles=:rows WHERE id=59"),
                          {'rows': json.dumps([{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)])})
-    events = []
     sent = transport(monkeypatch, path, protocol, events, after_upload=report_rack)
     ok, reason = dispatch.dispatch_job(59, 53)
-    assert not ok and 'unsupported_rack_printer' in reason
-    assert events == ['upload'] and not sent
+    assert ok, reason
+    ok, reason = dispatch.dispatch_job(59, 54)
+    assert not ok and reason.startswith('unsupported_rack_printer:')
+    assert events == (['upload', 'fresh_read', 'start'] if mapped else ['upload', 'start'])
+    assert len(sent) == 1
 
 
 @pytest.mark.parametrize('transport', ['legacy', 'v2-monitor', 'v2-command'])

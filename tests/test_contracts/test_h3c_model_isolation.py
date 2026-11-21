@@ -244,11 +244,17 @@ def test_final_start_uses_existing_checks_and_reports_confirmed_refusal(protocol
         assert ok and len(selects) == 4
         wire.publish.assert_called_once()
     else:
+        assert ok, reason
+        wire.publish.assert_called_once()
+        # The next admission sees the identity committed during the first connection.
+        target.update(offline_store.execute(text(
+            'SELECT model,machine_type FROM printers WHERE id=199')).mappings().one())
+        ok, reason = method(2, 'file', 'next.3mf', target, before_start=gate)
         assert not ok and reason.startswith('unsupported_rack_printer:')
         assert isinstance(reason, dispatch.NoStartMessage)
         if gate is not None:
             assert gate.refusal.code == 'unsupported_rack_printer'
-        wire.publish.assert_not_called()
+        wire.publish.assert_called_once()
 
 
 def test_fixed_nozzle_presence_matches_baseline_for_signed_mask():

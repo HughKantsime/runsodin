@@ -99,7 +99,7 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
     from core.order_production import prepare_job_write
     from core.registry import registry
     from modules.printers.dispatch_support import dispatch_unsupported_reason
-    unsupported = dispatch_unsupported_reason(creds)
+    unsupported = dispatch_unsupported_reason(creds, check_rack=not already_admitted)
     if unsupported:
         return Admission(False, unsupported)
     identity=build_identity(creds,key)
@@ -139,7 +139,7 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
                 raise _Refused(controlled)
             current_job=dispatch._load_job(job['id'],connection=conn)
             current_creds=dispatch._get_printer_info(job['printer_id'],connection=conn)
-            unsupported = dispatch_unsupported_reason(current_creds)
+            unsupported = dispatch_unsupported_reason(current_creds, check_rack=not already_admitted)
             if unsupported:
                 raise _Refused(unsupported)
             from modules.printers.support_levels import dispatch_refusal

@@ -149,26 +149,26 @@ def rack_printer_refusal(printer):
     return None
 
 
-def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None):
+def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, allow_print_start=False):
     """Look up the row ID, or match the MQTT topic's serial at a standalone endpoint."""
     if isinstance(payload, dict) and len(payload) == 1:
         section, fields = next(iter(payload.items()))
-        if isinstance(fields, dict) and (section, fields.get('command')) in (
-                ('pushing', 'pushall'), ('info', 'get_version')):
-            return None
+        if isinstance(fields, dict):
+            command = (section, fields.get('command'))
+            if command in (('pushing', 'pushall'), ('info', 'get_version')):
+                return None
+            # Dispatch already checked the loaded printer at admission.
+            if allow_print_start and command == ('print', 'project_file'):
+                return None
     if printer_id is None and (not host or not serial):
         return None
-    from modules.printers.maintenance_gate import record_rack_start_refusal
     from core.db import engine
     from sqlalchemy import text
     with engine.connect() as conn:
         if printer_id is not None:
             row = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
                                {'id': printer_id}).mappings().first()
-            reason = rack_printer_refusal(row)
-            if reason:
-                record_rack_start_refusal(reason, payload)
-            return reason
+            return rack_printer_refusal(row)
         from core.crypto import decrypt
         rows = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles,api_key FROM printers '
                                  'WHERE lower(api_host)=lower(:host)'),
@@ -176,7 +176,6 @@ def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None):
         for row in rows:
             reason = rack_printer_refusal(row)
             if reason and serial and (decrypt(row['api_key']) or '').partition('|')[0] == serial:
-                record_rack_start_refusal(reason, payload)
                 return reason
     return None
 

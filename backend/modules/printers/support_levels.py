@@ -190,13 +190,7 @@ def experimental_refusal(db, printer_id, api_type) -> Optional[str]:
 def experimental_refusal_for_printer(db, printer_id) -> Optional[str]:
     """Same, loading the type from the printer row. An unreadable row refuses."""
     try:
-        row = db.execute(text('SELECT api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
-                         {'id': printer_id}).mappings().first()
-        from modules.printers.printer_models import rack_printer_refusal
-        rack = rack_printer_refusal(row)
-        if rack:
-            return rack
-        api_type = row['api_type'] if row else None
+        api_type = db.execute(text('SELECT api_type FROM printers WHERE id=:id'), {'id': printer_id}).scalar_one_or_none()
     except Exception:
         return EXPERIMENTAL_REFUSAL
     return dispatch_refusal(db, printer_id, api_type)

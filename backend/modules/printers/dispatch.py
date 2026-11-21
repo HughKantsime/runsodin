@@ -163,7 +163,6 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     from modules.printers.telemetry.bambu.ftp_upload import upload_file, wait_notice
     from modules.printers.telemetry.bambu.session import run_command
 
-    from modules.printers.maintenance_gate import RackStartRefused, bambu_submission
     from modules.printers.printer_models import rack_printer_refusal
     reason = rack_printer_refusal(creds)
     if reason:
@@ -202,10 +201,7 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
 
     final_check = {"before_command": before_command} if before_start is not None else {}
     try:
-        with bambu_submission():
-            ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
-    except RackStartRefused as exc:
-        return _rack_no_start(before_start, str(exc))
+        ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
     except DispatchOutcomeUncertain:
         if gate.get("result") is False:
             return False, _gate_refusal_message(before_start)
@@ -223,7 +219,6 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
     """Legacy transport with an explicit post-upload gate for mapped starts."""
     from modules.printers.adapters.bambu import BambuPrinter
 
-    from modules.printers.maintenance_gate import RackStartRefused, bambu_submission
     from modules.printers.printer_models import rack_printer_refusal
     reason = rack_printer_refusal(creds)
     if reason:
@@ -257,13 +252,10 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
         if not _post_upload_gate(before_start):
             return False, _gate_refusal_message(before_start)
         log.info("[dispatch] Sending Bambu print command for job %s", job_id)
-        with bambu_submission():
-            ok = _submit_print_command(printer.start_print, remote_filename, **print_options)
+        ok = _submit_print_command(printer.start_print, remote_filename, **print_options)
         if not ok:
             return False, "MQTT print command failed (file uploaded OK)"
         return True, "Print started"
-    except RackStartRefused as exc:
-        return _rack_no_start(before_start, str(exc))
     finally:
         # Includes failed/partial connection and upload paths, not just commands.
         # A cleanup exception reaches dispatch orchestration as uncertainty.
