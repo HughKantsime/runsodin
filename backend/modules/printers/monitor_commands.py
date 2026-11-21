@@ -136,6 +136,9 @@ def execute(monitors, message):
         if action == 'resume' and (monitor._current_job_id != message['print_job_id'] or
                 monitor._state.get('gcode_state') not in ('PAUSE', 'PAUSED')):
             return 'refused'
+        from modules.printers.printer_models import stored_rack_refusal
+        if stored_rack_refusal(pid):
+            return 'refused'
         if time.monotonic() >= deadline:
             return 'unknown'
         payload = ({'system': {'sequence_id': '0', 'command': 'ledctrl',

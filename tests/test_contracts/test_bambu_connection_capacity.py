@@ -14,6 +14,8 @@ import uuid
 import paho.mqtt.client as mqtt
 import pytest
 
+from tests.test_contracts.test_cert_A_harness import review_db, sender_db
+
 pytestmark = pytest.mark.integration
 SERIAL = 'SYNTHETIC-CAPACITY-PRINTER'
 LED = {'system': {'sequence_id': '0', 'command': 'ledctrl',
@@ -62,7 +64,7 @@ def capacity_broker(tmp_path):
 
 @pytest.mark.parametrize('generation', ['legacy', 'v2'])
 def test_monitor_and_studio_at_capacity_refuse_extra_command_but_existing_transport_publishes(
-        capacity_broker, monkeypatch, generation):
+        capacity_broker, monkeypatch, generation, sender_db):
     from core import webhook_utils
     from modules.printers.adapters.bambu import BambuPrinter
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig, BambuTelemetryAdapter

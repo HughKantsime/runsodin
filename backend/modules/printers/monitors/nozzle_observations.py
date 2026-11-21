@@ -19,7 +19,8 @@ def _merge(old, new):
     return {**old, **{key: value for key, value in new.items() if value is not None}}
 
 
-def observe(monitor, packet, status, now):
+def observe(monitor, packet, status, runtime):
+    now = runtime.time.time()
     age = getattr(status, 'report_age_seconds', None)
     received_at = getattr(status, 'mqtt_received_at', None)
     if received_at is not None and age is None:
@@ -50,34 +51,60 @@ def observe(monitor, packet, status, now):
         key = _key(nozzle)
         pending[key] = _merge(pending.get(key, {}), nozzle)
     monitor._pending_installed_nozzles = pending
+    device = packet.get('device')
+    nozzle = device.get('nozzle') if isinstance(device, dict) else None
+    info = nozzle.get('info') if isinstance(nozzle, dict) else None
+    if fresh and isinstance(info, list) and len(info) > 2 and not getattr(monitor, '_rack_rows_stored', False):
+        ids = {entry['id'] for entry in info if isinstance(entry, dict)
+               and type(entry.get('id')) is int}
+        if len(ids) > 2:
+            monitor._pending_rack_ids = ids
+    if getattr(monitor, '_pending_rack_ids', None):
+        try:
+            with runtime.get_db() as conn:
+                persist(conn, monitor, first_rack=monitor._pending_rack_ids)
+                conn.commit()
+        except Exception:
+            runtime.log.warning('[%s] Rack observation will retry on the next report', monitor.name)
+        else:
+            monitor._pending_rack_ids = None
+            monitor._rack_rows_stored = True
 
 
-def persist(conn, monitor):
+def persist(conn, monitor, *, first_rack=None):
     pending = getattr(monitor, '_pending_installed_nozzles', {})
     readings = getattr(monitor, '_pending_rack_filaments', {})
-    if not pending and not readings:
+    if not pending and not readings and not first_rack:
         return {}, {}
     row = conn.execute('SELECT installed_nozzles,machine_type,model,slot_count FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()
     if not row:
         return {}, {}
     stored = json.loads(row[0]) if isinstance(row[0], str) else row[0]
     model = getattr(monitor, '_reported_model', None) or row[1] or row[2]
-    rack = any(bambu_model_name(value) == 'H3C' for value in (model, row[1], row[2]))
+    identified = any(bambu_model_name(value) == 'H3C' for value in (model, row[1], row[2]))
+    stored_rack = isinstance(stored, list) and len(stored) > 2
+    if first_rack and stored_rack:
+        return
+    rack = identified or stored_rack or bool(first_rack)
     dual = bambu_nozzle_count(model) == 2
     merged = {_key(item): item for item in stored or [] if (item.get('side') == 'rack') == rack}
     for key, new in pending.items():
         if (new['side'] == 'rack') != rack or (dual and new['side'] == 'single'):
             continue
         item = _merge(merged.get(key, {}), new)
-        if not rack or item.get('position') is not None:
+        if not rack or item.get('position') is not None or (first_rack and key in first_rack):
             merged[key] = item
-    if rack:
+    if first_rack:
+        # Count reported nozzles even when their IDs/addresses have no known display mapping.
+        for identifier in sorted(first_rack):
+            merged.setdefault(identifier, {'side': 'rack', 'nozzle_id': identifier})
+    if identified and not first_rack:
         _persist_filaments(conn, monitor.printer_id, row[3], readings)
     if list(merged.values()) != (stored or []):
         conn.execute('UPDATE printers SET installed_nozzles=? WHERE id=?',
                      (json.dumps(list(merged.values())), monitor.printer_id))
     # A new printer can send its rack before get_version identifies the model.
-    if not rack:
+    if not identified:
         candidates = {key: item for key, item in pending.items() if item['side'] == 'rack' and item.get('position')}
         if candidates or not getattr(monitor, '_reported_model', None):
             return candidates, readings

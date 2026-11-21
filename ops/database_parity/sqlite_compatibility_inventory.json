@@ -2570,7 +2570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 223,
+      "line": 224,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2578,7 +2578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 305,
+      "line": 306,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2586,7 +2586,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 317,
+      "line": 318,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2594,7 +2594,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 338,
+      "line": 339,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2602,7 +2602,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 429,
+      "line": 430,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2610,7 +2610,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 475,
+      "line": 476,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2618,7 +2618,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 635,
+      "line": 636,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2626,7 +2626,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 730,
+      "line": 731,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2634,7 +2634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 779,
+      "line": 780,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2642,7 +2642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 823,
+      "line": 824,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2738,7 +2738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 60,
+      "line": 79,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2746,7 +2746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 77,
+      "line": 104,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2754,7 +2754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 91,
+      "line": 118,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2762,7 +2762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 92,
+      "line": 119,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2770,7 +2770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 97,
+      "line": 124,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2778,7 +2778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 112,
+      "line": 139,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",

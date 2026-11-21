@@ -88,7 +88,7 @@ def display_nozzles(rows, rack):
     if not rack:
         return [row for row in rows or [] if row.get('side') != 'rack']
     return sorted(({k: v for k, v in row.items() if k != 'stat'}
-                   for row in rows or [] if row.get('side') == 'rack'), key=lambda row: row['position'])
+                   for row in rows or [] if row.get('side') == 'rack' and row.get('position') is not None), key=lambda row: row['position'])
 
 
 def compare_nozzles(requirements, installed):

@@ -718,7 +718,7 @@ class PrinterVisionThread(threading.Thread):
                         api_host, printer_id=f"vision-pause-{self.printer_id}",
                     )
                     config = BambuAdapterConfig(
-                        printer_id=f"vision-pause-{self.printer_id}",
+                        printer_id=str(self.printer_id),
                         serial=serial,
                         host=endpoint.host,
                         port=endpoint.port,
@@ -729,7 +729,7 @@ class PrinterVisionThread(threading.Thread):
                         success = run_command(config, "pause_print")
                 else:
                     from modules.printers.adapters.bambu import BambuPrinter
-                    adapter = BambuPrinter(api_host, serial, access_code)
+                    adapter = BambuPrinter(api_host, serial, access_code, printer_id=self.printer_id)
                     if adapter.connect():
                         try:
                             if self._live_printing():

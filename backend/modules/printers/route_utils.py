@@ -543,7 +543,7 @@ def _bambu_command_v2(printer, action: str) -> bool:
             printer.api_host, printer_id=f"cmd-{printer.id}",
         )
         config = BambuAdapterConfig(
-            printer_id=f"cmd-{printer.id}",
+            printer_id=str(printer.id),
             serial=serial,
             host=endpoint.host,
             port=endpoint.port,
@@ -564,6 +564,7 @@ def _bambu_command_legacy(printer, action: str) -> bool:
         serial, access_code = creds.split("|", 1)
         adapter = BambuPrinter(
             printer.api_host, serial, access_code,
+            printer_id=printer.id,
             client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
         )
         if adapter.connect():
@@ -635,8 +636,8 @@ def _send_printer_command(printer, action: str) -> bool:
     if action not in _SAFETY_COMMANDS and command_refusal(printer, action):
         log.warning("Printer command %s refused: Experimental printer without opt-in", action)
         return False
-    from modules.printers.printer_models import is_h3c_printer
-    if printer.api_type == "anycubic_lan" or is_h3c_printer(printer):
+    from modules.printers.printer_models import rack_printer_refusal
+    if printer.api_type == "anycubic_lan" or rack_printer_refusal(printer):
         return False  # Monitor-only: never fall through to the Bambu command path.
     if str(printer.api_type or "").strip().lower() == "ultimaker":
         return False  # Part 1 is monitoring only: no write of any kind (pause and stop included) is sent; never the Bambu fallback.
@@ -651,12 +652,16 @@ def _send_printer_command(printer, action: str) -> bool:
     elif printer.api_type == "elegoo":
         return _elegoo_command(printer, action)
     else:
+        if printer.api_type is None:
+            from modules.printers.printer_models import stored_rack_refusal
+            if stored_rack_refusal(printer.id):
+                return False
         return _bambu_command(printer, action)
 
 def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     """Call a BambuPrinter method directly (for commands not in the generic allowlist)."""
-    from modules.printers.printer_models import is_h3c_printer
-    if is_h3c_printer(printer):
+    from modules.printers.printer_models import rack_printer_refusal
+    if rack_printer_refusal(printer):
         return False
     from modules.printers.telemetry.feature_flag import is_v2_enabled
 
@@ -671,7 +676,7 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
                 printer.api_host, printer_id=f"cmd-direct-{printer.id}",
             )
             config = BambuAdapterConfig(
-                printer_id=f"cmd-direct-{printer.id}",
+                printer_id=str(printer.id),
                 serial=serial,
                 host=endpoint.host,
                 port=endpoint.port,
@@ -690,6 +695,7 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
         serial, access_code = creds.split("|", 1)
         adapter = BambuPrinter(
             printer.api_host, serial, access_code,
+            printer_id=printer.id,
             client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
         )
         if adapter.connect():

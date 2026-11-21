@@ -117,6 +117,11 @@ class BambuCommandAdapter:
         if self._client is None or not self._connected:
             return False
         try:
+            from modules.printers.printer_models import stored_rack_refusal
+            row_id = str(self._config.printer_id)
+            if stored_rack_refusal(int(row_id) if row_id.isdecimal() else None,
+                                   host=self._config.host, payload=payload):
+                return False
             result = self._client.publish(
                 self._config.topic_request,
                 json.dumps(payload),

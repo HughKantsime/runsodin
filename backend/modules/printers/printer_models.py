@@ -13,6 +13,7 @@ Usage:
     name = normalize_model_name("bambu", "")          # -> None
 """
 
+import json
 from collections.abc import Mapping
 from typing import Optional
 
@@ -120,6 +121,43 @@ def is_h3c_printer(printer):
     get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
     return str(get('api_type') or '').strip().lower() == 'bambu' and any(
         bambu_model_name(get(key)) == 'H3C' for key in ('model', 'machine_type'))
+
+
+def rack_printer_refusal(printer):
+    """Read-only policy at Bambu senders, including legacy rows with no api_type."""
+    get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
+    if str(get('api_type') or '').strip().lower() not in ('', 'bambu'):
+        return None
+    from core.printer_identity import canonical_machine
+    reason = 'unsupported_rack_printer: Sending jobs to an H3C is not available yet.'
+    if any(canonical_machine(get(key)) == 'h3c' for key in ('model', 'machine_type')):
+        return reason
+    rows = get('installed_nozzles')
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    if isinstance(rows, list) and len(rows) > 2:
+        return reason
+    return None
+
+
+def stored_rack_refusal(printer_id, *, host=None, payload=None):
+    """Read committed facts at send time. Standalone transports may only know the endpoint."""
+    if isinstance(payload, dict) and len(payload) == 1:
+        section, fields = next(iter(payload.items()))
+        if isinstance(fields, dict) and fields.keys() <= {'command', 'sequence_id'}:
+            if (section, fields.get('command')) in (('pushing', 'pushall'), ('info', 'get_version')):
+                return None
+    from core.db import engine
+    from sqlalchemy import text
+    where = 'id=:target' if printer_id is not None else 'lower(api_host)=lower(:target)'
+    target = printer_id if printer_id is not None else host
+    query = text('SELECT api_type, model, machine_type, installed_nozzles FROM printers WHERE ' + where)
+    with engine.connect() as conn:
+        for row in conn.execute(query, {'target': target}).mappings():
+            refusal = rack_printer_refusal(row)
+            if refusal:
+                return refusal
+    return None
 
 
 # ---------------------------------------------------------------------------

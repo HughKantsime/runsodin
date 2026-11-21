@@ -48,7 +48,7 @@ def handle_status(self, status, generation, runtime):
         if getattr(status, 'mqtt_retained', None) is True:
             log_retained_report(self, raw, runtime)
         from modules.printers.monitors.nozzle_observations import observe
-        observe(self, raw, status, runtime.time.time())
+        observe(self, raw, status, runtime)
         from core.printer_display_facts import observe as observe_display_facts
         observe_display_facts(self, raw, retained=getattr(status, 'mqtt_retained', None) is True)
         noz_dia = raw.get('nozzle_diameter')

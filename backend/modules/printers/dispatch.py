@@ -150,6 +150,16 @@ def _gate_refusal_message(gate):
             f"({refusal.code}: {detail}); no print command was sent")
 
 
+def _rack_start_refusal(creds, gate):
+    from modules.printers.dispatch_ams_gate import record_refusal
+    from modules.printers.printer_models import rack_printer_refusal, stored_rack_refusal
+    printer_id = creds.get("printer_id")
+    reason = stored_rack_refusal(printer_id) if printer_id is not None else rack_printer_refusal(creds)
+    if reason:
+        record_refusal(gate, "unsupported_rack_printer", reason)
+    return reason
+
+
 def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None, **print_options) -> tuple[bool, str]:
     """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
@@ -171,7 +181,7 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         creds["ip"], printer_id=f"dispatch-{creds['serial']}",
     )
     config = BambuAdapterConfig(
-        printer_id=f"dispatch-{creds['serial']}",
+        printer_id=str(creds.get("printer_id") or f"dispatch-{creds['serial']}"),
         serial=creds["serial"],
         host=endpoint.host,
         port=endpoint.port,
@@ -186,19 +196,21 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     def before_command():
         # run_command sends nothing unless this returns True, so a recorded False
         # (not an exception) is a confirmed no-start rather than an unknown outcome.
-        gate["result"] = before_start() is True
+        gate["rack_refusal"] = _rack_start_refusal(creds, before_start)
+        gate["result"] = not gate["rack_refusal"] and (before_start is None or before_start() is True)
         return gate["result"]
 
-    final_check = {"before_command": before_command} if before_start is not None else {}
     try:
-        ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
+        ok = _submit_print_command(run_command, config, "start_print", remote_filename, before_command=before_command, **print_options)
     except DispatchOutcomeUncertain:
         if gate.get("result") is False:
-            return False, _gate_refusal_message(before_start)
+            return False, gate.get("rack_refusal") or _gate_refusal_message(before_start)
         if getattr(before_start, "refusal", None) is not None:
             raise DispatchOutcomeUncertain(_gate_refusal_message(before_start)) from None
         raise
     if not ok:
+        if gate.get("rack_refusal"):
+            return False, gate["rack_refusal"]
         if getattr(before_start, "refusal", None) is not None:
             return False, _gate_refusal_message(before_start)
         return False, "MQTT print command failed (file uploaded OK)"
@@ -215,6 +227,7 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
         ip=creds["ip"],
         serial=creds["serial"],
         access_code=creds["access_code"],
+        printer_id=creds.get("printer_id"),
         client_id=f"odin_dispatch_{creds['serial']}_{int(time.time())}",
     )
 
@@ -234,6 +247,9 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
             return False, "MQTT connection failed after successful file upload"
 
         time.sleep(1)
+        rack_reason = _rack_start_refusal(creds, before_start)
+        if rack_reason:
+            return False, rack_reason
         if not _post_upload_gate(before_start):
             return False, _gate_refusal_message(before_start)
         log.info("[dispatch] Sending Bambu print command for job %s", job_id)

@@ -140,6 +140,7 @@ class BambuPrinter:
         client_id: Optional[str] = None,
         on_connection_change: Optional[Callable[[], None]] = None,
         on_product_name: Optional[Callable[[str], None]] = None,
+        printer_id: Optional[int] = None,
     ):
         """
         Initialize Bambu printer connection.
@@ -155,6 +156,7 @@ class BambuPrinter:
                        unique value for command connections to avoid colliding
                        with the monitor daemon's persistent connection.
         """
+        self.printer_id = printer_id
         self.ip = ip
         self.serial = serial
         self.access_code = access_code
@@ -699,6 +701,9 @@ class BambuPrinter:
         if not self._client or not self._connected:
             return False
         try:
+            from modules.printers.printer_models import stored_rack_refusal
+            if stored_rack_refusal(self.printer_id, host=self.ip, payload=payload):
+                return False
             result = self._client.publish(self._topic_request, json.dumps(payload))
         except Exception:
             log.warning("Bambu request could not be queued: %s", next(iter(payload), "?"), exc_info=True)
@@ -714,6 +719,9 @@ class BambuPrinter:
             return False
 
         try:
+            from modules.printers.printer_models import stored_rack_refusal
+            if stored_rack_refusal(self.printer_id, host=self.ip, payload=payload):
+                return False
             result = self._client.publish(
                 self._topic_request,
                 json.dumps(payload)

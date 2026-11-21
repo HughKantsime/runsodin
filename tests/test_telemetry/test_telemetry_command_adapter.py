@@ -63,6 +63,15 @@ def config():
 
 @pytest.fixture
 def adapter(config, monkeypatch):
+    from core import db
+    from modules.printers.models import Printer
+    from sqlalchemy import create_engine
+    engine = create_engine("sqlite://")
+    Printer.__table__.create(engine)
+    with engine.begin() as conn:
+        conn.execute(Printer.__table__.insert().values(id=1, name="Test printer", api_type="bambu",
+                                                        model="H2D", api_host=config.host))
+    monkeypatch.setattr(db, "engine", engine)
     fake = FakeMqttClient()
     monkeypatch.setattr(
         BambuCommandAdapter, "_client_factory", staticmethod(lambda: fake),
