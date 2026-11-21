@@ -1,7 +1,7 @@
 """Read only the public ODIN release list. Never persist remote text or URLs."""
+import asyncio
 import json
 import re
-import time
 from datetime import datetime, timezone
 
 import httpx
@@ -11,6 +11,7 @@ from core import itar
 RELEASES_URL = "https://api.github.com/repos/HughKantsime/runsodin/releases?per_page=20"
 NOTES_URL = "https://github.com/HughKantsime/runsodin/releases/tag/v"
 LIMIT = 512 * 1024
+REQUEST_SECONDS = 10
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
@@ -32,6 +33,9 @@ def published_date(value):
 
 
 def parse_releases(data, installed):
+    installed_number = version_number(installed)
+    if not installed_number:
+        return {"outcome": "unknown_installed_version"}
     if not isinstance(data, list):
         raise ValueError("Expected release list")
     newest = security_version = published = None
@@ -46,25 +50,21 @@ def parse_releases(data, installed):
         if number > version_number(newest):
             newest, published = version, published_date(release.get("published_at"))
         body = release.get("body")
-        if (number > version_number(installed) and number > version_number(security_version)
+        if (number > installed_number and number > version_number(security_version)
                 and isinstance(body, str) and "### Security" in body.splitlines()):
             security_version = version
     return {"newest": newest, "published_at": published, "security_version": security_version,
             "security": security_version is not None}
 
 
-def fetch_releases(installed, *, transport=None):
-    if itar.is_itar_mode():
-        return {"outcome": "blocked"}
-    try:
-        itar.enforce_request_destination(RELEASES_URL)
-        deadline = time.monotonic() + 10
-        with itar.pin_for_request(RELEASES_URL), httpx.Client(
-            trust_env=itar.should_trust_env(), timeout=10, verify=True, follow_redirects=False, transport=transport,
+async def _request_releases(installed, transport):
+    async with asyncio.timeout(REQUEST_SECONDS):
+        async with httpx.AsyncClient(
+            trust_env=itar.should_trust_env(), timeout=REQUEST_SECONDS, verify=True, follow_redirects=False, transport=transport,
         ) as client:
             # A standalone request omits httpx's default encoding and connection headers.
             request = httpx.Request("GET", RELEASES_URL, headers={"Accept": "application/vnd.github+json", "User-Agent": "ODIN"})
-            response = client.send(request, stream=True)
+            response = await client.send(request, stream=True)
             try:
                 if response.status_code != 200:
                     return {"outcome": "http_error"}
@@ -72,18 +72,30 @@ def fetch_releases(installed, *, transport=None):
                 if response.headers.get("content-encoding", "identity").lower() != "identity":
                     return {"outcome": "invalid_response"}
                 body = bytearray()
-                for chunk in response.iter_bytes():
-                    if time.monotonic() >= deadline:
-                        return {"outcome": "timeout"}
+                async for chunk in response.aiter_bytes():
                     if len(chunk) + len(body) > LIMIT:
                         return {"outcome": "too_large"}
                     body.extend(chunk)
                 return {"outcome": "ok", **parse_releases(json.loads(body), installed)}
             finally:
-                response.close()
+                await response.aclose()
+
+
+def fetch_releases(installed, *, transport=None):
+    if itar.is_itar_mode():
+        return {"outcome": "blocked"}
+    try:
+        itar.enforce_request_destination(RELEASES_URL)
+        with itar.pin_for_request(RELEASES_URL):
+            # asyncio.run waits for the DNS executor on shutdown, even after cancellation.
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(_request_releases(installed, transport))
+            finally:
+                loop.close()
     except itar.ItarOutboundBlocked:
         return {"outcome": "blocked"}
-    except httpx.TimeoutException:
+    except (TimeoutError, httpx.TimeoutException):
         return {"outcome": "timeout"}
     except httpx.HTTPError:
         return {"outcome": "unreachable"}

@@ -7,8 +7,13 @@ import Button from '../ui/Button'
 const disclosure = "When this is on, ODIN asks GitHub once a day for the list of ODIN releases (api.github.com/repos/HughKantsime/runsodin/releases). ODIN sends nothing about this server: no licence, no identifier, no usage data. GitHub sees this server's public IP address, as any website does. When this is off, ODIN makes no such request."
 
 function lastResult(status: UpdateStatus) {
+  if (status.outcome === 'unknown_installed_version') return 'ODIN could not determine the installed version.'
   if (!status.checked_at) return 'No check yet'
-  if (status.outcome !== 'ok') return `Could not reach GitHub on ${new Date(status.checked_at).toLocaleString()}`
+  const date = new Date(status.checked_at).toLocaleString()
+  if (status.outcome === 'too_large' || status.outcome === 'invalid_response') {
+    return `GitHub's answer could not be read on ${date}`
+  }
+  if (status.outcome !== 'ok') return `Could not reach GitHub on ${date}`
   if (!status.newest) return 'No released versions found'
   if (!status.available) return 'Up to date'
   return `Version ${status.newest} is available${status.security ? ' and fixes a security problem' : ''}`

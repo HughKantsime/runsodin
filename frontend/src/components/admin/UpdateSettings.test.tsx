@@ -89,6 +89,20 @@ function notice(version: string, security: boolean): SystemNotice {
     link: 'https://github.com/HughKantsime/runsodin/releases/tag/v' + version}
 }
 
+test.each(['too_large', 'invalid_response'])('%s identifies an unreadable answer and its date', async outcome => {
+  Object.assign(state, {enabled: true, checked_at: '2026-11-20T01:02:03Z', outcome})
+  open()
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    "GitHub's answer could not be read on " + new Date(state.checked_at!).toLocaleString())
+})
+
+test('an unknown installed version explains why there is no comparison', async () => {
+  Object.assign(state, {enabled: true, installed: 'dev', checked_at: '2026-11-20T01:02:03Z',
+    outcome: 'unknown_installed_version'})
+  open()
+  expect(await screen.findByRole('status')).toHaveTextContent('ODIN could not determine the installed version.')
+})
+
 test('dismissal identifies the displayed version and a later security update stays visible', async () => {
   notices = [notice('3.0.0', false)]
   Object.assign(state, {enabled: true, newest: '3.0.0', available: true, outcome: 'ok', checked_at: '2026-11-20T12:00:00Z'})

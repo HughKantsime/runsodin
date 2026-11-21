@@ -50,7 +50,7 @@ def lock_setting(db):
 
 def configure(db, enabled, user_id):
     reason = disabled_reason()
-    if reason:
+    if enabled and reason:
         raise HTTPException(409, reason)
     lock_setting(db)
     pref = read(db, SETTING)
@@ -72,25 +72,32 @@ def status(db):
     installed = backend_version()
     result = read(db, RESULT) if enabled else {}
     newest = result.get("newest")
-    available = version_number(newest) > version_number(installed)
-    security = version_number(result.get("security_version")) > version_number(installed)
+    installed_number = version_number(installed)
+    available = bool(installed_number) and version_number(newest) > installed_number
+    security = available and version_number(result.get("security_version")) > installed_number
+    outcome = "unknown_installed_version" if enabled and not installed_number else result.get("outcome")
     return {"enabled": enabled, "disabled_reason": reason, "installed": installed,
-            "checked_at": result.get("checked_at"), "outcome": result.get("outcome"),
+            "checked_at": result.get("checked_at"), "outcome": outcome,
             "newest": newest, "published_at": result.get("published_at"),
-            "available": available, "security": available and security}
+            "available": available, "security": security}
 
 
-def due(pref, result, at, started):
-    if pref.get("enabled") is not True:
-        return False
+def due_slot(pref, result, at, started):
+    if pref.get("enabled") is not True or at - started < timedelta(minutes=15):
+        return None
     slot = at.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=pref["offset_minutes"])
     if slot > at:
         slot -= DAY
     last = result.get("scheduled_at")
     attempt = result.get("attempt_at")
-    return (slot >= max(started, datetime.fromisoformat(pref["enabled_at"]))
+    # Older results stored the actual poll time in scheduled_at.
+    last_poll = result.get("scheduled_attempt_at", last)
+    if (slot >= datetime.fromisoformat(pref["enabled_at"])
             and (not attempt or datetime.fromisoformat(attempt) < slot)
-            and (not last or at - datetime.fromisoformat(last) >= DAY))
+            and (not last or datetime.fromisoformat(last) < slot)
+            and (not last_poll or at - datetime.fromisoformat(last_poll) >= DAY)):
+        return slot
+    return None
 
 
 def run_check(db, *, started=None):
@@ -104,12 +111,13 @@ def run_check(db, *, started=None):
     at = now()
     if not manual:
         pref = read(db, SETTING)
-        if not pref.get("enabled") or not due(pref, read(db, RESULT), at, started):
+        if not pref.get("enabled") or not due_slot(pref, read(db, RESULT), at, started):
             return
     lock_setting(db)
     pref = read(db, SETTING)
     previous = read(db, RESULT)
-    if not manual and not due(pref, previous, at, started):
+    slot = None if manual else due_slot(pref, previous, at, started)
+    if not manual and not slot:
         db.rollback()
         return
     if pref.get("enabled") is not True:
@@ -121,20 +129,35 @@ def run_check(db, *, started=None):
         if manual:
             raise HTTPException(429, "Please wait a minute before checking again.")
         return
-    reserved = {**previous, "attempt_at": at.isoformat()}
-    if not manual:
-        reserved["scheduled_at"] = at.isoformat()
-    write(db, RESULT, reserved)
+    reserved = {"attempt_at": at.isoformat()}
+    if slot:
+        reserved.update(scheduled_at=slot.isoformat(), scheduled_attempt_at=at.isoformat())
+    write(db, RESULT, {**previous, **reserved})
     db.commit()
 
     installed = backend_version()
-    answer = fetch_releases(installed)
+    consent = read(db, SETTING)
+    db.rollback()
+    reason = disabled_reason()
+    # Consent can still change between this fresh read and the send. No transaction spans I/O.
+    cancelled = reason is not None or consent != pref
+    answer = None if cancelled else fetch_releases(installed)
     lock_setting(db)
     current = read(db, RESULT)
-    if current.get("attempt_at") == reserved["attempt_at"]:
+    if cancelled:
+        # Undo only our timestamps, retaining results or reservations from later requests.
+        for key, stamp in reserved.items():
+            if current.get(key) == stamp:
+                if key in previous:
+                    current[key] = previous[key]
+                else:
+                    current.pop(key, None)
+        write(db, RESULT, current)
+    elif current.get("attempt_at") == reserved["attempt_at"]:
         # A known, unapplied security fix can fall outside GitHub's 20-release window.
         known_fix = version_number(current.get("security_version"))
-        if known_fix > max(version_number(installed), version_number(answer.get("security_version"))):
+        installed_number = version_number(installed)
+        if installed_number and known_fix > max(installed_number, version_number(answer.get("security_version"))):
             answer.update(security=True, security_version=current["security_version"])
             if version_number(answer.get("newest")) < known_fix:
                 answer.update(newest=current["newest"], published_at=current["published_at"])
@@ -142,6 +165,8 @@ def run_check(db, *, started=None):
         write(db, RESULT, {**current, **answer, "checked_at": at.isoformat()})
     db.commit()
     if manual:
+        if cancelled:
+            raise HTTPException(409, reason or OFF)
         return status(db)
 
 

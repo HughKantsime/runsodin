@@ -1,11 +1,14 @@
 """Register B88: opt-in release checks, with no network in any test."""
+import asyncio
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event, Thread
 
 import httpx
 import pytest
+import yaml
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -43,9 +46,8 @@ def test_release_selection(entries, newest, security):
 
 def test_captured_github_releases():
     path = Path(__file__).resolve().parents[1] / "fixtures" / "github-releases.json"
-    if not path.exists():
-        pytest.skip("Awaiting Dev's captured GitHub releases JSON, including v2.4.1")
     captured = path.read_bytes()
+    assert len(captured) < releases.LIMIT
     payload = json.loads(captured)
     hotfix = next(entry for entry in payload if entry["tag_name"] == "v2.4.1")
     assert releases.parse_releases([hotfix], "2.4.0")["security"]
@@ -99,10 +101,123 @@ def seed(sessions, offset=14):
         checks.write(db, checks.SETTING, {"enabled": True, "enabled_at": START.isoformat(), "offset_minutes": offset})
 
 
-@pytest.mark.parametrize("enabled,failed", [(False, False), (True, False), (True, True)])
-def test_supervised_runner_across_three_days(sessions, monkeypatch, enabled, failed):
+def test_deadline_interrupts_a_pending_read(monkeypatch):
+    monkeypatch.setattr(releases, "REQUEST_SECONDS", 0.1, raising=False)
+    delivered = []
+
+    class Drip(httpx.SyncByteStream, httpx.AsyncByteStream):
+        def __iter__(self):
+            time.sleep(0.06)
+            yield b"["
+            time.sleep(0.06)
+            delivered.append(True)
+            yield b"]"
+
+        async def __aiter__(self):
+            await asyncio.sleep(0.06)
+            yield b"["
+            await asyncio.sleep(0.06)
+            delivered.append(True)
+            yield b"]"
+
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, stream=Drip()))
+    assert releases.fetch_releases("2.5.0", transport=transport) == {"outcome": "timeout"}
+    assert not delivered
+
+
+@pytest.mark.parametrize("mode", ["withdraw", "itar", "fleet"])
+def test_policy_changes_after_reservation_cancel_the_slot(sessions, monkeypatch, mode):
+    seed(sessions, 30)
+    at = START + timedelta(minutes=31)
+    monkeypatch.setattr(checks, "now", lambda: at)
+    monkeypatch.setattr(checks, "fetch_releases", lambda v: pytest.fail("request after policy changed"))
+    with sessions() as db:
+        commit = db.commit
+        def reserve_then_disable():
+            commit()
+            monkeypatch.setattr(db, "commit", commit)
+            if mode == "withdraw":
+                with sessions.begin() as admin:
+                    checks.write(admin, checks.SETTING, {**checks.read(admin, checks.SETTING), "enabled": False})
+            elif mode == "itar":
+                monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+            else:
+                monkeypatch.setenv("ODIN_UPDATE_CHECK", "off")
+
+        monkeypatch.setattr(db, "commit", reserve_then_disable)
+        checks.run_check(db, started=START)
+        assert checks.read(db, checks.RESULT) == {}
+
+
+@pytest.mark.parametrize("restarting", [False, True])
+def test_part_day_server_catches_up_after_startup_grace(sessions, monkeypatch, restarting):
+    seed(sessions, 8 * 60 + 5 if restarting else 3 * 60)
+    calls = []
+    monkeypatch.setattr(checks, "fetch_releases", lambda v: calls.append(at) or {"outcome": "ok"})
+    with sessions() as db:
+        for day in range(7):
+            morning = START + timedelta(days=day, hours=8)
+            for minutes in range(0, 601, 5):
+                at = morning + timedelta(minutes=minutes)
+                started = at - timedelta(minutes=minutes % 10) if restarting else morning
+                monkeypatch.setattr(checks, "now", lambda: at)
+                checks.run_check(db, started=started)
+    expected = [START + timedelta(days=d, hours=8, minutes=15) for d in range(7)]
+    assert calls == ([] if restarting else expected)
+
+
+def test_late_poll_records_slot_and_respects_real_elapsed_day(sessions, monkeypatch):
+    seed(sessions, 30)
+    slot = START + timedelta(minutes=30)
+    at = slot + timedelta(seconds=40)
+    calls = []
+    monkeypatch.setattr(checks, "now", lambda: at)
+    monkeypatch.setattr(checks, "fetch_releases", lambda v: calls.append(at) or {"outcome": "ok"})
+    with sessions() as db:
+        checks.run_check(db, started=START)
+        assert checks.read(db, checks.RESULT)["scheduled_at"] == slot.isoformat()
+        at = slot + timedelta(days=1)
+        checks.run_check(db, started=START)
+        assert len(calls) == 1
+        at += timedelta(seconds=40)
+        checks.run_check(db, started=START)
+        assert len(calls) == 2
+        assert checks.read(db, checks.RESULT)["scheduled_at"] == (slot + timedelta(days=1)).isoformat()
+
+
+def test_unparseable_installed_version_suppresses_cached_and_new_notices(sessions, monkeypatch):
+    seed(sessions)
+    entries = [release("v9.0.0", "### Security")]
+    cached = releases.parse_releases(entries, "2.5.0")
+    monkeypatch.setattr(checks, "backend_version", lambda: "dev")
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, json=entries))
+    monkeypatch.setattr(checks, "fetch_releases", lambda v: releases.fetch_releases(v, transport=transport))
+    with sessions() as db:
+        checks.write(db, checks.RESULT, {"outcome": "ok", **cached})
+        db.commit()
+        assert checks.update_notices(db, 1) == []
+        state = checks.run_check(db)
+        assert checks.read(db, checks.RESULT)["outcome"] == state["outcome"] == "unknown_installed_version"
+        assert not state["available"] and not state["security"]
+        assert checks.update_notices(db, 1) == []
+
+
+@pytest.mark.parametrize("filename", ["docker-compose.yml", "install/docker-compose.yml", "docker-compose.enterprise.yml"])
+def test_compose_forwards_update_policy_to_every_odin_service(filename):
+    services = yaml.safe_load((Path(__file__).resolve().parents[2] / filename).read_text())["services"]
+    for name, service in services.items():
+        if "build" not in service and name != "odin":
+            continue
+        env = service["environment"]
+        if isinstance(env, list):
+            env = dict(entry.split("=", 1) for entry in env if "=" in entry)
+        for key in ("ODIN_ITAR_MODE", "ODIN_UPDATE_CHECK"):
+            assert env.get(key) == "${" + key + ":-}", (name, key)
+
+
+@pytest.mark.parametrize("enabled,failed,offset", [(False, False, 0), (True, False, 0), (True, True, 14), (True, True, 30)])
+def test_supervised_runner_across_three_days(sessions, monkeypatch, enabled, failed, offset):
     from modules.reporting import report_runner as runner
-    offset = 14 if failed else 0
     if enabled:
         seed(sessions, offset)
     clock = [START]
@@ -134,7 +249,7 @@ def test_supervised_runner_across_three_days(sessions, monkeypatch, enabled, fai
     monkeypatch.setattr(runner, "_check_database_guardian", lambda: None)
     with pytest.raises(Finished):
         runner.main_loop()
-    assert attempts == ([START + timedelta(days=d, minutes=max(offset, 1)) for d in range(3)] if enabled else [])
+    assert attempts == ([START + timedelta(days=d, minutes=max(offset, 15)) for d in range(3)] if enabled else [])
 
 
 @pytest.mark.parametrize("mode", ["itar", "off"])
@@ -253,13 +368,22 @@ os.environ["ODIN_ITAR_MODE"] = "1"
 assert admin.post(path+"/check").json()["detail"] == checks.ITAR_REASON
 assert admin.put(path,json={"enabled":True}).status_code == 409
 assert not listing(admin)
+assert not toggle(False)["enabled"]
 os.environ.pop("ODIN_ITAR_MODE")
+assert not admin.get(path).json()["enabled"]
 assert not toggle(False)["enabled"] and not listing(admin)
 toggle(False)
 toggle(True)
 assert first["offset_minutes"] == pref()["offset_minutes"]
 rows = sql("SELECT details, actor_username FROM audit_logs WHERE action='update_check.changed' ORDER BY id")
 assert [(json.loads(d)["enabled"], actor) for d,actor in rows] == [(True,"owner"),(False,"owner"),(True,"owner")]
+os.environ["ODIN_UPDATE_CHECK"] = "off"
+assert not toggle(False)["enabled"]
+assert admin.put(path, json={"enabled":True}).status_code == 409
+os.environ.pop("ODIN_UPDATE_CHECK")
+assert not pref()["enabled"] and not admin.get(path).json()["enabled"]
+assert sql("SELECT actor_username FROM audit_logs WHERE action='update_check.changed' ORDER BY id DESC LIMIT 1")[0][0] == "owner"
+toggle(True)
 sql("CREATE TRIGGER refuse_update_audit BEFORE INSERT ON audit_logs WHEN NEW.action='update_check.changed' "
     "BEGIN SELECT RAISE(ABORT,'audit unavailable'); END")
 assert admin.put(path, json={"enabled":False}).status_code >= 500
