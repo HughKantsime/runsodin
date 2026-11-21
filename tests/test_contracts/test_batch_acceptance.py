@@ -345,3 +345,145 @@ def test_optional_sender_never_overrides_contradictory_retained_evidence(batch,s
          'payload':('a' if sha_match else 'c')*64,'nonce':uuid.uuid4().hex,'state':state})
     db.commit()
     assert batch[0].post('/products/production/inspections', json=body(batch,recipe)).status_code == (200 if accepted else 409)
+
+
+def test_count_details_first_write_and_square_bytes(batch, monkeypatch):
+    from modules.orders import batch_production as service
+    from modules.system.audit_siem import payload
+    client, _, _, db, *_ = batch
+    request = body(batch, make_recipe(batch))
+    monkeypatch.setattr(service, 'now', lambda: '2026-11-21T09:00:00Z')
+    url = '/products/production/inspections'
+    assert client.post(url, json=request).status_code == 200
+    original = db.execute(select(service.additions.c.request_body)).scalar_one().encode()
+    # Replay the identical physical fixture from before its first inspection.
+    db.execute(service.additions.delete())
+    db.execute(service.receipts.delete())
+    db.commit()
+    saved = client.post(url, json={**request, 'counted_by': '  Robin ', 'note': ' Second tray '}).json()
+    assert saved['counted_by'] == 'Robin' and saved['note'] == 'Second tray'
+    assert client.post(url, json={**request, 'counted_by': 'Avery', 'note': 'New note'}).json() == saved
+    assert client.get('/products/production/history').json()['receipts'] == [saved]
+    assert db.execute(select(service.additions.c.request_body)).scalar_one().encode() == original
+    assert db.execute(select(service.receipts.c.id)).scalars().all() == [saved['id']]
+    details = db.execute(text("SELECT details FROM audit_logs WHERE action='production.inspected' ORDER BY id DESC LIMIT 1")).scalar_one()
+    assert json.loads(details)['counted_by_present'] is True and json.loads(details)['note_present'] is True
+    assert json.loads(payload({'action':'production.inspected','details':details}))['details'] == details
+    assert 'Robin' not in details
+    stored = db.execute(select(service.receipts.c.definition)).scalar_one()
+    assert json.loads(stored)['counted_by'] == 'Robin' and json.loads(stored)['note'] == 'Second tray'
+    assert 'Second tray' not in details
+    assert b'Robin' not in payload({'action':'production.inspected','details':details})
+
+
+def test_invalid_count_details_return_422_on_each_form(batch):
+    from tests.test_contracts.test_finishing_workflow import bom, finish_body
+    recipe = make_recipe(batch)
+    preview = bom(batch)
+    forms = {'inspections': body(batch, recipe),
+             'components': {'job_id':301, 'accepted':1, 'rejected':0, 'unit_description':'Handle',
+                            'inspection_confirmed':True, 'single_component_type_confirmed':True},
+             'finishing': finish_body(batch, {'id':'a'*32}, preview)}
+    for route, data in forms.items():
+        for field, value in [('counted_by',' '), ('note',' '), ('counted_by','x'*121), ('note','x'*501),
+                             ('note','a\nb'), ('counted_by','\tRobin'), ('note','x\x7f'), ('note','a\u202eb')]:
+            response = batch[0].post('/products/production/'+route, json={**data, field:value})
+            assert response.status_code == 422, (route, field)
+
+
+def test_count_detail_boundaries_are_measured_after_trimming(batch):
+    data = body(batch,make_recipe(batch))
+    data.update(counted_by=' '+'a'*120+' ',note=' '+'b'*500+' ')
+    response = batch[0].post('/products/production/inspections',json=data)
+    assert response.status_code == 200
+    assert response.json()['counted_by'] == 'a'*120 and response.json()['note'] == 'b'*500
+
+
+@pytest.mark.parametrize('name,note,stored_note', [
+    ('علی\u200cرضا', 'Counted', 'Counted'),
+    ('Avery', 'क्\u200dष', 'क्\u200dष'),
+    ('Avery', '\u3000Second\u00a0tray\u3000', 'Second tray'),
+])
+def test_inspection_unicode_details_round_trip(batch, name, note, stored_note):
+    data = {**body(batch, make_recipe(batch)), 'counted_by':name, 'note':note}
+    response = batch[0].post('/products/production/inspections', json=data)
+    assert response.status_code == 200, response.text
+    saved, = batch[0].get('/products/production/history').json()['receipts']
+    assert (saved['counted_by'], saved['note']) == (name, stored_note)
+
+
+def test_inspection_key_reuse_after_private_success(batch, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+    from core import db as database
+    from core.middleware.idempotency import idempotency_middleware
+    from modules.orders.routes.batches import router
+    from tests.test_contracts.test_production_operator_token import authenticate
+
+    data = body(batch, make_recipe(batch))
+    authenticate(batch)
+    app = FastAPI()
+    app.include_router(router, prefix='/api')
+    app.dependency_overrides.update(batch[4].dependency_overrides)
+    app.middleware('http')(idempotency_middleware)
+    monkeypatch.setattr(database, 'SessionLocal', sessionmaker(bind=batch[3].get_bind()))
+    url = '/api/products/production/inspections'
+    with TestClient(app, headers=batch[0].headers) as client:
+        headers = {'Idempotency-Key': 'private-inspection'}
+        saved = client.post(url, json=data, headers=headers)
+        assert saved.status_code == 200, saved.text
+        assert saved.headers['Cache-Control'] == 'private, no-store'
+        for retry in (data, {**data, 'note':'Changed'}, {**data, 'note':' '}):
+            response = client.post(url, json=retry, headers=headers)
+            assert response.status_code == 409
+            assert response.json()['error']['code'] == 'idempotency_uncacheable_success'
+        changed = client.post(url, json={**data, 'note':'Changed'}, headers={'Idempotency-Key':'another-key'})
+        assert changed.status_code == 200 and changed.json() == saved.json()
+        hashes = batch[3].execute(text('SELECT request_hash FROM idempotency_keys')).scalars().all()
+        assert len(set(hashes)) == 2
+        invalid = client.post(url, json={**data, 'note':' '}, headers={'Idempotency-Key':'fresh-key'})
+        assert invalid.status_code == 422
+        assert client.post(url, json=data).json() == saved.json()
+    assert batch[3].execute(text('SELECT count(*) FROM production_acceptances')).scalar_one() == 1
+
+
+@pytest.mark.parametrize('key_case', ['absent', 'rotated'])
+def test_count_details_independent_of_installation_key(batch, monkeypatch, key_case):
+    from cryptography.fernet import Fernet
+    from tests.test_contracts.test_finishing_workflow import bom, finish_body
+
+    client = batch[0]
+    url = '/products/production'
+    data = body(batch, make_recipe(batch))
+    # Disconnect Square to isolate the inspection fields from credential encryption.
+    assert client.delete('/products/square', params={'revision':batch[-1]['revision']}).status_code == 200
+    data['outputs'][0].update(accepted=0, rejected=5)
+    data.update(counted_by='Jess', note='Tray "B"')
+    component = {'job_id':301, 'accepted':1, 'rejected':0, 'unit_description':'Handle',
+                 'inspection_confirmed':True, 'single_component_type_confirmed':True,
+                 'counted_by':'Ren', 'note':'Left bin'}
+    if key_case == 'absent':
+        monkeypatch.delenv('ENCRYPTION_KEY')
+    def record(path, request):
+        result = client.post(f'{url}/{path}', json=request)
+        assert result.status_code == 200, result.text
+        assert result.json()['note'] == request['note']
+        return result.json()
+
+    record('inspections', data)
+    lot = record('components', component)
+    assembly = {**finish_body(batch, lot, bom(batch), good=0, bad=1), 'note':'Assembly check'}
+    record('finishing', assembly)
+
+    if key_case == 'rotated':
+        monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    for path, collection, request in [('', 'receipts', data), ('/history', 'receipts', data),
+                                      ('/finishing', 'components', component), ('/finishing', 'finishes', assembly),
+                                      ('/finishing/101/requirements', 'components', component)]:
+        result = client.get(url + path)
+        assert result.status_code == 200, result.text
+        assert request['note'] in [r['note'] for r in result.json()[collection]]
+    for path, request in [('inspections', data), ('components', component), ('finishing', assembly)]:
+        retry = client.post(f'{url}/{path}', json={**request, 'note':'Changed'})
+        assert retry.status_code == 200 and retry.json()['note'] == request['note']

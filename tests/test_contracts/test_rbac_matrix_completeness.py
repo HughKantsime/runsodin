@@ -178,3 +178,10 @@ def test_rfid_onboarding_is_in_live_matrix_and_declares_scopes_on_both_aliases(t
 def test_pause_reminder_settings_are_in_the_matrix(table):
     assert ['__odin_rbac_action__', ['settings.edit', None]] in table[('PUT', '/api/config/pause-reminders')]
     assert ('GET', '/api/config/pause-reminders') in table
+
+
+@pytest.mark.parametrize('route', ['components', 'finishing'])
+def test_assembly_writes_declare_only_explicit_production_scope(table, route):
+    for prefix in ('/api', '/api/v1'):
+        marks = table[('POST', f'{prefix}/products/production/{route}')]
+        assert {v for k, v in marks if k == '__odin_token_scope__'} == {'write:production'}

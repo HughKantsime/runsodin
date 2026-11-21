@@ -227,7 +227,7 @@ def eligible(db, owner, offset):
 
 # Acceptance rules intentionally mirror the unchanged ODIN receipt path.
 from modules.orders.batch_production import (now, fail, packed, recipe, recipe_payload,
-    single_print_product, receipt_public, receipts, additions)
+    single_print_product, inspection_id, receipt_public, receipts, additions)
 from modules.orders.square_client import SquareReader
 from sqlalchemy.exc import IntegrityError
 import hashlib
@@ -235,6 +235,8 @@ outside_evidence = evidence
 
 
 def inspect(db, user, data):
+    if data.supplement_of:
+        fail('Additional pieces can only be recorded for an ODIN job. Outside prints (print_job_id) are not supported yet.')
     owner = square.tenant(user)
     square.lock_owner(db, owner, user)
     from modules.orders.finishing import lock as lock_finishing
@@ -321,7 +323,7 @@ def inspect(db, user, data):
             quantities[product.id] = quantities.get(product.id,0) + send_quantity
     destination, changes = None, []
     timestamp = now()
-    identifier = uuid.uuid5(uuid.NAMESPACE_URL, f"odin:acceptance:v1:{owner}:{evidence['observation_uid']}:{evidence['claim_token']}").hex
+    identifier = inspection_id(owner, evidence, data.supplement_of)
     if quantities:
         destination = {'merchant_id':doc['merchant_id'],'environment':doc['environment']}
         for product_id, quantity in sorted(quantities.items()):
@@ -334,7 +336,7 @@ def inspect(db, user, data):
                 'catalog_object_id':mapping['variation_id'],'from_location_id':mapping['location_id'],'to_location_id':mapping['location_id'],
                 'from_state':'NONE','to_state':'IN_STOCK','quantity':str(quantity),
                 'occurred_at':timestamp,'reference_id':identifier}})
-    definition = {'version':1,'job_id':data.job_id,'job_uid':evidence['economic_uid'],
+    definition = {**data.receipt_details(), 'version':1,'job_id':data.job_id,'job_uid':evidence['economic_uid'],
         'physical_uid':evidence['observation_uid'],'occurred_at':timestamp,'recipe_name':spec['name'],
         'outputs':accepted_outputs,'stock_status':'prepared' if quantities else ('in_baseline' if any(o['accepted'] for o in accepted_outputs) else 'no_sellable_output')}
     definition.update({'print_job_id':data.print_job_id,'odin_dispatched':False,'owner_attested':True,
@@ -347,7 +349,7 @@ def inspect(db, user, data):
                 destination=packed(destination),request_body=packed({'idempotency_key':identifier,'changes':changes}),
                 state='prepared',attempts=0))
         audit(db, 'production.inspected', 'production_acceptance', None,
-            {'receipt_id':identifier, 'print_job_id':data.print_job_id, 'binding_id':evidence['claim_token'], 'actor_user_id':user['id'],
+            {**data.audit_details(), 'receipt_id':identifier, 'print_job_id':data.print_job_id, 'binding_id':evidence['claim_token'], 'actor_user_id':user['id'],
              'auth_kind':user.get('_auth_kind'), 'actor_token_id':user.get('_token_id')})
         db.commit()
     except IntegrityError:

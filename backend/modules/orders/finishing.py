@@ -11,12 +11,15 @@ from pydantic import BaseModel,ConfigDict,Field,StrictInt,StrictBool
 from sqlalchemy import select,update,cast,String,text
 from sqlalchemy.exc import IntegrityError
 from core.models import SystemConfig
+from core.inspection_details import InspectionDetails
 from modules.orders import square_store as store,batch_production as batches
+from modules.orders.production_auth import is_password_session
 
 PREFIX='production_finishing:'
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
-class ComponentInput(Input):
+
+class ComponentInput(InspectionDetails, Input):
     job_id:StrictInt=Field(gt=0)
     accepted:StrictInt=Field(ge=0,le=10000)
     rejected:StrictInt=Field(ge=0,le=10000)
@@ -28,7 +31,7 @@ class Allocation(Input):
     quantity:StrictInt=Field(gt=0,le=10000)
 from modules.orders.material_schemas import HardwareUse
 
-class FinishInput(Input):
+class FinishInput(InspectionDetails, Input):
     request_id:str=Field(pattern=r'^[a-f0-9]{32}$')
     product_id:StrictInt=Field(gt=0)
     bom_hash:str=Field(pattern=r'^[a-f0-9]{64}$')
@@ -82,7 +85,7 @@ def model_snapshot(db,owner,model_id,*,locked=False):
 def inspect(db,user,data):
     owner=store.tenant(user);doc,raw=lock(db,owner,user)
     if not data.inspection_confirmed or not data.single_component_type_confirmed or data.accepted+data.rejected<1:raise HTTPException(409,'Inspect and count one component type. Mixed-part plates need distinct source models before acceptance.')
-    evidence=batches.job_evidence(db,owner,data.job_id,lock=True);request_hash=digest(data.model_dump())
+    evidence=batches.job_evidence(db,owner,data.job_id,lock=True);request_hash=digest(data.model_dump(exclude={'counted_by', 'note'}))
     old=component_for_job(doc,evidence['economic_uid'])
     if old:
         if old['request_hash']!=request_hash:raise HTTPException(409,'This component batch already has a different retained inspection')
@@ -90,11 +93,17 @@ def inspect(db,user,data):
     if db.execute(select(batches.receipts.c.id).where(batches.receipts.c.job_uid==evidence['economic_uid'])).first():raise HTTPException(409,'This job already has finished-product acceptance. Do not count it again as components.')
     if len(doc['components'])>=500:raise HTTPException(409,'Component receipt capacity reached; retain history for review.')
     identifier=uuid.uuid5(uuid.NAMESPACE_URL,'odin:component:'+evidence['economic_uid']).hex
-    row={'id':identifier,'job_id':data.job_id,'job_uid':evidence['economic_uid'],'claim_token':evidence['claim_token'],
+    row={**data.receipt_details(), 'id':identifier,'job_id':data.job_id,'job_uid':evidence['economic_uid'],'claim_token':evidence['claim_token'],
          'source':model_snapshot(db,owner,evidence['model_id'],locked=True),'payload':batches.recipe_payload(evidence),
          'physical_uid':evidence['observation_uid'],'accepted':data.accepted,'rejected':data.rejected,'unit_description':data.unit_description,
          'request_hash':request_hash,'occurred_at':batches.now(),'stock_status':'components_only'}
-    doc['components'][identifier]=row;save(db,owner,doc,raw);db.commit();return row
+    doc['components'][identifier]=row;save(db,owner,doc,raw)
+    from core.audit import log_audit
+    log_audit(db, 'production.component_inspected', 'production_acceptance', None,
+              {'receipt_id': identifier, 'operator_id': user['id'], 'auth_kind': user.get('_auth_kind'),
+               'api_token_id': user.get('_token_id'), **data.audit_details()})
+    db.commit()
+    return row
 
 def requirements(db,owner,product_id,*,locked=False):
     product=store.own_product(db,owner,product_id,lock=locked)
@@ -139,7 +148,7 @@ def preview(db,user,product_id):
     return {'hardware_stock':hardware_stock,'bom':snapshot,'bom_hash':bom_hash,'components':[dict(row,available=balances[rid],source_current=(row['source']==snapshot['sources'].get(str(row['source']['model_id'])))) for rid,row in doc['components'].items() if str(row['source']['model_id']) in snapshot['sources']], 'stock_updated':False}
 
 def finish(db,user,data):
-    owner=store.tenant(user);doc,raw=lock(db,owner,user);request_hash=digest(data.model_dump())
+    owner=store.tenant(user);doc,raw=lock(db,owner,user);request_hash=digest(data.model_dump(exclude={'counted_by', 'note'}))
     old=doc['finishes'].get(data.request_id)
     if old:
         if old['request_hash']!=request_hash:raise HTTPException(409,'This finishing request already has different retained facts')
@@ -161,7 +170,7 @@ def finish(db,user,data):
     if dict(supplied)!=expected:raise HTTPException(409,'Consumed components must exactly match the BOM for accepted plus rejected assemblies')
     timestamp=batches.now();identifier=uuid.uuid5(uuid.NAMESPACE_URL,f'odin:finish:{owner}:{data.request_id}').hex
     output={'product_id':data.product_id,'product_name':snapshot['product_name'],'kind':'main','expected':data.accepted+data.rejected,'accepted':data.accepted,'rejected':data.rejected}
-    row={'id':identifier,'kind':'assembly','occurred_at':timestamp,'request_hash':request_hash,'bom':snapshot,'bom_hash':bom_hash,
+    row={**data.receipt_details(), 'id':identifier,'kind':'assembly','occurred_at':timestamp,'request_hash':request_hash,'bom':snapshot,'bom_hash':bom_hash,
          'allocations':[a.model_dump() for a in data.allocations],'outputs':[output], 'recipe_name':'Physical finishing: '+snapshot['product_name'],
          'assembly_confirmed':True,'hardware_confirmed':True,'stock_status':'prepared' if data.accepted else 'no_sellable_output'}
     from modules.orders.material_purchases import consume_hardware,whole
@@ -170,7 +179,8 @@ def finish(db,user,data):
         expected=h['quantity_per_product']*(data.accepted+data.rejected)
         if h['managed']:expected=whole(expected)
         uses.append({**h,'expected_units':expected})
-    row['material_use']=consume_hardware(db,owner,uses,data.hardware_usage,data.hardware_used_confirmed,identifier)
+    row['material_use']=consume_hardware(db,owner,uses,data.hardware_usage,data.hardware_used_confirmed,identifier,
+                                         allow_over_bom=is_password_session(user))
     if data.accepted:
         config,encoded=store.load(db,owner)
         if not config:raise HTTPException(409,'Connect and map the finished product to Square before accepting good assemblies')
@@ -181,7 +191,13 @@ def finish(db,user,data):
         dest={'merchant_id':config['merchant_id'],'environment':config['environment'],'connection_revision':config['revision']}
         change={'type':'ADJUSTMENT','adjustment':{'catalog_object_id':mapping['variation_id'],'from_location_id':mapping['location_id'],'to_location_id':mapping['location_id'],'from_state':'NONE','to_state':'IN_STOCK','quantity':str(data.accepted),'occurred_at':timestamp,'reference_id':identifier}}
         db.execute(batches.additions.insert().values(id=uuid.uuid4().hex,owner=owner,receipt_id=identifier,destination=batches.packed(dest),request_body=batches.packed({'idempotency_key':identifier,'changes':[change]}),state='prepared',attempts=0))
-    doc['finishes'][data.request_id]=row;save(db,owner,doc,raw);db.commit();return row
+    doc['finishes'][data.request_id]=row;save(db,owner,doc,raw)
+    from core.audit import log_audit
+    log_audit(db, 'production.assembly_finished', 'production_acceptance', None,
+              {'receipt_id': identifier, 'operator_id': user['id'], 'auth_kind': user.get('_auth_kind'),
+               'api_token_id': user.get('_token_id'), **data.audit_details()})
+    db.commit()
+    return row
 
 def receipt(db,owner,receipt_id):
     doc,_=load(db,owner);return next((r for r in doc['finishes'].values() if r['id']==receipt_id),None)

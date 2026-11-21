@@ -1,6 +1,7 @@
 """Explicit inspection inputs. Output quantities are pieces, never stock totals."""
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictBool, model_validator
+from core.inspection_details import InspectionDetails
 
 class Output(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -10,6 +11,7 @@ class Output(BaseModel):
 
 class RecipeInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    extends_recipe_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
     reference_job_id: StrictInt = Field(gt=0)
     name: str = Field(min_length=1, max_length=160)
     materials: str = Field(min_length=1, max_length=1000)
@@ -24,7 +26,9 @@ class InspectedOutput(BaseModel):
     rejected: StrictInt = Field(ge=0, le=10000)
     baseline_disposition: Literal['in_baseline', 'send'] | None = None
 
-class InspectionInput(BaseModel):
+class InspectionInput(InspectionDetails):
+    supplement_of: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
+    not_already_added_confirmed: StrictBool = False
     model_config = ConfigDict(extra='forbid')
     recipe_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     job_id: StrictInt | None = Field(default=None, gt=0)

@@ -20,8 +20,8 @@ def operation(db, owner, addition_id):
 
 def snapshot(db, owner, row, *, lock=False, enforce_barrier=True):
     request=wire.read_request(row['request_body'])
-    receipt=db.execute(select(batches.receipts).where(batches.receipts.c.owner==owner,
-        batches.receipts.c.id==row['receipt_id'])).mappings().one_or_none()
+    receipt=db.execute(select(batches.all_receipts).where(batches.all_receipts.c.owner==owner,
+        batches.all_receipts.c.id==row['receipt_id'])).mappings().one_or_none()
     if receipt is None:
         from modules.orders.finishing import receipt as finish_receipt
         finished=finish_receipt(db,owner,row['receipt_id'])

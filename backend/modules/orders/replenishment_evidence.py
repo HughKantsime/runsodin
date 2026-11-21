@@ -119,7 +119,7 @@ class Ownership:
         if isinstance(value, BaseModel):
             fields = {'job_id': 'job', 'reference_job_id': 'job', 'model_id': 'model', 'bom_model_id': 'model',
                       'print_file_id': 'file', 'product_id': 'product', 'printer_id': 'printer',
-                      'print_job_id': 'print job', 'recipe_id': 'recipe'}
+                      'print_job_id': 'print job', 'recipe_id': 'recipe', 'extends_recipe_id': 'recipe'}
             for key in type(value).model_fields:
                 item = getattr(value, key)
                 if key in fields and item is not None:
@@ -228,8 +228,8 @@ def scan(db, owner):
         problem('Pending-addition')
     # Validate receipts before allowing their job UID to suppress completed work.
     uids = [uid for _, uid in jobs if uid]
-    receipt_rows = db.execute(select(batches.receipts).where(batches.receipts.c.owner == owner,
-        (batches.receipts.c.id.in_(outstanding)) | (batches.receipts.c.job_uid.in_(uids))).limit(LIMIT + 1)).mappings().all()
+    receipt_rows = db.execute(select(batches.all_receipts).where(batches.all_receipts.c.owner == owner,
+        (batches.all_receipts.c.id.in_(outstanding)) | (batches.all_receipts.c.job_uid.in_(uids))).limit(LIMIT + 1)).mappings().all()
     if len(receipt_rows) > LIMIT:
         problem('Receipt')
     receipts, inspected = {}, set()

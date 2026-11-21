@@ -10,11 +10,13 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import select, update, text, func
 from sqlalchemy.exc import IntegrityError
+from modules.orders import inspection_supplements as supplements
 from modules.orders import square_store as square
 from modules.orders.square_client import SquareReader
 
 schema = importlib.import_module('core.schema.migrations.035_production_acceptance')
 recipes, receipts, additions = schema.TABLES
+all_receipts = supplements.receipt_rows(receipts)
 
 
 def packed(value):
@@ -132,11 +134,26 @@ def create_recipe(db, user, data):
     square.lock_owner(db, owner, user)
     from modules.orders.finishing import lock as lock_finishing
     component_state,_=lock_finishing(db,owner,user)
-    if token and any(json.loads(row).get('reference_job_id') == data.reference_job_id
+    if token and not data.extends_recipe_id and any(json.loads(row).get('reference_job_id') == data.reference_job_id
                      for row in db.execute(select(recipes.c.definition).where(recipes.c.owner == owner)).scalars()):
         fail('This job is already a recipe reference. Choose a new completed reference job.')
     evidence = job_evidence(db, owner, data.reference_job_id, lock=True)
+    if data.extends_recipe_id:
+        parent = recipe(db, owner, data.extends_recipe_id)
+        if not parent['qualified'] or parent.get('reference_job_id') != data.reference_job_id:
+            fail('Choose a qualified recipe and its original reference job.')
+        if (parent.get('reference_claim_token') != evidence['claim_token']
+                or parent.get('reference_observation_uid') != evidence['observation_uid']):
+            fail('The original reference print has changed. Choose its original job.')
+        from modules.orders.recipe_matching import assert_payload_matches
+        assert_payload_matches(recipe_payload(evidence), parent['payload'])
+        original = {(o['product_id'], o['kind']): o['expected'] for o in parent['outputs']}
+        revised = {(o.product_id, o.kind): o.expected for o in data.outputs}
+        added = revised.keys() - original.keys()
+        if not original.items() <= revised.items() or not added or any(kind != 'flush' for _, kind in added):
+            fail('Keep every original output and quantity, then add at least one flush output.')
     result = stage_recipe(db, owner, data, evidence, {
+        **({'extends_recipe_id': data.extends_recipe_id} if data.extends_recipe_id else {}),
         'reference_job_id': data.reference_job_id, 'reference_claim_token': evidence['claim_token'],
         **({'qualified_by_token': True, 'operator_id': user['id'], 'api_token_id': user.get('_token_id')} if token else {})})
     from core.audit import log_audit
@@ -173,8 +190,15 @@ def stage_recipe(db, owner, data, evidence, source):
     return {'id':identifier, **definition}
 
 
+def inspection_id(owner, evidence, supplement_of):
+    if supplement_of:
+        return uuid.uuid5(uuid.NAMESPACE_URL, 'odin:supplement:' + supplement_of).hex
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"odin:acceptance:v1:{owner}:{evidence['observation_uid']}:{evidence['claim_token']}").hex
+
+
 def receipt_public(row):
-    return {**json.loads(row['definition']), 'id':row['id'], 'recipe_id':row['recipe_id']}
+    return {**json.loads(row['definition']), 'id':row['id'], 'recipe_id':row['recipe_id'],
+            **({'supplement_of': row['supplement_of']} if row.get('supplement_of') else {})}
 
 
 def inspect_batch(db, user, data):
@@ -194,6 +218,19 @@ def inspect_batch(db, user, data):
     if component_for_job(component_state,evidence['economic_uid']):
         fail('This job is already inspected as components. Finish the assembly instead of counting it again.')
     previous = db.execute(select(receipts).where(receipts.c.job_uid == evidence['economic_uid'])).mappings().one_or_none()
+    first = None
+    if data.supplement_of:
+        if not data.not_already_added_confirmed:
+            fail('Confirm that these pieces have not already been added to Square by hand.')
+        if not previous or previous['owner'] != owner or previous['id'] != data.supplement_of:
+            fail('Choose the first inspection receipt for this job.')
+        first = {**json.loads(previous['definition']), 'id': previous['id'], 'recipe_id': previous['recipe_id']}
+        if first.get('physical_uid') != evidence['observation_uid'] or previous['claim_token'] != evidence['claim_token']:
+            fail('The physical print differs from the first inspection.')
+        if first.get('job_id') != data.job_id or spec.get('extends_recipe_id') != first['recipe_id']:
+            fail('Choose a recipe that extends the recipe from the first inspection.')
+        previous = db.execute(select(all_receipts).where(
+            all_receipts.c.supplement_of == first['id'], all_receipts.c.owner == owner)).mappings().one_or_none()
     if previous:
         if previous['owner'] != owner or previous['request_hash'] != request_hash:
             fail('This physical batch already has a different inspection receipt')
@@ -201,6 +238,9 @@ def inspect_batch(db, user, data):
     from modules.orders.recipe_matching import assert_payload_matches, resolve_for_evidence
     spec = resolve_for_evidence(db, owner, spec, evidence)
     assert_payload_matches(recipe_payload(evidence), spec['payload'])
+    if first:
+        counted_keys = {(o['product_id'], o['kind']) for o in first['outputs']}
+        spec = {**spec, 'outputs': [o for o in spec['outputs'] if (o['product_id'], o['kind']) not in counted_keys]}
     expected = {(o['product_id'],o['kind']):o for o in spec['outputs']}
     supplied = {(o.product_id,o.kind):o for o in data.outputs}
     if len(supplied) != len(data.outputs) or set(expected) != set(supplied):
@@ -253,7 +293,7 @@ def inspect_batch(db, user, data):
             quantities[product.id] = quantities.get(product.id,0) + send_quantity
     destination, changes = None, []
     timestamp = now()
-    identifier = uuid.uuid5(uuid.NAMESPACE_URL, f"odin:acceptance:v1:{owner}:{evidence['observation_uid']}:{evidence['claim_token']}").hex
+    identifier = inspection_id(owner, evidence, data.supplement_of)
     if quantities:
         destination = {'merchant_id':doc['merchant_id'],'environment':doc['environment']}
         for product_id, quantity in sorted(quantities.items()):
@@ -266,19 +306,24 @@ def inspect_batch(db, user, data):
                 'catalog_object_id':mapping['variation_id'],'from_location_id':mapping['location_id'],'to_location_id':mapping['location_id'],
                 'from_state':'NONE','to_state':'IN_STOCK','quantity':str(quantity),
                 'occurred_at':timestamp,'reference_id':identifier}})
-    definition = {'version':1,'job_id':data.job_id,'job_uid':evidence['economic_uid'],
+    definition = {**data.receipt_details(), 'version':1,'job_id':data.job_id,'job_uid':evidence['economic_uid'],
         'physical_uid':evidence['observation_uid'],'occurred_at':timestamp,'recipe_name':spec['name'],
         'outputs':accepted_outputs,'stock_status':'prepared' if quantities else ('in_baseline' if any(o['accepted'] for o in accepted_outputs) else 'no_sellable_output')}
     try:
-        db.execute(receipts.insert().values(id=identifier,owner=owner,job_uid=evidence['economic_uid'],
-            claim_token=evidence['claim_token'],recipe_id=data.recipe_id,request_hash=request_hash,definition=packed(definition)))
+        if first:
+            definition['not_already_added_confirmed'] = True
+            supplements.insert(db, first['id'], identifier, data.recipe_id, request_hash, packed(definition))
+            definition['supplement_of'] = first['id']
+        else:
+            db.execute(receipts.insert().values(id=identifier,owner=owner,job_uid=evidence['economic_uid'],
+                claim_token=evidence['claim_token'],recipe_id=data.recipe_id,request_hash=request_hash,definition=packed(definition)))
         if changes:
             db.execute(additions.insert().values(id=uuid.uuid4().hex,owner=owner,receipt_id=identifier,
                 destination=packed(destination),request_body=packed({'idempotency_key':identifier,'changes':changes}),
                 state='prepared',attempts=0))
         from core.audit import log_audit
         log_audit(db, 'production.inspected', 'production_acceptance', None,
-            {'receipt_id':identifier, 'job_id':data.job_id, 'operator_id':user['id'],
+            {**data.audit_details(), 'receipt_id':identifier, 'job_id':data.job_id, 'operator_id':user['id'],
              'auth_kind':user.get('_auth_kind'), 'api_token_id':user.get('_token_id')})
         db.commit()
     except IntegrityError:

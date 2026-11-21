@@ -125,6 +125,40 @@ def test_finishing_consumes_actual_managed_hardware_once(materials):
     assert materials[0].get(BASE).json()['materials'][0]['current_stock']==2
     assert materials[3].execute(text('SELECT count(*) FROM consumable_usage WHERE consumable_id=:id'),{'id':cid}).scalar_one()==2 # One physical receipt and one actual use.
 
+
+@pytest.mark.parametrize('caller,units,status', [('token', 9, 409), ('session', 9, 200), ('token', 8, 200)])
+def test_only_password_session_can_record_hardware_above_bom(materials, caller, units, status):
+    from core.dependencies import get_current_user
+    from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers
+    from tests.test_contracts.test_production_operator_token import authenticate
+    cid, payload = assembly_setup(materials)
+    if caller == 'token':
+        authenticate(materials)
+    else:
+        materials[4].dependency_overrides.pop(get_current_user)
+        materials[0].cookies.set('session', interactive_headers()['Authorization'].split()[1])
+    payload['hardware_usage'][0].update(units=units, reason='One damaged during assembly' if units > 8 else '')
+    response = materials[0].post('/products/production/finishing', json=payload)
+    assert response.status_code == status, response.text
+    if status == 409:
+        assert 'web app' in response.json()['detail']
+    else:
+        assert response.json()['material_use']['managed'][0]['used_units'] == units
+    stock = materials[3].execute(text('SELECT current_stock FROM consumables WHERE id=:id'), {'id':cid}).scalar_one()
+    assert stock == (10 if status == 409 else 10 - units)
+
+@pytest.mark.parametrize('kind,scopes', [('other', []), ('bearer_jwt', ['write:production'])])
+def test_finishing_service_requires_unscoped_session_for_excess_hardware(materials, kind, scopes):
+    from fastapi import HTTPException
+    from modules.orders.finishing import FinishInput, finish
+
+    _, payload = assembly_setup(materials)
+    payload['hardware_usage'][0].update(units=9, reason='One damaged during assembly')
+    user = {**materials[1], '_auth_kind':kind, '_token_scopes':scopes}
+    with pytest.raises(HTTPException) as error:
+        finish(materials[3], user, FinishInput(**payload))
+    assert error.value.status_code == 409 and 'exceeds the BOM' in error.value.detail
+
 @pytest.mark.parametrize('mode',['missing','confirmation','shortage','difference_reason'])
 def test_finishing_bad_usage_or_shortage_rolls_back_all(materials,mode):
     cid,payload=assembly_setup(materials,5 if mode=='shortage' else 10)

@@ -2,15 +2,18 @@
 
 A password-authenticated admin or operator can create a per-user token with explicit `write:production`. Its owner must still have operator/admin role at use time. Include `read` for the production overview, recipes, general `/api/jobs` reads and Square stock reads. The older `/api/products/production/jobs` eligibility list additionally requires generic `write`; the existing claude-operator token already has it. Existing job/upload/printer scopes are separate. Generic `write`, `admin` and `agent:write` do not imply this explicit permission.
 
-Permitted writes:
+## Permitted production operations
 
 - `POST /api/products/production/outside-prints/{print_job_id}/bind`
 - `POST /api/products/production/recipes` (completed ODIN-dispatched reference, stable configuration evidence, owner-count confirmation)
+- `POST /api/products/production/components` records inspected printed parts.
+- Before finishing, fetch the current BOM hash with `GET /api/products/production/finishing/{product_id}/requirements`.
+- `POST /api/products/production/finishing` records inspected assemblies and actual hardware use up to the BOM quantity for accepted and rejected assemblies. Record excess hardware use in the web app.
 - `POST /api/products/production/inspections`
 - `POST /api/products/production/additions/{addition_id}/check`
 - `POST /api/products/batches/additions/{addition_id}/send`
 
-This does not grant credential creation, Square connection changes, stock activation, mapping/baseline changes, outside-print recipe qualification, assortment configuration or finishing. Those retain their existing password-session requirements. Configured action access, tenant ownership and the operator role floor still apply. A global API key does not qualify.
+This does not grant credential creation, Square connection changes, stock activation, mapping/baseline changes or assortment configuration. Their existing permission checks still apply. Configured action access, tenant ownership and the operator role floor still apply. A global API key does not qualify.
 
 The send reply’s `square_writes_enabled` reports the switch state when the send was reserved.
 
@@ -22,6 +25,10 @@ The send reply’s `square_writes_enabled` reports the switch state when the sen
 4. Locate the addition by receipt ID, check it, then explicitly send it if authorized. Both server and tenant activation keys must already be enabled by an interactive admin.
 5. Verify addition `state: confirmed` and read Square stock. Report the actual result. The immutable receipt/idempotency key and reservation prevent duplicate stock on retry.
 6. For an unknown outcome, check the existing addition. Do not create another receipt or send again. Reconciliation matches Square adjustment history; unresolved outcomes need human review.
+
+Inspections, component counts and finished assemblies accept optional `counted_by` and `note` fields. The first saved values appear on the receipt. ODIN stores both fields as plain text. You can search for either in production history. The audit row records only whether each field was supplied.
+
+For flush pieces found later on an ODIN-dispatched job, qualify a recipe with `extends_recipe_id` and the original reference job. Submit the added outputs with `supplement_of` set to the first receipt ID and `not_already_added_confirmed` set to true after checking Square. Use the new receipt ID to locate its own stock addition.
 
 Inspection creation and send reservation stage audit records in the same transaction, with operator ID, authentication kind and nonsecret token ID. Token values belong only in the user's secret store.
 

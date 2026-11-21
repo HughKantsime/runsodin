@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import pytest
+from tests.test_contracts.test_batch_acceptance import batch, shop
 from sqlalchemy import text
 from tests.test_contracts.test_audit_compliance_claim_acceptance import audit_client
 from tests.test_contracts.test_education_review_workflow import review_db
@@ -123,3 +124,42 @@ def test_audit_dates_refuse_datetime_numeric_and_noncanonical_coercion(audit_cli
     client, _ = audit_client
     assert client.get('/audit-logs', params={field:value}).status_code == 422
     assert client.get('/export/audit-logs', params={field:value}).status_code == 422
+
+
+def test_inspection_audit_records_presence_only(batch):
+    import license_manager
+    from modules.reporting.routes import exports
+    from modules.system.routes_audit_integrity import router as signed_router
+    from tests.test_contracts.test_batch_acceptance import make_recipe, body
+
+    client, user, _, db, app, *_ = batch
+    app.include_router(exports.router)
+    app.include_router(signed_router)
+    license_manager.get_installation_id()
+    license_manager.get_device_keypair()
+    data = body(batch, make_recipe(batch))
+    first = client.post('/products/production/inspections', json={
+        **data, 'counted_by':'Private counter', 'note':'Private note'})
+    empty = client.post('/products/production/inspections', json={**data, 'job_id':301})
+    assert first.status_code == empty.status_code == 200
+    user.update(group_id=None, _auth_kind='session_jwt')
+    params = {'action':'production.inspected'}
+    logs = client.get('/audit-logs', params=params).json()['logs']
+    assert len(logs) == 2
+    for row in logs:
+        details = row['details']
+        present = details['receipt_id'] == first.json()['id']
+        assert details['counted_by_present'] is present and details['note_present'] is present
+        assert set(details) == {'receipt_id', 'job_id', 'operator_id', 'auth_kind', 'api_token_id',
+                                'counted_by_present', 'note_present'}
+    raw = db.execute(text('SELECT details FROM audit_logs')).scalars().all()
+    csv_export = client.get('/export/audit-logs', params=params)
+    assert csv_export.status_code == 200
+    signed = client.get('/export/audit-logs/jsonl', params={'date_from':'2000-01-01', 'date_to':'2099-12-31'})
+    assert signed.status_code == 200, signed.text
+    assert signed.headers['X-ODIN-Audit-Signature']
+    for receipt in (first, empty):
+        assert receipt.json()['id'] in signed.text and receipt.json()['id'] in csv_export.text
+    for name in ('Private counter', 'Private note', 'counted_by_receipt_owner'):
+        assert all(name not in (details or '') for details in raw)
+        assert name not in csv_export.text and name not in signed.text

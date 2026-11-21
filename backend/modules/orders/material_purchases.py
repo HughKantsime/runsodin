@@ -171,7 +171,7 @@ def receipt(db,user,data):
     doc['events'][data.request_id]={'id':eid,**data.model_dump(mode='json'),'request_hash':fingerprint,'source_hash':source_hash,'recorded_at':batches.now(),'consumable_id':item.id,'stock_delta':delta}
     store.save(db,owner,doc,raw);db.flush();answer=read(db,user);db.commit();return answer
 
-def consume_hardware(db,owner,hardware,uses,confirmed,assembly_id):
+def consume_hardware(db,owner,hardware,uses,confirmed,assembly_id,*,allow_over_bom):
     """Caller holds material reservation then sorted hardware rows; no commit."""
     expected=defaultdict(int);managed={};unmanaged=[]
     for h in hardware:
@@ -186,6 +186,8 @@ def consume_hardware(db,owner,hardware,uses,confirmed,assembly_id):
     result=[]
     for cid in sorted(expected):
         u=supplied[cid]
+        if u.units > expected[cid] and not allow_over_bom:
+            fail('Hardware use exceeds the BOM quantity. Record it in the web app.')
         if u.units!=expected[cid] and not u.reason:fail('Explain actual hardware use that differs from the full assembly BOM, including reuse, rework or partial rejects.')
         if u.units:change_stock(db,managed[cid],-u.units,assembly_id)
         result.append({'name':managed[cid].name,'consumable_id':cid,'material_uid':store.identity(db,cid)['uid'],'expected_units':expected[cid],'used_units':u.units,'reason':u.reason})

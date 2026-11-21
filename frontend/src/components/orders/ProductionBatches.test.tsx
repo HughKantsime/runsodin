@@ -62,3 +62,16 @@ it('lists and inspects an owner-attested outside print by physical ID',async()=>
  await waitFor(()=>expect(production.inspect).toHaveBeenCalledWith({recipe_id:recipe.id,print_job_id:120,square_revision:'r1',inspection_confirmed:true,outputs:[{product_id:101,kind:'main',accepted:4,rejected:1}]}))
  await screen.findByText(/Inspection recorded for outside print 120/)
 })
+
+it('explains main-only recipes and sends optional inspection details',async()=>{
+ await counted()
+ expect(screen.getByText(/This recipe counts main pieces only/)).toBeVisible()
+ fireEvent.change(screen.getByLabelText('Counted by'),{target:{value:' Sam '}})
+ fireEvent.change(screen.getByLabelText('Note'),{target:{value:'Tray two'}})
+ fireEvent.click(screen.getByLabelText(/I inspected this physical batch/))
+ vi.mocked(production.inspect).mockResolvedValue({id:'ok',recipe_id:recipe.id,job_id:2,recipe_name:recipe.name,occurred_at:'',stock_status:'prepared',outputs:[]})
+ fireEvent.click(screen.getByRole('button',{name:'Record inspection'}))
+ await waitFor(()=>expect(production.inspect).toHaveBeenCalledWith(expect.objectContaining({counted_by:'Sam',note:'Tray two'})))
+ await screen.findByText(/Inspection recorded for job/)
+ expect(screen.getByLabelText('Note')).toHaveValue('')
+})

@@ -1,3 +1,4 @@
+import {InspectionFields, inspectionDetails} from './InspectionDetails'
 import OutsidePrintBinding from './OutsidePrintBinding'
 import ProductionHistory from './ProductionHistory'
 import { useEffect, useRef, useState } from 'react'
@@ -14,6 +15,7 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
   const [qualified,setQualified]=useState(false),[outputs,setOutputs]=useState<RecipeOutput[]>([{product_id:0,kind:'main',expected:1}])
   const [recipeId,setRecipeId]=useState(''),[job,setJob]=useState(''),[confirmed,setConfirmed]=useState(false)
   const [counts,setCounts]=useState<{accepted:string;rejected:string;baseline_disposition?:'in_baseline'|'send'}[]>([]),[notice,setNotice]=useState('')
+  const [inspectionVersion,setInspectionVersion]=useState(0)
   const [historyRevision,setHistoryRevision]=useState(0)
   const generation=useRef(0)
   const role=getCurrentUser()?.role,admin=role==='admin',operator=role==='admin'||role==='operator',recipe=state?.recipes.find(r=>r.id===recipeId)
@@ -75,23 +77,25 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
       {state&&<div className="space-y-2"><h3 className="font-medium">Recipe revisions</h3>{state.recipes.length===0&&<p>No recipes yet.</p>}{state.recipes.map(r=><div key={r.id} className="text-sm break-words">{r.name} · {r.qualified?'Qualified':'Draft'} · {r.outputs.map(o=>`${o.expected} ${o.product_name} (${o.kind})`).join(', ')}<p className="text-[var(--brand-muted)]">{r.materials}</p>{r.qualified_from_outside_print&&<p>Qualified from owner-attested outside print {r.outside_print_evidence?.print_job_id}.</p>}{admin&&<button className={button} disabled={busy} type="button" onClick={()=>{setName(r.name);setMaterials(r.materials);setReference(r.reference_job_id===null?'':String(r.reference_job_id));setOutputs(r.outputs.map(o=>({product_id:o.product_id,kind:o.kind,expected:o.expected})));setQualified(false);setShowRecipeEditor(true)}}>Use as new revision</button>}</div>)}
         {state.next_offset!==null&&<button className={button} disabled={busy} onClick={()=>void run(async()=>{const page=await production.state(state.next_offset!);setState(old=>old?{...old,recipes:[...old.recipes,...page.recipes],next_offset:page.next_offset}:page)})}>Load more recipes</button>}
       </div>}
-      {operator&&<form className="space-y-3 border-t border-[var(--brand-card-border)] pt-3" onSubmit={e=>{e.preventDefault();if(!recipe)return;void run(async()=>{
+      {operator&&<form className="space-y-3 border-t border-[var(--brand-card-border)] pt-3" onSubmit={e=>{e.preventDefault();if(!recipe)return;const details=inspectionDetails(e.currentTarget);void run(async()=>{
         const revision=counts.some(c=>Number(c.accepted)>0)?(await square.status()).revision:null
-        const saved=await production.inspect({recipe_id:recipe.id,...(job.startsWith('outside:')?{print_job_id:Number(job.slice(8))}:{job_id:Number(job)}),square_revision:revision,inspection_confirmed:confirmed,
+        const saved=await production.inspect({...details,recipe_id:recipe.id,...(job.startsWith('outside:')?{print_job_id:Number(job.slice(8))}:{job_id:Number(job)}),square_revision:revision,inspection_confirmed:confirmed,
           outputs:recipe.outputs.map((o,i)=>({product_id:o.product_id,kind:o.kind,accepted:Number(counts[i].accepted),rejected:Number(counts[i].rejected),...(counts[i].baseline_disposition?{baseline_disposition:counts[i].baseline_disposition}:{})}))})
-        await load();setConfirmed(false);setNotice(`Inspection recorded for ${saved.print_job_id?`outside print ${saved.print_job_id}`:`job ${saved.job_id}`}. ${saved.stock_status==='prepared'?'Square addition prepared, not sent.':saved.stock_status==='in_baseline'?'Accepted output counted in baseline; no Square addition.':'No sellable pieces added.'}`)
+        setInspectionVersion(v=>v+1);await load();setConfirmed(false);setNotice(`Inspection recorded for ${saved.print_job_id?`outside print ${saved.print_job_id}`:`job ${saved.job_id}`}. ${saved.stock_status==='prepared'?'Square addition prepared, not sent.':saved.stock_status==='in_baseline'?'Accepted output counted in baseline; no Square addition.':'No sellable pieces added.'}`)
       })}}>
         <h3 className="font-medium">Inspect a finished batch</h3>
         <label className="block text-sm">Qualified recipe<select aria-label="Qualified recipe" className={input} value={recipeId} disabled={busy} required onChange={e=>selectRecipe(e.target.value)}><option value="">Choose recipe</option>{state?.recipes.filter(r=>r.qualified).map(r=><option key={r.id} value={r.id}>{r.name} · {r.id.slice(0,8)}</option>)}</select></label>
         <label className="block text-sm">Completed batch job<select aria-label="Completed batch job" className={input} value={job} disabled={busy} required onChange={e=>{setJob(e.target.value);setConfirmed(false)}}><option value="">Choose completed job</option>{jobs.map(j=>'print_job_id' in j?<option key={`outside:${j.print_job_id}`} value={`outside:${j.print_job_id}`}>{j.name} · owner-attested outside print {j.print_job_id}</option>:<option key={j.id} value={j.id}>{j.name} · job {j.id}</option>)}</select></label>
+        {recipe && recipe.outputs.every(o=>o.kind==='main') && <p>This recipe counts main pieces only. If the plate also makes sellable flush pieces, add them to the recipe first.</p>}
         {recipe?.outputs.map((o,i)=><fieldset key={`${o.product_id}-${o.kind}`} className="space-y-2 rounded-md border border-[var(--brand-card-border)] p-3"><legend className="text-sm">{o.product_name} · {o.kind} · expected {o.expected}</legend>
           {(['accepted','rejected'] as const).map(kind=><label key={kind} className="block text-sm">{kind==='accepted'?'Sellable pieces':'Rejected pieces'}<input aria-label={`${o.product_name} ${o.kind} ${kind}`} className={input} type="number" min="0" max={o.expected} step="1" required disabled={busy} value={counts[i]?.[kind]??''} onChange={e=>{setConfirmed(false);setCounts(old=>old.map((v,n)=>n===i?{...v,[kind]:e.target.value}:v))}}/></label>)}
           <label className="block text-sm">Baseline membership (required for older output with a baseline)<select aria-label={`${o.product_name} ${o.kind} baseline membership`} className={input} disabled={busy} value={counts[i]?.baseline_disposition??''} onChange={e=>{setConfirmed(false);setCounts(old=>old.map((v,n)=>n===i?{...v,baseline_disposition:(e.target.value||undefined) as 'in_baseline'|'send'|undefined}:v))}}><option value="">Choose if required</option><option value="in_baseline">Counted in baseline</option><option value="send">Not counted, send</option></select></label>
         </fieldset>)}
+        <InspectionFields disabled={busy} key={inspectionVersion}/>
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e=>setConfirmed(e.target.checked)}/>I inspected this physical batch. Accepted pieces are sellable and counts include any display pieces.</label>
         <button className={button} type="submit" disabled={busy||!recipe?.qualified||!job||!confirmed||!readyCounts}>Record inspection</button>
       </form>}
-      <ProductionHistory operator={operator} refreshKey={historyRevision}/>
+      <ProductionHistory operator={operator} admin={admin} products={products} refreshKey={historyRevision}/>
     </div>}
   </section>
 }
