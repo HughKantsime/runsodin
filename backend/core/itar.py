@@ -110,6 +110,15 @@ def is_itar_mode() -> bool:
     return itar_flag_state() != "off"
 
 
+def license_portal_off() -> bool:
+    if not is_itar_mode():
+        return False
+    from core.config import settings
+
+    # Pydantic records all supplied fields, even an explicit copy of the default.
+    return "license_server_url" not in settings.model_fields_set or not settings.license_server_url.strip()
+
+
 def refuse_malformed_itar_flag() -> None:
     """Stop this process when ODIN_ITAR_MODE is set to something that is not a known
     spelling of on or off. Runs when the `core` or `modules` package is first imported, so

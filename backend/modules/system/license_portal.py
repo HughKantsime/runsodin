@@ -1,5 +1,13 @@
 """Portal response contract shared by ODIN paid activation flows."""
 from fastapi import HTTPException
+from core.itar import license_portal_off
+
+
+def require_license_portal():
+    if license_portal_off():
+        raise HTTPException(status_code=409, detail=(
+            "Online licence activation is off while ITAR mode is on. Upload a licence file instead."
+        ))
 
 
 def activation_response(resp, failure_message="Activation failed"):

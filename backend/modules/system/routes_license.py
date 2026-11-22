@@ -24,6 +24,7 @@ from modules.system.license_refresh import (
     FILE_REQUIRED_STATUSES, earlier_end_date, ends_within_clock_allowance, read_last_refresh, record_last_refresh, refresh_status_from, server_end_date,
 )
 from modules.system.routes_health import _fetch_license_challenge
+from .license_portal import require_license_portal
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -64,6 +65,7 @@ async def reactivate_license(
     answer is stored and returned to superadmins by ``GET /license/last-refresh``
     until the next refresh or until another license file is installed.
     """
+    require_license_portal()
     license_server_url = settings.license_server_url
 
     current_license = get_license()
