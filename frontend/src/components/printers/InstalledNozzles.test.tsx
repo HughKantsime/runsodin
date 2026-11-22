@@ -1,6 +1,7 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
-import InstalledNozzles from './InstalledNozzles'
+import InstalledNozzles, { RackFilamentReading } from './InstalledNozzles'
+import type { FilamentSlot } from '../../types/printer'
 afterEach(cleanup)
 it('shows each physical nozzle, flow, material, wear and observation timestamp', () => {
   const { container } = render(<InstalledNozzles nozzles={[
@@ -15,6 +16,17 @@ it('shows each physical nozzle, flow, material, wear and observation timestamp',
 it('does not claim unknown nozzles were checked', () => {
   render(<InstalledNozzles />)
   expect(screen.getByText(/No nozzle report received/)).toBeInTheDocument()
+})
+
+it.each([
+  [{ preset: 'GFA01' }, 'GFA01'],
+  [{ color: 'AE96D4FF' }, '#AE96D4'],
+  [{ color: '000000FF' }, '#000000'],
+  [{ type: '', preset: 'GFA01', color: 'AE96D4FF' }, 'GFA01, #AE96D4'],
+] as const)('shows partial printer filament reading %j', (fields, expected) => {
+  const slot = { rack_filament: { id: 255, observed_at: '2026-11-21T19:40:00Z', ...fields } } as FilamentSlot
+  render(<RackFilamentReading slot={slot} rawId={255} />)
+  expect(screen.getByText(`Printer reports: ${expected}`)).toHaveTextContent('ID 255')
 })
 
 it('shows an unrecognized rack tool code as reported', () => {

@@ -70,6 +70,23 @@ def test_capture_through_monitor_and_printer_views(capture, v2_offline_monitor, 
         (n, 'Blue' if n == 2 else None) for n in range(1, 10)]
 
 
+@pytest.mark.parametrize('model', ['P1S', 'H3C'])
+@pytest.mark.parametrize('path', ['/printers', '/printers/199'])
+def test_printer_views_skip_malformed_nozzle_rows(model, path, offline_store, token_client):
+    from modules.printers import routes_crud
+    offline_store.execute(text('UPDATE printers SET model=:model,installed_nozzles=:rows,tags=:tags WHERE id=199'),
+                          {'model': model, 'rows': '[null, {}, 7]', 'tags': '["nozzle-test"]'})
+    offline_store.commit()
+    client, issue = token_client
+    client.app.include_router(routes_crud.router)
+    params = {'tag': 'nozzle-test'} if path == '/printers' else {}
+    response = client.get(path, params=params, headers=issue(['read:printers']))
+    assert response.status_code == 200
+    data = response.json()
+    printer = next(row for row in data if row['id'] == 199) if path == '/printers' else data
+    assert printer['installed_nozzles'] == []
+
+
 @pytest.mark.parametrize('transport', ['v2', 'v2-reconnect', 'legacy'])
 def test_rack_report_before_model_identification(capture, v2_offline_monitor, offline_store, monkeypatch, transport):
     from modules.printers.telemetry.bambu.raw import BambuInfoSection
@@ -204,6 +221,7 @@ def test_dispatch_refuses_target_before_device_or_file_inspection(review_db, tmp
     monkeypatch.setattr(smart_plug, 'prepare_bounded_dispatch_power', lambda *a: pytest.fail('Reached device preparation'))
     ok, reason = dispatch.dispatch_job(59, 53)
     assert not ok and reason.startswith('unsupported_rack_printer:')
+    assert 'rack dispatch is pending live certification' in reason.lower()
     with engine.connect() as conn:
         assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
 
@@ -451,7 +469,7 @@ def test_unidentified_rack_keeps_refusal_across_partial_reports(offline_store, v
     monitor, _, runtime = v2_offline_monitor
     monitor._last_heartbeat = runtime.time.time()
     # No product name or known rack addresses. Only a fresh, complete report counts.
-    entries = [{'id': n} for n in (30, 31, 32)]
+    entries = [{'id': n} for n in (16, 20, 24)]
     packet = {'print': {'device': {'nozzle': {'info': entries}}}}
     def refusal():
         row = offline_store.execute(text('SELECT model,machine_type,installed_nozzles FROM printers WHERE id=199')).mappings().one()

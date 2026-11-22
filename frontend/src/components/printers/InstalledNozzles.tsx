@@ -6,14 +6,15 @@ const rackToolNames: Record<string, string> = { HS01: 'Standard (1.75 mm)', HT01
 
 export function RackFilamentReading({ slot, rawId }: { slot?: FilamentSlot; rawId?: number }) {
   const reading = slot?.rack_filament?.id === rawId ? slot?.rack_filament : null
-  const reported = reading?.type && [reading.type, reading.preset,
-    reading.color && `#${reading.color.slice(0, 6)}`].filter(Boolean).join(', ')
+  const reported = reading && [reading.type, reading.preset,
+    reading.color && reading.color !== '00000000' && `#${reading.color.slice(0, 6)}`].filter(Boolean).join(', ')
   return <div>Printer reports: {reported || 'Nothing reported'} {rawId != null && <small>ID {rawId}</small>}</div>
 }
 
-export default function InstalledNozzles({ nozzles, rack = false, slots }: {
+export default function InstalledNozzles({ nozzles, rack = false, slots, showOperatorSlots = true }: {
   nozzles?: InstalledNozzle[] | null
   slots?: FilamentSlot[]
+  showOperatorSlots?: boolean
   rack?: boolean
 }) {
   if (rack) {
@@ -29,7 +30,7 @@ export default function InstalledNozzles({ nozzles, rack = false, slots }: {
             {nozzle.present === false && ' · Absent'}
             {nozzle.mounted && ' · In the tool head'}
             <RackFilamentReading slot={slot} rawId={nozzle.virtual_slot_id} />
-            {slot && <div>ODIN slot: {[slot.filament_type, slot.color, slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`].filter(Boolean).join(', ')}</div>}
+            {showOperatorSlots && slot && <div>ODIN slot: {[slot.filament_type, slot.color, slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`].filter(Boolean).join(', ')}</div>}
           </li>
         })}
       </ul> : <p>No rack report received.</p>}

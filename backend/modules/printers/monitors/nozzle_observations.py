@@ -19,15 +19,9 @@ def _merge(old, new):
     return {**old, **{key: value for key, value in new.items() if value is not None}}
 
 
-def _complete_rack_ids(nozzle):
-    if not isinstance(nozzle, dict):
+def _complete_rack_ids(mask, ids):
+    if type(mask) is not int or mask <= 0 or not ids or max(ids) > 24:
         return set()
-    mask, rows = nozzle.get('exist'), nozzle.get('info')
-    if type(mask) is not int or mask < 0 or not isinstance(rows, list):
-        return set()
-    if not all(isinstance(row, dict) and 'id' in row for row in rows):
-        return set()
-    ids = rack_nozzle_ids(rows)
     # A delta can omit the H2C's fixed nozzles even when its mask includes them.
     return ids if sum((mask >> i) & 1 for i in ids) == mask.bit_count() else set()
 
@@ -44,10 +38,16 @@ def observe(monitor, packet, status, runtime):
     device = packet.get('device')
     nozzle = device.get('nozzle') if isinstance(device, dict) else None
     info = nozzle.get('info') if isinstance(nozzle, dict) else None
-    ids = _complete_rack_ids(nozzle) if fresh else set()
+    mask = nozzle.get('exist') if isinstance(nozzle, dict) else None
+    rack_rows = set()
+    if fresh and isinstance(info, list) and all(isinstance(row, dict) and 'id' in row for row in info):
+        rack_rows = rack_nozzle_ids(info)
+    ids = _complete_rack_ids(mask, rack_rows)
+    # Without a known model, rack-only reports cannot establish the absence of a fixed nozzle.
+    rack_only_mask = bool(rack_rows) and type(mask) is int and mask >= 0 and not (mask & 3)
     stored_models = getattr(monitor, '_stored_models', None)
     stored_rack = getattr(monitor, '_rack_rows_stored', False)
-    if stored_models is None and (ids or stored_rack):
+    if stored_models is None and (rack_only_mask or stored_rack):
         # Before the first heartbeat even get_version may not have supplied a model.
         try:
             with runtime.get_db() as conn:
@@ -105,7 +105,7 @@ def observe(monitor, packet, status, runtime):
         key = _key(nozzle)
         if nozzle['side'] == 'rack':
             pending[key] = _merge(pending.get(key, {}), nozzle)
-        elif not rack:
+        elif not rack and not (identity is None and rack_only_mask):
             pending[key] = nozzle
     monitor._pending_installed_nozzles = pending
     if ids and identity is None and not getattr(monitor, '_rack_rows_stored', False):
@@ -150,7 +150,7 @@ def persist(conn, monitor, *, first_rack=None):
         if not rack or item.get('position') is not None or (first_rack and key in first_rack):
             merged[key] = item
     if first_rack:
-        # Count reported nozzles even when their IDs/addresses have no known display mapping.
+        # Count reported nozzles even when their addresses have no known display mapping.
         for identifier in sorted(first_rack):
             merged.setdefault(identifier, {'side': 'rack', 'nozzle_id': identifier})
     if identified and not first_rack:

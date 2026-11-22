@@ -328,6 +328,26 @@ def test_incomplete_rack_list_cannot_establish_identity(mask, offline_store, v2_
     assert rack_printer_refusal(row) is None
 
 
+@pytest.mark.parametrize('ids,present', [
+    ((16, 17, 18), ()),
+    ((25, 26, 27), (25, 26, 27)),
+    ((16, 17, 18, 25), (16, 17, 18)),
+    ((16, 17, 18), (16, 17, 18, 25)),
+])
+def test_invalid_rack_report_preserves_unidentified_printer(ids, present, offline_store, v2_offline_monitor):
+    from modules.printers.printer_models import rack_printer_refusal
+    monitor, _, _ = v2_offline_monitor
+    original = [{'extruder': 0, 'side': 'single', 'present': True, 'diameter': 0.4}]
+    offline_store.execute(text('UPDATE printers SET installed_nozzles=:rows WHERE id=199'),
+                          {'rows': json.dumps(original)})
+    offline_store.commit()
+    nozzle = {'info': [{'id': i} for i in ids], 'exist': sum(1 << i for i in present)}
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'device': {'nozzle': nozzle}}}))
+    row = offline_store.execute(text('SELECT model,machine_type,installed_nozzles FROM printers WHERE id=199')).mappings().one()
+    assert rack_printer_refusal(row) is None
+    assert json.loads(row['installed_nozzles']) == original
+
+
 def test_h2c_rack_delta_keeps_fixed_rows_and_pending_ams(offline_store, v2_offline_monitor, monkeypatch):
     from core import db
     from modules.printers.dispatch_support import dispatch_unsupported_reason

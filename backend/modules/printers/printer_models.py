@@ -152,7 +152,7 @@ def is_h3c_printer(printer):
 
 def rack_printer_refusal(printer):
     if is_h3c_printer(printer):
-        return 'unsupported_rack_printer: Sending jobs to an H3C is not available yet.'
+        return 'unsupported_rack_printer: Sending jobs to an H3C is unavailable. Rack dispatch is pending live certification.'
     return None
 
 

@@ -66,7 +66,7 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
       {!next.ams_slot_nozzles?.length && next.ams_mapping?.length > 0 && <p className="f-mono">{next.ams_mapping.filter(n => Number.isInteger(n) && n >= 0 && n < 24).map(n => slotLabel('bambu', n + 1)).join(' · ')}</p>}
     </div>}
     <PlateCleared printer={printer} />
-    {rack && <InstalledNozzles rack nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
+    {rack && <InstalledNozzles rack nozzles={printer.installed_nozzles} slots={printer.filament_slots} showOperatorSlots={slotVariant === 'compact'} />}
     {!rack && (slots || printer.filament_slots?.length > 0) && <div className={slotVariant === 'compact' ? 'f-slots f-slots-compact' : 'f-slots'} style={slotVariant === 'compact' ? { gridTemplateColumns: `repeat(${Math.min(5, printer.filament_slots?.length || 4)}, minmax(0, 1fr))` } : undefined}>{slots || printer.filament_slots.map(slot => <SlotTile key={slot.slot_number} apiType={printer.api_type} slot={slot} variant={slotVariant} label={slotVariant === 'compact' && printer.api_type === 'bambu' && slot.slot_number <= 16 && (isDualNozzle(printer.machine_type) || printer.filament_slots.some(s => s.slot_number > 4)) ? `${Math.floor((slot.slot_number - 1) / 4) + 1}·${(slot.slot_number - 1) % 4 + 1}` : undefined} state={printer.feeding_slot === slot.slot_number ? 'feeding' : undefined} />)}</div>}
     {!rack && !slots && slotVariant === 'compact' && printer.filament_slots?.length > 0 && <>
       <button type="button" className="min-h-11 text-left underline" aria-expanded={filamentsOpen}
