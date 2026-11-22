@@ -1,5 +1,5 @@
 {
- "captured": "2026-11-21 20:35 to 20:37 EST idle, after Shane fixed the AMS 3H connection: unit reports as ams id 32, three spools loaded through funnels (trays 0, 6, 8), tool 5 mounted. Merged from 129 report messages (no pushall sent).",
+ "captured": "2026-11-21 20:35 to 20:37 EST idle, after Shane fixed the AMS 3H connection: unit reports as ams id 32, three spools loaded through funnels (trays 0, 6, 8), tool 5 mounted. Merged from 129 report messages (no pushall sent). Tag and tray identifiers are synthetic and distinct per tray (the real ones are removed).",
  "count_messages": 129,
  "message": {
   "print": {
@@ -81,7 +81,7 @@
         "remain": 100,
         "remain_g": 1000,
         "state": 27,
-        "tag_uid": "REDACTED",
+        "tag_uid": "A000000000000101",
         "total_len": 330000,
         "tray_color": "AE96D4FF",
         "tray_diameter": "1.75",
@@ -89,7 +89,7 @@
         "tray_info_idx": "GFA01",
         "tray_sub_brands": "PLA Matte",
         "tray_type": "PLA",
-        "tray_uuid": "REDACTED",
+        "tray_uuid": "B0000000000000000000000000000101",
         "tray_weight": "1000",
         "xcam_info": "8813100EE803E8030000003F"
        },
@@ -136,7 +136,7 @@
         "remain": 100,
         "remain_g": 1000,
         "state": 27,
-        "tag_uid": "REDACTED",
+        "tag_uid": "A000000000000107",
         "total_len": 330000,
         "tray_color": "AE835BFF",
         "tray_diameter": "1.75",
@@ -144,7 +144,7 @@
         "tray_info_idx": "GFA01",
         "tray_sub_brands": "PLA Matte",
         "tray_type": "PLA",
-        "tray_uuid": "REDACTED",
+        "tray_uuid": "B0000000000000000000000000000107",
         "tray_weight": "1000",
         "xcam_info": "000000000000000000000000"
        },
@@ -171,7 +171,7 @@
         "remain": 100,
         "remain_g": 1000,
         "state": 27,
-        "tag_uid": "REDACTED",
+        "tag_uid": "A000000000000109",
         "total_len": 330000,
         "tray_color": "FF6A13FF",
         "tray_diameter": "1.75",
@@ -179,7 +179,7 @@
         "tray_info_idx": "GFA00",
         "tray_sub_brands": "PLA Basic",
         "tray_type": "PLA",
-        "tray_uuid": "REDACTED",
+        "tray_uuid": "B0000000000000000000000000000109",
         "tray_weight": "1000",
         "xcam_info": "000000000000000000000000"
        }
