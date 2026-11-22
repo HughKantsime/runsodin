@@ -61,7 +61,7 @@ def parse_lights(lights_report: list) -> Optional[bool]:
     return any(l.get('mode') == 'on' for l in lights_report)
 
 
-def parse_ams_env(ams_raw: dict) -> list:
+def parse_ams_env(ams_raw: dict, *, rack=False) -> list:
     """
     Extract AMS unit humidity and temperature from raw AMS payload.
     Returns list of {unit_idx, humidity, humidity_percent, temperature} dicts.
@@ -72,7 +72,7 @@ def parse_ams_env(ams_raw: dict) -> list:
     if not isinstance(ams_units, list):
         return []
     for unit_idx, unit in enumerate(ams_units):
-        if not isinstance(unit, dict):
+        if not isinstance(unit, dict) or (rack and str(unit.get('id')) == '32'):
             continue
         humidity = unit.get('humidity')
         temperature = unit.get('temp')

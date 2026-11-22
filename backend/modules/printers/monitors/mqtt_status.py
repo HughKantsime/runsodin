@@ -461,12 +461,16 @@ def handle_status(self, status, generation, runtime):
                             conn.rollback()
                             runtime.log.debug(f"[{self.name}] Telemetry insert: {e}")
 
+                    from modules.printers.printer_models import rack_model_identity
+                    rack = rack_model_identity(raw_pt, getattr(self, '_reported_model', None), *self._stored_models)
+                    rack = rack if rack is not None else getattr(self, '_rack_rows_stored', False)
+
                     # ---- AMS Environmental Data Capture ----
                     if runtime.time.time() - getattr(self, '_last_ams_env', 0) >= 300:
                         ams_capture_at = runtime.time.time()
                         try:
                             ams_raw_env = self._state.get('ams', {})
-                            for entry in runtime.parse_ams_env(ams_raw_env):
+                            for entry in runtime.parse_ams_env(ams_raw_env, rack=rack):
                                 conn.execute(
                                     "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature, humidity_percent) VALUES (?, ?, ?, ?, ?)",
                                     (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'], entry['humidity_percent'])
@@ -482,9 +486,7 @@ def handle_status(self, status, generation, runtime):
 
                     # ---- AMS Filament Slot Auto-Sync ----
                     pending_ams = getattr(self, '_pending_ams_report', None)
-                    from modules.printers.printer_models import rack_model_identity
-                    rack = rack_model_identity(raw_pt, getattr(self, '_reported_model', None), *self._stored_models)
-                    if pending_ams is not None and (rack if rack is not None else getattr(self, '_rack_rows_stored', False)):
+                    if pending_ams is not None and rack:
                         self._reset_pending_ams()
                         pending_ams = None
                     now = runtime.time.time()

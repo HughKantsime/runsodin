@@ -4,11 +4,12 @@ from datetime import datetime, timezone
 from core.base import slot_filament_value
 from core.display_json import display_tray_state
 from core.monitor_observations import fresh_report
-from modules.printers.nozzle_capability import installed_nozzles, rack_slot_id
+from modules.printers.nozzle_capability import installed_nozzles, rack_rows_with_mounted_tool, rack_slot_id
 from modules.printers.printer_models import bambu_model_name, bambu_nozzle_count, rack_model_identity, rack_nozzle_ids
 
 
 _RACK_SLOT_IDS = {str(i) for i in range(247, 256)}
+_RACK_TRAY_IDS = {str(i) for i in range(9)}
 
 
 def _key(row):
@@ -19,9 +20,13 @@ def _merge(old, new):
     return {**old, **{key: value for key, value in new.items() if value is not None}}
 
 
-def _complete_rack_ids(mask, ids):
+def _complete_rack_ids(mask, ids, mounted=None):
     if type(mask) is not int or mask <= 0 or not ids or max(ids) > 24:
         return set()
+    if mounted is not None:
+        # The mounted tool occupies bit 0 in place of its rack bit.
+        expected = 1 + sum(1 << i for i in ids if i != mounted)
+        return ids if len(ids) == 9 and mask == expected else set()
     # A delta can omit the H2C's fixed nozzles even when its mask includes them.
     return ids if sum((mask >> i) & 1 for i in ids) == mask.bit_count() else set()
 
@@ -39,12 +44,13 @@ def observe(monitor, packet, status, runtime):
     nozzle = device.get('nozzle') if isinstance(device, dict) else None
     info = nozzle.get('info') if isinstance(nozzle, dict) else None
     mask = nozzle.get('exist') if isinstance(nozzle, dict) else None
+    info, mounted = rack_rows_with_mounted_tool(info)
     rack_rows = set()
     if fresh and isinstance(info, list) and all(isinstance(row, dict) and 'id' in row for row in info):
         rack_rows = rack_nozzle_ids(info)
-    ids = _complete_rack_ids(mask, rack_rows)
+    ids = _complete_rack_ids(mask, rack_rows, mounted)
     # Without a known model, rack-only reports cannot establish the absence of a fixed nozzle.
-    rack_only_mask = bool(rack_rows) and type(mask) is int and mask >= 0 and not (mask & 3)
+    rack_only_mask = bool(rack_rows) and type(mask) is int and mask >= 0 and (bool(ids) or not (mask & 3))
     stored_models = getattr(monitor, '_stored_models', None)
     stored_rack = getattr(monitor, '_rack_rows_stored', False)
     if stored_models is None and (rack_only_mask or stored_rack):
@@ -65,7 +71,8 @@ def observe(monitor, packet, status, runtime):
     if identity is False and ids and not getattr(monitor, '_reported_model', None):
         # get_version may correct an operator-entered model. Keep this fresh reading
         # for that explicit identification, without applying it to the fixed printer.
-        monitor._unconfirmed_nozzle_report = ({'device': {'nozzle': nozzle}, 'vir_slot': packet.get('vir_slot')},
+        monitor._unconfirmed_nozzle_report = ({'device': {'nozzle': nozzle}, 'vir_slot': packet.get('vir_slot'),
+                                               'ams': packet.get('ams')},
                                               now - (age or 0))
     elif fixed_report:
         monitor._unconfirmed_nozzle_report = None
@@ -82,17 +89,10 @@ def observe(monitor, packet, status, runtime):
     elif getattr(monitor, '_pending_rack_filaments', None) or any(r['side'] == 'rack' for r in pending.values()):
         pending = {key: row for key, row in pending.items() if row['side'] != 'rack'}
         monitor._pending_rack_filaments = {}
-    slots = packet.get('vir_slot')
-    if fresh and rack and isinstance(slots, list):
+    if fresh and rack:
         readings = getattr(monitor, '_pending_rack_filaments', {})
         stamp = datetime.fromtimestamp(now - (age or 0), timezone.utc).isoformat()
-        for tray in slots:
-            if not isinstance(tray, dict) or str(tray.get('id')) not in _RACK_SLOT_IDS:
-                continue
-            slot_id = int(tray['id'])
-            fields = {field: tray[key] for key, field in (
-                ('tray_type', 'type'), ('tray_info_idx', 'preset'), ('tray_color', 'color'))
-                if isinstance(tray.get(key), str)}
+        for slot_id, fields in _rack_filament_fields(packet).items():
             latest, pending_fields = readings.get(slot_id, ('', {}))
             # A coalesced delta must not refresh the age of its omitted fields.
             if fields and stamp >= latest:
@@ -187,3 +187,35 @@ def _persist_filaments(conn, printer_id, count, readings):
                 changes = {key: value for key, (at, value) in fields.items() if at >= saved_at}
                 state = {'rack_filament': {**previous, **changes, 'id': raw_id, 'observed_at': stamp}}
                 conn.execute('UPDATE filament_slots SET tray_observation=? WHERE id=?', (json.dumps(state), slot_id))
+
+
+def _rack_filament_fields(packet):
+    def fields(tray):
+        return {field: tray[key] for key, field in (
+            ('tray_type', 'type'), ('tray_info_idx', 'preset'), ('tray_color', 'color'))
+            if isinstance(tray.get(key), str)}
+
+    slots = packet.get('vir_slot')
+    readings = {}
+    if isinstance(slots, list):
+        for tray in slots:
+            if isinstance(tray, dict) and str(tray.get('id')) in _RACK_SLOT_IDS:
+                readings.setdefault(int(tray['id']), {}).update(fields(tray))
+    ams = packet.get('ams')
+    units = ams.get('ams') if isinstance(ams, dict) else None
+    if not isinstance(units, list):
+        return readings
+    for unit in units:
+        if not isinstance(unit, dict) or str(unit.get('id')) != '32' or not isinstance(unit.get('tray'), list):
+            continue
+        for tray in unit['tray']:
+            if not isinstance(tray, dict) or str(tray.get('id')) not in _RACK_TRAY_IDS:
+                continue
+            slot_id = rack_slot_id(int(tray['id']) + 1)
+            reported = fields(tray)
+            if reported:
+                readings[slot_id] = reported
+            elif type(tray.get('state')) is int and tray['state'] == 0:
+                # An explicit unload clears the AMS reading, exposing any hand-fed fields.
+                readings[slot_id] = {'type': '', 'preset': '', 'color': '', **readings.get(slot_id, {})}
+    return readings

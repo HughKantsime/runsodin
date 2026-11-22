@@ -16,14 +16,17 @@ from tests.test_contracts.test_printer_offline_behavior import offline_store, v2
 STORED_RACK_ROWS = json.dumps([{'side': 'rack', 'position': n, 'nozzle_id': 15 + n} for n in (1, 2, 3)])
 
 
+def capture_packet(name):
+    path = Path(__file__).parents[1] / f'fixtures/telemetry/h3c-{name}-2026-11-21.json'
+    return json.loads(path.read_text())['message']['print']
+
+
 @pytest.fixture
 def capture(request, monkeypatch, review_db):
     from core import db
     # The full packet also wakes the monitor's HMS worker. Keep it on the owned database.
     monkeypatch.setattr(db, 'engine', review_db.get_bind())
-    name = getattr(request, 'param', 'idle')
-    path = Path(__file__).parents[1] / f'fixtures/telemetry/h3c-{name}-2026-11-21.json'
-    return json.loads(path.read_text())['message']['print']
+    return capture_packet(getattr(request, 'param', 'idle'))
 
 
 def test_capture_through_monitor_and_printer_views(capture, v2_offline_monitor, offline_store, token_client, monkeypatch):
@@ -87,6 +90,7 @@ def test_printer_views_skip_malformed_nozzle_rows(model, path, offline_store, to
     assert printer['installed_nozzles'] == []
 
 
+@pytest.mark.parametrize('capture', ['idle', 'ams3h-loaded'], indirect=True)
 @pytest.mark.parametrize('transport', ['v2', 'v2-reconnect', 'legacy'])
 def test_rack_report_before_model_identification(capture, v2_offline_monitor, offline_store, monkeypatch, transport):
     from modules.printers.telemetry.bambu.raw import BambuInfoSection
@@ -113,7 +117,10 @@ def test_rack_report_before_model_identification(capture, v2_offline_monitor, of
     model, stored = offline_store.execute(text('SELECT machine_type,installed_nozzles FROM printers WHERE id=199')).one()
     assert model == 'H3C'
     observations = offline_store.execute(text('SELECT tray_observation FROM filament_slots WHERE printer_id=199')).scalars()
-    assert {json.loads(raw)['rack_filament']['id'] for raw in observations} == set(range(247, 256))
+    readings = [json.loads(raw)['rack_filament'] for raw in observations]
+    assert {r['id'] for r in readings} == set(range(247, 256))
+    if capture['ams']['ams']:
+        assert {r['id']: r['preset'] for r in readings if r['type']} == {255: 'GFA01', 249: 'GFA01', 247: 'GFA00'}
     assert [row['position'] for row in json.loads(stored)] == list(range(1, 10))
 
 
@@ -320,7 +327,7 @@ def test_identified_rack_does_not_show_an_old_ams_confirmation(offline_store, to
 
 
 @pytest.mark.parametrize('sender', ['monitor', 'v2', 'legacy', 'fallback'])
-@pytest.mark.parametrize('identity', ['model', 'get_version', 'N10', 'rack_report', 'rack_report_on_p1s'])
+@pytest.mark.parametrize('identity', ['model', 'get_version', 'N10', 'rack_report', 'mounted_report', 'rack_report_on_p1s'])
 @pytest.mark.parametrize('api_type', ['bambu', None], ids=['bambu', 'unset'])
 def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_store, v2_offline_monitor, monkeypatch):
     import time
@@ -348,7 +355,7 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
         wire.publish.assert_called_once()
         wire.publish.reset_mock()
     offline_store.execute(text("UPDATE printers SET model=:model,machine_type=NULL,api_type=:api,api_host=:host,api_key=:credential WHERE id=199"),
-                          {'model': {'model': 'H3C', 'N10': 'N10', 'rack_report': None}.get(identity, 'P1S'),
+                          {'model': {'model': 'H3C', 'N10': 'N10', 'rack_report': None, 'mounted_report': None}.get(identity, 'P1S'),
                            'api': api_type, 'host': monitor.ip, 'credential': monitor.serial + '|fixture'})
     offline_store.commit()
     # A legacy fallback can hold the row it loaded before the monitor commits.
@@ -378,7 +385,9 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
         raw = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=199')).scalar_one()
         return json.loads(raw or '[]')
 
-    if identity in ('rack_report', 'rack_report_on_p1s'):
+    if identity == 'mounted_report':
+        capture = capture_packet('ams3h-loaded')
+    if identity in ('rack_report', 'mounted_report', 'rack_report_on_p1s'):
         monitor._on_status(SimpleNamespace(raw_data={'print': {'device': capture['device']}}))
     if identity == 'rack_report_on_p1s':
         assert offline_store.execute(text('SELECT model,machine_type FROM printers WHERE id=199')).one() == ('P1S', None)
@@ -394,7 +403,7 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
     if identity in ('get_version', 'rack_report_on_p1s'):
         info = {'command': 'get_version', 'module': [{'name': 'ota', 'sw_ver': '1', 'product_name': 'Bambu Lab H3C'}]}
         emit[0](BambuInfoEvent('monitor-199', 2000, BambuInfoSection.model_validate(info)))
-    if identity in ('rack_report', 'rack_report_on_p1s'):
+    if identity in ('rack_report', 'mounted_report', 'rack_report_on_p1s'):
         assert [row['position'] for row in stored_nozzles()] == list(range(1, 10))
     if sender == 'fallback':
         monkeypatch.setattr(route_utils, '_bambu_command', lambda *args: pytest.fail('Reached Bambu fallback'))
@@ -515,3 +524,116 @@ def test_setting_known_fixed_model_clears_old_rack_evidence(offline_store, token
     assert response.json()['model'] == 'H2C' and response.json()['installed_nozzles'] == []
     stored = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=199')).scalar_one()
     assert json.loads(stored) == []
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+def test_mounted_tool_overrides_lagging_source(capture):
+    from modules.printers.nozzle_capability import installed_nozzles
+    capture['device']['nozzle']['src_id'] = 19
+    rows = installed_nozzles(capture, include_rack=True)
+    assert [(r['side'], r.get('position'), r.get('nozzle_id')) for r in rows] == [
+        ('rack', n, n + 15) for n in range(1, 10)]
+    assert [r['mounted'] for r in rows] == [n == 5 for n in range(1, 10)]
+    assert (rows[4]['type'], rows[4]['present'], rows[4]['virtual_slot_id']) == ('HS01', True, 251)
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store, token_client):
+    from modules.printers import routes_crud
+    from modules.printers.telemetry.bambu.raw import BambuPrintSection
+    from modules.printers.telemetry.events import BambuReportEvent
+    _, emit, _ = v2_offline_monitor
+    offline_store.execute(text("UPDATE printers SET model='H3C',tags='[\"rack\"]' WHERE id=199"))
+    offline_store.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                               "VALUES(199,1,'PETG','112233')"))
+    offline_store.commit()
+    emit[0](BambuReportEvent('monitor-199', 2000, BambuPrintSection.model_validate(capture), False))
+    client, issue = token_client
+    client.app.include_router(routes_crud.router)
+    headers = issue(['read:printers'])
+    listed = client.get('/printers', params={'tag': 'rack'}, headers=headers).json()
+    for printer in (next(p for p in listed if p['id'] == 199), client.get('/printers/199', headers=headers).json()):
+        rows = printer['installed_nozzles']
+        assert [r['position'] for r in rows] == list(range(1, 10))
+        assert [r['position'] for r in rows if r['mounted']] == [5]
+        slots = sorted(printer['filament_slots'], key=lambda s: s['slot_number'])
+        assert [s['slot_number'] for s in slots] == list(range(1, 10))
+        assert (slots[0]['filament_type'], slots[0]['color_hex']) == ('PETG', '112233')
+        loaded = {1: ('PLA', 'GFA01', 'AE96D4FF'), 7: ('PLA', 'GFA01', 'AE835BFF'), 9: ('PLA', 'GFA00', 'FF6A13FF')}
+        for n, slot in enumerate(slots, 1):
+            reading = slot['rack_filament']
+            assert reading['id'] == 256 - n
+            assert (reading['type'], reading['preset'], reading['color']) == loaded.get(n, ('', '', '00000000'))
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+@pytest.mark.parametrize('after_idle', [False, True])
+def test_mounted_report_refuses_dispatch(capture, after_idle, offline_store, v2_offline_monitor, tmp_path, monkeypatch):
+    from modules.printers import dispatch
+    configure_dispatch(offline_store, tmp_path, monkeypatch, 'bambu')
+    monitor, _, _ = v2_offline_monitor
+    monitor.printer_id = 59
+    if after_idle:
+        monitor._on_status(SimpleNamespace(raw_data={'print': capture_packet('idle')}))
+    monitor._last_heartbeat = 0
+    monitor._on_status(SimpleNamespace(raw_data={'print': capture}))
+    ok, reason = dispatch.dispatch_job(59, 53)
+    assert not ok and reason.startswith('unsupported_rack_printer:')
+    stored = offline_store.execute(text('SELECT installed_nozzles FROM printers WHERE id=59')).scalar_one()
+    assert [(r['position'], r['mounted']) for r in json.loads(stored)] == [(n, n == 5) for n in range(1, 10)]
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+def test_ams3h_filament_deltas(capture, offline_store, v2_offline_monitor, monkeypatch):
+    monitor, _, runtime = v2_offline_monitor
+    emit_rack_report(monitor, offline_store, capture)
+    def reading():
+        raw = offline_store.execute(text('SELECT tray_observation FROM filament_slots WHERE printer_id=199 '
+                                         'AND slot_number=7')).scalar_one()
+        return json.loads(raw)['rack_filament']
+
+    def report(tray, *, vir=None, age=0, heartbeat=True):
+        packet = {'ams': {'ams': [{'id': '32', 'tray': [{'id': '6', **tray}]}]}}
+        if vir is not None:
+            packet['vir_slot'] = [{'id': '249', **vir}]
+        monitor._last_heartbeat = 0 if heartbeat else runtime.time.time()
+        monitor._on_status(SimpleNamespace(raw_data={'print': packet}, report_age_seconds=age))
+    initial = reading()
+    assert initial['color'] == 'AE835BFF'
+    monkeypatch.setattr(runtime, 'time', SimpleNamespace(time=lambda: 2011))
+    # Coalesce an older colour with the next fresh type before the next database write.
+    report({'tray_color': '123456FF'}, age=12, heartbeat=False)
+    assert reading() == initial
+    report({'tray_type': 'ABS'}, vir={'tray_color': '987654FF'})
+    changed = reading()
+    assert (changed['type'], changed['preset'], changed['color']) == ('ABS', 'GFA01', 'AE835BFF')
+    report({'state': 0})
+    assert not any(reading().get(k) for k in ('type', 'preset', 'color'))
+    report({'state': 0}, vir={'tray_type': 'TPU', 'tray_info_idx': 'fallback', 'tray_color': '654321FF'})
+    assert reading()['type'] == 'TPU'
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+def test_ams3h_unit_is_excluded_from_generic_ams(capture, offline_store, v2_offline_monitor):
+    from modules.printers.services import bambu_tray_counts
+    monitor, _, _ = v2_offline_monitor
+    assert bambu_tray_counts(capture) == {'ams_slots': 0, 'ams_ht_slots': 0}
+    # The capture has only zone sensors. A unit-level reading must not create ordinary AMS unit 0.
+    capture['ams']['ams'][0]['temp'] = '25'
+    emit_rack_report(monitor, offline_store, capture)
+    assert offline_store.execute(text('SELECT count(*) FROM ams_telemetry WHERE printer_id=199')).scalar_one() == 0
+    assert offline_store.execute(text('SELECT slot_number,filament_type,color_hex FROM filament_slots '
+                                      'WHERE printer_id=199 ORDER BY slot_number')).all() == [
+        (n, 'empty', None) for n in range(1, 10)]
+
+
+@pytest.mark.parametrize('other_ids', [[], list(range(16, 25)), [1, 16, 17]])
+def test_fixed_nozzle_with_address_keeps_its_identity(other_ids):
+    from modules.printers.nozzle_capability import installed_nozzles
+    ids = [0, *other_ids]
+    info = [{'id': i, 'addr_id': 4} for i in ids]
+    packet = {'device': {'nozzle': {'info': info, 'exist': sum(1 << i for i in ids)}}}
+    fixed = installed_nozzles(packet, observed_at='now')
+    rows = installed_nozzles(packet, include_rack=True, observed_at='now')
+    assert [r for r in rows if r['side'] != 'rack'] == fixed
+    assert fixed[0]['extruder'] == 0 and fixed[0]['present'] is True
