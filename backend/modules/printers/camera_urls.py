@@ -5,6 +5,7 @@ from urllib.parse import quote as urlquote
 from fastapi import HTTPException
 import core.crypto as crypto
 from modules.printers.bambu_chamber_camera import SOURCE as CHAMBER_CAMERA_SOURCE, chamber_source
+from modules.printers.printer_models import bambu_model_name
 log = logging.getLogger("odin.api")
 
 # '&' is a query-string separator (cameras take ?user=&password=); the URL is only ever
@@ -65,9 +66,9 @@ def _validate_camera_url(url: str) -> str:
 
 # Bambu models with an RTSPS camera stream at :322/streaming/live/1 (auto
 # camera URL). Bambu Studio's machine profiles carry no camera data, so a model
-# is listed only with another real source. P2S was verified on hardware on
-# 2026-11-02; H2S, H2C and H2D Pro remain unverified and are not listed.
-BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D', 'P2S'})
+# is listed only with another real source. Hardware verified: P2S on 2026-11-02
+# and H3C on 2026-11-22. H2S, H2C and H2D Pro remain unverified.
+BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D', 'P2S', 'H3C'})
 
 
 # ====================================================================
@@ -86,9 +87,11 @@ def get_camera_url(printer):
     if chamber_source(printer):
         return CHAMBER_CAMERA_SOURCE
     if printer.api_type == "bambu" and printer.api_key and printer.api_host:
-        RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
         model = (printer.model or '').strip()
-        if model not in RTSP_MODELS:
+        # Setup and API clients can store the H3C's firmware ID or product name.
+        if bambu_model_name(model) == 'H3C':
+            model = 'H3C'
+        if model not in BAMBU_RTSPS_CAMERA_MODELS:
             return None
         try:
             parts = crypto.decrypt(printer.api_key).split("|")

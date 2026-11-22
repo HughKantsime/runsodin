@@ -648,7 +648,7 @@ def handle_status(self, status, generation, runtime):
             from modules.printers.monitors.live_state import observe_mqtt
             observe_mqtt(self, status, raw, runtime)
 
-        # Check for camera URL auto-discovery (only X1C/H2D broadcast rtsp_url)
+        # A reported rtsp_url signals that the printer has a camera stream.
         # Only sync once per connection — MQTT broadcasts this on every message
         # and each sync restarts go2rtc, killing all active camera streams.
         if not self._camera_discovered:

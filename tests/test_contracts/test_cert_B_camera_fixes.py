@@ -48,6 +48,31 @@ def test_printers_report_camera_enabled_and_effective_camera(printers_client):
     assert rows[23]["camera_enabled"] is False and rows[23]["camera_source"] == "configured"
 
 
+@pytest.mark.parametrize("printer_id", [21, 23], ids=["bambu", "moonraker"])
+@pytest.mark.parametrize("stored_url,enabled", [
+    (None, True), (None, False), ("rtsp://192.0.2.7/cam", True),
+])
+@pytest.mark.parametrize("empty_url", [None, ""])
+def test_empty_camera_update_only_removes_a_stored_url(
+    printers_client, review_db, monkeypatch, printer_id, stored_url, enabled, empty_url,
+):
+    from modules.printers import route_utils
+    syncs = []
+    monkeypatch.setattr(route_utils, "sync_go2rtc_config", syncs.append)
+    review_db.execute(text("UPDATE printers SET camera_url=:url, camera_enabled=:enabled WHERE id=:id"),
+                      {"url": stored_url, "enabled": enabled, "id": printer_id})
+    review_db.commit()
+
+    response = printers_client.patch(f"/printers/{printer_id}", json={"camera_url": empty_url})
+    assert response.status_code == 200, response.text
+    url, camera_enabled = review_db.execute(
+        text("SELECT camera_url, camera_enabled FROM printers WHERE id=:id"), {"id": printer_id},
+    ).one()
+    assert url == (empty_url if stored_url else None)
+    assert bool(camera_enabled) is (enabled and stored_url is None)
+    assert len(syncs) == int(stored_url is not None)
+
+
 def test_resaving_masked_auto_camera_keeps_it_generated(printers_client, review_db):
     masked = printers_client.get("/printers/21").json()["camera_url"]
     response = printers_client.patch("/printers/21", json={"camera_url": masked, "nickname": "Bay 1"})

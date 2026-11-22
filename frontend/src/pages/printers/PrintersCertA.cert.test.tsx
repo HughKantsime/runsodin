@@ -259,7 +259,7 @@ it('emergency stop is hidden from viewers', async () => {
   expect(screen.queryByRole('button', { name: /Emergency controls/ })).toBeNull()
 })
 
-it('printer settings panel shows smart plug, camera URL, tags and timelapse fields and submits camera/tags/timelapse', () => {
+it('printer settings panel saves tags and timelapse while leaving an empty camera URL alone', () => {
   const onSubmit = vi.fn()
   render(<PrinterModal isOpen onClose={() => {}} onSubmit={onSubmit} printer={{ ...w.printers[0], camera_url: null, camera_source: null }} />)
   expect(screen.getByRole('option', { name: 'No smart plug' })).toBeInTheDocument()
@@ -268,7 +268,8 @@ it('printer settings panel shows smart plug, camera URL, tags and timelapse fiel
   fireEvent.submit(screen.getByRole('button', { name: /save|update/i }).closest('form')!)
   const [data, id] = onSubmit.mock.calls[0]
   expect(id).toBe(301)
-  expect(data).toMatchObject({ tags: ['farm-a'], timelapse_enabled: false, camera_url: null })
+  expect(data).toMatchObject({ tags: ['farm-a'], timelapse_enabled: false })
+  expect(data).not.toHaveProperty('camera_url')
 })
 // Plug settings travel as `plug` and Printers.tsx saves them through PUT /printers/{id}/plug.
 it('smart plug configured in the printer settings panel is submitted for saving', () => {

@@ -291,8 +291,10 @@ def update_printer(
             if camera_url_has_credentials(update_data['camera_url']):
                 update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
             update_data['camera_enabled'] = True
-        else:
+        elif printer.camera_url:
             update_data['camera_enabled'] = False
+        else:
+            del update_data['camera_url']
 
     if 'api_key' in update_data and update_data['api_key']:
         update_data['api_key'] = crypto.encrypt(update_data['api_key'])

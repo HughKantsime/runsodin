@@ -33,6 +33,17 @@ it('does not clear an unchanged masked camera configuration when editing tags', 
  expect(submit).toHaveBeenCalledOnce()
  expect(submit.mock.calls[0][0]).not.toHaveProperty('camera_url')
 })
+it.each([
+ ['bambu', 'Unknown', true], ['bambu', 'H3C', true], ['bambu', 'H3C', false],
+ ['bambu', 'P2S', true], ['moonraker', 'Klipper', true],
+])('omits an empty camera URL on save for %s %s with enabled=%s', (api_type, model, camera_enabled) => {
+ const submit = modal({ api_type, model, camera_url: null, camera_enabled })
+ if (model === 'H3C') expect(screen.getByText('Leave blank to auto-detect built-in camera.')).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+ expect(submit).toHaveBeenCalledOnce()
+ expect(submit.mock.calls[0][0]).not.toHaveProperty('camera_url')
+ expect(submit.mock.calls[0][0]).not.toHaveProperty('camera_enabled')
+})
 it.each(['', 'http://192.0.2.2/snapshot'])('saves an explicit camera replacement or removal %s', value => {
  const submit = modal({ camera_url: 'rtsp://synthetic:***@192.0.2.1/live' })
  fireEvent.change(screen.getByPlaceholderText('e.g. http://192.168.1.50:8080/?action=stream'), { target: { value } })
