@@ -608,6 +608,8 @@ def test_ams3h_filament_deltas(capture, offline_store, v2_offline_monitor, monke
     changed = reading()
     assert (changed['type'], changed['preset'], changed['color']) == ('ABS', 'GFA01', 'AE835BFF')
     report({'state': 0})
+    assert tuple(reading()[k] for k in ('type', 'preset', 'color')) == ('', '', '987654FF')
+    report({'state': 0}, vir={'tray_color': ''})
     assert not any(reading().get(k) for k in ('type', 'preset', 'color'))
     report({'state': 0}, vir={'tray_type': 'TPU', 'tray_info_idx': 'fallback', 'tray_color': '654321FF'})
     assert reading()['type'] == 'TPU'
@@ -637,3 +639,66 @@ def test_fixed_nozzle_with_address_keeps_its_identity(other_ids):
     rows = installed_nozzles(packet, include_rack=True, observed_at='now')
     assert [r for r in rows if r['side'] != 'rack'] == fixed
     assert fixed[0]['extruder'] == 0 and fixed[0]['present'] is True
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+def test_virtual_slot_delta_preserves_ams_readings(capture, offline_store, v2_offline_monitor, monkeypatch):
+    monitor, _, runtime = v2_offline_monitor
+    emit_rack_report(monitor, offline_store, capture)
+
+    def loaded():
+        rows = offline_store.execute(text('SELECT slot_number,tray_observation FROM filament_slots '
+                                          'WHERE printer_id=199 AND slot_number IN (1,7,9)'))
+        return {n: json.loads(raw)['rack_filament'] for n, raw in rows}
+
+    initial = loaded()
+    assert {n: r['color'] for n, r in initial.items()} == {1: 'AE96D4FF', 7: 'AE835BFF', 9: 'FF6A13FF'}
+    monkeypatch.setattr(runtime, 'time', SimpleNamespace(time=lambda: 2011))
+    monitor._last_heartbeat = 0
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'vir_slot': capture['vir_slot']}}))
+    assert loaded() == initial
+    # This AMS update predates the virtual delta but is newer than the last AMS reading.
+    monitor._last_heartbeat = 0
+    tray = {'id': '6', 'tray_color': '123456FF'}
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'ams': {'ams': [{'id': '32', 'tray': [tray]}]}}},
+                                       report_age_seconds=5))
+    assert loaded()[7]['color'] == '123456FF'
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+@pytest.mark.parametrize('loaded_ams', [False, True])
+def test_hand_fed_reading_behind_ams_tray(capture, loaded_ams, offline_store, v2_offline_monitor):
+    monitor, _, _ = v2_offline_monitor
+    virtual = next(t for t in capture['vir_slot'] if t['id'] == '249')
+    virtual.update(tray_type='TPU', tray_info_idx='hand-fed', tray_color='654321FF')
+    if not loaded_ams:
+        tray = next(t for t in capture['ams']['ams'][0]['tray'] if t['id'] == '6')
+        tray.clear()
+        tray.update(id='6', tray_type='', tray_color='00000000')
+    emit_rack_report(monitor, offline_store, capture)
+
+    def filament():
+        raw = offline_store.execute(text('SELECT tray_observation FROM filament_slots WHERE printer_id=199 '
+                                         'AND slot_number=7')).scalar_one()
+        reading = json.loads(raw)['rack_filament']
+        return tuple(reading.get(k) for k in ('type', 'preset', 'color'))
+
+    hand_fed = ('TPU', 'hand-fed', '654321FF')
+    if loaded_ams:
+        assert filament() == ('PLA', 'GFA01', 'AE835BFF')
+        monitor._last_heartbeat = 0
+        monitor._on_status(SimpleNamespace(raw_data={'print': {
+            'ams': {'ams': [{'id': '32', 'tray': [{'id': '6', 'state': 0}]}]}}}))
+    assert filament() == hand_fed
+
+
+@pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
+def test_duplicate_parked_row_cannot_establish_mounted_rack(capture, offline_store, v2_offline_monitor):
+    from modules.printers.printer_models import rack_printer_refusal
+    rows = capture['device']['nozzle']['info']
+    rows.append(next(row.copy() for row in rows if row['id'] == 16))
+    monitor, _, _ = v2_offline_monitor
+    monitor._on_status(SimpleNamespace(raw_data={'print': capture}))
+    printer = offline_store.execute(text('SELECT model,machine_type,installed_nozzles FROM printers '
+                                         'WHERE id=199')).mappings().one()
+    assert rack_printer_refusal(printer) is None
