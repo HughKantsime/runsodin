@@ -95,13 +95,18 @@ def test_unknown_hms_becomes_actionable_on_state_delta(inventory, offline_store,
     assert (shown['last_error_code'], shown['last_error_message']) == ('previous', 'Earlier event')
     assert shown['last_error_at'].startswith('2020-01-01')
     assert json.loads(shown['hms_errors'])[0]['severity'] == 'info' and not alerts
-    send(trigger, 2011)
+    send(trigger, 2001)
     shown = view()
     assert shown['last_error_code'] == '0300E400_00020007'
     assert json.loads(shown['hms_errors'])[0]['severity'] == 'error'
     assert [alert['alert_type'] for alert in alerts] == ['printer_error']
     history = view('/printers/199/hms-history')['entries']
-    assert [(entry['code'], entry['severity']) for entry in history] == [(shown['last_error_code'], 'info')]
+    code = shown['last_error_code']
+    assert [(e['code'], e['severity']) for e in sorted(history, key=lambda e: e['id'])] == [(code, 'info'), (code, 'error')]
+    from datetime import datetime, timedelta
+    from modules.reporting.failure_analytics import build_failure_analytics
+    analytics = build_failure_analytics(offline_store, {'role': 'admin', 'group_id': None}, datetime.now() - timedelta(days=1))
+    assert [(e['code'], e['count']) for e in analytics['hms_errors']] == [(code, 1)]
 
 
 def test_catalogued_p1s_fault_still_alerts(inventory, offline_store, monkeypatch):
@@ -131,12 +136,36 @@ def test_get_version_applies_waiting_trays_without_a_second_ams_report(inventory
     send(capture)
     assert all(slot['assigned_spool_id'] is None for slot in view()['filament_slots'])
     if zone_delta:
-        send({'ams': {'ams': [{'id': '32', 'zone_info': capture['ams']['ams'][0]['zone_info']}]}}, 2001)
+        zone = dict(capture['ams']['ams'][0]['zone_info'][0], humidity_raw=42)
+        send({'ams': {'ams': [{'id': '32', 'zone_info': [zone]}]}}, 2001)
     version = BambuInfoSection.model_validate({'command': 'get_version', 'module': [
         {'name': 'ota', 'sw_ver': '1', 'product_name': 'Bambu Lab H3C'}]})
     emitters[0](BambuInfoEvent('monitor-199', 2001, version))
     send({'gcode_state': 'IDLE'}, 2061)
     assert {slot['slot_number'] for slot in view()['filament_slots'] if slot['assigned_spool_id']} == {1, 7, 9}
+    send({'gcode_state': 'IDLE'}, 2300)
+    expected = {z['zone_id']: int(z['humidity_raw']) for z in capture['ams']['ams'][0]['zone_info']}
+    if zone_delta:
+        expected[0] = 42
+    assert dict(offline_store.execute(text('SELECT ams_unit,humidity_percent FROM ams_telemetry WHERE printer_id=199')).all()) == expected
+
+
+def test_reconnect_just_after_get_version_waits_for_new_rack_roster(inventory, v2_offline_monitor):
+    from modules.printers.telemetry.bambu.raw import BambuInfoSection
+    from modules.printers.telemetry.events import BambuInfoEvent
+    send, view, _ = inventory
+    monitor, emitters, _ = v2_offline_monitor
+    capture = capture_packet('ams3h-loaded')
+    send(capture)
+    version = BambuInfoSection.model_validate({'command': 'get_version', 'module': [
+        {'name': 'ota', 'sw_ver': '1', 'product_name': 'Bambu Lab H3C'}]})
+    emitters[0](BambuInfoEvent('monitor-199', 2001, version))
+    before = view()['filament_slots']
+    monitor._begin_connection()
+    send({'ams': {'tray_exist_bits': capture['ams']['tray_exist_bits']}}, 2061)
+    assert view()['filament_slots'] == before
+    send(capture, 2122)
+    assert {s['slot_number'] for s in view()['filament_slots'] if s['assigned_spool_id']} == {1, 7, 9}
 
 
 def test_zone_delta_uses_reported_slots_at_the_next_sample(inventory, offline_store, token_client):
@@ -191,7 +220,14 @@ def test_remain_only_tray_delta_keeps_filament_and_binding(inventory, offline_st
 
 @pytest.mark.parametrize('model,unit,slot,bits', [('P1S', '0', 1, '1'), ('H2D', '128', 17, '10000')])
 def test_bit_only_after_reconnect_preserves_slots(inventory, v2_offline_monitor, offline_store, model, unit, slot, bits):
+    from sqlalchemy import event
     send, view, _ = inventory
+    # The base monitor refreshes loaded_at on each committed sync, even if the
+    # bits are unchanged. Pin the database clock to compare the entire slot row.
+    @event.listens_for(offline_store.get_bind(), 'checkout')
+    def pin_time(connection, *_):
+        connection.create_function('current_timestamp', 0, lambda: '2026-11-21 12:00:00')
+
     offline_store.execute(text("UPDATE printers SET model=:model WHERE id=199"), {'model': model})
     offline_store.commit()
     tray = dict(capture_packet('ams3h-loaded')['ams']['ams'][0]['tray'][0], id='0')
@@ -245,11 +281,13 @@ def test_mixed_hms_history_counts_each_activation_once(inventory, monkeypatch):
     send, view, _ = inventory
     events = [{'attr': 0x0300E400, 'code': 0x00020007}, {'attr': 0x03003100, 'code': 0x00010001}]
     send({'hms': events, 'print_error': 0, 'gcode_state': 'RUNNING'})
+    send({'gcode_state': 'PAUSE'}, 2001)
+    send({'gcode_state': 'RUNNING'}, 2002)
     send({'gcode_state': 'PAUSE'}, 2061)
     send({'gcode_state': 'RUNNING'}, 2122)
     history = view('/printers/199/hms-history')['entries']
     assert sorted((e['code'], e['severity']) for e in history) == [
-        ('03003100_00010001', 'critical'), ('0300E400_00020007', 'info')]
+        ('03003100_00010001', 'critical'), ('0300E400_00020007', 'error'), ('0300E400_00020007', 'info')]
 
 
 def test_status_without_identification_uses_generic_ams(inventory, v2_offline_monitor, monkeypatch):
@@ -277,3 +315,93 @@ def test_history_parser_failure_is_logged_and_retried(inventory, monkeypatch, ca
     monkeypatch.setattr(event_dispatcher, 'parse_hms_errors', parse)
     send({'gcode_state': 'RUNNING'}, 2061)
     assert len(view('/printers/199/hms-history')['entries']) == 1
+
+
+def test_hms_reactivation_between_heartbeats(inventory):
+    send, view, _ = inventory
+    event = {'attr': 0x0300E400, 'code': 0x00020007}
+    send({'hms': [event], 'print_error': 0, 'gcode_state': 'RUNNING'})
+    send({'hms': []}, 2001)
+    send({'hms': [event]}, 2002)
+    send({'hms': []}, 2003)
+    assert [e['source'] for e in view('/printers/199/hms-history')['entries']] == ['bambu_notice'] * 2
+
+
+def test_zone_expiry_and_resumption_are_per_zone(inventory, offline_store, token_client):
+    from modules.printers import routes_ams_env
+    send, view, _ = inventory
+    token_client[0].app.include_router(routes_ams_env.router)
+    offline_store.execute(text("UPDATE printers SET model='H3C' WHERE id=199"))
+    offline_store.commit()
+    capture = capture_packet('ams3h-loaded')
+    send(capture)
+    zones = capture['ams']['ams'][0]['zone_info']
+    def counts():
+        return {k: len(v) for k, v in view('/printers/199/ams/environment')['units'].items()}
+
+    send({'ams': {'ams': [{'id': '32', 'zone_info': [zones[0]]}]}}, 2300)
+    send({'gcode_state': 'IDLE'}, 2600)
+    assert counts() == {'0': 3, '1': 3}
+    send({'gcode_state': 'IDLE'}, 2900)
+    assert counts() == {'0': 4, '1': 3}
+    send({'gcode_state': 'IDLE'}, 3200)
+    assert counts() == {'0': 4, '1': 3}
+    send({'ams': {'ams': [{'id': '32', 'zone_info': [zones[1]]}]}}, 3500)
+    assert counts() == {'0': 4, '1': 4}
+
+
+@pytest.mark.parametrize('model', ['P1S', 'H2D'])
+def test_reconnect_bit_removal_matches_base(inventory, v2_offline_monitor, offline_store, model):
+    send, view, _ = inventory
+    offline_store.execute(text('UPDATE printers SET model=:model WHERE id=199'), {'model': model})
+    offline_store.commit()
+    from hashlib import sha256
+    def snapshot():
+        slots = view()['filament_slots']
+        rows = [(s['slot_number'], s['filament_type'], s['color_hex'], s['assigned_spool_id'], s['spool_confirmed'])
+                for s in slots]
+        normalized = [dict(s, loaded_at=bool(s['loaded_at']), observed_state=bool(s['observed_state'])) for s in slots]
+        return rows, sha256(json.dumps(normalized, sort_keys=True).encode()).hexdigest()
+
+    tray = {'id': '0', 'tray_type': 'PLA', 'tray_color': 'ABCDEFff', 'tag_uid': 'A001'}
+    units = [{'id': '0', 'tray': [tray]}, {'id': '128', 'tray': [dict(tray, tag_uid='A017')]}]
+    full = {'ams': {'ams': units, 'tray_exist_bits': '10001'}}
+    send(full)
+    initial, initial_hash = snapshot()
+    v2_offline_monitor[0]._begin_connection()
+    send({'ams': {'tray_exist_bits': '1'}}, 2061)
+    removed, removed_hash = snapshot()
+    send(full, 2122)
+    restored, restored_hash = snapshot()
+    # Observed through GET /printers/199 on 75e4e109 for both printer models.
+    standard = (1, 'PLA', 'ABCDEF', 1, True)
+    ht = (17, 'PLA', 'ABCDEF', 2, True)
+    assert initial == restored == [standard, ht]
+    assert removed == [standard, (17, 'empty', None, None, False)]
+    assert initial_hash == restored_hash == '1839d43be0826a03e8b548a6a3bad8f06ec7973a2d252e840ab3bdb2c1b08860'
+    assert removed_hash == 'b6884d29b28ae89ad41eb2e070d802c0014b76406654361be6e30987cb65493c'
+
+
+@pytest.mark.parametrize('model', ['P1S', 'H2D'])
+def test_first_bits_without_a_roster_matches_base(inventory, offline_store, model):
+    send, view, _ = inventory
+    offline_store.execute(text('UPDATE printers SET model=:model WHERE id=199'), {'model': model})
+    offline_store.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                               "VALUES(199,17,'PETG','123456')"))
+    offline_store.commit()
+    send({'ams': {'tray_exist_bits': '0'}})
+    ht, = view()['filament_slots']
+    assert (ht['slot_number'], ht['filament_type'], ht['color_hex'], ht['assigned_spool_id']) == (17, 'empty', None, None)
+
+
+@pytest.mark.parametrize('field,value', [('tray_color', '12AB34FF'), ('tray_type', 'PETG'), ('tray_info_idx', 'GFA99')])
+def test_tagless_tray_change_releases_old_spool(inventory, offline_store, field, value):
+    send, view, _ = inventory
+    offline_store.execute(text("UPDATE printers SET model='H3C' WHERE id=199"))
+    offline_store.commit()
+    send(capture_packet('ams3h-loaded'))
+    assert view()['filament_slots'][6]['assigned_spool_id'] is not None
+    send({'ams': {'ams': [{'id': '32', 'tray': [{'id': '6', field: value}]}]}}, 2061)
+    slot = view()['filament_slots'][6]
+    assert slot['assigned_spool_id'] is None
+    assert slot['filament_type'] == ('PETG' if field == 'tray_type' else 'PLA')

@@ -124,11 +124,15 @@ def test_h2d_hms_codes_logged_once_per_change_with_translations_and_alerts(wire_
         hms = payload.get("print", {}).get("hms")
         if hms and (not changes or changes[-1] != hms):
             changes.append(hms)
-    # Logged on each change of the reported HMS set (A, B, A here), never per frame.
+    # Four notices stay active throughout. The fifth clears while running and
+    # returns when paused, as the four continuing notices become actionable.
     assert len(changes) == 3 and len(frames) > 100
-    assert len(history) == sum(len(v) for v in changes)
-    assert {r[3] for r in history} == {"bambu_hms"}
-    assert all(r[1] and not r[1].startswith("Unknown") for r in history[:3])
+    assert changes[1] == changes[0][:-1] and changes[2] == changes[0]
+    codes = [f"{entry['attr']:08X}_{entry['code']:08X}" for entry in changes[0]]
+    expected = [(code, "info", "bambu_notice") for code in codes]
+    expected += [(code, "error", "bambu_hms") for code in codes]
+    assert [(code, severity, source) for code, _, severity, source in history] == expected
+    assert all(message and not message.startswith("Unknown") for _, message, _, _ in history)
     alerts = review_db.execute(text("SELECT alert_type,severity,title FROM alerts WHERE printer_id=301")).all()
     assert alerts, "HMS errors must dispatch alerts"
 

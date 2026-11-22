@@ -205,6 +205,9 @@ def _merge_tray_fields(held, tray):
             tray.get('state') == 0 and not tray.get('tray_type')) or any(
             tray[key] != held[key] for key in ('tag_uid', 'tray_uuid') if key in tray and key in held):
         return tray
+    if 'tag_uid' not in tray and 'tray_uuid' not in tray and any(
+            tray[key] != held[key] for key in ('tray_type', 'tray_color', 'tray_info_idx') if key in tray and key in held):
+        return {**held, **tray, 'tag_uid': None, 'tray_uuid': None}
     return {**held, **tray}
 
 
