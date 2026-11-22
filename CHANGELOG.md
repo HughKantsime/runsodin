@@ -16,6 +16,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- The Bambu Lab H3C’s built-in camera now appears in ODIN when LAN mode liveview is on at the printer.
+- Saving a printer’s settings no longer switches its camera off when no camera URL was set.
 - ITAR mode now starts on a stock install. Previously, you had to clear the license server address by hand before the server would start.
 
 ## [2.5.0] - 2026-11-21

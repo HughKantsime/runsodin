@@ -297,6 +297,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     const cameraUrl = formData.camera_url || ''
     const unchangedMaskedCamera = cameraUrl.includes('***@') && cameraUrl === printer?.camera_url
     const unchangedAutoCamera = printer?.camera_source === 'auto' && !cameraUrl
+    const unchangedEmptyCamera = printer && !printer.camera_url && !cameraUrl
     if (cameraUrl.includes('***@') && !unchangedMaskedCamera) {
       setSubmitError('Enter a complete replacement camera URL or clear the field.')
       return
@@ -316,7 +317,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       const value = formData[axis] === '' ? null : Number(formData[axis])
       if (value !== (printer?.[axis] ?? null)) submitData[axis] = value
     }
-    if (!unchangedMaskedCamera && !unchangedAutoCamera) submitData.camera_url = cameraUrl || null
+    if (!unchangedMaskedCamera && !unchangedAutoCamera && !unchangedEmptyCamera) submitData.camera_url = cameraUrl || null
     // Saved separately through PUT/DELETE /printers/{id}/plug by the caller.
     const plug = plugConfigToSave(formData, plugBaseline)
     if (plug !== undefined) submitData.plug = plug
@@ -580,7 +581,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           <input type="text" value={formData.camera_url} onChange={(e) => setFormData(prev => ({ ...prev, camera_url: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g. http://192.168.1.50:8080/?action=stream" />
           {formData.api_type === 'bambu' && /^(P1S|P1P|A1)/i.test(formData.model) ? (
             <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to auto-detect the built-in camera on P1P, P1S, A1 and A1 Mini. These cameras run at about 1 frame every 2 seconds. ODIN uses one of the printer's two camera connections.</p>
-          ) : formData.api_type === 'bambu' && /^(X1|H2D)/i.test(formData.model) ? (
+          ) : formData.api_type === 'bambu' && (rack || /^(X1|H2D)/i.test(formData.model)) ? (
             <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to auto-detect built-in camera.</p>
           ) : (
             <p className="text-xs text-[var(--brand-text-muted)] mt-1">MJPEG, RTSP, or HTTP snapshot URL for Vigil AI monitoring.</p>
