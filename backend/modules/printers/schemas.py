@@ -74,6 +74,7 @@ class FilamentSlotResponse(FilamentSlotBase):
     remaining_weight: Optional[float] = None  # grams left on the assigned spool
     spool_change_pending: bool = False
     observed_state: Optional[str] = None
+    rack_filament: Optional[dict] = None
     preset: Optional[str] = None
     brand: Optional[str] = None
     material_type: Optional[str] = None
@@ -90,10 +91,17 @@ class FilamentSlotResponse(FilamentSlotBase):
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'remaining_weight' and hasattr(data, name)}
         spool = data.assigned_spool
         from core.tray_identity import preset_label
-        from core.display_json import display_object, display_tray_state
-        state = display_tray_state(data.tray_observation)
-        values['spool_change_pending'] = (True if data.tray_observation and display_object(data.tray_observation) is None
-                                          else state.get('pending', False))
+        from core.display_json import display_object
+        from modules.printers.printer_models import is_h3c_printer
+        observation = display_object(data.tray_observation)
+        state = observation or {}
+        if is_h3c_printer(data.printer):
+            if isinstance(state.get('rack_filament'), dict):
+                values['rack_filament'] = state['rack_filament']
+            state = {}  # Rack readings do not participate in ODIN spool confirmation.
+            values['spool_change_pending'] = False
+        else:
+            values['spool_change_pending'] = bool(data.tray_observation and observation is None) or state.get('pending', False)
         values['observed_state'] = state.get('id')
         # A missing initial weight prevents a percentage, not a known gram
         # balance on an operator-managed non-Bambu spool (spec item 1).
@@ -317,6 +325,13 @@ class PrinterResponse(PrinterBase):
             return data
         from modules.printers.route_utils import effective_camera_url
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'camera_source' and hasattr(data, name)}
+        from modules.printers.printer_models import is_h3c_printer
+        rack = is_h3c_printer(data)
+        if rack or values.get('installed_nozzles'):
+            from modules.printers.nozzle_capability import display_nozzles
+            values['installed_nozzles'] = display_nozzles(values.get('installed_nozzles'), rack=rack)
+        if rack:
+            values['model'] = 'H3C'
         url = effective_camera_url(data)
         from modules.printers.bambu_hms_bundle import credential_prefix
         values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''

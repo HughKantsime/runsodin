@@ -7,6 +7,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from modules.printers.printer_models import is_h3c_printer, rack_model_identity
 from modules.printers.education_compatibility import evaluate_education_compatibility
 from modules.printers.dispatch_support import (
     automatic_dispatch_unsupported_reason,
@@ -232,6 +233,8 @@ def request_observed_task_resume(printer, print_job_id: int) -> str:
     Bambu adds monitor-side current observation and paused telemetry admission.
     Acceptance never proves the printer has actually resumed.
     """
+    if is_h3c_printer(printer):
+        return 'refused'
     if (printer.api_type or '').lower() == 'bambu':
         from modules.printers.monitor_commands import request_command
         return request_command(printer.id, 'resume', print_job_id=print_job_id)
@@ -282,8 +285,22 @@ def validate_bambu_slot_count(count):
 
 def check_bambu_create_count(values):
     if isinstance(values, dict) and str(values.get('api_type')).lower() == 'bambu':
+        if is_h3c_printer(values):
+            return {**values, 'slot_count': 9}
         validate_bambu_slot_count(values.get('slot_count', 4))
     return values
+
+
+def prepare_rack_slot_count(printer, update_data):
+    rack = is_h3c_printer({key: update_data.get(key, getattr(printer, key))
+                           for key in ('api_type', 'model', 'machine_type')})
+    if rack:
+        from fastapi import HTTPException
+        if update_data.get('slot_count', 9) != 9:
+            raise HTTPException(422, 'The H3C has nine rack positions.')
+        if printer.slot_count != 9:
+            update_data['slot_count'] = 9
+    return rack
 
 
 def create_printer_record(db, **fields):
@@ -295,7 +312,7 @@ def create_printer_record(db, **fields):
     check_printer_limit(db.query(Printer).count())
     if (fields.get('api_type') or '').lower() == 'bambu':
         from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name
-        validate_bambu_slot_count(fields.get('slot_count', 4))
+        fields = check_bambu_create_count(fields)
         dims = BAMBU_BEDS.get(bambu_model_name(fields.get('model')))
         if dims and fields.get('bed_x_mm') is None and fields.get('bed_y_mm') is None:
             fields['bed_x_mm'], fields['bed_y_mm'] = dims
@@ -319,6 +336,10 @@ def apply_printer_updates(printer, update_data):
         if changed:
             changed_fields.append(field)
         setattr(printer, field, value)
+    if 'model' in changed_fields and rack_model_identity(printer.model, printer.machine_type) is False:
+        rows = printer.installed_nozzles
+        if isinstance(rows, list) and any(isinstance(row, dict) and row.get('side') == 'rack' for row in rows):
+            printer.installed_nozzles = [row for row in rows if not isinstance(row, dict) or row.get('side') != 'rack']
     return changed_fields
 
 

@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { fetchAPI } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import type { Printer, PrintControlAction } from '../../types/printer'
-import { isOnline, isActivePrintState, isPausedState } from '../../utils/shared'
+import { isH3C, isOnline, isActivePrintState, isPausedState } from '../../utils/shared'
 import { activeControl, useControlDeadlines, controlLabel, pendingMessage, unavailableMessage, unprovenHelp, type ControlReceipt } from '../../utils/printControl'
 
 export function mayControlPrint() {
@@ -38,7 +38,7 @@ function useControlState() {
           if (!stop.inFlight) lastStops.current.delete(id)
         }
         setListError(false)
-        setPrinters(data.filter((p: Printer) => p.pending_control || (isOnline(p) && isActivePrintState(p.gcode_state))))
+        setPrinters(data.filter((p: Printer) => !isH3C(p) && (p.pending_control || (isOnline(p) && isActivePrintState(p.gcode_state)))))
       } catch {
         if (!active || request !== sequence) return
         setListError(true)

@@ -686,10 +686,11 @@ class PrinterVisionThread(threading.Thread):
         try:
             with engine.connect() as conn:
                 row = conn.execute(
-                    text("SELECT api_type, api_host, api_key FROM printers WHERE id = :pid"),
+                    text("SELECT api_type, api_host, api_key, model, machine_type FROM printers WHERE id = :pid"),
                     {"pid": self.printer_id}
                 ).mappings().fetchone()
-            if not row or not self._live_printing():
+            from modules.printers.services import is_h3c_printer
+            if not row or is_h3c_printer(row) or not self._live_printing():
                 return
 
             api_type = row['api_type']
@@ -717,7 +718,7 @@ class PrinterVisionThread(threading.Thread):
                         api_host, printer_id=f"vision-pause-{self.printer_id}",
                     )
                     config = BambuAdapterConfig(
-                        printer_id=f"vision-pause-{self.printer_id}",
+                        printer_id=f"vision-pause-{self.printer_id}", printer_row_id=self.printer_id,
                         serial=serial,
                         host=endpoint.host,
                         port=endpoint.port,
@@ -728,7 +729,7 @@ class PrinterVisionThread(threading.Thread):
                         success = run_command(config, "pause_print")
                 else:
                     from modules.printers.adapters.bambu import BambuPrinter
-                    adapter = BambuPrinter(api_host, serial, access_code)
+                    adapter = BambuPrinter(api_host, serial, access_code, printer_id=self.printer_id)
                     if adapter.connect():
                         try:
                             if self._live_printing():

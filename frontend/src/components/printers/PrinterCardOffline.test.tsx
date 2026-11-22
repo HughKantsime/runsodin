@@ -2,6 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render as rtlRender, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
+import FoundryPrinterCard from '../foundry/PrinterCard'
+import { MemoryRouter } from 'react-router-dom'
+import type { Printer } from '../../types/printer'
 import { ActiveJobPanel } from './PrinterPanels'
 vi.mock('../../permissions', () => ({ canDo: () => false, getCurrentUser: () => null }))
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
@@ -91,4 +94,15 @@ it.each([['RUNNING', 'Printing'], ['PAUSED', 'Needs you'], ['IDLE', 'Ready'], ['
  render(<PrinterCard printer={{ ...printer, gcode_state: state }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent(label)
  expect(screen.getByTestId('printer-status')).toHaveClass('foundry-status')
+})
+
+it.each(['classic', 'foundry'])('shows the H3C rack and its ODIN slot on the %s card', family => {
+ document.documentElement.dataset.themeFamily = family
+ const rows = [{ nozzle_id: 23, position: 8, side: 'rack', type: 'HT01', diameter: 0.4, present: true }]
+ const rackPrinter = { ...printer, api_type: 'bambu', model: 'H3C', installed_nozzles: rows, filament_slots: [{ id: 8, slot_number: 8, filament_type: 'empty' }] }
+ render(family === 'classic' ? <PrinterCard printer={rackPrinter} {...props} /> : <MemoryRouter><FoundryPrinterCard printer={rackPrinter as Printer} /></MemoryRouter>)
+ expect(screen.getByRole('region', { name: 'Nozzle rack' })).toHaveTextContent('Position 8 · TPU 2.85 mm (HT01) · 0.4 mm')
+ expect(screen.queryByText(/No AMS connected|AMS status unknown/)).not.toBeInTheDocument()
+ expect(screen.getByRole('region', { name: 'Nozzle rack' })).toHaveTextContent('ODIN slot: empty')
+ if (family === 'classic') expect(screen.getByTestId('filament-slot')).toBeInTheDocument()
 })

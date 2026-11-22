@@ -6,7 +6,7 @@ import type { PlugConfig } from '../../types'
 import { canDo } from '../../permissions'
 import { PRINTER_TYPE_OPTIONS, printerTypeLabel, supportLevelOfType, experimentalWarning } from '../../utils/supportLevels'
 import { Modal } from '../ui'
-import { BAMBU_LAN_NOTE, connectionFailureMessage } from '../../utils/shared'
+import { BAMBU_LAN_NOTE, connectionFailureMessage, isH3C } from '../../utils/shared'
 import MoonrakerDiscovery from './MoonrakerDiscovery'
 
 // TODO: type this properly — runtime printer has extra fields
@@ -161,7 +161,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   const [modelOverride, setModelOverride] = useState(false)
   const [slotOverride, setSlotOverride] = useState(false)
 
-  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'P2S', 'A1', 'A1 Mini', 'H2D', 'H2D Pro', 'H2S', 'H2C']
+  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'P2S', 'A1', 'A1 Mini', 'H2D', 'H2D Pro', 'H2S', 'H2C', 'H3C']
 
   useEffect(() => {
     setSubmitError(null)
@@ -264,8 +264,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         setVerifiedConnection(tested)
         setTestStatus('success')
         const detail = (result as unknown as { detail?: string }).detail
-        setTestMessage(detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots${result.ams_ht_slots != null ? `, ${result.ams_ht_slots} AMS HT` : ''}`)
-        if (!printer && result.ams_slots != null && result.ams_slots > 0) {
+        const rack = isH3C({ ...formData, model: formData.model || result.model })
+        setTestMessage(rack ? 'Connected! 9 rack positions' : detail ? `Connected! ${detail}` : `Connected! State: ${result.state}, Bed: ${result.bed_temp}\u00B0C, ${result.ams_slots || 0} AMS slots${result.ams_ht_slots != null ? `, ${result.ams_ht_slots} AMS HT` : ''}`)
+        if (!printer && !rack && result.ams_slots != null && result.ams_slots > 0) {
           setFormData(prev => ({ ...prev, slot_count: result.ams_slots }))
         }
         if (result.model && result.model !== 'Unknown' && !formData.model) {
@@ -287,6 +288,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   // changed since) is saved only after the user confirms.
   const connectionUnverified = !!formData.api_type && connectionKey(formData) !== verifiedConnection
 
+  const rack = isH3C({ ...formData, machine_type: printer?.machine_type })
+  const slotCount = rack ? 9 : formData.slot_count
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     setSubmitError(null)
@@ -302,7 +306,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       name: formData.name,
       nickname: formData.nickname || null,
       model: formData.model,
-      ...(!printer || formData.slot_count !== printer.slot_count ? { slot_count: formData.slot_count } : {}),
+      ...(!printer || slotCount !== printer.slot_count ? { slot_count: slotCount } : {}),
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,
       shared: formData.shared || false,
@@ -370,7 +374,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         ) : showBambuFields ? (
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Model</label>
-            <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+            <select value={formData.model} onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Will auto-detect on first connect</option>
               {BAMBU_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
@@ -381,7 +385,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
             <input type="text" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., Prusa MK4, Ender 3" />
           </div>
         )}
-        {isEditing && showBambuFields && printer?.last_seen ? (
+        {rack ? <p>9 rack positions</p> : isEditing && showBambuFields && printer?.last_seen ? (
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Filament Slots</label>
             <div className="flex items-center gap-2">

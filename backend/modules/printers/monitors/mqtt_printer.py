@@ -77,8 +77,10 @@ def _ams_report_digest(report) -> str:
 class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""
 
-    def __init__(self, printer_id: int, name: str, ip: str, serial: str, access_code: str):
+    def __init__(self, printer_id: int, name: str, ip: str, serial: str, access_code: str, *, configured_h3c=False, stored_rack=False):
         self._monitor_started_at = MONITOR_STARTED_AT
+        self._configured_h3c = configured_h3c
+        self._rack_rows_stored = stored_rack
         self.printer_id = printer_id
         self.name = name
         self.ip = ip
@@ -126,11 +128,13 @@ class PrinterMonitor:
                 return self._connect_v2()
             generation = self._begin_connection()
             self._bambu = BambuPrinter(
+                printer_id=self.printer_id,
                 ip=self.ip,
                 serial=self.serial,
                 access_code=self.access_code,
                 on_status_update=lambda status: self._on_status(status, generation),
                 on_connection_change=lambda: self._reset_live_connection(generation),
+                on_product_name=lambda product: self._on_product_name(product, generation),
                 client_id=f"odin_{self.printer_id}_{int(time.time())}"
             )
             if self._bambu.connect():
@@ -149,6 +153,40 @@ class PrinterMonitor:
         except Exception as e:
             log.error(f"[{self.name}] Connection error: {e}")
             return False
+
+    def _on_product_name(self, product, generation):
+        from modules.printers.printer_models import bambu_model_name, rack_model_identity
+        if not product:
+            return
+        with self._lock:
+            if generation != self._connection_generation or self._connection_retired:
+                return
+            self._reported_model = product
+            rack = rack_model_identity(product)
+            if rack is False:
+                self._unconfirmed_nozzle_report = None
+            if rack or (rack is False and (self._rack_rows_stored or getattr(self, '_pending_rack_ids', None))):
+                # The rack can arrive before get_version, with no further status delta.
+                from core.printer_identity_audit import observe_printer_identity
+                from modules.printers.monitors.nozzle_observations import observe, persist
+                try:
+                    held = getattr(self, '_unconfirmed_nozzle_report', None)
+                    if rack and held:
+                        from types import SimpleNamespace
+                        packet, received = held
+                        observe(self, packet, SimpleNamespace(mqtt_received_at=received), sys.modules[__name__])
+                    with get_db() as conn:
+                        observe_printer_identity(conn, self.printer_id, 'machine_type', bambu_model_name(product))
+                        unconfirmed_filaments = persist(conn, self, first_rack=None if rack else set())
+                        conn.commit()
+                    self._unconfirmed_nozzle_report = None
+                    if not rack:
+                        self._rack_rows_stored = False
+                        self._pending_rack_ids = None
+                    self._pending_installed_nozzles = {}
+                    self._pending_rack_filaments = unconfirmed_filaments
+                except Exception:
+                    log.warning('[%s] Rack identification will retry on heartbeat', self.name)
 
     def _connect_v2(self) -> bool:
         """V2 path — BambuTelemetryAdapter with a shim that mimics the
@@ -179,12 +217,7 @@ class PrinterMonitor:
                 section_dict = item.section.model_dump(exclude_unset=True)
                 on_status(_LegacyStatusShim(section_dict, item.mqtt_retained, item.ts), generation)
             elif isinstance(item, BambuInfoEvent):
-                # Model identity (ota product_name); persisted on the next heartbeat.
-                product = ota_product_name(item.section.model_dump())
-                if product:
-                    with self._lock:
-                        if generation == self._connection_generation:
-                            self._reported_model = product
+                self._on_product_name(ota_product_name(item.section.model_dump()), generation)
             elif isinstance(item, ConnectionEvent) and item.kind == "connected":
                 if not self._reset_live_connection(generation):
                     return

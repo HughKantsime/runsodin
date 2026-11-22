@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterDetail from './PrinterDetail'
 import { printers as objectApi } from '../../api/printers'
@@ -12,7 +12,8 @@ vi.mock('../../components/printers/DispatchRecoveryPanel', () => ({ default: () 
 vi.mock('../../api/client', () => ({ fetchAPI: vi.fn().mockResolvedValue([]) }))
 vi.mock('../../api/printers', () => ({ printers: { printObjects: vi.fn(), skipObjects: vi.fn() } }))
 vi.mock('../../api', () => ({
-  printers: { get: vi.fn(async () => ({ id: 9, name: 'Printer detail', api_type: state.type, gcode_state: state.gcode, current_job: 'Parts',
+  filaments: { combined: vi.fn().mockResolvedValue([]) }, spools: { list: vi.fn().mockResolvedValue([]) },
+  printers: { updateSlot: vi.fn().mockResolvedValue({}), get: vi.fn(async () => ({ id: 9, name: 'Printer detail', api_type: state.type, gcode_state: state.gcode, current_job: 'Parts',
     last_seen: state.online ? new Date().toISOString() : null, experimental_actions_enabled: false })) },
   printerTelemetry: { get: vi.fn().mockResolvedValue([]) }, printJobs: { list: vi.fn().mockResolvedValue([]) }, jobs: { list: vi.fn().mockResolvedValue([]) },
 }))
@@ -86,4 +87,75 @@ it('opens Elegoo Experimental features from the hash for a non-superadmin', asyn
   expect(disclosure).toHaveAttribute('open')
   expect(screen.getByText('Only a platform administrator can change this.')).toBeInTheDocument()
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+})
+
+it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s printer page', async family => {
+  const { printers } = await import('../../api')
+  const capture = await import('../../../../tests/fixtures/telemetry/h3c-one-filament-2026-11-21.json')
+  const nozzles = capture.message.print.device.nozzle.info.map(row => ({
+    nozzle_id: row.id, position: row.addr_id + 1, side: 'rack', diameter: row.diameter, type: row.type,
+    virtual_slot_id: row.snow >> 8, mounted: row.id === 20,
+    present: true, material: null, flow: null, wear: row.wear, observed_at: '2026-11-21T19:40:00Z',
+  }))
+  const slots = nozzles.map(nozzle => {
+    const tray = capture.message.print.vir_slot.find(slot => Number(slot.id) === nozzle.virtual_slot_id)!
+    return { slot_number: nozzle.position, filament_type: 'PETG', color_hex: '112233',
+      rack_filament: { id: Number(tray.id), type: tray.tray_type, preset: tray.tray_info_idx, color: tray.tray_color, observed_at: '2026-11-21T19:57:00Z' } }
+  })
+  vi.mocked(printers.get).mockResolvedValueOnce({
+    id: 9, name: 'Printer detail', api_type: 'bambu', model: 'H3C', gcode_state: 'RUNNING',
+    last_seen: new Date().toISOString(), installed_nozzles: nozzles, filament_slots: slots,
+  } as Awaited<ReturnType<typeof printers.get>>)
+  document.documentElement.dataset.themeFamily = family
+  mount()
+  const rack = await screen.findByRole('region', { name: 'Nozzle rack' })
+  const rows = rack.querySelectorAll('li')
+  expect(rows).toHaveLength(9)
+  expect(rows[0]).toHaveTextContent('Position 1 · Standard (1.75 mm) (HS01) · 0.4 mm')
+  expect(rows[8]).toHaveTextContent('Nothing reported')
+  expect(Array.from(rows).filter(row => row.textContent?.includes('Nothing reported'))).toHaveLength(8)
+  expect(rack).toHaveTextContent('Position 8 · TPU 2.85 mm (HT01) · 0.4 mm')
+  expect(rows[0]).toHaveTextContent('Printer reports: PLA, GFA01, #AE96D4')
+  const editors = screen.getAllByTestId('filament-slot')
+  expect(editors).toHaveLength(9)
+  expect(screen.getAllByText(/\bPETG\b/)).toHaveLength(9)
+  editors.forEach((editor, index) => {
+    expect(editor).toHaveTextContent(`Position ${index + 1}`)
+    expect(editor).toHaveTextContent('PETG')
+    if (family === 'foundry') expect(editor.querySelector('.f-swatch')).toHaveStyle({ backgroundColor: '#112233' })
+    else expect(editor.querySelector('circle[stroke="#112233"]')).toBeInTheDocument()
+  })
+  expect(rows[0]).toHaveTextContent('ID 255')
+  expect(rows[8]).toHaveTextContent('ID 247')
+  expect(rows[4]).toHaveTextContent('In the tool head')
+  expect(Array.from(rows).filter(row => row.textContent?.includes('In the tool head'))).toHaveLength(1)
+  expect(rack).not.toHaveTextContent(/provisional|Confirm spool/i)
+  expect(rack).not.toHaveTextContent(/No AMS connected|AMS status unknown/)
+  expect(rack).not.toHaveTextContent(/mounted|active nozzle|161|129/i)
+  expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()
+})
+
+it.each([
+  ['classic', 'bambu'], ['foundry', 'bambu'], ['classic', null], ['foundry', null],
+])('edits an ODIN rack slot before any nozzle report in %s (protocol %s)', async (family, apiType) => {
+  const { printers } = await import('../../api')
+  const slots = Array.from({ length: 9 }, (_, index) => ({
+    id: index + 1, slot_number: index + 1, filament_type: 'PETG',
+    rack_filament: { id: 255 - index, type: 'PLA', preset: 'GFA01', color: 'AE96D4FF', observed_at: '2026-11-21T19:57:00Z' },
+  }))
+  vi.mocked(printers.get).mockResolvedValueOnce({
+    id: 9, name: 'Rack printer', api_type: apiType, model: 'H3C', filament_slots: slots,
+  } as Awaited<ReturnType<typeof printers.get>>)
+  document.documentElement.dataset.themeFamily = family
+  mount()
+  await screen.findByText('No rack report received.')
+  expect(screen.queryByRole('button', { name: 'Configure AMS tray' })).not.toBeInTheDocument()
+  const editors = screen.getAllByTestId('filament-slot')
+  expect(editors).toHaveLength(9)
+  expect(editors[7].parentElement).toHaveTextContent('Printer reports: PLA, GFA01, #AE96D4')
+  fireEvent.click(editors[7])
+  fireEvent.click(await screen.findByRole('button', { name: 'Clear' }))
+  await waitFor(() => expect(printers.updateSlot).toHaveBeenCalledWith(9, 8, {
+    filament_type: 'empty', color: null, color_hex: null, spoolman_spool_id: null,
+  }))
 })

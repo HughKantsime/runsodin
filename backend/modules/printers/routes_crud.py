@@ -33,7 +33,7 @@ from modules.printers.connection_reasons import (
     AUTH, NOT_THIS_TYPE, UNKNOWN, failed, reason_for_exception, reason_for_http_status,
 )
 from modules.printers.moonraker_controls import enrich_controls
-from modules.printers.services import bambu_tray_counts, apply_printer_updates
+from modules.printers.services import bambu_tray_counts, apply_printer_updates, prepare_rack_slot_count
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
@@ -259,6 +259,7 @@ def update_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    rack = prepare_rack_slot_count(printer, update_data)
     if 'slot_count' in update_data and update_data['slot_count'] != printer.slot_count:
         ensure_local_filaments(printer_id)
 
@@ -304,8 +305,8 @@ def update_printer(
         current_slots = {s.slot_number: s for s in printer.filament_slots if s.slot_number < AMS_HT_FIRST_SLOT}
         current_count = len(current_slots)
 
-        if new_count > current_count:
-            for i in range(current_count + 1, new_count + 1):
+        if rack or new_count > current_count:
+            for i in range(1 if rack else current_count + 1, new_count + 1):
                 if i not in current_slots:
                     slot = FilamentSlot(
                         printer_id=printer.id,

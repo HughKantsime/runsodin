@@ -169,3 +169,24 @@ it.each([[5, 4], [9, 4], [8, 8]])('switching to Bambu with %i slots submits %i',
   expect(submit.mock.calls[0][0].slot_count).toBe(expected)
   expect(slots).toHaveValue(String(expected))
 })
+
+it('offers H3C when adding a Bambu printer', () => {
+  const submit = fillNewBambu()
+  const select = screen.getByRole('option', { name: 'H3C' }).closest('select')!
+  fireEvent.change(select, { target: { value: 'H3C' } })
+  expect(select.value).toBe('H3C')
+  expect(screen.getByText('9 rack positions')).toBeInTheDocument()
+  expect(screen.queryByRole('option', { name: '1 slot (no AMS)' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Add Printer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save anyway' }))
+  expect(submit.mock.calls[0][0].slot_count).toBe(9)
+})
+
+it('keeps the nine H3C positions fixed when editing a previously configured printer', () => {
+  render(<PrinterModal isOpen printer={{ ...saved, machine_type: 'Bambu Lab H3C', slot_count: 1,
+    last_seen: '2026-11-21T19:57:00Z' }} onClose={vi.fn()} onSubmit={vi.fn()} />)
+  expect(screen.getByText('9 rack positions')).toBeInTheDocument()
+  expect(screen.queryByText('1 slots')).not.toBeInTheDocument()
+  // The detected model still has its own Override button.
+  expect(screen.getAllByRole('button', { name: 'Override' })).toHaveLength(1)
+})

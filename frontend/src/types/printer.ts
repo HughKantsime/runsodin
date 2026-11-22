@@ -1,5 +1,8 @@
 export interface InstalledNozzle {
-  extruder: number; side: string; diameter: number | null; flow: string | null
+  mounted?: boolean
+  virtual_slot_id?: number
+  nozzle_id?: number; position?: number; type?: string | null
+  extruder?: number; side: string; diameter: number | null; flow: string | null
   material: string | null; wear: number | null; observed_at: string; present?: boolean | null
 }
 
@@ -37,6 +40,7 @@ export type FilamentType =
 // ---- Filament Slots ----
 
 export interface FilamentSlot {
+  rack_filament?: { id: number; type?: string; preset?: string | null; color?: string | null; observed_at: string } | null
   catalogue_name?: string | null;
   catalogue_choices?: { id: number; name: string }[];
   do_not_feed?: boolean;
@@ -365,6 +369,7 @@ export interface ConnectionTestRequest {
 }
 
 export interface ConnectionTestResult {
+  model?: string | null;
   ams_slots?: number;
   ams_ht_slots?: number;
   success: boolean;

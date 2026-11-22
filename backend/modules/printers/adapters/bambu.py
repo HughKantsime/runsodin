@@ -139,6 +139,9 @@ class BambuPrinter:
         on_status_update: Optional[Callable[[PrinterStatus], None]] = None,
         client_id: Optional[str] = None,
         on_connection_change: Optional[Callable[[], None]] = None,
+        on_product_name: Optional[Callable[[str], None]] = None,
+        printer_id: Optional[int] = None,
+        *, allow_print_start: bool = False,
     ):
         """
         Initialize Bambu printer connection.
@@ -154,11 +157,14 @@ class BambuPrinter:
                        unique value for command connections to avoid colliding
                        with the monitor daemon's persistent connection.
         """
+        self.printer_id = printer_id
+        self._allow_print_start = allow_print_start
         self.ip = ip
         self.serial = serial
         self.access_code = access_code
         self.on_status_update = on_status_update
         self.on_connection_change = on_connection_change
+        self.on_product_name = on_product_name
         self._client_id = client_id or f"printfarm_{serial}"
         
         self._client: Optional[mqtt.Client] = None
@@ -581,6 +587,8 @@ class BambuPrinter:
             product = ota_product_name(payload.get("info"))
             if product:
                 self._status.printer_type = product
+                if self.on_product_name:
+                    self.on_product_name(product)
 
             # Get the print section if present
             print_data = payload.get("print", {})
@@ -695,6 +703,9 @@ class BambuPrinter:
         if not self._client or not self._connected:
             return False
         try:
+            from modules.printers.printer_models import stored_rack_refusal
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload):
+                return False
             result = self._client.publish(self._topic_request, json.dumps(payload))
         except Exception:
             log.warning("Bambu request could not be queued: %s", next(iter(payload), "?"), exc_info=True)
@@ -710,6 +721,9 @@ class BambuPrinter:
             return False
 
         try:
+            from modules.printers.printer_models import stored_rack_refusal
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload, allow_print_start=self._allow_print_start):
+                return False
             result = self._client.publish(
                 self._topic_request,
                 json.dumps(payload)

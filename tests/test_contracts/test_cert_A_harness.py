@@ -141,14 +141,22 @@ def bearer(username, role, group_id=1):
 
 
 @pytest.fixture
+def sender_db(review_db, monkeypatch):
+    from core import db
+    monkeypatch.setattr(db, "engine", review_db.get_bind())
+
+
+@pytest.fixture
 def cert_client(review_db, fernet_env, monkeypatch):  # noqa: F811
     """Real printer routers on the real bootstrapped schema with role-bearing users."""
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
+    from core import db as core_db
     from core.db import get_db
     from core.errors import OdinError
     from modules.printers import (routes_controls, routes_ams_env, routes_status, routes_crud,
                                   routes_nozzle, routes_smart_plug)
+    monkeypatch.setattr(core_db, "engine", review_db.get_bind())
     monkeypatch.delenv("API_KEY", raising=False)
     review_db.execute(text(
         "INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) VALUES "

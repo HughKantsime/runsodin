@@ -26,6 +26,9 @@ def _ams_printer(printer_id: int, db: Session, current_user: dict, *, write: boo
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not (check_org_access(current_user, printer.org_id) or (not write and printer.shared)):
         raise HTTPException(status_code=404, detail="Printer not found")
+    if write:
+        from modules.printers.support_levels import require_control_capable_model
+        require_control_capable_model(printer)
     return printer
 
 

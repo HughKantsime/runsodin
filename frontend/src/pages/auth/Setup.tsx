@@ -32,6 +32,7 @@ const PRINTER_MODELS = {
     { value: 'H2D Pro', label: 'H2D Pro', slots: 4 },
     { value: 'H2S', label: 'H2S', slots: 4 },
     { value: 'H2C', label: 'H2C', slots: 4 },
+    { value: 'H3C', label: 'H3C', slots: 9 },
   ],
   moonraker: [
     { value: 'Voron', label: 'Voron', slots: 1 },
@@ -104,7 +105,8 @@ export default function Setup() {
   const [printerApiKey, setPrinterApiKey] = useState('')
   const [reportedSlots, setReportedSlots] = useState<{ host: string, serial: string, count: number } | null>(null)
   const [modelSlotCount, setModelSlotCount] = useState(4)
-  const slotCount = printerType === 'bambu' && reportedSlots?.host === printerIp.trim() && reportedSlots.serial === serial.trim()
+  const rack = printerType === 'bambu' && printerModel === 'H3C'
+  const slotCount = rack ? 9 : printerType === 'bambu' && reportedSlots?.host === printerIp.trim() && reportedSlots.serial === serial.trim()
     ? reportedSlots.count : modelSlotCount
   const [testResult, setTestResult] = useState(null)
   const [testLoading, setTestLoading] = useState(false)
@@ -830,7 +832,7 @@ export default function Setup() {
                 {testResult.success ? (
                   <div className="flex items-center gap-2">
                     <CheckCircle2 size={16} />
-                    <span>Connected! {testResult.state && `State: ${testResult.state}`} {testResult.ams_slots !== undefined && `\u2022 ${testResult.ams_slots} AMS slots`}{testResult.ams_ht_slots != null && `, ${testResult.ams_ht_slots} AMS HT`}</span>
+                    <span>Connected! {testResult.state && `State: ${testResult.state}`} {rack && ' · 9 rack positions'}{!rack && testResult.ams_slots !== undefined && `\u2022 ${testResult.ams_slots} AMS slots`}{!rack && testResult.ams_ht_slots != null && `, ${testResult.ams_ht_slots} AMS HT`}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">

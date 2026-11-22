@@ -27,7 +27,7 @@ def monitor():
         _current_job_id=991, _state={'gcode_state':'PAUSE'}),calls
 
 
-def test_real_owned_channel_uses_existing_client_only(socket_dir,monkeypatch):
+def test_real_owned_channel_uses_existing_client_only(socket_dir,monkeypatch, sender_db):
     from modules.printers import monitor_commands as channel
     mon,calls=monitor()
     try:
@@ -115,7 +115,7 @@ def test_refusal_or_unknown_preserves_detection(review_db,monkeypatch,fault):
     assert review_db.execute(text('SELECT status FROM vision_detections WHERE id=701')).scalar_one()=='confirmed'
 
 
-def test_existing_transport_publishes_resume_and_light_without_connection_creation():
+def test_existing_transport_publishes_resume_and_light_without_connection_creation(sender_db):
     from modules.printers import monitor_commands as channel
     mon,calls=monitor()
     for action in ('resume','light'):
@@ -196,7 +196,7 @@ def test_resume_commit_uncertainty_never_retries_or_fabricates_state(review_db,m
 
 
 @pytest.mark.parametrize('v2',[False,True])
-def test_disconnected_monitor_and_expired_queue_never_publish(v2):
+def test_disconnected_monitor_and_expired_queue_never_publish(v2, sender_db):
     from modules.printers import monitor_commands as channel
     mon,calls=monitor()
     transport=mon._bambu
@@ -235,7 +235,7 @@ def test_skip_ids_are_bounded_distinct_integers(ids):
 
 @pytest.mark.parametrize('state', ['RUNNING','PAUSE','PAUSED'])
 @pytest.mark.parametrize('v2', [False,True])
-def test_skip_uses_existing_transport_integer_wire(state,v2):
+def test_skip_uses_existing_transport_integer_wire(state,v2, sender_db):
     from modules.printers import monitor_commands as channel
     mon,calls=monitor();mon._state['gcode_state']=state
     if v2:mon._v2_adapter=mon._bambu;mon._bambu=None
@@ -328,7 +328,7 @@ def test_real_status_path_discards_old_skip_list_and_keeps_opening_report(wire_m
     assert channel.skip_state(mon)['skipped'] is None
 
 
-from tests.test_contracts.test_cert_A_harness import wire_monitor, broker_socket, fernet_env  # noqa: F401,E402
+from tests.test_contracts.test_cert_A_harness import wire_monitor, broker_socket, fernet_env, sender_db  # noqa: F401,E402
 
 
 def test_skip_deadline_expires_while_waiting_for_owner_lock(monkeypatch):

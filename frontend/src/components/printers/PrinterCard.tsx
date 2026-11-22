@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from './AmsEnvironmentChart'
 import PrinterTelemetryChart from './PrinterTelemetryChart'
+import InstalledNozzles from './InstalledNozzles'
 import NozzleStatusCard from './NozzleStatusCard'
 import HmsHistoryPanel from './HmsHistoryPanel'
 import FilamentSlotEditor from './FilamentSlotEditor'
@@ -23,7 +24,7 @@ import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
 import PauseCause from './PauseCause'
 import { displayName } from '../../utils/displayName'
-import { isOnline, isActivePrintState, filamentSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
+import { isOnline, isActivePrintState, filamentSlotGroup, isH3C, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 import { usePlatePicture } from '../../hooks/usePlatePicture'
 
@@ -130,6 +131,7 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome, showPlatePicture }: PrinterCardProps) {
   const foundry = useFoundry()
+  const rack = isH3C(printer)
   const externallyManagedFilament = printer.filament_source === 'filament-ledger'
 
   const [syncing, setSyncing] = useState(false)
@@ -153,7 +155,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit')) return false
     if (target.org_id === undefined) return false
     const tenantAccess = (principal.role === 'admin' && !principal.group_id) || target.org_id === null || target.org_id === principal.group_id
-    return tenantAccess && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
+    return tenantAccess && !isH3C(target) && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
       && (!speed || isActivePrintState(target.gcode_state))
   }
 
@@ -256,6 +258,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
       <ExperimentalOptIn printer={printer} />
+      {rack && !foundry && <InstalledNozzles rack nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
       <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
@@ -266,7 +269,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               {slotsNeedingAttention}
             </span>
           )}
-          {!externallyManagedFilament && canDo('printers.slots') && hasBambuConnection ? (
+          {!rack && !externallyManagedFilament && canDo('printers.slots') && hasBambuConnection ? (
             <button
               onClick={handleSyncAms}
               disabled={syncing}
@@ -285,7 +288,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           const slots = printer.filament_slots || []
           // Keep ACE box grouping aligned with the common filament-slot numbering.
           const groups = slots.map((slot: any) => filamentSlotGroup(printer.api_type, slot.slot_number))
-          const labelled = !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
+          const labelled = !rack && !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
           let previous: string | null = null
           return (
             <div data-testid="filament-slot-grid" className="filament-slot-grid grid gap-2 min-w-0">
@@ -295,6 +298,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   <FilamentSlotEditor
                     printerId={printer.id}
                     apiType={printer.api_type}
+                    label={rack ? `Position ${slot.slot_number}` : undefined}
                     spools={spools}
                     key={slot.id}
                     slot={slot}
@@ -480,7 +484,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
       {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} readOnly={rack} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
     </div>
   )
 }

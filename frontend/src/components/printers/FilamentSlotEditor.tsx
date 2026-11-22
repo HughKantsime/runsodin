@@ -63,11 +63,12 @@ interface FilamentSlotEditorProps {
   allFilaments: FilamentOption[] | null
   spools: SpoolOption[] | null
   printerId: number
+  label?: string
   apiType?: string | null
   onSave: (data: SlotUpdateData) => void
 }
 
-export default function FilamentSlotEditor({ slot, allFilaments, spools, printerId, apiType, onSave }: FilamentSlotEditorProps) {
+export default function FilamentSlotEditor({ slot, allFilaments, spools, printerId, apiType, label, onSave }: FilamentSlotEditorProps) {
   const foundry = useFoundry()
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
@@ -147,7 +148,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         disabled={(slot.spool_change_pending && !admin) || !canDo('printers.slots')}
         onPointerDown={event => event.stopPropagation()}
         onClick={event => { event.stopPropagation(); setConfirmFeed(false); setFeedNote(slot.do_not_feed_note || ''); setIsEditing(true) }}>
-        <SlotTile expandable={false} slot={slot} apiType={apiType} />
+        <SlotTile expandable={false} slot={slot} apiType={apiType} label={label} />
       </button> : (      <div
         data-testid="filament-slot"
         className="bg-[var(--brand-input-bg)] rounded-md p-2 overflow-hidden cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
@@ -162,6 +163,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
           empty={appearance.empty}
           size={20}
         />
+        {label && <SlotLabel text={label} />}
         <SlotLabel text={material} />
         {!!slot.catalogue_choices?.length && <SlotLabel text="Choose catalogue name" />}
         {slot.do_not_feed && <span title={slot.do_not_feed_note || 'Do not feed'} className="text-xs font-semibold text-[var(--brand-text-primary)] border border-[var(--brand-border)] bg-[var(--brand-card-bg)] rounded px-1 break-words">Do not feed</span>}

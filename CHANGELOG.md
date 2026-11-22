@@ -8,6 +8,7 @@ All notable changes to O.D.I.N. are documented here.
 
 - Stock inspections can record who counted and a note. Operators can record components and assemblies with a production token, and add missed flush pieces to a completed job while keeping its original inspection.
 - Platform administrators can turn on daily ODIN release checks in Settings > System and see when a newer version fixes a security problem.
+- You can select the Bambu Lab H3C during setup or when adding a printer. Its card and printer page show the nine rack positions, nozzle types and diameters, the tool in the head, and the filament the printer reports beside your ODIN slot settings. Dispatch and printer controls are not supported yet.
 
 ## [2.5.0] - 2026-11-21
 

@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from tests.test_contracts.test_education_connected_print_workflow import tls_mqtt  # noqa: F401
 from tests.test_contracts.test_cert_A_harness import (  # noqa: F401
-    ACCESS, SERIAL, broker_socket, fernet_env, load_frames, replay, review_db, wire_monitor,
+    ACCESS, SERIAL, broker_socket, fernet_env, load_frames, replay, review_db, sender_db, wire_monitor,
 )
 
 
@@ -417,7 +417,7 @@ def test_legacy_request_full_status_logs_unqueued_publish(monkeypatch):
     assert any("not queued (rc=4)" in r for r in records)
 
 
-def test_command_right_after_connect_completes_well_under_its_timeout(tls_mqtt, monkeypatch):
+def test_command_right_after_connect_completes_well_under_its_timeout(tls_mqtt, monkeypatch, sender_db):
     """Real TLS broker: pause sent immediately after connect is acknowledged quickly."""
     import time as _time
     from modules.printers.adapters.bambu import BambuPrinter

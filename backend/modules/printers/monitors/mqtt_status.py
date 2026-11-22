@@ -48,7 +48,7 @@ def handle_status(self, status, generation, runtime):
         if getattr(status, 'mqtt_retained', None) is True:
             log_retained_report(self, raw, runtime)
         from modules.printers.monitors.nozzle_observations import observe
-        observe(self, raw)
+        observe(self, raw, status, runtime)
         from core.printer_display_facts import observe as observe_display_facts
         observe_display_facts(self, raw, retained=getattr(status, 'mqtt_retained', None) is True)
         noz_dia = raw.get('nozzle_diameter')
@@ -337,11 +337,12 @@ def handle_status(self, status, generation, runtime):
                     prefix = prefix_from_serial(getattr(self, 'serial', ''))
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
                     # Check cooldown — don't overwrite if toggled via API within last 20s
-                    cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()
+                    printer_config = conn.execute('SELECT lights_toggled_at,model,machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()
+                    self._stored_models = tuple(printer_config[1:]) if printer_config else ()
                     lights_on = lights_on_raw
-                    if cooldown_row and cooldown_row[0]:
+                    if printer_config and printer_config[0]:
                         try:
-                            toggled_at = cooldown_row[0]
+                            toggled_at = printer_config[0]
                             if isinstance(toggled_at, str):
                                 toggled_at = datetime.fromisoformat(toggled_at)
                             if not isinstance(toggled_at, datetime):
@@ -369,17 +370,18 @@ def handle_status(self, status, generation, runtime):
                     if noz_dia is not None:
                         observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
                     from modules.printers.monitors.light_state import persist_light_observation
-                    persist_light_observation(conn, self.printer_id, lights_on, cooldown_row[0] if cooldown_row else None)
+                    persist_light_observation(conn, self.printer_id, lights_on, printer_config[0] if printer_config else None)
                     for column, (value, stamp, observed_at) in pending_nozzles.items():
                         # Column names come only from the fixed observation map above.
                         conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column/stamp names come from the literal nozzle column tuples in _on_status (closed set); values are bound
                                      (value, observed_at.isoformat(), self.printer_id))
                     from modules.printers.monitors.nozzle_observations import persist
-                    persist(conn, self)
+                    unconfirmed_filaments = persist(conn, self)
                     conn.commit()
                     live_state_allowed = True
                     self._pending_nozzle_diameter = None
                     self._pending_installed_nozzles = {}
+                    self._pending_rack_filaments = unconfirmed_filaments
                     self._pending_right_nozzle = {}
                     # Foundry's display cache is optional: write it after the
                     # status commit so a cache failure can't roll that back.
@@ -480,6 +482,11 @@ def handle_status(self, status, generation, runtime):
 
                     # ---- AMS Filament Slot Auto-Sync ----
                     pending_ams = getattr(self, '_pending_ams_report', None)
+                    from modules.printers.printer_models import rack_model_identity
+                    rack = rack_model_identity(raw_pt, getattr(self, '_reported_model', None), *self._stored_models)
+                    if pending_ams is not None and (rack if rack is not None else getattr(self, '_rack_rows_stored', False)):
+                        self._reset_pending_ams()
+                        pending_ams = None
                     now = runtime.time.time()
                     if (pending_ams is not None
                             and now - getattr(self, '_last_ams_slot_sync', 0) >= 60

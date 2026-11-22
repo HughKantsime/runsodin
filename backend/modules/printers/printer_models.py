@@ -13,6 +13,8 @@ Usage:
     name = normalize_model_name("bambu", "")          # -> None
 """
 
+import json
+from collections.abc import Mapping
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ BAMBU_MODEL_IDS = {
     "N1": "A1 Mini",
     "N2S": "A1",
     "N7": "P2S",
+    "N10": "H3C",  # Firmware folder in the printer's calibration file path.
     "O1C2": "H2C",
     "O1D": "H2D",
     "O1E": "H2D Pro",
@@ -65,6 +68,7 @@ BAMBU_PRODUCT_NAMES = {
     "H2D PRO": "H2D Pro",
     "H2S": "H2S",
     "H2C": "H2C",
+    "H3C": "H3C",
 }
 
 # Total XY build areas, Bambu specifications (sources in docs/dispatch-capability.md).
@@ -110,6 +114,85 @@ def bambu_model_name(raw_value: Optional[str]) -> Optional[str]:
     if product in BAMBU_PRODUCT_NAMES:
         return BAMBU_PRODUCT_NAMES[product]
     return _BAMBU_FRIENDLY_NAMES.get(upper, value)
+
+
+def rack_nozzle_ids(rows):
+    """Raw or persisted nozzle IDs are rack evidence only without fixed extruders."""
+    if isinstance(rows, str):
+        try:
+            rows = json.loads(rows)
+        except (ValueError, RecursionError):
+            return set()
+    ids = set()
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                return set()
+            identifier = row.get('id', row.get('extruder', row.get('nozzle_id')))
+            if type(identifier) is not int or identifier < 16:
+                return set()
+            ids.add(identifier)
+    return ids if len(ids) >= 3 else set()
+
+
+def rack_model_identity(*values):
+    """True for explicit H3C, False for another known model, None for unidentified."""
+    from core.printer_identity import canonical_machine
+    models = {canonical_machine(value) for value in values} - {None}
+    return ('h3c' in models) if models else None
+
+
+def is_h3c_printer(printer):
+    get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
+    if str(get('api_type') or '').strip().lower() not in ('', 'bambu'):
+        return False
+    identified = rack_model_identity(get('model'), get('machine_type'))
+    return identified if identified is not None else bool(rack_nozzle_ids(get('installed_nozzles')))
+
+
+def rack_printer_refusal(printer):
+    if is_h3c_printer(printer):
+        return 'unsupported_rack_printer: Sending jobs to an H3C is unavailable. Rack dispatch is pending live certification.'
+    return None
+
+
+def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, allow_print_start=False):
+    """Look up the row ID, or match the MQTT topic's serial at a standalone endpoint."""
+    if isinstance(payload, dict) and len(payload) == 1:
+        section, fields = next(iter(payload.items()))
+        if isinstance(fields, dict):
+            command = (section, fields.get('command'))
+            if command in (('pushing', 'pushall'), ('info', 'get_version')):
+                return None
+            # Dispatch already checked the loaded printer at admission.
+            if allow_print_start and command == ('print', 'project_file'):
+                return None
+    if printer_id is None and (not host or not serial):
+        return None
+    try:
+        return _lookup_rack_refusal(printer_id, host, serial)
+    except Exception:
+        # This guard requires positive rack identity. Transport errors are handled by the publisher.
+        return None
+
+
+def _lookup_rack_refusal(printer_id, host, serial):
+    from core.db import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        if printer_id is not None:
+            row = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
+                               {'id': printer_id}).mappings().first()
+            return rack_printer_refusal(row)
+        from core.crypto import decrypt
+        rows = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles,api_key FROM printers '
+                                 'WHERE lower(api_host)=lower(:host)'),
+                            {'host': host}).mappings()
+        for row in rows:
+            reason = rack_printer_refusal(row)
+            if reason and serial and (decrypt(row['api_key']) or '').partition('|')[0] == serial:
+                return reason
+    return None
 
 
 # ---------------------------------------------------------------------------

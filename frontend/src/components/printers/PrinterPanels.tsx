@@ -6,6 +6,12 @@ import { Thermometer, Wind, Activity } from 'lucide-react'
 import { classicSlotAppearance, slotFullName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
 import { SpoolRing } from '../ui'
 import PrintProgress from './PrintProgress'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { filaments, printers, spools } from '../../api'
+import { canDo } from '../../permissions'
+import FilamentSlotEditor from './FilamentSlotEditor'
+import { RackFilamentReading } from './InstalledNozzles'
+import type { FilamentSlotUpdate } from '../../types/printer'
 
 // TODO: type this properly — runtime printer shape has extra MQTT fields
 interface PrinterLike {
@@ -81,10 +87,38 @@ export function PrinterInfoPanel({ printer }: { printer: PrinterLike }) {
   )
 }
 
-export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
+function RackSlotEditors({ printer }: { printer: PrinterLike }) {
+  const queryClient = useQueryClient()
+  const editable = canDo('printers.slots')
+  const materials = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined(), enabled: editable })
+  const inventory = useQuery({ queryKey: ['spools'], queryFn: () => spools.list({ status: 'active' }), enabled: editable })
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['printer', String(printer.id)] })
+    queryClient.invalidateQueries({ queryKey: ['printers'] })
+  }
+  const save = useMutation({
+    mutationFn: ({ position, data }: { position: number; data: FilamentSlotUpdate }) => printers.updateSlot(printer.id, position, data),
+    onSuccess: refresh,
+  })
+  return <section aria-label="Filament" className="mb-6">
+    <h2 className="font-medium">ODIN filament slots</h2>
+    {save.isError && <p role="alert">{save.error.message}</p>}
+    <div className="grid gap-2 sm:grid-cols-3">
+      {printer.filament_slots.map(slot => <div key={slot.slot_number} className="rounded-md border border-[var(--brand-border)] p-2">
+        <FilamentSlotEditor printerId={printer.id} apiType={printer.api_type} slot={slot} label={`${slot.slot_number <= 9 ? 'Position' : 'Slot'} ${slot.slot_number}`}
+          allFilaments={materials.data} spools={inventory.data}
+          onSave={data => Object.keys(data).length ? save.mutate({ position: slot.slot_number, data: data as FilamentSlotUpdate }) : refresh()} />
+        {slot.slot_number <= 9 && <RackFilamentReading slot={slot} rawId={256 - slot.slot_number} />}
+      </div>)}
+    </div>
+  </section>
+}
+
+export function FilamentSlotsPanel({ printer, rackDetail = false }: { printer: PrinterLike; rackDetail?: boolean }) {
   const foundry = useFoundry()
   const slots = printer.filament_slots || []
   if (!slots.length) return null
+  if (rackDetail && printer.filament_source !== 'filament-ledger') return <RackSlotEditors printer={printer} />
   if (foundry) return <section aria-label="Filament" className="f-slots">{slots.map(slot => <SlotTile key={slot.slot_number} slot={slot} apiType={printer.api_type} />)}</section>
 
   return (

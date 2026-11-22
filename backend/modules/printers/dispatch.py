@@ -150,6 +150,12 @@ def _gate_refusal_message(gate):
             f"({refusal.code}: {detail}); no print command was sent")
 
 
+def _rack_no_start(gate, reason):
+    from modules.printers.dispatch_ams_gate import record_refusal
+    record_refusal(gate, "unsupported_rack_printer", reason)
+    return False, NoStartMessage(reason)
+
+
 def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None, **print_options) -> tuple[bool, str]:
     """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
@@ -157,6 +163,10 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     from modules.printers.telemetry.bambu.ftp_upload import upload_file, wait_notice
     from modules.printers.telemetry.bambu.session import run_command
 
+    from modules.printers.printer_models import rack_printer_refusal
+    reason = rack_printer_refusal(creds)
+    if reason:
+        return _rack_no_start(before_start, reason)
     if not _mapping_gate_available(print_options, before_start):
         return False, "Explicit AMS selection requires a post-upload check; no command was sent"
     _ws(job_id, "uploading", f"Uploading {remote_filename} to printer via FTP...")
@@ -171,10 +181,11 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         creds["ip"], printer_id=f"dispatch-{creds['serial']}",
     )
     config = BambuAdapterConfig(
-        printer_id=f"dispatch-{creds['serial']}",
+        printer_id=f"dispatch-{creds['serial']}", printer_row_id=creds.get("printer_id"),
         serial=creds["serial"],
         host=endpoint.host,
         port=endpoint.port,
+        allow_print_start=True,
         use_tls=endpoint.use_tls,
         access_code=creds["access_code"],
     )
@@ -209,12 +220,18 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
     """Legacy transport with an explicit post-upload gate for mapped starts."""
     from modules.printers.adapters.bambu import BambuPrinter
 
+    from modules.printers.printer_models import rack_printer_refusal
+    reason = rack_printer_refusal(creds)
+    if reason:
+        return _rack_no_start(before_start, reason)
     if not _mapping_gate_available(print_options, before_start):
         return False, "Explicit AMS selection requires a post-upload check; no command was sent"
     printer = BambuPrinter(
         ip=creds["ip"],
         serial=creds["serial"],
         access_code=creds["access_code"],
+        printer_id=creds.get("printer_id"),
+        allow_print_start=True,
         client_id=f"odin_dispatch_{creds['serial']}_{int(time.time())}",
     )
 

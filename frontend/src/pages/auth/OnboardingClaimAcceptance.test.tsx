@@ -258,3 +258,13 @@ test.each([
 test('a printer type without a setup model list defaults to four slots', () => {
  expect(defaultSlotCount('octoprint', '')).toBe(4)
 })
+
+test('offers H3C in Bambu setup', async () => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button', { name: 'Start with Community' }))
+ const select = screen.getByRole('combobox')
+ fireEvent.change(select, { target: { value: 'H3C' } })
+ expect(select).toHaveValue('H3C')
+ expect(defaultSlotCount('bambu', 'H3C')).toBe(9)
+})

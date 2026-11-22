@@ -19,7 +19,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
             row = conn.execute(
                 text(
                     "SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm, "
-                    "nozzle_diameter, machine_type, model, name, org_id, is_active, shared, slot_count, "
+                    "nozzle_diameter, machine_type, model, name, org_id, is_active, shared, slot_count, installed_nozzles, "
                     "plug_type,plug_host,plug_entity_id,plug_auth_token,plug_auto_on "
                     "FROM printers WHERE id = :id"
                 ),
@@ -76,6 +76,8 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
         "bed_x_mm": r["bed_x_mm"],
         "bed_y_mm": r["bed_y_mm"],
         "nozzle_diameter": r["nozzle_diameter"],
+        "printer_id": printer_id,
+        "installed_nozzles": r["installed_nozzles"],
         "machine_type": r["machine_type"],
         "model": r["model"],
         "name": r["name"],
