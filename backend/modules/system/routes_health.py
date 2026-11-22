@@ -30,6 +30,8 @@ from core.rbac import require_role, require_superadmin, require_any_scope, handl
 from modules.system.db_guardian_status import guardian_health
 from modules.system.schemas import HealthCheck
 from core.config import settings
+from core.itar import license_portal_off
+from .license_portal import require_license_portal
 from license_manager import (
     get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
     get_device_keypair, sign_license_challenge, require_license_mutation_enabled, install_portal_license,
@@ -102,6 +104,8 @@ async def _probe_license_server() -> dict:
     """Hit the configured license server and cache the result."""
     import time
     now = time.time()
+    if license_portal_off():
+        return {"reachable": False, "detail": "off in ITAR mode", "checked_at": now, "cached": False}
     cached = _license_probe_cache
     if cached["reachable"] is not None and (now - cached["checked_at"]) < _LICENSE_PROBE_TTL_SECONDS:
         return {
@@ -301,6 +305,7 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
     resolver change), the boot audit can't catch it. Every call
     checks the destination before the HTTP request fires.
     """
+    require_license_portal()
     from core.itar import ItarOutboundBlocked
     try:
         resp = await pinned_async_request(
@@ -336,6 +341,7 @@ async def activate_license(
     db: Session = Depends(get_db),
 ):
     """Activate a license by key via the license server. Admin only."""
+    require_license_portal()
     license_server_url = settings.license_server_url
     if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
         license_server_url = "https://" + license_server_url[7:]
@@ -436,6 +442,8 @@ async def request_pro_trial(
     for 15 minutes). The key itself is shown once on the portal after the
     email is confirmed and is activated here like any key.
     """
+    if not body.offline:
+        require_license_portal()
     import license_manager as _lm
     if get_license().valid:
         raise HTTPException(status_code=409, detail="This server already has a valid license.")
@@ -546,6 +554,7 @@ async def unactivate_license(
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Unactivate the current license to free the grant for another server. Admin only."""
+    require_license_portal()
     license_server_url = settings.license_server_url
 
     # Get key from request or current license

@@ -14,6 +14,10 @@ All notable changes to O.D.I.N. are documented here.
 
 - The Bambu Lab H3C now tracks filament and spools in all nine AMS 3H positions and shows humidity and temperature for each zone. Hand-fed filament is shown separately. Bambu printer codes without a description appear as notices when the printer reports no error.
 
+### Fixed
+
+- ITAR mode now starts on a stock install. Previously, you had to clear the license server address by hand before the server would start.
+
 ## [2.5.0] - 2026-11-21
 
 

@@ -350,7 +350,7 @@ def create_app() -> FastAPI:
     from core.db import engine, Base, get_db
     from core.auth import decode_token
     from core.registry import registry
-    from core.itar import is_itar_mode, enforce_boot_config, env_configured_urls
+    from core.itar import is_itar_mode, enforce_boot_config, env_configured_urls, license_portal_off
 
     # v1.8.9: ITAR boot-audit. If ODIN_ITAR_MODE=1, every configured
     # outbound destination must resolve to a private/loopback range or
@@ -368,11 +368,16 @@ def create_app() -> FastAPI:
         )
         # Codex pass 8 (2026-04-15): spoolman_url was missing from the
         # boot audit. Include every statically-known outbound URL.
-        enforce_boot_config([
-            settings.license_server_url,
+        urls = [
             getattr(settings, "spoolman_url", "") or "",
             *env_configured_urls(),
-        ])
+        ]
+        if license_portal_off():
+            log.warning("ITAR mode: the license portal is off (no license server address is set). "
+                        "Licences are activated from a file.")
+        else:
+            urls.insert(0, settings.license_server_url)
+        enforce_boot_config(urls)
 
     # ODIN-142 Wake 2b: Bambu MQTT broker policy boot audit.
     # Refuses to start if `ODIN_ALLOW_INSECURE_BAMBU_BROKER` is set
