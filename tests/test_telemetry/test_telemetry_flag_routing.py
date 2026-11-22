@@ -25,21 +25,18 @@ class TestFlagRoutingRoutesStatus:
         when flag is on."""
         from modules.printers import routes_status
         from modules.printers.telemetry import feature_flag
+        from modules.printers.telemetry.bambu import session
+        from modules.printers.telemetry.bambu.raw import BambuPrintSection
 
-        called = {"v2": False}
         monkeypatch.setattr(feature_flag, "is_v2_enabled", lambda: True)
-
-        def fake_v2(*a, **k):
-            called["v2"] = True
-            return {"ok": True}
-
-        monkeypatch.setattr(routes_status, "_fetch_live_status_v2", fake_v2)
         monkeypatch.setattr(routes_status, "_fetch_live_status_legacy",
                             lambda *a, **k: pytest.fail("should not call legacy"))
 
         class FakePrinter:
             id = 1
             name = "x"
+            model = None
+            machine_type = None
             api_type = "bambu"
             api_host = "127.0.0.1"
             api_key = "encrypted"
@@ -56,11 +53,13 @@ class TestFlagRoutingRoutesStatus:
                         return F()
                 return Q()
 
-        with patch("core.crypto.decrypt", return_value="serial|code"):
+        reading = session.StatusReadResult(success=True, section=BambuPrintSection(mc_percent=42))
+        with patch("core.crypto.decrypt", return_value="serial|code"), \
+                patch.object(session, "read_status_once", return_value=reading) as read_status:
             result = routes_status._fetch_printer_live_status(1, FakeDB())
 
-        assert called["v2"] is True
-        assert result == {"ok": True}
+        read_status.assert_called_once()
+        assert result["progress"] == 42
 
 
 class TestFlagRoutingRouteUtils:
