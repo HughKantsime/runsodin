@@ -137,7 +137,8 @@ def execute(monitors, message):
                 monitor._state.get('gcode_state') not in ('PAUSE', 'PAUSED')):
             return 'refused'
         from modules.printers.printer_models import stored_rack_refusal
-        if stored_rack_refusal(pid):
+        known_h3c = getattr(monitor, '_identified_h3c', False) or getattr(monitor, '_configured_h3c', False)
+        if stored_rack_refusal(pid, known_h3c=known_h3c):
             return 'refused'
         if time.monotonic() >= deadline:
             return 'unknown'

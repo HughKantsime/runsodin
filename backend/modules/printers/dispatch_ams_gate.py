@@ -29,7 +29,16 @@ def record_refusal(gate, code, detail):
     return False
 
 
-def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False, inspected_facts=None):
+def rack_sources(job, facts):
+    sources = facts.get('sources', ())
+    if not sources or not all('group_id' in source and 'volume_type' in source for source in sources):
+        raise ValueError('This job needs a supported H3C rack slice.')
+    if job.get('education_submission_id') is not None and len(sources) != 1:
+        raise ValueError('Education jobs on an H3C are limited to one filament.')
+    return sources
+
+
+def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False, inspected_facts=None, h3c=False):
     """Read-only source check. No admission, database transaction or device I/O."""
     from modules.printers.services import inspect_ams_payload
     from modules.printers.dispatch_options import _ams_plate_index
@@ -50,19 +59,23 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     # Only options validation supplies facts, inspected from this same staged path/hash.
     facts = inspected_facts if inspected_facts is not None else inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
                                expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index,
-                               **({} if derived or job.get('education_submission_id') is not None else {'multi_source': True}))
+                               **({'multi_source': True} if h3c or (not derived and job.get('education_submission_id') is None) else {}))
     sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
+    if h3c:
+        rack_sources(job, facts)
     used = {source['source_index'] for source in sources}
     if {i for i, slot in enumerate(mapping) if slot != -1} != used:
         raise ValueError('AMS selection must cover every verified file source and no unused sources')
     materials = {}
     for source in sources:
         slot = mapping[source['source_index']]
+        if h3c and slot != source['group_id']:
+            raise ValueError(f"Filament {source['source_index'] + 1} requires slot {source['group_id'] + 1}.")
         if slot in materials and materials[slot] != source['material']:
             raise ValueError(f'AMS slot {slot + 1} maps sources with different materials')
         materials[slot] = source['material']
     source = sources[0]['source_index']
-    if derived and mapping != [-1] * source + [source]:
+    if derived and not h3c and mapping != [-1] * source + [source]:
         raise ValueError('Derived AMS selection must match the verified file source')
     return facts
 
@@ -86,9 +99,11 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             raise ValueError('Derived AMS selection requires a Bambu printer with AMS')
     # Only the orchestrator supplies facts, from this exact staged snapshot before
     # the readiness window. Direct callers retain the full inspection.
+    from modules.printers.printer_models import identified_h3c
+    h3c = identified_h3c(captured['creds'])
     facts = source_facts if source_facts is not None else preflight_ams_source(
         job, mapping=mapping, staged_path=staged_path,
-        payload_sha256=captured['payload_sha256'], derived=derived)
+        payload_sha256=captured['payload_sha256'], derived=derived, h3c=h3c)
     expected_mapping = tuple(mapping)
     sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
     slots = tuple(sorted({mapping[source['source_index']] + 1 for source in sources}))
@@ -101,6 +116,10 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     if configuration.owner_org_id != captured['creds'].get('org_id'):
         raise ValueError('AMS owner changed')
 
+    transport = configuration.transport
+    if h3c:
+        from dataclasses import replace
+        transport = replace(transport, h3c=True)
     invocation_lock = Lock()
     prepared = False
     preparation_ok = False
@@ -148,7 +167,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return False
         started = time.monotonic()
         try:
-            result = read_current_selected_ams(configuration.transport,
+            result = read_current_selected_ams(transport,
                 configuration_key=configuration.configuration_key,
                 owner_org_id=configuration.owner_org_id, selected_slots=slots,
                 timeout=max(0.0, min(10.0, deadline - time.monotonic())) if deadline is not None else 10.0, operation_id=captured['token'],
@@ -185,8 +204,18 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return refuse("tray_missing", f"AMS slot {min(missing)} is missing from the fresh snapshot")
         if len(snapshot.trays) != len(slots) or set(trays) != set(slots):
             return refuse("tray_slot_mismatch", f"Reported slots={sorted(trays)}; expected slots={list(slots)}")
+        if h3c:
+            from modules.printers.nozzle_capability import rack_tool_refusal
+            detail = rack_tool_refusal(sources, mapping, snapshot.nozzles)
+            if detail:
+                return refuse('nozzle_mismatch', detail)
         for source in sources:
             tray = trays[mapping[source['source_index']] + 1]
+            if h3c and (tray.material_state != 'reported' or canonical_reported_material(tray.material) != source['material']):
+                loaded = tray.material if tray.material_state == 'reported' else (
+                    'empty' if tray.material_state == 'explicit_empty' else 'unreported')
+                return refuse('material_mismatch' if tray.material_state == 'reported' else 'tray_material_unreported',
+                    f"Filament {source['source_index'] + 1} requires slot {tray.slot_number} with {source['material']}. Loaded there: {loaded}.")
             if tray.material_state != 'reported':
                 if tray.material_state == 'explicit_empty':
                     return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")

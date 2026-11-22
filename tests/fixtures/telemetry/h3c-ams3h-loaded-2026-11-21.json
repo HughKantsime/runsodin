@@ -1,5 +1,5 @@
 {
- "captured": "2026-11-21 20:35 to 20:37 EST idle, after Shane fixed the AMS 3H connection: unit reports as ams id 32, three spools loaded through funnels (trays 0, 6, 8), tool 5 mounted. Merged from 129 report messages (no pushall sent). Tag and tray identifiers are synthetic and distinct per tray (the real ones are removed).",
+ "captured": "2026-11-21 20:35 to 20:37 EST idle, after the operator fixed the AMS 3H connection: unit reports as ams id 32, three spools loaded through funnels (trays 0, 6, 8), tool 5 mounted. Merged from 129 report messages (no pushall sent). Tag and tray identifiers are synthetic and distinct per tray (the real ones are removed).",
  "count_messages": 129,
  "message": {
   "print": {

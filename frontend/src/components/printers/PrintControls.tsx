@@ -38,7 +38,7 @@ function useControlState() {
           if (!stop.inFlight) lastStops.current.delete(id)
         }
         setListError(false)
-        setPrinters(data.filter((p: Printer) => !isH3C(p) && (p.pending_control || (isOnline(p) && isActivePrintState(p.gcode_state)))))
+        setPrinters(data.filter((p: Printer) => !p.unidentified_rack && (p.pending_control || (isOnline(p) && isActivePrintState(p.gcode_state)))))
       } catch {
         if (!active || request !== sequence) return
         setListError(true)
@@ -91,7 +91,7 @@ function useControlState() {
       setOutcome({ printerId, text: message })
     } catch (error) {
       if (!stillCurrent() || latest.current.get(printerId) !== request) return
-      setOutcome({ printerId, text: target?.api_type === 'moonraker' && error instanceof Error ? error.message : 'Command not confirmed' })
+      setOutcome({ printerId, text: (target?.api_type === 'moonraker' || isH3C(target)) && error instanceof Error ? error.message : 'Command not confirmed' })
       toast.error('Printer command failed')
     } finally {
       clearTimeout(timer)
@@ -124,7 +124,7 @@ export function PrintControls({ printerId, inline = false }: { printerId: number
   const repeatedStop = lastStop !== undefined
     ? `Stop was already sent ${Math.max(0, Math.floor((Date.now() - lastStop) / 1000))} seconds ago. Send it again?`
     : null
-  const disabled = (action: PrintControlAction) => (action !== 'stop' && pending?.action === action) ||
+  const disabled = (action: PrintControlAction) => (action === 'resume' && isH3C(printer) && !printer.experimental_actions_enabled) || (action !== 'stop' && pending?.action === action) ||
     (printer.api_type === 'moonraker' ? isLoading(action) : busy.current.has(String(printer.id)))
   const unavailable = (action: PrintControlAction) => printer.unavailable_controls?.includes(action)
   const toggle = isPaused ? 'resume' : 'pause'

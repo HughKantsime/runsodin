@@ -2,9 +2,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import CheckTarget from '../ui/CheckTarget'
 import { getCurrentUser } from '../../permissions'
 import { printerSupport } from '../../api/printerSupport'
-import { experimentalWarning, isMonitorOnlyType, optInApplies, CAPABILITY_COPY, GATED_CAPABILITIES, supportLevelOfPrinter } from '../../utils/supportLevels'
+import { capabilityKey, experimentalWarning, isMonitorOnlyType, optInApplies, CAPABILITY_COPY, GATED_CAPABILITIES, supportLevelOfPrinter } from '../../utils/supportLevels'
 
-type PrinterSupportFields = { id: number; api_type?: string | null; support_level?: unknown; experimental_actions_enabled?: boolean }
+type PrinterSupportFields = { id: number; api_type?: string | null; support_level?: unknown; support_source?: string | null; experimental_actions_enabled?: boolean }
 
 /** "Experimental" badge; nothing for a Supported printer. */
 export function SupportLevelBadge({ printer }: { printer: PrinterSupportFields }) {
@@ -21,6 +21,7 @@ function OptInPanel({ printer, capability }: { printer: PrinterSupportFields; ca
   const isSuperadmin = principal?.role === 'admin' && !principal?.group_id
   const enabled = printer.experimental_actions_enabled === true
   const copy = capability ? CAPABILITY_COPY[capability] : null
+  const note = (capability === 'h3c' ? printer.support_source : null) ?? copy?.note ?? experimentalWarning(printer.api_type)
   const checkboxId = `experimental-${printer.id}-${capability || 'type'}`
   const save = useMutation({
     mutationFn: (next: boolean) => printerSupport.setExperimentalActions(printer.id, next),
@@ -32,7 +33,7 @@ function OptInPanel({ printer, capability }: { printer: PrinterSupportFields; ca
   })
   return (
     <div data-testid="experimental-opt-in" className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)] space-y-1">
-      <p role="note" className={copy ? "text-xs text-[var(--brand-text-secondary)]" : "text-xs text-amber-400"}>{copy ? copy.note : experimentalWarning(printer.api_type)}</p>
+      <p role="note" className={copy ? "text-xs text-[var(--brand-text-secondary)]" : "text-xs text-amber-400"}>{note}</p>
       <p className="text-xs text-[var(--brand-text-secondary)]">
         {copy ? copy.state(enabled) : `Monitoring is always on. Job sending and controls are ${enabled ? 'on' : 'off'} for this printer.`}
       </p>
@@ -54,6 +55,8 @@ function OptInPanel({ printer, capability }: { printer: PrinterSupportFields; ca
 /** Cards and page headers show whole-type warnings; the page disclosure opts into capability rows. */
 export function ExperimentalOptIn({ printer, capabilities = false }: { printer: PrinterSupportFields; capabilities?: boolean }) {
   if (capabilities) {
+    const key = capabilityKey(printer)
+    if (key === 'h3c') return <OptInPanel printer={printer} capability="h3c" />
     if (supportLevelOfPrinter(printer) !== 'supported' || !optInApplies(printer.api_type)) return null
     return <>{GATED_CAPABILITIES[(printer.api_type ?? '').trim().toLowerCase()]?.map(capability =>
       <OptInPanel key={capability} printer={printer} capability={capability} />)}</>

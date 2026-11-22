@@ -24,7 +24,7 @@ export default function InstalledNozzles({ nozzles, rack = false, slots, renderS
     const inventory = new Map(slots?.map(slot => [slot.slot_number, slot]))
     const positions = [...new Set([...tools.keys(), ...inventory.keys()])].sort((a, b) => a - b)
     return <section aria-label="Nozzle rack" className="rounded-lg border border-[var(--brand-card-border)] p-3">
-      <h2 className="font-medium">Nozzle rack · Experimental</h2>
+      <h2 className="font-medium">Nozzle rack</h2>
       {!tools.size && <p>No rack report received.</p>}
       <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
         {positions.map(position => {

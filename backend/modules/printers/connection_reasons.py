@@ -6,6 +6,7 @@ protocol cannot tell apart is UNKNOWN; the reason is never guessed. No reason
 or message built here carries the printer address, serial or credential.
 """
 import errno
+import os
 import socket
 import ssl
 
@@ -29,6 +30,15 @@ _UNREACHABLE_ERRNOS = frozenset({
 def failed(reason: str, error: str) -> dict:
     """The test-connection failure body: the existing fields plus `reason`."""
     return {"success": False, "error": error, "reason": reason if reason in REASONS else UNKNOWN}
+
+
+def transport_error_detail(exc) -> str:
+    """Use OS/TLS diagnostics without copying a peer's free-form error text."""
+    if isinstance(exc, ssl.SSLError):
+        return exc.reason if getattr(exc, 'reason', None) else type(exc).__name__
+    if isinstance(exc, OSError) and exc.errno in errno.errorcode:
+        return os.strerror(exc.errno)
+    return type(exc).__name__
 
 
 def reason_for_exception(exc) -> str:

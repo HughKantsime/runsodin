@@ -37,6 +37,8 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
         except (S1Refusal, OSError) as exc:
             return None, str(exc) if isinstance(exc, S1Refusal) else 's1_file_unavailable: Payload cannot be read'
     print_options = ValidatedPrintOptions()
+    from modules.printers.printer_models import identified_h3c
+    h3c = identified_h3c(creds)
     requires_mapping = _requires_ams_mapping(creds)
     archived = job.get("print_file_id") is not None
     if archived or requires_mapping:
@@ -53,7 +55,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
         try:
             plate = validate_plate(stored_path, plate_index, api_type)
         except HTTPException as exc:
-            if requires_mapping and job.get("ams_mapping") is None:
+            if requires_mapping and not h3c and job.get("ams_mapping") is None:
                 return None, _missing_mapping(job)
             return None, str(exc.detail)
         if api_type == "bambu":
@@ -66,25 +68,35 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                     return None, "Stored AMS mapping is invalid; no command was sent"
             derived = False
             facts = None
-            if mapping is None and job.get("ams_mapping") is None:
-                if requires_mapping:
-                    from modules.printers.services import inspect_ams_payload
-                    from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
-                    import os
-                    try:
-                        facts = inspect_ams_payload(stored_path, expected_sha256=payload_sha256,
-                            expected_bytes=os.stat(stored_path).st_size, plate_index=plate_index)
+            if requires_mapping and (h3c or job.get('ams_mapping') is None):
+                from modules.printers.services import inspect_ams_payload
+                from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
+                import os
+                try:
+                    facts = inspect_ams_payload(stored_path, expected_sha256=payload_sha256,
+                        expected_bytes=os.stat(stored_path).st_size, plate_index=plate_index,
+                        **({'multi_source': True} if h3c else {}))
+                    derived = job.get('ams_mapping') is None
+                    if h3c:
+                        from modules.printers.dispatch_ams_gate import rack_sources
+                        sources = rack_sources(job, facts)
+                        if derived:
+                            mapping = [-1] * (max(s['source_index'] for s in sources) + 1)
+                            for source in sources:
+                                mapping[source['source_index']] = source['group_id']
+                    else:
                         source = facts['source_index']
                         mapping = [-1] * source + [source]
-                        derived = True
-                    except (ValueError, OSError, PayloadUnavailable):
-                        return None, _missing_mapping(job)
+                except (ValueError, OSError, PayloadUnavailable) as exc:
+                    if h3c:
+                        return None, str(exc) if isinstance(exc, ValueError) else 'H3C plate inspection unavailable.'
+                    return None, _missing_mapping(job)
             if mapping is None and requires_mapping:
                 return None, _missing_mapping(job)
             if mapping is not None:
-                error = _mapping_error(job, mapping)
+                error = _mapping_error(job, mapping, rack_sources=facts['sources'] if h3c else ())
                 if error:
-                    return None, _missing_mapping(job) if derived else error
+                    return None, _missing_mapping(job) if derived and not h3c else error
                 # No transaction remains open during inspection. Derived mappings
                 # already inspected these exact bytes; validate their facts once.
                 from modules.printers.dispatch_ams_gate import preflight_ams_source
@@ -92,11 +104,17 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 try:
                     print_options.source_facts = preflight_ams_source(job, mapping=mapping,
                         staged_path=stored_path, payload_sha256=payload_sha256,
-                        derived=derived, inspected_facts=facts)
+                        derived=derived, inspected_facts=facts, h3c=h3c)
+                    if h3c:
+                        from modules.printers.nozzle_capability import rack_tool_refusal
+                        sources = print_options.source_facts['sources']
+                        detail = rack_tool_refusal(sources, mapping, creds.get('installed_nozzles'))
+                        if detail:
+                            return None, detail
                 except (ValueError, OSError, PayloadUnavailable) as exc:
                     detail = str(exc) if isinstance(exc, ValueError) else 'Payload inspection unavailable'
                     error = f"Explicit AMS source or plate is unsupported: {detail}; no command was sent"
-                    return None, _missing_mapping(job) if derived else error
+                    return None, _missing_mapping(job) if derived and not h3c else error
                 print_options["ams_mapping"] = mapping
         elif job.get("ams_mapping") is not None:
             return None, "AMS mapping requires a Bambu printer; no command was sent"
@@ -104,7 +122,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
     return print_options,None
 
 
-def _mapping_error(job, mapping, *, slot_details=False):
+def _mapping_error(job, mapping, *, slot_details=False, rack_sources=()):
     from core.print_payload import MappingMaterialMismatch, MappingSlotUnavailable, validate_mapping
     from fastapi import HTTPException
     # Stored targets are physical slot minus one; -1 is an unused file source.
@@ -117,6 +135,15 @@ def _mapping_error(job, mapping, *, slot_details=False):
     with engine.connect() as conn:
         slots = mapping_materials(conn, job['printer_id'], 'bambu')
         reason = flagged_mapping_reason(conn, job['printer_id'], mapping)
+    if rack_sources:
+        from core.material_identity import canonical_reported_material
+        for source in rack_sources:
+            index, group = source['source_index'], source['group_id']
+            loaded = slots.get(group + 1) or 'empty or unreported'
+            if (index >= len(mapping) or mapping[index] != group
+                    or canonical_reported_material(loaded) != source['material']):
+                return (f"Filament {index + 1} requires slot {group + 1} with {source['material']}. "
+                        f"Loaded there: {loaded}.")
     if reason:
         return reason
     try:
@@ -135,9 +162,10 @@ def _mapping_error(job, mapping, *, slot_details=False):
 
 
 def _requires_ams_mapping(creds):
+    from modules.printers.printer_models import identified_h3c
     # One configured slot normally means external spool only; HT units are separate.
     return creds.get('api_type') == 'bambu' and (
-        (creds.get('slot_count') or 1) > 1
+        identified_h3c(creds) or (creds.get('slot_count') or 1) > 1
         or any(17 <= slot[0] <= 24 for slot in creds.get('filament_slots', [])))
 
 

@@ -53,7 +53,7 @@ class AMSSessionController:
                 if len(result)!=2 or _code(result[0])!=0:raise ValueError()
                 self.collector=RawAMSAcquisitionCollector(topic=self.config.topic_report,
                     configuration_key=self.key,owner_org_id=self.owner,
-                    selected_slots=self.selected,subscribe_mid=result[1],incarnation=self.incarnation,allow_unreported=self.allow_unreported,nozzle_dual=self.nozzle_dual)
+                    selected_slots=self.selected,subscribe_mid=result[1],incarnation=self.incarnation,allow_unreported=self.allow_unreported,nozzle_dual=self.nozzle_dual, h3c=self.config.h3c)
                 pending=self._pending_ack.pop(result[1],None)
                 if pending is not None:self.on_subscribe(client,userdata,result[1],pending)
             except Exception:self._refuse()
@@ -148,7 +148,7 @@ def _network_worker(channel,config,key,owner,slots,incarnation,deadline,*,allow_
     channel.put({'snapshot':snapshot,'error':error})
 
 
-def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now,allow_unreported=False):
+def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now,allow_unreported=False,h3c=False):
     if type(snapshot) is not RawAMSSnapshot or now > deadline:return False
     if (type(snapshot.incarnation) is not str or type(snapshot.configuration_key) is not str
         or snapshot.incarnation!=incarnation or snapshot.configuration_key!=key
@@ -176,7 +176,7 @@ def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now,
     for fact in snapshot.trays:
         if (type(fact) is not RawTrayFact or type(fact.slot_number) is not int
             or type(fact.unit_id) is not int or type(fact.tray_id) is not int
-            or fact.slot_number != ams_slot_number(fact.unit_id, fact.tray_id)
+            or fact.slot_number != ams_slot_number(fact.unit_id, fact.tray_id, h3c=h3c)
             or fact.mechanically_ready is not None):return False
         if fact.material_state == 'reported':
             if (type(fact.material) is not str or canonical_reported_material(fact.material) is None
@@ -244,7 +244,7 @@ def _run_owned_worker(config,key,owner,slots,timeout,*,worker=_network_worker,re
                     raise ValueError('AMS runtime binding unavailable')
             candidate=received.get('snapshot')
             if _valid_snapshot(candidate,key=key,owner=owner,slots=slots,
-                incarnation=incarnation,started=started,deadline=deadline,now=time.monotonic(),allow_unreported=allow_unreported):
+                incarnation=incarnation,started=started,deadline=deadline,now=time.monotonic(),allow_unreported=allow_unreported,h3c=config.h3c):
                 snapshot=candidate;error=None
             else:error='AMS acquisition evidence unavailable'
     except Exception:pass

@@ -1,3 +1,5 @@
+import { isH3C } from './shared'
+
 export type SupportLevel = 'supported' | 'experimental' | 'unsupported'
 
 // Mirror of backend/modules/printers/support_levels.py SUPPORT_TABLE. A backend contract
@@ -16,6 +18,11 @@ const OCTOPRINT_WARNING = "Built from OctoPrint's public API and not yet verifie
 const GENERIC_WARNING = 'Built from public documentation and not yet verified on real hardware. Sending jobs and controls may not work as expected. Send printer diagnostics if something is wrong.'
 
 export const CAPABILITY_COPY: Record<string, { note: string; state: (enabled: boolean) => string; label: string }> = {
+  h3c: {
+    note: 'H3C monitoring and filament tracking are Supported. Job sending and printer controls are Experimental and have not yet been verified on a printer.',
+    state: enabled => enabled ? 'Job sending and controls are on for this printer.' : 'Job sending and controls are off. A platform administrator can turn them on in Experimental features. Pause and stop are always available.',
+    label: 'Allow job sending and controls (Experimental)',
+  },
   dispatch: {
     note: "Job sending (Experimental): built from Elegoo's public SDCP documentation and not yet verified on a real printer.",
     state: enabled => `Job sending is ${enabled ? 'on' : 'off'} for this printer. Monitoring, pause, resume, speed and stop are not affected.`,
@@ -24,7 +31,11 @@ export const CAPABILITY_COPY: Record<string, { note: string; state: (enabled: bo
 }
 
 // Mirror of support_levels.GATED_CAPABILITIES; these types remain Supported overall.
-export const GATED_CAPABILITIES: Record<string, readonly string[]> = { elegoo: ['dispatch'] }
+export const GATED_CAPABILITIES: Record<string, readonly string[]> = { elegoo: ['dispatch'], h3c: ['dispatch', 'controls'] }
+
+export function capabilityKey(printer: Parameters<typeof isH3C>[0] & { unidentified_rack?: boolean }): string {
+  return printer.api_type === 'bambu' && isH3C(printer) && !printer.unidentified_rack ? 'h3c' : (printer.api_type ?? '').trim().toLowerCase()
+}
 
 export function optInApplies(apiType?: string | null): boolean {
   const key = (apiType ?? '').trim().toLowerCase()

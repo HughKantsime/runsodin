@@ -8,7 +8,9 @@ All notable changes to O.D.I.N. are documented here.
 
 - Stock inspections can record who counted and a note. Operators can record components and assemblies with a production token, and add missed flush pieces to a completed job while keeping its original inspection.
 - Platform administrators can turn on daily ODIN release checks in Settings > System and see when a newer version fixes a security problem.
-- You can select the Bambu Lab H3C during setup or when adding a printer. Its card and printer page show the nine rack positions, nozzle types and diameters, the tool in the head, and the filament the printer reports beside your ODIN slot settings. Dispatch and printer controls are not supported yet.
+- Administrators can turn on Experimental job sending and controls for each Bambu Lab H3C. ODIN checks the trays and tools at the positions the file requires. Education jobs on an H3C are limited to one filament. Sending and controls are not yet verified on a printer. Pause and stop are available with the switch off.
+
+- You can select the Bambu Lab H3C during setup or when adding a printer. Its card and printer page show the nine rack positions, nozzle types and diameters, the tool in the head, and the filament the printer reports beside your ODIN slot settings.
 
 - The Bambu Lab H3C now tracks filament and spools in all nine AMS 3H positions and shows humidity and temperature for each zone. Hand-fed filament is shown separately. Bambu printer codes without a description appear as notices when the printer reports no error.
 

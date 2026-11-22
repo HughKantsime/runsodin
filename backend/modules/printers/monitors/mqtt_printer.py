@@ -128,6 +128,7 @@ class PrinterMonitor:
                 return self._connect_v2()
             generation = self._begin_connection()
             self._bambu = BambuPrinter(
+                h3c=self._configured_h3c,
                 printer_id=self.printer_id,
                 ip=self.ip,
                 serial=self.serial,

@@ -161,3 +161,42 @@ it.each([
     filament_type: 'empty', color: null, color_hex: null, spoolman_spool_id: null,
   }))
 })
+
+
+it.each(['classic', 'foundry'])('offers the H3C Experimental switch for this printer in %s', async family => {
+  const { printers } = await import('../../api')
+  const { printerSupport } = await import('../../api/printerSupport')
+  const save = vi.spyOn(printerSupport, 'setExperimentalActions').mockResolvedValue({
+    printer_id: 9, support_level: 'supported', experimental_actions_enabled: true,
+  })
+  const rack = { id: 9, name: 'Rack', model: 'H3C', api_type: 'bambu', gcode_state: 'RUNNING',
+    last_seen: new Date().toISOString(), filament_slots: [] } as Awaited<ReturnType<typeof printers.get>>
+  vi.mocked(printers.get).mockResolvedValueOnce(rack).mockResolvedValueOnce({ ...rack, experimental_actions_enabled: true })
+  Object.assign(state, { role: 'admin', group_id: null })
+  document.documentElement.dataset.themeFamily = family
+  mount('#experimental-opt-in-9')
+  const toggle = await screen.findByRole('checkbox', { name: 'Allow job sending and controls (Experimental)' })
+  expect(screen.getByText('H3C monitoring and filament tracking are Supported. Job sending and printer controls are Experimental and have not yet been verified on a printer.')).toBeVisible()
+  expect(screen.queryByText(/Other supported controls were verified/)).not.toBeInTheDocument()
+  expect(toggle).not.toBeChecked()
+  expect(screen.getByText(/Job sending and controls are off/)).toHaveTextContent(/Experimental features.*Pause and stop/)
+  expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()
+  fireEvent.click(toggle)
+  await waitFor(() => expect(save).toHaveBeenCalledWith(9, true))
+  await waitFor(() => expect(toggle).toBeChecked())
+  expect(await screen.findByRole('button', { name: 'Skip objects' })).toBeInTheDocument()
+  save.mockRestore()
+})
+
+it.each(['classic', 'foundry'])('adds no support text to a P1S page in %s', async family => {
+  const { printers } = await import('../../api')
+  const source = 'Bambu Lab LAN-mode MQTT and FTPS. Skipping objects was verified on a P2S. Other supported controls were verified on real hardware.'
+  vi.mocked(printers.get).mockResolvedValueOnce({
+    id: 9, name: 'Printer', api_type: 'bambu', model: 'P1S', support_source: source,
+  } as Awaited<ReturnType<typeof printers.get>>)
+  document.documentElement.dataset.themeFamily = family
+  mount()
+  await screen.findByRole('heading', { level: 1 })
+  expect(screen.queryByText(source)).not.toBeInTheDocument()
+  expect(screen.queryByText(/H3C monitoring/)).not.toBeInTheDocument()
+})

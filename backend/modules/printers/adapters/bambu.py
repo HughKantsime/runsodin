@@ -141,7 +141,7 @@ class BambuPrinter:
         on_connection_change: Optional[Callable[[], None]] = None,
         on_product_name: Optional[Callable[[str], None]] = None,
         printer_id: Optional[int] = None,
-        *, allow_print_start: bool = False,
+        *, allow_print_start: bool = False, h3c: bool = False,
     ):
         """
         Initialize Bambu printer connection.
@@ -159,6 +159,7 @@ class BambuPrinter:
         """
         self.printer_id = printer_id
         self._allow_print_start = allow_print_start
+        self._configured_h3c = h3c
         self.ip = ip
         self.serial = serial
         self.access_code = access_code
@@ -186,6 +187,7 @@ class BambuPrinter:
             True if connected successfully
         """
         self.connect_failure = None
+        self.connect_detail = None
         try:
             # Create MQTT client
             self._client = mqtt.Client(
@@ -204,6 +206,9 @@ class BambuPrinter:
             self._client.on_connect = self._on_connect
             self._client.on_message = self._on_message
             self._client.on_disconnect = self._on_disconnect
+            if self._configured_h3c:
+                from modules.printers.telemetry.bambu.project_reply import ProjectReplies
+                self._client.project_replies = ProjectReplies(self._client, self._lock)
             
             # Connect
             # Policy-validated IP literal: no DNS rebinding on connect/reconnect.
@@ -225,6 +230,9 @@ class BambuPrinter:
             print("Printer connection could not be established")
             from modules.printers.connection_reasons import reason_for_exception
             self.connect_failure = reason_for_exception(e)
+            if self._configured_h3c:
+                from modules.printers.connection_reasons import transport_error_detail
+                self.connect_detail = transport_error_detail(e)
             self._abandon_client()
             self._status.state = PrinterState.OFFLINE
             return False
@@ -479,7 +487,8 @@ class BambuPrinter:
         from modules.printers.telemetry.bambu.ftp_upload import upload_file
 
         # A truthy UploadResult, so dispatch can tell where a failure happened.
-        return upload_file(self.ip, self.access_code, local_path, remote_filename)
+        return upload_file(self.ip, self.access_code, local_path, remote_filename,
+                           **({"detailed_errors": True} if getattr(self, "_configured_h3c", False) else {}))
 
     def start_print(
         self,
@@ -489,6 +498,7 @@ class BambuPrinter:
         bed_leveling: bool = True,
         timelapse: bool = False,
         ams_mapping: Optional[list[int]] = None,
+        h3c: bool = False,
     ) -> bool:
         """Send MQTT command to start printing an uploaded .3mf file.
 
@@ -506,6 +516,9 @@ class BambuPrinter:
             True if the MQTT command was published and acknowledged.
         """
         if not self._connected:
+            if h3c:
+                from modules.printers.telemetry.bambu.project_reply import ProjectNotSent
+                raise ProjectNotSent("MQTT disconnected before the H3C start command.")
             return False
 
         subtask_name = remote_filename.replace('.3mf', '')
@@ -531,7 +544,10 @@ class BambuPrinter:
         }
         if ams_mapping is not None:
             from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
-            payload["print"].update(print_mapping_fields(ams_mapping))
+            payload["print"].update(print_mapping_fields(ams_mapping, h3c=h3c))
+        if h3c:
+            from modules.printers.telemetry.bambu.project_reply import publish_project
+            return publish_project(self._client, self._topic_report, self._publish, payload)
         return self._publish(payload)
 
     # ============== Private Methods ==============
@@ -541,6 +557,7 @@ class BambuPrinter:
         if client is not self._client:
             return  # an abandoned client's late CONNACK
         if rc == 0:
+            self._status.printer_type = ""  # Model evidence belongs to this MQTT connection.
             self._connected = True
             if self.on_connection_change:
                 self.on_connection_change()
@@ -552,6 +569,7 @@ class BambuPrinter:
             print(f"Connection failed with code: {rc}")
             from modules.printers.connection_reasons import reason_for_mqtt_refusal
             self.connect_failure = reason_for_mqtt_refusal(rc)
+            self.connect_detail = f'MQTT CONNACK {rc}'
             self._status.state = PrinterState.OFFLINE
     
     def _on_disconnect(self, client, userdata, rc):
@@ -705,8 +723,9 @@ class BambuPrinter:
         if not self._client or not self._connected:
             return False
         try:
-            from modules.printers.printer_models import stored_rack_refusal
-            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload):
+            from modules.printers.printer_models import rack_model_identity, stored_rack_refusal
+            known_h3c = self._configured_h3c or rack_model_identity(self._status.printer_type) is True
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, known_h3c=known_h3c, payload=payload):
                 return False
             result = self._client.publish(self._topic_request, json.dumps(payload))
         except Exception:
@@ -723,8 +742,9 @@ class BambuPrinter:
             return False
 
         try:
-            from modules.printers.printer_models import stored_rack_refusal
-            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, payload=payload, allow_print_start=self._allow_print_start):
+            from modules.printers.printer_models import rack_model_identity, stored_rack_refusal
+            known_h3c = self._configured_h3c or rack_model_identity(self._status.printer_type) is True
+            if stored_rack_refusal(self.printer_id, host=self.ip, serial=self.serial, known_h3c=known_h3c, payload=payload, allow_print_start=self._allow_print_start):
                 return False
             result = self._client.publish(
                 self._topic_request,

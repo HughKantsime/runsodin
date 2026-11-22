@@ -23,18 +23,29 @@ import json
 import logging
 import time
 
+from modules.printers.telemetry.bambu.project_reply import ProjectRejected
+
 log = logging.getLogger("odin.dispatch")
 
 
 class DispatchOutcomeUncertain(RuntimeError):
     """A print-capable operation was entered without reliable confirmation."""
 
-def _submit_print_command(operation, *args, **kwargs):
+def _submit_print_command(operation, *args, _expected_h3c=None, **kwargs):
     """Do not turn a lost acknowledgment into permission to send again."""
     from modules.printers.maintenance_gate import check_command
-    check_command()
+    if _expected_h3c is None:
+        check_command()
+    else:
+        check_command(expected_h3c=_expected_h3c)
+    return _confirmed_print_command(operation, *args, **kwargs)
+
+
+def _confirmed_print_command(operation, *args, **kwargs):
     try:
         accepted = operation(*args, **kwargs)
+    except ProjectRejected:
+        raise
     except Exception as exc:
         raise DispatchOutcomeUncertain("Printer command outcome is unknown") from exc
     if not accepted:
@@ -77,11 +88,15 @@ class NoStartMessage(str):
     """
 
 
+class TransferOrStartFailure(NoStartMessage):
+    """Upload failed or the printer explicitly rejected the requested start."""
+
+
 class PreflightNoStartMessage(NoStartMessage):
     """Only a verified missing-file decoy was possible; even a new hold is clean."""
 
 
-def _upload_failure_message(result) -> NoStartMessage:
+def _upload_failure_message(result, *, h3c=False) -> NoStartMessage:
     phase = getattr(result, "phase", None) or "transfer"
     nothing_sent = "no file and no print command were sent; you can retry"
     if phase == "timeout":
@@ -91,8 +106,10 @@ def _upload_failure_message(result) -> NoStartMessage:
         return NoStartMessage(f"Other printers' uploads are already waiting; {nothing_sent}")
     if phase == "lock_unavailable":
         return NoStartMessage(f"The upload slot could not be opened (check the data directory); {nothing_sent}")
-    return NoStartMessage(f"FTPS upload failed during {phase}; no print command was sent; "
-                          "check the printer's network and retry")
+    detail = f"FTPS upload failed during {phase}; no print command was sent"
+    if h3c:
+        return TransferOrStartFailure(detail)
+    return NoStartMessage(f"{detail}; check the printer's network and retry")
 
 
 def _upload_wait_notice(job_id):
@@ -152,7 +169,7 @@ def _gate_refusal_message(gate):
 
 def _rack_no_start(gate, reason):
     from modules.printers.dispatch_ams_gate import record_refusal
-    record_refusal(gate, "unsupported_rack_printer", reason)
+    record_refusal(gate, reason.partition(":")[0], reason)
     return False, NoStartMessage(reason)
 
 
@@ -163,18 +180,23 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     from modules.printers.telemetry.bambu.ftp_upload import upload_file, wait_notice
     from modules.printers.telemetry.bambu.session import run_command
 
-    from modules.printers.printer_models import rack_printer_refusal
+    from modules.printers.printer_models import identified_h3c, rack_printer_refusal
     reason = rack_printer_refusal(creds)
     if reason:
         return _rack_no_start(before_start, reason)
+    if identified_h3c(creds):
+        if not print_options.get('ams_mapping') or not callable(before_start):
+            return _rack_no_start(before_start, 'ams_mapping_required: Choose a position for each H3C filament.')
+        print_options['h3c'] = True
     if not _mapping_gate_available(print_options, before_start):
         return False, "Explicit AMS selection requires a post-upload check; no command was sent"
     _ws(job_id, "uploading", f"Uploading {remote_filename} to printer via FTP...")
     log.info(f"[dispatch] Bambu V2 FTPS upload: {remote_filename}")
     with wait_notice(_upload_wait_notice(job_id)):
-        uploaded = upload_file(creds["ip"], creds["access_code"], stored_path, remote_filename)
+        uploaded = upload_file(creds["ip"], creds["access_code"], stored_path, remote_filename,
+                               **({"detailed_errors": True} if print_options.get("h3c") else {}))
     if not uploaded:
-        return False, _upload_failure_message(uploaded)
+        return False, _upload_failure_message(uploaded, h3c=identified_h3c(creds))
 
     _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
     endpoint = resolve_bambu_broker_config(
@@ -185,7 +207,7 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         serial=creds["serial"],
         host=endpoint.host,
         port=endpoint.port,
-        allow_print_start=True,
+        allow_print_start=True, h3c=identified_h3c(creds),
         use_tls=endpoint.use_tls,
         access_code=creds["access_code"],
     )
@@ -194,16 +216,33 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
     gate = {}
 
+    from modules.printers import maintenance_gate
+    connected_policy = maintenance_gate.has_command_context()
+
     def before_command():
+        if connected_policy:
+            try:
+                maintenance_gate.check_command(expected_h3c=identified_h3c(creds))
+            except maintenance_gate.ExperimentalNotEnabled as exc:
+                gate["policy_refusal"] = str(exc)
+                return False
+            except maintenance_gate.MaintenanceHold as exc:
+                gate["hold"] = exc
+                return False
         # run_command sends nothing unless this returns True, so a recorded False
         # (not an exception) is a confirmed no-start rather than an unknown outcome.
-        gate["result"] = before_start() is True
+        gate["result"] = before_start is None or before_start() is True
         return gate["result"]
 
-    final_check = {"before_command": before_command} if before_start is not None else {}
+    final_check = {"before_command": before_command} if before_start is not None or connected_policy else {}
+    submit = _confirmed_print_command if connected_policy else _submit_print_command
     try:
-        ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
+        ok = submit(run_command, config, "start_print", remote_filename, **final_check, **print_options)
     except DispatchOutcomeUncertain:
+        if "policy_refusal" in gate:
+            return _rack_no_start(before_start, gate["policy_refusal"])
+        if "hold" in gate:
+            raise gate["hold"]
         if gate.get("result") is False:
             return False, _gate_refusal_message(before_start)
         if getattr(before_start, "refusal", None) is not None:
@@ -220,10 +259,14 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
     """Legacy transport with an explicit post-upload gate for mapped starts."""
     from modules.printers.adapters.bambu import BambuPrinter
 
-    from modules.printers.printer_models import rack_printer_refusal
+    from modules.printers.printer_models import identified_h3c, rack_printer_refusal
     reason = rack_printer_refusal(creds)
     if reason:
         return _rack_no_start(before_start, reason)
+    if identified_h3c(creds):
+        if not print_options.get('ams_mapping') or not callable(before_start):
+            return _rack_no_start(before_start, 'ams_mapping_required: Choose a position for each H3C filament.')
+        print_options['h3c'] = True
     if not _mapping_gate_available(print_options, before_start):
         return False, "Explicit AMS selection requires a post-upload check; no command was sent"
     printer = BambuPrinter(
@@ -231,7 +274,7 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
         serial=creds["serial"],
         access_code=creds["access_code"],
         printer_id=creds.get("printer_id"),
-        allow_print_start=True,
+        allow_print_start=True, h3c=identified_h3c(creds),
         client_id=f"odin_dispatch_{creds['serial']}_{int(time.time())}",
     )
 
@@ -242,19 +285,27 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
         with wait_notice(_upload_wait_notice(job_id)):
             uploaded = printer.upload_file(stored_path, remote_filename)
         if not uploaded:
-            return False, _upload_failure_message(uploaded)
+            return False, _upload_failure_message(uploaded, h3c=identified_h3c(creds))
 
         _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
         if not _prepare_post_upload_gate(before_start):
             return False, _gate_refusal_message(before_start)
         if not printer.connect():
-            return False, "MQTT connection failed after successful file upload"
+            message = "MQTT connection failed after successful file upload"
+            if print_options.get('h3c'):
+                detail = getattr(printer, 'connect_detail', None) or getattr(printer, 'connect_failure', None)
+                return False, TransferOrStartFailure(f'{message}: {detail}' if detail else message)
+            return False, message
 
         time.sleep(1)
         if not _post_upload_gate(before_start):
             return False, _gate_refusal_message(before_start)
         log.info("[dispatch] Sending Bambu print command for job %s", job_id)
-        ok = _submit_print_command(printer.start_print, remote_filename, **print_options)
+        from modules.printers.maintenance_gate import ExperimentalNotEnabled
+        try:
+            ok = _submit_print_command(printer.start_print, remote_filename, _expected_h3c=identified_h3c(creds), **print_options)
+        except ExperimentalNotEnabled as exc:
+            return _rack_no_start(before_start, str(exc))
         if not ok:
             return False, "MQTT print command failed (file uploaded OK)"
         return True, "Print started"
@@ -583,6 +634,8 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
         else:
             # Never a default adapter: a type with no explicit branch touches no device.
             success, message = False, f"Dispatch not supported for printer type '{api_type}'; no command was sent"
+    except ProjectRejected as exc:
+        success, message = False, TransferOrStartFailure(str(exc))
     except MaintenanceHold as exc:
         success, message = False, str(exc)
     except Exception:
@@ -595,13 +648,33 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
             message = _gate_refusal_message(before_start) + "; explicit reconciliation is required before retrying"
 
     if not success:
+        from modules.printers.printer_models import identified_h3c
+        terminal_failure = identified_h3c(creds) and isinstance(message, TransferOrStartFailure)
+        if terminal_failure and not education_reservation:
+            from core.db import engine
+            from core.order_production import prepare_job_write, reconcile_job_write
+            from modules.jobs.services import Expr, transition_job
+            try:
+                with engine.begin() as conn:
+                    parents = prepare_job_write(conn, [job_id])
+                    failed = transition_job(conn, job_id, 'failed', 'dispatch', where='printer_id=:pid',
+                        params={'pid': printer_id}, extra_fields={
+                            'fail_reason': 'dispatch', 'fail_notes': str(message), 'actual_end': Expr('CURRENT_TIMESTAMP')})
+                    if not failed:
+                        message = str(message) + "; the job changed during dispatch and needs reconciliation"
+                    reconcile_job_write(conn, parents)
+            except Exception:
+                log.error("Could not record failed job %s after confirmed no-start: %s", job_id, message)
+                # A plain message retains the admitted claim for reconciliation.
+                message = f"{message}; confirmed no-start requires database reconciliation"
         if before_start is not None:
             try:
                 before_start.clean_no_start = not uncertain and getattr(before_start, 'refusal', None) is not None
             except (AttributeError, TypeError):
                 pass
         if education_reservation and not uncertain and not _cancel_education_reservation(
-            education_provider, education_reservation
+            education_provider, education_reservation,
+            **({'failure_notes': str(message)} if terminal_failure else {})
         ):
             try:
                 before_start.clean_no_start = False

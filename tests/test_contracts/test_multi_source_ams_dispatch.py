@@ -113,7 +113,7 @@ def transport(monkeypatch, path, protocol, events, after_upload=None, before_pub
         monkeypatch.setattr(bambu, 'BambuPrinter', lambda **kw: sender)
     else:
         monkeypatch.setattr(session, 'BambuCommandAdapter', lambda config: sender)
-        monkeypatch.setattr(ftp_upload, 'upload_file', lambda host, code, staged, remote: uploaded(staged, remote))
+        monkeypatch.setattr(ftp_upload, 'upload_file', lambda host, code, staged, remote, **kwargs: uploaded(staged, remote))
     return sent
 
 

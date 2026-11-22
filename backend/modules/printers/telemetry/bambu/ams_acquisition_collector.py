@@ -50,7 +50,7 @@ def safe_status_fields(packet):
 
 class RawAMSAcquisitionCollector:
     def __init__(self, *, topic, configuration_key, owner_org_id, selected_slots,
-                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None, allow_unreported=False, nozzle_dual=None):
+                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None, allow_unreported=False, nozzle_dual=None, h3c=False):
         if (not isinstance(topic,str) or not re.fullmatch(r'device/[^/\s+#\x00]+/report',topic)
             or not isinstance(configuration_key,str) or not re.fullmatch(r'[0-9a-f]{64}',configuration_key)
             or (owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id <= 0))
@@ -63,6 +63,7 @@ class RawAMSAcquisitionCollector:
             raise ValueError('AMS acquisition configuration unavailable')
         if incarnation is not None and (type(incarnation) is not str or not re.fullmatch("[0-9a-f]{32}",incarnation)):
             raise ValueError("AMS acquisition incarnation unavailable")
+        self._h3c = h3c
         self._nozzle_dual = nozzle_dual
         self._allow_unreported = allow_unreported is True
         self.incarnation=incarnation if incarnation is not None else uuid.uuid4().hex
@@ -114,7 +115,7 @@ class RawAMSAcquisitionCollector:
             if isinstance(ams, dict) and 'ams' not in ams:
                 # A status delta has no unit inventory and cannot renew tray evidence.
                 return False
-            try: facts=parse_raw_ams_facts(packet)
+            try: facts=parse_raw_ams_facts(packet, h3c=self._h3c)
             except ValueError:self.retire();return False
             addressed={f.slot_number:f for f in facts if f.slot_number in self._selected}
             if any(f.material_state != 'reported' and not (self._allow_unreported
@@ -135,10 +136,10 @@ class RawAMSAcquisitionCollector:
                 nozzle = device.get('nozzle') if isinstance(device, dict) else None
                 has_rows = isinstance(nozzle, dict) and isinstance(nozzle.get('info'), list)
                 if (packet.get('command') != 'push_status'
-                        or (not has_rows and (self._nozzle_dual or 'nozzle_type' not in packet))):
+                        or (not has_rows and (self._h3c or self._nozzle_dual or 'nozzle_type' not in packet))):
                     self._snapshot = None
                     return False
-                nozzles = tuple(installed_nozzles(packet, dual=self._nozzle_dual))
+                nozzles = tuple(installed_nozzles(packet, dual=self._nozzle_dual, include_rack=self._h3c))
             self._snapshot=RawAMSSnapshot(self.incarnation,uuid.uuid4().hex,
                 self._order,now,self._config,self._owner,
                 tuple(addressed[s] for s in sorted(addressed)), idle_without_error, nozzles=nozzles, **diagnostics)

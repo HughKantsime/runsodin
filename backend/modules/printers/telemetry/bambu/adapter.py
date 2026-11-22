@@ -81,6 +81,8 @@ class BambuAdapterConfig:
     printer_row_id: Optional[int] = None  # Database target, independent of the session label.
     allow_print_start: bool = False  # Dispatch checked the target at admission.
 
+    h3c: bool = False
+
     @property
     def topic_report(self) -> str:
         return f"device/{self.serial}/report"

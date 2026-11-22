@@ -50,11 +50,13 @@ def has_ht_target(mapping):
     return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
 
 
-def print_mapping_fields(mapping):
+def print_mapping_fields(mapping, *, h3c=False):
     """Both senders share this translation at the wire boundary."""
     if any(AMS_HT_FIRST_UNIT <= index < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT for index in mapping):
         raise ValueError('Select an AMS HT tray by its physical slot')
-    if not has_ht_target(mapping):
+    if h3c and (not mapping or any(type(i) is not int or not -1 <= i < 9 for i in mapping)):
+        raise ValueError('Choose a position from 1 to 9 for each H3C filament.')
+    if not h3c and not has_ht_target(mapping):
         return {'ams_mapping': mapping}
     flat = []
     pairs = []
@@ -63,8 +65,8 @@ def print_mapping_fields(mapping):
             flat.append(-1)
             pairs.append({'ams_id': 255, 'slot_id': 255})
             continue
-        unit, tray = unit_and_tray(index + 1)
-        flat.append(unit if unit >= AMS_HT_FIRST_UNIT else index)
+        unit, tray = unit_and_tray(index + 1, h3c=h3c)
+        flat.append(28 + tray if h3c else unit if unit >= AMS_HT_FIRST_UNIT else index)
         pairs.append({'ams_id': unit, 'slot_id': tray})
     return {'ams_mapping': flat, 'ams_mapping2': pairs}
 

@@ -255,6 +255,7 @@ def upload_file(
     local_path: str,
     remote_filename: str | None = None,
     timeout: float = 30.0,
+    *, detailed_errors: bool = False,
 ) -> UploadResult:
     """Upload a local file to the printer's FTPS root via implicit TLS, inside the
     install-wide upload slot. The result is truthy on success; failures are logged."""
@@ -262,11 +263,12 @@ def upload_file(
         if state != "held":
             logger.error("bambu ftps upload failed phase=%s error_type=Slot", state)
             return UploadResult(False, state, waited)
-        ok, phase = _upload_once(host, access_code, local_path, remote_filename, timeout)
+        ok, phase = _upload_once(host, access_code, local_path, remote_filename, timeout,
+                                 **({"detailed_errors": True} if detailed_errors else {}))
         return UploadResult(ok, phase, waited)
 
 
-def _upload_once(host, access_code, local_path, remote_filename, timeout):
+def _upload_once(host, access_code, local_path, remote_filename, timeout, *, detailed_errors=False):
     if remote_filename is None:
         remote_filename = os.path.basename(local_path)
     ftp = None
@@ -287,6 +289,15 @@ def _upload_once(host, access_code, local_path, remote_filename, timeout):
         return True, "done"
     except Exception as e:
         logger.error("bambu ftps upload failed phase=%s error_type=%s",phase,type(e).__name__)
+        # A numeric FTP reply is safe to record even when the server echoes credentials.
+        if isinstance(e, (ftplib.error_perm, ftplib.error_temp)):
+            code = str(e)[:3]
+            if code.isascii() and code.isdigit():
+                phase += f' (FTP {code})'
+        elif detailed_errors:
+            # Exception messages can include private hosts and paths.
+            from modules.printers.connection_reasons import transport_error_detail
+            phase += f" ({transport_error_detail(e)})"
         return False, phase
 
     finally:
